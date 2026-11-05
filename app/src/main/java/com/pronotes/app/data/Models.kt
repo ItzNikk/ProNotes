@@ -7,8 +7,13 @@ import kotlinx.serialization.Serializable
 enum class PaperStyle(val label: String) {
     BLANK("Blank"),
     RULED("Ruled"),
+    NARROW("Narrow ruled"),
     GRID("Grid"),
     DOTTED("Dotted"),
+    CORNELL("Cornell"),
+    TODO("To-do"),
+    PLANNER("Weekly"),
+    MUSIC("Music"),
 }
 
 @Serializable
@@ -18,8 +23,17 @@ data class Folder(
     val parentId: String? = null,
     val color: Int,
     val created: Long,
+    val emoji: String = "",
+    val modified: Long = created,
 )
 
+/**
+ * Cover encodings:
+ *   "solid:<argb>"            plain colour
+ *   "pattern:<name>:<argb>"   generated pattern (dots, waves, grid, stripes, linen)
+ *   "image:<file>"            photo stored in the notebook folder
+ *   "thumb"                   live thumbnail of the first page
+ */
 @Serializable
 data class NotebookMeta(
     val id: String,
@@ -32,7 +46,11 @@ data class NotebookMeta(
     val pageCount: Int = 1,
     val favorite: Boolean = false,
     val fromPdf: Boolean = false,
-)
+    val cover: String = "",
+    val opened: Long = modified,
+) {
+    val coverSpec: String get() = cover.ifBlank { if (fromPdf) "thumb" else "solid:$coverColor" }
+}
 
 @Serializable
 data class LibraryIndex(
@@ -56,6 +74,14 @@ sealed class ItemDoc {
     @Serializable
     @SerialName("image")
     data class Image(val file: String, val x: Float, val y: Float, val w: Float, val h: Float) : ItemDoc()
+
+    @Serializable
+    @SerialName("tape")
+    data class Tape(val x: Float, val y: Float, val w: Float, val h: Float, val color: Int) : ItemDoc()
+
+    @Serializable
+    @SerialName("sticky")
+    data class Sticky(val x: Float, val y: Float, val w: Float, val h: Float, val color: Int, val text: String) : ItemDoc()
 }
 
 @Serializable
@@ -69,7 +95,7 @@ data class PageDoc(
 )
 
 @Serializable
-data class NoteDoc(val version: Int = 1, val pages: List<PageDoc>)
+data class NoteDoc(val version: Int = 2, val pages: List<PageDoc>)
 
 /** Standard page size in world units (roughly A4 at 150 dpi). */
 object PageSize {
@@ -80,4 +106,13 @@ object PageSize {
 val CoverColors = listOf(
     0xFF3D6CF4.toInt(), 0xFF2BB673.toInt(), 0xFFF2994A.toInt(), 0xFFEB5757.toInt(),
     0xFF9B51E0.toInt(), 0xFF1B1F2A.toInt(), 0xFF56CCF2.toInt(), 0xFFF2C94C.toInt(),
+    0xFF7BC8A4.toInt(), 0xFFF4A7C0.toInt(), 0xFF0E4C92.toInt(), 0xFF8D6E63.toInt(),
 )
+
+val FolderColors = listOf(
+    0xFF5AC8FA.toInt(), 0xFF3D6CF4.toInt(), 0xFF34C759.toInt(), 0xFFFF9500.toInt(),
+    0xFFFF3B30.toInt(), 0xFFAF52DE.toInt(), 0xFFFF2D55.toInt(), 0xFFFFCC00.toInt(),
+    0xFF8E8E93.toInt(), 0xFF1B1F2A.toInt(),
+)
+
+val CoverPatterns = listOf("dots", "waves", "grid", "stripes", "linen", "scales")

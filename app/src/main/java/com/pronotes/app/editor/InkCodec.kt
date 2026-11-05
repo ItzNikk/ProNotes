@@ -13,53 +13,65 @@ import androidx.ink.strokes.StrokeInputBatch
 import com.pronotes.app.data.BrushDoc
 import com.pronotes.app.data.ItemDoc
 import com.pronotes.app.data.PageDoc
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
+
+/** Pen bodies offered in the pen card. All map onto Jetpack Ink stock brushes. */
+enum class PenType(val label: String, val family: String, val sizeFactor: Float) {
+    FOUNTAIN("Fountain pen", Brushes.PEN, 1f),
+    BALL("Ball pen", Brushes.MARKER, 0.8f),
+    BRUSH("Brush pen", Brushes.PEN, 2.2f),
+}
 
 /** Brush families come straight from Jetpack Ink's stock brushes. */
 object Brushes {
     const val PEN = "pen"
     const val MARKER = "marker"
     const val HIGHLIGHTER = "highlighter"
+    const val DASHED = "dashed"
+
+    /** Highlighter ink is always drawn at this opacity; swatches stay opaque. */
+    const val HIGHLIGHT_ALPHA = 0x70
 
     private val pen by lazy { StockBrushes.pressurePen() }
     private val marker by lazy { StockBrushes.marker() }
     private val highlighter by lazy { StockBrushes.highlighter() }
+    private val dashed by lazy { StockBrushes.dashedLine() }
 
     fun family(name: String): BrushFamily = when (name) {
         HIGHLIGHTER -> highlighter
         MARKER -> marker
+        DASHED -> dashed
         else -> pen
     }
 
     fun nameOf(family: BrushFamily): String = when (family) {
         highlighter -> HIGHLIGHTER
         marker -> MARKER
+        dashed -> DASHED
         else -> PEN
     }
 
-    fun create(family: String, color: Int, size: Float): Brush =
-        Brush.createWithColorIntArgb(family(family), color, size, 0.1f)
+    fun opaque(color: Int) = color or (0xFF shl 24)
 
-    fun recolor(brush: Brush, color: Int): Brush {
-        // Keep highlighter translucency when recoloring.
-        val c = if (nameOf(brush.family) == HIGHLIGHTER) (color and 0x00FFFFFF) or (0x66 shl 24) else color
-        return Brush.createWithColorIntArgb(brush.family, c, brush.size, brush.epsilon)
+    fun create(family: String, color: Int, size: Float): Brush {
+        val c = if (family == HIGHLIGHTER) (color and 0x00FFFFFF) or (HIGHLIGHT_ALPHA shl 24) else opaque(color)
+        return Brush.createWithColorIntArgb(family(family), c, size, 0.1f)
     }
+
+    fun recolor(brush: Brush, color: Int): Brush = create(nameOf(brush.family), color, brush.size)
 }
 
 object InkCodec {
 
     fun encodeInputs(batch: StrokeInputBatch): String =
-        ByteArrayOutputStream().use { out ->
+        java.io.ByteArrayOutputStream().use { out ->
             batch.encode(out)
             Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
         }
 
     fun decodeInputs(data: String): StrokeInputBatch =
-        ByteArrayInputStream(Base64.decode(data, Base64.NO_WRAP)).use { StrokeInputBatch.decode(it) }
+        java.io.ByteArrayInputStream(Base64.decode(data, Base64.NO_WRAP)).use { StrokeInputBatch.decode(it) }
 
-    /** Builds a stroke from synthetic points (used for snapped shapes). */
+    /** Builds a stroke from synthetic points (used for snapped and drawn shapes). */
     fun strokeFromPoints(points: List<Pair<Float, Float>>, brush: Brush): Stroke {
         val batch = MutableStrokeInputBatch()
         var t = 0L
@@ -76,7 +88,7 @@ object InkCodec {
         height = page.height,
         paper = page.paper,
         pdfPage = page.pdfPage,
-        items = page.items.mapNotNull { item ->
+        items = page.items.map { item ->
             when (item) {
                 is InkItem -> ItemDoc.Ink(
                     inputs = encodeInputs(item.stroke.inputs),
@@ -91,6 +103,8 @@ object InkCodec {
                 )
                 is TextItem -> ItemDoc.Text(item.text, item.x, item.y, item.size, item.color)
                 is ImageItem -> ItemDoc.Image(item.file, item.x, item.y, item.w, item.h)
+                is TapeItem -> ItemDoc.Tape(item.x, item.y, item.w, item.h, item.color)
+                is StickyItem -> ItemDoc.Sticky(item.x, item.y, item.w, item.h, item.color, item.text)
             }
         },
     )
@@ -105,6 +119,7 @@ object InkCodec {
             runCatching<PageItem> {
                 when (item) {
                     is ItemDoc.Ink -> {
+                        // Stored colour already carries the right alpha.
                         val brush = Brush.createWithColorIntArgb(
                             Brushes.family(item.brush.family), item.brush.color, item.brush.size, item.brush.epsilon,
                         )
@@ -112,6 +127,8 @@ object InkCodec {
                     }
                     is ItemDoc.Text -> TextItem(ItemIds.next(), item.text, item.x, item.y, item.size, item.color)
                     is ItemDoc.Image -> ImageItem(ItemIds.next(), item.file, item.x, item.y, item.w, item.h)
+                    is ItemDoc.Tape -> TapeItem(ItemIds.next(), item.x, item.y, item.w, item.h, item.color)
+                    is ItemDoc.Sticky -> StickyItem(ItemIds.next(), item.x, item.y, item.w, item.h, item.color, item.text)
                 }
             }.getOrNull()
         },

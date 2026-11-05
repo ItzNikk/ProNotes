@@ -3,25 +3,34 @@ package com.pronotes.app.library
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -29,6 +38,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -38,159 +48,168 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ViewList
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.AccessTime
+import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Star
-import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.clickable
-import androidx.compose.material3.Card
-import coil3.compose.AsyncImage
-import coil3.request.ImageRequest
-import coil3.request.crossfade
+import com.pronotes.app.R
 import com.pronotes.app.data.CoverColors
+import com.pronotes.app.data.CoverPatterns
 import com.pronotes.app.data.Folder
+import com.pronotes.app.data.FolderColors
 import com.pronotes.app.data.NotebookMeta
 import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.data.Repository
+import com.pronotes.app.data.SettingsStore
+import com.pronotes.app.ui.ColorEditorDialog
+import com.pronotes.app.ui.Swatch
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
-private enum class Section { DOCUMENTS, FAVORITES }
+private enum class Section(val label: String) { DOCUMENTS("Documents"), FAVORITES("Favorites"), RECENT("Recent") }
+private enum class SortBy(val label: String) { MODIFIED("Date modified"), CREATED("Date created"), NAME("Name") }
 
 private sealed interface Entry {
     data class F(val folder: Folder, val count: Int) : Entry
     data class N(val note: NotebookMeta) : Entry
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun LibraryScreen(onOpen: (String) -> Unit, pendingPdf: Uri?, onPdfConsumed: () -> Unit) {
+fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: Uri?, onPdfConsumed: () -> Unit) {
     val context = LocalContext.current
     val repo = remember { Repository.get(context) }
+    val settings by SettingsStore.get(context).settings.collectAsState()
     val lib by repo.library.collectAsState()
     val scope = rememberCoroutineScope()
+    val wide = LocalConfiguration.current.screenWidthDp >= 720
 
-    var section by remember { mutableStateOf(Section.DOCUMENTS) }
-    var folderId by remember { mutableStateOf<String?>(null) }
+    var section by rememberSaveable { mutableStateOf(Section.DOCUMENTS) }
+    var folderId by rememberSaveable { mutableStateOf<String?>(null) }
     var query by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
-    var showNew by remember { mutableStateOf(false) }
+    var sort by rememberSaveable { mutableStateOf(SortBy.MODIFIED) }
+    var listView by rememberSaveable { mutableStateOf(false) }
+    var sidebar by rememberSaveable { mutableStateOf(wide) }
     var newNotebook by remember { mutableStateOf(false) }
+    var folderEdit by remember { mutableStateOf<Folder?>(null) }
     var newFolder by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<Entry?>(null) }
     var moving by remember { mutableStateOf<Entry?>(null) }
     var deleting by remember { mutableStateOf<Entry?>(null) }
+    var coverFor by remember { mutableStateOf<NotebookMeta?>(null) }
 
     val importPdf = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch { onOpen(repo.importPdf(uri, folderId)) }
     }
     if (pendingPdf != null) {
-        androidx.compose.runtime.LaunchedEffect(pendingPdf) {
+        LaunchedEffect(pendingPdf) {
             val id = repo.importPdf(pendingPdf, null)
             onPdfConsumed()
             onOpen(id)
         }
     }
 
-    BackHandler(enabled = folderId != null) {
-        folderId = lib.folders.firstOrNull { it.id == folderId }?.parentId
-    }
+    BackHandler(enabled = folderId != null) { folderId = lib.folders.firstOrNull { it.id == folderId }?.parentId }
 
-    val entries: List<Entry> = remember(lib, section, folderId, query) {
+    val entries: List<Entry> = remember(lib, section, folderId, query, sort) {
         val q = query.trim().lowercase()
+        fun sortNotes(l: List<NotebookMeta>) = when (sort) {
+            SortBy.MODIFIED -> l.sortedByDescending { it.modified }
+            SortBy.CREATED -> l.sortedByDescending { it.created }
+            SortBy.NAME -> l.sortedBy { it.title.lowercase() }
+        }
+        fun folderEntry(f: Folder) = Entry.F(f, lib.notebooks.count { it.folderId == f.id } + lib.folders.count { it.parentId == f.id })
         when {
-            q.isNotEmpty() -> lib.notebooks.filter { it.title.lowercase().contains(q) }.map { Entry.N(it) } +
-                lib.folders.filter { it.name.lowercase().contains(q) }.map { f -> Entry.F(f, lib.notebooks.count { it.folderId == f.id }) }
-            section == Section.FAVORITES -> lib.notebooks.filter { it.favorite }.sortedByDescending { it.modified }.map { Entry.N(it) }
-            else -> lib.folders.filter { it.parentId == folderId }.sortedBy { it.name.lowercase() }
-                .map { f -> Entry.F(f, lib.notebooks.count { it.folderId == f.id } + lib.folders.count { it.parentId == f.id }) } +
-                lib.notebooks.filter { it.folderId == folderId }.sortedByDescending { it.modified }.map { Entry.N(it) }
+            q.isNotEmpty() -> lib.folders.filter { it.name.lowercase().contains(q) }.map(::folderEntry) +
+                sortNotes(lib.notebooks.filter { it.title.lowercase().contains(q) }).map { Entry.N(it) }
+            section == Section.FAVORITES -> sortNotes(lib.notebooks.filter { it.favorite }).map { Entry.N(it) }
+            section == Section.RECENT -> lib.notebooks.sortedByDescending { it.opened }.take(30).map { Entry.N(it) }
+            else -> lib.folders.filter { it.parentId == folderId }.let { fs ->
+                if (sort == SortBy.NAME) fs.sortedBy { it.name.lowercase() } else fs.sortedByDescending { it.modified }
+            }.map(::folderEntry) + sortNotes(lib.notebooks.filter { it.folderId == folderId }).map { Entry.N(it) }
         }
     }
 
     val currentFolder = lib.folders.firstOrNull { it.id == folderId }
-    val title = when {
-        section == Section.FAVORITES -> "Favorites"
-        currentFolder != null -> currentFolder.name
-        else -> "Documents"
-    }
+    val title = if (section == Section.DOCUMENTS && currentFolder != null) currentFolder.name else section.label
 
     Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        NavigationRail(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            modifier = Modifier.fillMaxHeight(),
-            header = {
-                Box(
-                    Modifier.statusBarsPadding().padding(top = 12.dp, bottom = 20.dp).size(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Brush.linearGradient(listOf(Color(0xFF5B8CFF), Color(0xFF2A4FD6)))),
-                    contentAlignment = Alignment.Center,
-                ) { Text("P", color = Color.White, style = MaterialTheme.typography.headlineSmall) }
-            },
-        ) {
-            NavigationRailItem(
-                selected = section == Section.DOCUMENTS, onClick = { section = Section.DOCUMENTS; folderId = null },
-                icon = { Icon(Icons.Outlined.Home, null) }, label = { Text("Documents") },
-            )
-            NavigationRailItem(
-                selected = section == Section.FAVORITES, onClick = { section = Section.FAVORITES },
-                icon = { Icon(Icons.Outlined.Star, null) }, label = { Text("Favorites") },
-            )
+        AnimatedVisibility(sidebar, enter = expandHorizontally() + fadeIn(), exit = shrinkHorizontally() + fadeOut()) {
+            Sidebar(section, onSelect = { section = it; folderId = null; if (!wide) sidebar = false }, onCollapse = { sidebar = false })
         }
 
         Column(Modifier.weight(1f).fillMaxHeight().statusBarsPadding()) {
-            // Header
-            Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            // Top row
+            Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (!sidebar) IconButton(onClick = { sidebar = true }) { Icon(Icons.Outlined.Menu, "Sidebar") }
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = { searching = !searching; if (!searching) query = "" }) { Icon(Icons.Outlined.Search, "Search") }
+                IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, "Settings") }
+            }
+            // Title row
+            Row(Modifier.fillMaxWidth().padding(start = 28.dp, end = 20.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (folderId != null && section == Section.DOCUMENTS) {
                     IconButton(onClick = { folderId = currentFolder?.parentId }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Up") }
                 }
@@ -199,43 +218,82 @@ fun LibraryScreen(onOpen: (String) -> Unit, pendingPdf: Uri?, onPdfConsumed: () 
                     transitionSpec = { (fadeIn() + slideInHorizontally { it / 6 }) togetherWith (fadeOut() + slideOutHorizontally { -it / 6 }) },
                     label = "title", modifier = Modifier.weight(1f),
                 ) { t -> Text(t, style = MaterialTheme.typography.headlineLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                IconButton(onClick = { searching = !searching; if (!searching) query = "" }) { Icon(Icons.Outlined.Search, "Search") }
-                IconButton(onClick = { newFolder = true }) { Icon(Icons.Outlined.CreateNewFolder, "New folder") }
-                IconButton(onClick = { importPdf.launch(arrayOf("application/pdf")) }) { Icon(Icons.Outlined.PictureAsPdf, "Import PDF") }
+
+                var newMenu by remember { mutableStateOf(false) }
+                Box {
+                    Button(onClick = { newMenu = true }, shape = CircleShape, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)) {
+                        Icon(Icons.Filled.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("New")
+                        Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(18.dp))
+                    }
+                    DropdownMenu(newMenu, { newMenu = false }) {
+                        DropdownMenuItem(text = { Text("Notebook") }, leadingIcon = { Icon(Icons.Outlined.Description, null) }, onClick = { newMenu = false; newNotebook = true })
+                        DropdownMenuItem(text = { Text("Quick note") }, leadingIcon = { Icon(Icons.Outlined.Edit, null) }, onClick = {
+                            newMenu = false
+                            scope.launch { onOpen(repo.createNotebook("Quick note", folderId, CoverColors.random(), settings.defaultPaper)) }
+                        })
+                        DropdownMenuItem(text = { Text("Folder") }, leadingIcon = { Icon(Icons.Outlined.CreateNewFolder, null) }, onClick = { newMenu = false; newFolder = true })
+                        DropdownMenuItem(text = { Text("Import PDF") }, leadingIcon = { Icon(Icons.Outlined.PictureAsPdf, null) }, onClick = { newMenu = false; importPdf.launch(arrayOf("application/pdf")) })
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
+                var sortMenu by remember { mutableStateOf(false) }
+                Box {
+                    TextButton(onClick = { sortMenu = true }) {
+                        Text("Sort by ${sort.label.substringAfter("Date ").lowercase()}", style = MaterialTheme.typography.labelSmall)
+                        Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(16.dp))
+                    }
+                    DropdownMenu(sortMenu, { sortMenu = false }) {
+                        SortBy.entries.forEach { s -> DropdownMenuItem(text = { Text(s.label) }, onClick = { sortMenu = false; sort = s }) }
+                    }
+                }
+                IconButton(onClick = { listView = false }) {
+                    Icon(Icons.Outlined.GridView, "Grid", tint = if (!listView) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                IconButton(onClick = { listView = true }) {
+                    Icon(Icons.AutoMirrored.Outlined.ViewList, "List", tint = if (listView) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
-            if (searching) {
+            AnimatedVisibility(searching) {
                 OutlinedTextField(
                     query, { query = it }, placeholder = { Text("Search notebooks and folders") }, singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                    leadingIcon = { Icon(Icons.Outlined.Search, null) }, shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 4.dp),
                 )
             }
 
-            AnimatedContent(
-                targetState = Triple(section, folderId, query.isNotBlank()),
-                transitionSpec = { (fadeIn() + slideInHorizontally { it / 10 }) togetherWith fadeOut() },
+            val actions = TileActions(
+                onOpenFolder = { f -> section = Section.DOCUMENTS; query = ""; searching = false; folderId = f.id },
+                onOpenNote = { onOpen(it.id) },
+                onRename = { renaming = it }, onMove = { moving = it }, onDelete = { deleting = it },
+                onEditFolder = { folderEdit = it }, onCover = { coverFor = it },
+                onFavorite = { scope.launch { repo.toggleFavorite(it.id) } },
+            )
+
+            if (entries.isEmpty()) {
+                EmptyState(section, onNew = { newNotebook = true })
+            } else AnimatedContent(
+                targetState = Triple(section, folderId, listView),
+                transitionSpec = { (fadeIn() + slideInHorizontally { it / 12 }) togetherWith fadeOut() },
                 label = "grid",
-            ) { _ ->
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(150.dp),
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(24.dp),
-                ) {
-                    if (section == Section.DOCUMENTS && query.isBlank()) {
-                        item(key = "new") { NewTile { showNew = true } }
+            ) { (_, _, asList) ->
+                if (asList) {
+                    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp)) {
+                        items(entries, key = { keyOf(it) }) { e -> Box(Modifier.animateItem()) { ListRow(e, repo, actions) } }
                     }
-                    items(entries, key = { e -> if (e is Entry.F) "f" + e.folder.id else "n" + (e as Entry.N).note.id }) { e ->
-                        Box(Modifier.animateItem()) {
-                            when (e) {
-                                is Entry.F -> FolderTile(e.folder, e.count,
-                                    onClick = { section = Section.DOCUMENTS; query = ""; searching = false; folderId = e.folder.id },
-                                    onRename = { renaming = e }, onMove = { moving = e }, onDelete = { deleting = e })
-                                is Entry.N -> NotebookTile(e.note, repo.thumbFile(e.note.id).let { if (it.exists()) it else null },
-                                    onClick = { onOpen(e.note.id) },
-                                    onRename = { renaming = e }, onMove = { moving = e }, onDelete = { deleting = e },
-                                    onFavorite = { scope.launch { repo.toggleFavorite(e.note.id) } })
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(150.dp),
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 28.dp, end = 28.dp, top = 12.dp, bottom = 40.dp),
+                        horizontalArrangement = Arrangement.spacedBy(28.dp),
+                        verticalArrangement = Arrangement.spacedBy(28.dp),
+                    ) {
+                        items(entries, key = { keyOf(it) }) { e ->
+                            Box(Modifier.animateItem()) {
+                                when (e) {
+                                    is Entry.F -> FolderTile(e, actions)
+                                    is Entry.N -> NotebookTile(e.note, repo, actions)
+                                }
                             }
                         }
                     }
@@ -244,25 +302,32 @@ fun LibraryScreen(onOpen: (String) -> Unit, pendingPdf: Uri?, onPdfConsumed: () 
         }
     }
 
-    if (showNew) {
-        ModalBottomSheet(onDismissRequest = { showNew = false }) {
-            Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Create", style = MaterialTheme.typography.headlineSmall)
-                SheetRow(Icons.Outlined.Description, "Notebook") { showNew = false; newNotebook = true }
-                SheetRow(Icons.Outlined.CreateNewFolder, "Folder") { showNew = false; newFolder = true }
-                SheetRow(Icons.Outlined.PictureAsPdf, "Import PDF") { showNew = false; importPdf.launch(arrayOf("application/pdf")) }
-            }
+    // ---------------------------------------------------------------- dialogs
+    if (newNotebook) NewNotebookDialog(settings.defaultPaper, settings.thumbCovers, onDismiss = { newNotebook = false }) { name, cover, coverColor, paper, photo ->
+        newNotebook = false
+        scope.launch {
+            val id = repo.createNotebook(name, folderId, coverColor, paper, cover)
+            if (photo != null) repo.setCover(id, repo.saveCoverImage(id, photo))
+            onOpen(id)
         }
     }
 
-    if (newNotebook) NewNotebookDialog(onDismiss = { newNotebook = false }) { name, cover, paper ->
-        newNotebook = false
-        scope.launch { onOpen(repo.createNotebook(name, folderId, cover, paper)) }
+    if (newFolder) FolderDialog(null, onDismiss = { newFolder = false }) { name, color, emoji ->
+        newFolder = false
+        scope.launch { repo.createFolder(name, folderId, color, emoji) }
+    }
+    folderEdit?.let { f ->
+        FolderDialog(f, onDismiss = { folderEdit = null }) { name, color, emoji ->
+            folderEdit = null
+            scope.launch { repo.updateFolder(f.id, name, color, emoji) }
+        }
     }
 
-    if (newFolder) NameDialog("New folder", "Folder", onDismiss = { newFolder = false }) { name ->
-        newFolder = false
-        scope.launch { repo.createFolder(name, folderId, CoverColors.random()) }
+    coverFor?.let { n ->
+        CoverDialog(n.coverSpec, onDismiss = { coverFor = null }) { spec, photo ->
+            coverFor = null
+            scope.launch { repo.setCover(n.id, if (photo != null) repo.saveCoverImage(n.id, photo) else spec) }
+        }
     }
 
     renaming?.let { e ->
@@ -280,15 +345,15 @@ fun LibraryScreen(onOpen: (String) -> Unit, pendingPdf: Uri?, onPdfConsumed: () 
             confirmButton = { TextButton(onClick = { moving = null }) { Text("Cancel") } },
             title = { Text("Move to") },
             text = {
-                LazyColumn(Modifier.height(320.dp)) {
+                LazyColumn(Modifier.heightIn(max = 360.dp)) {
                     item {
-                        MoveRow("Documents (top level)") {
+                        MoveRow("Documents", null) {
                             moving = null
                             scope.launch { if (e is Entry.F) repo.moveFolder(e.folder.id, null) else repo.moveNotebook((e as Entry.N).note.id, null) }
                         }
                     }
                     items(lib.folders.filter { it.id != selfId }) { f ->
-                        MoveRow(f.name) {
+                        MoveRow(f.name, f) {
                             moving = null
                             scope.launch { if (e is Entry.F) repo.moveFolder(e.folder.id, f.id) else repo.moveNotebook((e as Entry.N).note.id, f.id) }
                         }
@@ -315,6 +380,74 @@ fun LibraryScreen(onOpen: (String) -> Unit, pendingPdf: Uri?, onPdfConsumed: () 
     }
 }
 
+private fun keyOf(e: Entry) = if (e is Entry.F) "f" + e.folder.id else "n" + (e as Entry.N).note.id
+
+private class TileActions(
+    val onOpenFolder: (Folder) -> Unit,
+    val onOpenNote: (NotebookMeta) -> Unit,
+    val onRename: (Entry) -> Unit,
+    val onMove: (Entry) -> Unit,
+    val onDelete: (Entry) -> Unit,
+    val onEditFolder: (Folder) -> Unit,
+    val onCover: (NotebookMeta) -> Unit,
+    val onFavorite: (NotebookMeta) -> Unit,
+)
+
+// ================================================================ sidebar
+
+@Composable
+private fun Sidebar(section: Section, onSelect: (Section) -> Unit, onCollapse: () -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxHeight().width(232.dp)) {
+        Column(Modifier.statusBarsPadding().padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onCollapse) { Icon(Icons.Outlined.ChevronLeft, "Hide sidebar") }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 6.dp, bottom = 22.dp)) {
+                androidx.compose.foundation.Image(
+                    painterResource(R.drawable.ic_launcher_foreground), null,
+                    Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(Color.White),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text("Pro Notes", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+            }
+            Section.entries.forEach { s ->
+                val sel = s == section
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                        .background(if (sel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                        .clickable { onSelect(s) }.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        when (s) { Section.DOCUMENTS -> Icons.Outlined.Folder; Section.FAVORITES -> Icons.Outlined.StarBorder; Section.RECENT -> Icons.Outlined.AccessTime },
+                        null, tint = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(s.label, color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                }
+                Spacer(Modifier.height(2.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyState(section: Section, onNew: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Text(
+            when (section) { Section.FAVORITES -> "No favorites yet"; Section.RECENT -> "Nothing opened yet"; else -> "Your library is empty" },
+            style = MaterialTheme.typography.headlineSmall,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text("Create a notebook or import a PDF to start.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(20.dp))
+        Button(onClick = onNew, shape = CircleShape) { Icon(Icons.Filled.Add, null); Spacer(Modifier.width(6.dp)); Text("New notebook") }
+    }
+}
+
+// ================================================================ tiles
+
 @Composable
 private fun pressScale(source: MutableInteractionSource): Float {
     val pressed by source.collectIsPressedAsState()
@@ -322,122 +455,138 @@ private fun pressScale(source: MutableInteractionSource): Float {
     return s
 }
 
+/** A folder drawn as a tabbed folder in its own colour, with an optional emoji. */
 @Composable
-private fun NewTile(onClick: () -> Unit) {
-    val src = remember { MutableInteractionSource() }
-    val outline = MaterialTheme.colorScheme.outline
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.scale(pressScale(src))) {
-        Box(
-            Modifier.fillMaxWidth().aspectRatio(0.75f).clip(RoundedCornerShape(14.dp))
-                .clickable(interactionSource = src, indication = null, onClick = onClick),
-            contentAlignment = Alignment.Center,
-        ) {
-            Canvas(Modifier.fillMaxSize()) {
-                drawRoundRect(
-                    outline, style = Stroke(width = 4f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(18f, 12f))),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(36f),
-                )
+fun FolderArt(color: Int, emoji: String, modifier: Modifier = Modifier) {
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize()) {
+            val w = size.width; val h = size.height
+            val c = Color(color)
+            val back = Path().apply {
+                moveTo(0f, h * 0.18f); lineTo(w * 0.36f, h * 0.18f); lineTo(w * 0.44f, h * 0.28f); lineTo(w, h * 0.28f)
+                lineTo(w, h * 0.92f); lineTo(0f, h * 0.92f); close()
             }
-            Box(Modifier.size(52.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.Add, "New", tint = Color.White, modifier = Modifier.size(30.dp))
-            }
+            drawPath(back, c.copy(alpha = 0.75f))
+            drawRoundRect(c, Offset(0f, h * 0.34f), Size(w, h * 0.6f), CornerRadius(w * 0.06f))
+            drawRoundRect(Color.White.copy(alpha = 0.18f), Offset(0f, h * 0.34f), Size(w, h * 0.06f), CornerRadius(w * 0.06f))
         }
-        Spacer(Modifier.height(10.dp))
-        Text("New", style = MaterialTheme.typography.titleMedium)
+        if (emoji.isNotBlank()) Text(emoji, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 18.dp))
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun FolderTile(folder: Folder, count: Int, onClick: () -> Unit, onRename: () -> Unit, onMove: () -> Unit, onDelete: () -> Unit) {
+private fun FolderTile(e: Entry.F, a: TileActions) {
     var menu by remember { mutableStateOf(false) }
     val src = remember { MutableInteractionSource() }
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.scale(pressScale(src))) {
-        Box(
-            Modifier.fillMaxWidth().aspectRatio(0.75f).clip(RoundedCornerShape(14.dp))
-                .combinedClickable(interactionSource = src, indication = null, onClick = onClick, onLongClick = { menu = true }),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(Icons.Filled.Folder, null, tint = Color(folder.color), modifier = Modifier.fillMaxSize(0.9f))
-            DropdownMenu(menu, { menu = false }) {
-                DropdownMenuItem(text = { Text("Rename") }, leadingIcon = { Icon(Icons.Outlined.Edit, null) }, onClick = { menu = false; onRename() })
-                DropdownMenuItem(text = { Text("Move") }, leadingIcon = { Icon(Icons.Outlined.DriveFileMove, null) }, onClick = { menu = false; onMove() })
-                DropdownMenuItem(text = { Text("Delete") }, leadingIcon = { Icon(Icons.Outlined.Delete, null) }, onClick = { menu = false; onDelete() })
-            }
-        }
-        Text(folder.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text("$count items", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun NotebookTile(
-    note: NotebookMeta, thumb: java.io.File?, onClick: () -> Unit, onRename: () -> Unit,
-    onMove: () -> Unit, onDelete: () -> Unit, onFavorite: () -> Unit,
-) {
-    var menu by remember { mutableStateOf(false) }
-    val src = remember { MutableInteractionSource() }
-    val context = LocalContext.current
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.scale(pressScale(src))) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(0.75f)
-                .shadow(8.dp, RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp, topEnd = 14.dp, bottomEnd = 14.dp))
-                .background(Color.White)
-                .combinedClickable(interactionSource = src, indication = null, onClick = onClick, onLongClick = { menu = true }),
+                .combinedClickable(interactionSource = src, indication = null, onClick = { a.onOpenFolder(e.folder) }, onLongClick = { menu = true }),
+            contentAlignment = Alignment.BottomCenter,
         ) {
-            if (thumb != null) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context).data(thumb).memoryCacheKey(thumb.path + note.modified)
-                        .diskCacheKey(thumb.path + note.modified).crossfade(true).build(),
-                    contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
-                )
-            }
-            if (!note.fromPdf) {
-                // Cover: coloured spine + label, so notebooks read as notebooks.
-                Box(Modifier.fillMaxHeight().width(12.dp).background(Color(note.coverColor)))
-            }
-            if (note.favorite) {
-                Icon(Icons.Filled.Star, null, tint = Color(0xFFF2C94C), modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(20.dp))
-            }
+            FolderArt(e.folder.color, e.folder.emoji, Modifier.fillMaxWidth().aspectRatio(1.15f))
+        }
+        Caption(e.folder.name, "${e.count} items", onMenu = { menu = true })
+        Box {
             DropdownMenu(menu, { menu = false }) {
-                DropdownMenuItem(text = { Text(if (note.favorite) "Remove from favorites" else "Add to favorites") },
-                    leadingIcon = { Icon(if (note.favorite) Icons.Outlined.StarBorder else Icons.Outlined.Star, null) },
-                    onClick = { menu = false; onFavorite() })
-                DropdownMenuItem(text = { Text("Rename") }, leadingIcon = { Icon(Icons.Outlined.Edit, null) }, onClick = { menu = false; onRename() })
-                DropdownMenuItem(text = { Text("Move") }, leadingIcon = { Icon(Icons.Outlined.DriveFileMove, null) }, onClick = { menu = false; onMove() })
-                DropdownMenuItem(text = { Text("Delete") }, leadingIcon = { Icon(Icons.Outlined.Delete, null) }, onClick = { menu = false; onDelete() })
+                DropdownMenuItem(text = { Text("Colour & icon") }, leadingIcon = { Icon(Icons.Outlined.Palette, null) }, onClick = { menu = false; a.onEditFolder(e.folder) })
+                DropdownMenuItem(text = { Text("Rename") }, leadingIcon = { Icon(Icons.Outlined.Edit, null) }, onClick = { menu = false; a.onRename(e) })
+                DropdownMenuItem(text = { Text("Move") }, leadingIcon = { Icon(Icons.Outlined.DriveFileMove, null) }, onClick = { menu = false; a.onMove(e) })
+                DropdownMenuItem(text = { Text("Delete") }, leadingIcon = { Icon(Icons.Outlined.Delete, null) }, onClick = { menu = false; a.onDelete(e) })
             }
         }
-        Spacer(Modifier.height(10.dp))
-        Text(note.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(
-            DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(note.modified)) + " · ${note.pageCount} p",
-            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
+    var menu by remember { mutableStateOf(false) }
+    val src = remember { MutableInteractionSource() }
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.scale(pressScale(src))) {
+        Box(
+            Modifier.fillMaxWidth().aspectRatio(0.75f)
+                .combinedClickable(interactionSource = src, indication = null, onClick = { a.onOpenNote(note) }, onLongClick = { menu = true }),
+        ) {
+            CoverArt(note.coverSpec, note.title, repo.noteDir(note.id), note.modified, Modifier.fillMaxSize())
+            if (note.favorite) Icon(Icons.Filled.Star, null, tint = Color(0xFFF2C94C), modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(20.dp))
+        }
+        Caption(note.title, DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(note.modified)), onMenu = { menu = true })
+        Box { NoteMenu(menu, { menu = false }, note, a) }
     }
 }
 
 @Composable
-private fun SheetRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+private fun NoteMenu(open: Boolean, onClose: () -> Unit, note: NotebookMeta, a: TileActions) {
+    DropdownMenu(open, onClose) {
+        DropdownMenuItem(text = { Text(if (note.favorite) "Remove from favorites" else "Add to favorites") },
+            leadingIcon = { Icon(if (note.favorite) Icons.Outlined.StarBorder else Icons.Outlined.Star, null) },
+            onClick = { onClose(); a.onFavorite(note) })
+        DropdownMenuItem(text = { Text("Change cover") }, leadingIcon = { Icon(Icons.Outlined.Image, null) }, onClick = { onClose(); a.onCover(note) })
+        DropdownMenuItem(text = { Text("Rename") }, leadingIcon = { Icon(Icons.Outlined.Edit, null) }, onClick = { onClose(); a.onRename(Entry.N(note)) })
+        DropdownMenuItem(text = { Text("Move") }, leadingIcon = { Icon(Icons.Outlined.DriveFileMove, null) }, onClick = { onClose(); a.onMove(Entry.N(note)) })
+        DropdownMenuItem(text = { Text("Delete") }, leadingIcon = { Icon(Icons.Outlined.Delete, null) }, onClick = { onClose(); a.onDelete(Entry.N(note)) })
+    }
+}
+
+@Composable
+private fun Caption(title: String, sub: String, onMenu: () -> Unit) {
+    Spacer(Modifier.height(10.dp))
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable(onClick = onMenu)) {
+        Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        Icon(Icons.Filled.KeyboardArrowDown, "Options", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@Composable
+private fun ListRow(e: Entry, repo: Repository, a: TileActions) {
+    var menu by remember { mutableStateOf(false) }
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(14.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+            .clickable { if (e is Entry.F) a.onOpenFolder(e.folder) else a.onOpenNote((e as Entry.N).note) }
+            .padding(vertical = 8.dp, horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
+        Box(Modifier.size(width = 44.dp, height = 56.dp)) {
+            when (e) {
+                is Entry.F -> FolderArt(e.folder.color, e.folder.emoji, Modifier.fillMaxSize())
+                is Entry.N -> CoverArt(e.note.coverSpec, e.note.title, repo.noteDir(e.note.id), e.note.modified, Modifier.fillMaxSize(), showTitle = false)
+            }
+        }
         Spacer(Modifier.width(16.dp))
-        Text(label, style = MaterialTheme.typography.titleMedium)
+        Column(Modifier.weight(1f)) {
+            Text(if (e is Entry.F) e.folder.name else (e as Entry.N).note.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+            Text(
+                if (e is Entry.F) "${e.count} items" else (e as Entry.N).note.let { "${it.pageCount} pages · " + DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it.modified)) },
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Box {
+            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.KeyboardArrowDown, "Options") }
+            if (e is Entry.N) NoteMenu(menu, { menu = false }, e.note, a)
+            else DropdownMenu(menu, { menu = false }) {
+                val f = (e as Entry.F).folder
+                DropdownMenuItem(text = { Text("Colour & icon") }, onClick = { menu = false; a.onEditFolder(f) })
+                DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; a.onRename(e) })
+                DropdownMenuItem(text = { Text("Move") }, onClick = { menu = false; a.onMove(e) })
+                DropdownMenuItem(text = { Text("Delete") }, onClick = { menu = false; a.onDelete(e) })
+            }
+        }
     }
 }
 
 @Composable
-private fun MoveRow(label: String, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Outlined.Folder, null, tint = MaterialTheme.colorScheme.primary)
+private fun MoveRow(label: String, folder: Folder?, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (folder != null) FolderArt(folder.color, "", Modifier.size(28.dp)) else Icon(Icons.Outlined.Folder, null, tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(12.dp))
         Text(label)
     }
 }
+
+// ================================================================ dialogs
 
 @Composable
 private fun NameDialog(title: String, initial: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
@@ -451,77 +600,150 @@ private fun NameDialog(title: String, initial: String, onDismiss: () -> Unit, on
     )
 }
 
+private val FolderEmojis = listOf("", "📚", "📝", "🎓", "💼", "🧪", "🎨", "💡", "📅", "❤️", "⭐", "🏠", "✈️", "🎵", "🧠", "📈")
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun NewNotebookDialog(onDismiss: () -> Unit, onCreate: (String, Int, PaperStyle) -> Unit) {
+private fun FolderDialog(existing: Folder?, onDismiss: () -> Unit, onSave: (String, Int, String) -> Unit) {
+    var name by remember { mutableStateOf(existing?.name ?: "New folder") }
+    var color by remember { mutableStateOf(existing?.color ?: FolderColors.first()) }
+    var emoji by remember { mutableStateOf(existing?.emoji ?: "") }
+    var custom by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (existing == null) "New folder" else "Edit folder") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
+                FolderArt(color, emoji, Modifier.size(width = 120.dp, height = 104.dp).align(Alignment.CenterHorizontally))
+                OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Name") })
+                Text("Colour", style = MaterialTheme.typography.labelSmall)
+                FlowRow {
+                    FolderColors.forEach { c -> Swatch(c, c == color) { color = c } }
+                    Box(
+                        Modifier.padding(4.dp).size(26.dp).clip(CircleShape).border(1.dp, MaterialTheme.colorScheme.outline, CircleShape).clickable { custom = true },
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(Icons.Filled.Add, "Custom colour", Modifier.size(16.dp)) }
+                }
+                Text("Icon", style = MaterialTheme.typography.labelSmall)
+                FlowRow {
+                    FolderEmojis.forEach { em ->
+                        Box(
+                            Modifier.padding(2.dp).size(38.dp).clip(RoundedCornerShape(10.dp))
+                                .background(if (em == emoji) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                                .clickable { emoji = em },
+                            contentAlignment = Alignment.Center,
+                        ) { Text(em.ifEmpty { "∅" }) }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { if (name.isNotBlank()) onSave(name.trim(), color, emoji) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+    if (custom) ColorEditorDialog(color, FolderColors, emptyList(), onDismiss = { custom = false }) { color = it; custom = false }
+}
+
+/** Cover choices shared by "New notebook" and "Change cover". */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CoverGallery(selected: String, onSelect: (String) -> Unit, onPhoto: () -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        val options = CoverColors.map { "solid:$it" } +
+            CoverPatterns.flatMap { p -> listOf(CoverColors[0], CoverColors[3], CoverColors[1], CoverColors[9]).map { "pattern:$p:$it" } }
+        options.forEach { spec ->
+            Box(
+                Modifier.size(width = 54.dp, height = 72.dp)
+                    .border(if (spec == selected) 3.dp else 0.dp, MaterialTheme.colorScheme.primary, NotebookShape)
+                    .clickable { onSelect(spec) },
+            ) { CoverArt(spec, "", null, 0, Modifier.fillMaxSize(), showTitle = false) }
+        }
+        Column(
+            Modifier.size(width = 54.dp, height = 72.dp).clip(NotebookShape).border(1.dp, MaterialTheme.colorScheme.outline, NotebookShape)
+                .background(if (selected == "thumb") MaterialTheme.colorScheme.primaryContainer else Color.Transparent).clickable { onSelect("thumb") },
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+        ) { Icon(Icons.Outlined.Description, null); Text("Page 1", style = MaterialTheme.typography.labelSmall) }
+        Column(
+            Modifier.size(width = 54.dp, height = 72.dp).clip(NotebookShape).border(1.dp, MaterialTheme.colorScheme.outline, NotebookShape).clickable(onClick = onPhoto),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+        ) { Icon(Icons.Outlined.Image, null); Text("Photo", style = MaterialTheme.typography.labelSmall) }
+    }
+}
+
+@Composable
+private fun CoverDialog(current: String, onDismiss: () -> Unit, onPick: (String, Uri?) -> Unit) {
+    var spec by remember { mutableStateOf(current) }
+    val photo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) onPick(spec, uri) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Cover") },
+        text = { Column(Modifier.verticalScroll(rememberScrollState())) { CoverGallery(spec, { spec = it }) { photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) } } },
+        confirmButton = { TextButton(onClick = { onPick(spec, null) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun NewNotebookDialog(
+    defaultPaper: PaperStyle,
+    thumbCovers: Boolean,
+    onDismiss: () -> Unit,
+    onCreate: (name: String, cover: String, coverColor: Int, paper: PaperStyle, photo: Uri?) -> Unit,
+) {
     var name by remember { mutableStateOf("Untitled notebook") }
-    var cover by remember { mutableStateOf(CoverColors[0]) }
-    var paper by remember { mutableStateOf(PaperStyle.RULED) }
+    val startColor = remember { CoverColors.random() }
+    var cover by remember { mutableStateOf(if (thumbCovers) "thumb" else "solid:$startColor") }
+    var paper by remember { mutableStateOf(defaultPaper) }
+    var photo by remember { mutableStateOf<Uri?>(null) }
+    var tab by remember { mutableStateOf(0) }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) { photo = uri; cover = "photo" } }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("New notebook") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Title") })
-                Text("Cover", style = MaterialTheme.typography.labelSmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CoverColors.forEach { c ->
-                        val sel = c == cover
-                        val s by animateFloatAsState(if (sel) 1.15f else 1f, label = "c")
-                        Box(
-                            Modifier.size(28.dp).scale(s).clip(CircleShape).background(Color(c))
-                                .border(if (sel) 3.dp else 0.dp, MaterialTheme.colorScheme.surface, CircleShape)
-                                .clickable { cover = c },
-                        )
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(width = 72.dp, height = 96.dp)) {
+                        if (cover == "photo" || cover == "thumb") {
+                            Box(Modifier.fillMaxSize().clip(NotebookShape).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+                                Text(if (cover == "photo") "Photo" else "Page 1", style = MaterialTheme.typography.labelSmall)
+                            }
+                        } else CoverArt(cover, name, null, 0, Modifier.fillMaxSize())
                     }
+                    Spacer(Modifier.width(14.dp))
+                    OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Title") })
                 }
-                Text("Paper", style = MaterialTheme.typography.labelSmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PaperStyle.entries.forEach { p ->
-                        val sel = p == paper
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Card(
-                                modifier = Modifier.size(width = 54.dp, height = 72.dp)
-                                    .border(if (sel) 2.dp else 1.dp, if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-                                    .clickable { paper = p },
-                                shape = RoundedCornerShape(8.dp),
-                            ) { PaperPreview(p) }
-                            Text(p.label, style = MaterialTheme.typography.labelSmall)
+                PrimaryTabRow(selectedTabIndex = tab) {
+                    Tab(tab == 0, { tab = 0 }, text = { Text("Cover") })
+                    Tab(tab == 1, { tab = 1 }, text = { Text("Paper") })
+                }
+                Box(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                    if (tab == 0) {
+                        CoverGallery(cover, { cover = it; photo = null }) { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+                    } else {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            PaperStyle.entries.forEach { p ->
+                                val sel = p == paper
+                                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { paper = p }) {
+                                    PaperPreview(
+                                        p,
+                                        Modifier.size(width = 64.dp, height = 90.dp).clip(RoundedCornerShape(6.dp))
+                                            .border(if (sel) 2.dp else 1.dp, if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp)),
+                                    )
+                                    Text(p.label, style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
                         }
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onCreate(name.ifBlank { "Untitled notebook" }, cover, paper) }) { Text("Create") } },
+        confirmButton = {
+            TextButton(onClick = {
+                val color = cover.substringAfterLast(':').toLongOrNull()?.toInt() ?: startColor
+                onCreate(name.ifBlank { "Untitled notebook" }, if (cover == "photo") "" else cover, color, paper, photo)
+            }) { Text("Create") }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
-}
-
-@Composable
-private fun PaperPreview(p: PaperStyle) {
-    val line = Color(0xFFD5DEEA)
-    Canvas(Modifier.fillMaxSize().background(Color.White)) {
-        when (p) {
-            PaperStyle.BLANK -> Unit
-            PaperStyle.RULED -> {
-                var y = size.height * 0.2f
-                while (y < size.height) { drawLine(line, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y), 2f); y += size.height / 9 }
-            }
-            PaperStyle.GRID -> {
-                val step = size.width / 6
-                var x = step
-                while (x < size.width) { drawLine(line, androidx.compose.ui.geometry.Offset(x, 0f), androidx.compose.ui.geometry.Offset(x, size.height), 2f); x += step }
-                var y = step
-                while (y < size.height) { drawLine(line, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y), 2f); y += step }
-            }
-            PaperStyle.DOTTED -> {
-                val step = size.width / 6
-                var y = step
-                while (y < size.height) {
-                    var x = step
-                    while (x < size.width) { drawCircle(Color(0xFFC3CCD8), 2.5f, androidx.compose.ui.geometry.Offset(x, y)); x += step }
-                    y += step
-                }
-            }
-        }
-    }
 }

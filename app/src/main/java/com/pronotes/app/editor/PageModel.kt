@@ -61,6 +61,33 @@ data class ImageItem(
     override fun translated(dx: Float, dy: Float): PageItem = copy(x = x + dx, y = y + dy)
 }
 
+/** Washi tape that hides what is under it until tapped. [revealed] is not saved. */
+data class TapeItem(
+    override val id: Long,
+    val x: Float,
+    val y: Float,
+    val w: Float,
+    val h: Float,
+    val color: Int,
+    val revealed: Boolean = false,
+) : PageItem {
+    override val bounds: RectF get() = RectF(x, y, x + w, y + h)
+    override fun translated(dx: Float, dy: Float): PageItem = copy(x = x + dx, y = y + dy)
+}
+
+data class StickyItem(
+    override val id: Long,
+    val x: Float,
+    val y: Float,
+    val w: Float,
+    val h: Float,
+    val color: Int,
+    val text: String,
+) : PageItem {
+    override val bounds: RectF get() = RectF(x, y, x + w, y + h)
+    override fun translated(dx: Float, dy: Float): PageItem = copy(x = x + dx, y = y + dy)
+}
+
 data class Page(
     val id: String,
     val width: Float,

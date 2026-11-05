@@ -1,8 +1,8 @@
 package com.pronotes.app.editor
 
 import android.app.Application
-import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.RectF
 import android.net.Uri
 import androidx.compose.runtime.getValue
@@ -10,10 +10,13 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.ink.brush.Brush
+import androidx.ink.strokes.Stroke
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.pronotes.app.data.PageSize
 import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.data.Repository
+import com.pronotes.app.data.SettingsStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -25,14 +28,19 @@ import java.util.UUID
 data class ToolStyle(val colors: List<Int>, val sizes: List<Float>, val color: Int, val size: Float)
 
 val PenPalette = listOf(
-    0xFF1B1F2A, 0xFF3D6CF4, 0xFFEB5757, 0xFF2BB673, 0xFFF2994A, 0xFF9B51E0,
-    0xFF56CCF2, 0xFFF2C94C, 0xFF6D4C41, 0xFF828282, 0xFFE91E63, 0xFF00897B,
-    0xFF0D47A1, 0xFF1B5E20, 0xFFB71C1C, 0xFF4A148C, 0xFFFFFFFF, 0xFF000000,
+    0xFF1B1F2A, 0xFF5B6475, 0xFF3D6CF4, 0xFF0A84FF, 0xFF5AC8FA, 0xFF34C759,
+    0xFF2BB673, 0xFF00897B, 0xFFFFCC00, 0xFFFF9500, 0xFFFF3B30, 0xFFEB5757,
+    0xFFFF2D55, 0xFFAF52DE, 0xFF9B51E0, 0xFF6D4C41, 0xFFFFFFFF, 0xFF000000,
 ).map { it.toInt() }
+
+val HighlighterPalette = listOf(0xFFFFE066, 0xFF8CE99A, 0xFF74C0FC, 0xFFFFA8A8, 0xFFE599F7).map { it.toInt() }
+val TapeColors = listOf(0xFFF4A7C0, 0xFF9AD0EC, 0xFFB8E0A8, 0xFFFFD98E, 0xFFCDB4F0).map { it.toInt() }
+val StickyColors = listOf(0xFFFFF3A3, 0xFFFFD6E0, 0xFFCDEBFF, 0xFFD8F5C8, 0xFFFFE2C2).map { it.toInt() }
 
 class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(app) {
     private val repo = Repository.get(app)
-    private val prefs = app.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    private val store = SettingsStore.get(app)
+    val settingsFlow = store.settings
 
     val pages = mutableStateListOf<Page>()
     var pageIndex by mutableStateOf(0)
@@ -41,31 +49,50 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         private set
     var title by mutableStateOf(repo.meta(noteId)?.title ?: "Notebook")
         private set
+    val isPdf: Boolean get() = repo.pdfFile(noteId).exists()
 
+    // ---------------------------------------------------------------- tools
     var tool by mutableStateOf(Tool.PEN)
-    var penStyle by mutableStateOf(ToolStyle(listOf(PenPalette[0], PenPalette[1], PenPalette[2]), listOf(3f, 6f, 10f), PenPalette[0], 6f))
-    var highlighterStyle by mutableStateOf(
-        ToolStyle(listOf(0x66F2C94C, 0x6656CCF2, 0x66EB5757), listOf(16f, 28f, 40f), 0x66F2C94C, 28f),
-    )
-    var shapeStyle by mutableStateOf(ToolStyle(listOf(PenPalette[0], PenPalette[1], PenPalette[2]), listOf(3f, 6f, 10f), PenPalette[1], 6f))
-    var eraserSize by mutableStateOf(1)   // 0..2
+    var penType by mutableStateOf(PenType.FOUNTAIN)
+    var penStyle by mutableStateOf(style("pen", listOf(PenPalette[0], PenPalette[2], PenPalette[10], PenPalette[5], PenPalette[13]), listOf(2f, 4f, 7f), 4f))
+    var highlighterStyle by mutableStateOf(style("highlighter", HighlighterPalette, listOf(16f, 28f, 42f), 28f))
+    var shapeStyle by mutableStateOf(style("shape", listOf(PenPalette[0], PenPalette[2], PenPalette[10], PenPalette[5], PenPalette[13]), listOf(2f, 4f, 7f), 4f))
+    var shapeKind by mutableStateOf(ShapeKind.AUTO)
+    var shapeDashed by mutableStateOf(false)
+    var eraserSize by mutableStateOf(1)
     var textSize by mutableStateOf(40f)
+    var tapeColor by mutableStateOf(TapeColors[0])
+    var stickyColor by mutableStateOf(StickyColors[0])
 
+    // ------------------------------------------------------------ selection
     var selection by mutableStateOf<Set<Long>>(emptySet())
+        private set
+    var selectionPage by mutableStateOf(-1)
         private set
     var selectionBounds by mutableStateOf<RectF?>(null)
         private set
 
-    var settings by mutableStateOf(loadSettings())
-        private set
-
+    // --------------------------------------------------------------- dialogs
+    data class TextEdit(val page: Int, val x: Float, val y: Float, val existing: TextItem?)
+    data class StickyEdit(val page: Int, val item: StickyItem, val isNew: Boolean)
     var textEdit by mutableStateOf<TextEdit?>(null)
+    var stickyEdit by mutableStateOf<StickyEdit?>(null)
+
     var canUndo by mutableStateOf(false)
         private set
     var canRedo by mutableStateOf(false)
         private set
 
-    data class TextEdit(val x: Float, val y: Float, val existing: TextItem?)
+    // ---------------------------------------------------------------- search
+    var searchQuery by mutableStateOf("")
+    var searchHits by mutableStateOf<List<SearchHit>>(emptyList())
+        private set
+    var activeHit by mutableStateOf(-1)
+        private set
+    var searching by mutableStateOf(false)
+        private set
+    private var pdfIndex: PdfTextIndex? = null
+    private var searchJob: Job? = null
 
     private val undoStack = ArrayDeque<Pair<Int, List<PageItem>>>()
     private val redoStack = ArrayDeque<Pair<Int, List<PageItem>>>()
@@ -75,6 +102,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     /** Set by the screen so model changes can be pushed into the canvas. */
     var onPagesChanged: (() -> Unit)? = null
+    var onScrollTo: ((Int) -> Unit)? = null
 
     init {
         viewModelScope.launch {
@@ -82,13 +110,21 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             pages.clear(); pages.addAll(loadedPages)
             if (repo.pdfFile(noteId).exists()) pdf = PdfPages(repo.pdfFile(noteId))
             loaded = true
+            repo.markOpened(noteId)
             onPagesChanged?.invoke()
         }
+    }
+
+    private fun style(key: String, colors: List<Int>, sizes: List<Float>, size: Float): ToolStyle {
+        val c = store.swatches(key, colors)
+        return ToolStyle(c, sizes, c.first(), size)
     }
 
     val currentPage: Page? get() = pages.getOrNull(pageIndex)
 
     fun renderer() = PageRenderer(repo.noteDir(noteId))
+
+    fun onCurrentPage(i: Int) { pageIndex = i }
 
     // ------------------------------------------------------------- brushes
 
@@ -101,99 +137,99 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     fun updateStyle(t: Tool, s: ToolStyle) {
         when (t) {
-            Tool.PEN -> penStyle = s
-            Tool.HIGHLIGHTER -> highlighterStyle = s
-            Tool.SHAPE -> shapeStyle = s
+            Tool.PEN -> { penStyle = s; store.saveSwatches("pen", s.colors) }
+            Tool.HIGHLIGHTER -> { highlighterStyle = s; store.saveSwatches("highlighter", s.colors) }
+            Tool.SHAPE -> { shapeStyle = s; store.saveSwatches("shape", s.colors) }
             else -> Unit
         }
     }
 
+    fun recentColors() = store.recentColors()
+    fun pushRecent(c: Int) = store.pushRecentColor(c)
+
     fun brushFor(t: Tool): Brush = when (t) {
         Tool.HIGHLIGHTER -> Brushes.create(Brushes.HIGHLIGHTER, highlighterStyle.color, highlighterStyle.size)
-        Tool.SHAPE -> Brushes.create(Brushes.PEN, shapeStyle.color, shapeStyle.size)
-        else -> Brushes.create(Brushes.PEN, penStyle.color, penStyle.size)
+        Tool.SHAPE -> Brushes.create(if (shapeDashed) Brushes.DASHED else Brushes.PEN, shapeStyle.color, shapeStyle.size)
+        else -> Brushes.create(penType.family, penStyle.color, penStyle.size * penType.sizeFactor)
     }
 
     fun eraserRadiusPx(density: Float) = listOf(8f, 16f, 30f)[eraserSize] * density
 
     // --------------------------------------------------------------- edits
 
-    fun beginEdit() {
-        val p = currentPage ?: return
-        undoStack.addLast(pageIndex to p.items)
-        if (undoStack.size > 100) undoStack.removeFirst()
+    fun beginEdit(page: Int) {
+        val p = pages.getOrNull(page) ?: return
+        undoStack.addLast(page to p.items)
+        if (undoStack.size > 200) undoStack.removeFirst()
         redoStack.clear()
         refreshUndo()
     }
 
-    fun setItems(items: List<PageItem>) {
-        val p = currentPage ?: return
-        pages[pageIndex] = p.copy(items = items)
+    fun setItems(page: Int, items: List<PageItem>) {
+        val p = pages.getOrNull(page) ?: return
+        pages[page] = p.copy(items = items)
         scheduleSave()
     }
 
-    private fun applyItems(items: List<PageItem>) {
-        setItems(items)
+    private fun applyItems(page: Int, items: List<PageItem>) {
+        setItems(page, items)
         onPagesChanged?.invoke()
     }
 
-    fun undo() {
-        val (idx, items) = undoStack.removeLastOrNull() ?: return
-        val page = pages.getOrNull(idx) ?: return
-        redoStack.addLast(idx to page.items)
-        pages[idx] = page.copy(items = items)
-        if (idx != pageIndex) pageIndex = idx
-        refreshUndo(); scheduleSave(); onPagesChanged?.invoke()
-    }
+    fun undo() = swap(undoStack, redoStack)
+    fun redo() = swap(redoStack, undoStack)
 
-    fun redo() {
-        val (idx, items) = redoStack.removeLastOrNull() ?: return
+    private fun swap(from: ArrayDeque<Pair<Int, List<PageItem>>>, to: ArrayDeque<Pair<Int, List<PageItem>>>) {
+        val (idx, items) = from.removeLastOrNull() ?: return
         val page = pages.getOrNull(idx) ?: return
-        undoStack.addLast(idx to page.items)
+        to.addLast(idx to page.items)
         pages[idx] = page.copy(items = items)
-        if (idx != pageIndex) pageIndex = idx
         refreshUndo(); scheduleSave(); onPagesChanged?.invoke()
+        if (idx != pageIndex) onScrollTo?.invoke(idx)
     }
 
     private fun refreshUndo() {
         canUndo = undoStack.isNotEmpty(); canRedo = redoStack.isNotEmpty()
     }
 
-    fun onSelection(ids: Set<Long>, bounds: RectF?) {
+    fun onSelection(page: Int, ids: Set<Long>, bounds: RectF?) {
         selection = ids
+        selectionPage = page
         selectionBounds = bounds
     }
 
     fun deleteSelection() {
-        val p = currentPage ?: return
-        beginEdit()
-        applyItems(p.items.filterNot { it.id in selection })
-        selection = emptySet(); selectionBounds = null
+        val p = pages.getOrNull(selectionPage) ?: return
+        beginEdit(selectionPage)
+        applyItems(selectionPage, p.items.filterNot { it.id in selection })
     }
 
     fun duplicateSelection(): Set<Long> {
-        val p = currentPage ?: return emptySet()
-        beginEdit()
+        val p = pages.getOrNull(selectionPage) ?: return emptySet()
+        beginEdit(selectionPage)
         val copies = p.items.filter { it.id in selection }.map { item ->
-            val moved = item.translated(30f, 30f)
-            when (moved) {
+            when (val moved = item.translated(30f, 30f)) {
                 is InkItem -> InkItem(ItemIds.next(), moved.stroke, moved.dx, moved.dy, moved.localBounds)
                 is TextItem -> moved.copy(id = ItemIds.next())
                 is ImageItem -> moved.copy(id = ItemIds.next())
+                is TapeItem -> moved.copy(id = ItemIds.next())
+                is StickyItem -> moved.copy(id = ItemIds.next())
             }
         }
-        applyItems(p.items + copies)
+        applyItems(selectionPage, p.items + copies)
         return copies.map { it.id }.toSet()
     }
 
     fun recolorSelection(color: Int) {
-        val p = currentPage ?: return
-        beginEdit()
-        applyItems(p.items.map { item ->
+        val p = pages.getOrNull(selectionPage) ?: return
+        beginEdit(selectionPage)
+        applyItems(selectionPage, p.items.map { item ->
             if (item.id !in selection) item
             else when (item) {
-                is InkItem -> item.withStroke(androidx.ink.strokes.Stroke(Brushes.recolor(item.stroke.brush, color), item.stroke.inputs))
+                is InkItem -> item.withStroke(Stroke(Brushes.recolor(item.stroke.brush, color), item.stroke.inputs))
                 is TextItem -> item.copy(color = color)
+                is TapeItem -> item.copy(color = color)
+                is StickyItem -> item.copy(color = color)
                 else -> item
             }
         })
@@ -202,8 +238,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun commitText(text: String) {
         val edit = textEdit ?: return
         textEdit = null
-        val p = currentPage ?: return
-        beginEdit()
+        val p = pages.getOrNull(edit.page) ?: return
         val existing = edit.existing
         val items = when {
             existing != null && text.isBlank() -> p.items.filterNot { it.id == existing.id }
@@ -211,36 +246,74 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             text.isBlank() -> return
             else -> p.items + TextItem(ItemIds.next(), text, edit.x, edit.y, textSize, penStyle.color)
         }
-        applyItems(items)
+        beginEdit(edit.page)
+        applyItems(edit.page, items)
     }
 
-    fun insertImage(uri: Uri, viewW: Float) {
+    fun openSticky(page: Int, x: Float, y: Float, existing: StickyItem?) {
+        stickyEdit = if (existing != null) StickyEdit(page, existing, false)
+        else StickyEdit(page, StickyItem(ItemIds.next(), x - 140f, y - 140f, 280f, 280f, stickyColor, ""), true)
+    }
+
+    fun commitSticky(text: String, color: Int) {
+        val edit = stickyEdit ?: return
+        stickyEdit = null
+        val p = pages.getOrNull(edit.page) ?: return
+        val item = edit.item.copy(text = text, color = color)
+        beginEdit(edit.page)
+        applyItems(edit.page, if (edit.isNew) p.items + item else p.items.map { if (it.id == item.id) item else it })
+    }
+
+    fun deleteSticky() {
+        val edit = stickyEdit ?: return
+        stickyEdit = null
+        if (edit.isNew) return
+        val p = pages.getOrNull(edit.page) ?: return
+        beginEdit(edit.page)
+        applyItems(edit.page, p.items.filterNot { it.id == edit.item.id })
+    }
+
+    /** Emoji stickers are large text items placed in the middle of the visible page. */
+    fun insertSticker(emoji: String): Pair<Int, Long>? {
+        val p = currentPage ?: return null
+        val item = TextItem(ItemIds.next(), emoji, p.width / 2f - 80f, p.height / 3f, 160f, 0xFF000000.toInt())
+        beginEdit(pageIndex)
+        applyItems(pageIndex, p.items + item)
+        return pageIndex to item.id
+    }
+
+    fun insertImage(uri: Uri, onPlaced: (Int, Long) -> Unit) {
         viewModelScope.launch {
             val name = runCatching { repo.saveImage(noteId, uri) }.getOrNull() ?: return@launch
             val bmp = withContext(Dispatchers.IO) { renderer().image(name) } ?: return@launch
-            val p = currentPage ?: return@launch
+            val idx = pageIndex
+            val p = pages.getOrNull(idx) ?: return@launch
             val w = (p.width * 0.6f).coerceAtMost(bmp.width.toFloat().coerceAtLeast(200f))
             val h = w * bmp.height / bmp.width
-            beginEdit()
-            applyItems(p.items + ImageItem(ItemIds.next(), name, (p.width - w) / 2f, (p.height - h) / 3f, w, h))
+            val item = ImageItem(ItemIds.next(), name, (p.width - w) / 2f, (p.height - h) / 3f, w, h)
+            beginEdit(idx)
+            applyItems(idx, p.items + item)
+            onPlaced(idx, item.id)
         }
     }
 
     // --------------------------------------------------------------- pages
 
-    fun goToPage(i: Int) {
-        if (i in pages.indices && i != pageIndex) {
-            pageIndex = i
-            onPagesChanged?.invoke()
-        }
+    fun goToPage(i: Int) { if (i in pages.indices) onScrollTo?.invoke(i) }
+
+    private fun newPage(): Page {
+        val cur = currentPage
+        val paper = if (cur == null || cur.pdfPage >= 0) repo.meta(noteId)?.paper ?: settingsFlow.value.defaultPaper else cur.paper
+        return Page(UUID.randomUUID().toString(), PageSize.WIDTH, PageSize.HEIGHT, paper)
     }
 
-    fun addPage() {
-        val cur = currentPage
-        val paper = if (cur == null || cur.pdfPage >= 0) repo.meta(noteId)?.paper ?: PaperStyle.RULED else cur.paper
-        pages.add(pageIndex + 1, Page(UUID.randomUUID().toString(), com.pronotes.app.data.PageSize.WIDTH, com.pronotes.app.data.PageSize.HEIGHT, paper))
-        pageIndex += 1
+    fun addPage(atEnd: Boolean = false, paper: PaperStyle? = null) {
+        val np = newPage().let { if (paper != null) it.copy(paper = paper) else it }
+        val at = if (atEnd) pages.size else pageIndex + 1
+        pages.add(at, np)
+        undoStack.clear(); redoStack.clear(); refreshUndo()
         scheduleSave(); onPagesChanged?.invoke()
+        onScrollTo?.invoke(at)
     }
 
     fun deletePage() {
@@ -249,6 +322,23 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         undoStack.clear(); redoStack.clear(); refreshUndo()
         pageIndex = pageIndex.coerceAtMost(pages.size - 1)
         scheduleSave(); onPagesChanged?.invoke()
+    }
+
+    fun duplicatePage() {
+        val p = currentPage ?: return
+        val copy = p.copy(id = UUID.randomUUID().toString(), items = p.items.map {
+            when (it) {
+                is InkItem -> InkItem(ItemIds.next(), it.stroke, it.dx, it.dy, it.localBounds)
+                is TextItem -> it.copy(id = ItemIds.next())
+                is ImageItem -> it.copy(id = ItemIds.next())
+                is TapeItem -> it.copy(id = ItemIds.next())
+                is StickyItem -> it.copy(id = ItemIds.next())
+            }
+        })
+        pages.add(pageIndex + 1, copy)
+        undoStack.clear(); redoStack.clear(); refreshUndo()
+        scheduleSave(); onPagesChanged?.invoke()
+        onScrollTo?.invoke(pageIndex + 1)
     }
 
     fun setPaper(style: PaperStyle) {
@@ -270,26 +360,68 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         return null
     }
 
-    // ------------------------------------------------------------ settings
-
-    private fun loadSettings() = InputSettings(
-        stylusOnly = prefs.getBoolean("stylusOnly", true),
-        sideButton = SideButtonAction.valueOf(prefs.getString("sideButton", SideButtonAction.ERASER.name)!!),
-        scribbleToErase = prefs.getBoolean("scribble", true),
-        holdToShape = prefs.getBoolean("holdShape", true),
-        circleToLasso = prefs.getBoolean("circleLasso", true),
-    )
-
-    fun updateSettings(s: InputSettings) {
-        settings = s
-        prefs.edit()
-            .putBoolean("stylusOnly", s.stylusOnly)
-            .putString("sideButton", s.sideButton.name)
-            .putBoolean("scribble", s.scribbleToErase)
-            .putBoolean("holdShape", s.holdToShape)
-            .putBoolean("circleLasso", s.circleToLasso)
-            .apply()
+    suspend fun thumbnail(index: Int, width: Int): Bitmap? = withContext(Dispatchers.Default) {
+        val page = pages.getOrNull(index) ?: return@withContext null
+        val scale = width / page.width
+        val h = (page.height * scale).toInt().coerceAtLeast(1)
+        val bmp = Bitmap.createBitmap(width, h, Bitmap.Config.ARGB_8888)
+        val bg = if (page.pdfPage >= 0) withContext(Dispatchers.IO) {
+            PdfPages(repo.pdfFile(noteId)).let { pp -> pp.render(page.pdfPage, width, h, useCache = false).also { pp.close() } }
+        } else null
+        val r = renderer().apply { paperColor = settingsFlow.value.paperTint.argb }
+        r.renderPage(Canvas(bmp), page, scale, bg)
+        bmp
     }
+
+    // --------------------------------------------------------------- search
+
+    fun search(query: String) {
+        searchQuery = query
+        searchJob?.cancel()
+        if (query.isBlank()) { searchHits = emptyList(); activeHit = -1; return }
+        searchJob = viewModelScope.launch {
+            delay(250)
+            searching = true
+            val hits = ArrayList<SearchHit>()
+            if (isPdf) {
+                val index = pdfIndex ?: withContext(Dispatchers.IO) {
+                    runCatching { PdfTextIndex.build(getApplication(), repo.pdfFile(noteId)) }.getOrNull()
+                }.also { pdfIndex = it }
+                val map = pages.withIndex().filter { it.value.pdfPage >= 0 }.associate { it.value.pdfPage to it.index }
+                if (index != null) hits += withContext(Dispatchers.Default) { index.search(query) { map[it] } }
+            }
+            // Typed text and sticky notes are searchable too.
+            pages.forEachIndexed { i, p ->
+                p.items.forEach { item ->
+                    val text = (item as? TextItem)?.text ?: (item as? StickyItem)?.text ?: return@forEach
+                    if (text.contains(query, ignoreCase = true)) hits += SearchHit(i, listOf(item.bounds), text.take(60))
+                }
+            }
+            searchHits = hits.sortedBy { it.page }
+            activeHit = if (hits.isEmpty()) -1 else 0
+            searching = false
+            searchHits.getOrNull(0)?.let { onScrollTo?.invoke(it.page) }
+            onPagesChanged?.invoke()
+        }
+    }
+
+    fun stepHit(delta: Int) {
+        if (searchHits.isEmpty()) return
+        activeHit = (activeHit + delta).mod(searchHits.size)
+        onScrollTo?.invoke(searchHits[activeHit].page)
+        onPagesChanged?.invoke()
+    }
+
+    fun jumpToHit(i: Int) {
+        activeHit = i
+        searchHits.getOrNull(i)?.let { onScrollTo?.invoke(it.page) }
+        onPagesChanged?.invoke()
+    }
+
+    fun clearSearch() { searchJob?.cancel(); searchQuery = ""; searchHits = emptyList(); activeHit = -1; onPagesChanged?.invoke() }
+
+    fun highlights(page: Int): List<RectF> = searchHits.filter { it.page == page }.flatMap { it.rects }
+    fun activeHighlight(): Pair<Int, RectF>? = searchHits.getOrNull(activeHit)?.let { h -> h.rects.firstOrNull()?.let { h.page to it } }
 
     // --------------------------------------------------------------- save
 

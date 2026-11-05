@@ -1,22 +1,55 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Pro Notes mark: a page with a folded corner whose top edge curls into a "P", crossed by a pencil. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- notebook page -->
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M36,30h30a6,6 0,0 1,6 6v36a6,6 0,0 1,-6 6h-30a4,4 0,0 1,-4 -4v-40a4,4 0,0 1,4 -4z" />
-    <!-- ruled lines -->
-    <path
-        android:fillColor="#FFC9D6FF"
-        android:pathData="M39,44h26v2h-26zM39,52h26v2h-26zM39,60h18v2h-18z" />
-    <!-- pen -->
-    <path
-        android:fillColor="#FF1B1F2A"
-        android:pathData="M77,40l5,5l-22,22l-7,2l2,-7z" />
-    <path
-        android:fillColor="#FFFFC94A"
-        android:pathData="M77,40l2.5,-2.5a2,2 0,0 1,2.8 0l2.2,2.2a2,2 0,0 1,0 2.8l-2.5,2.5z" />
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.78"
+        android:scaleY="0.78">
+        <!-- folded corner -->
+        <path
+            android:fillColor="#FF1C1C1E"
+            android:pathData="M30,45 L42,33 L42,41 Q42,45 38,45 Z" />
+        <!-- page outline: left edge, top edge curling into the P bowl -->
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M30,86 L30,47 Q30,45 32,43 L41,34 Q43,32 46,32 L62,32 C76,32 86,42 86,55 C86,68 76,78 62,78 L56,78"
+            android:strokeWidth="4.6"
+            android:strokeColor="#FF1C1C1E"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <!-- inner bowl -->
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M77.5,46 C80,49.5 80.5,53 80.5,56 C80.5,64 73.5,71 64,71"
+            android:strokeWidth="3.4"
+            android:strokeColor="#FF1C1C1E"
+            android:strokeLineCap="round" />
+        <!-- clip knob -->
+        <path
+            android:fillColor="#FF1C1C1E"
+            android:pathData="M78,30 m-4.2,0 a4.2,4.2 0 1,0 8.4,0 a4.2,4.2 0 1,0 -8.4,0" />
+        <!-- text lines -->
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M37,51 L50,51 M37,59 L46,59"
+            android:strokeWidth="3.6"
+            android:strokeColor="#FF1C1C1E"
+            android:strokeLineCap="round" />
+        <!-- pencil body: two rails -->
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M41,76 L65,38 M47,80 L70,43"
+            android:strokeWidth="3.4"
+            android:strokeColor="#FF1C1C1E"
+            android:strokeLineCap="round" />
+        <!-- pencil tip -->
+        <path
+            android:fillColor="#FF1C1C1E"
+            android:pathData="M39,80 L46,84.5 L37,90 Z" />
+    </group>
 </vector>

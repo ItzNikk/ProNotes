@@ -1,5 +1,6 @@
 package com.pronotes.app
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -10,6 +11,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -18,7 +21,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.pronotes.app.editor.EditorScreen
 import com.pronotes.app.library.LibraryScreen
+import com.pronotes.app.settings.SettingsScreen
 import com.pronotes.app.ui.ProNotesTheme
+
+object BuildConfigInfo {
+    fun versionName(context: Context): String =
+        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?"
+}
 
 class MainActivity : ComponentActivity() {
     private var pendingPdf by mutableStateOf<Uri?>(null)
@@ -41,13 +50,21 @@ class MainActivity : ComponentActivity() {
                     composable("library") {
                         LibraryScreen(
                             onOpen = { id -> nav.navigate("editor/$id") },
+                            onSettings = { nav.navigate("settings") },
                             pendingPdf = pendingPdf,
                             onPdfConsumed = { pendingPdf = null },
                         )
                     }
                     composable("editor/{id}") { entry ->
                         val id = entry.arguments?.getString("id") ?: return@composable
-                        EditorScreen(noteId = id, onBack = { nav.popBackStack() })
+                        EditorScreen(noteId = id, onBack = { nav.popBackStack() }, onOpenSettings = { nav.navigate("settings") })
+                    }
+                    composable(
+                        "settings",
+                        enterTransition = { slideInHorizontally { it / 3 } + fadeIn() },
+                        popExitTransition = { slideOutHorizontally { it / 3 } + fadeOut() },
+                    ) {
+                        SettingsScreen(onBack = { nav.popBackStack() })
                     }
                 }
             }

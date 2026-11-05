@@ -67,9 +67,30 @@ class Repository private constructor(private val context: Context) {
 
     // ------------------------------------------------------------ folders
 
-    suspend fun createFolder(name: String, parentId: String?, color: Int) = updateIndex {
-        it.copy(folders = it.folders + Folder(UUID.randomUUID().toString(), name, parentId, color, System.currentTimeMillis()))
+    suspend fun createFolder(name: String, parentId: String?, color: Int, emoji: String = "") = updateIndex {
+        it.copy(folders = it.folders + Folder(UUID.randomUUID().toString(), name, parentId, color, System.currentTimeMillis(), emoji))
     }
+
+    suspend fun updateFolder(id: String, name: String, color: Int, emoji: String) = updateIndex {
+        it.copy(folders = it.folders.map { f -> if (f.id == id) f.copy(name = name, color = color, emoji = emoji, modified = System.currentTimeMillis()) else f })
+    }
+
+    suspend fun setCover(id: String, cover: String) = updateIndex {
+        it.copy(notebooks = it.notebooks.map { n -> if (n.id == id) n.copy(cover = cover) else n })
+    }
+
+    suspend fun markOpened(id: String) = updateIndex {
+        it.copy(notebooks = it.notebooks.map { n -> if (n.id == id) n.copy(opened = System.currentTimeMillis()) else n })
+    }
+
+    /** Copies a picked photo into the notebook folder and returns its cover spec. */
+    suspend fun saveCoverImage(id: String, uri: Uri): String = withContext(Dispatchers.IO) {
+        val name = "cover_${System.currentTimeMillis()}.img"
+        context.contentResolver.openInputStream(uri)!!.use { input -> File(noteDir(id), name).outputStream().use { input.copyTo(it) } }
+        "image:$name"
+    }
+
+    fun coverFile(id: String, name: String) = File(noteDir(id), name)
 
     suspend fun renameFolder(id: String, name: String) = updateIndex {
         it.copy(folders = it.folders.map { f -> if (f.id == id) f.copy(name = name) else f })
@@ -100,13 +121,13 @@ class Repository private constructor(private val context: Context) {
 
     // ---------------------------------------------------------- notebooks
 
-    suspend fun createNotebook(title: String, folderId: String?, cover: Int, paper: PaperStyle): String {
+    suspend fun createNotebook(title: String, folderId: String?, cover: Int, paper: PaperStyle, coverSpec: String = ""): String {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
         val doc = NoteDoc(pages = listOf(PageDoc(UUID.randomUUID().toString(), PageSize.WIDTH, PageSize.HEIGHT, paper)))
         withContext(Dispatchers.IO) { File(noteDir(id), "note.json").writeText(json.encodeToString(NoteDoc.serializer(), doc)) }
         updateIndex {
-            it.copy(notebooks = it.notebooks + NotebookMeta(id, title, folderId, cover, paper, now, now, 1))
+            it.copy(notebooks = it.notebooks + NotebookMeta(id, title, folderId, cover, paper, now, now, 1, cover = coverSpec))
         }
         return id
     }

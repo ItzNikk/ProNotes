@@ -24,6 +24,7 @@ android {
         if (!ksPath.isNullOrBlank()) {
             create("release") {
                 storeFile = file(ksPath)
+                storeType = "pkcs12"
                 storePassword = System.getenv("SIGNING_STORE_PASSWORD")
                 keyAlias = System.getenv("SIGNING_KEY_ALIAS")
                 keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
@@ -87,4 +88,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("io.coil-kt.coil3:coil-compose:3.3.0")
+    // Colour wheel + brightness slider for custom colours.
+    implementation("com.github.skydoves:colorpicker-compose:1.1.2")
+    // PDF text extraction for in-document search.
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 }
