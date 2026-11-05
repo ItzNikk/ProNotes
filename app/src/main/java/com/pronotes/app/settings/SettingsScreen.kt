@@ -468,9 +468,9 @@ private fun UpdateRow() {
     val u = com.pronotes.app.data.Updater
     val (title, sub) = when (u.phase) {
         UPhase.IDLE -> "Check for updates" to "Version ${u.currentVersion(context)}"
-        UPhase.CHECKING -> "Checking�" to "Version ${u.currentVersion(context)}"
+        UPhase.CHECKING -> "Checking for updates" to "Version ${u.currentVersion(context)}"
         UPhase.UP_TO_DATE -> "Pro Notes is up to date" to "Version ${u.currentVersion(context)}"
-        UPhase.AVAILABLE -> "Update to ${u.release?.tag}" to "Tap to download and install"
+        UPhase.AVAILABLE -> "Update to ${u.release?.tag}" to "Tap to see what changed"
         UPhase.DOWNLOADING -> "Downloading ${(u.progress * 100).toInt()}%" to "Keep the app open"
         UPhase.READY -> "Install update" to "Tap to open the installer"
         UPhase.FAILED -> "Update failed" to (u.error ?: "Tap to try again")
@@ -478,7 +478,7 @@ private fun UpdateRow() {
     Column(
         Modifier.fillMaxWidth().clickable {
             when (u.phase) {
-                UPhase.AVAILABLE -> scope.launch { u.download(context) }
+                UPhase.AVAILABLE -> u.showDialog = true
                 UPhase.READY -> u.install(context)
                 UPhase.DOWNLOADING, UPhase.CHECKING -> Unit
                 else -> scope.launch { u.check(context) }

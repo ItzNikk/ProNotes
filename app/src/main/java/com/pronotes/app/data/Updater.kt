@@ -40,7 +40,19 @@ object Updater {
         private set
     var error by mutableStateOf<String?>(null)
         private set
+    /** True while the "what's new" dialog is open. */
+    var showDialog by mutableStateOf(false)
     private var apk: File? = null
+
+    private fun prefs(c: Context) = c.getSharedPreferences("updater", Context.MODE_PRIVATE)
+    fun autoOpen(c: Context) = prefs(c).getBoolean("autoOpen", false)
+    fun setAutoOpen(c: Context, on: Boolean) { prefs(c).edit().putBoolean("autoOpen", on).apply() }
+    /** Whether an update that this app started was installed within the last half hour. */
+    fun consumeStartedFlag(c: Context): Boolean {
+        val at = prefs(c).getLong("startedAt", 0L)
+        prefs(c).edit().remove("startedAt").apply()
+        return at > 0 && System.currentTimeMillis() - at < 30 * 60 * 1000L
+    }
     private var checkedThisLaunch = false
 
     fun currentVersion(context: Context): String =
@@ -139,6 +151,7 @@ object Updater {
             )
             return
         }
+        prefs(context).edit().putLong("startedAt", System.currentTimeMillis()).apply()
         val uri = FileProvider.getUriForFile(context, context.packageName + ".files", file)
         context.startActivity(
             Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")

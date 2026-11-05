@@ -1063,7 +1063,7 @@ private fun UpdatePill() {
         shape = CircleShape, color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary,
         modifier = Modifier.padding(horizontal = 6.dp).clickable {
             when (u.phase) {
-                com.pronotes.app.data.Updater.Phase.AVAILABLE -> scope.launch { u.download(context) }
+                com.pronotes.app.data.Updater.Phase.AVAILABLE -> u.showDialog = true
                 com.pronotes.app.data.Updater.Phase.READY -> u.install(context)
                 else -> Unit
             }

@@ -74,7 +74,11 @@ object Support {
 @Composable
 fun SupportScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    var amount by remember { mutableStateOf("99") }
+    var amount by remember { mutableStateOf("") }
+    // Some UPI apps lock a pre-filled amount; this lets people type it inside their own UPI app instead.
+    var chooseInApp by remember { mutableStateOf(false) }
+    val amountValue = amount.toLongOrNull() ?: 0L
+    val canPay = chooseInApp || amountValue in 1..100_000
     var thanks by remember { mutableStateOf<Boolean?>(null) }   // true = paid, false = not sure
     val pay = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         val response = res.data?.getStringExtra("response") ?: res.data?.getStringExtra("Status") ?: ""
@@ -102,24 +106,35 @@ fun SupportScreen(onBack: () -> Unit) {
                 Text("Support payments are not set up in this build.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 return@Column
             }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                listOf("49", "99", "199", "499").forEach { a ->
-                    FilterChip(amount == a, { amount = a }, label = { Text("₹$a") }, shape = CircleShape)
-                }
-            }
-            Spacer(Modifier.height(12.dp))
             OutlinedTextField(
                 amount, { v -> amount = v.filter { it.isDigit() }.take(6) }, singleLine = true, shape = CircleShape,
-                label = { Text("Amount (₹)") }, modifier = Modifier.widthIn(max = 240.dp),
+                enabled = !chooseInApp,
+                prefix = { Text("₹ ", style = MaterialTheme.typography.titleMedium) },
+                placeholder = { Text("Enter any amount") },
+                textStyle = MaterialTheme.typography.titleMedium.copy(textAlign = TextAlign.Center),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                modifier = Modifier.widthIn(max = 280.dp).fillMaxWidth(),
             )
+            Spacer(Modifier.height(12.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)) {
+                listOf("49", "99", "199", "499", "999").forEach { a ->
+                    FilterChip(amount == a && !chooseInApp, { amount = a; chooseInApp = false }, label = { Text("₹$a") }, shape = CircleShape)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.widthIn(max = 360.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Type the amount in my UPI app", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                androidx.compose.material3.Switch(chooseInApp, { chooseInApp = it })
+            }
             Spacer(Modifier.height(20.dp))
             Button(
+                enabled = canPay,
                 onClick = {
                     val uri = Uri.parse("upi://pay").buildUpon()
                         .appendQueryParameter("pa", Support.upi)
                         .appendQueryParameter("pn", Support.payee)
                         .appendQueryParameter("tn", "Support Pro Notes")
-                        .appendQueryParameter("am", amount.ifBlank { "99" })
+                        .apply { if (!chooseInApp) appendQueryParameter("am", amountValue.toString()) }
                         .appendQueryParameter("cu", "INR")
                         .build()
                     try {
@@ -128,8 +143,8 @@ fun SupportScreen(onBack: () -> Unit) {
                         Toast.makeText(context, "No UPI app found", Toast.LENGTH_SHORT).show()
                     }
                 },
-                shape = CircleShape, modifier = Modifier.widthIn(min = 240.dp),
-            ) { Text("Pay ₹${amount.ifBlank { "99" }} with UPI") }
+                shape = CircleShape, modifier = Modifier.widthIn(min = 240.dp).height(52.dp),
+            ) { Text(if (chooseInApp) "Continue to UPI" else if (amountValue > 0) "Pay ₹$amountValue with UPI" else "Enter an amount") }
         }
         thanks?.let { paid -> ThankYou(paid) { thanks = null } }
     }

@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.graphics.Matrix
 import android.graphics.Outline
 import android.graphics.SurfaceTexture
+import android.view.InputDevice
 import android.media.MediaPlayer
 import android.net.Uri
 import android.view.MotionEvent
@@ -85,6 +86,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -142,18 +144,23 @@ fun WelcomeScreen(onDone: () -> Unit) {
         HorizontalPager(pager, Modifier.fillMaxSize(), userScrollEnabled = pager.currentPage != 1) { page ->
             // The pager reports the page being settled; only animate the visible one.
             val active = pager.currentPage == page
-            Column(
-                Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 28.dp, vertical = 36.dp),
-                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
-            ) {
-                when (page) {
-                    0 -> IntroPage(active, onStart = { next() })
-                    1 -> PenCheckPage(active, store, onNext = { next() })
-                    2 -> TourPage(active, onNext = { next() })
-                    else -> ReadyPage(active, onDone = { finish() })
+            Box(Modifier.fillMaxSize()) {
+                // The gradient video fills the whole first page, edge to edge.
+                if (page == 0) IntroBackdrop()
+                Column(
+                    Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 28.dp, vertical = 36.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+                ) {
+                    when (page) {
+                        0 -> IntroPage(active, onStart = { next() })
+                        1 -> PenCheckPage(active, store, onNext = { next() })
+                        2 -> TourPage(active, onNext = { next() })
+                        else -> ReadyPage(active, onDone = { finish() })
+                    }
                 }
             }
         }
+        val onVideo = pager.currentPage == 0
         Row(
             Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(bottom = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -162,11 +169,17 @@ fun WelcomeScreen(onDone: () -> Unit) {
                 val w by animateFloatAsState(if (pager.currentPage == i) 26f else 8f, spring(dampingRatio = 0.7f), label = "dot")
                 Box(
                     Modifier.size(width = w.dp, height = 8.dp).clip(CircleShape)
-                        .background(if (pager.currentPage == i) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f)),
+                        .background(
+                            if (pager.currentPage == i) (if (onVideo) Color.White else MaterialTheme.colorScheme.primary)
+                            else (if (onVideo) Color.White else MaterialTheme.colorScheme.onSurface).copy(alpha = 0.25f),
+                        ),
                 )
             }
         }
-        TextButton(onClick = { finish() }, modifier = Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(8.dp)) { Text("Skip") }
+        TextButton(
+            onClick = { finish() }, modifier = Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(8.dp),
+            colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = if (onVideo) Color.White else MaterialTheme.colorScheme.primary),
+        ) { Text("Skip") }
     }
 }
 
@@ -260,25 +273,27 @@ private fun Typewriter(text: String, style: TextStyle, active: Boolean, modifier
 
 // ---------------------------------------------------------------------- video
 
-/** The welcome video, looping and silent, cropped to fill a circle. */
+/** A bundled video, looping and silent, cropped to fill its box (or a circle when [circle] is set). */
 @Composable
-private fun CircleVideo(modifier: Modifier) {
+private fun LoopingVideo(@androidx.annotation.RawRes res: Int, circle: Boolean, modifier: Modifier) {
     val player = remember { arrayOfNulls<MediaPlayer>(1) }
     DisposableEffect(Unit) { onDispose { player[0]?.release(); player[0] = null } }
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
             val tv = TextureView(ctx)
-            tv.outlineProvider = object : ViewOutlineProvider() {
-                override fun getOutline(v: View, o: Outline) { o.setOval(0, 0, v.width, v.height) }
+            if (circle) {
+                tv.outlineProvider = object : ViewOutlineProvider() {
+                    override fun getOutline(v: View, o: Outline) { o.setOval(0, 0, v.width, v.height) }
+                }
+                tv.clipToOutline = true
             }
-            tv.clipToOutline = true
             tv.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                 override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
                     runCatching {
                         val mp = MediaPlayer()
                         player[0] = mp
-                        mp.setDataSource(ctx, Uri.parse("android.resource://${ctx.packageName}/${R.raw.welcome}"))
+                        mp.setDataSource(ctx, Uri.parse("android.resource://${ctx.packageName}/$res"))
                         mp.setSurface(Surface(st))
                         mp.isLooping = true
                         mp.setVolume(0f, 0f)
@@ -318,24 +333,24 @@ private fun IntroPage(active: Boolean, onStart: () -> Unit) {
             Spacer(Modifier.height(34.dp))
             Text(
                 "WELCOME TO", style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Medium, letterSpacing = 6.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = Color.White.copy(alpha = 0.85f),
             )
             Spacer(Modifier.height(6.dp))
             ShimmerText(
                 "Pro Notes",
                 TextStyle(fontSize = 64.sp, fontWeight = FontWeight.Black, letterSpacing = (-2).sp),
-                listOf(Brand2, Brand1, Brand3, Brand2),
+                listOf(Color.White, Color(0xFFB9C8FF), Color.White, Color(0xFFE5C8FF)),
             )
             Spacer(Modifier.height(6.dp))
             AnimatedWords(
                 "Write. Think. Create.",
-                TextStyle(fontSize = 26.sp, fontWeight = FontWeight.Light, letterSpacing = 1.sp, color = MaterialTheme.colorScheme.onBackground),
+                TextStyle(fontSize = 26.sp, fontWeight = FontWeight.Light, letterSpacing = 1.sp, color = Color.White),
                 active, startDelay = 500,
             )
             Spacer(Modifier.height(12.dp))
             Typewriter(
                 "Handwriting, PDFs and ideas in one place, built for your pen.",
-                MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
+                MaterialTheme.typography.bodyMedium.copy(color = Color.White.copy(alpha = 0.85f)),
                 active, Modifier.widthIn(max = 460.dp),
             )
             Spacer(Modifier.height(30.dp))
@@ -374,72 +389,138 @@ private fun GlowingCircle(diameter: androidx.compose.ui.unit.Dp, active: Boolean
                 )
             }
         }
-        CircleVideo(Modifier.size(diameter))
+        Box(Modifier.size(diameter).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
+            androidx.compose.foundation.Image(
+                painterResource(R.drawable.ic_launcher_foreground), null,
+                Modifier.fillMaxSize().scale(1.5f),
+            )
+        }
     }
 }
 
-/** Tap the circle three times with the pen; we read the pen's name and pick its brand. */
-@OptIn(ExperimentalComposeUiApi::class)
+/** Full-screen gradient video behind the first page, with a scrim so the text stays readable. */
+@Composable
+private fun IntroBackdrop() {
+    Box(Modifier.fillMaxSize()) {
+        LoopingVideo(R.raw.welcome, circle = false, modifier = Modifier.fillMaxSize())
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(listOf(Color(0x66000000), Color(0x22000000), Color(0x88000000))),
+            ),
+        )
+    }
+}
+
+/** Tap the ring three times with the pen, then watch it scan. We read the pen's name and capabilities and pick its brand. */
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalLayoutApi::class)
 @Composable
 private fun PenCheckPage(active: Boolean, store: SettingsStore, onNext: () -> Unit) {
+    val idleHint = "Tap the ring 3 times with your pen"
     var taps by remember { mutableIntStateOf(0) }
+    var scanning by remember { mutableStateOf(false) }
+    var finished by remember { mutableStateOf(false) }
     var device by remember { mutableStateOf<String?>(null) }
     var brand by remember { mutableStateOf<String?>(null) }
-    var hint by remember { mutableStateOf("Tap the circle 3 times with your pen") }
+    var caps by remember { mutableStateOf<List<String>>(emptyList()) }
+    var hint by remember { mutableStateOf(idleHint) }
     var manual by remember { mutableStateOf(false) }
+    val progress = remember { Animatable(0f) }
     val pulse = remember { Animatable(1f) }
     val scope = rememberCoroutineScope()
-    val breathe by rememberInfiniteTransition(label = "ring")
-        .animateFloat(0.93f, 1.06f, infiniteRepeatable(tween(1100, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "breathe")
-    val done = taps >= 3
+
+    // After the third tap: a short scan from 30% to 100%, then reveal the result.
+    LaunchedEffect(scanning) {
+        if (!scanning) return@LaunchedEffect
+        progress.animateTo(100f, tween(3200, easing = LinearEasing))
+        delay(250)
+        val b = PenBrands.detect(device)
+        brand = b
+        store.registerPen(device ?: "Stylus", b)
+        hint = if (b != null && b != "Stylus") "Found: $b" else "Pen found. Pick its brand below if you like."
+        scanning = false
+        finished = true
+    }
+    val pct = progress.value.toInt().coerceIn(0, 100)
+    val stepLabel = when {
+        pct < 45 -> "Reading pen signal…"
+        pct < 65 -> "Checking pressure…"
+        pct < 85 -> "Checking tilt and hover…"
+        else -> "Matching brand…"
+    }
 
     AnimatedWords(
         "Meet your pen", TextStyle(fontSize = 44.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = MaterialTheme.colorScheme.onBackground),
         active, gradient = listOf(Brand2, Brand1, Brand3),
     )
     Spacer(Modifier.height(8.dp))
-    AnimatedContent(targetState = hint, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "hint") { h ->
+    val shownHint = if (scanning) stepLabel else hint
+    AnimatedContent(targetState = shownHint, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "hint") { h ->
         Text(h, fontSize = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
     }
     Spacer(Modifier.height(26.dp))
-    val primary = MaterialTheme.colorScheme.primary
+    val primary = Color(0xFFB45CFF)
     val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-    Box(
-        Modifier.size(210.dp).scale(if (done) 1f else breathe * pulse.value)
-            .pointerInteropFilter { ev ->
-                if (done || ev.actionMasked != MotionEvent.ACTION_DOWN) return@pointerInteropFilter true
-                val type = ev.getToolType(0)
-                if (type == MotionEvent.TOOL_TYPE_STYLUS || type == MotionEvent.TOOL_TYPE_ERASER) {
-                    taps++
-                    device = ev.device?.name
-                    scope.launch { pulse.snapTo(0.85f); pulse.animateTo(1f, spring(dampingRatio = 0.4f)) }
-                    if (taps >= 3) {
-                        brand = PenBrands.detect(device)
-                        store.registerPen(device ?: "Stylus", brand)
-                        hint = if (brand != null && brand != "Stylus") "Found: $brand" else "Pen found. Pick its brand below if you like."
-                    } else hint = "${3 - taps} more"
-                } else hint = "That was a finger. Please use your pen."
-                true
-            },
-        contentAlignment = Alignment.Center,
-    ) {
+    Box(Modifier.size(230.dp).scale(pulse.value), contentAlignment = Alignment.Center) {
+        // The ring video sits inside the progress arc.
+        if (active) LoopingVideo(R.raw.pen_ring, circle = true, modifier = Modifier.size(198.dp))
         Canvas(Modifier.fillMaxSize()) {
-            val w = 12.dp.toPx()
-            drawCircle(track, size.minDimension / 2 - w, style = Stroke(w))
+            val w = 6.dp.toPx()
+            drawCircle(track, size.minDimension / 2 - w / 2, style = Stroke(w))
             drawArc(
-                primary, -90f, 360f * (taps.coerceAtMost(3) / 3f), false, Offset(w, w),
-                androidx.compose.ui.geometry.Size(size.width - 2 * w, size.height - 2 * w),
+                primary, -90f, 360f * (progress.value / 100f), false, Offset(w / 2, w / 2),
+                androidx.compose.ui.geometry.Size(size.width - w, size.height - w),
                 style = Stroke(w, cap = androidx.compose.ui.graphics.StrokeCap.Round),
             )
         }
-        if (done) ProIconView(ProIcon.PEN, primary, Modifier.size(72.dp), ink = primary)
-        else Text("$taps/3", fontSize = 34.sp, fontWeight = FontWeight.Light)
+        // Percentage pill over the video.
+        Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.55f)) {
+            Text(
+                "$pct%", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
+            )
+        }
+        // Touch layer on top of the video.
+        Box(
+            Modifier.fillMaxSize().pointerInteropFilter { ev ->
+                if (scanning || finished || ev.actionMasked != MotionEvent.ACTION_DOWN) return@pointerInteropFilter true
+                val type = ev.getToolType(0)
+                if (type == MotionEvent.TOOL_TYPE_STYLUS || type == MotionEvent.TOOL_TYPE_ERASER) {
+                    taps++
+                    val dev = ev.device
+                    device = dev?.name
+                    if (dev != null) {
+                        caps = buildList {
+                            if (dev.getMotionRange(MotionEvent.AXIS_PRESSURE, InputDevice.SOURCE_STYLUS) != null) add("Pressure")
+                            if (dev.getMotionRange(MotionEvent.AXIS_TILT, InputDevice.SOURCE_STYLUS) != null) add("Tilt")
+                            if (dev.getMotionRange(MotionEvent.AXIS_DISTANCE, InputDevice.SOURCE_STYLUS) != null) add("Hover")
+                        }
+                    }
+                    scope.launch { pulse.snapTo(0.92f); pulse.animateTo(1f, spring(dampingRatio = 0.4f)) }
+                    scope.launch { progress.animateTo(taps * 10f, tween(250)) }
+                    if (taps >= 3) { hint = "Scanning your pen…"; scanning = true } else hint = "${3 - taps} more"
+                } else hint = "That was a finger. Please use your pen."
+                true
+            },
+        )
     }
-    Spacer(Modifier.height(26.dp))
+    Spacer(Modifier.height(14.dp))
+    if (finished && caps.isNotEmpty()) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
+            caps.forEach { c ->
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                    Text(c, Modifier.padding(horizontal = 14.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+    }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (taps > 0) OutlinedButton(onClick = { taps = 0; brand = null; device = null; hint = "Tap the circle 3 times with your pen" }, shape = CircleShape) { Text("Try again") }
+        if (taps > 0 && !scanning) OutlinedButton(onClick = {
+            taps = 0; finished = false; brand = null; device = null; caps = emptyList(); hint = idleHint
+            scope.launch { progress.animateTo(0f, tween(300)) }
+        }, shape = CircleShape) { Text("Try again") }
         Box {
-            OutlinedButton(onClick = { manual = true }, shape = CircleShape) { Text(brand?.let { "Brand: $it" } ?: "Choose manually") }
+            OutlinedButton(onClick = { manual = true }, enabled = !scanning, shape = CircleShape) { Text(brand?.let { "Brand: $it" } ?: "Choose manually") }
             DropdownMenu(manual, { manual = false }, shape = RoundedCornerShape(22.dp)) {
                 PenBrands.manual.forEach { b ->
                     DropdownMenuItem(text = { Text(b) }, onClick = {
@@ -454,7 +535,7 @@ private fun PenCheckPage(active: Boolean, store: SettingsStore, onNext: () -> Un
     Spacer(Modifier.height(14.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         TextButton(onClick = { store.update { it.copy(stylusOnly = false) }; onNext() }) { Text("I don't use a pen") }
-        Button(onClick = onNext, shape = CircleShape, enabled = done || brand != null) { Text("Continue") }
+        Button(onClick = onNext, shape = CircleShape, enabled = finished || brand != null) { Text("Continue") }
     }
 }
 

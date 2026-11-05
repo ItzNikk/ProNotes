@@ -61,9 +61,15 @@ jobs:
           name: ProNotes-apk
           path: dist/ProNotes.apk
 
+      - name: Release notes from CHANGELOG.md
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          awk -v tag="## ${GITHUB_REF_NAME}" '$0==tag{f=1;next} /^## /{f=0} f' CHANGELOG.md > RELEASE_NOTES.md
+          [ -s RELEASE_NOTES.md ] || echo "Improvements and fixes." > RELEASE_NOTES.md
+
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: dist/ProNotes.apk
-          generate_release_notes: true
+          body_path: RELEASE_NOTES.md
