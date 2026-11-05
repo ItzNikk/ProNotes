@@ -191,6 +191,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         })
     }
 
+    fun redraw() { layer.invalidate() }
+
     /** Replaces the page list (after undo, page add/delete, recolour...). */
     fun setPages(newPages: List<Page>) {
         val structural = newPages.size != pages.size || newPages.zip(pages).any { (a, b) -> a.id != b.id || a.width != b.width }

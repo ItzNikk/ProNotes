@@ -1,5 +1,8 @@
 # Changelog
 
+## v4.2.3
+- **PDF:** pages next to the one you are on are prepared ahead of time, so swiping no longer shows blank white pages.
+- **Highlighter:** a flat band with soft rounded ends, blended onto the page like a real highlighter.
 ## v4.2.2
 - **Updates:** installing from the app now uses the system installer directly. If it fails, the app tells you why. Granting the install permission continues the update by itself.
 - **Highlighter:** round ends instead of a tilted chisel tip. Old highlights are redrawn round too.

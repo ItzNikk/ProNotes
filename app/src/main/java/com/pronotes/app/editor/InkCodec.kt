@@ -3,6 +3,8 @@ package com.pronotes.app.editor
 import android.util.Base64
 import androidx.ink.brush.Brush
 import androidx.ink.brush.BrushFamily
+import androidx.ink.brush.BrushPaint
+import androidx.ink.brush.BrushTip
 import androidx.ink.brush.InputToolType
 import androidx.ink.brush.StockBrushes
 import androidx.ink.storage.decode
@@ -30,23 +32,29 @@ object Brushes {
     const val DASHED = "dashed"
 
     /** Highlighter ink is always drawn at this opacity; swatches stay opaque. */
-    const val HIGHLIGHT_ALPHA = 0x70
+    const val HIGHLIGHT_ALPHA = 0x80
 
     private val pen by lazy { StockBrushes.pressurePen() }
     private val marker by lazy { StockBrushes.marker() }
+    /**
+     * A flat, softly rounded highlighter band: as tall as the brush size, narrow along the stroke,
+     * with no slant. Drawn translucent and multiplied onto the page, like a real highlighter.
+     */
+    private val highlighter by lazy {
+        BrushFamily(tip = BrushTip(scaleX = 0.28f, scaleY = 1f, cornerRounding = 0.45f), paint = BrushPaint())
+    }
     private val dashed by lazy { StockBrushes.dashedLine() }
 
     fun family(name: String): BrushFamily = when (name) {
-        // The stock highlighter has a slanted chisel tip. A round-tipped marker with translucent ink
-        // gives the same look with rounded ends and no tilt, and old chisel strokes redraw this way too.
-        HIGHLIGHTER, MARKER -> marker
+        HIGHLIGHTER -> highlighter
+        MARKER -> marker
         DASHED -> dashed
         else -> pen
     }
 
-    /** Highlighter and ball pen share the marker tip; the highlighter is the translucent one. */
     fun nameOf(brush: Brush): String = when (brush.family) {
-        marker -> if ((brush.colorIntArgb ushr 24) < 0xFF) HIGHLIGHTER else MARKER
+        highlighter -> HIGHLIGHTER
+        marker -> MARKER
         dashed -> DASHED
         else -> PEN
     }

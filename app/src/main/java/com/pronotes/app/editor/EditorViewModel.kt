@@ -132,6 +132,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     /** Set by the screen so model changes can be pushed into the canvas. */
     var onPagesChanged: (() -> Unit)? = null
     var onScrollTo: ((Int) -> Unit)? = null
+    var onRedraw: (() -> Unit)? = null
 
     /** The page this notebook was on when it was last closed. */
     var startPage = 0
@@ -153,6 +154,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             pages.clear(); pages.addAll(loadedPages)
             if (repo.pdfFile(noteId).exists()) pdf = PdfPages(repo.pdfFile(noteId))
             loaded = true
+            prefetchPdf(startPage)
             repo.markOpened(noteId)
             onPagesChanged?.invoke()
         }
@@ -170,7 +172,32 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     fun renderer() = PageRenderer(repo.noteDir(noteId))
 
-    fun onCurrentPage(i: Int) { pageIndex = i; if (loaded) store.setPref("page_$noteId", i.toString()) }
+    fun onCurrentPage(i: Int) {
+        pageIndex = i
+        if (loaded) store.setPref("page_$noteId", i.toString())
+        prefetchPdf(i)
+    }
+
+    private var prefetchJob: Job? = null
+
+    /** Draws the pages around the current one ahead of time so they never flash white while you swipe. */
+    private fun prefetchPdf(center: Int) {
+        val src = pdf ?: return
+        prefetchJob?.cancel()
+        prefetchJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(90)
+            for (d in intArrayOf(0, 1, -1, 2, 3, -2, 4)) {
+                val page = pages.getOrNull(center + d) ?: continue
+                if (page.pdfPage < 0 || src.cached(page.pdfPage) != null) continue
+                // Do not compete with a page that is on screen right now.
+                while (pendingPdf.isNotEmpty()) kotlinx.coroutines.delay(40)
+                val w = 1000
+                val h = (w * page.height / page.width).toInt()
+                withContext(Dispatchers.IO) { src.render(page.pdfPage, w, h) }
+                onRedraw?.invoke()
+            }
+        }
+    }
 
     // ------------------------------------------------------------- brushes
 

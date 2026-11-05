@@ -271,12 +271,13 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
             else -> { vm.saveNow(); onBack() }
         }
     }
-    DisposableEffect(Unit) { onDispose { vm.saveNow(); vm.onPagesChanged = null; vm.onScrollTo = null } }
+    DisposableEffect(Unit) { onDispose { vm.saveNow(); vm.onPagesChanged = null; vm.onScrollTo = null; vm.onRedraw = null } }
 
     LaunchedEffect(canvas) {
         val c = canvas ?: return@LaunchedEffect
         vm.onPagesChanged = { c.setPages(vm.pages.toList()) }
         vm.onScrollTo = { i -> c.scrollToPage(i, animate = true) }
+        vm.onRedraw = { c.redraw() }
         c.startPage = vm.startPage
         c.setPages(vm.pages.toList())
     }
