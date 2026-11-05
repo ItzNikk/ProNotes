@@ -244,7 +244,7 @@ fun isScribble(pts: List<Pt>): Boolean {
 }
 
 /** Point-in-polygon test backed by the platform's Region. */
-class Lasso(points: List<Pt>, private val touching: Boolean = false) {
+class Lasso(points: List<Pt>, private val touching: Boolean = false, private val minInside: Float = 0.6f) {
     private val region = Region()
 
     init {
@@ -268,7 +268,7 @@ class Lasso(points: List<Pt>, private val touching: Boolean = false) {
                     total++
                     if (contains(pts[i].first, pts[i].second)) inside++
                 }
-                if (touching) inside > 0 else inside >= total * 0.6f
+                if (touching) inside > 0 else inside >= total * minInside
             }
         }
         else -> item.bounds.let { b ->

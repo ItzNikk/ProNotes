@@ -98,9 +98,10 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     var tool: Tool = Tool.PEN
     var settings = AppSettings()
         set(value) {
-            val relayout = field.scroll != value.scroll
+            val relayout = field.scroll != value.scroll ||
+                (value.scroll == ScrollDirection.HORIZONTAL && field.toolbarDock != value.toolbarDock)
             field = value
-            if (relayout) { layout(pages); fit(currentIndex) }
+            if (relayout) { val keep = currentIndex; layout(pages); fit(keep) }
             layer.invalidate()
         }
 
@@ -195,9 +196,16 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             if (vertical) {
                 origins[i * 2] = (maxW - p.width) / 2f; origins[i * 2 + 1] = cursor; cursor += p.height + gap
             } else {
-                origins[i * 2] = cursor; origins[i * 2 + 1] = (maxH - p.height) / 2f; cursor += p.width + gap
+                // Horizontal paging: each page sits in a slot one screen wide at fit size,
+                // so neighbouring pages stay off screen (one page at a time).
+                val fit = horizontalFit(p)
+                val slot = if (width > 0 && fit > 0f) max(p.width + gap, width / fit) else p.width + gap
+                origins[i * 2] = cursor + (slot - p.width) / 2f
+                origins[i * 2 + 1] = (maxH - p.height) / 2f
+                cursor += slot
             }
         }
+        if (!vertical) cursor += gap   // layout below subtracts one gap
         if (vertical) { docW = maxW; docH = max(0f, cursor - gap) } else { docW = max(0f, cursor - gap); docH = maxH }
     }
 
@@ -206,14 +214,37 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        if (pages.isNotEmpty() && (!fitted || w != oldw)) fit(currentIndex) else { clamp(); updateMatrix() }
+        val keep = currentIndex
+        // Horizontal page slots depend on the screen size.
+        if (settings.scroll == ScrollDirection.HORIZONTAL && pages.isNotEmpty()) layout(pages)
+        if (pages.isNotEmpty() && (!fitted || w != oldw || settings.scroll == ScrollDirection.HORIZONTAL)) fit(keep) else { clamp(); updateMatrix() }
     }
 
     private fun fitScale(i: Int = currentIndex): Float {
         val p = pages.getOrNull(i) ?: return 1f
         val margin = 40f * density
         return if (settings.scroll == ScrollDirection.VERTICAL) min((width - margin) / p.width, 3f)
-        else min((width - margin) / p.width, (height - margin) / p.height)
+        else horizontalFit(p)
+    }
+
+    /** Space kept free for a floating toolbar at the top or bottom edge. */
+    private fun toolbarInset(): Float = when (settings.toolbarDock) {
+        com.pronotes.app.data.ToolbarDock.TOP, com.pronotes.app.data.ToolbarDock.BOTTOM -> 112f * density
+        else -> 0f
+    }
+
+    /** Centre pages in the space left by the toolbar (horizontal mode). */
+    private fun toolbarShift(): Float = when (settings.toolbarDock) {
+        com.pronotes.app.data.ToolbarDock.TOP -> toolbarInset() / 2f
+        com.pronotes.app.data.ToolbarDock.BOTTOM -> -toolbarInset() / 2f
+        else -> 0f
+    }
+
+    /** Whole page visible, clear of the floating toolbar. */
+    private fun horizontalFit(p: Page): Float {
+        if (width == 0 || height == 0) return 0f
+        val margin = 32f * density
+        return min((width - margin) / p.width, (height - margin - toolbarInset()) / p.height).coerceAtLeast(0.05f)
     }
 
     private fun fit(index: Int) {
@@ -231,7 +262,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             transX = (width - docW * scale) / 2f
         } else {
             transX = (width - p.width * scale) / 2f - ox(index) * scale
-            transY = (height - docH * scale) / 2f
+            transY = (height - docH * scale) / 2f + toolbarShift()
         }
         clamp()
     }
@@ -259,7 +290,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         val maxX = if (cw <= width) restX else pad
         transX = transX.coerceIn(restX - if (!vertical) maxPull else 0f, maxX)
         // Y axis
-        val restY = if (ch <= height && !vertical) (height - ch) / 2f else min(height - ch - pad, pad)
+        val restY = if (ch <= height && !vertical) (height - ch) / 2f + toolbarShift() else min(height - ch - pad, pad)
         val maxY = if (ch <= height && !vertical) restY else pad
         transY = transY.coerceIn(restY - if (vertical) maxPull else 0f, maxY)
         pull = if (!allowPull) 0f else if (vertical) max(0f, restY - transY) else max(0f, restX - transX)
@@ -723,6 +754,27 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
     }
 
+    /**
+     * A loop drawn by hand: closed by the usual test, or the path wraps almost all the way
+     * round its centre (gaps up to about 60° are fine).
+     */
+    private fun isLooseLoop(pts: List<Pt>): Boolean {
+        if (isClosedLoop(pts)) return true
+        if (pts.size < 10) return false
+        val cx = pts.sumOf { it.first.toDouble() } / pts.size
+        val cy = pts.sumOf { it.second.toDouble() } / pts.size
+        var turned = 0.0
+        var prev = kotlin.math.atan2(pts[0].second - cy, pts[0].first - cx)
+        for (i in 1 until pts.size) {
+            val a = kotlin.math.atan2(pts[i].second - cy, pts[i].first - cx)
+            var d = a - prev
+            if (d > Math.PI) d -= 2 * Math.PI
+            if (d < -Math.PI) d += 2 * Math.PI
+            turned += d; prev = a
+        }
+        return kotlin.math.abs(turned) > Math.toRadians(300.0)
+    }
+
     /** Pen held still at the end of a stroke: circle-to-lasso or snap to a shape. */
     private fun onHold() {
         if (mode != Mode.INK || holdFired) return
@@ -730,8 +782,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         val p = pages.getOrNull(activePage) ?: return
         if (points.size < 6 || pathLength(points) < 30f) return
 
-        if (settings.circleToLasso && strokeTool == Tool.PEN && isClosedLoop(points)) {
-            val lasso = Lasso(points, settings.lassoTouching)
+        if (settings.circleToLasso && strokeTool == Tool.PEN && isLooseLoop(points)) {
+            // Free-hand loops are rough: anything mostly or partly inside counts.
+            val lasso = Lasso(points, settings.lassoTouching, minInside = 0.3f)
             val ids = p.items.filter { lassoAllows(it) && lasso.selects(it) }.map { it.id }.toSet()
             if (ids.isNotEmpty()) {
                 holdFired = true
