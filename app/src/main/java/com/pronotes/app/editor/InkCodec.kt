@@ -24,7 +24,8 @@ enum class PenType(val label: String, val family: String, val sizeFactor: Float)
     DASHED("Dashed pen", Brushes.DASHED, 1f),
 }
 
-/** Brush families come straight from Jetpack Ink's stock brushes. */
+/** Brush families come from Jetpack Ink's stock brushes, plus our own flat highlighter. */
+@OptIn(androidx.ink.brush.ExperimentalInkCustomBrushApi::class)
 object Brushes {
     const val PEN = "pen"
     const val MARKER = "marker"
