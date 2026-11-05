@@ -141,21 +141,56 @@ object Updater {
             .onFailure { error = it.message; phase = Phase.FAILED }
     }
 
-    /** Opens the system installer; asks once for "install unknown apps" permission. */
+    const val ACTION_INSTALL_RESULT = "com.pronotes.app.INSTALL_RESULT"
+    private var waitingForPermission = false
+
+    /** Called when the app comes back to the front: finish an install that was waiting for the permission. */
+    fun resumeIfWaiting(context: Context) {
+        if (!waitingForPermission) return
+        if (Build.VERSION.SDK_INT < 26 || context.packageManager.canRequestPackageInstalls()) {
+            waitingForPermission = false
+            install(context)
+        }
+    }
+
+    fun reportInstallFailure(message: String?) {
+        error = message ?: "The installer stopped."
+        phase = Phase.FAILED
+    }
+
+    /**
+     * Hands the downloaded APK to the system through a PackageInstaller session. Unlike a plain
+     * "open file" intent, this reports back why an install failed (for example a different signing key).
+     */
     fun install(context: Context) {
-        val file = apk ?: return
+        val file = apk ?: File(context.cacheDir, "updates/ProNotes.apk").takeIf { it.exists() }
+        if (file == null) { reportInstallFailure("The update file is gone. Download it again."); return }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
+            waitingForPermission = true
             context.startActivity(
                 Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             )
             return
         }
-        prefs(context).edit().putLong("startedAt", System.currentTimeMillis()).apply()
-        val uri = FileProvider.getUriForFile(context, context.packageName + ".files", file)
-        context.startActivity(
-            Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
-        )
+        runCatching {
+            val installer = context.packageManager.packageInstaller
+            val params = android.content.pm.PackageInstaller.SessionParams(android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+            params.setAppPackageName(context.packageName)
+            val id = installer.createSession(params)
+            installer.openSession(id).use { session ->
+                file.inputStream().use { input ->
+                    session.openWrite("ProNotes.apk", 0, file.length()).use { out ->
+                        input.copyTo(out)
+                        session.fsync(out)
+                    }
+                }
+                prefs(context).edit().putLong("startedAt", System.currentTimeMillis()).apply()
+                val intent = Intent(context, com.pronotes.app.InstallResultReceiver::class.java).setAction(ACTION_INSTALL_RESULT)
+                val flags = android.app.PendingIntent.FLAG_UPDATE_CURRENT or
+                    (if (Build.VERSION.SDK_INT >= 31) android.app.PendingIntent.FLAG_MUTABLE else 0)
+                session.commit(android.app.PendingIntent.getBroadcast(context, id, intent, flags).intentSender)
+            }
+        }.onFailure { reportInstallFailure(it.message) }
     }
 }

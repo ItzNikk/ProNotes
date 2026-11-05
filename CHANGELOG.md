@@ -1,5 +1,8 @@
 # Changelog
 
+## v4.2.2
+- **Updates:** installing from the app now uses the system installer directly. If it fails, the app tells you why. Granting the install permission continues the update by itself.
+
 ## v4.2.1
 - **PDF:** smoother pinch and scroll. Pages show quickly, then sharpen once you stop moving. Pages you scrolled past are no longer drawn.
 - **Pen setup:** the ring video now plays inside the circle.
