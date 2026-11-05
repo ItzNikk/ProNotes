@@ -490,7 +490,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             val name = if (uri == null) null else runCatching { repo.saveImage(noteId, uri) }.getOrNull() ?: return@launch
             val p = pages.getOrNull(idx) ?: return@launch
             pages[idx] = p.copy(bgImage = name)
-            thumbs.clear()
+            thumbs.evictAll()
             scheduleSave(); onPagesChanged?.invoke()
         }
     }
