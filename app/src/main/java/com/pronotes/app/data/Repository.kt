@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -46,6 +47,10 @@ class Repository private constructor(private val context: Context) {
 
     private val _library = MutableStateFlow(loadIndex())
     val library: StateFlow<LibraryIndex> = _library
+
+    init {
+        appScope.launch { runCatching { purgeTrash() } }
+    }
 
     private fun loadIndex(): LibraryIndex = runCatching {
         if (indexFile.exists()) json.decodeFromString(LibraryIndex.serializer(), indexFile.readText()) else LibraryIndex()
@@ -105,12 +110,12 @@ class Repository private constructor(private val context: Context) {
             grew = false
             idx.folders.forEach { f -> if (f.parentId in doomed && doomed.add(f.id)) grew = true }
         }
-        val notes = idx.notebooks.filter { it.folderId in doomed }
-        withContext(Dispatchers.IO) { notes.forEach { File(root, it.id).deleteRecursively() } }
+        // Notebooks inside go to the trash, so nothing is lost by accident.
+        val now = System.currentTimeMillis()
         updateIndex { cur ->
             cur.copy(
                 folders = cur.folders.filterNot { it.id in doomed },
-                notebooks = cur.notebooks.filterNot { it.folderId in doomed },
+                notebooks = cur.notebooks.map { n -> if (n.folderId in doomed) n.copy(folderId = null, deletedAt = n.deletedAt ?: now) else n },
             )
         }
     }
@@ -173,9 +178,76 @@ class Repository private constructor(private val context: Context) {
         it.copy(notebooks = it.notebooks.map { n -> if (n.id == id) n.copy(favorite = !n.favorite) else n })
     }
 
-    suspend fun deleteNotebook(id: String) {
+    /** Moves a notebook to the trash. It stays there for 30 days. */
+    suspend fun deleteNotebook(id: String) = updateIndex {
+        it.copy(notebooks = it.notebooks.map { n -> if (n.id == id) n.copy(deletedAt = System.currentTimeMillis()) else n })
+    }
+
+    suspend fun restoreNotebook(id: String) = updateIndex { cur ->
+        val folderIds = cur.folders.map { it.id }.toSet()
+        cur.copy(notebooks = cur.notebooks.map { n ->
+            if (n.id == id) n.copy(deletedAt = null, folderId = n.folderId?.takeIf { it in folderIds }) else n
+        })
+    }
+
+    suspend fun deleteForever(id: String) {
         withContext(Dispatchers.IO) { File(root, id).deleteRecursively() }
         updateIndex { it.copy(notebooks = it.notebooks.filterNot { n -> n.id == id }) }
+    }
+
+    suspend fun emptyTrash() {
+        _library.value.notebooks.filter { it.deletedAt != null }.forEach { deleteForever(it.id) }
+    }
+
+    /** Removes notebooks that have been in the trash for more than 30 days. */
+    suspend fun purgeTrash() {
+        val cutoff = System.currentTimeMillis() - 30L * 24 * 3600 * 1000
+        _library.value.notebooks.filter { (it.deletedAt ?: Long.MAX_VALUE) < cutoff }.forEach { deleteForever(it.id) }
+    }
+
+    suspend fun duplicateNotebook(id: String): String? = withContext(Dispatchers.IO) {
+        val meta = meta(id) ?: return@withContext null
+        val newId = UUID.randomUUID().toString()
+        File(root, id).copyRecursively(File(root, newId), overwrite = true)
+        val now = System.currentTimeMillis()
+        updateIndex { it.copy(notebooks = it.notebooks + meta.copy(id = newId, title = meta.title + " copy", created = now, modified = now, opened = now, favorite = false)) }
+        newId
+    }
+
+    /** Writes every notebook, folder and sticker into one ZIP file. */
+    suspend fun backup(out: OutputStream) = withContext(Dispatchers.IO) {
+        java.util.zip.ZipOutputStream(out.buffered()).use { zip ->
+            fun add(file: File, name: String) {
+                if (file.isDirectory) file.listFiles()?.forEach { add(it, "$name/${it.name}") }
+                else { zip.putNextEntry(java.util.zip.ZipEntry(name)); file.inputStream().use { it.copyTo(zip) }; zip.closeEntry() }
+            }
+            if (indexFile.exists()) add(indexFile, "library.json")
+            add(root, "notes")
+            File(context.filesDir, "stickers").takeIf { it.exists() }?.let { add(it, "stickers") }
+        }
+    }
+
+    /** Restores a backup made by [backup]. Notebooks in the backup are added; existing ones are kept. */
+    suspend fun restore(input: java.io.InputStream): Int = withContext(Dispatchers.IO) {
+        val tmp = File(context.cacheDir, "restore").apply { deleteRecursively(); mkdirs() }
+        java.util.zip.ZipInputStream(input.buffered()).use { zip ->
+            while (true) {
+                val e = zip.nextEntry ?: break
+                val f = File(tmp, e.name).canonicalFile
+                if (!f.path.startsWith(tmp.canonicalPath)) continue   // ignore unsafe paths
+                if (e.isDirectory) f.mkdirs() else { f.parentFile?.mkdirs(); f.outputStream().use { zip.copyTo(it) } }
+            }
+        }
+        val idx = runCatching { json.decodeFromString(LibraryIndex.serializer(), File(tmp, "library.json").readText()) }.getOrNull()
+            ?: return@withContext 0
+        val have = _library.value.notebooks.map { it.id }.toSet()
+        val haveFolders = _library.value.folders.map { it.id }.toSet()
+        val newNotes = idx.notebooks.filter { it.id !in have }
+        newNotes.forEach { n -> File(tmp, "notes/${n.id}").takeIf { it.exists() }?.copyRecursively(File(root, n.id), overwrite = true) }
+        File(tmp, "stickers").takeIf { it.exists() }?.copyRecursively(File(context.filesDir, "stickers"), overwrite = true)
+        updateIndex { cur -> cur.copy(folders = cur.folders + idx.folders.filter { it.id !in haveFolders }, notebooks = cur.notebooks + newNotes) }
+        tmp.deleteRecursively()
+        newNotes.size
     }
 
     fun meta(id: String): NotebookMeta? = _library.value.notebooks.firstOrNull { it.id == id }

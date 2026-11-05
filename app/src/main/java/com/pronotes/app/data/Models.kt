@@ -48,6 +48,8 @@ data class NotebookMeta(
     val fromPdf: Boolean = false,
     val cover: String = "",
     val opened: Long = modified,
+    /** Set when the notebook is in the trash. */
+    val deletedAt: Long? = null,
 ) {
     val coverSpec: String get() = cover.ifBlank { if (fromPdf) "thumb" else "solid:$coverColor" }
 }
@@ -73,6 +75,7 @@ sealed class ItemDoc {
         val text: String, val x: Float, val y: Float, val size: Float, val color: Int,
         val font: String = "SANS", val bold: Boolean = false, val italic: Boolean = false,
         val underline: Boolean = false, val gradient: Int? = null, val align: String = "LEFT",
+        val rot: Float = 0f,
     ) : ItemDoc()
 
     @Serializable
@@ -81,15 +84,15 @@ sealed class ItemDoc {
 
     @Serializable
     @SerialName("image")
-    data class Image(val file: String, val x: Float, val y: Float, val w: Float, val h: Float) : ItemDoc()
+    data class Image(val file: String, val x: Float, val y: Float, val w: Float, val h: Float, val rot: Float = 0f) : ItemDoc()
 
     @Serializable
     @SerialName("tape")
-    data class Tape(val x: Float, val y: Float, val w: Float, val h: Float, val color: Int) : ItemDoc()
+    data class Tape(val x: Float, val y: Float, val w: Float, val h: Float, val color: Int, val rot: Float = 0f) : ItemDoc()
 
     @Serializable
     @SerialName("sticky")
-    data class Sticky(val x: Float, val y: Float, val w: Float, val h: Float, val color: Int, val text: String) : ItemDoc()
+    data class Sticky(val x: Float, val y: Float, val w: Float, val h: Float, val color: Int, val text: String, val rot: Float = 0f) : ItemDoc()
 }
 
 @Serializable

@@ -1,6 +1,7 @@
 package com.pronotes.app.editor
 
 import android.app.Application
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
@@ -9,18 +10,16 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -34,9 +33,11 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -52,13 +53,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronLeft
-import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.automirrored.outlined.FormatAlignLeft
+import androidx.compose.material.icons.automirrored.outlined.FormatAlignRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -69,17 +71,22 @@ import androidx.compose.material.icons.outlined.ContentCut
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Flip
+import androidx.compose.material.icons.outlined.FlipToBack
+import androidx.compose.material.icons.outlined.FlipToFront
+import androidx.compose.material.icons.outlined.FormatAlignCenter
 import androidx.compose.material.icons.outlined.FormatBold
 import androidx.compose.material.icons.outlined.FormatItalic
 import androidx.compose.material.icons.outlined.FormatUnderlined
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PictureAsPdf
+import androidx.compose.material.icons.outlined.RotateRight
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.SwapHoriz
-import androidx.compose.material.icons.automirrored.outlined.FormatAlignLeft
-import androidx.compose.material.icons.automirrored.outlined.FormatAlignRight
-import androidx.compose.material.icons.outlined.FormatAlignCenter
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -91,9 +98,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -101,6 +110,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -141,7 +151,10 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.pronotes.app.data.AppSettings
 import com.pronotes.app.data.EraserMode
+import com.pronotes.app.data.HighlighterMode
+import com.pronotes.app.data.LassoMode
 import com.pronotes.app.data.PaperStyle
+import com.pronotes.app.data.PenPreset
 import com.pronotes.app.data.Repository
 import com.pronotes.app.data.ScrollDirection
 import com.pronotes.app.data.SettingsStore
@@ -154,14 +167,28 @@ import com.pronotes.app.ui.ShapeGlyph
 import com.pronotes.app.ui.StickerSet
 import com.pronotes.app.ui.Swatch
 import com.pronotes.app.ui.ToolGlyph
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 import java.io.File
+import java.text.DateFormat
+import java.util.Date
 import kotlin.math.roundToInt
 
-private val DockTools = listOf(
-    Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.SHAPE, Tool.LASSO, Tool.IMAGE, Tool.TEXT,
-    Tool.STICKY, Tool.TAPE, Tool.STICKER, Tool.LASER,
-)
+private val Pill = CircleShape
+
+/** Shares a bitmap as a PNG through the system share sheet. */
+private suspend fun shareBitmap(context: Context, bmp: Bitmap, name: String) {
+    val file = withContext(Dispatchers.IO) {
+        val dir = File(context.cacheDir, "exports").apply { mkdirs() }
+        File(dir, name.replace(Regex("[^A-Za-z0-9 _-]"), "_") + ".png").also { f -> f.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+    }
+    val uri = FileProvider.getUriForFile(context, context.packageName + ".files", file)
+    val send = Intent(Intent.ACTION_SEND).setType("image/png").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    context.startActivity(Intent.createChooser(send, "Share image"))
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -181,10 +208,11 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     var showSearch by remember { mutableStateOf(false) }
     var showStickers by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
-    var focus by remember { mutableStateOf(settings.fullscreen) }
+    var goTo by remember { mutableStateOf(false) }
+    var focus by remember { mutableStateOf(false) }
 
     LaunchedEffect(noteId) { store.openTab(noteId) }
-    LaunchedEffect(library) { store.retainTabs(library.notebooks.map { it.id }.toSet()) }
+    LaunchedEffect(library) { store.retainTabs(library.notebooks.filter { it.deletedAt == null }.map { it.id }.toSet()) }
 
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) vm.insertImage(uri) { page, id -> canvas?.selectItems(page, setOf(id)) }
@@ -204,7 +232,13 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
         context.startActivity(Intent.createChooser(send, "Share PDF"))
     }
 
-    BackHandler { if (focus) focus = false else { vm.saveNow(); onBack() } }
+    BackHandler {
+        when {
+            focus -> focus = false
+            showPages -> showPages = false
+            else -> { vm.saveNow(); onBack() }
+        }
+    }
     DisposableEffect(Unit) { onDispose { vm.saveNow(); vm.onPagesChanged = null; vm.onScrollTo = null } }
 
     LaunchedEffect(canvas) {
@@ -212,6 +246,14 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
         vm.onPagesChanged = { c.setPages(vm.pages.toList()) }
         vm.onScrollTo = { i -> c.scrollToPage(i, animate = true) }
         c.setPages(vm.pages.toList())
+    }
+    LaunchedEffect(vm.reopenTool) {
+        if (vm.reopenTool == 0) return@LaunchedEffect
+        when (vm.tool) {
+            Tool.IMAGE -> pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            Tool.STICKER -> showStickers = true
+            else -> Unit
+        }
     }
     LaunchedEffect(vm.tool, canvas) {
         canvas?.tool = vm.tool
@@ -236,7 +278,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 Column(Modifier.statusBarsPadding()) {
                     if (settings.showTabs) {
                         TabStrip(
-                            tabs = tabs.mapNotNull { id -> library.notebooks.firstOrNull { it.id == id }?.let { id to it.title } },
+                            tabs = tabs.mapNotNull { id -> library.notebooks.firstOrNull { it.id == id && it.deletedAt == null }?.let { id to it.title } },
                             current = noteId,
                             onSelect = ::switchTo,
                             onClose = { id ->
@@ -247,15 +289,17 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                         )
                     }
                     TopBar(
-                        vm = vm, settings = settings, showSearch = showSearch,
+                        vm = vm, settings = settings, showSearch = showSearch, showPages = showPages,
                         onHome = { vm.saveNow(); onBack() },
-                        onPages = { showPages = true },
+                        onPages = { showPages = !showPages },
                         onSearch = { showSearch = !showSearch; if (!showSearch) vm.clearSearch() },
                         onRename = { renaming = true },
                         onFocus = { focus = true },
                         onExport = { exportPdf.launch(vm.title + ".pdf") },
                         onShare = { sharePdf() },
+                        onSharePage = { scope.launch { vm.pageImage(vm.pageIndex)?.let { shareBitmap(context, it, "${vm.title} p${vm.pageIndex + 1}") } } },
                         onSettings = { vm.saveNow(); onOpenSettings() },
+                        onGoTo = { goTo = true },
                         onScrollToggle = {
                             store.update { it.copy(scroll = if (it.scroll == ScrollDirection.VERTICAL) ScrollDirection.HORIZONTAL else ScrollDirection.VERTICAL) }
                         },
@@ -268,114 +312,107 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
             }
         }
 
-        // -------------------------------------------------------------- canvas
-        var areaSize by remember { mutableStateOf(IntSize.Zero) }
-        Box(Modifier.weight(1f).fillMaxWidth().onSizeChanged { areaSize = it }) {
-            if (vm.loaded) {
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory = { ctx ->
-                        NoteCanvasView(ctx, object : CanvasHost {
-                            override fun brush(tool: Tool) = vm.brushFor(tool)
-                            override fun shapeKind() = vm.shapeKind
-                            override fun eraserRadius() = vm.eraserRadiusPx(density)
-                            override fun tapeColor() = vm.tapeColor
-                            override fun beginEdit(page: Int) = vm.beginEdit(page)
-                            override fun setItems(page: Int, items: List<PageItem>) = vm.setItems(page, items)
-                            override fun onSelectionChanged(page: Int, ids: Set<Long>, screenBounds: android.graphics.RectF?) =
-                                vm.onSelection(page, ids, screenBounds)
-                            override fun onTextTap(page: Int, x: Float, y: Float, existing: TextItem?) {
-                                vm.textEdit = EditorViewModel.TextEdit(page, x, y, existing)
-                            }
-                            override fun onStickyTap(page: Int, x: Float, y: Float, existing: StickyItem?) = vm.openSticky(page, x, y, existing)
-                            override fun onCurrentPage(index: Int) = vm.onCurrentPage(index)
-                            override fun onPullAddPage() = vm.addPage(atEnd = true)
-                            override fun undo() = vm.undo()
-                            override fun redo() = vm.redo()
-                            override fun pdfBitmap(page: Page, onReady: () -> Unit) = vm.pdfBitmap(page, onReady)
-                            override fun highlights(page: Int) = vm.highlights(page)
-                            override fun activeHighlight() = vm.activeHighlight()
-                            override fun shapeFill() = vm.shapeFill()
-                            override fun onCircleCandidate(screenBounds: android.graphics.RectF?) = vm.showCircleChip(screenBounds)
-                            override fun onEraserLifted() = vm.onEraserLifted()
-                            override fun onZoom(percent: Int?) = vm.onZoom(percent)
-                        }).also {
-                            it.renderer = vm.renderer()
-                            it.settings = settings
-                            it.tool = vm.tool
-                            canvas = it
-                        }
-                    },
-                )
+        Row(Modifier.weight(1f).fillMaxWidth()) {
+            // ------------------------------------------------------ pages panel (left)
+            AnimatedVisibility(
+                showPages && !focus,
+                enter = slideInHorizontally { -it } + fadeIn(),
+                exit = slideOutHorizontally { -it } + fadeOut(),
+            ) {
+                PagesPanel(vm, onJump = { vm.goToPage(it) }, onClose = { showPages = false })
             }
 
-            // "Select" chip after circling content with the pen.
-            val chip = vm.circleChip
-            androidx.compose.animation.AnimatedVisibility(
-                visible = chip != null,
-                enter = fadeIn() + scaleIn(initialScale = 0.6f),
-                exit = fadeOut() + scaleOut(targetScale = 0.6f),
-                modifier = Modifier.offset {
-                    val r = chip ?: android.graphics.RectF()
-                    IntOffset((r.right - 20 * density).roundToInt().coerceAtLeast(8), (r.top - 44 * density).roundToInt().coerceAtLeast(8))
-                },
-            ) {
-                Surface(
-                    shape = CircleShape, color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary,
-                    shadowElevation = 8.dp, modifier = Modifier.clickable { canvas?.acceptCircle() },
+            // -------------------------------------------------------------- canvas
+            var areaSize by remember { mutableStateOf(IntSize.Zero) }
+            Box(Modifier.weight(1f).fillMaxHeight().onSizeChanged { areaSize = it }) {
+                if (vm.loaded) {
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { ctx ->
+                            NoteCanvasView(ctx, object : CanvasHost {
+                                override fun brush(tool: Tool) = vm.brushFor(tool)
+                                override fun shapeKind() = vm.shapeKind
+                                override fun eraserRadius() = vm.eraserRadiusPx(density)
+                                override fun tapeColor() = vm.tapeColor
+                                override fun beginEdit(page: Int) = vm.beginEdit(page)
+                                override fun setItems(page: Int, items: List<PageItem>) = vm.setItems(page, items)
+                                override fun onSelectionChanged(page: Int, ids: Set<Long>, screenBounds: android.graphics.RectF?) =
+                                    vm.onSelection(page, ids, screenBounds)
+                                override fun onTextTap(page: Int, x: Float, y: Float, existing: TextItem?) {
+                                    vm.textEdit = EditorViewModel.TextEdit(page, x, y, existing)
+                                }
+                                override fun onStickyTap(page: Int, x: Float, y: Float, existing: StickyItem?) = vm.openSticky(page, x, y, existing)
+                                override fun onCurrentPage(index: Int) = vm.onCurrentPage(index)
+                                override fun onPullAddPage() = vm.addPage(atEnd = true)
+                                override fun undo() = vm.undo()
+                                override fun redo() = vm.redo()
+                                override fun pdfBitmap(page: Page, onReady: () -> Unit) = vm.pdfBitmap(page, onReady)
+                                override fun highlights(page: Int) = vm.highlights(page)
+                                override fun activeHighlight() = vm.activeHighlight()
+                                override fun shapeFill() = vm.shapeFill()
+                                override fun onCircleCandidate(screenBounds: android.graphics.RectF?) = Unit
+                                override fun onEraserLifted() = vm.onEraserLifted()
+                                override fun onZoom(percent: Int?) = vm.onZoom(percent)
+                            }).also {
+                                it.renderer = vm.renderer()
+                                it.settings = settings
+                                it.tool = vm.tool
+                                canvas = it
+                            }
+                        },
+                    )
+                }
+
+                // Floating selection menu: below the selection, or above when there is no room.
+                val sb = vm.selectionBounds
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = vm.selection.isNotEmpty() && sb != null,
+                    enter = fadeIn() + scaleIn(initialScale = 0.85f),
+                    exit = fadeOut() + scaleOut(targetScale = 0.85f),
+                    modifier = Modifier.offset {
+                        val b = sb ?: android.graphics.RectF()
+                        val below = b.bottom + 18 * density
+                        val y = if (below + 60 * density < areaSize.height) below else (b.top - 110 * density).coerceAtLeast(8f)
+                        IntOffset(b.left.roundToInt().coerceIn(8, (areaSize.width - 480 * density).roundToInt().coerceAtLeast(8)), y.roundToInt())
+                    },
                 ) {
-                    Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        ProIconView(ProIcon.LASSO, MaterialTheme.colorScheme.onPrimary, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Select", style = MaterialTheme.typography.labelSmall)
+                    SelectionMenu(
+                        vm = vm,
+                        onDuplicate = { val ids = vm.duplicateSelection(); canvas?.selectItems(vm.selectionPage, ids) },
+                        onColor = { c -> val ids = vm.selection; val pg = vm.selectionPage; vm.recolorSelection(c); canvas?.selectItems(pg, ids) },
+                        keep = { block -> val ids = vm.selection; val pg = vm.selectionPage; block(); canvas?.selectItems(pg, ids) },
+                        onShareImage = { scope.launch { vm.selectionImage()?.let { shareBitmap(context, it, vm.title + " selection") } } },
+                    )
+                }
+
+                if (settings.toolbarDock != ToolbarDock.HEADER) {
+                    ToolDock(vm, settings, areaSize, onDock = { d -> store.update { it.copy(toolbarDock = d) } })
+                } else {
+                    Box(Modifier.align(Alignment.TopCenter).padding(top = 10.dp)) { OptionsBar(vm, vertical = false, settings = settings) }
+                }
+
+                vm.zoomPercent?.let { z ->
+                    Surface(shape = Pill, color = Color(0xCC1B1F2A), contentColor = Color.White, modifier = Modifier.align(Alignment.Center)) {
+                        Text("$z%", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.titleMedium)
                     }
                 }
-            }
 
-            // Floating selection menu
-            val sb = vm.selectionBounds
-            androidx.compose.animation.AnimatedVisibility(
-                visible = vm.selection.isNotEmpty() && sb != null,
-                enter = fadeIn() + scaleIn(initialScale = 0.85f),
-                exit = fadeOut() + scaleOut(targetScale = 0.85f),
-                modifier = Modifier.offset {
-                    val b = sb ?: android.graphics.RectF()
-                    IntOffset(b.left.roundToInt().coerceAtLeast(8), (b.top - 56 * density).roundToInt().coerceAtLeast(8))
-                },
-            ) {
-                SelectionMenu(
-                    vm = vm,
-                    onDuplicate = { val ids = vm.duplicateSelection(); canvas?.selectItems(vm.selectionPage, ids) },
-                    onColor = { c -> val ids = vm.selection; val pg = vm.selectionPage; vm.recolorSelection(c); canvas?.selectItems(pg, ids) },
-                )
-            }
-
-            if (settings.toolbarDock != ToolbarDock.HEADER) {
-                ToolDock(vm, settings, areaSize, onDock = { d -> store.update { it.copy(toolbarDock = d) } })
-            } else {
-                Box(Modifier.align(Alignment.TopCenter).padding(top = 10.dp)) { OptionsBar(vm, vertical = false, settings = settings) }
-            }
-
-            vm.zoomPercent?.let { z ->
-                Surface(shape = CircleShape, color = Color(0xCC1B1F2A), contentColor = Color.White, modifier = Modifier.align(Alignment.Center)) {
-                    Text("$z%", Modifier.padding(horizontal = 14.dp, vertical = 6.dp), style = MaterialTheme.typography.titleMedium)
+                if (focus) {
+                    Surface(
+                        shape = Pill, color = MaterialTheme.colorScheme.surface, shadowElevation = 6.dp,
+                        modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp).clickable { focus = false },
+                    ) { ProIconView(ProIcon.CLOSE, MaterialTheme.colorScheme.onSurface, Modifier.padding(10.dp).size(20.dp)) }
                 }
-            }
 
-            if (focus) {
-                Surface(
-                    shape = CircleShape, color = MaterialTheme.colorScheme.surface, shadowElevation = 6.dp,
-                    modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp).clickable { focus = false },
-                ) { ProIconView(ProIcon.CLOSE, MaterialTheme.colorScheme.onSurface, Modifier.padding(10.dp).size(20.dp)) }
-            }
-
-            if (vm.pages.isNotEmpty()) {
-                PagePill(
-                    index = vm.pageIndex, count = vm.pages.size, bookmarked = vm.currentPage?.bookmarked == true,
-                    onPrev = { vm.goToPage(vm.pageIndex - 1) }, onNext = { vm.goToPage(vm.pageIndex + 1) },
-                    modifier = Modifier.align(if (settings.toolbarDock == ToolbarDock.BOTTOM) Alignment.TopEnd else Alignment.BottomEnd)
-                        .navigationBarsPadding().padding(16.dp),
-                )
+                if (vm.pages.isNotEmpty()) {
+                    PagePill(
+                        index = vm.pageIndex, count = vm.pages.size, bookmarked = vm.currentPage?.bookmarked == true,
+                        onPrev = { vm.goToPage(vm.pageIndex - 1) }, onNext = { vm.goToPage(vm.pageIndex + 1) },
+                        onTap = { goTo = true },
+                        modifier = Modifier.align(if (settings.toolbarDock == ToolbarDock.BOTTOM) Alignment.TopEnd else Alignment.BottomEnd)
+                            .navigationBarsPadding().padding(16.dp),
+                    )
+                }
             }
         }
     }
@@ -391,9 +428,10 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
             title = { Text(if (edit.isNew) "New sticky note" else "Sticky note") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row { StickyColors.forEach { c -> Swatch(c, c == color) { color = c } } }
+                    Row { StickyColors.forEach { c -> Swatch(c, c == color, 20) { color = c } } }
                     OutlinedTextField(
-                        text, { text = it }, minLines = 4, modifier = Modifier.fillMaxWidth().background(Color(color), RoundedCornerShape(8.dp)),
+                        text, { text = it }, minLines = 4, shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth().background(Color(color), RoundedCornerShape(16.dp)),
                     )
                 }
             },
@@ -411,33 +449,35 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
         AlertDialog(
             onDismissRequest = { renaming = false },
             title = { Text("Rename notebook") },
-            text = { OutlinedTextField(name, { name = it }, singleLine = true) },
+            text = { OutlinedTextField(name, { name = it }, singleLine = true, shape = Pill) },
             confirmButton = { TextButton(onClick = { vm.rename(name.trim()); renaming = false }) { Text("Save") } },
             dismissButton = { TextButton(onClick = { renaming = false }) { Text("Cancel") } },
         )
     }
 
-    if (showStickers) {
-        ModalBottomSheet(onDismissRequest = { showStickers = false; vm.tool = Tool.LASSO }) {
-            Text("Stickers", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(horizontal = 24.dp))
-            LazyVerticalGrid(GridCells.Adaptive(56.dp), Modifier.fillMaxWidth().heightIn(max = 420.dp).padding(16.dp)) {
-                items(StickerSet.size) { i ->
-                    Box(
-                        Modifier.size(56.dp).clip(RoundedCornerShape(12.dp)).clickable {
-                            showStickers = false
-                            vm.insertSticker(StickerSet[i])?.let { (pg, id) -> vm.tool = Tool.LASSO; canvas?.selectItems(pg, setOf(id)) }
-                        },
-                        contentAlignment = Alignment.Center,
-                    ) { Text(StickerSet[i], style = MaterialTheme.typography.headlineSmall) }
-                }
-            }
-            Spacer(Modifier.height(24.dp))
-        }
+    if (goTo) {
+        var n by remember { mutableStateOf("${vm.pageIndex + 1}") }
+        AlertDialog(
+            onDismissRequest = { goTo = false },
+            title = { Text("Go to page") },
+            text = {
+                OutlinedTextField(n, { v -> n = v.filter { it.isDigit() }.take(5) }, singleLine = true, shape = Pill,
+                    supportingText = { Text("1 – ${vm.pages.size}") })
+            },
+            confirmButton = {
+                TextButton(onClick = { n.toIntOrNull()?.let { vm.goToPage((it - 1).coerceIn(0, vm.pages.size - 1)) }; goTo = false }) { Text("Go") }
+            },
+            dismissButton = { TextButton(onClick = { goTo = false }) { Text("Cancel") } },
+        )
     }
 
-    if (showPages) {
-        ModalBottomSheet(onDismissRequest = { showPages = false }) {
-            PagesSheet(vm, onJump = { showPages = false; vm.goToPage(it) })
+    if (showStickers) {
+        ModalBottomSheet(onDismissRequest = { showStickers = false; vm.tool = Tool.LASSO }) {
+            StickerSheet(vm) { bmp ->
+                showStickers = false
+                vm.tool = Tool.LASSO
+                vm.insertStickerBitmap(bmp) { pg, id -> canvas?.selectItems(pg, setOf(id)) }
+            }
         }
     }
 }
@@ -448,27 +488,27 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
 private fun TabStrip(tabs: List<Pair<String, String>>, current: String, onSelect: (String) -> Unit, onClose: (String) -> Unit) {
     if (tabs.isEmpty()) return
     Row(
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).horizontalScroll(rememberScrollState())
-            .padding(start = 8.dp, end = 8.dp, top = 6.dp),
-        verticalAlignment = Alignment.Bottom,
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         tabs.forEach { (id, title) ->
             val sel = id == current
             val bg by animateFloatAsState(if (sel) 1f else 0f, label = "tab")
             Row(
-                Modifier.padding(end = 4.dp).widthIn(min = 120.dp, max = 220.dp)
-                    .clip(RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.35f + 0.65f * bg))
-                    .clickable { onSelect(id) }.padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                Modifier.widthIn(min = 110.dp, max = 220.dp).clip(Pill)
+                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = bg))
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 1f - bg), Pill)
+                    .clickable { onSelect(id) }.padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     title, Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal),
-                    color = if (sel) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (sel) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Box(Modifier.size(24.dp).clip(CircleShape).clickable { onClose(id) }, contentAlignment = Alignment.Center) {
-                    ProIconView(ProIcon.CLOSE, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.size(12.dp))
+                Box(Modifier.size(22.dp).clip(CircleShape).clickable { onClose(id) }, contentAlignment = Alignment.Center) {
+                    ProIconView(ProIcon.CLOSE, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.size(11.dp))
                 }
             }
         }
@@ -483,22 +523,23 @@ private fun BarIcon(icon: ProIcon, label: String, enabled: Boolean = true, activ
         else -> MaterialTheme.colorScheme.onSurface
     }
     Box(
-        Modifier.size(42.dp).clip(RoundedCornerShape(10.dp))
+        Modifier.size(40.dp).clip(Pill)
             .background(if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { ProIconView(icon, tint, Modifier.size(24.dp)) }
+    ) { ProIconView(icon, tint, Modifier.size(22.dp)) }
 }
 
 @Composable
 private fun TopBar(
-    vm: EditorViewModel, settings: AppSettings, showSearch: Boolean,
+    vm: EditorViewModel, settings: AppSettings, showSearch: Boolean, showPages: Boolean,
     onHome: () -> Unit, onPages: () -> Unit, onSearch: () -> Unit, onRename: () -> Unit, onFocus: () -> Unit,
-    onExport: () -> Unit, onShare: () -> Unit, onSettings: () -> Unit, onScrollToggle: () -> Unit, onPaste: () -> Unit,
+    onExport: () -> Unit, onShare: () -> Unit, onSharePage: () -> Unit, onSettings: () -> Unit, onGoTo: () -> Unit,
+    onScrollToggle: () -> Unit, onPaste: () -> Unit,
 ) {
-    Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         BarIcon(ProIcon.HOME, "Library", onClick = onHome)
-        BarIcon(ProIcon.SIDEBAR, "Pages", onClick = onPages)
+        BarIcon(ProIcon.SIDEBAR, "Pages", active = showPages, onClick = onPages)
         BarIcon(ProIcon.SEARCH, "Search", active = showSearch, onClick = onSearch)
         if (settings.toolbarDock == ToolbarDock.HEADER) {
             Spacer(Modifier.weight(1f))
@@ -506,35 +547,36 @@ private fun TopBar(
                 BarIcon(ProIcon.UNDO, "Undo", enabled = vm.canUndo, onClick = vm::undo)
                 BarIcon(ProIcon.REDO, "Redo", enabled = vm.canRedo, onClick = vm::redo)
                 Box(Modifier.padding(horizontal = 8.dp).width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant))
-                DockTools.forEach { t -> ToolButton(vm, t, settings) }
-                ColorDot(vm)
+                ToolbarOrder.visible(settings.toolbarTools).forEach { t -> ToolButton(vm, t, settings) }
             }
             Spacer(Modifier.weight(1f))
         } else {
             Text(
                 vm.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f).padding(horizontal = 8.dp).clickable(onClick = onRename),
+                modifier = Modifier.weight(1f).padding(horizontal = 10.dp).clickable(onClick = onRename),
             )
-            BarIcon(ProIcon.UNDO, "Undo", enabled = vm.canUndo, onClick = vm::undo)
-            BarIcon(ProIcon.REDO, "Redo", enabled = vm.canRedo, onClick = vm::redo)
         }
         BarIcon(ProIcon.ADD, "Add page") { vm.addPage() }
         var shareMenu by remember { mutableStateOf(false) }
         Box {
             BarIcon(ProIcon.SHARE, "Export") { shareMenu = true }
-            DropdownMenu(shareMenu, { shareMenu = false }) {
+            DropdownMenu(shareMenu, { shareMenu = false }, shape = RoundedCornerShape(18.dp)) {
                 DropdownMenuItem(text = { Text("Export as PDF…") }, leadingIcon = { Icon(Icons.Outlined.PictureAsPdf, null) },
                     onClick = { shareMenu = false; onExport() })
                 DropdownMenuItem(text = { Text("Share PDF") }, leadingIcon = { Icon(Icons.Outlined.IosShare, null) },
                     onClick = { shareMenu = false; onShare() })
+                DropdownMenuItem(text = { Text("Share this page as image") }, leadingIcon = { Icon(Icons.Outlined.Image, null) },
+                    onClick = { shareMenu = false; onSharePage() })
             }
         }
         var more by remember { mutableStateOf(false) }
         Box {
             BarIcon(ProIcon.MORE, "More") { more = true }
-            DropdownMenu(more, { more = false }) {
+            DropdownMenu(more, { more = false }, shape = RoundedCornerShape(18.dp)) {
                 DropdownMenuItem(text = { Text("Rename notebook") }, leadingIcon = { Icon(Icons.Outlined.Edit, null) },
                     onClick = { more = false; onRename() })
+                DropdownMenuItem(text = { Text("Go to page…") }, leadingIcon = { Icon(Icons.Outlined.SwapHoriz, null) },
+                    onClick = { more = false; onGoTo() })
                 DropdownMenuItem(text = { Text(if (vm.currentPage?.bookmarked == true) "Remove bookmark" else "Bookmark page") },
                     leadingIcon = { ProIconView(ProIcon.BOOKMARK, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) },
                     onClick = { more = false; vm.toggleBookmark() })
@@ -558,27 +600,6 @@ private fun TopBar(
     }
 }
 
-/** The active colour, shown as a dot next to the tools (opens the colour editor). */
-@Composable
-private fun ColorDot(vm: EditorViewModel) {
-    val t = if (vm.styleFor(vm.tool) != null) vm.tool else Tool.PEN
-    val style = vm.styleFor(t) ?: return
-    var edit by remember { mutableStateOf(false) }
-    Box(
-        Modifier.padding(horizontal = 6.dp).size(22.dp).clip(CircleShape).background(Color(style.color))
-            .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
-            .border(3.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f), CircleShape)
-            .clickable { edit = true },
-    )
-    if (edit) {
-        ColorEditorDialog(style.color, PenPalette, vm.recentColors(), onDismiss = { edit = false }) { c ->
-            val idx = style.colors.indexOf(style.color).coerceAtLeast(0)
-            vm.updateStyle(t, style.copy(colors = style.colors.toMutableList().also { it[idx] = c }, color = c))
-            vm.pushRecent(c); edit = false
-        }
-    }
-}
-
 // ============================================================== search
 
 @Composable
@@ -589,7 +610,7 @@ private fun SearchBar(vm: EditorViewModel) {
                 value = vm.searchQuery, onValueChange = vm::search, singleLine = true,
                 placeholder = { Text(if (vm.isPdf) "Search this PDF and your text" else "Search typed text and notes") },
                 leadingIcon = { ProIconView(ProIcon.SEARCH, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.size(20.dp)) },
-                shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f),
+                shape = Pill, modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(8.dp))
             Text(
@@ -609,9 +630,9 @@ private fun SearchBar(vm: EditorViewModel) {
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 160.dp)) {
                 itemsIndexed(vm.searchHits) { i, hit ->
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                        Modifier.fillMaxWidth().clip(Pill)
                             .background(if (i == vm.activeHit) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                            .clickable { vm.jumpToHit(i) }.padding(horizontal = 10.dp, vertical = 6.dp),
+                            .clickable { vm.jumpToHit(i) }.padding(horizontal = 12.dp, vertical = 6.dp),
                     ) {
                         Text("p.${hit.page + 1}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(44.dp))
                         Text(hit.snippet, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -622,56 +643,70 @@ private fun SearchBar(vm: EditorViewModel) {
     }
 }
 
-// ============================================================== pages sheet
+// ============================================================== pages panel
+
+/** Left panel with page thumbnails (drag to reorder) and a bookmark outline. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PagesPanel(vm: EditorViewModel, onJump: (Int) -> Unit, onClose: () -> Unit) {
+    var tab by remember { mutableIntStateOf(0) }
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.width(200.dp).fillMaxHeight(), shadowElevation = 2.dp) {
+        Column {
+            Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Pages", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                IconButton(onClick = { vm.addPage(atEnd = true) }) { Icon(Icons.Outlined.Add, "Add page") }
+                IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Close") }
+            }
+            PrimaryTabRow(selectedTabIndex = tab, containerColor = Color.Transparent) {
+                Tab(tab == 0, { tab = 0 }, text = { Text("All") })
+                Tab(tab == 1, { tab = 1 }, text = { Text("Bookmarks") })
+            }
+            if (tab == 0) {
+                val listState = rememberLazyListState()
+                val reorder = rememberReorderableLazyListState(listState) { from, to -> vm.movePage(from.index, to.index) }
+                LazyColumn(state = listState, contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    itemsIndexed(vm.pages, key = { _, p -> p.id }) { i, page ->
+                        ReorderableItem(reorder, key = page.id) { dragging ->
+                            val lift by animateFloatAsState(if (dragging) 1.06f else 1f, label = "lift")
+                            PageThumb(vm, i, page, Modifier.graphicsLayer { scaleX = lift; scaleY = lift }.longPressDraggableHandle(), onJump)
+                        }
+                    }
+                }
+            } else {
+                val marks = vm.pages.indices.filter { vm.pages[it].bookmarked }
+                if (marks.isEmpty()) {
+                    Text(
+                        "Bookmark pages from the ⋯ menu to list them here.",
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp),
+                    )
+                }
+                LazyColumn(contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    items(marks.size) { k -> PageThumb(vm, marks[k], vm.pages[marks[k]], Modifier, onJump) }
+                }
+            }
+        }
+    }
+}
 
 @Composable
-private fun PagesSheet(vm: EditorViewModel, onJump: (Int) -> Unit) {
-    var onlyBookmarks by remember { mutableStateOf(false) }
-    Column(Modifier.padding(horizontal = 20.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Pages", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-            FilterChip(onlyBookmarks, { onlyBookmarks = !onlyBookmarks }, label = { Text("Bookmarked") })
-            Spacer(Modifier.width(8.dp))
-            var paperMenu by remember { mutableStateOf(false) }
-            Box {
-                TextButton(onClick = { paperMenu = true }) { Text("Paper: ${vm.currentPage?.paper?.label ?: ""}") }
-                DropdownMenu(paperMenu, { paperMenu = false }) {
-                    PaperStyle.entries.forEach { s -> DropdownMenuItem(text = { Text(s.label) }, onClick = { paperMenu = false; vm.setPaper(s) }) }
-                }
-            }
-            TextButton(onClick = { vm.addPage(atEnd = true) }) { Icon(Icons.Outlined.Add, null); Text("Add page") }
+private fun PageThumb(vm: EditorViewModel, i: Int, page: Page, modifier: Modifier, onJump: (Int) -> Unit) {
+    val thumb by produceState<Bitmap?>(null, page) { value = vm.thumbnail(i, 220) }
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier.fillMaxWidth()) {
+        Box(
+            Modifier.fillMaxWidth().aspectRatio(page.width / page.height)
+                .shadow(3.dp, RoundedCornerShape(8.dp)).background(Color.White)
+                .border(if (i == vm.pageIndex) 2.dp else 0.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+                .clickable { onJump(i) },
+        ) {
+            thumb?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize()) }
+            if (page.bookmarked) ProIconView(ProIcon.BOOKMARK, Color(0xFFE34948), Modifier.align(Alignment.TopEnd).padding(4.dp).size(16.dp), ink = Color(0xFFE34948))
         }
-        val indices = vm.pages.indices.filter { !onlyBookmarks || vm.pages[it].bookmarked }
-        LazyVerticalGrid(GridCells.Adaptive(120.dp), Modifier.fillMaxWidth().heightIn(max = 560.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            items(indices.size, key = { vm.pages[indices[it]].id }) { n ->
-                val i = indices[n]
-                val page = vm.pages[i]
-                val thumb by produceState<Bitmap?>(null, page) { value = vm.thumbnail(i, 240) }
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.animateItem()) {
-                    Box(
-                        Modifier.fillMaxWidth().aspectRatio(page.width / page.height)
-                            .shadow(4.dp, RoundedCornerShape(6.dp)).background(Color.White)
-                            .border(if (i == vm.pageIndex) 2.dp else 0.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
-                            .clickable { onJump(i) },
-                    ) {
-                        thumb?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize()) }
-                        if (page.bookmarked) ProIconView(ProIcon.BOOKMARK, Color(0xFFE34948), Modifier.align(Alignment.TopEnd).padding(4.dp).size(18.dp), ink = Color(0xFFE34948))
-                    }
-                    Text("${i + 1}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
-                }
-            }
-        }
-        Spacer(Modifier.height(28.dp))
+        Text("${i + 1}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
     }
 }
 
 // ============================================================== tool dock
 
-/**
- * Floating toolbar. Drag the grip to any edge (top, bottom, left, right);
- * it snaps there and remembers the choice. Tool options sit beside it.
- */
 @Composable
 private fun BoxScope.ToolDock(vm: EditorViewModel, settings: AppSettings, area: IntSize, onDock: (ToolbarDock) -> Unit) {
     val dock = settings.toolbarDock
@@ -695,7 +730,7 @@ private fun BoxScope.ToolDock(vm: EditorViewModel, settings: AppSettings, area: 
         val isVertical = d == ToolbarDock.LEFT || d == ToolbarDock.RIGHT
         val grip = @Composable {
             Box(
-                Modifier.size(28.dp).pointerInput(area) {
+                Modifier.size(26.dp).pointerInput(area) {
                     detectDragGestures(
                         onDragStart = { dragging = true },
                         onDragEnd = {
@@ -724,16 +759,15 @@ private fun BoxScope.ToolDock(vm: EditorViewModel, settings: AppSettings, area: 
         val tools = @Composable {
             BarIcon(ProIcon.UNDO, "Undo", enabled = vm.canUndo, onClick = vm::undo)
             BarIcon(ProIcon.REDO, "Redo", enabled = vm.canRedo, onClick = vm::redo)
-            DockTools.forEach { t -> ToolButton(vm, t, settings) }
-            ColorDot(vm)
+            ToolbarOrder.visible(settings.toolbarTools).forEach { t -> ToolButton(vm, t, settings) }
         }
         val bar = @Composable {
             Surface(
-                shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.surface,
+                shape = Pill, color = MaterialTheme.colorScheme.surface,
                 shadowElevation = if (dragging) 14.dp else 6.dp, tonalElevation = 1.dp,
             ) {
-                if (isVertical) Column(Modifier.padding(6.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) { grip(); tools() }
-                else Row(Modifier.padding(6.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) { grip(); tools() }
+                if (isVertical) Column(Modifier.padding(5.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) { grip(); tools() }
+                else Row(Modifier.padding(5.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) { grip(); tools() }
             }
         }
         val optionsBar = @Composable { OptionsBar(vm, isVertical, settings) }
@@ -746,12 +780,24 @@ private fun BoxScope.ToolDock(vm: EditorViewModel, settings: AppSettings, area: 
     }
 }
 
+/** Compact pill with the active tool's colours and sizes. Hidden when the tool has none. */
 @Composable
 private fun OptionsBar(vm: EditorViewModel, vertical: Boolean, settings: AppSettings) {
-    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f), shadowElevation = 4.dp) {
-        if (vertical) Column(Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) { ToolOptions(vm, true, settings) }
-        else Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { ToolOptions(vm, false, settings) }
+    val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.TEXT)
+    AnimatedVisibility(hasOptions, enter = fadeIn() + scaleIn(initialScale = 0.9f), exit = fadeOut() + scaleOut(targetScale = 0.9f)) {
+        Surface(shape = Pill, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f), shadowElevation = 4.dp) {
+            if (vertical) Column(Modifier.padding(vertical = 6.dp, horizontal = 3.dp), horizontalAlignment = Alignment.CenterHorizontally) { ToolOptions(vm, true, settings) }
+            else Row(Modifier.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) { ToolOptions(vm, false, settings) }
+        }
     }
+}
+
+/** Where a tool's settings card opens, so it never leaves the screen. */
+private fun cardPlacement(dock: ToolbarDock, density: Float): Pair<Alignment, IntOffset> = when (dock) {
+    ToolbarDock.BOTTOM -> Alignment.BottomCenter to IntOffset(0, (-56 * density).toInt())
+    ToolbarDock.LEFT -> Alignment.CenterStart to IntOffset((56 * density).toInt(), 0)
+    ToolbarDock.RIGHT -> Alignment.CenterEnd to IntOffset((-56 * density).toInt(), 0)
+    else -> Alignment.TopCenter to IntOffset(0, (56 * density).toInt())
 }
 
 @Composable
@@ -763,30 +809,40 @@ private fun ToolButton(vm: EditorViewModel, t: Tool, settings: AppSettings) {
         else -> vm.penStyle.color
     })
     val bg by animateFloatAsState(if (selected) 1f else 0f, label = "bg")
-    val lift by animateDpAsState(if (selected) (-1).dp else 0.dp, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "lift")
-    val sz = (42 * settings.toolbarSize.scale).dp
+    val sz = (40 * settings.toolbarSize.scale).dp
+    val density = LocalDensity.current.density
     var card by remember { mutableStateOf(false) }
     Box {
         Box(
-            Modifier.padding(1.dp).size(sz).clip(RoundedCornerShape(10.dp))
+            Modifier.padding(1.dp).size(sz).clip(Pill)
                 .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = bg))
                 .clickable {
-                    // Tapping the active pen, shape, highlighter or eraser opens its settings card.
-                    if (selected && (t == Tool.PEN || t == Tool.SHAPE || t == Tool.HIGHLIGHTER || t == Tool.ERASER)) card = true
-                    else vm.tool = t
+                    // Tapping the tool that is already selected opens all of its settings.
+                    when {
+                        !selected -> vm.tool = t
+                        t == Tool.IMAGE || t == Tool.STICKER -> vm.reopenTool++   // pick another photo / sticker
+                        else -> card = true
+                    }
                 },
             contentAlignment = Alignment.Center,
         ) {
             val tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-            ToolGlyph(t, tint, ink, Modifier.size((24 * settings.toolbarSize.scale).dp).offset(y = lift), active = selected)
+            ToolGlyph(t, tint, ink, Modifier.size((23 * settings.toolbarSize.scale).dp), active = selected)
         }
         if (card) {
-            Popup(alignment = Alignment.TopCenter, offset = IntOffset(0, 150), onDismissRequest = { card = false }, properties = PopupProperties(focusable = true)) {
+            val (align, offset) = cardPlacement(settings.toolbarDock, density)
+            Popup(alignment = align, offset = offset, onDismissRequest = { card = false }, properties = PopupProperties(focusable = true)) {
                 when (t) {
                     Tool.PEN -> PenCard(vm)
+                    Tool.HIGHLIGHTER -> HighlighterCard(vm)
                     Tool.SHAPE -> ShapeCard(vm)
-                    Tool.ERASER -> EraserCard()
-                    else -> HighlighterCard(vm)
+                    Tool.ERASER -> EraserCard(vm)
+                    Tool.LASSO -> LassoCard()
+                    Tool.LASER -> LaserCard()
+                    Tool.TEXT -> TextCard(vm)
+                    Tool.TAPE -> ColorCard("Tape", TapeColors, vm.tapeColor, vm) { vm.tapeColor = it }
+                    Tool.STICKY -> ColorCard("Sticky note", StickyColors, vm.stickyColor, vm) { vm.stickyColor = it }
+                    Tool.STICKER, Tool.IMAGE -> Unit
                 }
             }
         }
@@ -816,17 +872,7 @@ private fun ToolOptions(vm: EditorViewModel, vertical: Boolean, settings: AppSet
                 t == Tool.TEXT -> SizeDots(listOf(28f, 40f, 64f), vm.textSize) { vm.textSize = it }
                 t == Tool.TAPE -> CustomSwatches(TapeColors, vm.tapeColor, vm) { vm.tapeColor = it }
                 t == Tool.STICKY -> CustomSwatches(StickyColors, vm.stickyColor, vm) { vm.stickyColor = it }
-                else -> Text(
-                    when (t) {
-                        Tool.LASSO -> "Circle to select · drag to move"
-                        Tool.LASER -> "Fades after ${"%.0f".format(settings.laserSeconds)}s · circle to select"
-                        Tool.IMAGE -> "Pick a photo"
-                        Tool.STICKER -> "Pick a sticker"
-                        else -> ""
-                    },
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(8.dp),
-                )
+                else -> Unit
             }
         }
         if (vertical) Column(horizontalAlignment = Alignment.CenterHorizontally) { content() }
@@ -836,17 +882,16 @@ private fun ToolOptions(vm: EditorViewModel, vertical: Boolean, settings: AppSet
 
 @Composable
 private fun MiniChip(label: String, onClick: () -> Unit) {
-    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(4.dp).clickable(onClick = onClick)) {
-        Text(label, Modifier.padding(horizontal = 10.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall)
+    Surface(shape = Pill, color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(3.dp).clickable(onClick = onClick)) {
+        Text(label, Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
     }
 }
 
-/** Fixed colours plus a "+" for any custom colour (tape, sticky notes). */
 @Composable
 private fun CustomSwatches(base: List<Int>, current: Int, vm: EditorViewModel, onPick: (Int) -> Unit) {
     var custom by remember { mutableStateOf(false) }
-    base.forEach { c -> Swatch(c, c == current) { onPick(c) } }
-    if (current !in base) Swatch(current, true) { custom = true }
+    base.forEach { c -> Swatch(c, c == current, 18) { onPick(c) } }
+    if (current !in base) Swatch(current, true, 18) { custom = true }
     AddSwatchButton { custom = true }
     if (custom) ColorEditorDialog(current, PenPalette, vm.recentColors(), onDismiss = { custom = false }) { onPick(it); vm.pushRecent(it); custom = false }
 }
@@ -854,18 +899,17 @@ private fun CustomSwatches(base: List<Int>, current: Int, vm: EditorViewModel, o
 @Composable
 private fun AddSwatchButton(onClick: () -> Unit) {
     Box(
-        Modifier.padding(4.dp).size(26.dp).clip(CircleShape)
+        Modifier.padding(3.dp).size(22.dp).clip(CircleShape)
             .background(Brush.sweepGradient(listOf(Color(0xFFFF3B30), Color(0xFFFFCC00), Color(0xFF34C759), Color(0xFF0A84FF), Color(0xFFAF52DE), Color(0xFFFF3B30))))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.size(16.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
-            Icon(Icons.Outlined.Add, "Custom colour", Modifier.size(12.dp))
+        Box(Modifier.size(14.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
+            Icon(Icons.Outlined.Add, "Custom colour", Modifier.size(11.dp))
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun StyleOptions(vm: EditorViewModel, t: Tool, style: ToolStyle) {
     var editing by remember { mutableStateOf<Int?>(null) }
@@ -874,15 +918,15 @@ private fun StyleOptions(vm: EditorViewModel, t: Tool, style: ToolStyle) {
     style.colors.forEachIndexed { i, c ->
         val selected = c == style.color
         Box {
-            Swatch(c, selected, onLongClick = { removeMenu = i }) { if (selected) editing = i else vm.updateStyle(t, style.copy(color = c)) }
-            DropdownMenu(removeMenu == i, { removeMenu = null }) {
+            Swatch(c, selected, 18, onLongClick = { removeMenu = i }) { if (selected) editing = i else vm.updateStyle(t, style.copy(color = c)) }
+            DropdownMenu(removeMenu == i, { removeMenu = null }, shape = RoundedCornerShape(16.dp)) {
                 DropdownMenuItem(text = { Text("Edit colour") }, onClick = { removeMenu = null; editing = i })
                 DropdownMenuItem(text = { Text("Remove") }, enabled = style.colors.size > 1, onClick = { removeMenu = null; vm.removeSwatch(t, i) })
             }
         }
     }
     if (style.colors.size < 8) AddSwatchButton { adding = true }
-    Box(Modifier.padding(4.dp).width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant))
+    Box(Modifier.padding(horizontal = 4.dp).width(1.dp).height(18.dp).background(MaterialTheme.colorScheme.outlineVariant))
     SizeDots(style.sizes, style.size) { sz -> vm.updateStyle(t, style.copy(size = sz)) }
     val presets = if (t == Tool.HIGHLIGHTER) HighlighterPalette + PenPalette else PenPalette
     editing?.let { slot ->
@@ -894,9 +938,7 @@ private fun StyleOptions(vm: EditorViewModel, t: Tool, style: ToolStyle) {
         }
     }
     if (adding) {
-        ColorEditorDialog(style.color, presets, vm.recentColors(), onDismiss = { adding = false }) { picked ->
-            vm.addSwatch(t, picked); adding = false
-        }
+        ColorEditorDialog(style.color, presets, vm.recentColors(), onDismiss = { adding = false }) { picked -> vm.addSwatch(t, picked); adding = false }
     }
 }
 
@@ -905,14 +947,14 @@ private fun SizeDots(sizes: List<Float>, current: Float, ring: Boolean = false, 
     sizes.forEachIndexed { i, s ->
         val selected = s == current
         Box(
-            Modifier.padding(1.dp).size(34.dp).clip(CircleShape)
+            Modifier.size(30.dp).clip(CircleShape)
                 .background(if (selected) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
                 .clickable { onPick(s) },
             contentAlignment = Alignment.Center,
         ) {
             val w = (2 + 3 * i).dp
-            if (ring) Box(Modifier.size((8 + 6 * i).dp).border(1.5.dp, MaterialTheme.colorScheme.onSurface, CircleShape))
-            else Box(Modifier.width(18.dp).height(w).clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.onSurface))
+            if (ring) Box(Modifier.size((7 + 5 * i).dp).border(1.5.dp, MaterialTheme.colorScheme.onSurface, CircleShape))
+            else Box(Modifier.width(16.dp).height(w).clip(Pill).background(MaterialTheme.colorScheme.onSurface))
         }
     }
 }
@@ -921,10 +963,25 @@ private fun SizeDots(sizes: List<Float>, current: Float, ring: Boolean = false, 
 
 @Composable
 private fun Card(title: String, content: @Composable () -> Unit) {
-    Surface(shape = RoundedCornerShape(22.dp), shadowElevation = 12.dp, color = MaterialTheme.colorScheme.surface, modifier = Modifier.width(340.dp)) {
+    Surface(shape = RoundedCornerShape(28.dp), shadowElevation = 14.dp, color = MaterialTheme.colorScheme.surface, modifier = Modifier.width(340.dp)) {
         Column(Modifier.padding(18.dp).heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.align(Alignment.CenterHorizontally))
             content()
+        }
+    }
+}
+
+/** Pill-shaped segmented control. */
+@Composable
+private fun Segments(options: List<String>, selected: Int, onPick: (Int) -> Unit) {
+    Row(Modifier.fillMaxWidth().clip(Pill).background(MaterialTheme.colorScheme.surfaceVariant).padding(3.dp)) {
+        options.forEachIndexed { i, o ->
+            val sel = i == selected
+            Box(
+                Modifier.weight(1f).height(34.dp).clip(Pill)
+                    .background(if (sel) MaterialTheme.colorScheme.surface else Color.Transparent).clickable { onPick(i) },
+                contentAlignment = Alignment.Center,
+            ) { Text(o, style = MaterialTheme.typography.labelSmall, color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
         }
     }
 }
@@ -941,16 +998,18 @@ private fun StrokePreview(color: Color, width: Float, taper: Boolean) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PenCard(vm: EditorViewModel) {
     val style = vm.penStyle
+    val presets by vm.presets.collectAsState()
     Card(vm.penType.label) {
         StrokePreview(Color(style.color), style.size * vm.penType.sizeFactor * 2.2f, vm.penType != PenType.BALL)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PenType.entries.forEach { type ->
                 val sel = vm.penType == type
                 Column(
-                    Modifier.weight(1f).clip(RoundedCornerShape(14.dp))
+                    Modifier.weight(1f).clip(RoundedCornerShape(20.dp))
                         .background(if (sel) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
                         .clickable { vm.penType = type }.padding(vertical = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -964,8 +1023,42 @@ private fun PenCard(vm: EditorViewModel) {
             val sizes = style.sizes.map { if (it == style.size) v else it }
             vm.updateStyle(Tool.PEN, style.copy(size = v, sizes = sizes))
         }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("FAVOURITE PENS", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+            TextButton(onClick = vm::savePreset) { Icon(Icons.Outlined.StarBorder, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Save this pen") }
+        }
+        if (presets.isEmpty()) {
+            Text("Save pens you use often and switch with one tap.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            presets.forEach { p -> PresetChip(p, onClick = { vm.applyPreset(p) }, onRemove = { vm.removePreset(p) }) }
+        }
     }
 }
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun PresetChip(p: PenPreset, onClick: () -> Unit, onRemove: () -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            Modifier.clip(Pill).border(1.dp, MaterialTheme.colorScheme.outlineVariant, Pill)
+                .combinedClickableCompat(onClick, { menu = true }).padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PenGlyph(runCatching { PenType.valueOf(p.type) }.getOrDefault(PenType.FOUNTAIN), MaterialTheme.colorScheme.onSurface, Color(p.color), Modifier.size(18.dp))
+            Spacer(Modifier.width(4.dp))
+            Box(Modifier.size(width = 18.dp, height = (p.size / 2f).coerceIn(2f, 8f).dp).clip(Pill).background(Color(p.color)))
+        }
+        DropdownMenu(menu, { menu = false }, shape = RoundedCornerShape(16.dp)) {
+            DropdownMenuItem(text = { Text("Remove") }, onClick = { menu = false; onRemove() })
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private fun Modifier.combinedClickableCompat(onClick: () -> Unit, onLong: () -> Unit) =
+    this.then(Modifier.combinedClickable(onClick = onClick, onLongClick = onLong))
 
 @Composable
 private fun HighlighterCard(vm: EditorViewModel) {
@@ -978,30 +1071,86 @@ private fun HighlighterCard(vm: EditorViewModel) {
             val sizes = style.sizes.map { if (it == style.size) v else it }
             vm.updateStyle(Tool.HIGHLIGHTER, style.copy(size = v, sizes = sizes))
         }
-        ToggleLine("Straight line", s.highlighterStraight) { v -> store.update { it.copy(highlighterStraight = v) } }
+        Text("LINE", style = MaterialTheme.typography.labelSmall)
+        Segments(HighlighterMode.entries.map { it.label }, s.highlighterMode.ordinal) { i -> store.update { it.copy(highlighterMode = HighlighterMode.entries[i]) } }
+        Text(
+            when (s.highlighterMode) {
+                HighlighterMode.FREEHAND -> "Highlights follow your hand. Hold at the end to straighten."
+                HighlighterMode.AUTO -> "Nearly straight highlights snap straight. Curvy ones stay as drawn."
+                HighlighterMode.STRAIGHT -> "Every highlight is a straight line."
+            },
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         ToggleLine("Draw behind ink", s.highlighterBehind) { v -> store.update { it.copy(highlighterBehind = v) } }
     }
 }
 
 @Composable
-private fun EraserCard() {
+private fun EraserCard(vm: EditorViewModel) {
     val store = SettingsStore.get(LocalContext.current)
     val s by store.settings.collectAsState()
     Card("Eraser") {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            EraserMode.entries.forEach { m ->
-                FilterChip(s.eraserMode == m, { store.update { it.copy(eraserMode = m) } }, label = { Text(m.label) })
-            }
+        Segments(EraserMode.entries.map { it.label }, s.eraserMode.ordinal) { i -> store.update { it.copy(eraserMode = EraserMode.entries[i]) } }
+        Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
+            SizeDots(listOf(8f, 16f, 30f), listOf(8f, 16f, 30f)[vm.eraserSize], ring = true) { v -> vm.eraserSize = listOf(8f, 16f, 30f).indexOf(v) }
         }
         ToggleLine("Erase highlighter only", s.eraseHighlighterOnly) { v -> store.update { it.copy(eraseHighlighterOnly = v) } }
         ToggleLine("Switch back after erasing", s.eraserAutoSwitch) { v -> store.update { it.copy(eraserAutoSwitch = v) } }
+        ToggleLine("Scribble to erase with the pen", s.scribbleToErase) { v -> store.update { it.copy(scribbleToErase = v) } }
     }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LassoCard() {
+    val store = SettingsStore.get(LocalContext.current)
+    val s by store.settings.collectAsState()
+    Card("Lasso") {
+        Segments(LassoMode.entries.map { it.label }, s.lassoMode.ordinal) { i -> store.update { it.copy(lassoMode = LassoMode.entries[i]) } }
+        Text("SELECT", style = MaterialTheme.typography.labelSmall)
+        val f = s.lassoFilter
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FilterChip(f.ink, { store.update { it.copy(lassoFilter = f.copy(ink = !f.ink)) } }, label = { Text("Handwriting") }, shape = Pill)
+            FilterChip(f.highlighter, { store.update { it.copy(lassoFilter = f.copy(highlighter = !f.highlighter)) } }, label = { Text("Highlighter") }, shape = Pill)
+            FilterChip(f.text, { store.update { it.copy(lassoFilter = f.copy(text = !f.text)) } }, label = { Text("Text") }, shape = Pill)
+            FilterChip(f.images, { store.update { it.copy(lassoFilter = f.copy(images = !f.images)) } }, label = { Text("Images & stickers") }, shape = Pill)
+            FilterChip(f.other, { store.update { it.copy(lassoFilter = f.copy(other = !f.other)) } }, label = { Text("Notes & tape") }, shape = Pill)
+        }
+        ToggleLine("Select anything the lasso touches", s.lassoTouching) { v -> store.update { it.copy(lassoTouching = v) } }
+        ToggleLine("Circle and hold with the pen", s.circleToLasso) { v -> store.update { it.copy(circleToLasso = v) } }
+        Text("Drag corner handles to resize, the top handle to rotate.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun LaserCard() {
+    val store = SettingsStore.get(LocalContext.current)
+    val s by store.settings.collectAsState()
+    Card("Laser pointer") {
+        SliderRow("STAYS FOR", "%.0f s".format(s.laserSeconds), s.laserSeconds, 1f..8f) { v -> store.update { it.copy(laserSeconds = v) } }
+        Text("Keep the pen or a finger on the screen to hold the laser in place. Circle content with the laser to select it.",
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun TextCard(vm: EditorViewModel) {
+    Card("Text") {
+        SliderRow("DEFAULT SIZE", "%.0f".format(vm.textSize), vm.textSize, 16f..160f) { vm.textSize = it }
+        Segments(TextFont.entries.take(4).map { it.label }, TextFont.entries.indexOf(vm.textStyle.font).coerceAtMost(3)) { i -> vm.textStyle = vm.textStyle.copy(font = TextFont.entries[i]) }
+        Text("Tap the page to type. Tap typed text to edit its font, colour and gradient.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun ColorCard(title: String, base: List<Int>, current: Int, vm: EditorViewModel, onPick: (Int) -> Unit) {
+    Card(title) { Row(verticalAlignment = Alignment.CenterVertically) { CustomSwatches(base, current, vm, onPick) } }
 }
 
 @Composable
 private fun ToggleLine(label: String, value: Boolean, onChange: (Boolean) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, modifier = Modifier.weight(1f))
+        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
         Switch(value, onChange)
     }
 }
@@ -1015,7 +1164,7 @@ private fun ShapeCard(vm: EditorViewModel) {
             ShapeKind.entries.forEach { k ->
                 val sel = vm.shapeKind == k
                 Column(
-                    Modifier.size(70.dp).clip(RoundedCornerShape(12.dp))
+                    Modifier.size(70.dp).clip(RoundedCornerShape(22.dp))
                         .background(if (sel) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                         .clickable { vm.shapeKind = k },
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
@@ -1034,7 +1183,7 @@ private fun ShapeCard(vm: EditorViewModel) {
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     listOf(0xFFCDE2FB, 0xFFCAEAC7, 0xFFFAD6D6, 0xFFF9DCA4, 0xFFDFDBFD, 0x661B1F2A).map { it.toInt() }.forEach { c ->
-                        Swatch(c, c == vm.shapeFillColor) { vm.shapeFillColor = c }
+                        Swatch(c, c == vm.shapeFillColor, 20) { vm.shapeFillColor = c }
                     }
                     AddSwatchButton { fillEdit = true }
                 }
@@ -1044,7 +1193,8 @@ private fun ShapeCard(vm: EditorViewModel) {
             }
         }
         Text(
-            if (vm.shapeKind == ShapeKind.AUTO) "Draw freely; Pro Notes turns it into a clean shape." else "Drag to draw a ${vm.shapeKind.label.lowercase()}.",
+            if (vm.shapeKind == ShapeKind.AUTO) "Draw freely. Lines, triangles, rectangles, squares, diamonds, polygons and circles snap into shape."
+            else "Drag to draw a ${vm.shapeKind.label.lowercase()}.",
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -1055,12 +1205,62 @@ private fun ShapeCard(vm: EditorViewModel) {
 
 @Composable
 private fun SliderRow(label: String, value: String, v: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit) {
-    Column(Modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)).padding(horizontal = 12.dp, vertical = 6.dp)) {
+    Column(Modifier.clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)).padding(horizontal = 14.dp, vertical = 6.dp)) {
         Row {
             Text(label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
             Text(value, style = MaterialTheme.typography.labelSmall)
         }
         Slider(v, onChange, valueRange = range)
+    }
+}
+
+// ============================================================== stickers
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun StickerSheet(vm: EditorViewModel, onPick: (Bitmap) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var tab by remember { mutableIntStateOf(0) }
+    var mine by remember { mutableStateOf(StickerLibrary.custom(context)) }
+    val importer = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) scope.launch {
+            withContext(Dispatchers.IO) { StickerLibrary.import(context, uri) }
+            mine = StickerLibrary.custom(context); tab = 2
+        }
+    }
+    fun pick(s: Sticker) = scope.launch { withContext(Dispatchers.Default) { StickerLibrary.bitmap(s) }?.let(onPick) }
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Stickers", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f).padding(start = 8.dp))
+            TextButton(onClick = { importer.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
+                Icon(Icons.Outlined.Add, null); Text("Import")
+            }
+        }
+        PrimaryTabRow(selectedTabIndex = tab, containerColor = Color.Transparent) {
+            Tab(tab == 0, { tab = 0 }, text = { Text("Planner") })
+            Tab(tab == 1, { tab = 1 }, text = { Text("Emoji") })
+            Tab(tab == 2, { tab = 2 }, text = { Text("My stickers") })
+        }
+        val list: List<Sticker> = when (tab) {
+            0 -> StickerLibrary.builtins
+            1 -> StickerSet.map { Sticker.Emoji(it) }
+            else -> mine
+        }
+        if (tab == 2 && mine.isEmpty()) {
+            Text("Import a picture to use it as a sticker. PNGs with transparency look best.",
+                Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        LazyVerticalGrid(GridCells.Adaptive(if (tab == 0) 96.dp else 64.dp), Modifier.fillMaxWidth().heightIn(max = 420.dp).padding(vertical = 12.dp)) {
+            items(list.size) { i ->
+                val st = list[i]
+                val preview by produceState<Bitmap?>(null, st) { value = withContext(Dispatchers.Default) { StickerLibrary.bitmap(st, 160) } }
+                Box(Modifier.padding(4.dp).aspectRatio(1f).clip(RoundedCornerShape(20.dp)).clickable { pick(st) }, contentAlignment = Alignment.Center) {
+                    preview?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize().padding(6.dp)) }
+                }
+            }
+        }
+        Spacer(Modifier.height(24.dp))
     }
 }
 
@@ -1082,14 +1282,13 @@ private fun TextDialog(vm: EditorViewModel, edit: EditorViewModel.TextEdit) {
     var size by remember(edit) { mutableStateOf(ex?.size ?: vm.textSize) }
     var color by remember(edit) { mutableStateOf(ex?.color ?: vm.textColor ?: vm.penStyle.color) }
     var style by remember(edit) { mutableStateOf(ex?.style ?: vm.textStyle) }
-    var colorEdit by remember { mutableStateOf<Int?>(null) }   // 0 = main, 1 = gradient end
+    var colorEdit by remember { mutableStateOf<Int?>(null) }
     var fontMenu by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = { vm.textEdit = null },
         title = { Text(if (ex != null) "Edit text" else "Add text") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                // Live preview
                 val previewStyle = TextStyle(
                     fontSize = (size / 2f).coerceIn(12f, 40f).sp,
                     fontFamily = style.font.compose(),
@@ -1098,14 +1297,14 @@ private fun TextDialog(vm: EditorViewModel, edit: EditorViewModel.TextEdit) {
                     textDecoration = if (style.underline) TextDecoration.Underline else null,
                     textAlign = when (style.align) { TextAlign.LEFT -> androidx.compose.ui.text.style.TextAlign.Start; TextAlign.CENTER -> androidx.compose.ui.text.style.TextAlign.Center; TextAlign.RIGHT -> androidx.compose.ui.text.style.TextAlign.End },
                 ).let { s -> style.gradient?.let { g -> s.copy(brush = Brush.linearGradient(listOf(Color(color), Color(g)))) } ?: s.copy(color = Color(color)) }
-                Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White).padding(12.dp)) {
+                Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White).padding(14.dp)) {
                     Text(text.ifBlank { "Preview" }, style = previewStyle, modifier = Modifier.fillMaxWidth(), maxLines = 3, overflow = TextOverflow.Ellipsis)
                 }
-                OutlinedTextField(text, { text = it }, minLines = 3, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(text, { text = it }, minLines = 3, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box {
                         TextButton(onClick = { fontMenu = true }) { Text(style.font.label); Icon(Icons.Filled.KeyboardArrowDown, null) }
-                        DropdownMenu(fontMenu, { fontMenu = false }) {
+                        DropdownMenu(fontMenu, { fontMenu = false }, shape = RoundedCornerShape(16.dp)) {
                             TextFont.entries.forEach { f ->
                                 DropdownMenuItem(text = { Text(f.label, fontFamily = f.compose()) }, onClick = { fontMenu = false; style = style.copy(font = f) })
                             }
@@ -1116,15 +1315,20 @@ private fun TextDialog(vm: EditorViewModel, edit: EditorViewModel.TextEdit) {
                     FmtToggle(Icons.Outlined.FormatItalic, style.italic) { style = style.copy(italic = !style.italic) }
                     FmtToggle(Icons.Outlined.FormatUnderlined, style.underline) { style = style.copy(underline = !style.underline) }
                 }
-                Row {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     FmtToggle(Icons.AutoMirrored.Outlined.FormatAlignLeft, style.align == TextAlign.LEFT) { style = style.copy(align = TextAlign.LEFT) }
                     FmtToggle(Icons.Outlined.FormatAlignCenter, style.align == TextAlign.CENTER) { style = style.copy(align = TextAlign.CENTER) }
                     FmtToggle(Icons.AutoMirrored.Outlined.FormatAlignRight, style.align == TextAlign.RIGHT) { style = style.copy(align = TextAlign.RIGHT) }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = {
+                        val stamp = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date())
+                        text = if (text.isBlank()) stamp else "$text $stamp"
+                    }) { Icon(Icons.Outlined.Schedule, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Date") }
                 }
                 SliderRow("SIZE", "%.0f".format(size), size, 16f..160f) { size = it }
                 Text("Colour", style = MaterialTheme.typography.labelSmall)
                 FlowRow {
-                    PenPalette.take(12).forEach { c -> Swatch(c, c == color, 22) { color = c } }
+                    PenPalette.take(12).forEach { c -> Swatch(c, c == color, 20) { color = c } }
                     AddSwatchButton { colorEdit = 0 }
                 }
                 ToggleLine("Gradient", style.gradient != null) { on -> style = style.copy(gradient = if (on) 0xFF7161E0.toInt() else null) }
@@ -1132,7 +1336,7 @@ private fun TextDialog(vm: EditorViewModel, edit: EditorViewModel.TextEdit) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Ends in", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(end = 8.dp))
                         listOf(0xFF7161E0, 0xFFD55181, 0xFF3987E5, 0xFF1BAF7A, 0xFFEB6834).map { it.toInt() }.forEach { c ->
-                            Swatch(c, c == g, 22) { style = style.copy(gradient = c) }
+                            Swatch(c, c == g, 20) { style = style.copy(gradient = c) }
                         }
                         AddSwatchButton { colorEdit = 1 }
                     }
@@ -1153,7 +1357,7 @@ private fun TextDialog(vm: EditorViewModel, edit: EditorViewModel.TextEdit) {
 @Composable
 private fun FmtToggle(icon: androidx.compose.ui.graphics.vector.ImageVector, on: Boolean, onClick: () -> Unit) {
     Box(
-        Modifier.padding(2.dp).size(38.dp).clip(RoundedCornerShape(10.dp))
+        Modifier.padding(2.dp).size(38.dp).clip(Pill)
             .background(if (on) MaterialTheme.colorScheme.primaryContainer else Color.Transparent).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { Icon(icon, null, tint = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) }
@@ -1162,14 +1366,32 @@ private fun FmtToggle(icon: androidx.compose.ui.graphics.vector.ImageVector, on:
 // ============================================================== small parts
 
 @Composable
-private fun SelectionMenu(vm: EditorViewModel, onDuplicate: () -> Unit, onColor: (Int) -> Unit) {
+private fun SelectionMenu(
+    vm: EditorViewModel, onDuplicate: () -> Unit, onColor: (Int) -> Unit,
+    keep: (() -> Unit) -> Unit, onShareImage: () -> Unit,
+) {
     var colors by remember { mutableStateOf(false) }
-    Surface(shape = RoundedCornerShape(14.dp), color = Color(0xFF1B1F2A), contentColor = Color.White, shadowElevation = 8.dp) {
-        Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    var more by remember { mutableStateOf(false) }
+    Surface(shape = Pill, color = Color(0xFF1B1F2A), contentColor = Color.White, shadowElevation = 8.dp) {
+        Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = vm::cutSelection) { Icon(Icons.Outlined.ContentCut, "Cut") }
             IconButton(onClick = vm::copySelection) { Icon(Icons.Outlined.ContentCopy, "Copy") }
             IconButton(onClick = onDuplicate) { ProIconView(ProIcon.ADD, Color.White, Modifier.size(22.dp)) }
             IconButton(onClick = { colors = true }) { Icon(Icons.Outlined.Palette, "Colour") }
+            IconButton(onClick = { keep { vm.rotateSelection(90f) } }) { Icon(Icons.Outlined.RotateRight, "Rotate 90°") }
+            Box {
+                IconButton(onClick = { more = true }) { ProIconView(ProIcon.MORE, Color.White, Modifier.size(22.dp)) }
+                DropdownMenu(more, { more = false }, shape = RoundedCornerShape(18.dp)) {
+                    DropdownMenuItem(text = { Text("Flip horizontally") }, leadingIcon = { Icon(Icons.Outlined.Flip, null) },
+                        onClick = { more = false; keep { vm.flipSelection() } })
+                    DropdownMenuItem(text = { Text("Bring to front") }, leadingIcon = { Icon(Icons.Outlined.FlipToFront, null) },
+                        onClick = { more = false; keep { vm.arrange(true) } })
+                    DropdownMenuItem(text = { Text("Send to back") }, leadingIcon = { Icon(Icons.Outlined.FlipToBack, null) },
+                        onClick = { more = false; keep { vm.arrange(false) } })
+                    DropdownMenuItem(text = { Text("Share as image") }, leadingIcon = { Icon(Icons.Outlined.IosShare, null) },
+                        onClick = { more = false; onShareImage() })
+                }
+            }
             IconButton(onClick = vm::deleteSelection) { Icon(Icons.Outlined.Delete, "Delete", tint = Color(0xFFFF8A80)) }
         }
     }
@@ -1179,15 +1401,17 @@ private fun SelectionMenu(vm: EditorViewModel, onDuplicate: () -> Unit, onColor:
 }
 
 @Composable
-private fun PagePill(index: Int, count: Int, bookmarked: Boolean, onPrev: () -> Unit, onNext: () -> Unit, modifier: Modifier) {
-    Surface(modifier.shadow(6.dp, CircleShape), shape = CircleShape, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)) {
+private fun PagePill(index: Int, count: Int, bookmarked: Boolean, onPrev: () -> Unit, onNext: () -> Unit, onTap: () -> Unit, modifier: Modifier) {
+    Surface(modifier.shadow(6.dp, Pill), shape = Pill, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-            IconButton(onClick = onPrev, enabled = index > 0) { Icon(Icons.Filled.ChevronLeft, "Previous page") }
-            if (bookmarked) ProIconView(ProIcon.BOOKMARK, Color(0xFFE34948), Modifier.size(14.dp), ink = Color(0xFFE34948))
-            AnimatedContent(targetState = index, label = "page") { i ->
-                Text("${i + 1} / $count", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 2.dp))
+            IconButton(onClick = onPrev, enabled = index > 0) { Icon(Icons.Filled.KeyboardArrowUp, "Previous page", Modifier.graphicsLayer { rotationZ = -90f }) }
+            Row(Modifier.clip(Pill).clickable(onClick = onTap).padding(horizontal = 6.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (bookmarked) ProIconView(ProIcon.BOOKMARK, Color(0xFFE34948), Modifier.size(14.dp), ink = Color(0xFFE34948))
+                AnimatedContent(targetState = index, label = "page") { i ->
+                    Text("${i + 1} / $count", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 2.dp))
+                }
             }
-            IconButton(onClick = onNext, enabled = index < count - 1) { Icon(Icons.Filled.ChevronRight, "Next page") }
+            IconButton(onClick = onNext, enabled = index < count - 1) { Icon(Icons.Filled.KeyboardArrowUp, "Next page", Modifier.graphicsLayer { rotationZ = 90f }) }
         }
     }
 }

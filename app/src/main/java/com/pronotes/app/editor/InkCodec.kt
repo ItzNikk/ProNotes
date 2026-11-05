@@ -75,10 +75,31 @@ object InkCodec {
     fun strokeFromPoints(points: List<Pair<Float, Float>>, brush: Brush): Stroke {
         val batch = MutableStrokeInputBatch()
         var t = 0L
+        var last: Pair<Float, Float>? = null
         for ((x, y) in points) {
-            batch.add(InputToolType.STYLUS, x, y, t)
+            if (last != null && last.first == x && last.second == y) continue
+            runCatching { batch.add(InputToolType.STYLUS, x, y, t) }
+            last = x to y
             t += 8
         }
+        return Stroke(brush, batch)
+    }
+
+    /** Moves, scales and rotates a stroke for good; thickness follows the scale. */
+    fun transformStroke(stroke: Stroke, m: android.graphics.Matrix, s: Float): Stroke {
+        val inputs = stroke.inputs
+        val batch = MutableStrokeInputBatch()
+        val pt = FloatArray(2)
+        for (i in 0 until inputs.size) {
+            val p = inputs.get(i)
+            pt[0] = p.x; pt[1] = p.y
+            m.mapPoints(pt)
+            runCatching {
+                batch.add(p.toolType, pt[0], pt[1], p.elapsedTimeMillis, p.strokeUnitLengthCm, p.pressure, p.tiltRadians, p.orientationRadians)
+            }
+        }
+        val b = stroke.brush
+        val brush = Brush.createWithColorIntArgb(b.family, b.colorIntArgb, (b.size * s).coerceIn(0.3f, 500f), b.epsilon)
         return Stroke(brush, batch)
     }
 
@@ -102,8 +123,7 @@ object InkCodec {
                 cur = null; curCount = 0
             } else {
                 if (cur == null) { cur = MutableStrokeInputBatch(); curCount = 0 }
-                cur.add(p)
-                curCount++
+                if (runCatching { cur.add(p) }.isSuccess) curCount++
             }
         }
         if (!hit) return null
@@ -135,11 +155,12 @@ object InkCodec {
                     item.text, item.x, item.y, item.size, item.color,
                     font = item.style.font.name, bold = item.style.bold, italic = item.style.italic,
                     underline = item.style.underline, gradient = item.style.gradient, align = item.style.align.name,
+                    rot = item.rot,
                 )
                 is FillItem -> ItemDoc.Fill(item.points.toList(), item.color, item.dx, item.dy)
-                is ImageItem -> ItemDoc.Image(item.file, item.x, item.y, item.w, item.h)
-                is TapeItem -> ItemDoc.Tape(item.x, item.y, item.w, item.h, item.color)
-                is StickyItem -> ItemDoc.Sticky(item.x, item.y, item.w, item.h, item.color, item.text)
+                is ImageItem -> ItemDoc.Image(item.file, item.x, item.y, item.w, item.h, item.rot)
+                is TapeItem -> ItemDoc.Tape(item.x, item.y, item.w, item.h, item.color, item.rot)
+                is StickyItem -> ItemDoc.Sticky(item.x, item.y, item.w, item.h, item.color, item.text, item.rot)
             }
         },
     )
@@ -168,11 +189,12 @@ object InkCodec {
                             bold = item.bold, italic = item.italic, underline = item.underline, gradient = item.gradient,
                             align = runCatching { TextAlign.valueOf(item.align) }.getOrDefault(TextAlign.LEFT),
                         ),
+                        item.rot,
                     )
                     is ItemDoc.Fill -> FillItem(ItemIds.next(), item.points.toFloatArray(), item.color, item.dx, item.dy)
-                    is ItemDoc.Image -> ImageItem(ItemIds.next(), item.file, item.x, item.y, item.w, item.h)
-                    is ItemDoc.Tape -> TapeItem(ItemIds.next(), item.x, item.y, item.w, item.h, item.color)
-                    is ItemDoc.Sticky -> StickyItem(ItemIds.next(), item.x, item.y, item.w, item.h, item.color, item.text)
+                    is ItemDoc.Image -> ImageItem(ItemIds.next(), item.file, item.x, item.y, item.w, item.h, item.rot)
+                    is ItemDoc.Tape -> TapeItem(ItemIds.next(), item.x, item.y, item.w, item.h, item.color, rot = item.rot)
+                    is ItemDoc.Sticky -> StickyItem(ItemIds.next(), item.x, item.y, item.w, item.h, item.color, item.text, item.rot)
                 }
             }.getOrNull()
         },

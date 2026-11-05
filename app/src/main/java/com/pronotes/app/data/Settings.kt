@@ -9,6 +9,8 @@ enum class ToolbarDock(val label: String) { HEADER("In top bar"), TOP("Floating 
 enum class ToolbarSize(val label: String, val scale: Float) { COMPACT("Compact", 0.85f), REGULAR("Regular", 1f), LARGE("Large", 1.18f) }
 enum class SideButton(val label: String) { ERASER("Eraser"), LASSO("Lasso"), NONE("Nothing") }
 enum class EraserMode(val label: String) { STROKE("Whole stroke"), PIXEL("Pixel") }
+enum class HighlighterMode(val label: String) { FREEHAND("Freehand"), AUTO("Auto-straighten"), STRAIGHT("Always straight") }
+enum class LassoMode(val label: String) { FREEFORM("Freeform"), RECT("Rectangle") }
 enum class ThemeMode(val label: String) { SYSTEM("System"), LIGHT("Light"), DARK("Dark") }
 enum class AccentColor(val label: String, val argb: Long, val argb2: Long) {
     BLUE("Blue", 0xFF2A78D6, 0xFF7161E0),
@@ -31,6 +33,15 @@ enum class DeskColor(val label: String, val argb: Int) {
     SLATE("Slate", 0xFF2C2F36.toInt()),
 }
 
+/** Which kinds of content the lasso picks up. */
+data class LassoFilter(
+    val ink: Boolean = true,
+    val highlighter: Boolean = true,
+    val text: Boolean = true,
+    val images: Boolean = true,
+    val other: Boolean = true,
+)
+
 data class AppSettings(
     // stylus & input
     val stylusOnly: Boolean = true,
@@ -41,7 +52,6 @@ data class AppSettings(
     val scribbleToErase: Boolean = true,
     val holdToShape: Boolean = true,
     val circleToLasso: Boolean = true,
-    val circleSelectChip: Boolean = true,
     val fingerTapUndo: Boolean = true,
     val doubleTapZoom: Boolean = true,
     // pages
@@ -50,22 +60,26 @@ data class AppSettings(
     val paperTint: PaperTint = PaperTint.WHITE,
     val defaultPaper: PaperStyle = PaperStyle.RULED,
     val deskColor: DeskColor = DeskColor.MIST,
-    val pageShadow: Boolean = true,
     val pageNumbers: Boolean = true,
     val keepScreenOn: Boolean = false,
-    val fullscreen: Boolean = false,
+    val darkPdf: Boolean = false,
     // toolbar
     val toolbarDock: ToolbarDock = ToolbarDock.TOP,
     val toolbarSize: ToolbarSize = ToolbarSize.REGULAR,
     val showTabs: Boolean = true,
+    /** Tool order, comma separated enum names. Hidden tools are prefixed with "-". */
+    val toolbarTools: String = "",
     // tools
     val eraserMode: EraserMode = EraserMode.STROKE,
     val eraseHighlighterOnly: Boolean = false,
     val eraserAutoSwitch: Boolean = false,
     val highlighterBehind: Boolean = true,
-    val highlighterStraight: Boolean = false,
+    val highlighterMode: HighlighterMode = HighlighterMode.AUTO,
     val laserSeconds: Float = 3f,
     val lassoAfterShape: Boolean = false,
+    val lassoMode: LassoMode = LassoMode.FREEFORM,
+    val lassoFilter: LassoFilter = LassoFilter(),
+    val lassoTouching: Boolean = false,
     // look
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val accent: AccentColor = AccentColor.BLUE,
@@ -73,6 +87,9 @@ data class AppSettings(
     // library
     val thumbCovers: Boolean = false,
 )
+
+/** A saved pen: type, colour and thickness, one tap away. */
+data class PenPreset(val type: String, val color: Int, val size: Float)
 
 /** Small key-value store; every screen observes [settings]. */
 class SettingsStore private constructor(context: Context) {
@@ -87,6 +104,8 @@ class SettingsStore private constructor(context: Context) {
 
     private fun load(): AppSettings {
         val d = AppSettings()
+        // v2.1 had a "straight" switch; carry it over.
+        val legacyStraight = prefs.getBoolean("hlStraight", false)
         return AppSettings(
             stylusOnly = b("stylusOnly", d.stylusOnly),
             sideButton = enumOf("sideButton", d.sideButton),
@@ -95,7 +114,6 @@ class SettingsStore private constructor(context: Context) {
             scribbleToErase = b("scribble", d.scribbleToErase),
             holdToShape = b("holdShape", d.holdToShape),
             circleToLasso = b("circleLasso", d.circleToLasso),
-            circleSelectChip = b("circleChip", d.circleSelectChip),
             fingerTapUndo = b("fingerTapUndo", d.fingerTapUndo),
             doubleTapZoom = b("doubleTapZoom", d.doubleTapZoom),
             scroll = enumOf("scroll", d.scroll),
@@ -103,20 +121,26 @@ class SettingsStore private constructor(context: Context) {
             paperTint = enumOf("paperTint", d.paperTint),
             defaultPaper = enumOf("defaultPaper", d.defaultPaper),
             deskColor = enumOf("deskColor", d.deskColor),
-            pageShadow = b("pageShadow", d.pageShadow),
             pageNumbers = b("pageNumbers", d.pageNumbers),
             keepScreenOn = b("keepScreenOn", d.keepScreenOn),
-            fullscreen = b("fullscreen", d.fullscreen),
+            darkPdf = b("darkPdf", d.darkPdf),
             toolbarDock = enumOf("toolbarDock", d.toolbarDock),
             toolbarSize = enumOf("toolbarSize", d.toolbarSize),
             showTabs = b("showTabs", d.showTabs),
+            toolbarTools = prefs.getString("toolbarTools", "") ?: "",
             eraserMode = enumOf("eraserMode", d.eraserMode),
             eraseHighlighterOnly = b("eraseHlOnly", d.eraseHighlighterOnly),
             eraserAutoSwitch = b("eraserAutoSwitch", d.eraserAutoSwitch),
             highlighterBehind = b("hlBehind", d.highlighterBehind),
-            highlighterStraight = b("hlStraight", d.highlighterStraight),
+            highlighterMode = if (!prefs.contains("hlMode") && legacyStraight) HighlighterMode.STRAIGHT else enumOf("hlMode", d.highlighterMode),
             laserSeconds = prefs.getFloat("laserSeconds", d.laserSeconds),
             lassoAfterShape = b("lassoAfterShape", d.lassoAfterShape),
+            lassoMode = enumOf("lassoMode", d.lassoMode),
+            lassoFilter = LassoFilter(
+                ink = b("lassoInk", true), highlighter = b("lassoHl", true), text = b("lassoText", true),
+                images = b("lassoImages", true), other = b("lassoOther", true),
+            ),
+            lassoTouching = b("lassoTouching", d.lassoTouching),
             themeMode = enumOf("themeMode", d.themeMode),
             accent = enumOf("accent", d.accent),
             gradientTitles = b("gradientTitles", d.gradientTitles),
@@ -135,7 +159,6 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("scribble", s.scribbleToErase)
             .putBoolean("holdShape", s.holdToShape)
             .putBoolean("circleLasso", s.circleToLasso)
-            .putBoolean("circleChip", s.circleSelectChip)
             .putBoolean("fingerTapUndo", s.fingerTapUndo)
             .putBoolean("doubleTapZoom", s.doubleTapZoom)
             .putString("scroll", s.scroll.name)
@@ -143,20 +166,27 @@ class SettingsStore private constructor(context: Context) {
             .putString("paperTint", s.paperTint.name)
             .putString("defaultPaper", s.defaultPaper.name)
             .putString("deskColor", s.deskColor.name)
-            .putBoolean("pageShadow", s.pageShadow)
             .putBoolean("pageNumbers", s.pageNumbers)
             .putBoolean("keepScreenOn", s.keepScreenOn)
-            .putBoolean("fullscreen", s.fullscreen)
+            .putBoolean("darkPdf", s.darkPdf)
             .putString("toolbarDock", s.toolbarDock.name)
             .putString("toolbarSize", s.toolbarSize.name)
             .putBoolean("showTabs", s.showTabs)
+            .putString("toolbarTools", s.toolbarTools)
             .putString("eraserMode", s.eraserMode.name)
             .putBoolean("eraseHlOnly", s.eraseHighlighterOnly)
             .putBoolean("eraserAutoSwitch", s.eraserAutoSwitch)
             .putBoolean("hlBehind", s.highlighterBehind)
-            .putBoolean("hlStraight", s.highlighterStraight)
+            .putString("hlMode", s.highlighterMode.name)
             .putFloat("laserSeconds", s.laserSeconds)
             .putBoolean("lassoAfterShape", s.lassoAfterShape)
+            .putString("lassoMode", s.lassoMode.name)
+            .putBoolean("lassoInk", s.lassoFilter.ink)
+            .putBoolean("lassoHl", s.lassoFilter.highlighter)
+            .putBoolean("lassoText", s.lassoFilter.text)
+            .putBoolean("lassoImages", s.lassoFilter.images)
+            .putBoolean("lassoOther", s.lassoFilter.other)
+            .putBoolean("lassoTouching", s.lassoTouching)
             .putString("themeMode", s.themeMode.name)
             .putString("accent", s.accent.name)
             .putBoolean("gradientTitles", s.gradientTitles)
@@ -180,6 +210,24 @@ class SettingsStore private constructor(context: Context) {
         prefs.edit().putString("recentColors", list.joinToString(",")).apply()
     }
 
+    // ------------------------------------------------------------ pen presets
+    private val _presets = MutableStateFlow(loadPresets())
+    val presets: StateFlow<List<PenPreset>> = _presets
+
+    private fun loadPresets(): List<PenPreset> =
+        prefs.getString("penPresets", "")!!.split(';').mapNotNull { e ->
+            val p = e.split('|')
+            if (p.size == 3) runCatching { PenPreset(p[0], p[1].toInt(), p[2].toFloat()) }.getOrNull() else null
+        }
+
+    fun addPreset(p: PenPreset) = savePresets((_presets.value.filterNot { it == p } + p).takeLast(8))
+    fun removePreset(p: PenPreset) = savePresets(_presets.value - p)
+    private fun savePresets(list: List<PenPreset>) {
+        _presets.value = list
+        prefs.edit().putString("penPresets", list.joinToString(";") { "${it.type}|${it.color}|${it.size}" }).apply()
+    }
+
+    // ------------------------------------------------------------------ tabs
     /** Open notebook tabs, most recent last. */
     private val _tabs = MutableStateFlow(prefs.getString("tabs", "")!!.split(',').filter { it.isNotBlank() })
     val tabs: StateFlow<List<String>> = _tabs

@@ -38,6 +38,8 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
         setContent {
             ProNotesTheme {
+              // A Surface gives every screen the right text colour in light and dark mode.
+              androidx.compose.material3.Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.background) {
                 val nav = rememberNavController()
                 NavHost(
                     navController = nav,
@@ -72,6 +74,7 @@ class MainActivity : ComponentActivity() {
                         SettingsScreen(onBack = { nav.popBackStack() })
                     }
                 }
+              }
             }
         }
     }

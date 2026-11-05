@@ -68,6 +68,14 @@ class PageRenderer(private val noteDir: File?) {
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
 
+    /** Shows PDF pages inverted (light text on dark) for night reading. */
+    var darkPdf: Boolean = false
+    private val invertPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG).apply {
+        colorFilter = android.graphics.ColorMatrixColorFilter(
+            floatArrayOf(-1f, 0f, 0f, 0f, 255f, 0f, -1f, 0f, 0f, 255f, 0f, 0f, -1f, 0f, 255f, 0f, 0f, 0f, 1f, 0f),
+        )
+    }
+
     private val pagePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { setShadowLayer(22f, 0f, 6f, 0x26000000) }
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 2f }
@@ -111,7 +119,7 @@ class PageRenderer(private val noteDir: File?) {
         p.color = bg
         canvas.drawRect(rect, p)
         if (pdf != null) {
-            canvas.drawBitmap(pdf, null, rect, bitmapPaint)
+            canvas.drawBitmap(pdf, null, rect, if (darkPdf) invertPaint else bitmapPaint)
             return
         }
         if (page.pdfPage >= 0) return
@@ -187,25 +195,25 @@ class PageRenderer(private val noteDir: File?) {
         canvas: Canvas,
         items: List<PageItem>,
         worldToScreen: Matrix,
-        offset: Pair<Float, Float>? = null,
-        offsetIds: Set<Long> = emptySet(),
+        transform: Matrix? = null,
+        transformIds: Set<Long> = emptySet(),
     ) {
         val ordered = if (highlighterBehind && items.any { it is InkItem && it.isHighlighter }) {
             items.filter { it is FillItem } + items.filter { it is InkItem && it.isHighlighter } +
                 items.filterNot { it is FillItem || (it is InkItem && it.isHighlighter) }
         } else items
         for (item in ordered) {
-            val moved = offset != null && item.id in offsetIds
+            val moved = transform != null && item.id in transformIds
             if (moved) {
                 canvas.save()
-                canvas.translate(offset!!.first, offset.second)
+                canvas.concat(transform!!)
             }
             when (item) {
                 is InkItem -> {
                     canvas.save()
                     canvas.translate(item.dx, item.dy)
                     scratch.set(worldToScreen)
-                    if (moved) scratch.preTranslate(offset!!.first, offset.second)
+                    if (moved) scratch.preConcat(transform!!)
                     scratch.preTranslate(item.dx, item.dy)
                     strokeRenderer.draw(canvas, item.stroke, scratch)
                     canvas.restore()
@@ -217,27 +225,32 @@ class PageRenderer(private val noteDir: File?) {
                 }
                 is ImageItem -> {
                     val bmp = image(item.file)
-                    if (bmp != null) canvas.drawBitmap(bmp, null, item.bounds, bitmapPaint)
+                    if (bmp != null) rotated(canvas, item.raw, item.rot) { canvas.drawBitmap(bmp, null, item.raw, bitmapPaint) }
                 }
                 is TapeItem -> {
                     tapePaint.color = if (item.revealed) (item.color and 0x00FFFFFF) or (0x40 shl 24) else item.color
-                    val r = item.bounds
-                    canvas.drawRoundRect(r, 6f, 6f, tapePaint)
-                    if (!item.revealed) {
-                        canvas.save(); canvas.clipRect(r)
-                        var x = r.left - r.height()
-                        while (x < r.right) { canvas.drawLine(x, r.bottom, x + r.height(), r.top, tapeStripe); x += 28f }
-                        canvas.restore()
+                    val r = item.raw
+                    rotated(canvas, r, item.rot) {
+                        canvas.drawRoundRect(r, 6f, 6f, tapePaint)
+                        if (!item.revealed) {
+                            canvas.save(); canvas.clipRect(r)
+                            var x = r.left - r.height()
+                            while (x < r.right) { canvas.drawLine(x, r.bottom, x + r.height(), r.top, tapeStripe); x += 28f }
+                            canvas.restore()
+                        }
                     }
                 }
                 is StickyItem -> {
                     stickyPaint.color = item.color
-                    val r = item.bounds
-                    canvas.drawRect(r, stickyPaint)
-                    if (item.text.isNotEmpty()) {
-                        val layout = StaticLayout.Builder.obtain(item.text, 0, item.text.length, stickyText, (r.width() - 36f).toInt().coerceAtLeast(10))
-                            .setAlignment(Layout.Alignment.ALIGN_NORMAL).setMaxLines(12).build()
-                        canvas.save(); canvas.translate(r.left + 18f, r.top + 18f); layout.draw(canvas); canvas.restore()
+                    val r = item.raw
+                    rotated(canvas, r, item.rot) {
+                        canvas.drawRect(r, stickyPaint)
+                        if (item.text.isNotEmpty()) {
+                            stickyText.textSize = 30f * (r.width() / 280f).coerceIn(0.3f, 6f)
+                            val layout = StaticLayout.Builder.obtain(item.text, 0, item.text.length, stickyText, (r.width() - 36f).toInt().coerceAtLeast(10))
+                                .setAlignment(Layout.Alignment.ALIGN_NORMAL).setMaxLines(12).build()
+                            canvas.save(); canvas.translate(r.left + 18f, r.top + 18f); layout.draw(canvas); canvas.restore()
+                        }
                     }
                 }
             }
@@ -245,9 +258,20 @@ class PageRenderer(private val noteDir: File?) {
         }
     }
 
+    private inline fun rotated(canvas: Canvas, r: RectF, deg: Float, block: () -> Unit) {
+        if (deg == 0f) { block(); return }
+        canvas.save(); canvas.rotate(deg, r.centerX(), r.centerY()); block(); canvas.restore()
+    }
+
     fun drawText(canvas: Canvas, item: TextItem) {
+        if (item.rot != 0f) { canvas.save(); canvas.rotate(item.rot, item.raw.centerX(), item.raw.centerY()) }
+        drawTextUnrotated(canvas, item)
+        if (item.rot != 0f) canvas.restore()
+    }
+
+    private fun drawTextUnrotated(canvas: Canvas, item: TextItem) {
         applyTextStyle(textPaint, item.size, item.style)
-        val b = item.bounds
+        val b = item.raw
         val g = item.style.gradient
         textPaint.color = item.color
         textPaint.shader = if (g != null) android.graphics.LinearGradient(

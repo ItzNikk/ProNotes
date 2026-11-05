@@ -74,8 +74,11 @@ data class TextItem(
     val size: Float,
     val color: Int,
     val style: TextStyleSpec = TextStyleSpec(),
+    val rot: Float = 0f,
 ) : PageItem {
-    override val bounds: RectF by lazy { measureText(text, size, x, y, style) }
+    /** Unrotated box. */
+    val raw: RectF by lazy { measureText(text, size, x, y, style) }
+    override val bounds: RectF by lazy { rotatedBounds(raw, rot) }
     override fun translated(dx: Float, dy: Float): PageItem = copy(x = x + dx, y = y + dy)
     override fun withId(newId: Long): PageItem = copy(id = newId)
 }
@@ -87,8 +90,10 @@ data class ImageItem(
     val y: Float,
     val w: Float,
     val h: Float,
+    val rot: Float = 0f,
 ) : PageItem {
-    override val bounds: RectF get() = RectF(x, y, x + w, y + h)
+    val raw: RectF get() = RectF(x, y, x + w, y + h)
+    override val bounds: RectF get() = rotatedBounds(raw, rot)
     override fun translated(dx: Float, dy: Float): PageItem = copy(x = x + dx, y = y + dy)
     override fun withId(newId: Long): PageItem = copy(id = newId)
 }
@@ -102,8 +107,10 @@ data class TapeItem(
     val h: Float,
     val color: Int,
     val revealed: Boolean = false,
+    val rot: Float = 0f,
 ) : PageItem {
-    override val bounds: RectF get() = RectF(x, y, x + w, y + h)
+    val raw: RectF get() = RectF(x, y, x + w, y + h)
+    override val bounds: RectF get() = rotatedBounds(raw, rot)
     override fun translated(dx: Float, dy: Float): PageItem = copy(x = x + dx, y = y + dy)
     override fun withId(newId: Long): PageItem = copy(id = newId)
 }
@@ -116,8 +123,10 @@ data class StickyItem(
     val h: Float,
     val color: Int,
     val text: String,
+    val rot: Float = 0f,
 ) : PageItem {
-    override val bounds: RectF get() = RectF(x, y, x + w, y + h)
+    val raw: RectF get() = RectF(x, y, x + w, y + h)
+    override val bounds: RectF get() = rotatedBounds(raw, rot)
     override fun translated(dx: Float, dy: Float): PageItem = copy(x = x + dx, y = y + dy)
     override fun withId(newId: Long): PageItem = copy(id = newId)
 }
@@ -181,6 +190,43 @@ fun InkItem.worldPoints(): List<Pair<Float, Float>> {
     return List(inputs.size) { i ->
         val p = inputs.get(i)
         (p.x + dx) to (p.y + dy)
+    }
+}
+
+/** Axis-aligned bounds of [r] rotated by [deg] about its centre. */
+fun rotatedBounds(r: RectF, deg: Float): RectF {
+    if (deg == 0f) return RectF(r)
+    val m = android.graphics.Matrix().apply { setRotate(deg, r.centerX(), r.centerY()) }
+    return RectF(r).also { m.mapRect(it) }
+}
+
+/**
+ * Applies a resize/rotate permanently. [m] maps page coordinates to their new place,
+ * [s] is its uniform scale and [deg] its rotation.
+ */
+fun PageItem.transformed(m: android.graphics.Matrix, s: Float, deg: Float): PageItem {
+    fun movedCenter(r: RectF): Pair<Float, Float> {
+        val pt = floatArrayOf(r.centerX(), r.centerY()); m.mapPoints(pt); return pt[0] to pt[1]
+    }
+    return when (this) {
+        is InkItem -> {
+            val full = android.graphics.Matrix(m).apply { preTranslate(dx, dy) }
+            InkItem(id, InkCodec.transformStroke(stroke, full, s))
+        }
+        is FillItem -> {
+            val pts = FloatArray(points.size)
+            for (i in points.indices step 2) { pts[i] = points[i] + dx; pts[i + 1] = points[i + 1] + dy }
+            m.mapPoints(pts)
+            FillItem(id, pts, color)
+        }
+        is TextItem -> {
+            val (cx, cy) = movedCenter(raw)
+            val nw = raw.width() * s; val nh = raw.height() * s
+            copy(x = cx - nw / 2f, y = cy - nh / 2f, size = size * s, rot = (rot + deg) % 360f)
+        }
+        is ImageItem -> { val (cx, cy) = movedCenter(raw); copy(x = cx - w * s / 2f, y = cy - h * s / 2f, w = w * s, h = h * s, rot = (rot + deg) % 360f) }
+        is StickyItem -> { val (cx, cy) = movedCenter(raw); copy(x = cx - w * s / 2f, y = cy - h * s / 2f, w = w * s, h = h * s, rot = (rot + deg) % 360f) }
+        is TapeItem -> { val (cx, cy) = movedCenter(raw); copy(x = cx - w * s / 2f, y = cy - h * s / 2f, w = w * s, h = h * s, rot = (rot + deg) % 360f) }
     }
 }
 

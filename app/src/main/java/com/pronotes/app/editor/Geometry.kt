@@ -54,15 +54,13 @@ fun isClosedLoop(pts: List<Pt>): Boolean {
     return early.any { dist(it, end) < size * 0.25f } && pathLength(pts) > size * 2.2f
 }
 
-/** Ramer-Douglas-Peucker polyline simplification. */
+/** Ramer-Douglas-Peucker simplification of an open polyline. */
 private fun simplify(pts: List<Pt>, eps: Float): List<Pt> {
     if (pts.size < 3) return pts
     val a = pts.first(); val b = pts.last()
     var maxD = 0f; var idx = 0
-    val len = dist(a, b).coerceAtLeast(1e-3f)
     for (i in 1 until pts.size - 1) {
-        val p = pts[i]
-        val d = abs((b.second - a.second) * p.first - (b.first - a.first) * p.second + b.first * a.second - b.second * a.first) / len
+        val d = segDist(pts[i], a, b)
         if (d > maxD) { maxD = d; idx = i }
     }
     return if (maxD > eps) {
@@ -72,23 +70,66 @@ private fun simplify(pts: List<Pt>, eps: Float): List<Pt> {
     } else listOf(a, b)
 }
 
-private fun densify(corners: List<Pt>, step: Float = 6f): List<Pt> {
-    val out = ArrayList<Pt>()
-    for (i in 0 until corners.size - 1) {
-        val a = corners[i]; val b = corners[i + 1]
-        val n = max(1, (dist(a, b) / step).toInt())
-        for (k in 0 until n) {
-            val t = k / n.toFloat()
-            out += (a.first + (b.first - a.first) * t) to (a.second + (b.second - a.second) * t)
-        }
-    }
-    out += corners.last()
-    return out
+/** Distance from [p] to the segment a-b (works when a == b). */
+private fun segDist(p: Pt, a: Pt, b: Pt): Float {
+    val vx = b.first - a.first; val vy = b.second - a.second
+    val len2 = vx * vx + vy * vy
+    if (len2 < 1e-6f) return dist(p, a)
+    val t = (((p.first - a.first) * vx + (p.second - a.second) * vy) / len2).coerceIn(0f, 1f)
+    return hypot(p.first - (a.first + vx * t), p.second - (a.second + vy * t))
+}
+
+private fun turnAngle(prev: Pt, cur: Pt, next: Pt): Double {
+    val a1 = atan2((cur.second - prev.second).toDouble(), (cur.first - prev.first).toDouble())
+    val a2 = atan2((next.second - cur.second).toDouble(), (next.first - cur.first).toDouble())
+    var d = Math.toDegrees(abs(a2 - a1))
+    if (d > 180) d = 360 - d
+    return d   // 0 = straight on, 180 = full reversal
 }
 
 /**
- * Turns a hand-drawn stroke into a clean shape: line, triangle, rectangle/quad,
- * circle or ellipse. Returns null when nothing fits well.
+ * Corners of a closed hand-drawn loop. The loop is cut at the point farthest from the
+ * start so both halves are open polylines, then each half is simplified.
+ */
+private fun closedCorners(raw: List<Pt>, eps: Float): List<Pt> {
+    val start = raw.first()
+    val far = raw.indices.maxByOrNull { dist(raw[it], start) } ?: return emptyList()
+    if (far == 0) return emptyList()
+    val a = simplify(raw.subList(0, far + 1), eps)
+    val b = simplify(raw.subList(far, raw.size) + listOf(start), eps)
+    var corners = (a.dropLast(1) + b.dropLast(1)).toMutableList()
+    // Drop near-duplicates and corners that are really straight lines.
+    var changed = true
+    while (changed && corners.size > 3) {
+        changed = false
+        for (i in corners.indices) {
+            val prev = corners[(i - 1 + corners.size) % corners.size]
+            val cur = corners[i]
+            val next = corners[(i + 1) % corners.size]
+            if (dist(prev, cur) < eps * 1.2f || turnAngle(prev, cur, next) < 28.0) {
+                corners.removeAt(i); changed = true; break
+            }
+        }
+    }
+    return corners
+}
+
+/** Mean distance from the stroke to a closed polygon, relative to its size. */
+private fun polygonError(raw: List<Pt>, poly: List<Pt>, diag: Float): Float {
+    if (poly.size < 3) return Float.MAX_VALUE
+    var sum = 0f
+    for (p in raw) {
+        var best = Float.MAX_VALUE
+        for (i in poly.indices) best = min(best, segDist(p, poly[i], poly[(i + 1) % poly.size]))
+        sum += best
+    }
+    return sum / raw.size / diag
+}
+
+/**
+ * Turns a hand-drawn stroke into a clean shape: line, elbow/zig-zag line, triangle,
+ * rectangle, square, diamond, quad, pentagon, hexagon, circle or ellipse.
+ * Returns null when nothing fits well.
  */
 object ShapeRecognizer {
     fun recognize(raw: List<Pt>): List<Pt>? {
@@ -96,42 +137,60 @@ object ShapeRecognizer {
         val len = pathLength(raw)
         if (len < 20f) return null
         val bx = box(raw)
+        val diag = bx.diag.coerceAtLeast(1f)
 
         // Straight line.
-        if (dist(raw.first(), raw.last()) / len > 0.9f) {
-            return densify(listOf(raw.first(), raw.last()))
-        }
-        if (!isClosedLoop(raw)) return null
+        if (dist(raw.first(), raw.last()) / len > 0.92f) return densify(listOf(raw.first(), raw.last()))
 
-        // Ellipse fit: how far each point is from the ellipse through the bounding box.
+        if (!isClosedLoop(raw)) {
+            // Elbow or zig-zag made of 2-3 straight segments.
+            val pts = simplify(raw, diag * 0.06f)
+            if (pts.size in 3..4 && abs(pathLength(pts) - len) / len < 0.12f) return densify(pts)
+            return null
+        }
+
         val rx = bx.w / 2f; val ry = bx.h / 2f
+        var ellipseErr = Float.MAX_VALUE
         if (rx > 5f && ry > 5f) {
             var err = 0f
-            for ((x, y) in raw) {
-                val nx = (x - bx.cx) / rx; val ny = (y - bx.cy) / ry
-                err += abs(hypot(nx, ny) - 1f)
-            }
-            err /= raw.size
-            val closed = raw + raw.first()
-            val corners = simplify(closed, bx.diag * 0.07f)
-            val polyCorners = corners.size - 1
-            if (err < 0.09f && polyCorners > 4) return ellipse(bx, rx, ry)
-            when (polyCorners) {
-                3 -> return densify(corners)
-                4 -> {
-                    val axisAligned = corners.zipWithNext().all { (a, b) ->
-                        val ang = Math.toDegrees(atan2(b.second - a.second, b.first - a.first).toDouble())
-                        val m = ((ang % 90) + 90) % 90
-                        m < 12 || m > 78
-                    }
-                    return if (axisAligned) {
-                        densify(listOf(bx.l to bx.t, bx.r to bx.t, bx.r to bx.b, bx.l to bx.b, bx.l to bx.t))
-                    } else densify(corners)
-                }
-            }
-            if (err < 0.16f) return ellipse(bx, rx, ry)
+            for ((x, y) in raw) err += abs(hypot((x - bx.cx) / rx, (y - bx.cy) / ry) - 1f)
+            ellipseErr = err / raw.size
         }
+
+        val corners = closedCorners(raw, diag * 0.06f)
+        val polyErr = polygonError(raw, corners, diag)
+        val n = corners.size
+        if (n in 3..6 && polyErr < 0.035f && (polyErr < ellipseErr * 0.5f || ellipseErr > 0.08f)) {
+            return when (n) {
+                3 -> densify(corners + corners.first())
+                4 -> quad(corners, bx)
+                else -> densify(corners + corners.first())
+            }
+        }
+        if (ellipseErr < 0.2f) return ellipse(bx, rx, ry)
         return null
+    }
+
+    /** Four corners: rectangle (or square) when the sides follow the axes, diamond when they are 45°, otherwise as drawn. */
+    private fun quad(c: List<Pt>, bx: Box): List<Pt> {
+        val angles = c.indices.map { i ->
+            val a = c[i]; val b = c[(i + 1) % c.size]
+            val ang = Math.toDegrees(atan2((b.second - a.second).toDouble(), (b.first - a.first).toDouble()))
+            ((ang % 90) + 90) % 90
+        }
+        val axis = angles.all { it < 14 || it > 76 }
+        val diagonal = angles.all { it in 31.0..59.0 }
+        return when {
+            axis -> {
+                var l = bx.l; var t = bx.t; var r = bx.r; var b = bx.b
+                if (abs(bx.w - bx.h) / max(bx.w, bx.h) < 0.1f) {
+                    val s = (bx.w + bx.h) / 2f; l = bx.cx - s / 2; r = bx.cx + s / 2; t = bx.cy - s / 2; b = bx.cy + s / 2
+                }
+                densify(listOf(l to t, r to t, r to b, l to b, l to t))
+            }
+            diagonal -> densify(listOf(bx.cx to bx.t, bx.r to bx.cy, bx.cx to bx.b, bx.l to bx.cy, bx.cx to bx.t))
+            else -> densify(c + c.first())
+        }
     }
 
     private fun ellipse(bx: Box, rx0: Float, ry0: Float): List<Pt> {
@@ -145,27 +204,47 @@ object ShapeRecognizer {
     }
 }
 
-/** A fast zig-zag back and forth over existing ink means "erase this". */
+private fun densify(corners: List<Pt>, step: Float = 6f): List<Pt> = densifyPublic(corners, step)
+
+/** True when a stroke is nearly straight: every point within [tolerance] of the chord. */
+fun isNearlyStraight(pts: List<Pt>, tolerance: Float): Boolean {
+    if (pts.size < 2) return false
+    val a = pts.first(); val b = pts.last()
+    if (dist(a, b) < 20f) return false
+    return pts.all { segDist(it, a, b) <= tolerance }
+}
+
+/**
+ * A fast back-and-forth zig-zag means "erase this". The stroke is projected onto its
+ * main direction (PCA); the motion along that axis must reverse at least three times.
+ * Letters like "W" or "m" move steadily forward and never qualify.
+ */
 fun isScribble(pts: List<Pt>): Boolean {
-    if (pts.size < 10) return false
-    val sampled = ArrayList<Pt>()
-    for (p in pts) if (sampled.isEmpty() || dist(sampled.last(), p) > 4f) sampled += p
-    if (sampled.size < 5) return false
-    var reversals = 0
-    for (i in 2 until sampled.size) {
-        val a = sampled[i - 2]; val b = sampled[i - 1]; val c = sampled[i]
-        val v1x = b.first - a.first; val v1y = b.second - a.second
-        val v2x = c.first - b.first; val v2y = c.second - b.second
-        val dot = v1x * v2x + v1y * v2y
-        val m = hypot(v1x, v1y) * hypot(v2x, v2y)
-        if (m > 0 && dot / m < -0.3f) reversals++
+    if (pts.size < 8) return false
+    var mx = 0.0; var my = 0.0
+    for ((x, y) in pts) { mx += x; my += y }
+    mx /= pts.size; my /= pts.size
+    var sxx = 0.0; var syy = 0.0; var sxy = 0.0
+    for ((x, y) in pts) { val dx = x - mx; val dy = y - my; sxx += dx * dx; syy += dy * dy; sxy += dx * dy }
+    val theta = 0.5 * atan2(2 * sxy, sxx - syy)
+    val ux = cos(theta).toFloat(); val uy = sin(theta).toFloat()
+    val proj = pts.map { (x, y) -> x * ux + y * uy }
+    val extent = (proj.maxOrNull() ?: 0f) - (proj.minOrNull() ?: 0f)
+    if (extent < 18f) return false
+    val thresh = extent * 0.3f
+    var dir = 0; var anchor = proj[0]; var reversals = 0
+    for (v in proj) {
+        when (dir) {
+            0 -> if (v - anchor > thresh) { dir = 1; anchor = v } else if (anchor - v > thresh) { dir = -1; anchor = v }
+            1 -> if (v > anchor) anchor = v else if (anchor - v > thresh) { reversals++; dir = -1; anchor = v }
+            else -> if (v < anchor) anchor = v else if (v - anchor > thresh) { reversals++; dir = 1; anchor = v }
+        }
     }
-    val bx = box(pts)
-    return reversals >= 4 && pathLength(pts) > bx.diag * 2.6f
+    return reversals >= 3
 }
 
 /** Point-in-polygon test backed by the platform's Region. */
-class Lasso(points: List<Pt>) {
+class Lasso(points: List<Pt>, private val touching: Boolean = false) {
     private val region = Region()
 
     init {
@@ -189,10 +268,14 @@ class Lasso(points: List<Pt>) {
                     total++
                     if (contains(pts[i].first, pts[i].second)) inside++
                 }
-                inside >= total * 0.6f
+                if (touching) inside > 0 else inside >= total * 0.6f
             }
         }
-        else -> item.bounds.let { contains(it.centerX(), it.centerY()) }
+        else -> item.bounds.let { b ->
+            if (touching) contains(b.centerX(), b.centerY()) || contains(b.left, b.top) || contains(b.right, b.top) ||
+                contains(b.left, b.bottom) || contains(b.right, b.bottom)
+            else contains(b.centerX(), b.centerY())
+        }
     }
 }
 

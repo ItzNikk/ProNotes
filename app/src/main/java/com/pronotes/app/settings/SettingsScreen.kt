@@ -39,6 +39,8 @@ import androidx.compose.material.icons.outlined.Brush
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ColorLens
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.DragHandle
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.outlined.Draw
 import androidx.compose.material.icons.outlined.Gesture
 import androidx.compose.material.icons.outlined.Info
@@ -90,11 +92,10 @@ import com.pronotes.app.ui.GradientTitle
 private enum class Category(val label: String, val sub: String, val icon: ImageVector, val tint: Long) {
     STYLUS("Stylus & input", "Pens, side button, palm rejection", Icons.Outlined.Draw, 0xFF2A78D6),
     GESTURES("Gestures", "Scribble, circle, taps", Icons.Outlined.Gesture, 0xFF7161E0),
-    TOOLS("Tools", "Eraser, highlighter, laser, shapes", Icons.Outlined.Brush, 0xFFD95926),
     PAGES("Pages & paper", "Scroll, templates, paper colour", Icons.Outlined.Description, 0xFF0F7E5C),
-    TOOLBAR("Toolbar & tabs", "Position, size, notebook tabs", Icons.Outlined.ViewQuilt, 0xFFC04873),
+    TOOLBAR("Toolbar & tabs", "Position, size, tool order, tabs", Icons.Outlined.ViewQuilt, 0xFFC04873),
     LOOK("Appearance", "Theme, accent, gradients, desk", Icons.Outlined.ColorLens, 0xFFA66A00),
-    LIBRARY("Library", "Covers", Icons.Outlined.LibraryBooks, 0xFF256ABF),
+    LIBRARY("Library & backup", "Covers, backup and restore", Icons.Outlined.LibraryBooks, 0xFF256ABF),
     ABOUT("About", "Version, updates", Icons.Outlined.Info, 0xFF5F5E5A),
 }
 
@@ -185,33 +186,10 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore) {
                         Toggle(Icons.Outlined.AutoFixHigh, "Scribble to erase", "Zig-zag over ink to delete it", s.scribbleToErase) { v -> up { it.copy(scribbleToErase = v) } }
                         Toggle(Icons.Outlined.Gesture, "Draw and hold for shapes", "Hold the pen still at the end of a line", s.holdToShape) { v -> up { it.copy(holdToShape = v) } }
                         Toggle(Icons.Outlined.Gesture, "Circle and hold to select", "Loop around ink, then hold the pen still", s.circleToLasso) { v -> up { it.copy(circleToLasso = v) } }
-                        Toggle(Icons.Outlined.Gesture, "Circle to select chip", "After a loop, tap \"Select\" to grab what is inside", s.circleSelectChip) { v -> up { it.copy(circleSelectChip = v) } }
                     }
                     Section("Finger gestures") {
                         Toggle(Icons.Outlined.TouchApp, "Tap to undo / redo", "Two-finger tap undo, three-finger tap redo", s.fingerTapUndo) { v -> up { it.copy(fingerTapUndo = v) } }
                         Toggle(Icons.Outlined.TouchApp, "Double-tap to zoom", "Double-tap with one finger", s.doubleTapZoom) { v -> up { it.copy(doubleTapZoom = v) } }
-                    }
-                }
-                Category.TOOLS -> {
-                    Section("Eraser") {
-                        Choice("Type", s.eraserMode.label, EraserMode.entries.map { it.label }) { i -> up { it.copy(eraserMode = EraserMode.entries[i]) } }
-                        Toggle(Icons.Outlined.Brush, "Erase highlighter only", "Leave pen ink alone", s.eraseHighlighterOnly) { v -> up { it.copy(eraseHighlighterOnly = v) } }
-                        Toggle(Icons.Outlined.Brush, "Switch back after erasing", "Return to the previous tool", s.eraserAutoSwitch) { v -> up { it.copy(eraserAutoSwitch = v) } }
-                    }
-                    Section("Highlighter") {
-                        Toggle(Icons.Outlined.Brush, "Draw behind ink", "Highlight sits under your writing", s.highlighterBehind) { v -> up { it.copy(highlighterBehind = v) } }
-                        Toggle(Icons.Outlined.Brush, "Straight line", "Highlights snap to straight lines", s.highlighterStraight) { v -> up { it.copy(highlighterStraight = v) } }
-                    }
-                    Section("Shapes") {
-                        Toggle(Icons.Outlined.Gesture, "Select after drawing", "New shapes are selected so you can move them", s.lassoAfterShape) { v -> up { it.copy(lassoAfterShape = v) } }
-                    }
-                    Section("Laser pointer") {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Ink stays for", Modifier.weight(1f))
-                            Text("%.0f s".format(s.laserSeconds), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Slider(s.laserSeconds, { v -> up { it.copy(laserSeconds = v) } }, valueRange = 1f..8f, steps = 6, modifier = Modifier.padding(horizontal = 16.dp))
-                        Info("Draw a circle with the laser around ink to select it.")
                     }
                 }
                 Category.PAGES -> {
@@ -219,9 +197,8 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore) {
                         Segmented(ScrollDirection.entries.map { it.label }, s.scroll.ordinal) { i -> up { it.copy(scroll = ScrollDirection.entries[i]) } }
                         Toggle(Icons.Outlined.Description, "Pull to add a page", "Scroll past the last page to add one", s.pullToAddPage) { v -> up { it.copy(pullToAddPage = v) } }
                         Toggle(Icons.Outlined.Description, "Page numbers", "Show a number under each page", s.pageNumbers) { v -> up { it.copy(pageNumbers = v) } }
-                        Toggle(Icons.Outlined.Description, "Page shadow", "Soft shadow under pages", s.pageShadow) { v -> up { it.copy(pageShadow = v) } }
+                        Toggle(Icons.Outlined.Description, "Dark PDF pages", "Invert PDF pages for reading at night", s.darkPdf) { v -> up { it.copy(darkPdf = v) } }
                         Toggle(Icons.Outlined.Description, "Keep screen on", "While a notebook is open", s.keepScreenOn) { v -> up { it.copy(keepScreenOn = v) } }
-                        Toggle(Icons.Outlined.Description, "Open in focus mode", "Hide bars when a notebook opens", s.fullscreen) { v -> up { it.copy(fullscreen = v) } }
                     }
                     Section("Paper colour") {
                         FlowRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -252,6 +229,10 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore) {
                         Choice("Position", s.toolbarDock.label, ToolbarDock.entries.map { it.label }) { i -> up { it.copy(toolbarDock = ToolbarDock.entries[i]) } }
                         Segmented(ToolbarSize.entries.map { it.label }, s.toolbarSize.ordinal) { i -> up { it.copy(toolbarSize = ToolbarSize.entries[i]) } }
                         Info("Tip: drag the grip on a floating toolbar to move it to any edge.")
+                    }
+                    Section("Tools in the toolbar") {
+                        ToolbarEditor(s.toolbarTools) { spec -> up { it.copy(toolbarTools = spec) } }
+                        Info("Long-press and drag to reorder. Switch off tools you do not use. Tool settings open when you tap a tool that is already selected.")
                     }
                     Section("Tabs") {
                         Toggle(Icons.Outlined.ViewQuilt, "Notebook tabs", "Keep several notebooks open and switch between them", s.showTabs) { v -> up { it.copy(showTabs = v) } }
@@ -286,6 +267,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore) {
                     Section("Covers") {
                         Toggle(Icons.Outlined.Description, "First page as cover", "New notebooks show page 1 on the cover", s.thumbCovers) { v -> up { it.copy(thumbCovers = v) } }
                     }
+                    Section("Backup") { BackupRows() }
                 }
                 Category.ABOUT -> {
                     Section("Pro Notes") {
@@ -394,4 +376,74 @@ private fun Swatchy(color: Color, label: String, selected: Boolean, onClick: () 
 private fun Info(text: String) {
     Text(text, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+}
+
+/** Drag to reorder toolbar tools; switches hide tools you never use. */
+@Composable
+private fun ToolbarEditor(spec: String, onChange: (String) -> Unit) {
+    var list by remember(spec) { mutableStateOf(com.pronotes.app.editor.ToolbarOrder.parse(spec)) }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val reorder = sh.calvin.reorderable.rememberReorderableLazyListState(listState) { from, to ->
+        list = list.toMutableList().apply { add(to.index, removeAt(from.index)) }
+        onChange(com.pronotes.app.editor.ToolbarOrder.encode(list))
+    }
+    LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().height((list.size * 56).dp), userScrollEnabled = false) {
+        items(list.size, key = { list[it].first.name }) { i ->
+            val (tool, visible) = list[i]
+            sh.calvin.reorderable.ReorderableItem(reorder, key = tool.name) { dragging ->
+                Row(
+                    Modifier.fillMaxWidth().height(56.dp)
+                        .background(if (dragging) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Outlined.DragHandle, "Drag", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.longPressDraggableHandle())
+                    Spacer(Modifier.width(12.dp))
+                    com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.iconFor(tool), MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text(tool.name.lowercase().replaceFirstChar { it.uppercase() }, Modifier.weight(1f))
+                    Switch(visible, onCheckedChange = { v ->
+                        if (!v && list.count { it.second } <= 1) return@Switch
+                        list = list.toMutableList().also { it[i] = tool to v }
+                        onChange(com.pronotes.app.editor.ToolbarOrder.encode(list))
+                    })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BackupRows() {
+    val context = LocalContext.current
+    val repo = remember { com.pronotes.app.data.Repository.get(context) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var status by remember { mutableStateOf<String?>(null) }
+    val save = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        if (uri != null) scope.launch {
+            status = runCatching { context.contentResolver.openOutputStream(uri)!!.use { repo.backup(it) }; "Backup saved." }.getOrElse { "Backup failed: ${it.message}" }
+        }
+    }
+    val open = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            status = runCatching { val n = context.contentResolver.openInputStream(uri)!!.use { repo.restore(it) }; "Restored $n notebook(s)." }
+                .getOrElse { "Restore failed: ${it.message}" }
+        }
+    }
+    Row(Modifier.fillMaxWidth().clickable { save.launch("ProNotes-backup.zip") }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Outlined.Code, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Back up library")
+            Text("Saves every notebook, folder and sticker to one file", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    HorizontalDivider(Modifier.padding(start = 54.dp))
+    Row(Modifier.fillMaxWidth().clickable { open.launch(arrayOf("application/zip", "application/octet-stream")) }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Outlined.LibraryBooks, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Restore from backup")
+            Text("Adds notebooks from a backup file; nothing is overwritten", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    status?.let { Info(it) }
 }

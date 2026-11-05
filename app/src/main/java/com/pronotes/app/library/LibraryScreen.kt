@@ -127,7 +127,7 @@ import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
-private enum class Section(val label: String) { DOCUMENTS("Documents"), FAVORITES("Favorites"), RECENT("Recent") }
+private enum class Section(val label: String) { DOCUMENTS("Documents"), FAVORITES("Favorites"), RECENT("Recent"), TRASH("Trash") }
 private enum class SortBy(val label: String) { MODIFIED("Date modified"), CREATED("Date created"), NAME("Name") }
 
 private sealed interface Entry {
@@ -159,6 +159,8 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
     var moving by remember { mutableStateOf<Entry?>(null) }
     var deleting by remember { mutableStateOf<Entry?>(null) }
     var coverFor by remember { mutableStateOf<NotebookMeta?>(null) }
+    var forever by remember { mutableStateOf<NotebookMeta?>(null) }
+    var emptyTrash by remember { mutableStateOf(false) }
 
     val importPdf = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch { onOpen(repo.importPdf(uri, folderId)) }
@@ -175,20 +177,22 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
 
     val entries: List<Entry> = remember(lib, section, folderId, query, sort) {
         val q = query.trim().lowercase()
+        val live = lib.notebooks.filter { it.deletedAt == null }
         fun sortNotes(l: List<NotebookMeta>) = when (sort) {
             SortBy.MODIFIED -> l.sortedByDescending { it.modified }
             SortBy.CREATED -> l.sortedByDescending { it.created }
             SortBy.NAME -> l.sortedBy { it.title.lowercase() }
         }
-        fun folderEntry(f: Folder) = Entry.F(f, lib.notebooks.count { it.folderId == f.id } + lib.folders.count { it.parentId == f.id })
+        fun folderEntry(f: Folder) = Entry.F(f, lib.notebooks.count { it.folderId == f.id && it.deletedAt == null } + lib.folders.count { it.parentId == f.id })
         when {
+            section == Section.TRASH -> lib.notebooks.filter { it.deletedAt != null }.sortedByDescending { it.deletedAt }.map { Entry.N(it) }
             q.isNotEmpty() -> lib.folders.filter { it.name.lowercase().contains(q) }.map(::folderEntry) +
-                sortNotes(lib.notebooks.filter { it.title.lowercase().contains(q) }).map { Entry.N(it) }
-            section == Section.FAVORITES -> sortNotes(lib.notebooks.filter { it.favorite }).map { Entry.N(it) }
-            section == Section.RECENT -> lib.notebooks.sortedByDescending { it.opened }.take(30).map { Entry.N(it) }
+                sortNotes(live.filter { it.title.lowercase().contains(q) }).map { Entry.N(it) }
+            section == Section.FAVORITES -> sortNotes(live.filter { it.favorite }).map { Entry.N(it) }
+            section == Section.RECENT -> live.sortedByDescending { it.opened }.take(30).map { Entry.N(it) }
             else -> lib.folders.filter { it.parentId == folderId }.let { fs ->
                 if (sort == SortBy.NAME) fs.sortedBy { it.name.lowercase() } else fs.sortedByDescending { it.modified }
-            }.map(::folderEntry) + sortNotes(lib.notebooks.filter { it.folderId == folderId }).map { Entry.N(it) }
+            }.map(::folderEntry) + sortNotes(live.filter { it.folderId == folderId }).map { Entry.N(it) }
         }
     }
 
@@ -197,7 +201,11 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
 
     Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         AnimatedVisibility(sidebar, enter = expandHorizontally() + fadeIn(), exit = shrinkHorizontally() + fadeOut()) {
-            Sidebar(section, onSelect = { section = it; folderId = null; if (!wide) sidebar = false }, onCollapse = { sidebar = false })
+            Sidebar(
+                section, trashCount = lib.notebooks.count { it.deletedAt != null },
+                onSelect = { section = it; folderId = null; if (!wide) sidebar = false },
+                onCollapse = { sidebar = false }, onSettings = onSettings,
+            )
         }
 
         Column(Modifier.weight(1f).fillMaxHeight().statusBarsPadding()) {
@@ -220,7 +228,9 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
                 ) { t -> com.pronotes.app.ui.GradientTitle(t, MaterialTheme.typography.headlineLarge) }
 
                 var newMenu by remember { mutableStateOf(false) }
-                Box {
+                if (section == Section.TRASH) {
+                    TextButton(onClick = { emptyTrash = true }, enabled = entries.isNotEmpty()) { Text("Empty trash", color = MaterialTheme.colorScheme.error) }
+                } else Box {
                     Button(onClick = { newMenu = true }, shape = CircleShape, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)) {
                         Icon(Icons.Filled.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("New")
                         Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(18.dp))
@@ -267,6 +277,9 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
                 onRename = { renaming = it }, onMove = { moving = it }, onDelete = { deleting = it },
                 onEditFolder = { folderEdit = it }, onCover = { coverFor = it },
                 onFavorite = { scope.launch { repo.toggleFavorite(it.id) } },
+                onDuplicate = { scope.launch { repo.duplicateNotebook(it.id) } },
+                onRestore = { scope.launch { repo.restoreNotebook(it.id) } },
+                onDeleteForever = { forever = it },
             )
 
             if (entries.isEmpty()) {
@@ -323,6 +336,25 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
         }
     }
 
+    forever?.let { n ->
+        AlertDialog(
+            onDismissRequest = { forever = null },
+            title = { Text("Delete \"${n.title}\" forever?") },
+            text = { Text("This cannot be undone.") },
+            confirmButton = { TextButton(onClick = { forever = null; scope.launch { repo.deleteForever(n.id) } }) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { forever = null }) { Text("Cancel") } },
+        )
+    }
+    if (emptyTrash) {
+        AlertDialog(
+            onDismissRequest = { emptyTrash = false },
+            title = { Text("Empty trash?") },
+            text = { Text("All notebooks in Trash will be deleted forever.") },
+            confirmButton = { TextButton(onClick = { emptyTrash = false; scope.launch { repo.emptyTrash() } }) { Text("Empty", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { emptyTrash = false }) { Text("Cancel") } },
+        )
+    }
+
     coverFor?.let { n ->
         CoverDialog(n.coverSpec, onDismiss = { coverFor = null }) { spec, photo ->
             coverFor = null
@@ -368,7 +400,7 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
         AlertDialog(
             onDismissRequest = { deleting = null },
             title = { Text("Delete \"$name\"?") },
-            text = { Text(if (e is Entry.F) "The folder and everything in it will be deleted." else "This notebook will be deleted.") },
+            text = { Text(if (e is Entry.F) "The folder will be deleted. Notebooks inside it move to Trash." else "The notebook moves to Trash. You can restore it for 30 days.") },
             confirmButton = {
                 TextButton(onClick = {
                     deleting = null
@@ -391,12 +423,15 @@ private class TileActions(
     val onEditFolder: (Folder) -> Unit,
     val onCover: (NotebookMeta) -> Unit,
     val onFavorite: (NotebookMeta) -> Unit,
+    val onDuplicate: (NotebookMeta) -> Unit,
+    val onRestore: (NotebookMeta) -> Unit,
+    val onDeleteForever: (NotebookMeta) -> Unit,
 )
 
 // ================================================================ sidebar
 
 @Composable
-private fun Sidebar(section: Section, onSelect: (Section) -> Unit, onCollapse: () -> Unit) {
+private fun Sidebar(section: Section, trashCount: Int, onSelect: (Section) -> Unit, onCollapse: () -> Unit, onSettings: () -> Unit) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxHeight().width(232.dp)) {
         Column(Modifier.statusBarsPadding().padding(horizontal = 14.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -414,19 +449,32 @@ private fun Sidebar(section: Section, onSelect: (Section) -> Unit, onCollapse: (
             Section.entries.forEach { s ->
                 val sel = s == section
                 Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                    Modifier.fillMaxWidth().clip(CircleShape)
                         .background(if (sel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
                         .clickable { onSelect(s) }.padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
-                        when (s) { Section.DOCUMENTS -> Icons.Outlined.Folder; Section.FAVORITES -> Icons.Outlined.StarBorder; Section.RECENT -> Icons.Outlined.AccessTime },
+                        when (s) {
+                            Section.DOCUMENTS -> Icons.Outlined.Folder; Section.FAVORITES -> Icons.Outlined.StarBorder
+                            Section.RECENT -> Icons.Outlined.AccessTime; Section.TRASH -> Icons.Outlined.Delete
+                        },
                         null, tint = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.width(12.dp))
-                    Text(s.label, color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                    Text(s.label, color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                    if (s == Section.TRASH && trashCount > 0) Text("$trashCount", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Spacer(Modifier.height(2.dp))
+            }
+            Spacer(Modifier.weight(1f))
+            Row(
+                Modifier.fillMaxWidth().clip(CircleShape).clickable(onClick = onSettings).padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Outlined.Settings, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(12.dp))
+                Text("Settings")
             }
         }
     }
@@ -436,13 +484,20 @@ private fun Sidebar(section: Section, onSelect: (Section) -> Unit, onCollapse: (
 private fun EmptyState(section: Section, onNew: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Text(
-            when (section) { Section.FAVORITES -> "No favorites yet"; Section.RECENT -> "Nothing opened yet"; else -> "Your library is empty" },
+            when (section) {
+                Section.FAVORITES -> "No favorites yet"; Section.RECENT -> "Nothing opened yet"
+                Section.TRASH -> "Trash is empty"; else -> "Your library is empty"
+            },
             style = MaterialTheme.typography.headlineSmall,
         )
         Spacer(Modifier.height(8.dp))
-        Text("Create a notebook or import a PDF to start.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(20.dp))
-        Button(onClick = onNew, shape = CircleShape) { Icon(Icons.Filled.Add, null); Spacer(Modifier.width(6.dp)); Text("New notebook") }
+        if (section == Section.TRASH) {
+            Text("Deleted notebooks stay here for 30 days.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            Text("Create a notebook or import a PDF to start.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(20.dp))
+            Button(onClick = onNew, shape = CircleShape) { Icon(Icons.Filled.Add, null); Spacer(Modifier.width(6.dp)); Text("New notebook") }
+        }
     }
 }
 
@@ -485,7 +540,7 @@ private fun FolderTile(e: Entry.F, a: TileActions) {
                 .combinedClickable(interactionSource = src, indication = null, onClick = { a.onOpenFolder(e.folder) }, onLongClick = { menu = true }),
             contentAlignment = Alignment.BottomCenter,
         ) {
-            FolderArt(e.folder.color, e.folder.emoji, Modifier.fillMaxWidth().aspectRatio(1.15f))
+            FolderArt(e.folder.color, e.folder.emoji, Modifier.fillMaxWidth(0.88f).aspectRatio(1f))
         }
         Caption(e.folder.name, "${e.count} items", onMenu = { menu = true })
         Box {
@@ -507,7 +562,10 @@ private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.scale(pressScale(src))) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(0.75f)
-                .combinedClickable(interactionSource = src, indication = null, onClick = { a.onOpenNote(note) }, onLongClick = { menu = true }),
+                .combinedClickable(
+                    interactionSource = src, indication = null,
+                    onClick = { if (note.deletedAt != null) menu = true else a.onOpenNote(note) }, onLongClick = { menu = true },
+                ),
         ) {
             CoverArt(note.coverSpec, note.title, repo.noteDir(note.id), note.modified, Modifier.fillMaxSize())
             if (note.favorite) Icon(Icons.Filled.Star, null, tint = Color(0xFFF2C94C), modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(20.dp))
@@ -519,7 +577,16 @@ private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
 
 @Composable
 private fun NoteMenu(open: Boolean, onClose: () -> Unit, note: NotebookMeta, a: TileActions) {
-    DropdownMenu(open, onClose) {
+    if (note.deletedAt != null) {
+        DropdownMenu(open, onClose, shape = RoundedCornerShape(18.dp)) {
+            DropdownMenuItem(text = { Text("Restore") }, leadingIcon = { Icon(Icons.Outlined.DriveFileMove, null) }, onClick = { onClose(); a.onRestore(note) })
+            DropdownMenuItem(text = { Text("Delete forever", color = MaterialTheme.colorScheme.error) }, leadingIcon = { Icon(Icons.Outlined.Delete, null) },
+                onClick = { onClose(); a.onDeleteForever(note) })
+        }
+        return
+    }
+    DropdownMenu(open, onClose, shape = RoundedCornerShape(18.dp)) {
+        DropdownMenuItem(text = { Text("Duplicate") }, leadingIcon = { Icon(Icons.Outlined.Description, null) }, onClick = { onClose(); a.onDuplicate(note) })
         DropdownMenuItem(text = { Text(if (note.favorite) "Remove from favorites" else "Add to favorites") },
             leadingIcon = { Icon(if (note.favorite) Icons.Outlined.StarBorder else Icons.Outlined.Star, null) },
             onClick = { onClose(); a.onFavorite(note) })
@@ -545,7 +612,10 @@ private fun ListRow(e: Entry, repo: Repository, a: TileActions) {
     var menu by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-            .clickable { if (e is Entry.F) a.onOpenFolder(e.folder) else a.onOpenNote((e as Entry.N).note) }
+            .clickable {
+                if (e is Entry.F) a.onOpenFolder(e.folder)
+                else (e as Entry.N).note.let { n -> if (n.deletedAt == null) a.onOpenNote(n) else menu = true }
+            }
             .padding(vertical = 8.dp, horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

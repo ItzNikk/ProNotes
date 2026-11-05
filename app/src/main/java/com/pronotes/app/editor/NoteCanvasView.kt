@@ -40,6 +40,7 @@ import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 enum class Tool { PEN, HIGHLIGHTER, ERASER, SHAPE, LASSO, TEXT, IMAGE, STICKY, TAPE, STICKER, LASER }
 
@@ -126,7 +127,16 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     var selection: Set<Long> = emptySet()
         private set
     private var selectionPage = -1
-    private var dragOffset: Pair<Float, Float>? = null
+    /** Live move / resize / rotate of the selection, in page coordinates. Baked in on release. */
+    private var liveMatrix: Matrix? = null
+    private enum class Grab { MOVE, SCALE, ROTATE }
+    private var grab = Grab.MOVE
+    private var anchorX = 0f
+    private var anchorY = 0f
+    private var grabStartX = 0f
+    private var grabStartY = 0f
+    private var liveScale = 1f
+    private var liveDeg = 0f
 
     private val strokePages = HashMap<InProgressStrokeId, Int>()
 
@@ -353,6 +363,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean = true
 
     private var stylusPointer = -1          // pointer id of the pen while it touches the screen
+    private var touchActive = false
+    private var pageAtGestureStart = 0
     private var lastStylusTime = 0L
     private var ignoreFingers = false       // swallow the rest of a palm / finger gesture
     private var lastTapTime = 0L
@@ -373,6 +385,10 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         predictor.record(event)
         val action = normalizeSamsungAction(event)
         val now = SystemClock.uptimeMillis()
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> { touchActive = true; pageAtGestureStart = currentIndex; layer.invalidate() }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> touchActive = false
+        }
         val penIndex = (0 until event.pointerCount).firstOrNull { isPen(event.getToolType(it)) }
         if (penIndex != null) { sawStylus = true; lastStylusTime = now }
 
@@ -487,18 +503,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 val t = effectiveTool(e, pIdx)
                 strokeTool = t
 
-                // Touching inside the current selection drags it, whatever the tool.
-                if (selection.isNotEmpty() && t != Tool.ERASER) {
-                    val sb = selectionPageBounds()
-                    val (sx, sy) = toLocal(px, py, selectionPage)
-                    if (sb?.contains(sx, sy) == true) {
-                        activePage = selectionPage
-                        mode = Mode.MOVE
-                        moveStart = sx to sy
-                        dragOffset = 0f to 0f
-                        return
-                    }
-                }
+                // Handles resize / rotate; touching inside the selection moves it, whatever the tool.
+                if (selection.isNotEmpty() && t != Tool.ERASER && beginGrab(px, py)) return
                 if (selection.isNotEmpty()) clearSelection()
 
                 when (t) {
@@ -557,14 +563,20 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         layer.invalidate()
                     }
                     Mode.LASSO -> {
-                        for (h in 0 until e.historySize) lassoPoints += e.getHistoricalX(idx, h) to e.getHistoricalY(idx, h)
-                        lassoPoints += e.getX(idx) to e.getY(idx)
+                        if (settings.lassoMode == com.pronotes.app.data.LassoMode.RECT) {
+                            val (sx, sy) = lassoPoints.first()
+                            val cx = e.getX(idx); val cy = e.getY(idx)
+                            lassoPoints.clear()
+                            lassoPoints += listOf(sx to sy, cx to sy, cx to cy, sx to cy, sx to sy)
+                        } else {
+                            for (h in 0 until e.historySize) lassoPoints += e.getHistoricalX(idx, h) to e.getHistoricalY(idx, h)
+                            lassoPoints += e.getX(idx) to e.getY(idx)
+                        }
                         layer.invalidate()
                     }
                     Mode.MOVE -> {
                         val (wx, wy) = toLocal(e.getX(idx), e.getY(idx), activePage)
-                        val s = moveStart ?: return
-                        dragOffset = (wx - s.first) to (wy - s.second)
+                        updateGrab(wx, wy)
                         layer.invalidate()
                         reportSelection()
                     }
@@ -600,7 +612,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         val local = lassoPoints.map { toLocal(it.first, it.second, activePage) }
                         layer.lasso = null
                         layer.stopAnts()
-                        if (local.size > 3) select(activePage, Lasso(local))
+                        if (local.size > 3) select(activePage, Lasso(local, settings.lassoTouching))
                         layer.invalidate()
                     }
                     Mode.MOVE -> commitMove()
@@ -677,28 +689,29 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 return
             }
         }
-        // Straight highlighter: snap the stroke to a line between its ends.
-        if (strokeTool == Tool.HIGHLIGHTER && settings.highlighterStraight && points.size > 1) {
-            wetInk.cancelStroke(id, e); strokePages.remove(id)
-            val a = points.first(); var b = points.last()
-            if (abs(b.second - a.second) < abs(b.first - a.first) * 0.15f) b = b.first to a.second
-            val stroke = InkCodec.strokeFromPoints(densifyPublic(listOf(a, b)), host.brush(Tool.HIGHLIGHTER))
-            host.beginEdit(activePage)
-            updatePage(activePage, p.items + InkItem(ItemIds.next(), stroke))
-            return
-        }
-        // Circle to select: a loop around content offers a "Select" chip.
-        if (strokeTool == Tool.PEN && settings.circleSelectChip && isClosedLoop(points)) {
-            val lasso = Lasso(points)
-            val ids = p.items.filter { lasso.selects(it) }.map { it.id }.toSet()
-            if (ids.isNotEmpty()) {
-                val r = RectF(points.minOf { it.first }, points.minOf { it.second }, points.maxOf { it.first }, points.maxOf { it.second })
-                pageMatrix(activePage, tmpMatrix).mapRect(r)
-                pendingCircle = PendingCircle(id, activePage, ids)
-                host.onCircleCandidate(r)
+        // Highlighter: always straight, or straightened when it was nearly straight anyway.
+        if (strokeTool == Tool.HIGHLIGHTER && points.size > 1) {
+            val mode = settings.highlighterMode
+            val len = pathLength(points)
+            val straighten = mode == com.pronotes.app.data.HighlighterMode.STRAIGHT ||
+                (mode == com.pronotes.app.data.HighlighterMode.AUTO && isNearlyStraight(points, max(10f, len * 0.07f)))
+            if (straighten) {
+                wetInk.cancelStroke(id, e); strokePages.remove(id)
+                addStraightHighlight(points.first(), points.last())
+                return
             }
         }
         wetInk.finishStroke(e, activePointer, id)
+    }
+
+    private fun addStraightHighlight(a: Pt, b0: Pt) {
+        val p = pages.getOrNull(activePage) ?: return
+        var b = b0
+        // Nearly level lines become perfectly level.
+        if (abs(b.second - a.second) < abs(b.first - a.first) * 0.12f) b = b.first to a.second
+        val stroke = InkCodec.strokeFromPoints(densifyPublic(listOf(a, b)), host.brush(Tool.HIGHLIGHTER))
+        host.beginEdit(activePage)
+        updatePage(activePage, p.items + InkItem(ItemIds.next(), stroke))
     }
 
     private fun trackHold(cur: Pt) {
@@ -718,21 +731,33 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         if (points.size < 6 || pathLength(points) < 30f) return
 
         if (settings.circleToLasso && strokeTool == Tool.PEN && isClosedLoop(points)) {
-            val lasso = Lasso(points)
-            val ids = p.items.filter { lasso.selects(it) }.map { it.id }.toSet()
+            val lasso = Lasso(points, settings.lassoTouching)
+            val ids = p.items.filter { lassoAllows(it) && lasso.selects(it) }.map { it.id }.toSet()
             if (ids.isNotEmpty()) {
                 holdFired = true
                 cancelWet(id)
-                selectItems(activePage, ids)
                 buzz()
+                // The loop turns into a marching-ants lasso, then the content is selected.
+                val page = activePage
+                val screen = points.map { (x, y) ->
+                    val a = floatArrayOf(x, y); pageMatrix(page, tmpMatrix).mapPoints(a); a[0] to a[1]
+                }
+                layer.playLassoMorph(screen) { selectItems(page, ids) }
                 return
             }
+        }
+        if (strokeTool == Tool.HIGHLIGHTER) {
+            holdFired = true
+            cancelWet(id)
+            addStraightHighlight(points.first(), points.last())
+            buzz()
+            return
         }
         if (settings.holdToShape) {
             val shape = ShapeRecognizer.recognize(points) ?: return
             holdFired = true
             cancelWet(id)
-            addShapes(listOf(shape), fillable = strokeTool == Tool.SHAPE && isClosedLoop(shape))
+            addShapes(listOf(shape), fillable = strokeTool == Tool.SHAPE && isClosedLoop(shape), brushTool = strokeTool)
             buzz()
         }
     }
@@ -745,9 +770,21 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         ev.recycle()
     }
 
-    private fun addShapes(shapes: List<List<Pt>>, fillable: Boolean = false) {
+    /** Lasso filter from settings: which kinds of content can be selected. */
+    private fun lassoAllows(item: PageItem): Boolean {
+        val f = settings.lassoFilter
+        return when (item) {
+            is InkItem -> if (item.isHighlighter) f.highlighter else f.ink
+            is TextItem -> f.text
+            is ImageItem -> f.images
+            is FillItem -> f.ink
+            else -> f.other
+        }
+    }
+
+    private fun addShapes(shapes: List<List<Pt>>, fillable: Boolean = false, brushTool: Tool = Tool.SHAPE) {
         val p = pages.getOrNull(activePage) ?: return
-        val brush = host.brush(Tool.SHAPE)
+        val brush = host.brush(if (brushTool == Tool.PEN) Tool.PEN else Tool.SHAPE)
         val items = ArrayList<PageItem>()
         val fill = if (fillable) host.shapeFill() else null
         val outline = shapes.firstOrNull()
@@ -811,7 +848,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         strokeId?.let { wetInk.cancelStroke(it, e); strokePages.remove(it) }
         strokeId = null
         if (mode == Mode.LASSO) { layer.lasso = null; layer.stopAnts() }
-        if (mode == Mode.MOVE) dragOffset = null
+        if (mode == Mode.MOVE) liveMatrix = null
         layer.shapePreview = null; layer.tapePreview = null
         layer.eraserAt = null
         mode = Mode.NONE
@@ -915,7 +952,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
     private fun select(page: Int, lasso: Lasso) {
         val p = pages.getOrNull(page) ?: return
-        selectItems(page, p.items.filter { lasso.selects(it) }.map { it.id }.toSet())
+        selectItems(page, p.items.filter { lassoAllows(it) && lasso.selects(it) }.map { it.id }.toSet())
     }
 
     fun selectItems(page: Int, ids: Set<Long>) {
@@ -929,7 +966,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     fun clearSelection() {
         if (selection.isEmpty()) return
         selection = emptySet()
-        dragOffset = null
+        liveMatrix = null
         layer.invalidate()
         reportSelection()
     }
@@ -940,9 +977,65 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         if (items.isEmpty()) return null
         val r = RectF(items.first().bounds)
         items.drop(1).forEach { r.union(it.bounds) }
-        dragOffset?.let { r.offset(it.first, it.second) }
         r.inset(-12f, -12f)
+        liveMatrix?.let { if (grab != Grab.ROTATE) it.mapRect(r) }
         return r
+    }
+
+    /** Selection box without live transform, for hit testing and rotate drawing. */
+    private fun selectionBaseBounds(): RectF? {
+        val keep = liveMatrix; liveMatrix = null
+        val r = selectionPageBounds(); liveMatrix = keep
+        return r
+    }
+
+    private fun handleRadius() = 22f * density
+    private fun rotateHandleOffset() = 30f * density
+
+    /** Starts move / resize / rotate when the pen lands on the selection or one of its handles. */
+    private fun beginGrab(px: Float, py: Float): Boolean {
+        val base = selectionBaseBounds() ?: return false
+        val sb = RectF(base); pageMatrix(selectionPage, tmpMatrix).mapRect(sb)
+        val (lx, ly) = toLocal(px, py, selectionPage)
+        val corners = listOf(sb.left to sb.top, sb.right to sb.top, sb.right to sb.bottom, sb.left to sb.bottom)
+        val baseCorners = listOf(base.left to base.top, base.right to base.top, base.right to base.bottom, base.left to base.bottom)
+        val hit = corners.indexOfFirst { (cx, cy) -> hypot(px - cx, py - cy) < handleRadius() }
+        grab = when {
+            hit >= 0 -> { val opp = baseCorners[(hit + 2) % 4]; anchorX = opp.first; anchorY = opp.second; Grab.SCALE }
+            hypot(px - sb.centerX(), py - (sb.top - rotateHandleOffset())) < handleRadius() -> {
+                anchorX = base.centerX(); anchorY = base.centerY(); Grab.ROTATE
+            }
+            sb.contains(px, py) -> Grab.MOVE
+            else -> return false
+        }
+        activePage = selectionPage
+        mode = Mode.MOVE
+        grabStartX = lx; grabStartY = ly
+        liveScale = 1f; liveDeg = 0f
+        liveMatrix = Matrix()
+        return true
+    }
+
+    private fun updateGrab(x: Float, y: Float) {
+        val m = Matrix()
+        when (grab) {
+            Grab.MOVE -> m.setTranslate(x - grabStartX, y - grabStartY)
+            Grab.SCALE -> {
+                val d0 = hypot(grabStartX - anchorX, grabStartY - anchorY).coerceAtLeast(1f)
+                liveScale = (hypot(x - anchorX, y - anchorY) / d0).coerceIn(0.1f, 12f)
+                m.setScale(liveScale, liveScale, anchorX, anchorY)
+            }
+            Grab.ROTATE -> {
+                val a0 = Math.toDegrees(kotlin.math.atan2((grabStartY - anchorY).toDouble(), (grabStartX - anchorX).toDouble()))
+                val a1 = Math.toDegrees(kotlin.math.atan2((y - anchorY).toDouble(), (x - anchorX).toDouble()))
+                var deg = (a1 - a0).toFloat()
+                val snapped = (Math.round(deg / 15f) * 15).toFloat()
+                if (abs(deg - snapped) < 4f) deg = snapped   // snap to 15� steps
+                liveDeg = deg
+                m.setRotate(deg, anchorX, anchorY)
+            }
+        }
+        liveMatrix = m
     }
 
     private val tmpMatrix = Matrix()
@@ -957,12 +1050,21 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
     private fun commitMove() {
         val p = pages.getOrNull(selectionPage) ?: return
-        val off = dragOffset
-        dragOffset = null
-        if (off != null && (off.first != 0f || off.second != 0f)) {
+        val m = liveMatrix
+        liveMatrix = null
+        if (m != null && !m.isIdentity) {
             host.beginEdit(selectionPage)
-            updatePage(selectionPage, p.items.map { if (it.id in selection) it.translated(off.first, off.second) else it })
+            val items = when (grab) {
+                Grab.MOVE -> {
+                    val v = FloatArray(9); m.getValues(v)
+                    p.items.map { if (it.id in selection) it.translated(v[Matrix.MTRANS_X], v[Matrix.MTRANS_Y]) else it }
+                }
+                Grab.SCALE -> p.items.map { if (it.id in selection) it.transformed(m, liveScale, 0f) else it }
+                Grab.ROTATE -> p.items.map { if (it.id in selection) it.transformed(m, 1f, liveDeg) else it }
+            }
+            updatePage(selectionPage, items)
         }
+        liveScale = 1f; liveDeg = 0f
         reportSelection()
     }
 
@@ -1008,6 +1110,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 }
                 var dx = cx - panLastX; var dy = cy - panLastY
                 if (pull > 0f) { dx *= 0.45f; dy *= 0.45f }   // rubber band while pulling
+                // Horizontal paging at fit size: pages slide sideways only.
+                if (settings.scroll == ScrollDirection.HORIZONTAL && e.pointerCount == 1 && scale <= fitScale() * 1.03f) dy = 0f
                 transX += dx
                 transY += dy
                 panLastX = cx; panLastY = cy
@@ -1071,8 +1175,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         if (horizontal && atFit && !pulled) {
             // Page-by-page snapping, like turning pages.
             var target = currentIndex
-            if (vx < -600) target = (currentIndex + 1).coerceAtMost(pages.size - 1)
-            else if (vx > 600) target = (currentIndex - 1).coerceAtLeast(0)
+            if (vx < -500) target = (pageAtGestureStart + 1).coerceAtMost(pages.size - 1)
+            else if (vx > 500) target = (pageAtGestureStart - 1).coerceAtLeast(0)
+            scale = fitScale(target)
             scrollToPage(target, animate = true)
             return
         }
@@ -1162,6 +1267,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
         private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt() }
         private val handleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+        private val selRing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = 1.8f * density; color = 0xFF3D6CF4.toInt()
+        }
         private val eraserPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE; strokeWidth = 1.5f * density; color = 0x99000000.toInt()
         }
@@ -1216,6 +1324,44 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             }
         }
 
+        private var morph: List<Pt>? = null
+        private var morphT = 0f
+        private val morphGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; color = 0xFF3D6CF4.toInt()
+        }
+
+        /** Circle-and-hold: the ink loop glows, turns into a dashed lasso, then [onDone] selects. */
+        fun playLassoMorph(screen: List<Pt>, onDone: () -> Unit) {
+            morph = screen
+            ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 420; interpolator = DecelerateInterpolator()
+                addUpdateListener { morphT = it.animatedValue as Float; invalidate() }
+                addListener(object : android.animation.AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: android.animation.Animator) {
+                        morph = null; invalidate(); onDone()
+                    }
+                })
+                start()
+            }
+        }
+
+        fun drawMorph(canvas: Canvas) {
+            val pts = morph ?: return
+            if (pts.size < 2) return
+            tmpPath.reset()
+            pts.forEachIndexed { i, (x, y) -> if (i == 0) tmpPath.moveTo(x, y) else tmpPath.lineTo(x, y) }
+            tmpPath.close()
+            val t = morphT
+            lassoFill.alpha = (0x14 + 40 * t).toInt().coerceAtMost(255)
+            canvas.drawPath(tmpPath, lassoFill)
+            morphGlow.alpha = ((1f - t) * 120).toInt()
+            morphGlow.strokeWidth = (4f + 10f * t) * density
+            canvas.drawPath(tmpPath, morphGlow)
+            lassoPaint.pathEffect = DashPathEffect(floatArrayOf(9f * density * t + 0.1f, 4f * density * t + 0.1f), t * 40f)
+            canvas.drawPath(tmpPath, lassoPaint)
+            lassoFill.alpha = 0x14
+        }
+
         fun laserBegin(p: Pt) { lasers += LaserStroke(arrayListOf(p)); invalidate() }
         fun laserAdd(p: Pt) { lasers.lastOrNull()?.pts?.add(p); invalidate() }
         fun laserEnd(): List<Pt>? {
@@ -1242,10 +1388,11 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 canvas.save()
                 canvas.concat(m)
                 val pdf = if (p.pdfPage >= 0) host.pdfBitmap(p) { postInvalidate() } else null
-                r.drawPaper(canvas, p, pdf, shadow = settings.pageShadow)
+                r.darkPdf = settings.darkPdf
+                r.drawPaper(canvas, p, pdf, shadow = true)
                 val hl = host.highlights(i)
                 if (hl.isNotEmpty()) r.drawHighlights(canvas, hl, active?.takeIf { it.first == i }?.second)
-                if (i == selectionPage) r.drawItems(canvas, p.items, m, offset = dragOffset, offsetIds = selection)
+                if (i == selectionPage) r.drawItems(canvas, p.items, m, transform = liveMatrix, transformIds = selection)
                 else r.drawItems(canvas, p.items, m)
                 tapePreview?.takeIf { i == activePage }?.let { canvas.drawRoundRect(it, 6f, 6f, tapePreviewPaint) }
                 shapePreview?.takeIf { i == activePage }?.forEach { line ->
@@ -1263,6 +1410,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             drawPull(canvas)
             drawSelection(canvas)
             lasso?.let { drawLasso(canvas, it) }
+            drawMorph(canvas)
             (eraserAt ?: hoverAt)?.let { (x, y) ->
                 val rad = host.eraserRadius()
                 canvas.drawCircle(x, y, rad, eraserFill)
@@ -1295,19 +1443,36 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
 
         private fun drawSelection(canvas: Canvas) {
-            val wb = selectionPageBounds() ?: return
+            val rotating = grab == Grab.ROTATE && liveMatrix != null
+            val wb = (if (rotating) selectionBaseBounds() else selectionPageBounds()) ?: return
             val sb = RectF(wb)
             pageMatrix(selectionPage, m).mapRect(sb)
             canvas.save()
             canvas.scale(selScale, selScale, sb.centerX(), sb.centerY())
+            if (rotating) canvas.rotate(liveDeg, sb.centerX(), sb.centerY())
             val rad = 10f * density
             canvas.drawRoundRect(sb, rad, rad, selPaint)
-            val hr = 5f * density
+            val hr = 6f * density
+            // rotate handle
+            val ry = sb.top - rotateHandleOffset()
+            canvas.drawLine(sb.centerX(), sb.top, sb.centerX(), ry + hr, handlePaint.apply { strokeWidth = 1.5f * density })
+            canvas.drawCircle(sb.centerX(), ry, hr + 2f * density, handleFill)
+            canvas.drawCircle(sb.centerX(), ry, hr + 2f * density, selRing)
+            canvas.drawArc(RectF(sb.centerX() - hr * 0.6f, ry - hr * 0.6f, sb.centerX() + hr * 0.6f, ry + hr * 0.6f), -60f, 280f, false, selRing)
             for ((x, y) in listOf(sb.left to sb.top, sb.right to sb.top, sb.left to sb.bottom, sb.right to sb.bottom)) {
                 canvas.drawCircle(x, y, hr, handleFill)
-                canvas.drawCircle(x, y, hr - 1.5f * density, handlePaint)
+                canvas.drawCircle(x, y, hr, selRing)
             }
             canvas.restore()
+            if (rotating) {
+                pullText.color = 0xFF3D6CF4.toInt()
+                canvas.drawText("${liveDeg.roundToInt()}�", sb.centerX(), sb.bottom + 24f * density, pullText)
+                pullText.color = 0xFF5B6475.toInt()
+            } else if (grab == Grab.SCALE && liveMatrix != null) {
+                pullText.color = 0xFF3D6CF4.toInt()
+                canvas.drawText("${(liveScale * 100).roundToInt()}%", sb.centerX(), sb.bottom + 24f * density, pullText)
+                pullText.color = 0xFF5B6475.toInt()
+            }
         }
 
         private fun drawLasso(canvas: Canvas, pts: List<Pt>) {
@@ -1325,6 +1490,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             val now = SystemClock.uptimeMillis()
             val hold = (settings.laserSeconds * 1000).toLong()
             val fade = 500L
+            // While the pen or a finger is on the screen, laser ink stays put.
+            if (touchActive) lasers.forEach { if (it.end != Long.MAX_VALUE && now - it.end <= hold + fade) it.end = now }
             lasers.removeAll { it.end != Long.MAX_VALUE && now - it.end > hold + fade }
             val pt = FloatArray(2)
             for (s in lasers) {

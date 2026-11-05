@@ -64,6 +64,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var shapeStyle by mutableStateOf(style("shape", listOf(PenPalette[0], PenPalette[2], PenPalette[10], PenPalette[5], PenPalette[13]), listOf(2f, 4f, 7f), 4f))
     var shapeKind by mutableStateOf(ShapeKind.AUTO)
     var shapeDashed by mutableStateOf(false)
+    /** Bumped when the selected image or sticker tool is tapped again. */
+    var reopenTool by mutableStateOf(0)
     var shapeFillOn by mutableStateOf(false)
     var shapeFillColor by mutableStateOf(0xFFCDE2FB.toInt())
     var textStyle by mutableStateOf(TextStyleSpec())
@@ -195,6 +197,88 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     }
 
     fun cutSelection() { copySelection(); deleteSelection() }
+
+    private fun selectionUnion(): RectF? {
+        val p = pages.getOrNull(selectionPage) ?: return null
+        val items = p.items.filter { it.id in selection }
+        if (items.isEmpty()) return null
+        return RectF(items.first().bounds).also { r -> items.drop(1).forEach { r.union(it.bounds) } }
+    }
+
+    /** Selected items keep their order among themselves and move above (or below) the rest. */
+    fun arrange(toFront: Boolean) {
+        val p = pages.getOrNull(selectionPage) ?: return
+        val (sel, rest) = p.items.partition { it.id in selection }
+        beginEdit(selectionPage)
+        applyItems(selectionPage, if (toFront) rest + sel else sel + rest)
+    }
+
+    fun rotateSelection(deg: Float) = transformSelection { r -> android.graphics.Matrix().apply { setRotate(deg, r.centerX(), r.centerY()) } to (1f to deg) }
+
+    fun flipSelection() = transformSelection { r -> android.graphics.Matrix().apply { setScale(-1f, 1f, r.centerX(), r.centerY()) } to (1f to 0f) }
+
+    private fun transformSelection(build: (RectF) -> Pair<android.graphics.Matrix, Pair<Float, Float>>) {
+        val p = pages.getOrNull(selectionPage) ?: return
+        val r = selectionUnion() ?: return
+        val (m, sd) = build(r)
+        beginEdit(selectionPage)
+        applyItems(selectionPage, p.items.map { if (it.id in selection) it.transformed(m, sd.first, sd.second) else it })
+    }
+
+    /** Renders the selection on a transparent bitmap, for sharing as a picture. */
+    suspend fun selectionImage(): Bitmap? = withContext(Dispatchers.Default) {
+        val p = pages.getOrNull(selectionPage) ?: return@withContext null
+        val r = selectionUnion() ?: return@withContext null
+        r.inset(-16f, -16f)
+        val scale = (1600f / maxOf(r.width(), r.height())).coerceIn(0.5f, 2f)
+        val bmp = Bitmap.createBitmap((r.width() * scale).toInt().coerceAtLeast(1), (r.height() * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+        val m = android.graphics.Matrix().apply { setTranslate(-r.left, -r.top); postScale(scale, scale) }
+        val c = Canvas(bmp)
+        c.concat(m)
+        renderer().drawItems(c, p.items.filter { it.id in selection }, m)
+        bmp
+    }
+
+    suspend fun pageImage(index: Int): Bitmap? = thumbnail(index, 1600)
+
+    fun movePage(from: Int, to: Int) {
+        if (from !in pages.indices || to !in pages.indices || from == to) return
+        val p = pages.removeAt(from)
+        pages.add(to, p)
+        undoStack.clear(); redoStack.clear(); refreshUndo()
+        if (pageIndex == from) pageIndex = to
+        scheduleSave(); onPagesChanged?.invoke()
+    }
+
+    // ----------------------------------------------------------- pen presets
+    val presets = store.presets
+
+    fun savePreset() = store.addPreset(com.pronotes.app.data.PenPreset(penType.name, penStyle.color, penStyle.size))
+    fun removePreset(p: com.pronotes.app.data.PenPreset) = store.removePreset(p)
+    fun applyPreset(p: com.pronotes.app.data.PenPreset) {
+        penType = runCatching { PenType.valueOf(p.type) }.getOrDefault(PenType.FOUNTAIN)
+        val colors = if (p.color in penStyle.colors) penStyle.colors else (penStyle.colors + p.color).takeLast(8)
+        penStyle = penStyle.copy(colors = colors, color = p.color, size = p.size)
+        tool = Tool.PEN
+    }
+
+    /** Places a sticker picture in the middle of the page in view and returns it for selection. */
+    fun insertStickerBitmap(bmp: Bitmap, onPlaced: (Int, Long) -> Unit) {
+        viewModelScope.launch {
+            val name = withContext(Dispatchers.IO) {
+                val n = "sticker_${UUID.randomUUID()}.png"
+                java.io.File(repo.noteDir(noteId), n).outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                n
+            }
+            val idx = pageIndex
+            val p = pages.getOrNull(idx) ?: return@launch
+            val w = 300f; val h = w * bmp.height / bmp.width
+            val item = ImageItem(ItemIds.next(), name, (p.width - w) / 2f, p.height / 3f, w, h)
+            beginEdit(idx)
+            applyItems(idx, p.items + item)
+            onPlaced(idx, item.id)
+        }
+    }
 
     /** Pastes onto the page in view, nudged so it does not sit exactly on the original. */
     fun paste(): Pair<Int, Set<Long>>? {
