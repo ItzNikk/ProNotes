@@ -223,7 +223,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit) {
 
             // Floating selection menu
             val sb = vm.selectionBounds
-            AnimatedVisibility(
+            androidx.compose.animation.AnimatedVisibility(
                 visible = vm.selection.isNotEmpty() && sb != null,
                 enter = fadeIn() + scaleIn(initialScale = 0.85f),
                 exit = fadeOut() + scaleOut(targetScale = 0.85f),
