@@ -29,11 +29,14 @@ Every release is signed with the same key, and the app updates itself from insid
 | **Smart gestures** | Circle and hold to select, scribble to erase, hold to snap shapes, two-finger tap to undo, pull past the last page to add one. |
 | **Selection** | Lasso or rectangle with filters. Move, resize, rotate, flip, recolour, arrange, copy and share as an image. |
 | **Shapes** | Auto-recognised lines, polygons, stars and circles, plus 30 drawable shapes with fill and dashed outlines. |
-| **Highlighter** | Sits beneath PDF text and ink, with auto-straighten and hold-to-snap. |
-| **PDF** | Import, annotate, search text, dark reading mode, and export or share as PDF. |
+| **Highlighter** | Even, round tip that ignores pressure and tilt. Adjustable opacity, sits beneath PDF text and ink, with auto-straighten and hold-to-snap. |
+| **PDF** | Import, annotate, search text, dark reading mode, and export or share as PDF. Nearby pages are prepared ahead, and pinch-zoom keeps you on your page. |
 | **Pages** | Vertical or horizontal paging, custom sizes, nine templates, page colours, picture pages, bookmarks and drag-to-reorder. |
 | **Library** | Folders with colours, drag and drop, covers you can write on, 14 cover materials, favourites, recents, trash and tabs. |
-| **Yours** | Backup and restore the whole library, themes, accent colours, a customisable toolbar, and in-app updates. |
+| **Remembers you** | Your last tool, pen type, colours, sizes and the page you were on in every notebook. |
+| **Yours** | Backup and restore the whole library, themes, accent colours and a customisable toolbar. |
+| **Updates** | In-app updates show what changed first, install through the system installer, and can reopen the app when done. |
+| **Welcome** | A full-screen intro and a pen setup that checks pressure, tilt and hover, then picks your pen brand. |
 
 ## Requirements
 
@@ -48,7 +51,7 @@ cd ProNotes
 gradle assembleRelease
 ```
 
-JDK 17 and the Android SDK (API 36) are required. CI builds every push; tags such as `v4.0.0` publish a release.
+JDK 17 and the Android SDK (API 36) are required. CI builds every push; tags such as `v5.0.0` publish a release, with notes taken from [CHANGELOG.md](CHANGELOG.md).
 
 Optional: set `pronotes.upi` in `gradle.properties` (or `SUPPORT_UPI` in CI) to enable the in-app support screen.
 

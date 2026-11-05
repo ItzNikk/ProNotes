@@ -375,7 +375,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun pushRecent(c: Int) = store.pushRecentColor(c)
 
     fun brushFor(t: Tool): Brush = when (t) {
-        Tool.HIGHLIGHTER -> Brushes.create(Brushes.HIGHLIGHTER, highlighterStyle.color, highlighterStyle.size)
+        Tool.HIGHLIGHTER -> {
+            Brushes.highlightAlpha = (store.settings.value.highlighterOpacity.coerceIn(0.2f, 0.8f) * 255).toInt()
+            Brushes.create(Brushes.HIGHLIGHTER, highlighterStyle.color, highlighterStyle.size)
+        }
         Tool.SHAPE -> Brushes.create(if (shapeDashed) Brushes.DASHED else Brushes.PEN, shapeStyle.color, shapeStyle.size)
         else -> Brushes.create(penType.family, penStyle.color, penStyle.size * penType.sizeFactor)
     }

@@ -121,6 +121,8 @@ data class AppSettings(
     val highlighterBehind: Boolean = true,
     val highlighterMode: HighlighterMode = HighlighterMode.AUTO,
     val laserSeconds: Float = 3f,
+    /** Highlighter ink opacity, 0.2 to 0.8. */
+    val highlighterOpacity: Float = 0.45f,
     val lassoAfterShape: Boolean = false,
     val lassoMode: LassoMode = LassoMode.FREEFORM,
     val lassoFilter: LassoFilter = LassoFilter(),
@@ -184,6 +186,7 @@ class SettingsStore private constructor(context: Context) {
             highlighterBehind = b("hlBehind", d.highlighterBehind),
             highlighterMode = if (!prefs.contains("hlMode") && legacyStraight) HighlighterMode.STRAIGHT else enumOf("hlMode", d.highlighterMode),
             laserSeconds = prefs.getFloat("laserSeconds", d.laserSeconds),
+            highlighterOpacity = prefs.getFloat("hlOpacity", d.highlighterOpacity),
             lassoAfterShape = b("lassoAfterShape", d.lassoAfterShape),
             lassoMode = enumOf("lassoMode", d.lassoMode),
             lassoFilter = LassoFilter(
@@ -234,6 +237,7 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("hlBehind", s.highlighterBehind)
             .putString("hlMode", s.highlighterMode.name)
             .putFloat("laserSeconds", s.laserSeconds)
+            .putFloat("hlOpacity", s.highlighterOpacity)
             .putBoolean("lassoAfterShape", s.lassoAfterShape)
             .putString("lassoMode", s.lassoMode.name)
             .putBoolean("lassoInk", s.lassoFilter.ink)

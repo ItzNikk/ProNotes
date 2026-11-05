@@ -305,6 +305,31 @@ private fun LoopingVideo(@androidx.annotation.RawRes res: Int, circle: Boolean, 
     )
 }
 
+/**
+ * The pen ring as an animated picture. A plain image view draws inside the circle clip reliably,
+ * unlike a video surface. Android 8 falls back to the video.
+ */
+@Composable
+private fun RingAnimation(modifier: Modifier) {
+    if (android.os.Build.VERSION.SDK_INT < 28) { LoopingVideo(R.raw.pen_ring, circle = true, modifier = modifier); return }
+    AndroidView(
+        modifier = modifier.clip(CircleShape).background(Color.Black),
+        factory = { ctx ->
+            android.widget.ImageView(ctx).apply {
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                runCatching {
+                    val d = android.graphics.ImageDecoder.decodeDrawable(android.graphics.ImageDecoder.createSource(ctx.resources, R.raw.pen_ring_anim))
+                    setImageDrawable(d)
+                    (d as? android.graphics.drawable.AnimatedImageDrawable)?.apply {
+                        repeatCount = android.graphics.drawable.AnimatedImageDrawable.REPEAT_INFINITE
+                        start()
+                    }
+                }
+            }
+        },
+    )
+}
+
 /** TextureView stretches video to its size; scale back so the picture fills without distortion. */
 private fun cropToFill(tv: TextureView, vw: Int, vh: Int) {
     if (vw == 0 || vh == 0 || tv.width == 0 || tv.height == 0) return
@@ -456,7 +481,7 @@ private fun PenCheckPage(active: Boolean, store: SettingsStore, onNext: () -> Un
     val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
     Box(Modifier.size(230.dp).scale(pulse.value), contentAlignment = Alignment.Center) {
         // The ring video sits inside the progress arc.
-        if (active) LoopingVideo(R.raw.pen_ring, circle = true, modifier = Modifier.size(198.dp))
+        if (active) RingAnimation(Modifier.size(198.dp))
         else Box(Modifier.size(198.dp).clip(CircleShape).background(Color.Black))
         Canvas(Modifier.fillMaxSize()) {
             val w = 6.dp.toPx()

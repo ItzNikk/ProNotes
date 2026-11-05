@@ -32,17 +32,17 @@ object Brushes {
     const val HIGHLIGHTER = "highlighter"
     const val DASHED = "dashed"
 
-    /** Highlighter ink is always drawn at this opacity; swatches stay opaque. */
-    const val HIGHLIGHT_ALPHA = 0x80
+    /** Highlighter ink opacity (set from settings); swatches stay opaque. */
+    @Volatile var highlightAlpha = 0x73
 
     private val pen by lazy { StockBrushes.pressurePen() }
     private val marker by lazy { StockBrushes.marker() }
     /**
-     * A flat, softly rounded highlighter band: as tall as the brush size, narrow along the stroke,
-     * with no slant. Drawn translucent and multiplied onto the page, like a real highlighter.
+     * Highlighter: an even, round tip. Same width in every direction, and it ignores pressure,
+     * tilt and speed, so every highlight looks clean and uniform. Drawn translucent behind ink.
      */
     private val highlighter by lazy {
-        BrushFamily(tip = BrushTip(scaleX = 0.28f, scaleY = 1f, cornerRounding = 0.45f), paint = BrushPaint())
+        BrushFamily(tip = BrushTip(scaleX = 1f, scaleY = 1f, cornerRounding = 1f, behaviors = emptyList()), paint = BrushPaint())
     }
     private val dashed by lazy { StockBrushes.dashedLine() }
 
@@ -63,7 +63,7 @@ object Brushes {
     fun opaque(color: Int) = color or (0xFF shl 24)
 
     fun create(family: String, color: Int, size: Float): Brush {
-        val c = if (family == HIGHLIGHTER) (color and 0x00FFFFFF) or (HIGHLIGHT_ALPHA shl 24) else opaque(color)
+        val c = if (family == HIGHLIGHTER) (color and 0x00FFFFFF) or (highlightAlpha shl 24) else opaque(color)
         return Brush.createWithColorIntArgb(family(family), c, size, 0.1f)
     }
 

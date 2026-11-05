@@ -1,5 +1,13 @@
 # Changelog
 
+## v5.0.0
+- **Highlighter:** an even, round tip. Same width in every direction, and it ignores pressure, tilt and speed.
+- **Highlighter opacity:** new slider in the highlighter card, from 20% to 80%.
+- **Pen setup:** the ring animation now plays inside the circle on every device.
+- **PDF:** smoother swiping, no flips while pinching, nearby pages prepared ahead.
+- **Updates:** fixed installs that never started; the download no longer depends on the dialog.
+- **Remembers you:** last tool, colours, sizes and page per notebook.
+
 ## v4.2.4
 - **PDF:** pinch-zooming no longer flips to another page. When you let go, you stay on the page you were on.
 - **Updates:** fixed downloads that finished but never installed. The download now keeps going after the dialog closes, and the install screen opens even if you left the app.

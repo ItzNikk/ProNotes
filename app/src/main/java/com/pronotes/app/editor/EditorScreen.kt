@@ -1148,11 +1148,12 @@ private fun HighlighterCard(vm: EditorViewModel) {
     val store = SettingsStore.get(LocalContext.current)
     val s by store.settings.collectAsState()
     Card("Highlighter") {
-        StrokePreview(Color(style.color).copy(alpha = 0.45f), style.size * 1.2f, false)
+        StrokePreview(Color(style.color).copy(alpha = s.highlighterOpacity), style.size * 1.2f, false)
         SliderRow("THICKNESS", "%.0f".format(style.size), style.size, 6f..70f) { v ->
             val sizes = style.sizes.map { if (it == style.size) v else it }
             vm.updateStyle(Tool.HIGHLIGHTER, style.copy(size = v, sizes = sizes))
         }
+        SliderRow("OPACITY", "%.0f%%".format(s.highlighterOpacity * 100), s.highlighterOpacity, 0.2f..0.8f) { v -> store.update { it.copy(highlighterOpacity = v) } }
         Text("LINE", style = MaterialTheme.typography.labelSmall)
         Segments(HighlighterMode.entries.map { it.label }, s.highlighterMode.ordinal) { i -> store.update { it.copy(highlighterMode = HighlighterMode.entries[i]) } }
         ToggleLine("Draw behind ink", s.highlighterBehind) { v -> store.update { it.copy(highlighterBehind = v) } }
