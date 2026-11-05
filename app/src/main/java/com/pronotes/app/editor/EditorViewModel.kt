@@ -53,17 +53,21 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     val isPdf: Boolean get() = repo.pdfFile(noteId).exists()
 
     // ---------------------------------------------------------------- tools
-    private var _tool by mutableStateOf(Tool.PEN)
+    /** Last session's choices: tool, pen type, colours, sizes. */
+    private val saved = store.pref("tools").split('|')
+    private inline fun <reified E : Enum<E>> savedEnum(i: Int, def: E): E =
+        saved.getOrNull(i)?.let { n -> enumValues<E>().firstOrNull { it.name == n } } ?: def
+    private var _tool by mutableStateOf(savedEnum(0, Tool.PEN).takeIf { it != Tool.IMAGE && it != Tool.STICKER && it != Tool.STICKY } ?: Tool.PEN)
     private var previousTool = Tool.PEN
     /** Current tool. Remembers the last non-eraser tool for "switch back after erasing". */
     var tool: Tool
         get() = _tool
         set(v) { if (_tool != Tool.ERASER && _tool != v) previousTool = _tool; _tool = v }
-    var penType by mutableStateOf(PenType.FOUNTAIN)
-    var penStyle by mutableStateOf(style("pen", listOf(PenPalette[0], PenPalette[2], PenPalette[10], PenPalette[5], PenPalette[13]), listOf(2f, 4f, 7f), 4f))
-    var highlighterStyle by mutableStateOf(style("highlighter", HighlighterPalette, listOf(16f, 28f, 42f), 28f))
-    var shapeStyle by mutableStateOf(style("shape", listOf(PenPalette[0], PenPalette[2], PenPalette[10], PenPalette[5], PenPalette[13]), listOf(2f, 4f, 7f), 4f))
-    var shapeKind by mutableStateOf(ShapeKind.AUTO)
+    var penType by mutableStateOf(savedEnum(1, PenType.FOUNTAIN))
+    var penStyle by mutableStateOf(style("pen", listOf(PenPalette[0], PenPalette[2], PenPalette[10], PenPalette[5], PenPalette[13]), listOf(2f, 4f, 7f), 4f, 2))
+    var highlighterStyle by mutableStateOf(style("highlighter", HighlighterPalette, listOf(16f, 28f, 42f), 28f, 3))
+    var shapeStyle by mutableStateOf(style("shape", listOf(PenPalette[0], PenPalette[2], PenPalette[10], PenPalette[5], PenPalette[13]), listOf(2f, 4f, 7f), 4f, 4))
+    var shapeKind by mutableStateOf(savedEnum(5, ShapeKind.AUTO))
     var shapeDashed by mutableStateOf(false)
     /** Bumped when the selected image or sticker tool is tapped again. */
     var reopenTool by mutableStateOf(0)
@@ -80,11 +84,11 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     private var clipboard: List<PageItem> = emptyList()
     var hasClipboard by mutableStateOf(false)
         private set
-    var eraserSize by mutableStateOf(1)
+    var eraserSize by mutableStateOf(saved.getOrNull(6)?.toIntOrNull()?.coerceIn(0, 2) ?: 1)
     var textSize by mutableStateOf(40f)
-    var tapeColor by mutableStateOf(TapeColors[0])
+    var tapeColor by mutableStateOf(saved.getOrNull(7)?.toIntOrNull() ?: TapeColors[0])
     var tapeFreehand by mutableStateOf(false)
-    var stickyColor by mutableStateOf(StickyColors[0])
+    var stickyColor by mutableStateOf(saved.getOrNull(8)?.toIntOrNull() ?: StickyColors[0])
 
     // ------------------------------------------------------------ selection
     var selection by mutableStateOf<Set<Long>>(emptySet())
@@ -129,9 +133,23 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var onPagesChanged: (() -> Unit)? = null
     var onScrollTo: ((Int) -> Unit)? = null
 
+    /** The page this notebook was on when it was last closed. */
+    var startPage = 0
+        private set
+
     init {
+        // Remember tool choices as they change.
+        viewModelScope.launch {
+            androidx.compose.runtime.snapshotFlow {
+                listOf(
+                    _tool.name, penType.name, "${penStyle.color},${penStyle.size}", "${highlighterStyle.color},${highlighterStyle.size}",
+                    "${shapeStyle.color},${shapeStyle.size}", shapeKind.name, eraserSize.toString(), tapeColor.toString(), stickyColor.toString(),
+                ).joinToString("|")
+            }.collect { store.setPref("tools", it) }
+        }
         viewModelScope.launch {
             val loadedPages = repo.loadPages(noteId)
+            startPage = store.pref("page_$noteId", "0").toIntOrNull()?.coerceIn(0, (loadedPages.size - 1).coerceAtLeast(0)) ?: 0
             pages.clear(); pages.addAll(loadedPages)
             if (repo.pdfFile(noteId).exists()) pdf = PdfPages(repo.pdfFile(noteId))
             loaded = true
@@ -140,16 +158,19 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         }
     }
 
-    private fun style(key: String, colors: List<Int>, sizes: List<Float>, size: Float): ToolStyle {
+    private fun style(key: String, colors: List<Int>, sizes: List<Float>, size: Float, slot: Int): ToolStyle {
         val c = store.swatches(key, colors)
-        return ToolStyle(c, sizes, c.first(), size)
+        val sel = saved.getOrNull(slot)?.split(',')
+        val color = sel?.getOrNull(0)?.toIntOrNull() ?: c.first()
+        val sz = sel?.getOrNull(1)?.toFloatOrNull() ?: size
+        return ToolStyle(c, sizes, color, sz)
     }
 
     val currentPage: Page? get() = pages.getOrNull(pageIndex)
 
     fun renderer() = PageRenderer(repo.noteDir(noteId))
 
-    fun onCurrentPage(i: Int) { pageIndex = i }
+    fun onCurrentPage(i: Int) { pageIndex = i; if (loaded) store.setPref("page_$noteId", i.toString()) }
 
     // ------------------------------------------------------------- brushes
 
@@ -545,10 +566,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun pdfBitmap(page: Page, widthPx: Int, onReady: () -> Unit): Bitmap? {
         val src = pdf ?: return null
         val have = src.cached(page.pdfPage)
-        var want = ((widthPx + 255) / 256 * 256).coerceIn(768, 2600)
+        var want = ((widthPx + 255) / 256 * 256).coerceIn(768, 2200)
         val aspect = page.height / page.width
         // Keep very tall pages within a sane pixel budget.
-        if (want * want * aspect > 9_000_000f) want = kotlin.math.sqrt(9_000_000f / aspect).toInt()
+        if (want * want * aspect > 7_000_000f) want = kotlin.math.sqrt(7_000_000f / aspect).toInt()
         val key = page.pdfPage
         pdfSeen[key] = android.os.SystemClock.uptimeMillis()
         pdfWant[key] = want

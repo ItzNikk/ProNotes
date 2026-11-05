@@ -277,6 +277,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
         val c = canvas ?: return@LaunchedEffect
         vm.onPagesChanged = { c.setPages(vm.pages.toList()) }
         vm.onScrollTo = { i -> c.scrollToPage(i, animate = true) }
+        c.startPage = vm.startPage
         c.setPages(vm.pages.toList())
     }
     LaunchedEffect(vm.reopenTool) {

@@ -34,19 +34,19 @@ object Brushes {
 
     private val pen by lazy { StockBrushes.pressurePen() }
     private val marker by lazy { StockBrushes.marker() }
-    private val highlighter by lazy { StockBrushes.highlighter() }
     private val dashed by lazy { StockBrushes.dashedLine() }
 
     fun family(name: String): BrushFamily = when (name) {
-        HIGHLIGHTER -> highlighter
-        MARKER -> marker
+        // The stock highlighter has a slanted chisel tip. A round-tipped marker with translucent ink
+        // gives the same look with rounded ends and no tilt, and old chisel strokes redraw this way too.
+        HIGHLIGHTER, MARKER -> marker
         DASHED -> dashed
         else -> pen
     }
 
-    fun nameOf(family: BrushFamily): String = when (family) {
-        highlighter -> HIGHLIGHTER
-        marker -> MARKER
+    /** Highlighter and ball pen share the marker tip; the highlighter is the translucent one. */
+    fun nameOf(brush: Brush): String = when (brush.family) {
+        marker -> if ((brush.colorIntArgb ushr 24) < 0xFF) HIGHLIGHTER else MARKER
         dashed -> DASHED
         else -> PEN
     }
@@ -58,7 +58,7 @@ object Brushes {
         return Brush.createWithColorIntArgb(family(family), c, size, 0.1f)
     }
 
-    fun recolor(brush: Brush, color: Int): Brush = create(nameOf(brush.family), color, brush.size)
+    fun recolor(brush: Brush, color: Int): Brush = create(nameOf(brush), color, brush.size)
 }
 
 object InkCodec {
@@ -147,7 +147,7 @@ object InkCodec {
                 is InkItem -> ItemDoc.Ink(
                     inputs = encodeInputs(item.stroke.inputs),
                     brush = BrushDoc(
-                        family = Brushes.nameOf(item.stroke.brush.family),
+                        family = Brushes.nameOf(item.stroke.brush),
                         color = item.stroke.brush.colorIntArgb,
                         size = item.stroke.brush.size,
                         epsilon = item.stroke.brush.epsilon,

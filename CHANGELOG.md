@@ -2,6 +2,9 @@
 
 ## v4.2.2
 - **Updates:** installing from the app now uses the system installer directly. If it fails, the app tells you why. Granting the install permission continues the update by itself.
+- **Highlighter:** round ends instead of a tilted chisel tip. Old highlights are redrawn round too.
+- **Remembered:** your last tool, pen type, colors, sizes, eraser size and the page you were on in each notebook.
+- **PDF:** cheaper page shadows and pages are prepared before they scroll in, for smoother scrolling.
 
 ## v4.2.1
 - **PDF:** smoother pinch and scroll. Pages show quickly, then sharpen once you stop moving. Pages you scrolled past are no longer drawn.

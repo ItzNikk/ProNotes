@@ -249,6 +249,10 @@ class SettingsStore private constructor(context: Context) {
             .apply()
     }
 
+    /** Small remembered values (last tool, colours, page numbers). */
+    fun pref(key: String, def: String = ""): String = prefs.getString("p_$key", def) ?: def
+    fun setPref(key: String, value: String) { prefs.edit().putString("p_$key", value).apply() }
+
     /** Per-tool colour swatches survive restarts. Up to 8 per tool. */
     fun swatches(tool: String, default: List<Int>): List<Int> =
         prefs.getString("swatch_$tool", null)?.split(',')?.mapNotNull { it.toIntOrNull() }?.takeIf { it.isNotEmpty() } ?: default

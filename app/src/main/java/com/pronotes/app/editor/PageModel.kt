@@ -31,7 +31,7 @@ class InkItem(
     /** Bounds in the stroke's own coordinates, before the dx/dy offset. */
     val localBounds: RectF = cachedLocal ?: strokeBounds(stroke)
 
-    val isHighlighter: Boolean get() = Brushes.nameOf(stroke.brush.family) == Brushes.HIGHLIGHTER
+    val isHighlighter: Boolean get() = Brushes.nameOf(stroke.brush) == Brushes.HIGHLIGHTER
 
     override val bounds: RectF
         get() = RectF(localBounds).apply { offset(dx, dy) }

@@ -147,6 +147,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     private var transX = 0f
     private var transY = 0f
     private var fitted = false
+    /** Page to show on first layout (the one the notebook was closed on). */
+    var startPage = 0
     private var pull = 0f                      // overscroll past the last page, screen px
     private val pullTrigger get() = 110f * density
 
@@ -195,7 +197,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         val keepSel = selectionPage in newPages.indices && pages.getOrNull(selectionPage)?.id == newPages[selectionPage].id
         pages = newPages
         if (structural) layout(newPages)
-        if (!fitted && width > 0) fit(0)
+        if (!fitted && width > 0) fit(startPage.coerceIn(0, (newPages.size - 1).coerceAtLeast(0)))
         if (keepSel) {
             val ids = newPages[selectionPage].items.map { it.id }.toSet()
             selection = selection.filter { it in ids }.toSet()
@@ -240,7 +242,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        val keep = currentIndex
+        val keep = if (!fitted) startPage.coerceIn(0, (pages.size - 1).coerceAtLeast(0)) else currentIndex
         // Horizontal page slots depend on the screen size.
         if (settings.scroll == ScrollDirection.HORIZONTAL && pages.isNotEmpty()) layout(pages)
         if (pages.isNotEmpty() && (!fitted || w != oldw || settings.scroll == ScrollDirection.HORIZONTAL)) fit(keep) else { clamp(); updateMatrix() }

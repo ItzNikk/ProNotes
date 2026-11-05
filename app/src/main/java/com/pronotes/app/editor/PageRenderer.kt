@@ -52,6 +52,8 @@ class PdfPages(private val file: File) {
             bmp.eraseColor(Color.WHITE)
             page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
             if (useCache) cache.put(index, bmp)
+            // Upload to the GPU now, off the UI thread, so the first frame with this page does not stutter.
+            if (useCache) bmp.prepareToDraw()
             bmp
         }
     }
@@ -84,7 +86,7 @@ class PageRenderer(private val noteDir: File?) {
     }
 
     private val pagePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { setShadowLayer(22f, 0f, 6f, 0x26000000) }
+    private val softShadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK }
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 2f }
     private val boldLine = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 3f }
     private val marginPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x66EB5757; strokeWidth = 2f }
@@ -287,9 +289,16 @@ class PageRenderer(private val noteDir: File?) {
         val rect = RectF(0f, 0f, page.width, page.height)
         val bg = if (page.pdfPage >= 0) Color.WHITE else page.paperColor ?: paperColor
         currentBg = if (page.pdfPage >= 0 && darkPdf) Color.BLACK else bg
-        val p = if (shadow) shadowPaint else pagePaint
-        p.color = bg
-        canvas.drawRect(rect, p)
+        if (shadow) {
+            // A live blur shadow is redrawn every frame while scrolling; a few soft layers look alike and are far cheaper.
+            for (k in 1..4) {
+                softShadow.alpha = 14
+                val g = k * 5f
+                canvas.drawRoundRect(rect.left - g, rect.top - g + 6f, rect.right + g, rect.bottom + g + 6f, g, g, softShadow)
+            }
+        }
+        pagePaint.color = bg
+        canvas.drawRect(rect, pagePaint)
         page.cover?.let { drawCover(canvas, rect, it); return }
         // Custom page: the user's own picture as the background (centre-cropped).
         page.bgImage?.let { name -> drawCover(canvas, rect, "image:$name"); return }
