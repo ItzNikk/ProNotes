@@ -253,8 +253,8 @@ private fun Typewriter(text: String, style: TextStyle, active: Boolean, modifier
         while (n < text.length) { n++; delay(28) }
     }
     Box(modifier) {
-        Text(text, style = style, textAlign = TextAlign.Center, modifier = Modifier.graphicsLayer { alpha = 0f })   // reserves the space
-        Text(text.take(n) + if (n in 1 until text.length) "▍" else "", style = style, textAlign = TextAlign.Center)
+        Text(text, style = style, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().graphicsLayer { alpha = 0f })   // reserves the space
+        Text(text.take(n) + if (n in 1 until text.length) "▍" else "", style = style, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
     }
 }
 
@@ -312,7 +312,7 @@ private fun cropToFill(tv: TextureView, vw: Int, vh: Int) {
 @Composable
 private fun IntroPage(active: Boolean, onStart: () -> Unit) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val d = min(maxWidth * 0.62f, maxHeight * 0.42f).coerceIn(180.dp, 400.dp)
+        val d = minOf(maxWidth * 0.62f, maxHeight * 0.42f).coerceIn(180.dp, 400.dp)
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             GlowingCircle(d, active)
             Spacer(Modifier.height(34.dp))

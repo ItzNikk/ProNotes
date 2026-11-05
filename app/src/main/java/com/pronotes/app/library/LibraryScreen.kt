@@ -421,7 +421,9 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
                 modifier = Modifier.padding(20.dp).widthIn(max = 520.dp),
             ) {
                 Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("?", style = MaterialTheme.typography.headlineSmall, color = Color(0xFFE5484D))
+                    com.pronotes.app.ui.ProIconView(
+                        com.pronotes.app.ui.ProIcon.HEART, Color(0xFFE5484D), Modifier.size(26.dp), ink = Color(0xFFE5484D),
+                    )
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
                         Text("Enjoying Pro Notes?", style = MaterialTheme.typography.titleMedium)
