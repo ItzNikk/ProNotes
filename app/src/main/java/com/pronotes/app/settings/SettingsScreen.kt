@@ -41,6 +41,7 @@ import androidx.compose.material.icons.outlined.ColorLens
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.DragHandle
 import kotlinx.coroutines.launch
+import sh.calvin.reorderable.ReorderableItem
 import androidx.compose.material.icons.outlined.Draw
 import androidx.compose.material.icons.outlined.Gesture
 import androidx.compose.material.icons.outlined.Info
@@ -390,7 +391,7 @@ private fun ToolbarEditor(spec: String, onChange: (String) -> Unit) {
     LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().height((list.size * 56).dp), userScrollEnabled = false) {
         items(list.size, key = { list[it].first.name }) { i ->
             val (tool, visible) = list[i]
-            sh.calvin.reorderable.ReorderableItem(reorder, key = tool.name) { dragging ->
+            ReorderableItem(reorder, key = tool.name) { dragging ->
                 Row(
                     Modifier.fillMaxWidth().height(56.dp)
                         .background(if (dragging) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
