@@ -103,7 +103,60 @@ class PageRenderer(private val noteDir: File?) {
 
     /** A notebook cover drawn as a full page, so it can be written on. */
     fun drawCover(canvas: Canvas, r: RectF, spec: String) {
-        val parts = spec.split(
+        val parts = spec.split(':')
+        if (parts.firstOrNull() == "image") {
+            val bmp = image(parts.drop(1).joinToString(":"))
+            if (bmp != null) {
+                // Centre-crop the photo to the page.
+                val s = maxOf(r.width() / bmp.width, r.height() / bmp.height)
+                val w = r.width() / s; val h = r.height() / s
+                val src = android.graphics.Rect(
+                    ((bmp.width - w) / 2).toInt(), ((bmp.height - h) / 2).toInt(),
+                    ((bmp.width + w) / 2).toInt(), ((bmp.height + h) / 2).toInt(),
+                )
+                canvas.drawBitmap(bmp, src, r, bitmapPaint)
+                return
+            }
+        }
+        val color = (parts.lastOrNull()?.toLongOrNull() ?: 0xFF3D6CF4).toInt()
+        coverPaint.shader = null
+        coverPaint.color = color
+        canvas.drawRect(r, coverPaint)
+        val light = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = 0x47FFFFFF }
+        val w = r.width(); val h = r.height()
+        val pattern = if (parts.firstOrNull() == "pattern") parts.getOrNull(1) else null
+        when (pattern) {
+            "dots" -> {
+                val st = w / 8; var y = st / 2; var row = 0
+                while (y < h) {
+                    var x = if (row % 2 == 0) st / 2 else st
+                    while (x < w) { canvas.drawCircle(x, y, st * 0.18f, light); x += st }
+                    y += st; row++
+                }
+            }
+            "grid" -> {
+                light.strokeWidth = 4f
+                val st = w / 7
+                var x = 0f
+                while (x < w) { canvas.drawLine(x, 0f, x, h, light); x += st }
+                var y = 0f
+                while (y < h) { canvas.drawLine(0f, y, w, y, light); y += st }
+            }
+            null -> Unit
+            else -> {
+                light.strokeWidth = w / 14
+                val st = w / 5
+                var x = -h
+                while (x < w) { canvas.drawLine(x, h, x + h, 0f, light); x += st }
+            }
+        }
+        // Spine shading and elastic band, like the library cover.
+        coverPaint.shader = android.graphics.LinearGradient(0f, 0f, w * 0.08f, 0f, 0x38000000, 0x00000000, android.graphics.Shader.TileMode.CLAMP)
+        canvas.drawRect(0f, 0f, w * 0.08f, h, coverPaint)
+        coverPaint.shader = null
+        coverPaint.color = 0x29000000
+        canvas.drawRect(w * 0.82f, 0f, w * 0.87f, h, coverPaint)
+    }
 
     fun image(name: String): Bitmap? {
         val dir = noteDir ?: return null
