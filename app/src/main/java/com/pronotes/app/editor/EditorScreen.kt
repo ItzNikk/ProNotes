@@ -391,7 +391,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                                 override fun onPullAddPage() = vm.addPage(atEnd = true)
                                 override fun undo() = vm.undo()
                                 override fun redo() = vm.redo()
-                                override fun pdfBitmap(page: Page, onReady: () -> Unit) = vm.pdfBitmap(page, onReady)
+                                override fun pdfBitmap(page: Page, widthPx: Int, onReady: () -> Unit) = vm.pdfBitmap(page, widthPx, onReady)
                                 override fun highlights(page: Int) = vm.highlights(page)
                                 override fun activeHighlight() = vm.activeHighlight()
                                 override fun shapeFill() = vm.shapeFill()

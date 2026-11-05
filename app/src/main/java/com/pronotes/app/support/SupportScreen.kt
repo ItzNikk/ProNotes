@@ -130,8 +130,6 @@ fun SupportScreen(onBack: () -> Unit) {
                 },
                 shape = CircleShape, modifier = Modifier.widthIn(min = 240.dp),
             ) { Text("Pay ₹${amount.ifBlank { "99" }} with UPI") }
-            Spacer(Modifier.height(10.dp))
-            Text("UPI: ${Support.upi}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         thanks?.let { paid -> ThankYou(paid) { thanks = null } }
     }

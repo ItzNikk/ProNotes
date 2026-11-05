@@ -21,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.OutputStream
 import java.util.UUID
@@ -534,17 +535,25 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         scheduleSave(); onPagesChanged?.invoke()
     }
 
-    fun pdfBitmap(page: Page, onReady: () -> Unit): Bitmap? {
+    /**
+     * The PDF page as a bitmap sharp enough for [widthPx] on screen. Returns what is cached
+     * right away (maybe softer) and renders a sharper one in the background when zoomed in.
+     */
+    fun pdfBitmap(page: Page, widthPx: Int, onReady: () -> Unit): Bitmap? {
         val src = pdf ?: return null
-        src.cached(page.pdfPage)?.let { return it }
-        if (pendingPdf.add(page.pdfPage)) {
+        val have = src.cached(page.pdfPage)
+        var want = ((widthPx + 255) / 256 * 256).coerceIn(768, 2600)
+        val aspect = page.height / page.width
+        // Keep very tall pages within a sane pixel budget.
+        if (want * want * aspect > 9_000_000f) want = kotlin.math.sqrt(9_000_000f / aspect).toInt()
+        if ((have == null || have.width < want * 0.85f) && pendingPdf.add(page.pdfPage)) {
             viewModelScope.launch {
-                withContext(Dispatchers.IO) { src.render(page.pdfPage, page.width.toInt(), page.height.toInt()) }
+                withContext(Dispatchers.IO) { src.render(page.pdfPage, want, (want * aspect).toInt()) }
                 pendingPdf.remove(page.pdfPage)
                 onReady()
             }
         }
-        return null
+        return have
     }
 
     /** Thumbnails are cached until the page changes (pages are immutable, so identity is enough). */
@@ -564,12 +573,23 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val h = (page.height * scale).toInt().coerceAtLeast(1)
         val bmp = Bitmap.createBitmap(width, h, Bitmap.Config.ARGB_8888)
         val bg = if (page.pdfPage >= 0) withContext(Dispatchers.IO) {
-            PdfPages(repo.pdfFile(noteId)).let { pp -> pp.render(page.pdfPage, width, h, useCache = false).also { pp.close() } }
+            thumbPdf().render(page.pdfPage, width, h, useCache = false)
         } else null
-        val r = renderer().apply { paperColor = settingsFlow.value.paperTint.argb }
-        r.renderPage(Canvas(bmp), page, scale, bg)
+        // One shared renderer keeps decoded images warm; its paints are not thread-safe, so take turns.
+        thumbLock.withLock {
+            val r = thumbRenderer ?: renderer().also { thumbRenderer = it }
+            r.paperColor = settingsFlow.value.paperTint.argb
+            r.renderPage(Canvas(bmp), page, scale, bg)
+        }
         bmp
     }
+
+    private val thumbLock = kotlinx.coroutines.sync.Mutex()
+    private var thumbRenderer: PageRenderer? = null
+    private var thumbPdfInstance: PdfPages? = null
+
+    @Synchronized
+    private fun thumbPdf(): PdfPages = thumbPdfInstance ?: PdfPages(repo.pdfFile(noteId)).also { thumbPdfInstance = it }
 
     // --------------------------------------------------------------- search
 
@@ -618,7 +638,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     fun clearSearch() { searchJob?.cancel(); searchQuery = ""; searchHits = emptyList(); activeHit = -1; onPagesChanged?.invoke() }
 
-    fun highlights(page: Int): List<RectF> = searchHits.filter { it.page == page }.flatMap { it.rects }
+    fun highlights(page: Int): List<RectF> = if (searchHits.isEmpty()) emptyList() else searchHits.filter { it.page == page }.flatMap { it.rects }
     fun activeHighlight(): Pair<Int, RectF>? = searchHits.getOrNull(activeHit)?.let { h -> h.rects.firstOrNull()?.let { h.page to it } }
 
     // --------------------------------------------------------------- save
@@ -643,6 +663,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     override fun onCleared() {
         if (saveJob?.isActive == true) saveNow()
         pdf?.close()
+        thumbPdfInstance?.close()
         super.onCleared()
     }
 }

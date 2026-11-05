@@ -48,6 +48,9 @@ jobs:
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          # Kept out of the source tree: the support screen reads it at build time.
+          SUPPORT_UPI: ${{ secrets.SUPPORT_UPI }}
+          SUPPORT_UPI_NAME: Pro Notes
         run: |
           gradle assembleRelease --stacktrace
           mkdir -p dist

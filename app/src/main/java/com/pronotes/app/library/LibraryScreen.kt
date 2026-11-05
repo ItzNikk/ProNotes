@@ -24,6 +24,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -226,6 +227,9 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
     val dialogOpen = newNotebook || newFolder || folderEdit != null || renaming != null || moving != null ||
         deleting != null || coverFor != null || forever != null || emptyTrash
     val blur by androidx.compose.animation.core.animateDpAsState(if (dialogOpen) 14.dp else 0.dp, label = "blur")
+    val drag = remember { DragController() }
+    androidx.compose.runtime.CompositionLocalProvider(LocalDragController provides drag) {
+    Box(Modifier.fillMaxSize()) {
     Row(
         Modifier.fillMaxSize()
             .then(if (android.os.Build.VERSION.SDK_INT >= 31 && blur > 0.dp) Modifier.blur(blur) else Modifier)
@@ -284,7 +288,15 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
             // Title row
             Row(Modifier.fillMaxWidth().padding(start = 28.dp, end = 20.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (folderId != null && section == Section.DOCUMENTS) {
-                    IconButton(onClick = { folderId = currentFolder?.parentId }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Up") }
+                    // Drop here to move an item up one level.
+                    var upHot by remember { mutableStateOf(false) }
+                    Box(
+                        Modifier.clip(CircleShape)
+                            .libraryDropTarget(onHover = { upHot = it }) { payload -> dropInto(payload, currentFolder?.parentId) }
+                            .background(if (upHot) MaterialTheme.colorScheme.primary.copy(alpha = 0.22f) else Color.Transparent),
+                    ) {
+                        IconButton(onClick = { folderId = currentFolder?.parentId }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Up") }
+                    }
                 }
                 AnimatedContent(
                     targetState = title,
@@ -379,6 +391,27 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
                 }
             }
         }
+    }
+
+    // The tile that follows your finger or pen while dragging.
+    drag.payload?.let { p ->
+        Surface(
+            shape = CircleShape, color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary,
+            shadowElevation = 14.dp,
+            modifier = Modifier.offset {
+                androidx.compose.ui.unit.IntOffset(
+                    (drag.position.x - 70.dp.toPx()).toInt(), (drag.position.y - 80.dp.toPx()).toInt(),
+                )
+            }.scale(if (drag.overTarget) 1.12f else 1f),
+        ) {
+            Text(
+                drag.label.ifBlank { if (p.startsWith("folder")) "Folder" else "Notebook" },
+                Modifier.widthIn(max = 220.dp).padding(horizontal = 18.dp, vertical = 10.dp),
+                maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall,
+            )
+        }
+    }
+    }
     }
 
     if (supportCard) {
@@ -649,7 +682,7 @@ private fun FolderTile(e: Entry.F, a: TileActions) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.scale(pressScale(src) * grow)) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(0.75f)
-                .libraryDragSource("folder:${e.folder.id}")
+                .libraryDragSource("folder:${e.folder.id}", e.folder.name)
                 .libraryDropTarget(onHover = { dropHover = it }) { payload -> a.onDrop(payload, e.folder.id) }
                 .combinedClickable(interactionSource = src, indication = null, onClick = { a.onOpenFolder(e.folder) }),
             contentAlignment = Alignment.BottomCenter,
@@ -676,7 +709,7 @@ private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.scale(pressScale(src))) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(0.75f)
-                .then(if (note.deletedAt == null) Modifier.libraryDragSource("note:${note.id}") else Modifier)
+                .then(if (note.deletedAt == null) Modifier.libraryDragSource("note:${note.id}", note.title) else Modifier)
                 .combinedClickable(
                     interactionSource = src, indication = null,
                     onClick = { if (note.deletedAt != null) menu = true else a.onOpenNote(note) },

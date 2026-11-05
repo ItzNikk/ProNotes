@@ -67,6 +67,19 @@ enum class ProIcon(internal val parts: List<Part>) {
     BOOKMARK(listOf(P("M7 4.5h10a1 1 0 0 1 1 1V20l-6-4-6 4V5.5a1 1 0 0 1 1-1z", body = true))),
     FOCUS(listOf(P("M4 9V5.5a1.5 1.5 0 0 1 1.5-1.5H9"), P("M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9"), P("M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15"), P("M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"))),
     CLOSE(listOf(P("M6 6l12 12M18 6L6 18"))),
+    // Settings categories and rows: same thin-line style as the toolbar.
+    DOCUMENT(listOf(Rr(5f, 3.5f, 14f, 17f, 2.5f), P("M8.5 8.5h7M8.5 12h7M8.5 15.5h4"))),
+    TOOLBAR(listOf(Rr(3f, 13f, 18f, 7f, 3.5f), C(8f, 16.5f, 1f, true), C(12f, 16.5f, 1f, true), C(16f, 16.5f, 1f, true), P("M8 6.5h8"))),
+    PALETTE(listOf(
+        P("M12 4a8 8 0 1 0 0 16c1.1 0 1.6-.8 1.3-1.7-.4-1 .3-2.1 1.5-2.1H17a3 3 0 0 0 3-3C20 7.6 16.5 4 12 4z"),
+        C(8f, 11f, 1f, true), C(10.5f, 7.5f, 1f, true), C(14.5f, 7.5f, 1f, true),
+    )),
+    FOLDER(listOf(P("M3.5 7.5a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"))),
+    INFO(listOf(C(12f, 12f, 8.5f), P("M12 11v5"), C(12f, 8f, 0.7f, true))),
+    HEART(listOf(P("M12 20s-7.5-4.6-7.5-10A4.2 4.2 0 0 1 12 7.6 4.2 4.2 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10z", body = true))),
+    STAR(listOf(P("M12 3.5l2.2 5.3 5.8.5-4.4 3.8 1.3 5.6L12 15.6l-4.9 3.1 1.3-5.6L4 9.3l5.8-.5z"))),
+    DOWNLOAD(listOf(P("M12 4v11"), P("M8 11l4 4 4-4"), P("M5 19h14"))),
+    RESTORE(listOf(P("M4.5 12a7.5 7.5 0 1 0 2.4-5.5"), P("M4.5 5v4h4"), P("M12 8.5V12l2.5 1.5"))),
     /** Two sliders: a calm, professional "settings" mark. */
     SETTINGS(listOf(P("M4 7.5h8.5M17.5 7.5H20"), C(15f, 7.5f, 2.3f), P("M4 16.5h2.5M11.5 16.5H20"), C(9f, 16.5f, 2.3f))),
 }

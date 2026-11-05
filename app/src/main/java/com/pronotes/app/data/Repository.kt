@@ -41,6 +41,7 @@ class Repository private constructor(private val context: Context) {
     private val root = File(context.filesDir, "notes").apply { mkdirs() }
     private val indexFile = File(context.filesDir, "library.json")
     private val lock = Mutex()
+    private val thumbSeen = HashMap<String, Page>()
 
     /** Outlives screens, so a save started on exit still finishes. */
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -169,8 +170,10 @@ class Repository private constructor(private val context: Context) {
         PdfRenderer(ParcelFileDescriptor.open(target, ParcelFileDescriptor.MODE_READ_ONLY)).use { r ->
             for (i in 0 until r.pageCount) {
                 r.openPage(i).use { p ->
-                    // PDF points -> world units (x2 for crisper ink).
-                    pages += PageDoc(UUID.randomUUID().toString(), p.width * 2f, p.height * 2f, PaperStyle.BLANK, pdfPage = i)
+                    // Scale so the shorter side is about one notebook page wide (landscape slides and
+                    // small PDFs get the same pen feel as an A4 page).
+                    val k = (PageSize.WIDTH / minOf(p.width, p.height).toFloat()).coerceIn(1f, 4f)
+                    pages += PageDoc(UUID.randomUUID().toString(), p.width * k, p.height * k, PaperStyle.BLANK, pdfPage = i)
                 }
             }
         }
@@ -289,7 +292,12 @@ class Repository private constructor(private val context: Context) {
         val tmp = File(f.path + ".tmp")
         tmp.writeText(json.encodeToString(NoteDoc.serializer(), doc))
         tmp.renameTo(f)
-        runCatching { writeThumbnail(id, pages) }
+        // The library thumbnail shows page 1, so only redraw it when page 1 itself changed.
+        val first = pages.firstOrNull()
+        if (first != null && (thumbSeen[id] !== first || !thumbFile(id).exists())) {
+            runCatching { writeThumbnail(id, pages) }
+            thumbSeen[id] = first
+        }
         updateIndex {
             it.copy(notebooks = it.notebooks.map { n ->
                 if (n.id == id) n.copy(modified = System.currentTimeMillis(), pageCount = pages.size) else n
@@ -322,7 +330,7 @@ class Repository private constructor(private val context: Context) {
                 val wPt = (page.width / 2f).toInt(); val hPt = (page.height / 2f).toInt()
                 val pdfPage = doc.startPage(PdfDocument.PageInfo.Builder(wPt, hPt, i + 1).create())
                 val bg = if (page.pdfPage >= 0 && pdfPages.exists) {
-                    pdfPages.render(page.pdfPage, page.width.toInt(), page.height.toInt())
+                    pdfPages.render(page.pdfPage, page.width.toInt(), page.height.toInt(), useCache = false)
                 } else null
                 renderer.renderPage(pdfPage.canvas, page, 0.5f, bg)
                 doc.finishPage(pdfPage)

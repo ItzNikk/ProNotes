@@ -60,7 +60,7 @@ interface CanvasHost {
     fun onPullAddPage()
     fun undo()
     fun redo()
-    fun pdfBitmap(page: Page, onReady: () -> Unit): Bitmap?
+    fun pdfBitmap(page: Page, widthPx: Int, onReady: () -> Unit): Bitmap?
     fun highlights(page: Int): List<RectF>
     fun activeHighlight(): Pair<Int, RectF>?
     /** Fill colour for new closed shapes, or null for outline only. */
@@ -461,7 +461,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> touchActive = false
         }
         val penIndex = (0 until event.pointerCount).firstOrNull { isPen(event.getToolType(it)) }
-        if (penIndex != null) { sawStylus = true; lastStylusTime = now }
+        if (penIndex != null) { sawStylus = true; lastStylusTime = now; lastPenTouchAt = now }
 
         // --- pen
         if (stylusPointer == -1 && penIndex != null) {
@@ -1362,6 +1362,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     }
 
     // ------------------------------------------------ pen button click / double click (hovering)
+    private var lastPenTouchAt = 0L      // last time the pen touched the screen
     private var buttonDown = false
     private var buttonDownAt = 0L
     private var lastClickAt = 0L
@@ -1375,17 +1376,21 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         val released = (!held && buttonDown) || e.actionMasked == MotionEvent.ACTION_BUTTON_RELEASE
         if (!released || !buttonDown) return
         buttonDown = false
-        if (now - buttonDownAt > 450) return   // a long hold is not a click
+        val pressMs = now - buttonDownAt
+        // Brushes against the button, long holds, and presses right after writing are not clicks.
+        if (pressMs < 40 || pressMs > 450) return
+        if (now - lastPenTouchAt < 600) return
         val x = e.x; val y = e.y
         val name = e.device?.name ?: "Stylus"
         pendingClick?.let { removeCallbacks(it) }
-        if (now - lastClickAt < 380) {
+        if (now - lastClickAt < 450) {
             pendingClick = null; lastClickAt = 0L
             host.onPenButton(true, x, y, name)
         } else {
             lastClickAt = now
-            // Wait briefly so a double click is not also read as a single one.
-            pendingClick = Runnable { pendingClick = null; host.onPenButton(false, x, y, name) }.also { postDelayed(it, 300) }
+            // Wait so a double click is not also read as a single one; the wait is a setting.
+            val wait = settings.penClickDelay.ms.coerceAtLeast(500L)
+            pendingClick = Runnable { pendingClick = null; host.onPenButton(false, x, y, name) }.also { postDelayed(it, wait) }
         }
     }
 
@@ -1566,7 +1571,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 if (!RectF.intersects(sr, view)) return@forEachIndexed
                 canvas.save()
                 canvas.concat(m)
-                val pdf = if (p.pdfPage >= 0) host.pdfBitmap(p) { postInvalidate() } else null
+                val pdf = if (p.pdfPage >= 0) host.pdfBitmap(p, (p.width * scale).toInt()) { postInvalidate() } else null
                 r.darkPdf = settings.darkPdf
                 r.drawPaper(canvas, p, pdf, shadow = true)
                 val hl = host.highlights(i)

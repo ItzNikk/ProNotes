@@ -82,6 +82,9 @@ import com.pronotes.app.data.DeskColor
 import com.pronotes.app.data.EraserMode
 import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.data.PaperTint
+import com.pronotes.app.data.PenClickDelay
+import com.pronotes.app.ui.ProIcon
+import com.pronotes.app.ui.ProIconView
 import com.pronotes.app.data.ScrollDirection
 import com.pronotes.app.data.SettingsStore
 import com.pronotes.app.data.SideButton
@@ -91,14 +94,14 @@ import com.pronotes.app.data.ToolbarSize
 import com.pronotes.app.library.PaperPreview
 import com.pronotes.app.ui.GradientTitle
 
-private enum class Category(val label: String, val sub: String, val icon: ImageVector, val tint: Long) {
-    STYLUS("Stylus & input", "Pens, side button, palm rejection", Icons.Outlined.Draw, 0xFF2A78D6),
-    GESTURES("Gestures", "Scribble, circle, taps", Icons.Outlined.Gesture, 0xFF7161E0),
-    PAGES("Pages & paper", "Scroll, templates, paper colour", Icons.Outlined.Description, 0xFF0F7E5C),
-    TOOLBAR("Toolbar & tabs", "Position, size, tool order, tabs", Icons.Outlined.ViewQuilt, 0xFFC04873),
-    LOOK("Appearance", "Theme, accent, gradients, desk", Icons.Outlined.ColorLens, 0xFFA66A00),
-    LIBRARY("Library & backup", "Covers, backup and restore", Icons.Outlined.LibraryBooks, 0xFF256ABF),
-    ABOUT("About", "Version, updates", Icons.Outlined.Info, 0xFF5F5E5A),
+private enum class Category(val label: String, val sub: String, val icon: ProIcon, val tint: Long) {
+    STYLUS("Stylus & input", "Pens, side button, palm rejection", ProIcon.PEN, 0xFF2A78D6),
+    GESTURES("Gestures", "Scribble, circle, taps", ProIcon.LASSO, 0xFF7161E0),
+    PAGES("Pages & paper", "Scroll, templates, paper colour", ProIcon.DOCUMENT, 0xFF0F7E5C),
+    TOOLBAR("Toolbar & tabs", "Position, size, tool order, tabs", ProIcon.TOOLBAR, 0xFFC04873),
+    LOOK("Appearance", "Theme, accent, gradients, desk", ProIcon.PALETTE, 0xFFD97706),
+    LIBRARY("Library & backup", "Covers, backup and restore", ProIcon.FOLDER, 0xFF256ABF),
+    ABOUT("About", "Version, updates", ProIcon.INFO, 0xFF6B7280),
 }
 
 /**
@@ -144,16 +147,16 @@ private fun CategoryList(selected: Category?, modifier: Modifier, onPick: (Categ
             val c = Category.entries[i]
             val sel = c == selected
             Row(
-                Modifier.fillMaxWidth().padding(vertical = 2.dp).clip(RoundedCornerShape(14.dp))
+                Modifier.fillMaxWidth().padding(vertical = 2.dp).clip(CircleShape)
                     .background(if (sel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
                     .clickable { onPick(c) }.padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
-                    Modifier.size(36.dp).clip(RoundedCornerShape(10.dp))
-                        .background(GBrush.linearGradient(listOf(Color(c.tint), Color(c.tint).copy(alpha = 0.7f)))),
+                    Modifier.size(38.dp).clip(CircleShape)
+                        .background(GBrush.linearGradient(listOf(Color(c.tint), Color(c.tint).copy(alpha = 0.78f)))),
                     contentAlignment = Alignment.Center,
-                ) { Icon(c.icon, null, tint = Color.White, modifier = Modifier.size(20.dp)) }
+                ) { ProIconView(c.icon, Color.White, Modifier.size(22.dp)) }
                 Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
                     Text(c.label, style = MaterialTheme.typography.titleMedium)
                     Text(c.sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -174,34 +177,35 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
             when (c) {
                 Category.STYLUS -> {
                     Section("Drawing") {
-                        Toggle(Icons.Outlined.TouchApp, "Draw with stylus only", "Fingers scroll and zoom, they never draw", s.stylusOnly) { v -> up { it.copy(stylusOnly = v) } }
-                        Toggle(Icons.Outlined.TouchApp, "Palm rejection", "Ignore touches right after the pen", s.palmRejection) { v -> up { it.copy(palmRejection = v) } }
-                        Toggle(Icons.Outlined.TouchApp, "Haptic feedback", "Small buzz on shapes, selection and page add", s.haptics) { v -> up { it.copy(haptics = v) } }
+                        Toggle("Draw with stylus only", "Fingers scroll and zoom, they never draw", s.stylusOnly) { v -> up { it.copy(stylusOnly = v) } }
+                        Toggle("Palm rejection", "Ignore touches right after the pen", s.palmRejection) { v -> up { it.copy(palmRejection = v) } }
+                        Toggle("Haptic feedback", "Small buzz on shapes, selection and page add", s.haptics) { v -> up { it.copy(haptics = v) } }
                     }
                     Section("Pen side button") {
                         Choice("While held", s.sideButton.label, SideButton.entries.map { it.label }) { i -> up { it.copy(sideButton = SideButton.entries[i]) } }
-                        Toggle(Icons.Outlined.Draw, "Hover preview", "Show where the pen will touch", s.hoverCursor) { v -> up { it.copy(hoverCursor = v) } }
+                        Choice("Button click delay", s.penClickDelay.label, PenClickDelay.entries.map { it.label }) { i -> up { it.copy(penClickDelay = PenClickDelay.entries[i]) } }
+                        Toggle("Hover preview", "Show where the pen will touch", s.hoverCursor) { v -> up { it.copy(hoverCursor = v) } }
                     }
                     PensSection(store, onTour)
                 }
                 Category.GESTURES -> {
                     Section("Pen gestures") {
-                        Toggle(Icons.Outlined.AutoFixHigh, "Scribble to erase", "Zig-zag over ink to delete it", s.scribbleToErase) { v -> up { it.copy(scribbleToErase = v) } }
-                        Toggle(Icons.Outlined.Gesture, "Draw and hold for shapes", "Hold the pen still at the end of a line", s.holdToShape) { v -> up { it.copy(holdToShape = v) } }
-                        Toggle(Icons.Outlined.Gesture, "Circle and hold to select", "Loop around ink, then hold the pen still", s.circleToLasso) { v -> up { it.copy(circleToLasso = v) } }
+                        Toggle("Scribble to erase", "Zig-zag over ink to delete it", s.scribbleToErase) { v -> up { it.copy(scribbleToErase = v) } }
+                        Toggle("Draw and hold for shapes", "Hold the pen still at the end of a line", s.holdToShape) { v -> up { it.copy(holdToShape = v) } }
+                        Toggle("Circle and hold to select", "Loop around ink, then hold the pen still", s.circleToLasso) { v -> up { it.copy(circleToLasso = v) } }
                     }
                     Section("Finger gestures") {
-                        Toggle(Icons.Outlined.TouchApp, "Tap to undo / redo", "Two-finger tap undo, three-finger tap redo", s.fingerTapUndo) { v -> up { it.copy(fingerTapUndo = v) } }
-                        Toggle(Icons.Outlined.TouchApp, "Double-tap to zoom", "Double-tap with one finger", s.doubleTapZoom) { v -> up { it.copy(doubleTapZoom = v) } }
+                        Toggle("Tap to undo / redo", "Two-finger tap undo, three-finger tap redo", s.fingerTapUndo) { v -> up { it.copy(fingerTapUndo = v) } }
+                        Toggle("Double-tap to zoom", "Double-tap with one finger", s.doubleTapZoom) { v -> up { it.copy(doubleTapZoom = v) } }
                     }
                 }
                 Category.PAGES -> {
                     Section("Scrolling") {
                         Segmented(ScrollDirection.entries.map { it.label }, s.scroll.ordinal) { i -> up { it.copy(scroll = ScrollDirection.entries[i]) } }
-                        Toggle(Icons.Outlined.Description, "Pull to add a page", "Scroll past the last page to add one", s.pullToAddPage) { v -> up { it.copy(pullToAddPage = v) } }
-                        Toggle(Icons.Outlined.Description, "Page numbers", "Show a number under each page", s.pageNumbers) { v -> up { it.copy(pageNumbers = v) } }
-                        Toggle(Icons.Outlined.Description, "Dark PDF pages", "Invert PDF pages for reading at night", s.darkPdf) { v -> up { it.copy(darkPdf = v) } }
-                        Toggle(Icons.Outlined.Description, "Keep screen on", "While a notebook is open", s.keepScreenOn) { v -> up { it.copy(keepScreenOn = v) } }
+                        Toggle("Pull to add a page", "Scroll past the last page to add one", s.pullToAddPage) { v -> up { it.copy(pullToAddPage = v) } }
+                        Toggle("Page numbers", "Show a number under each page", s.pageNumbers) { v -> up { it.copy(pageNumbers = v) } }
+                        Toggle("Dark PDF pages", "Invert PDF pages for reading at night", s.darkPdf) { v -> up { it.copy(darkPdf = v) } }
+                        Toggle("Keep screen on", "While a notebook is open", s.keepScreenOn) { v -> up { it.copy(keepScreenOn = v) } }
                     }
                     Section("Paper colour") {
                         FlowRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -237,7 +241,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                         Info("Long-press to reorder. Tap a selected tool for its settings.")
                     }
                     Section("Tabs") {
-                        Toggle(Icons.Outlined.ViewQuilt, "Notebook tabs", "Keep several notebooks open and switch between them", s.showTabs) { v -> up { it.copy(showTabs = v) } }
+                        Toggle("Notebook tabs", "Keep several notebooks open and switch between them", s.showTabs) { v -> up { it.copy(showTabs = v) } }
                     }
                 }
                 Category.LOOK -> {
@@ -257,7 +261,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                                 }
                             }
                         }
-                        Toggle(Icons.Outlined.ColorLens, "Gradient titles", "Headings use the accent gradient", s.gradientTitles) { v -> up { it.copy(gradientTitles = v) } }
+                        Toggle("Gradient titles", "Headings use the accent gradient", s.gradientTitles) { v -> up { it.copy(gradientTitles = v) } }
                     }
                     Section("Desk") {
                         FlowRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -267,29 +271,29 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                 }
                 Category.LIBRARY -> {
                     Section("Covers") {
-                        Toggle(Icons.Outlined.Description, "First page as cover", "New notebooks show page 1 on the cover", s.thumbCovers) { v -> up { it.copy(thumbCovers = v) } }
+                        Toggle("First page as cover", "New notebooks show page 1 on the cover", s.thumbCovers) { v -> up { it.copy(thumbCovers = v) } }
                     }
                     Section("Backup") { BackupRows() }
                 }
                 Category.ABOUT -> {
                     Section("Get started") {
                         Row(Modifier.fillMaxWidth().clickable(onClick = onTour).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Outlined.Gesture, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.size(16.dp))
+                            ProIconView(ProIcon.STAR, MaterialTheme.colorScheme.primary, Modifier.size(22.dp)); Spacer(Modifier.size(16.dp))
                             Text("Take the tour", Modifier.weight(1f))
                         }
                         if (com.pronotes.app.support.Support.enabled) {
                             HorizontalDivider(Modifier.padding(start = 56.dp))
                             Row(Modifier.fillMaxWidth().clickable(onClick = onSupport).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Outlined.ColorLens, null, tint = Color(0xFFE5484D)); Spacer(Modifier.size(16.dp))
+                                ProIconView(ProIcon.HEART, Color(0xFFE5484D), Modifier.size(22.dp), ink = Color(0xFFE5484D)); Spacer(Modifier.size(16.dp))
                                 Text("Support Pro Notes", Modifier.weight(1f))
                             }
                             HorizontalDivider(Modifier.padding(start = 56.dp))
-                            Toggle(Icons.Outlined.Info, "Occasional support reminders", "A gentle note now and then", s.supportReminders) { v -> up { it.copy(supportReminders = v) } }
+                            Toggle("Occasional support reminders", "A gentle note now and then", s.supportReminders) { v -> up { it.copy(supportReminders = v) } }
                         }
                     }
                     Section("Pro Notes") {
                         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Outlined.Info, null, tint = MaterialTheme.colorScheme.primary)
+                            ProIconView(ProIcon.INFO, MaterialTheme.colorScheme.primary, Modifier.size(22.dp))
                             Spacer(Modifier.size(16.dp))
                             Column(Modifier.weight(1f)) {
                                 GradientTitle("Pro Notes", MaterialTheme.typography.titleMedium)
@@ -300,7 +304,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                         HorizontalDivider(Modifier.padding(start = 56.dp))
                         UpdateRow()
                         HorizontalDivider(Modifier.padding(start = 56.dp))
-                        Toggle(Icons.Outlined.Code, "Check for updates automatically", "When the library opens", s.autoUpdateCheck) { v -> up { it.copy(autoUpdateCheck = v) } }
+                        Toggle("Check for updates automatically", "When the library opens", s.autoUpdateCheck) { v -> up { it.copy(autoUpdateCheck = v) } }
                     }
                 }
             }
@@ -313,22 +317,19 @@ private fun Section(title: String, content: @Composable () -> Unit) {
     Column(Modifier.widthIn(max = 720.dp).fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
         Text(title.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 16.dp, bottom = 6.dp))
-        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface) {
+        Surface(shape = RoundedCornerShape(26.dp), color = MaterialTheme.colorScheme.surface) {
             Column { content() }
         }
     }
 }
 
 @Composable
-private fun Toggle(icon: ImageVector, title: String, sub: String, value: Boolean, onChange: (Boolean) -> Unit) {
+private fun Toggle(title: String, sub: String, value: Boolean, onChange: (Boolean) -> Unit) {
     Row(
         Modifier.fillMaxWidth().clickable { onChange(!value) }.padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(32.dp).clip(RoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
-            Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-        }
-        Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+        Column(Modifier.weight(1f).padding(end = 14.dp)) {
             Text(title)
             Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -442,7 +443,7 @@ private fun BackupRows() {
         }
     }
     Row(Modifier.fillMaxWidth().clickable { save.launch("ProNotes-backup.zip") }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Outlined.Code, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(14.dp))
+        ProIconView(ProIcon.SHARE, MaterialTheme.colorScheme.primary, Modifier.size(22.dp)); Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text("Back up library")
             Text("Saves every notebook, folder and sticker to one file", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -450,7 +451,7 @@ private fun BackupRows() {
     }
     HorizontalDivider(Modifier.padding(start = 54.dp))
     Row(Modifier.fillMaxWidth().clickable { open.launch(arrayOf("application/zip", "application/octet-stream")) }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Outlined.LibraryBooks, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(14.dp))
+        ProIconView(ProIcon.RESTORE, MaterialTheme.colorScheme.primary, Modifier.size(22.dp)); Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text("Restore from backup")
             Text("Adds notebooks from a backup file; nothing is overwritten", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -485,7 +486,7 @@ private fun UpdateRow() {
         }.padding(16.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.Info, null, tint = MaterialTheme.colorScheme.primary)
+            ProIconView(ProIcon.DOWNLOAD, MaterialTheme.colorScheme.primary, Modifier.size(22.dp))
             Spacer(Modifier.size(16.dp))
             Column(Modifier.weight(1f)) {
                 Text(title)
@@ -509,7 +510,7 @@ private fun PensSection(store: SettingsStore, onSetup: () -> Unit) {
             if (i > 0) HorizontalDivider()
             Column(Modifier.padding(vertical = 4.dp)) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.Draw, null, tint = MaterialTheme.colorScheme.primary)
+                    ProIconView(ProIcon.PEN, MaterialTheme.colorScheme.primary, Modifier.size(22.dp))
                     Spacer(Modifier.size(14.dp))
                     Column(Modifier.weight(1f)) {
                         Text(p.brand)
@@ -524,7 +525,7 @@ private fun PensSection(store: SettingsStore, onSetup: () -> Unit) {
         }
         HorizontalDivider()
         Row(Modifier.fillMaxWidth().clickable(onClick = onSetup).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.TouchApp, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.size(16.dp))
+            ProIconView(ProIcon.ADD, MaterialTheme.colorScheme.primary, Modifier.size(22.dp)); Spacer(Modifier.size(16.dp))
             Text("Set up a pen", Modifier.weight(1f))
         }
     }

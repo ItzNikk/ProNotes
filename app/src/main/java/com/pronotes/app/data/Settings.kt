@@ -8,6 +8,8 @@ enum class ScrollDirection(val label: String) { VERTICAL("Vertical"), HORIZONTAL
 enum class ToolbarDock(val label: String) { HEADER("In top bar"), TOP("Floating top"), BOTTOM("Floating bottom"), LEFT("Floating left"), RIGHT("Floating right") }
 enum class ToolbarSize(val label: String, val scale: Float) { COMPACT("Compact", 0.85f), REGULAR("Regular", 1f), LARGE("Large", 1.18f) }
 enum class SideButton(val label: String) { ERASER("Eraser"), LASSO("Lasso"), NONE("Nothing") }
+/** How long the app waits after a pen-button click before acting (it waits to see if a second click follows). */
+enum class PenClickDelay(val label: String, val ms: Long) { QUICK("Quick", 450), NORMAL("Normal", 700), RELAXED("Relaxed", 1000) }
 enum class EraserMode(val label: String) { STROKE("Whole stroke"), PIXEL("Pixel") }
 enum class HighlighterMode(val label: String) { FREEHAND("Freehand"), AUTO("Auto-straighten"), STRAIGHT("Always straight") }
 enum class LassoMode(val label: String) { FREEFORM("Freeform"), RECT("Rectangle") }
@@ -109,6 +111,7 @@ data class AppSettings(
     val autoUpdateCheck: Boolean = true,
     // pens
     val hoverCursor: Boolean = true,
+    val penClickDelay: PenClickDelay = PenClickDelay.NORMAL,
     val onboardingDone: Boolean = false,
     val supportReminders: Boolean = true,
     // tools
@@ -172,6 +175,7 @@ class SettingsStore private constructor(context: Context) {
             toolbarTools = prefs.getString("toolbarTools", "") ?: "",
             autoUpdateCheck = b("autoUpdate", d.autoUpdateCheck),
             hoverCursor = b("hoverCursor", d.hoverCursor),
+            penClickDelay = enumOf("penClickDelay", d.penClickDelay),
             onboardingDone = b("onboardingDone", d.onboardingDone),
             supportReminders = b("supportReminders", d.supportReminders),
             eraserMode = enumOf("eraserMode", d.eraserMode),
@@ -221,6 +225,7 @@ class SettingsStore private constructor(context: Context) {
             .putString("toolbarTools", s.toolbarTools)
             .putBoolean("autoUpdate", s.autoUpdateCheck)
             .putBoolean("hoverCursor", s.hoverCursor)
+            .putString("penClickDelay", s.penClickDelay.name)
             .putBoolean("onboardingDone", s.onboardingDone)
             .putBoolean("supportReminders", s.supportReminders)
             .putString("eraserMode", s.eraserMode.name)

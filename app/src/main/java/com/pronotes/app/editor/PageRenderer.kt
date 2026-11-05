@@ -21,7 +21,12 @@ import java.io.File
 /** Renders PDF backgrounds with the platform PdfRenderer and keeps a small bitmap cache. */
 class PdfPages(private val file: File) {
     private var renderer: PdfRenderer? = null
-    private val cache = object : LruCache<Int, Bitmap>(4) {}
+    // Limited by memory, not by page count, so large pages still stay cached.
+    private val cache = object : LruCache<Int, Bitmap>(
+        (Runtime.getRuntime().maxMemory() / 6).coerceIn(32L * 1024 * 1024, 160L * 1024 * 1024).toInt(),
+    ) {
+        override fun sizeOf(key: Int, value: Bitmap) = value.allocationByteCount
+    }
 
     val exists: Boolean get() = file.exists()
 
@@ -38,7 +43,8 @@ class PdfPages(private val file: File) {
     /** Blocking; call from a background thread. */
     @Synchronized
     fun render(index: Int, width: Int, height: Int, useCache: Boolean = true): Bitmap? {
-        if (useCache) cache.get(index)?.let { return it }
+        // Reuse a cached page when it is already sharp enough for this size.
+        if (useCache) cache.get(index)?.let { if (it.width >= width * 0.85f) return it }
         val r = open() ?: return null
         if (index !in 0 until r.pageCount) return null
         return r.openPage(index).use { page ->
@@ -368,17 +374,51 @@ class PageRenderer(private val noteDir: File?) {
         transform: Matrix? = null,
         transformIds: Set<Long> = emptySet(),
     ) {
-        val isHl = { it: PageItem -> it is InkItem && it.isHighlighter }
-        if (highlighterBehind && items.any(isHl)) {
-            drawSeq(canvas, items.filter { it is FillItem }, worldToScreen, transform, transformIds)
+        // The part of the page currently on screen, in page coordinates. Anything outside is skipped.
+        val clip = canvas.clipBounds
+        visible.set(clip.left.toFloat(), clip.top.toFloat(), clip.right.toFloat(), clip.bottom.toFloat())
+        val parts = partsOf(items)
+        if (parts.hasHighlight) {
+            drawSeq(canvas, parts.fills, worldToScreen, transform, transformIds)
             // Highlights multiply with the page underneath, so PDF print and ink stay crisp on top.
-            val layer = canvas.saveLayer(null, if (isDark) null else multiplyPaint)
-            drawSeq(canvas, items.filter(isHl), worldToScreen, transform, transformIds)
+            // The offscreen layer covers only the visible area, not the whole screen.
+            val layer = canvas.saveLayer(visible, if (isDark) null else multiplyPaint)
+            drawSeq(canvas, parts.highlights, worldToScreen, transform, transformIds)
             canvas.restoreToCount(layer)
-            drawSeq(canvas, items.filterNot { it is FillItem || isHl(it) }, worldToScreen, transform, transformIds)
+            drawSeq(canvas, parts.rest, worldToScreen, transform, transformIds)
         } else drawSeq(canvas, items, worldToScreen, transform, transformIds)
     }
 
+    private val visible = RectF()
+
+    /** Items split into fills / highlights / the rest, remembered per list so we do not rebuild it every frame. */
+    private class Parts(val fills: List<PageItem>, val highlights: List<PageItem>, val rest: List<PageItem>) {
+        val hasHighlight get() = highlights.isNotEmpty()
+    }
+
+    private val partsCache = java.util.IdentityHashMap<List<PageItem>, Parts>()
+
+    private fun partsOf(items: List<PageItem>): Parts {
+        if (!highlighterBehind) return Parts(emptyList(), emptyList(), items)
+        partsCache[items]?.let { return it }
+        if (partsCache.size > 16) partsCache.clear()
+        val fills = ArrayList<PageItem>(); val hl = ArrayList<PageItem>(); val rest = ArrayList<PageItem>()
+        for (it in items) when {
+            it is FillItem -> fills += it
+            it is InkItem && it.isHighlighter -> hl += it
+            else -> rest += it
+        }
+        return Parts(fills, hl, rest).also { partsCache[items] = it }
+    }
+
+    private fun onScreen(item: PageItem): Boolean = when (item) {
+        is InkItem -> {
+            val b = item.localBounds
+            RectF.intersects(visible, tmp.apply { set(b.left + item.dx, b.top + item.dy, b.right + item.dx, b.bottom + item.dy) })
+        }
+        else -> true
+    }
+    private val tmp = RectF()
     private val multiplyPaint = Paint().apply {
         if (android.os.Build.VERSION.SDK_INT >= 29) blendMode = android.graphics.BlendMode.MULTIPLY
         else xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.MULTIPLY)
@@ -387,6 +427,7 @@ class PageRenderer(private val noteDir: File?) {
     private fun drawSeq(canvas: Canvas, ordered: List<PageItem>, worldToScreen: Matrix, transform: Matrix?, transformIds: Set<Long>) {
         for (item in ordered) {
             val moved = transform != null && item.id in transformIds
+            if (!moved && !onScreen(item)) continue
             if (moved) {
                 canvas.save()
                 canvas.concat(transform!!)
