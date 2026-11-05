@@ -14,7 +14,11 @@ class InstallResultReceiver : BroadcastReceiver() {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 val confirm = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
                 else @Suppress("DEPRECATION") intent.getParcelableExtra(Intent.EXTRA_INTENT)
-                confirm?.let { context.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                if (confirm != null) {
+                    // Kept until it opens; if Android blocks it from here, the app opens it on return.
+                    Updater.pendingConfirm = confirm
+                    if (runCatching { context.startActivity(Intent(confirm).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess) Updater.pendingConfirm = null
+                }
             }
             PackageInstaller.STATUS_SUCCESS -> Unit
             PackageInstaller.STATUS_FAILURE_ABORTED -> Updater.reportInstallFailure("Install cancelled. Tap Install update to try again.")

@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -43,6 +44,16 @@ object Updater {
     /** True while the "what's new" dialog is open. */
     var showDialog by mutableStateOf(false)
     private var apk: File? = null
+    /** Lives as long as the app, so closing the dialog or leaving a screen never cancels a download. */
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Main)
+    /** The installer's confirm screen, kept in case it could not open while the app was in the background. */
+    var pendingConfirm: Intent? = null
+
+    fun startDownload(context: Context) {
+        if (phase == Phase.DOWNLOADING) return
+        val app = context.applicationContext
+        scope.launch { download(app) }
+    }
 
     private fun prefs(c: Context) = c.getSharedPreferences("updater", Context.MODE_PRIVATE)
     fun autoOpen(c: Context) = prefs(c).getBoolean("autoOpen", false)
@@ -146,6 +157,11 @@ object Updater {
 
     /** Called when the app comes back to the front: finish an install that was waiting for the permission. */
     fun resumeIfWaiting(context: Context) {
+        pendingConfirm?.let { confirm ->
+            pendingConfirm = null
+            runCatching { context.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            return
+        }
         if (!waitingForPermission) return
         if (Build.VERSION.SDK_INT < 26 || context.packageManager.canRequestPackageInstalls()) {
             waitingForPermission = false
@@ -177,6 +193,8 @@ object Updater {
             val installer = context.packageManager.packageInstaller
             val params = android.content.pm.PackageInstaller.SessionParams(android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL)
             params.setAppPackageName(context.packageName)
+            // Android 12+: an app updating itself may skip the confirm screen once it has been allowed.
+            if (Build.VERSION.SDK_INT >= 31) params.setRequireUserAction(android.content.pm.PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
             val id = installer.createSession(params)
             installer.openSession(id).use { session ->
                 file.inputStream().use { input ->
@@ -191,6 +209,17 @@ object Updater {
                     (if (Build.VERSION.SDK_INT >= 31) android.app.PendingIntent.FLAG_MUTABLE else 0)
                 session.commit(android.app.PendingIntent.getBroadcast(context, id, intent, flags).intentSender)
             }
+        }.onFailure { openWithViewer(context, file) }
+    }
+
+    /** Fallback: hand the file to the system package viewer. */
+    private fun openWithViewer(context: Context, file: File) {
+        runCatching {
+            val uri = FileProvider.getUriForFile(context, context.packageName + ".files", file)
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
         }.onFailure { reportInstallFailure(it.message) }
     }
 }

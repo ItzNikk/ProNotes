@@ -1,5 +1,9 @@
 # Changelog
 
+## v4.2.4
+- **PDF:** pinch-zooming no longer flips to another page. When you let go, you stay on the page you were on.
+- **Updates:** fixed downloads that finished but never installed. The download now keeps going after the dialog closes, and the install screen opens even if you left the app.
+
 ## v4.2.3
 - **PDF:** pages next to the one you are on are prepared ahead of time, so swiping no longer shows blank white pages.
 - **Highlighter:** a flat band with soft rounded ends, blended onto the page like a real highlighter.

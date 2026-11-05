@@ -55,7 +55,7 @@ fun UpdateDialogHost() {
     fun start() {
         Updater.showDialog = false
         if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        scope.launch { Updater.download(context) }
+        Updater.startDownload(context)
     }
 
     AlertDialog(

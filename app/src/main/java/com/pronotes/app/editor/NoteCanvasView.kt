@@ -422,6 +422,10 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     private var panLastY = 0f
     private var pinchStartDist = 0f
     private var pinchStartScale = 1f
+    /** True once two fingers zoomed in this gesture: then no page turning and no fling. */
+    private var pinched = false
+    /** Fit size of the page the gesture started on, fixed for the whole pinch. */
+    private var gestureFit = 1f
     private var maxFingers = 0
     private var fingerDownTime = 0L
     private var fingerMoved = false
@@ -1217,12 +1221,16 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 maxFingers = 1
                 fingerDownTime = SystemClock.uptimeMillis()
                 fingerMoved = false
+                pinched = false
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 mode = Mode.PAN
                 maxFingers = max(maxFingers, e.pointerCount)
                 if (fingerDownTime == 0L) fingerDownTime = SystemClock.uptimeMillis()
                 if (e.pointerCount >= 2) {
+                    if (!pinched) gestureFit = fitScale(pageAtGestureStart.coerceIn(0, max(0, pages.size - 1)))
+                    pinched = true
+                    scroller.forceFinished(true)
                     pinchStartDist = spacing(e)
                     pinchStartScale = scale
                 }
@@ -1233,10 +1241,10 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 val (cx, cy) = focus(e)
                 if (hypot(cx - fingerStartX, cy - fingerStartY) > touchSlop * 2) fingerMoved = true
                 if (e.pointerCount >= 2 && pinchStartDist > 0f) {
-                    val newScale = (pinchStartScale * spacing(e) / pinchStartDist).coerceIn(fitScale() * 0.5f, 6f)
+                    val newScale = (pinchStartScale * spacing(e) / pinchStartDist).coerceIn(gestureFit * 0.5f, 6f)
                     if (abs(newScale - scale) > 0.001f) {
                         fingerMoved = true
-                        host.onZoom((newScale / fitScale() * 100f).toInt())
+                        host.onZoom((newScale / gestureFit * 100f).toInt())
                         val (fx, fy) = toDoc(cx, cy)
                         scale = newScale
                         transX = cx - fx * scale
@@ -1246,7 +1254,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 var dx = cx - panLastX; var dy = cy - panLastY
                 if (pull > 0f) { dx *= 0.45f; dy *= 0.45f }   // rubber band while pulling
                 // Horizontal paging at fit size: pages slide sideways only.
-                val paging = settings.scroll == ScrollDirection.HORIZONTAL && e.pointerCount == 1 && scale <= fitScale() * 1.3f
+                val paging = !pinched && settings.scroll == ScrollDirection.HORIZONTAL && e.pointerCount == 1 && scale <= fitScale() * 1.3f
                 if (paging) dy = 0f
                 transX += dx
                 // One swipe = one page: the drag can reach the next or previous page, no further.
@@ -1309,6 +1317,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     }
 
     private fun releaseFling(pulled: Boolean) {
+        if (pinched) { pinched = false; settleAfterPinch(); return }
         val vt = velocity ?: return
         vt.computeCurrentVelocity(1000)
         val vx = vt.xVelocity; val vy = vt.yVelocity
@@ -1332,6 +1341,40 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         )
         clamp(); updateMatrix()
         postInvalidateOnAnimation()
+    }
+
+    /**
+     * After a pinch: stay on the page you were on. Near fit size in page mode it eases back to that
+     * page; zoomed out past fit it eases back to fit; zoomed in it simply stays where you left it.
+     */
+    private fun settleAfterPinch() {
+        if (pages.isEmpty() || width == 0) return
+        val horizontal = settings.scroll == ScrollDirection.HORIZONTAL
+        val page = pageAtGestureStart.coerceIn(0, pages.size - 1)
+        val fromS = scale; val fromX = transX; val fromY = transY
+        when {
+            horizontal && scale <= gestureFit * 1.3f -> { scale = fitScale(page); centerOn(page); lastTarget = page }
+            scale < gestureFit -> {
+                val (fx, fy) = toDoc(width / 2f, height / 2f)
+                scale = gestureFit
+                transX = width / 2f - fx * scale; transY = height / 2f - fy * scale
+                clamp()
+            }
+            else -> { clamp(); updateMatrix(); return }
+        }
+        val toS = scale; val toX = transX; val toY = transY
+        scale = fromS; transX = fromX; transY = fromY
+        ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 240; interpolator = DecelerateInterpolator()
+            addUpdateListener {
+                val t = it.animatedValue as Float
+                scale = fromS + (toS - fromS) * t
+                transX = fromX + (toX - fromX) * t
+                transY = fromY + (toY - fromY) * t
+                updateMatrix()
+            }
+            start()
+        }
     }
 
     /** Double-tap with a finger: zoom in to 2x around the tap, or back to fit. */
