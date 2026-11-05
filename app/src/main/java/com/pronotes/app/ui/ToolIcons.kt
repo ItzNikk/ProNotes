@@ -28,10 +28,10 @@ import com.pronotes.app.editor.Tool
  * pro_notes_toolbar_icons_v2. Shapes are SVG path data drawn with Compose.
  */
 
-private sealed interface Part
-private data class P(val d: String, val dashed: Boolean = false, val filled: Boolean = false, val body: Boolean = false) : Part
-private data class C(val cx: Float, val cy: Float, val r: Float, val filled: Boolean = false, val body: Boolean = false) : Part
-private data class Rr(val x: Float, val y: Float, val w: Float, val h: Float, val rx: Float, val body: Boolean = false) : Part
+internal sealed interface Part
+internal data class P(val d: String, val dashed: Boolean = false, val filled: Boolean = false, val body: Boolean = false) : Part
+internal data class C(val cx: Float, val cy: Float, val r: Float, val filled: Boolean = false, val body: Boolean = false) : Part
+internal data class Rr(val x: Float, val y: Float, val w: Float, val h: Float, val rx: Float, val body: Boolean = false) : Part
 
 enum class ProIcon(internal val parts: List<Part>) {
     SIDEBAR(listOf(Rr(3.5f, 4.5f, 17f, 15f, 2.5f), P("M9.5 4.5v15"))),
