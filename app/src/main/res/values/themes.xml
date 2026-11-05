@@ -1,0 +1,9 @@
+<resources>
+    <style name="Theme.ProNotes" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/paper_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+    <color name="paper_bg">#FFF4F5F7</color>
+    <color name="brand">#FF3D6CF4</color>
+</resources>
