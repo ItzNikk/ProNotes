@@ -1153,7 +1153,7 @@ private fun HighlighterCard(vm: EditorViewModel) {
             val sizes = style.sizes.map { if (it == style.size) v else it }
             vm.updateStyle(Tool.HIGHLIGHTER, style.copy(size = v, sizes = sizes))
         }
-        SliderRow("OPACITY", "%.0f%%".format(s.highlighterOpacity * 100), s.highlighterOpacity, 0.2f..0.8f) { v -> store.update { it.copy(highlighterOpacity = v) } }
+        SliderRow("OPACITY", "%.0f%%".format(s.highlighterOpacity * 100), s.highlighterOpacity, 0.3f..0.9f) { v -> store.update { it.copy(highlighterOpacity = v) } }
         Text("LINE", style = MaterialTheme.typography.labelSmall)
         Segments(HighlighterMode.entries.map { it.label }, s.highlighterMode.ordinal) { i -> store.update { it.copy(highlighterMode = HighlighterMode.entries[i]) } }
         ToggleLine("Draw behind ink", s.highlighterBehind) { v -> store.update { it.copy(highlighterBehind = v) } }

@@ -303,6 +303,8 @@ class PageRenderer(private val noteDir: File?) {
         // Custom page: the user's own picture as the background (centre-cropped).
         page.bgImage?.let { name -> drawCover(canvas, rect, "image:$name"); return }
         if (pdf != null) {
+            // Dark PDF pages (light text on a dark slide) need highlights blended the other way.
+            currentBg = if (isDarkBitmap(pdf) != darkPdf) Color.BLACK else Color.WHITE
             canvas.drawBitmap(pdf, null, rect, if (darkPdf) invertPaint else bitmapPaint)
             return
         }
@@ -389,9 +391,10 @@ class PageRenderer(private val noteDir: File?) {
         val parts = partsOf(items)
         if (parts.hasHighlight) {
             drawSeq(canvas, parts.fills, worldToScreen, transform, transformIds)
-            // Highlights multiply with the page underneath, so PDF print and ink stay crisp on top.
+            // Highlights blend with the page so text always stays on top: multiply keeps dark text dark
+            // on light pages, lighten keeps light text bright on dark pages.
             // The offscreen layer covers only the visible area, not the whole screen.
-            val layer = canvas.saveLayer(visible, if (isDark) null else multiplyPaint)
+            val layer = canvas.saveLayer(visible, if (isDark) lightenPaint else multiplyPaint)
             drawSeq(canvas, parts.highlights, worldToScreen, transform, transformIds)
             canvas.restoreToCount(layer)
             drawSeq(canvas, parts.rest, worldToScreen, transform, transformIds)
@@ -428,6 +431,21 @@ class PageRenderer(private val noteDir: File?) {
         else -> true
     }
     private val tmp = RectF()
+    private val lightenPaint = Paint().apply {
+        if (android.os.Build.VERSION.SDK_INT >= 29) blendMode = android.graphics.BlendMode.LIGHTEN
+        else xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.LIGHTEN)
+    }
+    private val darkness = java.util.WeakHashMap<Bitmap, Boolean>()
+
+    /** Average brightness of a PDF page, sampled on a 12 x 12 grid and remembered per bitmap. */
+    private fun isDarkBitmap(b: Bitmap): Boolean = darkness.getOrPut(b) {
+        if (b.config == Bitmap.Config.HARDWARE) return@getOrPut false
+        var sum = 0.0
+        for (i in 0 until 12) for (j in 0 until 12) {
+            sum += Color.luminance(b.getPixel(((i + 0.5f) / 12f * b.width).toInt(), ((j + 0.5f) / 12f * b.height).toInt()))
+        }
+        sum / 144.0 < 0.4
+    }
     private val multiplyPaint = Paint().apply {
         if (android.os.Build.VERSION.SDK_INT >= 29) blendMode = android.graphics.BlendMode.MULTIPLY
         else xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.MULTIPLY)

@@ -306,28 +306,52 @@ private fun LoopingVideo(@androidx.annotation.RawRes res: Int, circle: Boolean, 
 }
 
 /**
- * The pen ring as an animated picture. A plain image view draws inside the circle clip reliably,
- * unlike a video surface. Android 8 falls back to the video.
+ * Glowing purple ring for the pen check, drawn in code so it always shows: soft haze, a turning
+ * gradient band, a bright streak and drifting sparks. It glows brighter as the scan goes on.
  */
 @Composable
-private fun RingAnimation(modifier: Modifier) {
-    if (android.os.Build.VERSION.SDK_INT < 28) { LoopingVideo(R.raw.pen_ring, circle = true, modifier = modifier); return }
-    AndroidView(
-        modifier = modifier.clip(CircleShape).background(Color.Black),
-        factory = { ctx ->
-            android.widget.ImageView(ctx).apply {
-                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-                runCatching {
-                    val d = android.graphics.ImageDecoder.decodeDrawable(android.graphics.ImageDecoder.createSource(ctx.resources, R.raw.pen_ring_anim))
-                    setImageDrawable(d)
-                    (d as? android.graphics.drawable.AnimatedImageDrawable)?.apply {
-                        repeatCount = android.graphics.drawable.AnimatedImageDrawable.REPEAT_INFINITE
-                        start()
-                    }
-                }
-            }
-        },
-    )
+private fun GlowRing(modifier: Modifier, energy: Float) {
+    val t = rememberInfiniteTransition(label = "glow")
+    val spin by t.animateFloat(0f, 360f, infiniteRepeatable(tween(6000, easing = LinearEasing)), label = "spin")
+    val spin2 by t.animateFloat(360f, 0f, infiniteRepeatable(tween(9500, easing = LinearEasing)), label = "spin2")
+    val pulse by t.animateFloat(0f, 1f, infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "pulse")
+    val sparks = remember {
+        val rnd = kotlin.random.Random(7)
+        List(40) { floatArrayOf(rnd.nextFloat() * 360f, rnd.nextFloat(), 0.4f + rnd.nextFloat() * 0.6f) }
+    }
+    val purple = Color(0xFFB45CFF); val pink = Color(0xFFE38BFF); val deep = Color(0xFF5A1AB0); val light = Color(0xFFF6D6FF)
+    Canvas(modifier) {
+        val c = center
+        val r = size.minDimension / 2f
+        val ringR = r * 0.80f
+        val e = (0.55f + 0.45f * energy.coerceIn(0f, 1f))
+        drawCircle(Color.Black, r * 0.97f, c)
+        drawCircle(
+            Brush.radialGradient(listOf(Color.Transparent, Color.Transparent, Color(0xFF7A2BD9).copy(alpha = 0.45f * e), Color.Transparent), c, r),
+            r, c,
+        )
+        for (k in 4 downTo 1) drawCircle(purple.copy(alpha = 0.09f * e), ringR, c, style = Stroke(r * 0.055f * k))
+        rotate(spin, c) {
+            drawCircle(
+                Brush.sweepGradient(listOf(deep, pink, purple, deep, light, purple, deep), c),
+                ringR, c, style = Stroke(r * (0.10f + 0.025f * pulse)),
+            )
+        }
+        rotate(spin2, c) {
+            drawCircle(
+                Brush.sweepGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.6f * e), Color.Transparent, Color.Transparent, pink.copy(alpha = 0.5f * e), Color.Transparent), c),
+                ringR * 1.02f, c, style = Stroke(r * 0.025f),
+            )
+        }
+        sparks.forEach { s ->
+            val a = Math.toRadians((s[0] + spin * s[2]).toDouble())
+            val rr = ringR + (s[1] - 0.5f) * r * 0.24f
+            drawCircle(
+                Color.White.copy(alpha = ((0.2f + 0.6f * s[1]) * e).coerceAtMost(1f)), r * 0.012f * s[2],
+                Offset(c.x + kotlin.math.cos(a).toFloat() * rr, c.y + kotlin.math.sin(a).toFloat() * rr),
+            )
+        }
+    }
 }
 
 /** TextureView stretches video to its size; scale back so the picture fills without distortion. */
@@ -481,7 +505,7 @@ private fun PenCheckPage(active: Boolean, store: SettingsStore, onNext: () -> Un
     val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
     Box(Modifier.size(230.dp).scale(pulse.value), contentAlignment = Alignment.Center) {
         // The ring video sits inside the progress arc.
-        if (active) RingAnimation(Modifier.size(198.dp))
+        GlowRing(Modifier.size(206.dp), energy = progress.value / 100f)
         else Box(Modifier.size(198.dp).clip(CircleShape).background(Color.Black))
         Canvas(Modifier.fillMaxSize()) {
             val w = 6.dp.toPx()
@@ -493,7 +517,7 @@ private fun PenCheckPage(active: Boolean, store: SettingsStore, onNext: () -> Un
             )
         }
         // Percentage pill over the video.
-        Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.55f)) {
+        Surface(shape = CircleShape, color = Color(0xE6150A24), border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x66E38BFF))) {
             Text(
                 "$pct%", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp),

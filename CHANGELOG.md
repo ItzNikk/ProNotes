@@ -1,5 +1,9 @@
 # Changelog
 
+## v5.0.1
+- **Pen setup:** a glowing ring around the circle again, and it glows brighter as the scan goes on. The percentage now sits on a solid pill.
+- **Highlighter:** stronger by default (65%), and text always stays on top. Dark PDF pages blend the highlight under their light text.
+
 ## v5.0.0
 - **Highlighter:** an even, round tip. Same width in every direction, and it ignores pressure, tilt and speed.
 - **Highlighter opacity:** new slider in the highlighter card, from 20% to 80%.
