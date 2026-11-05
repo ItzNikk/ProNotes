@@ -1,5 +1,9 @@
 # Changelog
 
+## v4.2.1
+- **PDF:** smoother pinch and scroll. Pages show quickly, then sharpen once you stop moving. Pages you scrolled past are no longer drawn.
+- **Pen setup:** the ring video now plays inside the circle.
+
 ## v4.2.0
 - **Welcome:** the gradient video now fills the whole first screen.
 - **Pen setup:** a ring video with a live percentage. Three pen taps, then a short scan that checks pressure, tilt and hover before showing the brand.

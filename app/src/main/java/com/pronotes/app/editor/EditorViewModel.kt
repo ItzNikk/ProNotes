@@ -121,6 +121,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     private var saveJob: Job? = null
     private var pdf: PdfPages? = null
     private val pendingPdf = HashSet<Int>()
+    /** When each PDF page was last asked for by the canvas, and the width it wants now. */
+    private val pdfSeen = java.util.concurrent.ConcurrentHashMap<Int, Long>()
+    private val pdfWant = java.util.concurrent.ConcurrentHashMap<Int, Int>()
 
     /** Set by the screen so model changes can be pushed into the canvas. */
     var onPagesChanged: (() -> Unit)? = null
@@ -546,10 +549,23 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val aspect = page.height / page.width
         // Keep very tall pages within a sane pixel budget.
         if (want * want * aspect > 9_000_000f) want = kotlin.math.sqrt(9_000_000f / aspect).toInt()
-        if ((have == null || have.width < want * 0.85f) && pendingPdf.add(page.pdfPage)) {
+        val key = page.pdfPage
+        pdfSeen[key] = android.os.SystemClock.uptimeMillis()
+        pdfWant[key] = want
+        if ((have == null || have.width < want * 0.85f) && pendingPdf.add(key)) {
             viewModelScope.launch {
-                withContext(Dispatchers.IO) { src.render(page.pdfPage, want, (want * aspect).toInt()) }
-                pendingPdf.remove(page.pdfPage)
+                // First sight of a page: draw a quick softer version so it appears fast.
+                // Sharpening waits until zoom and scroll settle, so pinching never floods the renderer.
+                if (have != null) kotlinx.coroutines.delay(180)
+                val seen = pdfSeen[key] ?: 0L
+                if (android.os.SystemClock.uptimeMillis() - seen < 700) {
+                    val w = if (have == null) minOf(pdfWant[key] ?: want, 1100) else (pdfWant[key] ?: want)
+                    withContext(Dispatchers.IO) {
+                        // Skip pages that were scrolled away while waiting in line.
+                        if (android.os.SystemClock.uptimeMillis() - (pdfSeen[key] ?: 0L) < 700) src.render(key, w, (w * aspect).toInt())
+                    }
+                }
+                pendingPdf.remove(key)
                 onReady()
             }
         }

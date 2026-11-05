@@ -279,15 +279,9 @@ private fun LoopingVideo(@androidx.annotation.RawRes res: Int, circle: Boolean, 
     val player = remember { arrayOfNulls<MediaPlayer>(1) }
     DisposableEffect(Unit) { onDispose { player[0]?.release(); player[0] = null } }
     AndroidView(
-        modifier = modifier,
+        modifier = if (circle) modifier.clip(CircleShape) else modifier,
         factory = { ctx ->
             val tv = TextureView(ctx)
-            if (circle) {
-                tv.outlineProvider = object : ViewOutlineProvider() {
-                    override fun getOutline(v: View, o: Outline) { o.setOval(0, 0, v.width, v.height) }
-                }
-                tv.clipToOutline = true
-            }
             tv.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                 override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
                     runCatching {
@@ -463,6 +457,7 @@ private fun PenCheckPage(active: Boolean, store: SettingsStore, onNext: () -> Un
     Box(Modifier.size(230.dp).scale(pulse.value), contentAlignment = Alignment.Center) {
         // The ring video sits inside the progress arc.
         if (active) LoopingVideo(R.raw.pen_ring, circle = true, modifier = Modifier.size(198.dp))
+        else Box(Modifier.size(198.dp).clip(CircleShape).background(Color.Black))
         Canvas(Modifier.fillMaxSize()) {
             val w = 6.dp.toPx()
             drawCircle(track, size.minDimension / 2 - w / 2, style = Stroke(w))
