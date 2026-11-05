@@ -183,6 +183,20 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     fun onEraserLifted() { if (settingsFlow.value.eraserAutoSwitch) tool = previousTool }
 
+    /** A tool settings card is open (the editor blurs behind it). */
+    var cardOpen by mutableStateOf(false)
+
+    /** Jumps back to the tool used before this one. */
+    fun swapToPrevious() { val p = previousTool; tool = p }
+
+    /** Colour and size (page units) of the hover preview dot. */
+    fun hoverInk(): Pair<Int, Float>? = when (tool) {
+        Tool.PEN -> penStyle.color to penStyle.size * penType.sizeFactor
+        Tool.HIGHLIGHTER -> highlighterStyle.color to highlighterStyle.size
+        Tool.SHAPE -> shapeStyle.color to shapeStyle.size
+        else -> null
+    }
+
     fun showCircleChip(r: RectF?) {
         circleChip = r
         chipJob?.cancel()
@@ -469,6 +483,18 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         return Page(UUID.randomUUID().toString(), w, h, paper, paperColor = ref?.paperColor)
     }
 
+    /** Custom page: uses a picture as the background of the page in view (null removes it). */
+    fun setPageBackground(uri: Uri?) {
+        val idx = pageIndex
+        viewModelScope.launch {
+            val name = if (uri == null) null else runCatching { repo.saveImage(noteId, uri) }.getOrNull() ?: return@launch
+            val p = pages.getOrNull(idx) ?: return@launch
+            pages[idx] = p.copy(bgImage = name)
+            thumbs.clear()
+            scheduleSave(); onPagesChanged?.invoke()
+        }
+    }
+
     /** Paper colour of the page in view; null follows the app setting. */
     fun setPageColor(color: Int?) {
         val p = currentPage ?: return
@@ -521,8 +547,19 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         return null
     }
 
-    suspend fun thumbnail(index: Int, width: Int): Bitmap? = withContext(Dispatchers.Default) {
-        val page = pages.getOrNull(index) ?: return@withContext null
+    /** Thumbnails are cached until the page changes (pages are immutable, so identity is enough). */
+    private val thumbs = object : android.util.LruCache<String, Bitmap>(24 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: Bitmap) = value.byteCount
+    }
+
+    suspend fun thumbnail(index: Int, width: Int): Bitmap? {
+        val page = pages.getOrNull(index) ?: return null
+        val key = "${page.id}:${System.identityHashCode(page)}:$width"
+        thumbs.get(key)?.let { return it }
+        return renderThumb(page, width)?.also { thumbs.put(key, it) }
+    }
+
+    private suspend fun renderThumb(page: Page, width: Int): Bitmap? = withContext(Dispatchers.Default) {
         val scale = width / page.width
         val h = (page.height * scale).toInt().coerceAtLeast(1)
         val bmp = Bitmap.createBitmap(width, h, Bitmap.Config.ARGB_8888)

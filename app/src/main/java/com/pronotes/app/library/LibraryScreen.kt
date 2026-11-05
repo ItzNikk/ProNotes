@@ -101,6 +101,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.CornerRadius
@@ -139,7 +140,7 @@ private sealed interface Entry {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: Uri?, onPdfConsumed: () -> Unit) {
+fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: Uri?, onPdfConsumed: () -> Unit, onSupport: () -> Unit = {}) {
     val context = LocalContext.current
     val repo = remember { Repository.get(context) }
     val settings by SettingsStore.get(context).settings.collectAsState()
@@ -162,6 +163,11 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
     var deleting by remember { mutableStateOf<Entry?>(null) }
     var coverFor by remember { mutableStateOf<NotebookMeta?>(null) }
     var forever by remember { mutableStateOf<NotebookMeta?>(null) }
+    var supportCard by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        val st = SettingsStore.get(context)
+        if (com.pronotes.app.support.Support.enabled && st.shouldRemindSupport()) { supportCard = true; st.markSupportShown() }
+    }
     var emptyTrash by remember { mutableStateOf(false) }
 
     val importPdf = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -172,6 +178,21 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
             val id = repo.importPdf(pendingPdf, null)
             onPdfConsumed()
             onOpen(id)
+        }
+    }
+
+    /** Moves a dragged notebook or folder. A folder cannot go inside itself or its own subfolders. */
+    fun dropInto(payload: String, target: String?): Boolean {
+        val id = payload.substringAfter(':')
+        return when {
+            payload.startsWith("note:") -> { scope.launch { repo.moveNotebook(id, target) }; true }
+            payload.startsWith("folder:") -> {
+                if (id == target) return false
+                var p = target
+                while (p != null) { if (p == id) return false; p = lib.folders.firstOrNull { it.id == p }?.parentId }
+                scope.launch { repo.moveFolder(id, target) }; true
+            }
+            else -> false
         }
     }
 
@@ -201,12 +222,32 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
     val currentFolder = lib.folders.firstOrNull { it.id == folderId }
     val title = if (section == Section.DOCUMENTS && currentFolder != null) currentFolder.name else section.label
 
-    Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    // Real blur behind dialogs on Android 12+.
+    val dialogOpen = newNotebook || newFolder || folderEdit != null || renaming != null || moving != null ||
+        deleting != null || coverFor != null || forever != null || emptyTrash
+    val blur by androidx.compose.animation.core.animateDpAsState(if (dialogOpen) 14.dp else 0.dp, label = "blur")
+    Row(
+        Modifier.fillMaxSize()
+            .then(if (android.os.Build.VERSION.SDK_INT >= 31 && blur > 0.dp) Modifier.blur(blur) else Modifier)
+            .background(MaterialTheme.colorScheme.background),
+    ) {
         AnimatedVisibility(sidebar, enter = expandHorizontally() + fadeIn(), exit = shrinkHorizontally() + fadeOut()) {
             Sidebar(
                 section, trashCount = lib.notebooks.count { it.deletedAt != null },
                 onSelect = { section = it; folderId = null; if (!wide) sidebar = false },
                 onCollapse = { sidebar = false }, onSettings = onSettings,
+                onDropTo = { s, payload ->
+                    when (s) {
+                        Section.DOCUMENTS -> dropInto(payload, null)
+                        Section.TRASH -> if (payload.startsWith("note:")) { scope.launch { repo.deleteNotebook(payload.substringAfter(':')) }; true } else false
+                        Section.FAVORITES -> if (payload.startsWith("note:")) {
+                            val nid = payload.substringAfter(':')
+                            if (lib.notebooks.firstOrNull { it.id == nid }?.favorite == false) scope.launch { repo.toggleFavorite(nid) }
+                            true
+                        } else false
+                        else -> false
+                    }
+                },
             )
         }
 
@@ -304,6 +345,7 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
                 onDuplicate = { scope.launch { repo.duplicateNotebook(it.id) } },
                 onRestore = { scope.launch { repo.restoreNotebook(it.id) } },
                 onDeleteForever = { forever = it },
+                onDrop = { payload, target -> dropInto(payload, target) },
             )
 
             if (entries.isEmpty()) {
@@ -334,6 +376,26 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+
+    if (supportCard) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+            Surface(
+                shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f), shadowElevation = 12.dp,
+                modifier = Modifier.padding(20.dp).widthIn(max = 520.dp),
+            ) {
+                Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("?", style = MaterialTheme.typography.headlineSmall, color = Color(0xFFE5484D))
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Enjoying Pro Notes?", style = MaterialTheme.typography.titleMedium)
+                        Text("It is free and made by one developer. A small tip helps.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    TextButton(onClick = { supportCard = false }) { Text("Not now") }
+                    Button(onClick = { supportCard = false; onSupport() }, shape = CircleShape) { Text("Support") }
                 }
             }
         }
@@ -461,12 +523,17 @@ private class TileActions(
     val onDuplicate: (NotebookMeta) -> Unit,
     val onRestore: (NotebookMeta) -> Unit,
     val onDeleteForever: (NotebookMeta) -> Unit,
+    /** Drag and drop: "note:<id>" or "folder:<id>" dropped on a folder (null = top level). */
+    val onDrop: (String, String?) -> Boolean,
 )
 
 // ================================================================ sidebar
 
 @Composable
-private fun Sidebar(section: Section, trashCount: Int, onSelect: (Section) -> Unit, onCollapse: () -> Unit, onSettings: () -> Unit) {
+private fun Sidebar(
+    section: Section, trashCount: Int, onSelect: (Section) -> Unit, onCollapse: () -> Unit, onSettings: () -> Unit,
+    onDropTo: (Section, String) -> Boolean,
+) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxHeight().width(232.dp)) {
         Column(Modifier.statusBarsPadding().padding(horizontal = 14.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -483,9 +550,17 @@ private fun Sidebar(section: Section, trashCount: Int, onSelect: (Section) -> Un
             }
             Section.entries.forEach { s ->
                 val sel = s == section
+                var hot by remember { mutableStateOf(false) }
                 Row(
                     Modifier.fillMaxWidth().clip(CircleShape)
-                        .background(if (sel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                        .libraryDropTarget(onHover = { hot = it }) { payload -> onDropTo(s, payload) }
+                        .background(
+                            when {
+                                hot -> MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                                sel -> MaterialTheme.colorScheme.primaryContainer
+                                else -> Color.Transparent
+                            },
+                        )
                         .clickable { onSelect(s) }.padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -569,10 +644,14 @@ fun FolderArt(color: Int, emoji: String, modifier: Modifier = Modifier) {
 private fun FolderTile(e: Entry.F, a: TileActions) {
     var menu by remember { mutableStateOf(false) }
     val src = remember { MutableInteractionSource() }
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.scale(pressScale(src))) {
+    var dropHover by remember { mutableStateOf(false) }
+    val grow by animateFloatAsState(if (dropHover) 1.08f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "drop")
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.scale(pressScale(src) * grow)) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(0.75f)
-                .combinedClickable(interactionSource = src, indication = null, onClick = { a.onOpenFolder(e.folder) }, onLongClick = { menu = true }),
+                .libraryDragSource("folder:${e.folder.id}")
+                .libraryDropTarget(onHover = { dropHover = it }) { payload -> a.onDrop(payload, e.folder.id) }
+                .combinedClickable(interactionSource = src, indication = null, onClick = { a.onOpenFolder(e.folder) }),
             contentAlignment = Alignment.BottomCenter,
         ) {
             FolderArt(e.folder.color, e.folder.emoji, Modifier.fillMaxWidth(0.88f).aspectRatio(1f))
@@ -597,9 +676,11 @@ private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.scale(pressScale(src))) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(0.75f)
+                .then(if (note.deletedAt == null) Modifier.libraryDragSource("note:${note.id}") else Modifier)
                 .combinedClickable(
                     interactionSource = src, indication = null,
-                    onClick = { if (note.deletedAt != null) menu = true else a.onOpenNote(note) }, onLongClick = { menu = true },
+                    onClick = { if (note.deletedAt != null) menu = true else a.onOpenNote(note) },
+                    onLongClick = if (note.deletedAt != null) ({ menu = true }) else null,
                 ),
         ) {
             CoverArt(note.coverSpec, note.title, repo.noteDir(note.id), note.modified, Modifier.fillMaxSize())
@@ -754,7 +835,19 @@ private fun FolderDialog(existing: Folder?, onDismiss: () -> Unit, onSave: (Stri
 private fun CoverGallery(selected: String, onSelect: (String) -> Unit, onPhoto: () -> Unit) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         val options = CoverColors.map { "solid:$it" } +
-            CoverPatterns.flatMap { p -> listOf(CoverColors[0], CoverColors[3], CoverColors[1], CoverColors[9]).map { "pattern:$p:$it" } }
+            CoverPatterns.flatMap { p ->
+                // Colours that suit each material.
+                val tones = when (p) {
+                    "leather" -> listOf(0xFF5D3A23, 0xFF1C1C1E, 0xFF0E2A47, 0xFF6B1E2A)
+                    "kraft" -> listOf(0xFFC49A6C, 0xFFA77B4F)
+                    "marble" -> listOf(0xFF8E9AAF, 0xFF2E3440, 0xFFB5838D)
+                    "terrazzo" -> listOf(0xFFE9E4DA, 0xFF6C757D)
+                    "linen" -> listOf(0xFF9DB4C0, 0xFFB5A397, 0xFF5C6B73)
+                    "gradient" -> listOf(0xFF3D6CF4, 0xFF9B51E0, 0xFFEB5757, 0xFF2BB673)
+                    else -> listOf(CoverColors[0], CoverColors[3], CoverColors[1], CoverColors[9]).map { it.toLong() and 0xFFFFFFFFL }
+                }
+                tones.map { "pattern:$p:${it.toInt()}" }
+            }
         options.forEach { spec ->
             Box(
                 Modifier.size(width = 54.dp, height = 72.dp)

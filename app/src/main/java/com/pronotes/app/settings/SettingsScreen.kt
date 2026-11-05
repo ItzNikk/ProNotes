@@ -106,7 +106,7 @@ private enum class Category(val label: String, val sub: String, val icon: ImageV
  * On phones the category list opens each section full screen.
  */
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onTour: () -> Unit = {}, onSupport: () -> Unit = {}) {
     val context = LocalContext.current
     val store = remember { SettingsStore.get(context) }
     val s by store.settings.collectAsState()
@@ -127,11 +127,11 @@ fun SettingsScreen(onBack: () -> Unit) {
                     targetState = selected ?: Category.STYLUS,
                     transitionSpec = { (fadeIn() + slideInHorizontally { it / 12 }) togetherWith fadeOut() },
                     label = "detail", modifier = Modifier.weight(1f),
-                ) { c -> Detail(c, s, store) }
+                ) { c -> Detail(c, s, store, onTour, onSupport) }
             }
         } else {
             AnimatedContent(targetState = selected, label = "phone") { c ->
-                if (c == null) CategoryList(null, Modifier.fillMaxSize()) { selected = it } else Detail(c, s, store)
+                if (c == null) CategoryList(null, Modifier.fillMaxSize()) { selected = it } else Detail(c, s, store, onTour, onSupport)
             }
         }
     }
@@ -166,7 +166,7 @@ private fun CategoryList(selected: Category?, modifier: Modifier, onPick: (Categ
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Detail(c: Category, s: AppSettings, store: SettingsStore) {
+private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: () -> Unit, onSupport: () -> Unit) {
     val context = LocalContext.current
     fun up(block: (AppSettings) -> AppSettings) = store.update(block)
     LazyColumn(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, contentPadding = PaddingValues(bottom = 48.dp)) {
@@ -180,7 +180,9 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore) {
                     }
                     Section("Pen side button") {
                         Choice("While held", s.sideButton.label, SideButton.entries.map { it.label }) { i -> up { it.copy(sideButton = SideButton.entries[i]) } }
+                        Toggle(Icons.Outlined.Draw, "Hover preview", "Show where the pen will touch", s.hoverCursor) { v -> up { it.copy(hoverCursor = v) } }
                     }
+                    PensSection(store, onTour)
                 }
                 Category.GESTURES -> {
                     Section("Pen gestures") {
@@ -270,6 +272,21 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore) {
                     Section("Backup") { BackupRows() }
                 }
                 Category.ABOUT -> {
+                    Section("Get started") {
+                        Row(Modifier.fillMaxWidth().clickable(onClick = onTour).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Outlined.Gesture, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.size(16.dp))
+                            Text("Take the tour", Modifier.weight(1f))
+                        }
+                        if (com.pronotes.app.support.Support.enabled) {
+                            HorizontalDivider(Modifier.padding(start = 56.dp))
+                            Row(Modifier.fillMaxWidth().clickable(onClick = onSupport).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Outlined.ColorLens, null, tint = Color(0xFFE5484D)); Spacer(Modifier.size(16.dp))
+                                Text("Support Pro Notes", Modifier.weight(1f))
+                            }
+                            HorizontalDivider(Modifier.padding(start = 56.dp))
+                            Toggle(Icons.Outlined.Info, "Occasional support reminders", "A gentle note now and then", s.supportReminders) { v -> up { it.copy(supportReminders = v) } }
+                        }
+                    }
                     Section("Pro Notes") {
                         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Outlined.Info, null, tint = MaterialTheme.colorScheme.primary)
@@ -277,6 +294,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore) {
                             Column(Modifier.weight(1f)) {
                                 GradientTitle("Pro Notes", MaterialTheme.typography.titleMedium)
                                 Text("Version ${BuildConfigInfo.versionName(context)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Made by ItzNikk Â· Apache License 2.0", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         HorizontalDivider(Modifier.padding(start = 56.dp))
@@ -449,7 +467,7 @@ private fun UpdateRow() {
     val u = com.pronotes.app.data.Updater
     val (title, sub) = when (u.phase) {
         UPhase.IDLE -> "Check for updates" to "Version ${u.currentVersion(context)}"
-        UPhase.CHECKING -> "Checking…" to "Version ${u.currentVersion(context)}"
+        UPhase.CHECKING -> "Checkingï¿½" to "Version ${u.currentVersion(context)}"
         UPhase.UP_TO_DATE -> "Pro Notes is up to date" to "Version ${u.currentVersion(context)}"
         UPhase.AVAILABLE -> "Update to ${u.release?.tag}" to "Tap to download and install"
         UPhase.DOWNLOADING -> "Downloading ${(u.progress * 100).toInt()}%" to "Keep the app open"
@@ -477,6 +495,37 @@ private fun UpdateRow() {
         if (u.phase == UPhase.DOWNLOADING) {
             Spacer(Modifier.height(10.dp))
             androidx.compose.material3.LinearProgressIndicator(progress = { u.progress }, modifier = Modifier.fillMaxWidth().padding(start = 40.dp))
+        }
+    }
+}
+
+/** Every pen used on this device, each with its own side button and click shortcuts. */
+@Composable
+private fun PensSection(store: SettingsStore, onSetup: () -> Unit) {
+    val pens by store.pens.collectAsState()
+    Section("Your pens") {
+        if (pens.isEmpty()) Info("Pens appear here after you write with them.")
+        pens.forEachIndexed { i, p ->
+            if (i > 0) HorizontalDivider()
+            Column(Modifier.padding(vertical = 4.dp)) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Draw, null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.size(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(p.brand)
+                        Text(p.name, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    }
+                    androidx.compose.material3.TextButton(onClick = { store.forgetPen(p.name) }) { Text("Forget") }
+                }
+                Choice("Hold side button", p.sideButton.label, SideButton.entries.map { it.label }) { k -> store.updatePen(p.copy(sideButton = SideButton.entries[k])) }
+                Choice("Click button", p.click.label, com.pronotes.app.data.PenAction.entries.map { it.label }) { k -> store.updatePen(p.copy(click = com.pronotes.app.data.PenAction.entries[k])) }
+                Choice("Double-click button", p.doubleClick.label, com.pronotes.app.data.PenAction.entries.map { it.label }) { k -> store.updatePen(p.copy(doubleClick = com.pronotes.app.data.PenAction.entries[k])) }
+            }
+        }
+        HorizontalDivider()
+        Row(Modifier.fillMaxWidth().clickable(onClick = onSetup).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.TouchApp, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.size(16.dp))
+            Text("Set up a pen", Modifier.weight(1f))
         }
     }
 }

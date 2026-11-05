@@ -125,6 +125,19 @@ class PageRenderer(private val noteDir: File?) {
         val light = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = 0x47FFFFFF }
         val w = r.width(); val h = r.height()
         val pattern = if (parts.firstOrNull() == "pattern") parts.getOrNull(1) else null
+        drawCoverPattern(canvas, pattern, color, w, h, light)
+        // Spine shading and elastic band, like the library cover.
+        coverPaint.shader = android.graphics.LinearGradient(0f, 0f, w * 0.08f, 0f, 0x38000000, 0x00000000, android.graphics.Shader.TileMode.CLAMP)
+        canvas.drawRect(0f, 0f, w * 0.08f, h, coverPaint)
+        coverPaint.shader = null
+        coverPaint.color = 0x29000000
+        canvas.drawRect(w * 0.82f, 0f, w * 0.87f, h, coverPaint)
+    }
+
+    /** Cover textures, all generated in code so they stay sharp at any size. */
+    private fun drawCoverPattern(canvas: Canvas, pattern: String?, color: Int, w: Float, h: Float, light: Paint) {
+        val dark = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = 0x24000000 }
+        val rnd = java.util.Random(pattern.hashCode().toLong() * 31 + color)
         when (pattern) {
             "dots" -> {
                 val st = w / 8; var y = st / 2; var row = 0
@@ -135,27 +148,118 @@ class PageRenderer(private val noteDir: File?) {
                 }
             }
             "grid" -> {
-                light.strokeWidth = 4f
+                light.strokeWidth = w / 220f
                 val st = w / 7
                 var x = 0f
                 while (x < w) { canvas.drawLine(x, 0f, x, h, light); x += st }
                 var y = 0f
                 while (y < h) { canvas.drawLine(0f, y, w, y, light); y += st }
             }
-            null -> Unit
-            else -> {
+            "waves" -> {
+                light.style = Paint.Style.STROKE; light.strokeWidth = h / 40
+                val st = h / 9; var y = 0f
+                while (y < h + st) {
+                    val path = Path(); path.moveTo(0f, y)
+                    var x = 0f
+                    while (x <= w) { path.lineTo(x, y + kotlin.math.sin(x / w * 12.56f) * st * 0.3f); x += w / 60 }
+                    canvas.drawPath(path, light); y += st
+                }
+            }
+            "scales" -> {
+                light.style = Paint.Style.STROKE; light.strokeWidth = w / 60
+                val r = w / 6; var y = 0f; var row = 0
+                while (y < h + r) {
+                    var x = if (row % 2 == 0) 0f else r
+                    while (x < w + r) { canvas.drawCircle(x, y, r, light); x += r * 2 }
+                    y += r * 0.9f; row++
+                }
+            }
+            "linen" -> {
+                val a = Paint().apply { this.color = 0x14FFFFFF; strokeWidth = w / 300 }
+                val b = Paint().apply { this.color = 0x10000000; strokeWidth = w / 300 }
+                var y = 0f; while (y < h) { canvas.drawLine(0f, y, w, y, a); y += w / 120 }
+                var x = 0f; while (x < w) { canvas.drawLine(x, 0f, x, h, b); x += w / 120 }
+            }
+            "leather" -> {
+                // Pebbled grain plus stitched border.
+                repeat(1400) { canvas.drawCircle(rnd.nextFloat() * w, rnd.nextFloat() * h, w / 180 + rnd.nextFloat() * w / 160, if (it % 2 == 0) dark else light.apply { alpha = 26 }) }
+                val stitch = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    style = Paint.Style.STROKE; strokeWidth = w / 160; this.color = 0x66FFFFFF
+                    pathEffect = android.graphics.DashPathEffect(floatArrayOf(w / 40, w / 60), 0f)
+                }
+                canvas.drawRoundRect(RectF(w * 0.06f, h * 0.04f, w * 0.94f, h * 0.96f), w * 0.04f, w * 0.04f, stitch)
+            }
+            "kraft" -> {
+                val fibre = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = w / 400 }
+                repeat(900) {
+                    fibre.color = if (rnd.nextBoolean()) 0x22FFFFFF else 0x1A000000
+                    val x = rnd.nextFloat() * w; val y = rnd.nextFloat() * h; val l = w / 30 * rnd.nextFloat()
+                    canvas.drawLine(x, y, x + l, y + l * (rnd.nextFloat() - 0.5f), fibre)
+                }
+            }
+            "marble" -> {
+                val vein = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+                repeat(14) {
+                    vein.color = if (it % 3 == 0) 0x55FFFFFF else 0x22FFFFFF; vein.strokeWidth = w / 200 + rnd.nextFloat() * w / 90
+                    val path = Path(); var x = rnd.nextFloat() * w; var y = -h * 0.1f
+                    path.moveTo(x, y)
+                    while (y < h * 1.1f) { x += (rnd.nextFloat() - 0.45f) * w / 6; y += h / 14; path.lineTo(x, y) }
+                    canvas.drawPath(path, vein)
+                }
+            }
+            "gradient" -> {
+                val g = Paint().apply {
+                    shader = android.graphics.LinearGradient(0f, 0f, w, h, intArrayOf(0x55FFFFFF, 0x00FFFFFF, 0x33000000), null, android.graphics.Shader.TileMode.CLAMP)
+                }
+                canvas.drawRect(0f, 0f, w, h, g)
+            }
+            "geometric" -> {
+                val st = w / 4
+                var y = 0f; var row = 0
+                while (y < h) {
+                    var x = if (row % 2 == 0) 0f else -st / 2
+                    while (x < w) {
+                        val path = Path().apply { moveTo(x, y + st); lineTo(x + st / 2, y); lineTo(x + st, y + st); close() }
+                        canvas.drawPath(path, if ((row + (x / st).toInt()) % 2 == 0) light.apply { alpha = 38 } else dark)
+                        x += st / 2
+                    }
+                    y += st; row++
+                }
+            }
+            "terrazzo" -> {
+                val chip = Paint(Paint.ANTI_ALIAS_FLAG)
+                val tones = intArrayOf(0x66FFFFFF, 0x33000000, 0x55FFD6A5, 0x55A0C4FF, 0x55FFADAD)
+                repeat(180) {
+                    chip.color = tones[rnd.nextInt(tones.size)]
+                    val cx = rnd.nextFloat() * w; val cy = rnd.nextFloat() * h; val s = w / 60 + rnd.nextFloat() * w / 30
+                    val path = Path().apply {
+                        moveTo(cx, cy - s); lineTo(cx + s * rnd.nextFloat() + s / 2, cy); lineTo(cx, cy + s * 0.8f); lineTo(cx - s, cy + s * 0.2f); close()
+                    }
+                    canvas.drawPath(path, chip)
+                }
+            }
+            "plaid" -> {
+                val band = Paint().apply { this.color = 0x22FFFFFF }
+                val thin = Paint().apply { this.color = 0x33000000 }
+                val st = w / 5
+                var x = 0f; while (x < w) { canvas.drawRect(x, 0f, x + st * 0.35f, h, band); canvas.drawRect(x + st * 0.6f, 0f, x + st * 0.65f, h, thin); x += st }
+                var y = 0f; while (y < h) { canvas.drawRect(0f, y, w, y + st * 0.35f, band); canvas.drawRect(0f, y + st * 0.6f, w, y + st * 0.65f, thin); y += st }
+            }
+            "spiral" -> {
+                // Spiral binding down the left edge.
+                val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = w / 90; this.color = 0xFFB8BEC8.toInt() }
+                val hole = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = 0x55000000 }
+                var y = h * 0.05f
+                while (y < h * 0.96f) { canvas.drawCircle(w * 0.07f, y, w / 70, hole); canvas.drawArc(RectF(-w * 0.01f, y - w / 28, w * 0.09f, y + w / 28), 200f, 220f, false, ring); y += h / 22 }
+            }
+            "stripes" -> {
                 light.strokeWidth = w / 14
                 val st = w / 5
                 var x = -h
                 while (x < w) { canvas.drawLine(x, h, x + h, 0f, light); x += st }
             }
+            else -> Unit
         }
-        // Spine shading and elastic band, like the library cover.
-        coverPaint.shader = android.graphics.LinearGradient(0f, 0f, w * 0.08f, 0f, 0x38000000, 0x00000000, android.graphics.Shader.TileMode.CLAMP)
-        canvas.drawRect(0f, 0f, w * 0.08f, h, coverPaint)
-        coverPaint.shader = null
-        coverPaint.color = 0x29000000
-        canvas.drawRect(w * 0.82f, 0f, w * 0.87f, h, coverPaint)
     }
 
     fun image(name: String): Bitmap? {
@@ -175,10 +279,13 @@ class PageRenderer(private val noteDir: File?) {
     fun drawPaper(canvas: Canvas, page: Page, pdf: Bitmap?, shadow: Boolean) {
         val rect = RectF(0f, 0f, page.width, page.height)
         val bg = if (page.pdfPage >= 0) Color.WHITE else page.paperColor ?: paperColor
+        currentBg = if (page.pdfPage >= 0 && darkPdf) Color.BLACK else bg
         val p = if (shadow) shadowPaint else pagePaint
         p.color = bg
         canvas.drawRect(rect, p)
         page.cover?.let { drawCover(canvas, rect, it); return }
+        // Custom page: the user's own picture as the background (centre-cropped).
+        page.bgImage?.let { name -> drawCover(canvas, rect, "image:$name"); return }
         if (pdf != null) {
             canvas.drawBitmap(pdf, null, rect, if (darkPdf) invertPaint else bitmapPaint)
             return
@@ -260,10 +367,23 @@ class PageRenderer(private val noteDir: File?) {
         transform: Matrix? = null,
         transformIds: Set<Long> = emptySet(),
     ) {
-        val ordered = if (highlighterBehind && items.any { it is InkItem && it.isHighlighter }) {
-            items.filter { it is FillItem } + items.filter { it is InkItem && it.isHighlighter } +
-                items.filterNot { it is FillItem || (it is InkItem && it.isHighlighter) }
-        } else items
+        val isHl = { it: PageItem -> it is InkItem && it.isHighlighter }
+        if (highlighterBehind && items.any(isHl)) {
+            drawSeq(canvas, items.filter { it is FillItem }, worldToScreen, transform, transformIds)
+            // Highlights multiply with the page underneath, so PDF print and ink stay crisp on top.
+            val layer = canvas.saveLayer(null, if (isDark) null else multiplyPaint)
+            drawSeq(canvas, items.filter(isHl), worldToScreen, transform, transformIds)
+            canvas.restoreToCount(layer)
+            drawSeq(canvas, items.filterNot { it is FillItem || isHl(it) }, worldToScreen, transform, transformIds)
+        } else drawSeq(canvas, items, worldToScreen, transform, transformIds)
+    }
+
+    private val multiplyPaint = Paint().apply {
+        if (android.os.Build.VERSION.SDK_INT >= 29) blendMode = android.graphics.BlendMode.MULTIPLY
+        else xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.MULTIPLY)
+    }
+
+    private fun drawSeq(canvas: Canvas, ordered: List<PageItem>, worldToScreen: Matrix, transform: Matrix?, transformIds: Set<Long>) {
         for (item in ordered) {
             val moved = transform != null && item.id in transformIds
             if (moved) {

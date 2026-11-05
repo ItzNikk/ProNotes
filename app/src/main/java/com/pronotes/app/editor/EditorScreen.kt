@@ -118,6 +118,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
@@ -236,6 +237,10 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     var goTo by remember { mutableStateOf(false) }
     var focus by remember { mutableStateOf(false) }
     var pageColor by remember { mutableStateOf(false) }
+    var wheelAt by remember { mutableStateOf<Offset?>(null) }
+    val pickBackground = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) vm.setPageBackground(uri)
+    }
 
     LaunchedEffect(noteId) { store.openTab(noteId) }
     LaunchedEffect(library) { store.retainTabs(library.notebooks.filter { it.deletedAt == null }.map { it.id }.toSet()) }
@@ -301,7 +306,14 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
 
     fun switchTo(id: String) { if (id != noteId) { vm.saveNow(); onSwitchNote(id) } }
 
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    // Real background blur (Android 12+) while a card, dialog or sheet is open.
+    val overlayOpen = vm.textEdit != null || vm.stickyEdit != null || renaming || goTo || pageColor ||
+        showStickers || vm.cardOpen || wheelAt != null
+    val blurRadius by androidx.compose.animation.core.animateDpAsState(if (overlayOpen) 14.dp else 0.dp, label = "blur")
+    val blurMod = if (android.os.Build.VERSION.SDK_INT >= 31 && blurRadius > 0.dp) Modifier.blur(blurRadius) else Modifier
+
+    Box(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().then(blurMod).background(MaterialTheme.colorScheme.background)) {
         AnimatedVisibility(!focus, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
             Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 1.dp) {
                 Column(Modifier.statusBarsPadding()) {
@@ -334,6 +346,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                         },
                         onPaste = { vm.paste()?.let { (pg, ids) -> canvas?.selectItems(pg, ids) } },
                         onPageColor = { pageColor = true },
+                        onPageImage = { pickBackground.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                     )
                     AnimatedVisibility(showSearch, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         SearchBar(vm)
@@ -384,6 +397,18 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                                 override fun onCircleCandidate(screenBounds: android.graphics.RectF?) = Unit
                                 override fun onEraserLifted() = vm.onEraserLifted()
                                 override fun onZoom(percent: Int?) = vm.onZoom(percent)
+                                override fun penProfile(deviceName: String) = store.registerPen(deviceName)
+                                override fun onPenButton(doubleClick: Boolean, x: Float, y: Float, deviceName: String) {
+                                    val prof = store.registerPen(deviceName)
+                                    when (if (doubleClick) prof.doubleClick else prof.click) {
+                                        com.pronotes.app.data.PenAction.QUICK_WHEEL -> wheelAt = Offset(x, y)
+                                        com.pronotes.app.data.PenAction.UNDO -> vm.undo()
+                                        com.pronotes.app.data.PenAction.TOGGLE_ERASER -> vm.tool = if (vm.tool == Tool.ERASER) Tool.PEN else Tool.ERASER
+                                        com.pronotes.app.data.PenAction.LAST_TOOL -> vm.swapToPrevious()
+                                        com.pronotes.app.data.PenAction.NONE -> Unit
+                                    }
+                                }
+                                override fun hoverInk(): Pair<Int, Float>? = vm.hoverInk()
                             }).also {
                                 it.renderer = vm.renderer()
                                 it.settings = settings
@@ -446,6 +471,10 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 }
             }
         }
+    }
+
+    // Quick tool wheel (pen button click while hovering).
+    wheelAt?.let { at -> ToolWheel(vm, at, onDismiss = { wheelAt = null }) }
     }
 
     // ------------------------------------------------------------------ dialogs
@@ -573,7 +602,7 @@ private fun TopBar(
     vm: EditorViewModel, settings: AppSettings, showSearch: Boolean, showPages: Boolean,
     onHome: () -> Unit, onPages: () -> Unit, onSearch: () -> Unit, onRename: () -> Unit, onFocus: () -> Unit,
     onExport: () -> Unit, onShare: () -> Unit, onSharePage: () -> Unit, onSettings: () -> Unit, onGoTo: () -> Unit,
-    onScrollToggle: () -> Unit, onPaste: () -> Unit, onPageColor: () -> Unit,
+    onScrollToggle: () -> Unit, onPaste: () -> Unit, onPageColor: () -> Unit, onPageImage: () -> Unit,
 ) {
     Row(Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         BarIcon(ProIcon.HOME, "Library", onClick = onHome)
@@ -620,8 +649,13 @@ private fun TopBar(
                     onClick = { more = false; vm.toggleBookmark() })
                 if (vm.hasClipboard) DropdownMenuItem(text = { Text("Paste") }, leadingIcon = { Icon(Icons.Outlined.ContentPaste, null) },
                     onClick = { more = false; onPaste() })
-                DropdownMenuItem(text = { Text("Page colour…") }, leadingIcon = { Icon(Icons.Outlined.Palette, null) },
+                DropdownMenuItem(text = { Text("Page colourï¿½") }, leadingIcon = { Icon(Icons.Outlined.Palette, null) },
                     onClick = { more = false; onPageColor() })
+                DropdownMenuItem(
+                    text = { Text(if (vm.currentPage?.bgImage != null) "Remove page picture" else "Picture as pageâ€¦") },
+                    leadingIcon = { Icon(Icons.Outlined.Image, null) },
+                    onClick = { more = false; if (vm.currentPage?.bgImage != null) vm.setPageBackground(null) else onPageImage() },
+                )
                 DropdownMenuItem(text = { Text("Duplicate page") }, leadingIcon = { Icon(Icons.Outlined.ContentCopy, null) },
                     onClick = { more = false; vm.duplicatePage() })
                 DropdownMenuItem(text = { Text("Delete page") }, leadingIcon = { Icon(Icons.Outlined.Delete, null) },
@@ -853,6 +887,7 @@ private fun ToolButton(vm: EditorViewModel, t: Tool, settings: AppSettings) {
     val sz = (40 * settings.toolbarSize.scale).dp
     val density = LocalDensity.current.density
     var card by remember { mutableStateOf(false) }
+    LaunchedEffect(card) { vm.cardOpen = card }
     Box {
         Box(
             Modifier.padding(1.dp).size(sz).clip(Pill)
@@ -1441,6 +1476,51 @@ private fun PagePill(index: Int, count: Int, bookmarked: Boolean, onPrev: () -> 
                 }
             }
             IconButton(onClick = onNext, enabled = index < count - 1) { Icon(Icons.Filled.KeyboardArrowUp, "Next page", Modifier.graphicsLayer { rotationZ = 90f }) }
+        }
+    }
+}
+
+// ============================================================== tool wheel
+
+/** Radial tool picker that pops up where the pen hovers (pen button click). */
+@Composable
+private fun ToolWheel(vm: EditorViewModel, at: Offset, onDismiss: () -> Unit) {
+    val density = LocalDensity.current.density
+    val tools = listOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.LASSO, Tool.SHAPE, Tool.TEXT, Tool.LASER, Tool.TAPE)
+    val appear = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) { appear.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.62f, stiffness = 420f)) }
+    var size by remember { mutableStateOf(IntSize.Zero) }
+    Box(
+        Modifier.fillMaxSize().onSizeChanged { size = it }
+            .background(Color.Black.copy(alpha = 0.12f * appear.value))
+            .pointerInput(Unit) { androidx.compose.foundation.gestures.detectTapGestures { onDismiss() } },
+    ) {
+        val radius = 92f * density
+        // Keep the wheel on screen.
+        val cx = at.x.coerceIn(radius + 40 * density, (size.width - radius - 40 * density).coerceAtLeast(radius + 40 * density))
+        val cy = at.y.coerceIn(radius + 40 * density, (size.height - radius - 40 * density).coerceAtLeast(radius + 40 * density))
+        Box(
+            Modifier.offset { IntOffset((cx - 34 * density).roundToInt(), (cy - 34 * density).roundToInt()) }
+                .size(68.dp).graphicsLayer { scaleX = appear.value; scaleY = appear.value }
+                .clip(CircleShape).background(glassColor()).glassEdge(CircleShape),
+            contentAlignment = Alignment.Center,
+        ) { ProIconView(ProIcon.CLOSE, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.size(18.dp)) }
+        tools.forEachIndexed { i, t ->
+            val a = -Math.PI / 2 + i * 2 * Math.PI / tools.size
+            val r = radius * appear.value
+            val x = cx + (r * kotlin.math.cos(a)).toFloat()
+            val y = cy + (r * kotlin.math.sin(a)).toFloat()
+            val sel = vm.tool == t
+            Box(
+                Modifier.offset { IntOffset((x - 26 * density).roundToInt(), (y - 26 * density).roundToInt()) }
+                    .size(52.dp).shadow(6.dp, CircleShape).clip(CircleShape)
+                    .background(if (sel) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
+                    .clickable { vm.tool = t; onDismiss() },
+                contentAlignment = Alignment.Center,
+            ) {
+                ToolGlyph(t, if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                    Color(vm.styleFor(t)?.color ?: vm.penStyle.color), Modifier.size(24.dp), active = sel)
+            }
         }
     }
 }

@@ -177,6 +177,7 @@ data class Page(
     val bookmarked: Boolean = false,
     val paperColor: Int? = null,
     val cover: String? = null,
+    val bgImage: String? = null,
 )
 
 fun strokeBounds(stroke: Stroke): RectF {

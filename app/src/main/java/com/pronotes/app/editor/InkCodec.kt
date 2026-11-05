@@ -141,6 +141,7 @@ object InkCodec {
         bookmarked = page.bookmarked,
         paperColor = page.paperColor,
         cover = page.cover,
+        bgImage = page.bgImage,
         items = page.items.map { item ->
             when (item) {
                 is InkItem -> ItemDoc.Ink(
@@ -177,6 +178,7 @@ object InkCodec {
         bookmarked = doc.bookmarked,
         paperColor = doc.paperColor,
         cover = doc.cover,
+        bgImage = doc.bgImage,
         items = doc.items.mapNotNull { item ->
             runCatching<PageItem> {
                 when (item) {

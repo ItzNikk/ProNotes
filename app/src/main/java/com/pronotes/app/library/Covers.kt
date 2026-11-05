@@ -66,12 +66,12 @@ fun CoverArt(spec: String, title: String, noteDir: File?, cacheKey: Any, modifie
                 val parts = spec.split(':')
                 val color = Color((parts.lastOrNull()?.toLongOrNull() ?: 0xFF3D6CF4).toInt())
                 val pattern = if (parts.firstOrNull() == "pattern") parts.getOrNull(1) else null
+                // Same renderer as the cover page inside the notebook, so both always match.
+                val renderer = remember { PageRenderer(null) }
                 Canvas(Modifier.fillMaxSize()) {
-                    drawRect(color)
-                    if (pattern != null) drawPattern(pattern, color)
-                    // Elastic band, like a real notebook.
-                    drawRect(Color.Black.copy(alpha = 0.16f), Offset(size.width * 0.82f, 0f), Size(size.width * 0.05f, size.height))
+                    drawIntoCanvas { c -> renderer.drawCover(c.nativeCanvas, android.graphics.RectF(0f, 0f, size.width, size.height), spec) }
                 }
+                @Suppress("UNUSED_VARIABLE") val unused = color
                 if (showTitle && pattern == null) {
                     Box(
                         Modifier.align(Alignment.Center).fillMaxWidth(0.66f).padding(start = 8.dp)

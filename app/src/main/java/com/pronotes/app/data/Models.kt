@@ -112,6 +112,8 @@ data class PageDoc(
     val paperColor: Int? = null,
     /** Set on a notebook's cover page: the cover design drawn full-page (see NotebookMeta.cover). */
     val cover: String? = null,
+    /** Custom page: a picture file in the notebook folder used as the page background. */
+    val bgImage: String? = null,
 )
 
 @Serializable
@@ -151,4 +153,7 @@ val FolderColors = listOf(
     0xFF8E8E93.toInt(), 0xFF1B1F2A.toInt(),
 )
 
-val CoverPatterns = listOf("dots", "waves", "grid", "stripes", "linen", "scales")
+val CoverPatterns = listOf(
+    "leather", "kraft", "linen", "marble", "terrazzo", "plaid", "geometric", "gradient",
+    "spiral", "dots", "waves", "grid", "stripes", "scales",
+)

@@ -14,6 +14,8 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import com.pronotes.app.data.SettingsStore
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.navigation.compose.NavHost
@@ -41,20 +43,28 @@ class MainActivity : ComponentActivity() {
               // A Surface gives every screen the right text colour in light and dark mode.
               androidx.compose.material3.Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.background) {
                 val nav = rememberNavController()
+                val firstRun = remember { !SettingsStore.get(this@MainActivity).settings.value.onboardingDone }
                 NavHost(
                     navController = nav,
-                    startDestination = "library",
+                    startDestination = if (firstRun) "welcome" else "library",
                     enterTransition = { fadeIn() + scaleIn(initialScale = 0.96f) },
                     exitTransition = { fadeOut() },
                     popEnterTransition = { fadeIn() },
                     popExitTransition = { fadeOut() + scaleOut(targetScale = 0.96f) },
                 ) {
+                    composable("welcome") {
+                        com.pronotes.app.onboarding.WelcomeScreen(onDone = {
+                            if (!nav.popBackStack()) nav.navigate("library") { popUpTo("welcome") { inclusive = true } }
+                        })
+                    }
+                    composable("support") { com.pronotes.app.support.SupportScreen(onBack = { nav.popBackStack() }) }
                     composable("library") {
                         LibraryScreen(
                             onOpen = { id -> nav.navigate("editor/$id") },
                             onSettings = { nav.navigate("settings") },
                             pendingPdf = pendingPdf,
                             onPdfConsumed = { pendingPdf = null },
+                            onSupport = { nav.navigate("support") },
                         )
                     }
                     composable("editor/{id}") { entry ->
@@ -71,7 +81,11 @@ class MainActivity : ComponentActivity() {
                         enterTransition = { slideInHorizontally { it / 3 } + fadeIn() },
                         popExitTransition = { slideOutHorizontally { it / 3 } + fadeOut() },
                     ) {
-                        SettingsScreen(onBack = { nav.popBackStack() })
+                        SettingsScreen(
+                            onBack = { nav.popBackStack() },
+                            onTour = { nav.navigate("welcome") },
+                            onSupport = { nav.navigate("support") },
+                        )
                     }
                 }
               }

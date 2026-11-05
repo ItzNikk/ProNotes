@@ -1,48 +1,68 @@
+<div align="center">
+
 # Pro Notes
 
-A handwriting notebook for Android tablets, built for the pen.
+**A pen-first notebook for Android tablets.**
+Handwrite, annotate PDFs and organise everything in one fast, native app.
 
-**Download:** grab `ProNotes.apk` from the [latest release](../../releases/latest). Free and public. Each release installs over the last one.
+[![Latest release](https://img.shields.io/github/v/release/ItzNikk/ProNotes?label=download&style=for-the-badge)](https://github.com/ItzNikk/ProNotes/releases/latest)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=for-the-badge)](LICENSE)
+![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white)
 
-## What's new in 3.0
+</div>
 
-- **Resize and rotate** selections with corner and rotate handles (snaps to 15°). Flip, rotate 90°, bring to front, send to back, share as image.
-- **Circle and hold** with the pen: the loop turns into a lasso and selects what it encloses.
-- **Shape recognition rewritten**: lines, elbows, triangles, rectangles, squares, diamonds, quads, pentagons, hexagons, circles and ellipses.
-- **Scribble to erase rewritten**: detects back-and-forth motion, so letters like "W" or "m" are never erased.
-- **Highlighter**: freehand, auto-straighten, or always straight. Hold at the end to straighten. Draws behind ink.
-- **Laser**: ink stays while the pen or a finger is on the screen.
-- **Stickers**: planner labels and badges, emoji, and your own imported pictures.
-- **Pages panel on the left**: thumbnails, drag to reorder, bookmark outline.
-- **Trash**: deleted notebooks stay 30 days, restore or delete forever.
-- **Tool cards**: tap a selected tool to see all of its settings (pen presets, eraser mode, lasso filters, laser time…).
-- **Lasso options**: freeform or rectangle, filters (handwriting, highlighter, text, images, notes), select-on-touch.
-- **Favourite pens**: save type + colour + thickness and switch in one tap.
-- **Toolbar editor**: reorder and hide tools.
-- **Backup and restore** the whole library to one ZIP file.
-- **Dark PDF pages** for night reading, **go to page**, **share page as image**, **duplicate notebook**, **insert date** in text.
-- Compact pill-shaped colour bar with custom colours, pill-style controls, square folder icons, proper dark mode.
+---
 
-## Everything else
+## Download
 
-Pressure ink (Jetpack Ink), S Pen / Wacom / USI side-button erase, palm rejection, pixel and stroke eraser,
-vertical or horizontal page scrolling, pull to add a page, notebook tabs, folders with colours, covers,
-9 page templates, PDF import / search / export, shapes with fill, rich text with gradients, tape, sticky notes.
+Get **`ProNotes.apk`** from the [latest release](https://github.com/ItzNikk/ProNotes/releases/latest).
+Every release is signed with the same key, and the app updates itself from inside
+**Settings → About** once installed.
+
+## Highlights
+
+| | |
+|---|---|
+| **Natural ink** | Low-latency, pressure-sensitive strokes powered by Jetpack Ink and motion prediction. Fountain, ball, brush and dashed pens. |
+| **Any Android pen** | Samsung S Pen, Wacom, USI 2.0, Lenovo, Xiaomi, Huawei, OnePlus and Microsoft Pen Protocol. Each pen keeps its own settings. |
+| **Pen shortcuts** | Hold the side button to erase or lasso. Click it while hovering for a radial tool wheel; double-click to undo. Hover preview shows where ink will land. |
+| **Smart gestures** | Circle and hold to select, scribble to erase, hold to snap shapes, two-finger tap to undo, pull past the last page to add one. |
+| **Selection** | Lasso or rectangle with filters. Move, resize, rotate, flip, recolour, arrange, copy and share as an image. |
+| **Shapes** | Auto-recognised lines, polygons, stars and circles, plus 30 drawable shapes with fill and dashed outlines. |
+| **Highlighter** | Sits beneath PDF text and ink, with auto-straighten and hold-to-snap. |
+| **PDF** | Import, annotate, search text, dark reading mode, and export or share as PDF. |
+| **Pages** | Vertical or horizontal paging, custom sizes, nine templates, page colours, picture pages, bookmarks and drag-to-reorder. |
+| **Library** | Folders with colours, drag and drop, covers you can write on, 14 cover materials, favourites, recents, trash and tabs. |
+| **Yours** | Backup and restore the whole library, themes, accent colours, a customisable toolbar, and in-app updates. |
+
+## Requirements
+
+- Android 8.0 (API 26) or newer. Built for tablets; works on phones.
+- Real background blur needs Android 12 or newer.
+
+## Building from source
+
+```bash
+git clone https://github.com/ItzNikk/ProNotes.git
+cd ProNotes
+gradle assembleRelease
+```
+
+JDK 17 and the Android SDK (API 36) are required. CI builds every push; tags such as `v4.0.0` publish a release.
+
+Optional: set `pronotes.upi` in `gradle.properties` (or `SUPPORT_UPI` in CI) to enable the in-app support screen.
 
 ## Built with
 
-| Part | Library |
-|---|---|
-| UI | Jetpack Compose, Material 3 |
-| Ink, eraser hit-testing, storage | [Jetpack Ink](https://developer.android.com/jetpack/androidx/releases/ink) |
-| Shapes | [Jetpack Graphics Shapes](https://developer.android.com/jetpack/androidx/releases/graphics) |
-| Drag to reorder | [Reorderable](https://github.com/Calvin-LL/Reorderable) |
-| PDF search | [PdfBox-Android](https://github.com/TomRoush/PdfBox-Android) |
-| Colour picker | [skydoves/colorpicker-compose](https://github.com/skydoves/colorpicker-compose) |
-| Images | Coil |
+Jetpack Compose · Jetpack Ink · Jetpack Graphics Shapes · PdfBox-Android · Coil ·
+colorpicker-compose · Reorderable · kotlinx.serialization
 
-Pro Notes is an independent project. It is not affiliated with GoodNotes.
+## License and credit
 
-## License
+Pro Notes is © 2026 **ItzNikk** and released under the [Apache License 2.0](LICENSE).
+If you redistribute it or build on it, you must keep the [NOTICE](NOTICE) file and credit the original project:
 
-MIT
+> Based on Pro Notes by ItzNikk — https://github.com/ItzNikk/ProNotes
+
+The Pro Notes name and icon may not be used for derived apps without permission.
+Pro Notes is an independent project and is not affiliated with GoodNotes.

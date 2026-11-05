@@ -69,6 +69,12 @@ interface CanvasHost {
     fun onCircleCandidate(screenBounds: RectF?)
     fun onEraserLifted()
     fun onZoom(percent: Int?)
+    /** Settings for the pen with this input-device name (registers new pens). */
+    fun penProfile(deviceName: String): com.pronotes.app.data.PenProfile
+    /** Pen button clicked while hovering (no touch). */
+    fun onPenButton(doubleClick: Boolean, x: Float, y: Float, deviceName: String)
+    /** Colour and on-screen size of the hover dot, or null for no dot. */
+    fun hoverInk(): Pair<Int, Float>?
 }
 
 /**
@@ -97,6 +103,15 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         set(value) { field = value; layer.invalidate() }
 
     var tool: Tool = Tool.PEN
+        set(value) {
+            // Laser ink is a pointer, not ink: it goes away when you pick another tool.
+            if (field == Tool.LASER && value != Tool.LASER) layer.clearLasers()
+            field = value
+            layer.invalidate()
+        }
+
+    /** Side-button action of the pen currently in use (from its own pen profile). */
+    private var penSide: SideButton? = null
 
     /** True when the app is in dark mode; the desk around pages follows it. */
     var darkUi = false
@@ -453,6 +468,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             val landing = action == MotionEvent.ACTION_DOWN ||
                 (action == MotionEvent.ACTION_POINTER_DOWN && isPen(event.getToolType(event.actionIndex)))
             if (landing) {
+                // Each pen keeps its own settings.
+                penSide = event.device?.name?.let { host.penProfile(it).sideButton }
                 if (mode == Mode.PAN) endPan() else if (mode != Mode.NONE) cancelCurrent(event)
                 stylusPointer = event.getPointerId(if (action == MotionEvent.ACTION_DOWN) 0 else event.actionIndex)
                 handleDraw(event, MotionEvent.ACTION_DOWN, stylusPointer)
@@ -528,7 +545,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     private fun effectiveTool(e: MotionEvent, index: Int = 0): Tool {
         if (e.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER) return Tool.ERASER
         if (sideButtonHeld(e)) {
-            when (settings.sideButton) {
+            when (penSide ?: settings.sideButton) {
                 SideButton.ERASER -> return Tool.ERASER
                 SideButton.LASSO -> return Tool.LASSO
                 SideButton.NONE -> Unit
@@ -846,7 +863,13 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         if (strokeTool == Tool.HIGHLIGHTER) {
             holdFired = true
             cancelWet(id)
-            addStraightHighlight(points.first(), points.last())
+            // Hold snaps the highlight: a loop becomes a clean shape, anything else a straight bar.
+            val shape = if (isClosedLoop(points)) ShapeRecognizer.recognize(points) else null
+            if (shape != null) {
+                val p2 = pages[activePage]
+                host.beginEdit(activePage)
+                updatePage(activePage, p2.items + InkItem(ItemIds.next(), InkCodec.strokeFromPoints(shape, host.brush(Tool.HIGHLIGHTER))))
+            } else addStraightHighlight(points.first(), points.last())
             buzz()
             return
         }
@@ -1338,17 +1361,50 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         return hypot(e.getX(idx[0]) - e.getX(idx[1]), e.getY(idx[0]) - e.getY(idx[1]))
     }
 
+    // ------------------------------------------------ pen button click / double click (hovering)
+    private var buttonDown = false
+    private var buttonDownAt = 0L
+    private var lastClickAt = 0L
+    private var pendingClick: Runnable? = null
+
+    private fun trackPenButton(e: MotionEvent) {
+        val held = e.buttonState and (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_SECONDARY) != 0 ||
+            e.actionMasked == MotionEvent.ACTION_BUTTON_PRESS
+        val now = SystemClock.uptimeMillis()
+        if (held && !buttonDown) { buttonDown = true; buttonDownAt = now; return }
+        val released = (!held && buttonDown) || e.actionMasked == MotionEvent.ACTION_BUTTON_RELEASE
+        if (!released || !buttonDown) return
+        buttonDown = false
+        if (now - buttonDownAt > 450) return   // a long hold is not a click
+        val x = e.x; val y = e.y
+        val name = e.device?.name ?: "Stylus"
+        pendingClick?.let { removeCallbacks(it) }
+        if (now - lastClickAt < 380) {
+            pendingClick = null; lastClickAt = 0L
+            host.onPenButton(true, x, y, name)
+        } else {
+            lastClickAt = now
+            // Wait briefly so a double click is not also read as a single one.
+            pendingClick = Runnable { pendingClick = null; host.onPenButton(false, x, y, name) }.also { postDelayed(it, 300) }
+        }
+    }
+
     // Stylus hover: show the eraser ring when the side button is held over the page.
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
         val tt = event.getToolType(0)
         if (tt == MotionEvent.TOOL_TYPE_STYLUS || tt == MotionEvent.TOOL_TYPE_ERASER) {
             lastStylusTime = SystemClock.uptimeMillis(); sawStylus = true
+            trackPenButton(event)
             when (event.actionMasked) {
                 MotionEvent.ACTION_HOVER_MOVE, MotionEvent.ACTION_HOVER_ENTER -> {
-                    layer.hoverAt = if (effectiveTool(event) == Tool.ERASER) event.x to event.y else null
+                    val erasing = effectiveTool(event) == Tool.ERASER
+                    layer.hoverAt = if (erasing) event.x to event.y else null
+                    // Hover preview: a dot in the pen's colour and size where it will touch.
+                    layer.hoverDot = if (!erasing && settings.hoverCursor && (tool == Tool.PEN || tool == Tool.HIGHLIGHTER || tool == Tool.SHAPE))
+                        host.hoverInk()?.let { (c, s) -> Triple(event.x, event.y, c to s * scale) } else null
                     layer.invalidate()
                 }
-                MotionEvent.ACTION_HOVER_EXIT -> { layer.hoverAt = null; layer.invalidate() }
+                MotionEvent.ACTION_HOVER_EXIT -> { layer.hoverAt = null; layer.hoverDot = null; layer.invalidate() }
             }
         }
         return super.dispatchGenericMotionEvent(event)
@@ -1373,6 +1429,12 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         var shapePreview: List<List<Pt>>? = null
         var tapePreview: RectF? = null
         var tapeFree: List<Pt>? = null
+        /** Hover preview: x, y, and (colour, radius in px). */
+        var hoverDot: Triple<Float, Float, Pair<Int, Float>>? = null
+        private val hoverPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val hoverRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.2f * density; color = 0x66000000 }
+
+        fun clearLasers() { lasers.clear(); invalidate() }
 
         private val lassoPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE; strokeWidth = 1.6f * density; color = 0xFF3D6CF4.toInt()
@@ -1541,6 +1603,12 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 canvas.drawCircle(x, y, rad, eraserPaint)
             }
             drawLaser(canvas)
+            hoverDot?.let { (x, y, cs) ->
+                val r = (cs.second / 2f).coerceIn(2f * density, 40f * density)
+                hoverPaint.color = (cs.first and 0x00FFFFFF) or (0x99 shl 24)
+                canvas.drawCircle(x, y, r, hoverPaint)
+                canvas.drawCircle(x, y, r + 1.5f * density, hoverRing)
+            }
             if (flashAlpha > 0f) canvas.drawColor(Color.argb((flashAlpha * 40).toInt(), 61, 108, 244))
         }
 

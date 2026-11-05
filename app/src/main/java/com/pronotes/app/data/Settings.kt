@@ -34,6 +34,41 @@ enum class DeskColor(val label: String, val argb: Int) {
     SLATE("Slate", 0xFF2C2F36.toInt()),
 }
 
+/** What a pen button click (without touching the screen) does. */
+enum class PenAction(val label: String) {
+    QUICK_WHEEL("Tool wheel"), UNDO("Undo"), TOGGLE_ERASER("Pen ↔ eraser"), LAST_TOOL("Previous tool"), NONE("Nothing")
+}
+
+/** Per-pen settings, keyed by the pen's input device name. */
+data class PenProfile(
+    val name: String,
+    val brand: String,
+    val sideButton: SideButton = SideButton.ERASER,
+    val click: PenAction = PenAction.QUICK_WHEEL,
+    val doubleClick: PenAction = PenAction.UNDO,
+)
+
+/** Recognises the pen maker from the Android input device name. */
+object PenBrands {
+    val manual = listOf("Samsung S Pen", "Wacom", "Lenovo Precision Pen", "Xiaomi Smart Pen", "USI pen", "Microsoft Pen", "Huawei M-Pencil", "OnePlus Stylo", "Other stylus")
+
+    fun detect(deviceName: String?): String? {
+        val n = (deviceName ?: return null).lowercase()
+        return when {
+            "s pen" in n || "spen" in n || "sec_e-pen" in n || "e-pen" in n || "samsung" in n -> "Samsung S Pen"
+            "wacom" in n -> "Wacom"
+            "lenovo" in n -> "Lenovo Precision Pen"
+            "xiaomi" in n || "mi pen" in n || "smart pen" in n -> "Xiaomi Smart Pen"
+            "usi" in n -> "USI pen"
+            "microsoft" in n || "mpp" in n || "surface" in n -> "Microsoft Pen"
+            "huawei" in n || "m-pencil" in n || "honor" in n -> "Huawei M-Pencil"
+            "oneplus" in n || "stylo" in n -> "OnePlus Stylo"
+            "stylus" in n || "pen" in n || "touch" in n || "digitizer" in n -> "Stylus"
+            else -> null
+        }
+    }
+}
+
 /** Which kinds of content the lasso picks up. */
 data class LassoFilter(
     val ink: Boolean = true,
@@ -72,6 +107,10 @@ data class AppSettings(
     val toolbarTools: String = "",
     // in-app updates
     val autoUpdateCheck: Boolean = true,
+    // pens
+    val hoverCursor: Boolean = true,
+    val onboardingDone: Boolean = false,
+    val supportReminders: Boolean = true,
     // tools
     val eraserMode: EraserMode = EraserMode.STROKE,
     val eraseHighlighterOnly: Boolean = false,
@@ -132,6 +171,9 @@ class SettingsStore private constructor(context: Context) {
             showTabs = b("showTabs", d.showTabs),
             toolbarTools = prefs.getString("toolbarTools", "") ?: "",
             autoUpdateCheck = b("autoUpdate", d.autoUpdateCheck),
+            hoverCursor = b("hoverCursor", d.hoverCursor),
+            onboardingDone = b("onboardingDone", d.onboardingDone),
+            supportReminders = b("supportReminders", d.supportReminders),
             eraserMode = enumOf("eraserMode", d.eraserMode),
             eraseHighlighterOnly = b("eraseHlOnly", d.eraseHighlighterOnly),
             eraserAutoSwitch = b("eraserAutoSwitch", d.eraserAutoSwitch),
@@ -178,6 +220,9 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("showTabs", s.showTabs)
             .putString("toolbarTools", s.toolbarTools)
             .putBoolean("autoUpdate", s.autoUpdateCheck)
+            .putBoolean("hoverCursor", s.hoverCursor)
+            .putBoolean("onboardingDone", s.onboardingDone)
+            .putBoolean("supportReminders", s.supportReminders)
             .putString("eraserMode", s.eraserMode.name)
             .putBoolean("eraseHlOnly", s.eraseHighlighterOnly)
             .putBoolean("eraserAutoSwitch", s.eraserAutoSwitch)
@@ -214,6 +259,53 @@ class SettingsStore private constructor(context: Context) {
         val list = (listOf(c) + recentColors().filter { it != c }).take(12)
         prefs.edit().putString("recentColors", list.joinToString(",")).apply()
     }
+
+    // --------------------------------------------------------------- pens
+    private val _pens = MutableStateFlow(loadPens())
+    /** Every pen used on this device, with its own settings. */
+    val pens: StateFlow<List<PenProfile>> = _pens
+
+    private fun loadPens(): List<PenProfile> =
+        prefs.getString("pens", "")!!.split('\n').mapNotNull { line ->
+            val p = line.split('\t')
+            if (p.size < 5) null else runCatching {
+                PenProfile(p[0], p[1], SideButton.valueOf(p[2]), PenAction.valueOf(p[3]), PenAction.valueOf(p[4]))
+            }.getOrNull()
+        }
+
+    private fun savePens(list: List<PenProfile>) {
+        _pens.value = list
+        prefs.edit().putString("pens", list.joinToString("\n") { "${it.name}\t${it.brand}\t${it.sideButton}\t${it.click}\t${it.doubleClick}" }).apply()
+    }
+
+    fun pen(name: String): PenProfile? = _pens.value.firstOrNull { it.name == name }
+
+    /** Remembers a pen the first time it is seen. */
+    fun registerPen(name: String, brand: String? = null): PenProfile {
+        pen(name)?.let { existing ->
+            if (brand != null && existing.brand != brand) updatePen(existing.copy(brand = brand))
+            return pen(name)!!
+        }
+        val p = PenProfile(name, brand ?: PenBrands.detect(name) ?: "Stylus")
+        savePens(_pens.value + p)
+        return p
+    }
+
+    fun updatePen(p: PenProfile) = savePens(_pens.value.map { if (it.name == p.name) p else it })
+    fun forgetPen(name: String) = savePens(_pens.value.filterNot { it.name == name })
+
+    // ------------------------------------------------------------ support
+    /** Counts launches; true when it is a good moment for a gentle support reminder. */
+    fun shouldRemindSupport(): Boolean {
+        if (!_settings.value.supportReminders) return false
+        val launches = prefs.getInt("launches", 0) + 1
+        prefs.edit().putInt("launches", launches).apply()
+        val last = prefs.getLong("supportShown", 0L)
+        val days = (System.currentTimeMillis() - last) / 86_400_000L
+        return launches >= 8 && days >= 12 && launches % 6 == 0
+    }
+
+    fun markSupportShown() = prefs.edit().putLong("supportShown", System.currentTimeMillis()).apply()
 
     // ------------------------------------------------------------ pen presets
     private val _presets = MutableStateFlow(loadPresets())
