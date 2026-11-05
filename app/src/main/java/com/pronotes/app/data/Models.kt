@@ -69,7 +69,15 @@ sealed class ItemDoc {
 
     @Serializable
     @SerialName("text")
-    data class Text(val text: String, val x: Float, val y: Float, val size: Float, val color: Int) : ItemDoc()
+    data class Text(
+        val text: String, val x: Float, val y: Float, val size: Float, val color: Int,
+        val font: String = "SANS", val bold: Boolean = false, val italic: Boolean = false,
+        val underline: Boolean = false, val gradient: Int? = null, val align: String = "LEFT",
+    ) : ItemDoc()
+
+    @Serializable
+    @SerialName("fill")
+    data class Fill(val points: List<Float>, val color: Int, val dx: Float = 0f, val dy: Float = 0f) : ItemDoc()
 
     @Serializable
     @SerialName("image")
@@ -92,6 +100,7 @@ data class PageDoc(
     val paper: PaperStyle,
     val pdfPage: Int = -1,
     val items: List<ItemDoc> = emptyList(),
+    val bookmarked: Boolean = false,
 )
 
 @Serializable

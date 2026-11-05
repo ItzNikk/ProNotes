@@ -57,7 +57,12 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("editor/{id}") { entry ->
                         val id = entry.arguments?.getString("id") ?: return@composable
-                        EditorScreen(noteId = id, onBack = { nav.popBackStack() }, onOpenSettings = { nav.navigate("settings") })
+                        EditorScreen(
+                            noteId = id,
+                            onBack = { nav.popBackStack("library", inclusive = false) },
+                            onOpenSettings = { nav.navigate("settings") },
+                            onSwitchNote = { other -> nav.navigate("editor/$other") { popUpTo("library") } },
+                        )
                     }
                     composable(
                         "settings",

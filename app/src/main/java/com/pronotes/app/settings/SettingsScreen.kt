@@ -2,32 +2,47 @@ package com.pronotes.app.settings
 
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.Brush
 import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.ColorLens
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Draw
 import androidx.compose.material.icons.outlined.Gesture
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.LightMode
-import androidx.compose.material.icons.outlined.SwapVert
+import androidx.compose.material.icons.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material.icons.outlined.ViewQuilt
 import androidx.compose.material3.DropdownMenu
@@ -45,115 +60,254 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush as GBrush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.pronotes.app.BuildConfigInfo
+import com.pronotes.app.data.AccentColor
+import com.pronotes.app.data.AppSettings
+import com.pronotes.app.data.DeskColor
+import com.pronotes.app.data.EraserMode
 import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.data.PaperTint
 import com.pronotes.app.data.ScrollDirection
 import com.pronotes.app.data.SettingsStore
 import com.pronotes.app.data.SideButton
+import com.pronotes.app.data.ThemeMode
 import com.pronotes.app.data.ToolbarDock
+import com.pronotes.app.data.ToolbarSize
+import com.pronotes.app.library.PaperPreview
+import com.pronotes.app.ui.GradientTitle
 
-/** Grouped list of every setting, iOS-style inset sections. */
+private enum class Category(val label: String, val sub: String, val icon: ImageVector, val tint: Long) {
+    STYLUS("Stylus & input", "Pens, side button, palm rejection", Icons.Outlined.Draw, 0xFF2A78D6),
+    GESTURES("Gestures", "Scribble, circle, taps", Icons.Outlined.Gesture, 0xFF7161E0),
+    TOOLS("Tools", "Eraser, highlighter, laser, shapes", Icons.Outlined.Brush, 0xFFD95926),
+    PAGES("Pages & paper", "Scroll, templates, paper colour", Icons.Outlined.Description, 0xFF0F7E5C),
+    TOOLBAR("Toolbar & tabs", "Position, size, notebook tabs", Icons.Outlined.ViewQuilt, 0xFFC04873),
+    LOOK("Appearance", "Theme, accent, gradients, desk", Icons.Outlined.ColorLens, 0xFFA66A00),
+    LIBRARY("Library", "Covers", Icons.Outlined.LibraryBooks, 0xFF256ABF),
+    ABOUT("About", "Version, updates", Icons.Outlined.Info, 0xFF5F5E5A),
+}
+
+/**
+ * Two-pane settings: categories on the left, details on the right.
+ * On phones the category list opens each section full screen.
+ */
 @Composable
 fun SettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val store = remember { SettingsStore.get(context) }
     val s by store.settings.collectAsState()
+    val wide = LocalConfiguration.current.screenWidthDp >= 700
+    var selected by rememberSaveable { mutableStateOf(if (wide) Category.STYLUS else null) }
+
+    BackHandler(enabled = !wide && selected != null) { selected = null }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
-            Text("Settings", style = MaterialTheme.typography.headlineLarge)
+            IconButton(onClick = { if (!wide && selected != null) selected = null else onBack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+            GradientTitle(if (!wide && selected != null) selected!!.label else "Settings", MaterialTheme.typography.headlineLarge)
         }
-        LazyColumn(
-            Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 48.dp),
-        ) {
-            item {
-                Section("Stylus") {
-                    Toggle(Icons.Outlined.TouchApp, "Draw with stylus only", "Fingers scroll and zoom", s.stylusOnly) { v -> store.update { it.copy(stylusOnly = v) } }
-                    Choice(Icons.Outlined.Brush, "Pen side button", s.sideButton.label, SideButton.entries.map { it.label }) { i ->
-                        store.update { it.copy(sideButton = SideButton.entries[i]) }
-                    }
-                    Info("Works with S Pen, Wacom, USI 2.0, Lenovo, Xiaomi, OnePlus and other Android pens. Pens with an eraser end erase when flipped.")
-                }
+        if (wide) {
+            Row(Modifier.fillMaxSize()) {
+                CategoryList(selected, Modifier.width(300.dp).fillMaxHeight()) { selected = it }
+                AnimatedContent(
+                    targetState = selected ?: Category.STYLUS,
+                    transitionSpec = { (fadeIn() + slideInHorizontally { it / 12 }) togetherWith fadeOut() },
+                    label = "detail", modifier = Modifier.weight(1f),
+                ) { c -> Detail(c, s, store) }
             }
-            item {
-                Section("Gestures") {
-                    Toggle(Icons.Outlined.AutoFixHigh, "Scribble to erase", "Zig-zag over ink to delete it", s.scribbleToErase) { v -> store.update { it.copy(scribbleToErase = v) } }
-                    Toggle(Icons.Outlined.Gesture, "Draw and hold for shapes", "Hold the pen still at the end of a line", s.holdToShape) { v -> store.update { it.copy(holdToShape = v) } }
-                    Toggle(Icons.Outlined.Gesture, "Circle and hold to select", "Loop around ink with the pen, then hold", s.circleToLasso) { v -> store.update { it.copy(circleToLasso = v) } }
-                    Toggle(Icons.Outlined.TouchApp, "Finger taps undo", "Two-finger tap undo, three-finger tap redo", s.fingerTapUndo) { v -> store.update { it.copy(fingerTapUndo = v) } }
-                }
+        } else {
+            AnimatedContent(targetState = selected, label = "phone") { c ->
+                if (c == null) CategoryList(null, Modifier.fillMaxSize()) { selected = it } else Detail(c, s, store)
             }
-            item {
-                Section("Pages") {
-                    Choice(Icons.Outlined.SwapVert, "Scroll direction", s.scroll.label, ScrollDirection.entries.map { it.label }) { i ->
-                        store.update { it.copy(scroll = ScrollDirection.entries[i]) }
-                    }
-                    Toggle(Icons.Outlined.Description, "Pull to add a page", "Scroll past the last page to add one", s.pullToAddPage) { v -> store.update { it.copy(pullToAddPage = v) } }
-                    Choice(Icons.Outlined.LightMode, "Paper colour", s.paperTint.label, PaperTint.entries.map { it.label }) { i ->
-                        store.update { it.copy(paperTint = PaperTint.entries[i]) }
-                    }
-                    Choice(Icons.Outlined.Description, "Default template", s.defaultPaper.label, PaperStyle.entries.map { it.label }) { i ->
-                        store.update { it.copy(defaultPaper = PaperStyle.entries[i]) }
-                    }
-                    Toggle(Icons.Outlined.LightMode, "Keep screen on", "While a notebook is open", s.keepScreenOn) { v -> store.update { it.copy(keepScreenOn = v) } }
+        }
+    }
+}
+
+@Composable
+private fun CategoryList(selected: Category?, modifier: Modifier, onPick: (Category) -> Unit) {
+    LazyColumn(modifier, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+        items(Category.entries.size) { i ->
+            val c = Category.entries[i]
+            val sel = c == selected
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 2.dp).clip(RoundedCornerShape(14.dp))
+                    .background(if (sel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                    .clickable { onPick(c) }.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier.size(36.dp).clip(RoundedCornerShape(10.dp))
+                        .background(GBrush.linearGradient(listOf(Color(c.tint), Color(c.tint).copy(alpha = 0.7f)))),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(c.icon, null, tint = Color.White, modifier = Modifier.size(20.dp)) }
+                Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+                    Text(c.label, style = MaterialTheme.typography.titleMedium)
+                    Text(c.sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            item {
-                Section("Toolbar") {
-                    Choice(Icons.Outlined.ViewQuilt, "Position", s.toolbarDock.label, ToolbarDock.entries.map { it.label }) { i ->
-                        store.update { it.copy(toolbarDock = ToolbarDock.entries[i]) }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun Detail(c: Category, s: AppSettings, store: SettingsStore) {
+    val context = LocalContext.current
+    fun up(block: (AppSettings) -> AppSettings) = store.update(block)
+    LazyColumn(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, contentPadding = PaddingValues(bottom = 48.dp)) {
+        item {
+            when (c) {
+                Category.STYLUS -> {
+                    Section("Drawing") {
+                        Toggle(Icons.Outlined.TouchApp, "Draw with stylus only", "Fingers scroll and zoom, they never draw", s.stylusOnly) { v -> up { it.copy(stylusOnly = v) } }
+                        Toggle(Icons.Outlined.TouchApp, "Palm rejection", "Ignore touches right after the pen", s.palmRejection) { v -> up { it.copy(palmRejection = v) } }
+                        Toggle(Icons.Outlined.TouchApp, "Haptic feedback", "Small buzz on shapes, selection and page add", s.haptics) { v -> up { it.copy(haptics = v) } }
                     }
-                    Info("Tip: drag the grip on the toolbar to move it to any edge.")
-                }
-            }
-            item {
-                Section("Laser pointer") {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Ink stays for", Modifier.weight(1f))
-                        Text("%.0f s".format(s.laserSeconds), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Section("Pen side button") {
+                        Choice("While held", s.sideButton.label, SideButton.entries.map { it.label }) { i -> up { it.copy(sideButton = SideButton.entries[i]) } }
+                        Info("Works with S Pen, Wacom, USI 2.0, Lenovo, Xiaomi, OnePlus and other Android pens. Pens with an eraser end erase when flipped.")
                     }
-                    Slider(s.laserSeconds, { v -> store.update { it.copy(laserSeconds = v) } }, valueRange = 1f..8f, steps = 6,
-                        modifier = Modifier.padding(horizontal = 16.dp))
-                    Info("Draw a circle with the laser around ink to select it.")
                 }
-            }
-            item {
-                Section("Library") {
-                    Toggle(Icons.Outlined.Description, "First page as cover", "New notebooks show page 1 on the cover", s.thumbCovers) { v -> store.update { it.copy(thumbCovers = v) } }
+                Category.GESTURES -> {
+                    Section("Pen gestures") {
+                        Toggle(Icons.Outlined.AutoFixHigh, "Scribble to erase", "Zig-zag over ink to delete it", s.scribbleToErase) { v -> up { it.copy(scribbleToErase = v) } }
+                        Toggle(Icons.Outlined.Gesture, "Draw and hold for shapes", "Hold the pen still at the end of a line", s.holdToShape) { v -> up { it.copy(holdToShape = v) } }
+                        Toggle(Icons.Outlined.Gesture, "Circle and hold to select", "Loop around ink, then hold the pen still", s.circleToLasso) { v -> up { it.copy(circleToLasso = v) } }
+                        Toggle(Icons.Outlined.Gesture, "Circle to select chip", "After a loop, tap \"Select\" to grab what is inside", s.circleSelectChip) { v -> up { it.copy(circleSelectChip = v) } }
+                    }
+                    Section("Finger gestures") {
+                        Toggle(Icons.Outlined.TouchApp, "Tap to undo / redo", "Two-finger tap undo, three-finger tap redo", s.fingerTapUndo) { v -> up { it.copy(fingerTapUndo = v) } }
+                        Toggle(Icons.Outlined.TouchApp, "Double-tap to zoom", "Double-tap with one finger", s.doubleTapZoom) { v -> up { it.copy(doubleTapZoom = v) } }
+                    }
                 }
-            }
-            item {
-                Section("About") {
-                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.Info, null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.size(16.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("Pro Notes")
-                            Text("Version ${BuildConfigInfo.versionName(context)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Category.TOOLS -> {
+                    Section("Eraser") {
+                        Choice("Type", s.eraserMode.label, EraserMode.entries.map { it.label }) { i -> up { it.copy(eraserMode = EraserMode.entries[i]) } }
+                        Toggle(Icons.Outlined.Brush, "Erase highlighter only", "Leave pen ink alone", s.eraseHighlighterOnly) { v -> up { it.copy(eraseHighlighterOnly = v) } }
+                        Toggle(Icons.Outlined.Brush, "Switch back after erasing", "Return to the previous tool", s.eraserAutoSwitch) { v -> up { it.copy(eraserAutoSwitch = v) } }
+                    }
+                    Section("Highlighter") {
+                        Toggle(Icons.Outlined.Brush, "Draw behind ink", "Highlight sits under your writing", s.highlighterBehind) { v -> up { it.copy(highlighterBehind = v) } }
+                        Toggle(Icons.Outlined.Brush, "Straight line", "Highlights snap to straight lines", s.highlighterStraight) { v -> up { it.copy(highlighterStraight = v) } }
+                    }
+                    Section("Shapes") {
+                        Toggle(Icons.Outlined.Gesture, "Select after drawing", "New shapes are selected so you can move them", s.lassoAfterShape) { v -> up { it.copy(lassoAfterShape = v) } }
+                    }
+                    Section("Laser pointer") {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Ink stays for", Modifier.weight(1f))
+                            Text("%.0f s".format(s.laserSeconds), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Slider(s.laserSeconds, { v -> up { it.copy(laserSeconds = v) } }, valueRange = 1f..8f, steps = 6, modifier = Modifier.padding(horizontal = 16.dp))
+                        Info("Draw a circle with the laser around ink to select it.")
+                    }
+                }
+                Category.PAGES -> {
+                    Section("Scrolling") {
+                        Segmented(ScrollDirection.entries.map { it.label }, s.scroll.ordinal) { i -> up { it.copy(scroll = ScrollDirection.entries[i]) } }
+                        Toggle(Icons.Outlined.Description, "Pull to add a page", "Scroll past the last page to add one", s.pullToAddPage) { v -> up { it.copy(pullToAddPage = v) } }
+                        Toggle(Icons.Outlined.Description, "Page numbers", "Show a number under each page", s.pageNumbers) { v -> up { it.copy(pageNumbers = v) } }
+                        Toggle(Icons.Outlined.Description, "Page shadow", "Soft shadow under pages", s.pageShadow) { v -> up { it.copy(pageShadow = v) } }
+                        Toggle(Icons.Outlined.Description, "Keep screen on", "While a notebook is open", s.keepScreenOn) { v -> up { it.copy(keepScreenOn = v) } }
+                        Toggle(Icons.Outlined.Description, "Open in focus mode", "Hide bars when a notebook opens", s.fullscreen) { v -> up { it.copy(fullscreen = v) } }
+                    }
+                    Section("Paper colour") {
+                        FlowRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            PaperTint.entries.forEach { t ->
+                                Swatchy(Color(t.argb), t.label, s.paperTint == t) { up { it.copy(paperTint = t) } }
+                            }
                         }
                     }
-                    HorizontalDivider(Modifier.padding(start = 56.dp))
-                    Row(
-                        Modifier.fillMaxWidth().clickable {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/ItzNikk/ProNotes/releases/latest")))
-                        }.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.Outlined.Code, null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.size(16.dp))
-                        Text("Check for updates on GitHub", Modifier.weight(1f))
+                    Section("Default template") {
+                        FlowRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            PaperStyle.entries.forEach { p ->
+                                val sel = s.defaultPaper == p
+                                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { up { it.copy(defaultPaper = p) } }) {
+                                    PaperPreview(
+                                        p,
+                                        Modifier.size(width = 60.dp, height = 84.dp).clip(RoundedCornerShape(6.dp))
+                                            .border(if (sel) 2.dp else 1.dp, if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp)),
+                                        tint = s.paperTint.argb,
+                                    )
+                                    Text(p.label, style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                    }
+                }
+                Category.TOOLBAR -> {
+                    Section("Toolbar") {
+                        Choice("Position", s.toolbarDock.label, ToolbarDock.entries.map { it.label }) { i -> up { it.copy(toolbarDock = ToolbarDock.entries[i]) } }
+                        Segmented(ToolbarSize.entries.map { it.label }, s.toolbarSize.ordinal) { i -> up { it.copy(toolbarSize = ToolbarSize.entries[i]) } }
+                        Info("Tip: drag the grip on a floating toolbar to move it to any edge.")
+                    }
+                    Section("Tabs") {
+                        Toggle(Icons.Outlined.ViewQuilt, "Notebook tabs", "Keep several notebooks open and switch between them", s.showTabs) { v -> up { it.copy(showTabs = v) } }
+                    }
+                }
+                Category.LOOK -> {
+                    Section("Theme") {
+                        Segmented(ThemeMode.entries.map { it.label }, s.themeMode.ordinal) { i -> up { it.copy(themeMode = ThemeMode.entries[i]) } }
+                    }
+                    Section("Accent colour") {
+                        FlowRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            AccentColor.entries.forEach { a ->
+                                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { up { it.copy(accent = a) } }) {
+                                    Box(
+                                        Modifier.size(40.dp).clip(CircleShape)
+                                            .background(GBrush.linearGradient(listOf(Color(a.argb), Color(a.argb2))))
+                                            .border(if (s.accent == a) 3.dp else 0.dp, MaterialTheme.colorScheme.onSurface, CircleShape),
+                                    )
+                                    Text(a.label, style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                        Toggle(Icons.Outlined.ColorLens, "Gradient titles", "Headings use the accent gradient", s.gradientTitles) { v -> up { it.copy(gradientTitles = v) } }
+                    }
+                    Section("Desk") {
+                        FlowRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            DeskColor.entries.forEach { d -> Swatchy(Color(d.argb), d.label, s.deskColor == d) { up { it.copy(deskColor = d) } } }
+                        }
+                    }
+                }
+                Category.LIBRARY -> {
+                    Section("Covers") {
+                        Toggle(Icons.Outlined.Description, "First page as cover", "New notebooks show page 1 on the cover", s.thumbCovers) { v -> up { it.copy(thumbCovers = v) } }
+                    }
+                }
+                Category.ABOUT -> {
+                    Section("Pro Notes") {
+                        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Outlined.Info, null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.size(16.dp))
+                            Column(Modifier.weight(1f)) {
+                                GradientTitle("Pro Notes", MaterialTheme.typography.titleMedium)
+                                Text("Version ${BuildConfigInfo.versionName(context)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        HorizontalDivider(Modifier.padding(start = 56.dp))
+                        Row(
+                            Modifier.fillMaxWidth().clickable {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/ItzNikk/ProNotes/releases/latest")))
+                            }.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Outlined.Code, null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.size(16.dp))
+                            Text("Check for updates on GitHub", Modifier.weight(1f))
+                        }
                     }
                 }
             }
@@ -178,7 +332,9 @@ private fun Toggle(icon: ImageVector, title: String, sub: String, value: Boolean
         Modifier.fillMaxWidth().clickable { onChange(!value) }.padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconChip(icon)
+        Box(Modifier.size(32.dp).clip(RoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+        }
         Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
             Text(title)
             Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -188,15 +344,14 @@ private fun Toggle(icon: ImageVector, title: String, sub: String, value: Boolean
 }
 
 @Composable
-private fun Choice(icon: ImageVector, title: String, value: String, options: List<String>, onPick: (Int) -> Unit) {
+private fun Choice(title: String, value: String, options: List<String>, onPick: (Int) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         Row(
             Modifier.fillMaxWidth().clickable { open = true }.padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconChip(icon)
-            Text(title, Modifier.weight(1f).padding(horizontal = 14.dp))
+            Text(title, Modifier.weight(1f))
             Text(value, color = MaterialTheme.colorScheme.primary)
         }
         DropdownMenu(open, { open = false }, modifier = Modifier.align(Alignment.CenterEnd)) {
@@ -205,18 +360,38 @@ private fun Choice(icon: ImageVector, title: String, value: String, options: Lis
     }
 }
 
+/** iOS-style segmented control. */
+@Composable
+private fun Segmented(options: List<String>, selected: Int, onPick: (Int) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(12.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant).padding(3.dp),
+    ) {
+        options.forEachIndexed { i, o ->
+            val sel = i == selected
+            Box(
+                Modifier.weight(1f).height(36.dp).clip(RoundedCornerShape(10.dp))
+                    .background(if (sel) MaterialTheme.colorScheme.surface else Color.Transparent).clickable { onPick(i) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(o, style = MaterialTheme.typography.labelSmall, color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun Swatchy(color: Color, label: String, selected: Boolean, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable(onClick = onClick)) {
+        Box(
+            Modifier.size(width = 48.dp, height = 36.dp).clip(RoundedCornerShape(8.dp)).background(color)
+                .border(if (selected) 3.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)),
+        )
+        Text(label, style = MaterialTheme.typography.labelSmall)
+    }
+}
+
 @Composable
 private fun Info(text: String) {
     Text(text, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
 }
-
-@Composable
-private fun IconChip(icon: ImageVector) {
-    Box(Modifier.size(32.dp).clip(RoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-    }
-}
-
-@Suppress("unused")
-private val unusedColor = Color.Unspecified

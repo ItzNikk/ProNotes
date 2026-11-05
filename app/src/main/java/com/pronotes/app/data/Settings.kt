@@ -5,30 +5,73 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 enum class ScrollDirection(val label: String) { VERTICAL("Vertical"), HORIZONTAL("Horizontal") }
-enum class ToolbarDock(val label: String) { TOP("Top"), BOTTOM("Bottom"), LEFT("Left"), RIGHT("Right") }
+enum class ToolbarDock(val label: String) { HEADER("In top bar"), TOP("Floating top"), BOTTOM("Floating bottom"), LEFT("Floating left"), RIGHT("Floating right") }
+enum class ToolbarSize(val label: String, val scale: Float) { COMPACT("Compact", 0.85f), REGULAR("Regular", 1f), LARGE("Large", 1.18f) }
 enum class SideButton(val label: String) { ERASER("Eraser"), LASSO("Lasso"), NONE("Nothing") }
+enum class EraserMode(val label: String) { STROKE("Whole stroke"), PIXEL("Pixel") }
+enum class ThemeMode(val label: String) { SYSTEM("System"), LIGHT("Light"), DARK("Dark") }
+enum class AccentColor(val label: String, val argb: Long, val argb2: Long) {
+    BLUE("Blue", 0xFF2A78D6, 0xFF7161E0),
+    VIOLET("Violet", 0xFF6250D6, 0xFFD55181),
+    GREEN("Green", 0xFF0F7E5C, 0xFF3987E5),
+    ORANGE("Orange", 0xFFD95926, 0xFFE34948),
+    PINK("Pink", 0xFFC04873, 0xFF8173E3),
+    GRAPHITE("Graphite", 0xFF383835, 0xFF7B7974),
+}
 enum class PaperTint(val label: String, val argb: Int) {
     WHITE("White", 0xFFFFFFFF.toInt()),
     CREAM("Cream", 0xFFFBF7EC.toInt()),
     GRAY("Gray", 0xFFF1F2F4.toInt()),
     DARK("Dark", 0xFF22252B.toInt()),
 }
+enum class DeskColor(val label: String, val argb: Int) {
+    MIST("Mist", 0xFFE9ECF1.toInt()),
+    SAND("Sand", 0xFFEDE8DE.toInt()),
+    SAGE("Sage", 0xFFE1E8E1.toInt()),
+    SLATE("Slate", 0xFF2C2F36.toInt()),
+}
 
 data class AppSettings(
+    // stylus & input
     val stylusOnly: Boolean = true,
     val sideButton: SideButton = SideButton.ERASER,
+    val palmRejection: Boolean = true,
+    val haptics: Boolean = true,
+    // gestures
     val scribbleToErase: Boolean = true,
     val holdToShape: Boolean = true,
     val circleToLasso: Boolean = true,
+    val circleSelectChip: Boolean = true,
     val fingerTapUndo: Boolean = true,
+    val doubleTapZoom: Boolean = true,
+    // pages
     val scroll: ScrollDirection = ScrollDirection.VERTICAL,
     val pullToAddPage: Boolean = true,
     val paperTint: PaperTint = PaperTint.WHITE,
     val defaultPaper: PaperStyle = PaperStyle.RULED,
-    val toolbarDock: ToolbarDock = ToolbarDock.TOP,
-    val laserSeconds: Float = 3f,
-    val thumbCovers: Boolean = false,
+    val deskColor: DeskColor = DeskColor.MIST,
+    val pageShadow: Boolean = true,
+    val pageNumbers: Boolean = true,
     val keepScreenOn: Boolean = false,
+    val fullscreen: Boolean = false,
+    // toolbar
+    val toolbarDock: ToolbarDock = ToolbarDock.TOP,
+    val toolbarSize: ToolbarSize = ToolbarSize.REGULAR,
+    val showTabs: Boolean = true,
+    // tools
+    val eraserMode: EraserMode = EraserMode.STROKE,
+    val eraseHighlighterOnly: Boolean = false,
+    val eraserAutoSwitch: Boolean = false,
+    val highlighterBehind: Boolean = true,
+    val highlighterStraight: Boolean = false,
+    val laserSeconds: Float = 3f,
+    val lassoAfterShape: Boolean = false,
+    // look
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val accent: AccentColor = AccentColor.BLUE,
+    val gradientTitles: Boolean = true,
+    // library
+    val thumbCovers: Boolean = false,
 )
 
 /** Small key-value store; every screen observes [settings]. */
@@ -40,22 +83,46 @@ class SettingsStore private constructor(context: Context) {
     private inline fun <reified E : Enum<E>> enumOf(key: String, def: E): E =
         runCatching { enumValueOf<E>(prefs.getString(key, def.name)!!) }.getOrDefault(def)
 
-    private fun load() = AppSettings(
-        stylusOnly = prefs.getBoolean("stylusOnly", true),
-        sideButton = enumOf("sideButton", SideButton.ERASER),
-        scribbleToErase = prefs.getBoolean("scribble", true),
-        holdToShape = prefs.getBoolean("holdShape", true),
-        circleToLasso = prefs.getBoolean("circleLasso", true),
-        fingerTapUndo = prefs.getBoolean("fingerTapUndo", true),
-        scroll = enumOf("scroll", ScrollDirection.VERTICAL),
-        pullToAddPage = prefs.getBoolean("pullToAdd", true),
-        paperTint = enumOf("paperTint", PaperTint.WHITE),
-        defaultPaper = enumOf("defaultPaper", PaperStyle.RULED),
-        toolbarDock = enumOf("toolbarDock", ToolbarDock.TOP),
-        laserSeconds = prefs.getFloat("laserSeconds", 3f),
-        thumbCovers = prefs.getBoolean("thumbCovers", false),
-        keepScreenOn = prefs.getBoolean("keepScreenOn", false),
-    )
+    private fun b(key: String, def: Boolean) = prefs.getBoolean(key, def)
+
+    private fun load(): AppSettings {
+        val d = AppSettings()
+        return AppSettings(
+            stylusOnly = b("stylusOnly", d.stylusOnly),
+            sideButton = enumOf("sideButton", d.sideButton),
+            palmRejection = b("palmRejection", d.palmRejection),
+            haptics = b("haptics", d.haptics),
+            scribbleToErase = b("scribble", d.scribbleToErase),
+            holdToShape = b("holdShape", d.holdToShape),
+            circleToLasso = b("circleLasso", d.circleToLasso),
+            circleSelectChip = b("circleChip", d.circleSelectChip),
+            fingerTapUndo = b("fingerTapUndo", d.fingerTapUndo),
+            doubleTapZoom = b("doubleTapZoom", d.doubleTapZoom),
+            scroll = enumOf("scroll", d.scroll),
+            pullToAddPage = b("pullToAdd", d.pullToAddPage),
+            paperTint = enumOf("paperTint", d.paperTint),
+            defaultPaper = enumOf("defaultPaper", d.defaultPaper),
+            deskColor = enumOf("deskColor", d.deskColor),
+            pageShadow = b("pageShadow", d.pageShadow),
+            pageNumbers = b("pageNumbers", d.pageNumbers),
+            keepScreenOn = b("keepScreenOn", d.keepScreenOn),
+            fullscreen = b("fullscreen", d.fullscreen),
+            toolbarDock = enumOf("toolbarDock", d.toolbarDock),
+            toolbarSize = enumOf("toolbarSize", d.toolbarSize),
+            showTabs = b("showTabs", d.showTabs),
+            eraserMode = enumOf("eraserMode", d.eraserMode),
+            eraseHighlighterOnly = b("eraseHlOnly", d.eraseHighlighterOnly),
+            eraserAutoSwitch = b("eraserAutoSwitch", d.eraserAutoSwitch),
+            highlighterBehind = b("hlBehind", d.highlighterBehind),
+            highlighterStraight = b("hlStraight", d.highlighterStraight),
+            laserSeconds = prefs.getFloat("laserSeconds", d.laserSeconds),
+            lassoAfterShape = b("lassoAfterShape", d.lassoAfterShape),
+            themeMode = enumOf("themeMode", d.themeMode),
+            accent = enumOf("accent", d.accent),
+            gradientTitles = b("gradientTitles", d.gradientTitles),
+            thumbCovers = b("thumbCovers", d.thumbCovers),
+        )
+    }
 
     fun update(block: (AppSettings) -> AppSettings) {
         val s = block(_settings.value)
@@ -63,24 +130,43 @@ class SettingsStore private constructor(context: Context) {
         prefs.edit()
             .putBoolean("stylusOnly", s.stylusOnly)
             .putString("sideButton", s.sideButton.name)
+            .putBoolean("palmRejection", s.palmRejection)
+            .putBoolean("haptics", s.haptics)
             .putBoolean("scribble", s.scribbleToErase)
             .putBoolean("holdShape", s.holdToShape)
             .putBoolean("circleLasso", s.circleToLasso)
+            .putBoolean("circleChip", s.circleSelectChip)
             .putBoolean("fingerTapUndo", s.fingerTapUndo)
+            .putBoolean("doubleTapZoom", s.doubleTapZoom)
             .putString("scroll", s.scroll.name)
             .putBoolean("pullToAdd", s.pullToAddPage)
             .putString("paperTint", s.paperTint.name)
             .putString("defaultPaper", s.defaultPaper.name)
-            .putString("toolbarDock", s.toolbarDock.name)
-            .putFloat("laserSeconds", s.laserSeconds)
-            .putBoolean("thumbCovers", s.thumbCovers)
+            .putString("deskColor", s.deskColor.name)
+            .putBoolean("pageShadow", s.pageShadow)
+            .putBoolean("pageNumbers", s.pageNumbers)
             .putBoolean("keepScreenOn", s.keepScreenOn)
+            .putBoolean("fullscreen", s.fullscreen)
+            .putString("toolbarDock", s.toolbarDock.name)
+            .putString("toolbarSize", s.toolbarSize.name)
+            .putBoolean("showTabs", s.showTabs)
+            .putString("eraserMode", s.eraserMode.name)
+            .putBoolean("eraseHlOnly", s.eraseHighlighterOnly)
+            .putBoolean("eraserAutoSwitch", s.eraserAutoSwitch)
+            .putBoolean("hlBehind", s.highlighterBehind)
+            .putBoolean("hlStraight", s.highlighterStraight)
+            .putFloat("laserSeconds", s.laserSeconds)
+            .putBoolean("lassoAfterShape", s.lassoAfterShape)
+            .putString("themeMode", s.themeMode.name)
+            .putString("accent", s.accent.name)
+            .putBoolean("gradientTitles", s.gradientTitles)
+            .putBoolean("thumbCovers", s.thumbCovers)
             .apply()
     }
 
-    /** Per-tool colour swatches survive restarts. */
+    /** Per-tool colour swatches survive restarts. Up to 8 per tool. */
     fun swatches(tool: String, default: List<Int>): List<Int> =
-        prefs.getString("swatch_$tool", null)?.split(',')?.mapNotNull { it.toIntOrNull() }?.takeIf { it.size == default.size } ?: default
+        prefs.getString("swatch_$tool", null)?.split(',')?.mapNotNull { it.toIntOrNull() }?.takeIf { it.isNotEmpty() } ?: default
 
     fun saveSwatches(tool: String, colors: List<Int>) {
         prefs.edit().putString("swatch_$tool", colors.joinToString(",")).apply()
@@ -92,6 +178,24 @@ class SettingsStore private constructor(context: Context) {
     fun pushRecentColor(c: Int) {
         val list = (listOf(c) + recentColors().filter { it != c }).take(12)
         prefs.edit().putString("recentColors", list.joinToString(",")).apply()
+    }
+
+    /** Open notebook tabs, most recent last. */
+    private val _tabs = MutableStateFlow(prefs.getString("tabs", "")!!.split(',').filter { it.isNotBlank() })
+    val tabs: StateFlow<List<String>> = _tabs
+
+    fun openTab(id: String) {
+        if (id in _tabs.value) return
+        setTabs((_tabs.value + id).takeLast(8))
+    }
+
+    fun closeTab(id: String) = setTabs(_tabs.value - id)
+
+    fun retainTabs(valid: Set<String>) { if (_tabs.value.any { it !in valid }) setTabs(_tabs.value.filter { it in valid }) }
+
+    private fun setTabs(list: List<String>) {
+        _tabs.value = list
+        prefs.edit().putString("tabs", list.joinToString(",")).apply()
     }
 
     companion object {

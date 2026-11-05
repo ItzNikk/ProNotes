@@ -1,51 +1,37 @@
 package com.pronotes.app.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
+import androidx.compose.material3.Text
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.CompositionLocalProvider
+import com.pronotes.app.data.AccentColor
+import com.pronotes.app.data.SettingsStore
+import com.pronotes.app.data.ThemeMode
 
-val Accent = Color(0xFF3D6CF4)
+val Accent = Color(0xFF2A78D6)
 
-private val Light = lightColorScheme(
-    primary = Accent,
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFE3EAFF),
-    onPrimaryContainer = Color(0xFF0B2A80),
-    secondary = Color(0xFF5B6475),
-    background = Color(0xFFF4F5F7),
-    onBackground = Color(0xFF1B1F2A),
-    surface = Color.White,
-    onSurface = Color(0xFF1B1F2A),
-    surfaceVariant = Color(0xFFEDEFF3),
-    onSurfaceVariant = Color(0xFF5B6475),
-    surfaceContainer = Color(0xFFF7F8FA),
-    surfaceContainerHigh = Color.White,
-    outline = Color(0xFFD5D9E0),
-    outlineVariant = Color(0xFFE6E8EC),
-)
-
-private val Dark = darkColorScheme(
-    primary = Color(0xFF8AA6FF),
-    onPrimary = Color(0xFF0B2A80),
-    primaryContainer = Color(0xFF203A8C),
-    background = Color(0xFF121418),
-    surface = Color(0xFF1C1F25),
-    surfaceVariant = Color(0xFF262A31),
-    surfaceContainer = Color(0xFF1C1F25),
-    surfaceContainerHigh = Color(0xFF262A31),
-    outline = Color(0xFF3A3F48),
-    outlineVariant = Color(0xFF2E323A),
-)
+/** The two accent colours used for gradient titles. Null when gradients are off. */
+val LocalTitleGradient = compositionLocalOf<List<Color>?> { null }
 
 private val Type = Typography(
     headlineLarge = TextStyle(fontSize = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp),
@@ -57,14 +43,74 @@ private val Type = Typography(
 
 @Composable
 fun ProNotesTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) Dark else Light,
-        typography = Type,
-        shapes = Shapes(
-            small = RoundedCornerShape(10.dp),
-            medium = RoundedCornerShape(14.dp),
-            large = RoundedCornerShape(22.dp),
-        ),
-        content = content,
+    val context = LocalContext.current
+    val settings by remember { SettingsStore.get(context) }.settings.collectAsState()
+    val dark = when (settings.themeMode) {
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
+    val accent = settings.accent
+    val primary = Color(accent.argb)
+    val light = lightColorScheme(
+        primary = primary,
+        onPrimary = Color.White,
+        primaryContainer = lerp(primary, Color.White, 0.86f),
+        onPrimaryContainer = lerp(primary, Color.Black, 0.5f),
+        secondary = Color(0xFF5B6475),
+        background = Color(0xFFF7F7F5),
+        onBackground = Color(0xFF1B1F2A),
+        surface = Color.White,
+        onSurface = Color(0xFF1B1F2A),
+        surfaceVariant = Color(0xFFEFEFEC),
+        onSurfaceVariant = Color(0xFF5F5E5A),
+        surfaceContainer = Color(0xFFF9F9F7),
+        surfaceContainerHigh = Color.White,
+        outline = Color(0xFFD2D1C7),
+        outlineVariant = Color(0xFFE7E6E1),
+    )
+    val darkScheme = darkColorScheme(
+        primary = lerp(primary, Color.White, 0.35f),
+        onPrimary = Color(0xFF0B0B0B),
+        primaryContainer = lerp(primary, Color.Black, 0.55f),
+        onPrimaryContainer = lerp(primary, Color.White, 0.7f),
+        background = Color(0xFF0F0F0F),
+        surface = Color(0xFF1A1A19),
+        surfaceVariant = Color(0xFF262624),
+        surfaceContainer = Color(0xFF151515),
+        surfaceContainerHigh = Color(0xFF20201F),
+        outline = Color(0xFF454442),
+        outlineVariant = Color(0xFF2C2C2A),
+    )
+    val gradient = if (settings.gradientTitles) listOf(primary, Color(accent.argb2)).let { g ->
+        if (dark) g.map { lerp(it, Color.White, 0.3f) } else g
+    } else null
+    CompositionLocalProvider(LocalTitleGradient provides gradient) {
+        MaterialTheme(
+            colorScheme = if (dark) darkScheme else light,
+            typography = Type,
+            shapes = Shapes(
+                small = RoundedCornerShape(10.dp),
+                medium = RoundedCornerShape(14.dp),
+                large = RoundedCornerShape(22.dp),
+            ),
+            content = content,
+        )
+    }
+}
+
+/** A title drawn with the accent gradient (or plain, when gradients are off). */
+@Composable
+fun GradientTitle(text: String, style: TextStyle, modifier: Modifier = Modifier, maxLines: Int = 1) {
+    val g = LocalTitleGradient.current
+    Text(
+        text,
+        modifier = modifier,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+        style = if (g != null) style.copy(brush = Brush.linearGradient(g)) else style.copy(color = MaterialTheme.colorScheme.onBackground),
     )
 }
+
+@Suppress("unused")
+private fun accentFor(a: AccentColor) = Color(a.argb)

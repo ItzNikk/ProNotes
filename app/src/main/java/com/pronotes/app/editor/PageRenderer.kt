@@ -63,6 +63,11 @@ class PageRenderer(private val noteDir: File?) {
 
     var paperColor: Int = Color.WHITE
 
+    /** Highlighter ink goes under pen ink, like a real highlighter under printed text. */
+    var highlighterBehind: Boolean = true
+
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+
     private val pagePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { setShadowLayer(22f, 0f, 6f, 0x26000000) }
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 2f }
@@ -185,7 +190,11 @@ class PageRenderer(private val noteDir: File?) {
         offset: Pair<Float, Float>? = null,
         offsetIds: Set<Long> = emptySet(),
     ) {
-        for (item in items) {
+        val ordered = if (highlighterBehind && items.any { it is InkItem && it.isHighlighter }) {
+            items.filter { it is FillItem } + items.filter { it is InkItem && it.isHighlighter } +
+                items.filterNot { it is FillItem || (it is InkItem && it.isHighlighter) }
+        } else items
+        for (item in ordered) {
             val moved = offset != null && item.id in offsetIds
             if (moved) {
                 canvas.save()
@@ -201,13 +210,10 @@ class PageRenderer(private val noteDir: File?) {
                     strokeRenderer.draw(canvas, item.stroke, scratch)
                     canvas.restore()
                 }
-                is TextItem -> {
-                    textPaint.textSize = item.size
-                    textPaint.color = item.color
-                    val lh = item.size * 1.3f
-                    item.text.split('\n').forEachIndexed { i, line ->
-                        canvas.drawText(line, item.x, item.y + item.size + i * lh, textPaint)
-                    }
+                is TextItem -> drawText(canvas, item)
+                is FillItem -> {
+                    fillPaint.color = item.color
+                    canvas.save(); canvas.translate(item.dx, item.dy); canvas.drawPath(item.path, fillPaint); canvas.restore()
                 }
                 is ImageItem -> {
                     val bmp = image(item.file)
@@ -237,6 +243,27 @@ class PageRenderer(private val noteDir: File?) {
             }
             if (moved) canvas.restore()
         }
+    }
+
+    fun drawText(canvas: Canvas, item: TextItem) {
+        applyTextStyle(textPaint, item.size, item.style)
+        val b = item.bounds
+        val g = item.style.gradient
+        textPaint.color = item.color
+        textPaint.shader = if (g != null) android.graphics.LinearGradient(
+            b.left, b.top, b.right, b.bottom, item.color, g, android.graphics.Shader.TileMode.CLAMP,
+        ) else null
+        val lh = item.size * 1.3f
+        item.text.split('\n').forEachIndexed { i, line ->
+            val w = textPaint.measureText(line)
+            val x = when (item.style.align) {
+                TextAlign.LEFT -> b.left
+                TextAlign.CENTER -> b.left + (b.width() - w) / 2f
+                TextAlign.RIGHT -> b.right - w
+            }
+            canvas.drawText(line, x, item.y + item.size + i * lh, textPaint)
+        }
+        textPaint.shader = null
     }
 
     /** Search hits, in page coordinates. */

@@ -52,13 +52,31 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     val isPdf: Boolean get() = repo.pdfFile(noteId).exists()
 
     // ---------------------------------------------------------------- tools
-    var tool by mutableStateOf(Tool.PEN)
+    private var _tool by mutableStateOf(Tool.PEN)
+    private var previousTool = Tool.PEN
+    /** Current tool. Remembers the last non-eraser tool for "switch back after erasing". */
+    var tool: Tool
+        get() = _tool
+        set(v) { if (_tool != Tool.ERASER && _tool != v) previousTool = _tool; _tool = v }
     var penType by mutableStateOf(PenType.FOUNTAIN)
     var penStyle by mutableStateOf(style("pen", listOf(PenPalette[0], PenPalette[2], PenPalette[10], PenPalette[5], PenPalette[13]), listOf(2f, 4f, 7f), 4f))
     var highlighterStyle by mutableStateOf(style("highlighter", HighlighterPalette, listOf(16f, 28f, 42f), 28f))
     var shapeStyle by mutableStateOf(style("shape", listOf(PenPalette[0], PenPalette[2], PenPalette[10], PenPalette[5], PenPalette[13]), listOf(2f, 4f, 7f), 4f))
     var shapeKind by mutableStateOf(ShapeKind.AUTO)
     var shapeDashed by mutableStateOf(false)
+    var shapeFillOn by mutableStateOf(false)
+    var shapeFillColor by mutableStateOf(0xFFCDE2FB.toInt())
+    var textStyle by mutableStateOf(TextStyleSpec())
+    var textColor by mutableStateOf<Int?>(null)
+
+    var circleChip by mutableStateOf<RectF?>(null)
+        private set
+    private var chipJob: Job? = null
+    var zoomPercent by mutableStateOf<Int?>(null)
+        private set
+    private var clipboard: List<PageItem> = emptyList()
+    var hasClipboard by mutableStateOf(false)
+        private set
     var eraserSize by mutableStateOf(1)
     var textSize by mutableStateOf(40f)
     var tapeColor by mutableStateOf(TapeColors[0])
@@ -144,6 +162,64 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         }
     }
 
+    fun shapeFill(): Int? = if (shapeFillOn) shapeFillColor else null
+
+    fun addSwatch(t: Tool, color: Int) {
+        val s = styleFor(t) ?: return
+        if (s.colors.size >= 8) return
+        updateStyle(t, s.copy(colors = s.colors + color, color = color))
+        pushRecent(color)
+    }
+
+    fun removeSwatch(t: Tool, index: Int) {
+        val s = styleFor(t) ?: return
+        if (s.colors.size <= 1) return
+        val colors = s.colors.toMutableList().also { it.removeAt(index) }
+        updateStyle(t, s.copy(colors = colors, color = if (s.color in colors) s.color else colors.first()))
+    }
+
+    fun onEraserLifted() { if (settingsFlow.value.eraserAutoSwitch) tool = previousTool }
+
+    fun showCircleChip(r: RectF?) {
+        circleChip = r
+        chipJob?.cancel()
+        if (r != null) chipJob = viewModelScope.launch { delay(3500); circleChip = null }
+    }
+
+    fun onZoom(p: Int?) { zoomPercent = p }
+
+    fun copySelection() {
+        val p = pages.getOrNull(selectionPage) ?: return
+        clipboard = p.items.filter { it.id in selection }
+        hasClipboard = clipboard.isNotEmpty()
+    }
+
+    fun cutSelection() { copySelection(); deleteSelection() }
+
+    /** Pastes onto the page in view, nudged so it does not sit exactly on the original. */
+    fun paste(): Pair<Int, Set<Long>>? {
+        if (clipboard.isEmpty()) return null
+        val idx = pageIndex
+        val p = pages.getOrNull(idx) ?: return null
+        val copies = clipboard.map { it.translated(40f, 40f).withId(ItemIds.next()) }
+        clipboard = copies
+        beginEdit(idx)
+        applyItems(idx, p.items + copies)
+        return idx to copies.map { it.id }.toSet()
+    }
+
+    fun toggleBookmark() {
+        val p = currentPage ?: return
+        pages[pageIndex] = p.copy(bookmarked = !p.bookmarked)
+        scheduleSave(); onPagesChanged?.invoke()
+    }
+
+    fun rename(newTitle: String) {
+        if (newTitle.isBlank()) return
+        title = newTitle
+        viewModelScope.launch { repo.renameNotebook(noteId, newTitle) }
+    }
+
     fun recentColors() = store.recentColors()
     fun pushRecent(c: Int) = store.pushRecentColor(c)
 
@@ -207,15 +283,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun duplicateSelection(): Set<Long> {
         val p = pages.getOrNull(selectionPage) ?: return emptySet()
         beginEdit(selectionPage)
-        val copies = p.items.filter { it.id in selection }.map { item ->
-            when (val moved = item.translated(30f, 30f)) {
-                is InkItem -> InkItem(ItemIds.next(), moved.stroke, moved.dx, moved.dy, moved.localBounds)
-                is TextItem -> moved.copy(id = ItemIds.next())
-                is ImageItem -> moved.copy(id = ItemIds.next())
-                is TapeItem -> moved.copy(id = ItemIds.next())
-                is StickyItem -> moved.copy(id = ItemIds.next())
-            }
-        }
+        val copies = p.items.filter { it.id in selection }.map { it.translated(30f, 30f).withId(ItemIds.next()) }
         applyItems(selectionPage, p.items + copies)
         return copies.map { it.id }.toSet()
     }
@@ -230,21 +298,25 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 is TextItem -> item.copy(color = color)
                 is TapeItem -> item.copy(color = color)
                 is StickyItem -> item.copy(color = color)
+                // Fills keep their transparency when recoloured.
+                is FillItem -> item.recolored((color and 0x00FFFFFF) or (item.color and 0xFF000000.toInt()))
                 else -> item
             }
         })
     }
 
-    fun commitText(text: String) {
+    fun commitText(text: String, size: Float = textSize, color: Int = textColor ?: penStyle.color, style: TextStyleSpec = textStyle) {
         val edit = textEdit ?: return
         textEdit = null
         val p = pages.getOrNull(edit.page) ?: return
         val existing = edit.existing
+        // New text remembers the last formatting used.
+        textSize = size; textStyle = style; textColor = color
         val items = when {
             existing != null && text.isBlank() -> p.items.filterNot { it.id == existing.id }
-            existing != null -> p.items.map { if (it.id == existing.id) existing.copy(text = text) else it }
+            existing != null -> p.items.map { if (it.id == existing.id) existing.copy(text = text, size = size, color = color, style = style) else it }
             text.isBlank() -> return
-            else -> p.items + TextItem(ItemIds.next(), text, edit.x, edit.y, textSize, penStyle.color)
+            else -> p.items + TextItem(ItemIds.next(), text, edit.x, edit.y, size, color, style)
         }
         beginEdit(edit.page)
         applyItems(edit.page, items)
@@ -276,7 +348,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     /** Emoji stickers are large text items placed in the middle of the visible page. */
     fun insertSticker(emoji: String): Pair<Int, Long>? {
         val p = currentPage ?: return null
-        val item = TextItem(ItemIds.next(), emoji, p.width / 2f - 80f, p.height / 3f, 160f, 0xFF000000.toInt())
+        val item = TextItem(ItemIds.next(), emoji, p.width / 2f - 80f, p.height / 3f, 160f, 0xFF000000.toInt(), TextStyleSpec())
         beginEdit(pageIndex)
         applyItems(pageIndex, p.items + item)
         return pageIndex to item.id
@@ -326,15 +398,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     fun duplicatePage() {
         val p = currentPage ?: return
-        val copy = p.copy(id = UUID.randomUUID().toString(), items = p.items.map {
-            when (it) {
-                is InkItem -> InkItem(ItemIds.next(), it.stroke, it.dx, it.dy, it.localBounds)
-                is TextItem -> it.copy(id = ItemIds.next())
-                is ImageItem -> it.copy(id = ItemIds.next())
-                is TapeItem -> it.copy(id = ItemIds.next())
-                is StickyItem -> it.copy(id = ItemIds.next())
-            }
-        })
+        val copy = p.copy(id = UUID.randomUUID().toString(), items = p.items.map { it.withId(ItemIds.next()) })
         pages.add(pageIndex + 1, copy)
         undoStack.clear(); redoStack.clear(); refreshUndo()
         scheduleSave(); onPagesChanged?.invoke()

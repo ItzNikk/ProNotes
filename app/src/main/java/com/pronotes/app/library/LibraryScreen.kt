@@ -217,7 +217,7 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
                     targetState = title,
                     transitionSpec = { (fadeIn() + slideInHorizontally { it / 6 }) togetherWith (fadeOut() + slideOutHorizontally { -it / 6 }) },
                     label = "title", modifier = Modifier.weight(1f),
-                ) { t -> Text(t, style = MaterialTheme.typography.headlineLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                ) { t -> com.pronotes.app.ui.GradientTitle(t, MaterialTheme.typography.headlineLarge) }
 
                 var newMenu by remember { mutableStateOf(false) }
                 Box {

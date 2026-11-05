@@ -61,6 +61,12 @@ interface CanvasHost {
     fun pdfBitmap(page: Page, onReady: () -> Unit): Bitmap?
     fun highlights(page: Int): List<RectF>
     fun activeHighlight(): Pair<Int, RectF>?
+    /** Fill colour for new closed shapes, or null for outline only. */
+    fun shapeFill(): Int?
+    /** A pen loop around content was drawn; show (or hide, with null) the "Select" chip. */
+    fun onCircleCandidate(screenBounds: RectF?)
+    fun onEraserLifted()
+    fun onZoom(percent: Int?)
 }
 
 /**
@@ -134,7 +140,12 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 for ((pi, entries) in byPage) {
                     val p = pages.getOrNull(pi) ?: continue
                     host.beginEdit(pi)
-                    updatePage(pi, p.items + entries.map { InkItem(ItemIds.next(), it.value) })
+                    val added = entries.map { e ->
+                        InkItem(ItemIds.next(), e.value).also { item ->
+                            pendingCircle?.takeIf { it.strokeId == e.key }?.itemId = item.id
+                        }
+                    }
+                    updatePage(pi, p.items + added)
                 }
                 wetInk.removeFinishedStrokes(strokes.keys)
             }
@@ -341,29 +352,90 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
     override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean = true
 
+    private var stylusPointer = -1          // pointer id of the pen while it touches the screen
+    private var lastStylusTime = 0L
+    private var ignoreFingers = false       // swallow the rest of a palm / finger gesture
+    private var lastTapTime = 0L
+    private var lastTapX = 0f
+    private var lastTapY = 0f
+
+    private fun isPen(type: Int) = type == MotionEvent.TOOL_TYPE_STYLUS || type == MotionEvent.TOOL_TYPE_ERASER
+
+    /**
+     * Routing rules:
+     *  1. The pen always wins. If a palm is already on the glass when the pen lands,
+     *     the palm gesture is dropped and the pen draws.
+     *  2. While the pen is down, every finger/palm event is ignored.
+     *  3. Fingers only draw when "Draw with stylus only" is off. Otherwise they scroll and zoom.
+     *  4. Palm rejection: a finger that lands right after the pen was near is ignored.
+     */
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         predictor.record(event)
         val action = normalizeSamsungAction(event)
-        val isStylus = (0 until event.pointerCount).any {
-            val t = event.getToolType(it)
-            t == MotionEvent.TOOL_TYPE_STYLUS || t == MotionEvent.TOOL_TYPE_ERASER
-        }
-        if (isStylus) sawStylus = true
+        val now = SystemClock.uptimeMillis()
+        val penIndex = (0 until event.pointerCount).firstOrNull { isPen(event.getToolType(it)) }
+        if (penIndex != null) { sawStylus = true; lastStylusTime = now }
 
-        val drawsWithFinger = !settings.stylusOnly || !sawStylus
-        if (mode == Mode.PAN || (!isStylus && !drawsWithFinger) || (!isStylus && event.pointerCount > 1 && mode != Mode.INK)) {
-            if (mode != Mode.PAN && mode != Mode.NONE) cancelCurrent(event)
-            handleFingers(event, action)
+        // --- pen
+        if (stylusPointer == -1 && penIndex != null) {
+            val landing = action == MotionEvent.ACTION_DOWN ||
+                (action == MotionEvent.ACTION_POINTER_DOWN && isPen(event.getToolType(event.actionIndex)))
+            if (landing) {
+                if (mode == Mode.PAN) endPan() else if (mode != Mode.NONE) cancelCurrent(event)
+                stylusPointer = event.getPointerId(if (action == MotionEvent.ACTION_DOWN) 0 else event.actionIndex)
+                handleDraw(event, MotionEvent.ACTION_DOWN, stylusPointer)
+                return true
+            }
+        }
+        if (stylusPointer != -1) {
+            val sIdx = event.findPointerIndex(stylusPointer)
+            when {
+                action == MotionEvent.ACTION_CANCEL -> { cancelCurrent(event); stylusPointer = -1; ignoreFingers = event.pointerCount > 1 }
+                sIdx < 0 -> { cancelCurrent(event); stylusPointer = -1 }
+                action == MotionEvent.ACTION_UP || (action == MotionEvent.ACTION_POINTER_UP && event.actionIndex == sIdx) -> {
+                    handleDraw(event, MotionEvent.ACTION_UP, stylusPointer)
+                    stylusPointer = -1
+                    ignoreFingers = action == MotionEvent.ACTION_POINTER_UP
+                }
+                action == MotionEvent.ACTION_MOVE -> handleDraw(event, MotionEvent.ACTION_MOVE, stylusPointer)
+            }
             return true
         }
-        if (!isStylus && event.pointerCount > 1) {
+
+        // --- fingers
+        if (action == MotionEvent.ACTION_DOWN) {
+            ignoreFingers = settings.palmRejection && sawStylus && now - lastStylusTime < PALM_WINDOW_MS
+        }
+        if (ignoreFingers) {
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) ignoreFingers = false
+            return true
+        }
+        val fingerDraws = !settings.stylusOnly
+        if (fingerDraws && mode != Mode.PAN) {
+            if (event.pointerCount == 1) {
+                handleDraw(event, action, event.getPointerId(0))
+                return true
+            }
+            // A second finger while finger-drawing: switch to scroll / zoom.
             cancelCurrent(event)
             mode = Mode.PAN
             handleFingers(event, MotionEvent.ACTION_POINTER_DOWN)
             return true
         }
-        handleDraw(event, action)
+        handleFingers(event, action)
         return true
+    }
+
+    private fun endPan() {
+        mode = Mode.NONE
+        maxFingers = 0; fingerDownTime = 0L; pinchStartDist = 0f; pull = 0f
+        velocity?.recycle(); velocity = null
+        host.onZoom(null)
+        clamp(); updateMatrix()
+    }
+
+    private fun buzz(kind: Int = HapticFeedbackConstants.LONG_PRESS) {
+        if (settings.haptics) performHapticFeedback(kind)
     }
 
     /** Old Samsung S Pen firmware reports button-held events with custom action codes 211-214. */
@@ -381,8 +453,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         return bs and (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_STYLUS_SECONDARY or MotionEvent.BUTTON_SECONDARY) != 0
     }
 
-    private fun effectiveTool(e: MotionEvent): Tool {
-        if (e.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER) return Tool.ERASER
+    private fun effectiveTool(e: MotionEvent, index: Int = 0): Tool {
+        if (e.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER) return Tool.ERASER
         if (sideButtonHeld(e)) {
             when (settings.sideButton) {
                 SideButton.ERASER -> return Tool.ERASER
@@ -393,28 +465,32 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         return tool
     }
 
-    private fun handleDraw(e: MotionEvent, action: Int) {
+    private fun handleDraw(e: MotionEvent, action: Int, pid: Int) {
         if (pages.isEmpty()) return
+        val pIdx = e.findPointerIndex(pid).coerceAtLeast(0)
+        val px = e.getX(pIdx)
+        val py = e.getY(pIdx)
         when (action) {
             MotionEvent.ACTION_DOWN -> {
                 scroller.forceFinished(true)
                 requestUnbufferedDispatch(e)
-                activePointer = e.getPointerId(0)
-                val (ddx, ddy) = toDoc(e.x, e.y)
+                activePointer = pid
+                if (pendingCircle != null) clearCircleCandidate()
+                val (ddx, ddy) = toDoc(px, py)
                 activePage = pageAt(ddx, ddy)
                 points.clear()
                 holdFired = false
-                downTime = SystemClock.uptimeMillis(); downX = e.x; downY = e.y
-                val (wx, wy) = toLocal(e.x, e.y, activePage)
+                downTime = SystemClock.uptimeMillis(); downX = px; downY = py
+                val (wx, wy) = toLocal(px, py, activePage)
                 points += wx to wy
                 lastMovePt = wx to wy
-                val t = effectiveTool(e)
+                val t = effectiveTool(e, pIdx)
                 strokeTool = t
 
                 // Touching inside the current selection drags it, whatever the tool.
                 if (selection.isNotEmpty() && t != Tool.ERASER) {
                     val sb = selectionPageBounds()
-                    val (sx, sy) = toLocal(e.x, e.y, selectionPage)
+                    val (sx, sy) = toLocal(px, py, selectionPage)
                     if (sb?.contains(sx, sy) == true) {
                         activePage = selectionPage
                         mode = Mode.MOVE
@@ -436,17 +512,17 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         host.beginEdit(activePage)
                         lastErase = wx to wy
                         eraseAt(wx, wy)
-                        layer.eraserAt = e.x to e.y
+                        layer.eraserAt = px to py
                     }
                     Tool.LASSO -> {
                         mode = Mode.LASSO
-                        lassoPoints.clear(); lassoPoints += e.x to e.y
+                        lassoPoints.clear(); lassoPoints += px to py
                         layer.lasso = lassoPoints
                         layer.startAnts()
                     }
                     Tool.LASER -> {
                         mode = Mode.LASER
-                        layer.laserBegin(toDoc(e.x, e.y))
+                        layer.laserBegin(toDoc(px, py))
                     }
                     Tool.TAPE -> { mode = Mode.TAPE; layer.tapePreview = null }
                     Tool.TEXT, Tool.STICKY -> mode = Mode.TAP
@@ -513,10 +589,13 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             }
             MotionEvent.ACTION_UP -> {
                 removeCallbacks(holdRunnable)
-                val isTap = SystemClock.uptimeMillis() - downTime < 350 && hypot(e.x - downX, e.y - downY) < touchSlop
+                val isTap = SystemClock.uptimeMillis() - downTime < 350 && hypot(px - downX, py - downY) < touchSlop
                 when (mode) {
                     Mode.INK -> finishInk(e, isTap)
-                    Mode.ERASE -> { layer.eraserAt = null; lastErase = null; layer.invalidate() }
+                    Mode.ERASE -> {
+                        layer.eraserAt = null; lastErase = null; layer.invalidate()
+                        if (strokeTool == Tool.ERASER && tool == Tool.ERASER) host.onEraserLifted()
+                    }
                     Mode.LASSO -> {
                         val local = lassoPoints.map { toLocal(it.first, it.second, activePage) }
                         layer.lasso = null
@@ -529,18 +608,18 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                     Mode.SHAPE_DRAG -> {
                         val shapes = layer.shapePreview
                         layer.shapePreview = null
-                        if (shapes != null && !isTap) addShapes(shapes)
+                        if (shapes != null && !isTap) addShapes(shapes, fillable = host.shapeKind().closed)
                         layer.invalidate()
                     }
                     Mode.TAPE -> {
                         val r = layer.tapePreview
                         layer.tapePreview = null
-                        val (wx, wy) = toLocal(e.x, e.y, activePage)
+                        val (wx, wy) = toLocal(px, py, activePage)
                         if (isTap || r == null) toggleTapeAt(activePage, wx, wy) else addTape(r)
                         layer.invalidate()
                     }
                     Mode.TAP -> {
-                        val (wx, wy) = toLocal(e.x, e.y, activePage)
+                        val (wx, wy) = toLocal(px, py, activePage)
                         val items = pages[activePage].items
                         if (strokeTool == Tool.TEXT) {
                             val hit = items.lastOrNull { it is TextItem && it.bounds.contains(wx, wy) } as TextItem?
@@ -580,7 +659,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             return
         }
         // Scribble-to-erase: a zig-zag over existing ink erases it instead of drawing.
-        if (settings.scribbleToErase && strokeTool == Tool.PEN && isScribble(points)) {
+        if (settings.scribbleToErase && (strokeTool == Tool.PEN || strokeTool == Tool.HIGHLIGHTER) && isScribble(points)) {
             val hit = itemsUnder(activePage, points)
             if (hit.isNotEmpty()) {
                 wetInk.cancelStroke(id, e); strokePages.remove(id)
@@ -594,8 +673,29 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             val shape = ShapeRecognizer.recognize(points)
             if (shape != null) {
                 wetInk.cancelStroke(id, e); strokePages.remove(id)
-                addShapes(listOf(shape))
+                addShapes(listOf(shape), fillable = isClosedLoop(shape))
                 return
+            }
+        }
+        // Straight highlighter: snap the stroke to a line between its ends.
+        if (strokeTool == Tool.HIGHLIGHTER && settings.highlighterStraight && points.size > 1) {
+            wetInk.cancelStroke(id, e); strokePages.remove(id)
+            val a = points.first(); var b = points.last()
+            if (abs(b.second - a.second) < abs(b.first - a.first) * 0.15f) b = b.first to a.second
+            val stroke = InkCodec.strokeFromPoints(densifyPublic(listOf(a, b)), host.brush(Tool.HIGHLIGHTER))
+            host.beginEdit(activePage)
+            updatePage(activePage, p.items + InkItem(ItemIds.next(), stroke))
+            return
+        }
+        // Circle to select: a loop around content offers a "Select" chip.
+        if (strokeTool == Tool.PEN && settings.circleSelectChip && isClosedLoop(points)) {
+            val lasso = Lasso(points)
+            val ids = p.items.filter { lasso.selects(it) }.map { it.id }.toSet()
+            if (ids.isNotEmpty()) {
+                val r = RectF(points.minOf { it.first }, points.minOf { it.second }, points.maxOf { it.first }, points.maxOf { it.second })
+                pageMatrix(activePage, tmpMatrix).mapRect(r)
+                pendingCircle = PendingCircle(id, activePage, ids)
+                host.onCircleCandidate(r)
             }
         }
         wetInk.finishStroke(e, activePointer, id)
@@ -624,7 +724,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 holdFired = true
                 cancelWet(id)
                 selectItems(activePage, ids)
-                performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                buzz()
                 return
             }
         }
@@ -632,8 +732,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             val shape = ShapeRecognizer.recognize(points) ?: return
             holdFired = true
             cancelWet(id)
-            addShapes(listOf(shape))
-            performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            addShapes(listOf(shape), fillable = strokeTool == Tool.SHAPE && isClosedLoop(shape))
+            buzz()
         }
     }
 
@@ -645,13 +745,45 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         ev.recycle()
     }
 
-    private fun addShapes(shapes: List<List<Pt>>) {
+    private fun addShapes(shapes: List<List<Pt>>, fillable: Boolean = false) {
         val p = pages.getOrNull(activePage) ?: return
         val brush = host.brush(Tool.SHAPE)
-        val items = shapes.filter { it.size > 1 }.map { InkItem(ItemIds.next(), InkCodec.strokeFromPoints(it, brush)) }
+        val items = ArrayList<PageItem>()
+        val fill = if (fillable) host.shapeFill() else null
+        val outline = shapes.firstOrNull()
+        if (fill != null && outline != null && outline.size > 2) {
+            val arr = FloatArray(outline.size * 2)
+            outline.forEachIndexed { i, (x, y) -> arr[i * 2] = x; arr[i * 2 + 1] = y }
+            items += FillItem(ItemIds.next(), arr, fill)
+        }
+        shapes.filter { it.size > 1 }.forEach { items += InkItem(ItemIds.next(), InkCodec.strokeFromPoints(it, brush)) }
         if (items.isEmpty()) return
         host.beginEdit(activePage)
         updatePage(activePage, p.items + items)
+        if (settings.lassoAfterShape) selectItems(activePage, items.map { it.id }.toSet())
+    }
+
+    // ------------------------------------------------------- circle to select
+
+    private class PendingCircle(val strokeId: InProgressStrokeId, val page: Int, val ids: Set<Long>, var itemId: Long = -1)
+
+    private var pendingCircle: PendingCircle? = null
+
+    /** The user tapped the "Select" chip: turn the drawn loop into a selection. */
+    fun acceptCircle() {
+        val pc = pendingCircle ?: return
+        pendingCircle = null
+        host.onCircleCandidate(null)
+        val p = pages.getOrNull(pc.page) ?: return
+        if (pc.itemId != -1L) updatePage(pc.page, p.items.filterNot { it.id == pc.itemId })
+        selectItems(pc.page, pc.ids.filter { id -> pages[pc.page].items.any { it.id == id } }.toSet())
+        buzz()
+    }
+
+    fun clearCircleCandidate() {
+        if (pendingCircle == null) return
+        pendingCircle = null
+        host.onCircleCandidate(null)
     }
 
     private fun tapeRect(x0: Float, y0: Float, x1: Float, y1: Float): RectF {
@@ -671,7 +803,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         val p = pages.getOrNull(page) ?: return
         val hit = p.items.lastOrNull { it is TapeItem && it.bounds.contains(x, y) } as TapeItem? ?: return
         updatePage(page, p.items.map { if (it.id == hit.id) hit.copy(revealed = !hit.revealed) else it })
-        performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        buzz(HapticFeedbackConstants.CLOCK_TICK)
     }
 
     private fun cancelCurrent(e: MotionEvent) {
@@ -700,7 +832,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         if (ids.isEmpty()) return
         layer.laserDropLast()
         selectItems(page, ids)
-        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        buzz()
     }
 
     // ----------------------------------------------------------- eraser
@@ -710,9 +842,11 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         val prev = lastErase ?: (wx to wy)
         lastErase = wx to wy
         val r = host.eraserRadius() / scale
+        if (settings.eraserMode == com.pronotes.app.data.EraserMode.PIXEL) { pixelErase(p, prev, wx, wy, r); return }
         val hit = HashSet<Long>()
         val para = MutableParallelogram()
         for (item in p.items) {
+            if (settings.eraseHighlighterOnly && !(item is InkItem && item.isHighlighter)) continue
             when (item) {
                 is InkItem -> {
                     val b = item.bounds
@@ -728,6 +862,35 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             }
         }
         if (hit.isNotEmpty()) updatePage(activePage, p.items.filterNot { it.id in hit })
+    }
+
+    /** Pixel eraser: cuts strokes where the eraser passes and keeps the rest. */
+    private fun pixelErase(p: Page, prev: Pt, wx: Float, wy: Float, r: Float) {
+        val steps = max(1, (hypot(wx - prev.first, wy - prev.second) / (r * 0.5f)).toInt())
+        var items = p.items
+        var changed = false
+        for (s in 1..steps) {
+            val t = s / steps.toFloat()
+            val cx = prev.first + (wx - prev.first) * t
+            val cy = prev.second + (wy - prev.second) * t
+            val next = ArrayList<PageItem>(items.size)
+            for (item in items) {
+                if (item !is InkItem || (settings.eraseHighlighterOnly && !item.isHighlighter)) {
+                    if (item !is InkItem && !settings.eraseHighlighterOnly && item.bounds.contains(cx, cy) && item !is FillItem) { changed = true; continue }
+                    next += item; continue
+                }
+                val b = item.bounds
+                if (cx < b.left - r || cx > b.right + r || cy < b.top - r || cy > b.bottom + r) { next += item; continue }
+                val pieces = InkCodec.eraseFrom(item.stroke, cx - item.dx, cy - item.dy, r + item.stroke.brush.size / 2f)
+                if (pieces == null) next += item
+                else {
+                    changed = true
+                    pieces.forEach { next += InkItem(ItemIds.next(), it, item.dx, item.dy) }
+                }
+            }
+            items = next
+        }
+        if (changed) updatePage(activePage, items)
     }
 
     private fun itemsUnder(page: Int, path: List<Pt>): Set<Long> {
@@ -836,6 +999,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                     val newScale = (pinchStartScale * spacing(e) / pinchStartDist).coerceIn(fitScale() * 0.5f, 6f)
                     if (abs(newScale - scale) > 0.001f) {
                         fingerMoved = true
+                        host.onZoom((newScale / fitScale() * 100f).toInt())
                         val (fx, fy) = toDoc(cx, cy)
                         scale = newScale
                         transX = cx - fx * scale
@@ -870,10 +1034,21 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         3 -> host.redo()
                     }
                 }
-                if (maxFingers == 1 && quick && !fingerMoved && selection.isNotEmpty()) clearSelection()
+                if (action == MotionEvent.ACTION_UP && maxFingers == 1 && quick && !fingerMoved) {
+                    val now = SystemClock.uptimeMillis()
+                    if (settings.doubleTapZoom && now - lastTapTime < 320 && hypot(e.x - lastTapX, e.y - lastTapY) < touchSlop * 3) {
+                        toggleZoom(e.x, e.y)
+                        lastTapTime = 0L
+                    } else {
+                        lastTapTime = now; lastTapX = e.x; lastTapY = e.y
+                        if (selection.isNotEmpty()) clearSelection()
+                        clearCircleCandidate()
+                    }
+                }
+                host.onZoom(null)
                 val pulled = pull >= pullTrigger
                 if (pulled) {
-                    performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    buzz()
                     host.onPullAddPage()
                 }
                 pull = 0f
@@ -911,6 +1086,25 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         postInvalidateOnAnimation()
     }
 
+    /** Double-tap with a finger: zoom in to 2x around the tap, or back to fit. */
+    private fun toggleZoom(x: Float, y: Float) {
+        val fit = fitScale()
+        val target = if (scale > fit * 1.3f) fit else fit * 2f
+        val (fx, fy) = toDoc(x, y)
+        val from = scale
+        ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 260; interpolator = DecelerateInterpolator()
+            addUpdateListener {
+                val t = it.animatedValue as Float
+                scale = from + (target - from) * t
+                transX = x - fx * scale; transY = y - fy * scale
+                if (target == fit && t == 1f) { centerOn(currentIndex) }
+                clamp(); updateMatrix()
+            }
+            start()
+        }
+    }
+
     private fun focus(e: MotionEvent): Pair<Float, Float> {
         var sx = 0f; var sy = 0f
         for (i in 0 until e.pointerCount) { sx += e.getX(i); sy += e.getY(i) }
@@ -927,6 +1121,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
         val tt = event.getToolType(0)
         if (tt == MotionEvent.TOOL_TYPE_STYLUS || tt == MotionEvent.TOOL_TYPE_ERASER) {
+            lastStylusTime = SystemClock.uptimeMillis(); sawStylus = true
             when (event.actionMasked) {
                 MotionEvent.ACTION_HOVER_MOVE, MotionEvent.ACTION_HOVER_ENTER -> {
                     layer.hoverAt = if (effectiveTool(event) == Tool.ERASER) event.x to event.y else null
@@ -942,6 +1137,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
     companion object {
         private const val HOLD_MS = 550L
+        private const val PALM_WINDOW_MS = 300L
     }
 
     // ================================================================ layer
@@ -984,6 +1180,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             textSize = 14f * density; color = 0xFF5B6475.toInt(); textAlign = Paint.Align.CENTER
         }
         private val pagePaintBg = Paint().apply { color = 0xFFE9ECF1.toInt() }
+        private val pageNumberPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 12f * density; textAlign = Paint.Align.CENTER }
         private val lasers = ArrayList<LaserStroke>()
         private var antsPhase = 0f
         private var antsAnim: ValueAnimator? = null
@@ -1031,8 +1228,11 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
         override fun onDraw(canvas: Canvas) {
             val r = renderer ?: return
+            pagePaintBg.color = settings.deskColor.argb
             canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), pagePaintBg)
             r.paperColor = settings.paperTint.argb
+            r.highlighterBehind = settings.highlighterBehind
+            pageNumberPaint.color = if (Color.luminance(settings.deskColor.argb) < 0.4f) 0xFFB0B6C0.toInt() else 0xFF7B8391.toInt()
             val view = RectF(0f, 0f, width.toFloat(), height.toFloat())
             val active = host.activeHighlight()
             pages.forEachIndexed { i, p ->
@@ -1042,7 +1242,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 canvas.save()
                 canvas.concat(m)
                 val pdf = if (p.pdfPage >= 0) host.pdfBitmap(p) { postInvalidate() } else null
-                r.drawPaper(canvas, p, pdf, shadow = true)
+                r.drawPaper(canvas, p, pdf, shadow = settings.pageShadow)
                 val hl = host.highlights(i)
                 if (hl.isNotEmpty()) r.drawHighlights(canvas, hl, active?.takeIf { it.first == i }?.second)
                 if (i == selectionPage) r.drawItems(canvas, p.items, m, offset = dragOffset, offsetIds = selection)
@@ -1055,6 +1255,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                     canvas.drawPath(tmpPath, previewPaint)
                 }
                 canvas.restore()
+                if (settings.pageNumbers && pages.size > 1) {
+                    canvas.drawText("${i + 1}", sr.centerX(), sr.bottom + 18f * density, pageNumberPaint)
+                }
             }
 
             drawPull(canvas)

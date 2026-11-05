@@ -88,6 +88,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("io.coil-kt.coil3:coil-compose:3.3.0")
+    // Rounded polygons, stars and blobs for the shape tool.
+    implementation("androidx.graphics:graphics-shapes:1.0.1")
     // Colour wheel + brightness slider for custom colours.
     implementation("com.github.skydoves:colorpicker-compose:1.1.2")
     // PDF text extraction for in-document search.

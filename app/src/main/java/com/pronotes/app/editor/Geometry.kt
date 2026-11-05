@@ -2,6 +2,11 @@ package com.pronotes.app.editor
 
 import android.graphics.Path
 import android.graphics.Region
+import androidx.graphics.shapes.pill
+import androidx.graphics.shapes.pillStar
+import androidx.graphics.shapes.rectangle
+import androidx.graphics.shapes.star
+import androidx.graphics.shapes.toPath
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -41,7 +46,12 @@ fun isClosedLoop(pts: List<Pt>): Boolean {
     if (pts.size < 8) return false
     val bx = box(pts)
     val size = max(bx.w, bx.h)
-    return size > 30f && dist(pts.first(), pts.last()) < size * 0.3f
+    if (size <= 30f) return false
+    if (dist(pts.first(), pts.last()) < size * 0.35f) return true
+    // Overlapping loops: the end has come back near any early point.
+    val end = pts.last()
+    val early = pts.subList(0, pts.size / 3)
+    return early.any { dist(it, end) < size * 0.25f } && pathLength(pts) > size * 2.2f
 }
 
 /** Ramer-Douglas-Peucker polyline simplification. */
@@ -139,8 +149,8 @@ object ShapeRecognizer {
 fun isScribble(pts: List<Pt>): Boolean {
     if (pts.size < 10) return false
     val sampled = ArrayList<Pt>()
-    for (p in pts) if (sampled.isEmpty() || dist(sampled.last(), p) > 6f) sampled += p
-    if (sampled.size < 6) return false
+    for (p in pts) if (sampled.isEmpty() || dist(sampled.last(), p) > 4f) sampled += p
+    if (sampled.size < 5) return false
     var reversals = 0
     for (i in 2 until sampled.size) {
         val a = sampled[i - 2]; val b = sampled[i - 1]; val c = sampled[i]
@@ -148,10 +158,10 @@ fun isScribble(pts: List<Pt>): Boolean {
         val v2x = c.first - b.first; val v2y = c.second - b.second
         val dot = v1x * v2x + v1y * v2y
         val m = hypot(v1x, v1y) * hypot(v2x, v2y)
-        if (m > 0 && dot / m < -0.5f) reversals++
+        if (m > 0 && dot / m < -0.3f) reversals++
     }
     val bx = box(pts)
-    return reversals >= 4 && pathLength(pts) > bx.diag * 3f
+    return reversals >= 4 && pathLength(pts) > bx.diag * 2.6f
 }
 
 /** Point-in-polygon test backed by the platform's Region. */
@@ -192,6 +202,13 @@ enum class ShapeKind(val label: String) {
     ROUNDED("Rounded"), ELLIPSE("Ellipse"), TRIANGLE("Triangle"), RIGHT_TRIANGLE("Right triangle"),
     DIAMOND("Diamond"), PENTAGON("Pentagon"), HEXAGON("Hexagon"), STAR("Star"), HEART("Heart"),
     CLOUD("Cloud"), SPEECH("Speech"),
+    // Shapes below come from androidx.graphics:graphics-shapes.
+    OCTAGON("Octagon"), SOFT_TRIANGLE("Soft triangle"), SQUIRCLE("Squircle"), PILL("Pill"),
+    SOFT_STAR("Soft star"), SUNNY("Sunny"), BURST("Burst"), COOKIE("Cookie"), CLOVER("Clover"),
+    FLOWER("Flower"), GEM("Gem"), PILL_STAR("Pill star"), BADGE("Badge"), SPARKLE("Sparkle");
+
+    /** Closed outlines can be filled. */
+    val closed: Boolean get() = this !in setOf(AUTO, LINE, ARROW, DOUBLE_ARROW)
 }
 
 /**
@@ -221,6 +238,7 @@ object ShapeBuilder {
             ShapeKind.HEART -> listOf(heart(cx, cy, rx, ry))
             ShapeKind.CLOUD -> listOf(cloud(cx, cy, rx, ry))
             ShapeKind.SPEECH -> listOf(speech(l, t, r, b))
+            else -> listOf(LibShapes.outline(kind, l, t, r, b))
         }
     }
 
@@ -315,4 +333,46 @@ fun densifyPublic(corners: List<Pt>, step: Float = 6f): List<Pt> {
     }
     out += corners.last()
     return out
+}
+
+/** Rounded polygons, stars and blobs from Jetpack Graphics Shapes, sampled into points. */
+object LibShapes {
+    private fun poly(kind: ShapeKind): androidx.graphics.shapes.RoundedPolygon {
+        val rp = androidx.graphics.shapes.RoundedPolygon
+        fun r(radius: Float, smoothing: Float = 0f) = androidx.graphics.shapes.CornerRounding(radius, smoothing)
+        return when (kind) {
+            ShapeKind.OCTAGON -> androidx.graphics.shapes.RoundedPolygon(8)
+            ShapeKind.SOFT_TRIANGLE -> androidx.graphics.shapes.RoundedPolygon(3, rounding = r(0.25f, 0.4f))
+            ShapeKind.SQUIRCLE -> rp.rectangle(2f, 2f, rounding = r(0.6f, 1f))
+            ShapeKind.PILL -> rp.pill(2f, 1f)
+            ShapeKind.SOFT_STAR -> rp.star(5, innerRadius = 0.5f, rounding = r(0.12f))
+            ShapeKind.SUNNY -> rp.star(8, innerRadius = 0.8f, rounding = r(0.15f))
+            ShapeKind.BURST -> rp.star(12, innerRadius = 0.78f)
+            ShapeKind.COOKIE -> rp.star(9, innerRadius = 0.8f, rounding = r(0.5f))
+            ShapeKind.CLOVER -> rp.star(4, innerRadius = 0.25f, rounding = r(0.45f))
+            ShapeKind.FLOWER -> rp.star(8, innerRadius = 0.6f, rounding = r(0.35f))
+            ShapeKind.GEM -> androidx.graphics.shapes.RoundedPolygon(6, rounding = r(0.2f, 0.6f))
+            ShapeKind.PILL_STAR -> rp.pillStar(2f, 1f, numVerticesPerRadius = 10, innerRadiusRatio = 0.7f)
+            ShapeKind.BADGE -> rp.star(16, innerRadius = 0.86f, rounding = r(0.1f))
+            ShapeKind.SPARKLE -> rp.star(4, innerRadius = 0.32f, rounding = r(0.05f))
+            else -> androidx.graphics.shapes.RoundedPolygon(6)
+        }
+    }
+
+    fun outline(kind: ShapeKind, l: Float, t: Float, r: Float, b: Float): List<Pt> {
+        val path = poly(kind).normalized().toPath()
+        val m = android.graphics.Matrix().apply { setScale(max(r - l, 1f), max(b - t, 1f)); postTranslate(l, t) }
+        path.transform(m)
+        val measure = android.graphics.PathMeasure(path, true)
+        val out = ArrayList<Pt>()
+        val pos = FloatArray(2)
+        do {
+            val len = measure.length
+            var d = 0f
+            while (d <= len) { measure.getPosTan(d, pos, null); out += pos[0] to pos[1]; d += 4f }
+            measure.getPosTan(len, pos, null); out += pos[0] to pos[1]
+        } while (measure.nextContour())
+        if (out.isNotEmpty()) out += out.first()
+        return out
+    }
 }
