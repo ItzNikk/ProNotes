@@ -108,7 +108,18 @@ data class TapeItem(
     val color: Int,
     val revealed: Boolean = false,
     val rot: Float = 0f,
+    /** Freehand tape: points relative to (x, y). Null for a straight strip. */
+    val pts: FloatArray? = null,
+    val thick: Float = 46f,
 ) : PageItem {
+    val path: android.graphics.Path? by lazy {
+        pts?.let { p ->
+            android.graphics.Path().apply {
+                var i = 0
+                while (i + 1 < p.size) { if (i == 0) moveTo(p[0], p[1]) else lineTo(p[i], p[i + 1]); i += 2 }
+            }
+        }
+    }
     val raw: RectF get() = RectF(x, y, x + w, y + h)
     override val bounds: RectF get() = rotatedBounds(raw, rot)
     override fun translated(dx: Float, dy: Float): PageItem = copy(x = x + dx, y = y + dy)
@@ -164,6 +175,8 @@ data class Page(
     val pdfPage: Int = -1,
     val items: List<PageItem> = emptyList(),
     val bookmarked: Boolean = false,
+    val paperColor: Int? = null,
+    val cover: String? = null,
 )
 
 fun strokeBounds(stroke: Stroke): RectF {
@@ -191,6 +204,15 @@ fun InkItem.worldPoints(): List<Pair<Float, Float>> {
         val p = inputs.get(i)
         (p.x + dx) to (p.y + dy)
     }
+}
+
+/** Builds a freehand tape from absolute page points. */
+fun freehandTape(id: Long, abs: FloatArray, color: Int, thick: Float): TapeItem {
+    var l = Float.MAX_VALUE; var t = Float.MAX_VALUE; var r = -Float.MAX_VALUE; var b = -Float.MAX_VALUE
+    for (i in abs.indices step 2) { l = minOf(l, abs[i]); r = maxOf(r, abs[i]); t = minOf(t, abs[i + 1]); b = maxOf(b, abs[i + 1]) }
+    val x = l - thick / 2f; val y = t - thick / 2f
+    val rel = FloatArray(abs.size) { i -> abs[i] - if (i % 2 == 0) x else y }
+    return TapeItem(id, x, y, (r - l) + thick, (b - t) + thick, color, pts = rel, thick = thick)
 }
 
 /** Axis-aligned bounds of [r] rotated by [deg] about its centre. */
@@ -226,7 +248,11 @@ fun PageItem.transformed(m: android.graphics.Matrix, s: Float, deg: Float): Page
         }
         is ImageItem -> { val (cx, cy) = movedCenter(raw); copy(x = cx - w * s / 2f, y = cy - h * s / 2f, w = w * s, h = h * s, rot = (rot + deg) % 360f) }
         is StickyItem -> { val (cx, cy) = movedCenter(raw); copy(x = cx - w * s / 2f, y = cy - h * s / 2f, w = w * s, h = h * s, rot = (rot + deg) % 360f) }
-        is TapeItem -> { val (cx, cy) = movedCenter(raw); copy(x = cx - w * s / 2f, y = cy - h * s / 2f, w = w * s, h = h * s, rot = (rot + deg) % 360f) }
+        is TapeItem -> if (pts != null) {
+            val abs = FloatArray(pts.size) { i -> pts[i] + if (i % 2 == 0) x else y }
+            m.mapPoints(abs)
+            freehandTape(id, abs, color, thick * s)
+        } else { val (cx, cy) = movedCenter(raw); copy(x = cx - w * s / 2f, y = cy - h * s / 2f, w = w * s, h = h * s, rot = (rot + deg) % 360f) }
     }
 }
 

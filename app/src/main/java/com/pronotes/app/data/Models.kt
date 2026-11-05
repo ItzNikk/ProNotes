@@ -88,7 +88,11 @@ sealed class ItemDoc {
 
     @Serializable
     @SerialName("tape")
-    data class Tape(val x: Float, val y: Float, val w: Float, val h: Float, val color: Int, val rot: Float = 0f) : ItemDoc()
+    data class Tape(
+        val x: Float, val y: Float, val w: Float, val h: Float, val color: Int, val rot: Float = 0f,
+        /** Freehand tape: path points relative to (x, y), and its thickness. */
+        val pts: List<Float> = emptyList(), val thick: Float = 46f,
+    ) : ItemDoc()
 
     @Serializable
     @SerialName("sticky")
@@ -104,6 +108,10 @@ data class PageDoc(
     val pdfPage: Int = -1,
     val items: List<ItemDoc> = emptyList(),
     val bookmarked: Boolean = false,
+    /** Paper colour for this page; null follows the app setting. */
+    val paperColor: Int? = null,
+    /** Set on a notebook's cover page: the cover design drawn full-page (see NotebookMeta.cover). */
+    val cover: String? = null,
 )
 
 @Serializable
@@ -113,6 +121,22 @@ data class NoteDoc(val version: Int = 2, val pages: List<PageDoc>)
 object PageSize {
     const val WIDTH = 1240f
     const val HEIGHT = 1754f
+}
+
+/** Page size presets in millimetres; world units are 150 dpi (5.906 per mm). */
+enum class PagePreset(val label: String, val wMm: Float, val hMm: Float) {
+    A4("A4", 210f, 297f),
+    LETTER("Letter", 215.9f, 279.4f),
+    A5("A5", 148f, 210f),
+    A3("A3", 297f, 420f),
+    SQUARE("Square", 210f, 210f),
+    WIDE("16:9", 297f, 167f),
+    PHONE("Phone", 75f, 160f),
+    CUSTOM("Custom", 210f, 297f);
+
+    companion object {
+        const val UNITS_PER_MM = 1240f / 210f
+    }
 }
 
 val CoverColors = listOf(

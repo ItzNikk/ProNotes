@@ -160,7 +160,13 @@ object ShapeRecognizer {
         val corners = closedCorners(raw, diag * 0.06f)
         val polyErr = polygonError(raw, corners, diag)
         val n = corners.size
-        if (n in 3..6 && polyErr < 0.035f && (polyErr < ellipseErr * 0.5f || ellipseErr > 0.08f)) {
+        // Five-pointed star: ten corners whose distance from the centre alternates long/short.
+        if (n in 9..11 && polyErr < 0.05f) {
+            val d = corners.map { hypot(it.first - bx.cx, it.second - bx.cy) }
+            val alternates = d.indices.count { i -> (d[i] > d[(i + 1) % n]) != (d[(i + 1) % n] > d[(i + 2) % n]) } >= n - 2
+            if (alternates) return ShapeBuilder.build(ShapeKind.STAR, bx.l, bx.t, bx.r, bx.b).first()
+        }
+        if (n in 3..8 && polyErr < 0.035f && (polyErr < ellipseErr * 0.5f || ellipseErr > 0.08f)) {
             return when (n) {
                 3 -> densify(corners + corners.first())
                 4 -> quad(corners, bx)

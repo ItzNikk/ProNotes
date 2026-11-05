@@ -41,6 +41,7 @@ import androidx.compose.material.icons.outlined.ColorLens
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.DragHandle
 import kotlinx.coroutines.launch
+import com.pronotes.app.data.Updater.Phase as UPhase
 import sh.calvin.reorderable.ReorderableItem
 import androidx.compose.material.icons.outlined.Draw
 import androidx.compose.material.icons.outlined.Gesture
@@ -179,7 +180,6 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore) {
                     }
                     Section("Pen side button") {
                         Choice("While held", s.sideButton.label, SideButton.entries.map { it.label }) { i -> up { it.copy(sideButton = SideButton.entries[i]) } }
-                        Info("Works with S Pen, Wacom, USI 2.0, Lenovo, Xiaomi, OnePlus and other Android pens. Pens with an eraser end erase when flipped.")
                     }
                 }
                 Category.GESTURES -> {
@@ -229,11 +229,10 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore) {
                     Section("Toolbar") {
                         Choice("Position", s.toolbarDock.label, ToolbarDock.entries.map { it.label }) { i -> up { it.copy(toolbarDock = ToolbarDock.entries[i]) } }
                         Segmented(ToolbarSize.entries.map { it.label }, s.toolbarSize.ordinal) { i -> up { it.copy(toolbarSize = ToolbarSize.entries[i]) } }
-                        Info("Tip: drag the grip on a floating toolbar to move it to any edge.")
                     }
                     Section("Tools in the toolbar") {
                         ToolbarEditor(s.toolbarTools) { spec -> up { it.copy(toolbarTools = spec) } }
-                        Info("Long-press and drag to reorder. Switch off tools you do not use. Tool settings open when you tap a tool that is already selected.")
+                        Info("Long-press to reorder. Tap a selected tool for its settings.")
                     }
                     Section("Tabs") {
                         Toggle(Icons.Outlined.ViewQuilt, "Notebook tabs", "Keep several notebooks open and switch between them", s.showTabs) { v -> up { it.copy(showTabs = v) } }
@@ -281,16 +280,9 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore) {
                             }
                         }
                         HorizontalDivider(Modifier.padding(start = 56.dp))
-                        Row(
-                            Modifier.fillMaxWidth().clickable {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/ItzNikk/ProNotes/releases/latest")))
-                            }.padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(Icons.Outlined.Code, null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.size(16.dp))
-                            Text("Check for updates on GitHub", Modifier.weight(1f))
-                        }
+                        UpdateRow()
+                        HorizontalDivider(Modifier.padding(start = 56.dp))
+                        Toggle(Icons.Outlined.Code, "Check for updates automatically", "When the library opens", s.autoUpdateCheck) { v -> up { it.copy(autoUpdateCheck = v) } }
                     }
                 }
             }
@@ -447,4 +439,44 @@ private fun BackupRows() {
         }
     }
     status?.let { Info(it) }
+}
+
+/** Check, download and install updates without leaving the app. */
+@Composable
+private fun UpdateRow() {
+    val context = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val u = com.pronotes.app.data.Updater
+    val (title, sub) = when (u.phase) {
+        UPhase.IDLE -> "Check for updates" to "Version ${u.currentVersion(context)}"
+        UPhase.CHECKING -> "Checking…" to "Version ${u.currentVersion(context)}"
+        UPhase.UP_TO_DATE -> "Pro Notes is up to date" to "Version ${u.currentVersion(context)}"
+        UPhase.AVAILABLE -> "Update to ${u.release?.tag}" to "Tap to download and install"
+        UPhase.DOWNLOADING -> "Downloading ${(u.progress * 100).toInt()}%" to "Keep the app open"
+        UPhase.READY -> "Install update" to "Tap to open the installer"
+        UPhase.FAILED -> "Update failed" to (u.error ?: "Tap to try again")
+    }
+    Column(
+        Modifier.fillMaxWidth().clickable {
+            when (u.phase) {
+                UPhase.AVAILABLE -> scope.launch { u.download(context) }
+                UPhase.READY -> u.install(context)
+                UPhase.DOWNLOADING, UPhase.CHECKING -> Unit
+                else -> scope.launch { u.check(context) }
+            }
+        }.padding(16.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.Info, null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.size(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title)
+                Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+            }
+        }
+        if (u.phase == UPhase.DOWNLOADING) {
+            Spacer(Modifier.height(10.dp))
+            androidx.compose.material3.LinearProgressIndicator(progress = { u.progress }, modifier = Modifier.fillMaxWidth().padding(start = 40.dp))
+        }
+    }
 }

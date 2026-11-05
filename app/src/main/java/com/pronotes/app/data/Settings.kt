@@ -27,6 +27,7 @@ enum class PaperTint(val label: String, val argb: Int) {
     DARK("Dark", 0xFF22252B.toInt()),
 }
 enum class DeskColor(val label: String, val argb: Int) {
+    AUTO("Match system", 0),
     MIST("Mist", 0xFFE9ECF1.toInt()),
     SAND("Sand", 0xFFEDE8DE.toInt()),
     SAGE("Sage", 0xFFE1E8E1.toInt()),
@@ -59,7 +60,7 @@ data class AppSettings(
     val pullToAddPage: Boolean = true,
     val paperTint: PaperTint = PaperTint.WHITE,
     val defaultPaper: PaperStyle = PaperStyle.RULED,
-    val deskColor: DeskColor = DeskColor.MIST,
+    val deskColor: DeskColor = DeskColor.AUTO,
     val pageNumbers: Boolean = true,
     val keepScreenOn: Boolean = false,
     val darkPdf: Boolean = false,
@@ -69,6 +70,8 @@ data class AppSettings(
     val showTabs: Boolean = true,
     /** Tool order, comma separated enum names. Hidden tools are prefixed with "-". */
     val toolbarTools: String = "",
+    // in-app updates
+    val autoUpdateCheck: Boolean = true,
     // tools
     val eraserMode: EraserMode = EraserMode.STROKE,
     val eraseHighlighterOnly: Boolean = false,
@@ -120,7 +123,7 @@ class SettingsStore private constructor(context: Context) {
             pullToAddPage = b("pullToAdd", d.pullToAddPage),
             paperTint = enumOf("paperTint", d.paperTint),
             defaultPaper = enumOf("defaultPaper", d.defaultPaper),
-            deskColor = enumOf("deskColor", d.deskColor),
+            deskColor = enumOf("deskColor2", d.deskColor),
             pageNumbers = b("pageNumbers", d.pageNumbers),
             keepScreenOn = b("keepScreenOn", d.keepScreenOn),
             darkPdf = b("darkPdf", d.darkPdf),
@@ -128,6 +131,7 @@ class SettingsStore private constructor(context: Context) {
             toolbarSize = enumOf("toolbarSize", d.toolbarSize),
             showTabs = b("showTabs", d.showTabs),
             toolbarTools = prefs.getString("toolbarTools", "") ?: "",
+            autoUpdateCheck = b("autoUpdate", d.autoUpdateCheck),
             eraserMode = enumOf("eraserMode", d.eraserMode),
             eraseHighlighterOnly = b("eraseHlOnly", d.eraseHighlighterOnly),
             eraserAutoSwitch = b("eraserAutoSwitch", d.eraserAutoSwitch),
@@ -165,7 +169,7 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("pullToAdd", s.pullToAddPage)
             .putString("paperTint", s.paperTint.name)
             .putString("defaultPaper", s.defaultPaper.name)
-            .putString("deskColor", s.deskColor.name)
+            .putString("deskColor2", s.deskColor.name)
             .putBoolean("pageNumbers", s.pageNumbers)
             .putBoolean("keepScreenOn", s.keepScreenOn)
             .putBoolean("darkPdf", s.darkPdf)
@@ -173,6 +177,7 @@ class SettingsStore private constructor(context: Context) {
             .putString("toolbarSize", s.toolbarSize.name)
             .putBoolean("showTabs", s.showTabs)
             .putString("toolbarTools", s.toolbarTools)
+            .putBoolean("autoUpdate", s.autoUpdateCheck)
             .putString("eraserMode", s.eraserMode.name)
             .putBoolean("eraseHlOnly", s.eraseHighlighterOnly)
             .putBoolean("eraserAutoSwitch", s.eraserAutoSwitch)

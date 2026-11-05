@@ -50,6 +50,7 @@ interface CanvasHost {
     fun shapeKind(): ShapeKind
     fun eraserRadius(): Float
     fun tapeColor(): Int
+    fun tapeFreehand(): Boolean
     fun beginEdit(page: Int)
     fun setItems(page: Int, items: List<PageItem>)
     fun onSelectionChanged(page: Int, ids: Set<Long>, screenBounds: RectF?)
@@ -96,6 +97,16 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         set(value) { field = value; layer.invalidate() }
 
     var tool: Tool = Tool.PEN
+
+    /** True when the app is in dark mode; the desk around pages follows it. */
+    var darkUi = false
+        set(value) { field = value; layer.invalidate() }
+
+    private fun deskArgb(): Int = when (settings.deskColor) {
+        com.pronotes.app.data.DeskColor.AUTO -> if (darkUi) 0xFF141518.toInt() else 0xFFECEEF1.toInt()
+        else -> settings.deskColor.argb
+    }
+
     var settings = AppSettings()
         set(value) {
             val relayout = field.scroll != value.scroll ||
@@ -267,8 +278,17 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         clamp()
     }
 
+    /** transX that centres page [i] horizontally at the current scale. */
+    private fun pageCenterX(i: Int): Float {
+        val p = pages.getOrNull(i) ?: return transX
+        return (width - p.width * scale) / 2f - ox(i) * scale
+    }
+
+    private var lastTarget = 0
+
     fun scrollToPage(index: Int, animate: Boolean) {
         if (index !in pages.indices || width == 0) return
+        lastTarget = index
         val fromX = transX; val fromY = transY
         centerOn(index)
         if (animate) {
@@ -417,7 +437,12 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         val action = normalizeSamsungAction(event)
         val now = SystemClock.uptimeMillis()
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> { touchActive = true; pageAtGestureStart = currentIndex; layer.invalidate() }
+            MotionEvent.ACTION_DOWN -> {
+                touchActive = true
+                // A swipe that starts while a page turn is still animating counts from its target page.
+                pageAtGestureStart = if (!scroller.isFinished) lastTarget else currentIndex
+                layer.invalidate()
+            }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> touchActive = false
         }
         val penIndex = (0 until event.pointerCount).firstOrNull { isPen(event.getToolType(it)) }
@@ -622,9 +647,15 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         layer.invalidate()
                     }
                     Mode.TAPE -> {
-                        val (sx, sy) = points.first()
-                        val (cx, cy) = toLocal(e.getX(idx), e.getY(idx), activePage)
-                        layer.tapePreview = tapeRect(sx, sy, cx, cy)
+                        if (host.tapeFreehand()) {
+                            for (h in 0 until e.historySize) points += toLocal(e.getHistoricalX(idx, h), e.getHistoricalY(idx, h), activePage)
+                            points += toLocal(e.getX(idx), e.getY(idx), activePage)
+                            layer.tapeFree = ArrayList(points)
+                        } else {
+                            val (sx, sy) = points.first()
+                            val (cx, cy) = toLocal(e.getX(idx), e.getY(idx), activePage)
+                            layer.tapePreview = tapeRect(sx, sy, cx, cy)
+                        }
                         layer.invalidate()
                     }
                     else -> Unit
@@ -656,9 +687,22 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                     }
                     Mode.TAPE -> {
                         val r = layer.tapePreview
-                        layer.tapePreview = null
+                        val free = layer.tapeFree
+                        layer.tapePreview = null; layer.tapeFree = null
                         val (wx, wy) = toLocal(px, py, activePage)
-                        if (isTap || r == null) toggleTapeAt(activePage, wx, wy) else addTape(r)
+                        when {
+                            isTap -> toggleTapeAt(activePage, wx, wy)
+                            free != null && pathLength(free) > 24f -> {
+                                // Light smoothing so the tape edge is not jittery.
+                                val pts = simplifyForTape(free)
+                                val abs = FloatArray(pts.size * 2).also { a -> pts.forEachIndexed { k, (x, y) -> a[k * 2] = x; a[k * 2 + 1] = y } }
+                                val p = pages[activePage]
+                                host.beginEdit(activePage)
+                                updatePage(activePage, p.items + freehandTape(ItemIds.next(), abs, host.tapeColor(), 46f))
+                            }
+                            r != null -> addTape(r)
+                            else -> toggleTapeAt(activePage, wx, wy)
+                        }
                         layer.invalidate()
                     }
                     Mode.TAP -> {
@@ -874,6 +918,17 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         if (pendingCircle == null) return
         pendingCircle = null
         host.onCircleCandidate(null)
+    }
+
+    /** Keeps points at least 8 units apart, averaging neighbours for a smooth tape path. */
+    private fun simplifyForTape(pts: List<Pt>): List<Pt> {
+        val spaced = ArrayList<Pt>()
+        for (p in pts) if (spaced.isEmpty() || hypot(p.first - spaced.last().first, p.second - spaced.last().second) > 8f) spaced += p
+        if (spaced.size < 3) return spaced.ifEmpty { pts.take(2) }
+        return spaced.mapIndexed { i, p ->
+            if (i == 0 || i == spaced.size - 1) p
+            else ((spaced[i - 1].first + p.first * 2 + spaced[i + 1].first) / 4f) to ((spaced[i - 1].second + p.second * 2 + spaced[i + 1].second) / 4f)
+        }
     }
 
     private fun tapeRect(x0: Float, y0: Float, x1: Float, y1: Float): RectF {
@@ -1164,8 +1219,15 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 var dx = cx - panLastX; var dy = cy - panLastY
                 if (pull > 0f) { dx *= 0.45f; dy *= 0.45f }   // rubber band while pulling
                 // Horizontal paging at fit size: pages slide sideways only.
-                if (settings.scroll == ScrollDirection.HORIZONTAL && e.pointerCount == 1 && scale <= fitScale() * 1.03f) dy = 0f
+                val paging = settings.scroll == ScrollDirection.HORIZONTAL && e.pointerCount == 1 && scale <= fitScale() * 1.3f
+                if (paging) dy = 0f
                 transX += dx
+                // One swipe = one page: the drag can reach the next or previous page, no further.
+                if (paging && pages.isNotEmpty()) {
+                    val lo = pageCenterX((pageAtGestureStart + 1).coerceAtMost(pages.size - 1))
+                    val hi = pageCenterX((pageAtGestureStart - 1).coerceAtLeast(0))
+                    transX = transX.coerceIn(min(lo, hi), max(lo, hi))
+                }
                 transY += dy
                 panLastX = cx; panLastY = cy
                 clamp(allowPull = e.pointerCount == 1)
@@ -1224,12 +1286,13 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         vt.computeCurrentVelocity(1000)
         val vx = vt.xVelocity; val vy = vt.yVelocity
         val horizontal = settings.scroll == ScrollDirection.HORIZONTAL
-        val atFit = scale <= fitScale() * 1.05f
+        val atFit = scale <= fitScale() * 1.3f
         if (horizontal && atFit && !pulled) {
-            // Page-by-page snapping, like turning pages.
-            var target = currentIndex
-            if (vx < -500) target = (pageAtGestureStart + 1).coerceAtMost(pages.size - 1)
-            else if (vx > 500) target = (pageAtGestureStart - 1).coerceAtLeast(0)
+            // Page-by-page snapping, like turning pages: at most one page per swipe.
+            val start = pageAtGestureStart.coerceIn(0, max(0, pages.size - 1))
+            var target = currentIndex.coerceIn((start - 1).coerceAtLeast(0), (start + 1).coerceAtMost(pages.size - 1))
+            if (vx < -400) target = (start + 1).coerceAtMost(pages.size - 1)
+            else if (vx > 400) target = (start - 1).coerceAtLeast(0)
             scale = fitScale(target)
             scrollToPage(target, animate = true)
             return
@@ -1309,6 +1372,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         var hoverAt: Pair<Float, Float>? = null
         var shapePreview: List<List<Pt>>? = null
         var tapePreview: RectF? = null
+        var tapeFree: List<Pt>? = null
 
         private val lassoPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE; strokeWidth = 1.6f * density; color = 0xFF3D6CF4.toInt()
@@ -1427,11 +1491,11 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
         override fun onDraw(canvas: Canvas) {
             val r = renderer ?: return
-            pagePaintBg.color = settings.deskColor.argb
+            pagePaintBg.color = deskArgb()
             canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), pagePaintBg)
             r.paperColor = settings.paperTint.argb
             r.highlighterBehind = settings.highlighterBehind
-            pageNumberPaint.color = if (Color.luminance(settings.deskColor.argb) < 0.4f) 0xFFB0B6C0.toInt() else 0xFF7B8391.toInt()
+            pageNumberPaint.color = if (Color.luminance(deskArgb()) < 0.4f) 0xFFB0B6C0.toInt() else 0xFF7B8391.toInt()
             val view = RectF(0f, 0f, width.toFloat(), height.toFloat())
             val active = host.activeHighlight()
             pages.forEachIndexed { i, p ->
@@ -1448,6 +1512,13 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 if (i == selectionPage) r.drawItems(canvas, p.items, m, transform = liveMatrix, transformIds = selection)
                 else r.drawItems(canvas, p.items, m)
                 tapePreview?.takeIf { i == activePage }?.let { canvas.drawRoundRect(it, 6f, 6f, tapePreviewPaint) }
+                tapeFree?.takeIf { i == activePage && it.size > 1 }?.let { pts ->
+                    tmpPath.reset()
+                    pts.forEachIndexed { k, (x, y) -> if (k == 0) tmpPath.moveTo(x, y) else tmpPath.lineTo(x, y) }
+                    tapePreviewPaint.style = Paint.Style.STROKE; tapePreviewPaint.strokeWidth = 46f; tapePreviewPaint.strokeJoin = Paint.Join.ROUND
+                    canvas.drawPath(tmpPath, tapePreviewPaint)
+                    tapePreviewPaint.style = Paint.Style.FILL
+                }
                 shapePreview?.takeIf { i == activePage }?.forEach { line ->
                     tmpPath.reset()
                     line.forEachIndexed { k, (x, y) -> if (k == 0) tmpPath.moveTo(x, y) else tmpPath.lineTo(x, y) }

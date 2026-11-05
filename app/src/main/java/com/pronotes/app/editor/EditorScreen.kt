@@ -126,6 +126,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -179,6 +180,30 @@ import kotlin.math.roundToInt
 
 private val Pill = CircleShape
 
+/**
+ * "Liquid glass": a see-through surface tint with a bright hairline edge and a soft
+ * top highlight. Keeps the app's own colours; works on every Android version.
+ */
+@Composable
+private fun glassColor(): Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f)
+
+@Composable
+private fun Modifier.glassEdge(shape: androidx.compose.ui.graphics.Shape): Modifier {
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    return this
+        .border(
+            1.dp,
+            Brush.verticalGradient(
+                listOf(Color.White.copy(alpha = if (dark) 0.22f else 0.85f), Color.White.copy(alpha = if (dark) 0.05f else 0.25f)),
+            ),
+            shape,
+        )
+        .background(
+            Brush.verticalGradient(listOf(Color.White.copy(alpha = if (dark) 0.06f else 0.28f), Color.Transparent)),
+            shape,
+        )
+}
+
 /** Shares a bitmap as a PNG through the system share sheet. */
 private suspend fun shareBitmap(context: Context, bmp: Bitmap, name: String) {
     val file = withContext(Dispatchers.IO) {
@@ -210,6 +235,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     var renaming by remember { mutableStateOf(false) }
     var goTo by remember { mutableStateOf(false) }
     var focus by remember { mutableStateOf(false) }
+    var pageColor by remember { mutableStateOf(false) }
 
     LaunchedEffect(noteId) { store.openTab(noteId) }
     LaunchedEffect(library) { store.retainTabs(library.notebooks.filter { it.deletedAt == null }.map { it.id }.toSet()) }
@@ -264,6 +290,9 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
         }
     }
     LaunchedEffect(settings, canvas) { canvas?.settings = settings }
+    // The desk around pages follows light / dark mode.
+    val darkUi = MaterialTheme.colorScheme.background.luminance() < 0.4f
+    LaunchedEffect(darkUi, canvas) { canvas?.darkUi = darkUi }
     DisposableEffect(settings.keepScreenOn) {
         val window = (context as? android.app.Activity)?.window
         if (settings.keepScreenOn) window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -304,6 +333,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                             store.update { it.copy(scroll = if (it.scroll == ScrollDirection.VERTICAL) ScrollDirection.HORIZONTAL else ScrollDirection.VERTICAL) }
                         },
                         onPaste = { vm.paste()?.let { (pg, ids) -> canvas?.selectItems(pg, ids) } },
+                        onPageColor = { pageColor = true },
                     )
                     AnimatedVisibility(showSearch, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         SearchBar(vm)
@@ -334,6 +364,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                                 override fun shapeKind() = vm.shapeKind
                                 override fun eraserRadius() = vm.eraserRadiusPx(density)
                                 override fun tapeColor() = vm.tapeColor
+                                override fun tapeFreehand() = vm.tapeFreehand
                                 override fun beginEdit(page: Int) = vm.beginEdit(page)
                                 override fun setItems(page: Int, items: List<PageItem>) = vm.setItems(page, items)
                                 override fun onSelectionChanged(page: Int, ids: Set<Long>, screenBounds: android.graphics.RectF?) =
@@ -444,6 +475,13 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
         )
     }
 
+    if (pageColor) {
+        val opts = listOf(0xFFFFFFFF, 0xFFFBF7EC, 0xFFF1F2F4, 0xFFFFF4E0, 0xFFEAF4FF, 0xFFEFF8EC, 0xFF22252B).map { it.toInt() }
+        ColorEditorDialog(vm.currentPage?.paperColor ?: 0xFFFFFFFF.toInt(), opts, emptyList(), onDismiss = { pageColor = false }) { c ->
+            vm.setPageColor(c); pageColor = false
+        }
+    }
+
     if (renaming) {
         var name by remember { mutableStateOf(vm.title) }
         AlertDialog(
@@ -535,7 +573,7 @@ private fun TopBar(
     vm: EditorViewModel, settings: AppSettings, showSearch: Boolean, showPages: Boolean,
     onHome: () -> Unit, onPages: () -> Unit, onSearch: () -> Unit, onRename: () -> Unit, onFocus: () -> Unit,
     onExport: () -> Unit, onShare: () -> Unit, onSharePage: () -> Unit, onSettings: () -> Unit, onGoTo: () -> Unit,
-    onScrollToggle: () -> Unit, onPaste: () -> Unit,
+    onScrollToggle: () -> Unit, onPaste: () -> Unit, onPageColor: () -> Unit,
 ) {
     Row(Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         BarIcon(ProIcon.HOME, "Library", onClick = onHome)
@@ -582,6 +620,8 @@ private fun TopBar(
                     onClick = { more = false; vm.toggleBookmark() })
                 if (vm.hasClipboard) DropdownMenuItem(text = { Text("Paste") }, leadingIcon = { Icon(Icons.Outlined.ContentPaste, null) },
                     onClick = { more = false; onPaste() })
+                DropdownMenuItem(text = { Text("Page colour…") }, leadingIcon = { Icon(Icons.Outlined.Palette, null) },
+                    onClick = { more = false; onPageColor() })
                 DropdownMenuItem(text = { Text("Duplicate page") }, leadingIcon = { Icon(Icons.Outlined.ContentCopy, null) },
                     onClick = { more = false; vm.duplicatePage() })
                 DropdownMenuItem(text = { Text("Delete page") }, leadingIcon = { Icon(Icons.Outlined.Delete, null) },
@@ -593,7 +633,7 @@ private fun TopBar(
                 )
                 DropdownMenuItem(text = { Text("Focus mode") }, leadingIcon = { ProIconView(ProIcon.FOCUS, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) },
                     onClick = { more = false; onFocus() })
-                DropdownMenuItem(text = { Text("Settings") }, leadingIcon = { Icon(Icons.Outlined.Settings, null) },
+                DropdownMenuItem(text = { Text("Settings") }, leadingIcon = { ProIconView(ProIcon.SETTINGS, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) },
                     onClick = { more = false; onSettings() })
             }
         }
@@ -763,8 +803,9 @@ private fun BoxScope.ToolDock(vm: EditorViewModel, settings: AppSettings, area: 
         }
         val bar = @Composable {
             Surface(
-                shape = Pill, color = MaterialTheme.colorScheme.surface,
-                shadowElevation = if (dragging) 14.dp else 6.dp, tonalElevation = 1.dp,
+                shape = Pill, color = glassColor(),
+                shadowElevation = if (dragging) 14.dp else 6.dp,
+                modifier = Modifier.glassEdge(Pill),
             ) {
                 if (isVertical) Column(Modifier.padding(5.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) { grip(); tools() }
                 else Row(Modifier.padding(5.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) { grip(); tools() }
@@ -785,7 +826,7 @@ private fun BoxScope.ToolDock(vm: EditorViewModel, settings: AppSettings, area: 
 private fun OptionsBar(vm: EditorViewModel, vertical: Boolean, settings: AppSettings) {
     val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.TEXT)
     AnimatedVisibility(hasOptions, enter = fadeIn() + scaleIn(initialScale = 0.9f), exit = fadeOut() + scaleOut(targetScale = 0.9f)) {
-        Surface(shape = Pill, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f), shadowElevation = 4.dp) {
+        Surface(shape = Pill, color = glassColor(), shadowElevation = 4.dp, modifier = Modifier.glassEdge(Pill)) {
             if (vertical) Column(Modifier.padding(vertical = 6.dp, horizontal = 3.dp), horizontalAlignment = Alignment.CenterHorizontally) { ToolOptions(vm, true, settings) }
             else Row(Modifier.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) { ToolOptions(vm, false, settings) }
         }
@@ -840,7 +881,10 @@ private fun ToolButton(vm: EditorViewModel, t: Tool, settings: AppSettings) {
                     Tool.LASSO -> LassoCard()
                     Tool.LASER -> LaserCard()
                     Tool.TEXT -> TextCard(vm)
-                    Tool.TAPE -> ColorCard("Tape", TapeColors, vm.tapeColor, vm) { vm.tapeColor = it }
+                    Tool.TAPE -> Card("Tape") {
+                        Segments(listOf("Straight", "Freehand"), if (vm.tapeFreehand) 1 else 0) { vm.tapeFreehand = it == 1 }
+                        Row(verticalAlignment = Alignment.CenterVertically) { CustomSwatches(TapeColors, vm.tapeColor, vm) { vm.tapeColor = it } }
+                    }
                     Tool.STICKY -> ColorCard("Sticky note", StickyColors, vm.stickyColor, vm) { vm.stickyColor = it }
                     Tool.STICKER, Tool.IMAGE -> Unit
                 }
@@ -870,7 +914,10 @@ private fun ToolOptions(vm: EditorViewModel, vertical: Boolean, settings: AppSet
                     }
                 }
                 t == Tool.TEXT -> SizeDots(listOf(28f, 40f, 64f), vm.textSize) { vm.textSize = it }
-                t == Tool.TAPE -> CustomSwatches(TapeColors, vm.tapeColor, vm) { vm.tapeColor = it }
+                t == Tool.TAPE -> {
+                    CustomSwatches(TapeColors, vm.tapeColor, vm) { vm.tapeColor = it }
+                    MiniChip(if (vm.tapeFreehand) "Freehand" else "Straight") { vm.tapeFreehand = !vm.tapeFreehand }
+                }
                 t == Tool.STICKY -> CustomSwatches(StickyColors, vm.stickyColor, vm) { vm.stickyColor = it }
                 else -> Unit
             }
@@ -1027,9 +1074,6 @@ private fun PenCard(vm: EditorViewModel) {
             Text("FAVOURITE PENS", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
             TextButton(onClick = vm::savePreset) { Icon(Icons.Outlined.StarBorder, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Save this pen") }
         }
-        if (presets.isEmpty()) {
-            Text("Save pens you use often and switch with one tap.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             presets.forEach { p -> PresetChip(p, onClick = { vm.applyPreset(p) }, onRemove = { vm.removePreset(p) }) }
         }
@@ -1073,14 +1117,6 @@ private fun HighlighterCard(vm: EditorViewModel) {
         }
         Text("LINE", style = MaterialTheme.typography.labelSmall)
         Segments(HighlighterMode.entries.map { it.label }, s.highlighterMode.ordinal) { i -> store.update { it.copy(highlighterMode = HighlighterMode.entries[i]) } }
-        Text(
-            when (s.highlighterMode) {
-                HighlighterMode.FREEHAND -> "Highlights follow your hand. Hold at the end to straighten."
-                HighlighterMode.AUTO -> "Nearly straight highlights snap straight. Curvy ones stay as drawn."
-                HighlighterMode.STRAIGHT -> "Every highlight is a straight line."
-            },
-            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
         ToggleLine("Draw behind ink", s.highlighterBehind) { v -> store.update { it.copy(highlighterBehind = v) } }
     }
 }
@@ -1118,7 +1154,6 @@ private fun LassoCard() {
         }
         ToggleLine("Select anything the lasso touches", s.lassoTouching) { v -> store.update { it.copy(lassoTouching = v) } }
         ToggleLine("Circle and hold with the pen", s.circleToLasso) { v -> store.update { it.copy(circleToLasso = v) } }
-        Text("Drag corner handles to resize, the top handle to rotate.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -1138,7 +1173,6 @@ private fun TextCard(vm: EditorViewModel) {
     Card("Text") {
         SliderRow("DEFAULT SIZE", "%.0f".format(vm.textSize), vm.textSize, 16f..160f) { vm.textSize = it }
         Segments(TextFont.entries.take(4).map { it.label }, TextFont.entries.indexOf(vm.textStyle.font).coerceAtMost(3)) { i -> vm.textStyle = vm.textStyle.copy(font = TextFont.entries[i]) }
-        Text("Tap the page to type. Tap typed text to edit its font, colour and gradient.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -1192,11 +1226,6 @@ private fun ShapeCard(vm: EditorViewModel) {
                 }
             }
         }
-        Text(
-            if (vm.shapeKind == ShapeKind.AUTO) "Draw freely. Lines, triangles, rectangles, squares, diamonds, polygons and circles snap into shape."
-            else "Drag to draw a ${vm.shapeKind.label.lowercase()}.",
-            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
     if (fillEdit) ColorEditorDialog(vm.shapeFillColor, PenPalette, vm.recentColors(), onDismiss = { fillEdit = false }) { c ->
         vm.shapeFillColor = (c and 0x00FFFFFF) or (vm.shapeFillColor and 0xFF000000.toInt()); fillEdit = false
@@ -1372,7 +1401,7 @@ private fun SelectionMenu(
 ) {
     var colors by remember { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
-    Surface(shape = Pill, color = Color(0xFF1B1F2A), contentColor = Color.White, shadowElevation = 8.dp) {
+    Surface(shape = Pill, color = Color(0xE01B1F2A), contentColor = Color.White, shadowElevation = 8.dp, modifier = Modifier.glassEdge(Pill)) {
         Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = vm::cutSelection) { Icon(Icons.Outlined.ContentCut, "Cut") }
             IconButton(onClick = vm::copySelection) { Icon(Icons.Outlined.ContentCopy, "Copy") }
@@ -1402,7 +1431,7 @@ private fun SelectionMenu(
 
 @Composable
 private fun PagePill(index: Int, count: Int, bookmarked: Boolean, onPrev: () -> Unit, onNext: () -> Unit, onTap: () -> Unit, modifier: Modifier) {
-    Surface(modifier.shadow(6.dp, Pill), shape = Pill, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)) {
+    Surface(modifier.shadow(6.dp, Pill).glassEdge(Pill), shape = Pill, color = glassColor()) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
             IconButton(onClick = onPrev, enabled = index > 0) { Icon(Icons.Filled.KeyboardArrowUp, "Previous page", Modifier.graphicsLayer { rotationZ = -90f }) }
             Row(Modifier.clip(Pill).clickable(onClick = onTap).padding(horizontal = 6.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {

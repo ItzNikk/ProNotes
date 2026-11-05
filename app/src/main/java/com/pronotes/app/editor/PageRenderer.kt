@@ -96,7 +96,14 @@ class PageRenderer(private val noteDir: File?) {
     }
     private val scratch = Matrix()
 
-    private val isDark get() = Color.luminance(paperColor) < 0.4f
+    private var currentBg = Color.WHITE
+    private val isDark get() = Color.luminance(currentBg) < 0.4f
+
+    private val coverPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    /** A notebook cover drawn as a full page, so it can be written on. */
+    fun drawCover(canvas: Canvas, r: RectF, spec: String) {
+        val parts = spec.split(
 
     fun image(name: String): Bitmap? {
         val dir = noteDir ?: return null
@@ -114,15 +121,17 @@ class PageRenderer(private val noteDir: File?) {
 
     fun drawPaper(canvas: Canvas, page: Page, pdf: Bitmap?, shadow: Boolean) {
         val rect = RectF(0f, 0f, page.width, page.height)
-        val bg = if (page.pdfPage >= 0) Color.WHITE else paperColor
+        val bg = if (page.pdfPage >= 0) Color.WHITE else page.paperColor ?: paperColor
         val p = if (shadow) shadowPaint else pagePaint
         p.color = bg
         canvas.drawRect(rect, p)
+        page.cover?.let { drawCover(canvas, rect, it); return }
         if (pdf != null) {
             canvas.drawBitmap(pdf, null, rect, if (darkPdf) invertPaint else bitmapPaint)
             return
         }
         if (page.pdfPage >= 0) return
+        currentBg = bg
         val line = if (isDark) 0xFF3A3F48.toInt() else 0xFFD5DEEA.toInt()
         linePaint.color = line; boldLine.color = line; boxPaint.color = line
         dotPaint.color = if (isDark) 0xFF4A505A.toInt() else 0xFFC3CCD8.toInt()
@@ -229,6 +238,15 @@ class PageRenderer(private val noteDir: File?) {
                 }
                 is TapeItem -> {
                     tapePaint.color = if (item.revealed) (item.color and 0x00FFFFFF) or (0x40 shl 24) else item.color
+                    val tp = item.path
+                    if (tp != null) {
+                        tapePaint.style = Paint.Style.STROKE; tapePaint.strokeWidth = item.thick
+                        tapePaint.strokeCap = Paint.Cap.SQUARE; tapePaint.strokeJoin = Paint.Join.ROUND
+                        canvas.save(); canvas.translate(item.x, item.y); canvas.drawPath(tp, tapePaint); canvas.restore()
+                        tapePaint.style = Paint.Style.FILL
+                        if (moved) canvas.restore()
+                        continue
+                    }
                     val r = item.raw
                     rotated(canvas, r, item.rot) {
                         canvas.drawRoundRect(r, 6f, 6f, tapePaint)

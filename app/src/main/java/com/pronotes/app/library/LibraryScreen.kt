@@ -23,6 +23,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -211,10 +213,32 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
         Column(Modifier.weight(1f).fillMaxHeight().statusBarsPadding()) {
             // Top row
             Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (!sidebar) IconButton(onClick = { sidebar = true }) { Icon(Icons.Outlined.Menu, "Sidebar") }
-                Spacer(Modifier.weight(1f))
-                IconButton(onClick = { searching = !searching; if (!searching) query = "" }) { Icon(Icons.Outlined.Search, "Search") }
-                IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, "Settings") }
+                if (!sidebar) IconButton(onClick = { sidebar = true }) { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SIDEBAR, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) }
+                // Open notebooks, like browser tabs.
+                val store = remember { SettingsStore.get(context) }
+                val tabs by store.tabs.collectAsState()
+                val open = tabs.mapNotNull { id -> lib.notebooks.firstOrNull { it.id == id && it.deletedAt == null } }
+                Row(
+                    Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    open.forEach { n ->
+                        Row(
+                            Modifier.widthIn(max = 200.dp).clip(CircleShape)
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                                .clickable { onOpen(n.id) }.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(n.title, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                            Box(Modifier.size(22.dp).clip(CircleShape).clickable { store.closeTab(n.id) }, contentAlignment = Alignment.Center) {
+                                com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.CLOSE, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.size(11.dp))
+                            }
+                        }
+                    }
+                }
+                UpdatePill()
+                IconButton(onClick = { searching = !searching; if (!searching) query = "" }) { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SEARCH, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) }
+                IconButton(onClick = onSettings) { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SETTINGS, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) }
             }
             // Title row
             Row(Modifier.fillMaxWidth().padding(start = 28.dp, end = 20.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -316,11 +340,18 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
     }
 
     // ---------------------------------------------------------------- dialogs
-    if (newNotebook) NewNotebookDialog(settings.defaultPaper, settings.thumbCovers, onDismiss = { newNotebook = false }) { name, cover, coverColor, paper, photo ->
+    if (newNotebook) NewNotebookDialog(settings.defaultPaper, settings.thumbCovers, onDismiss = { newNotebook = false }) { b ->
         newNotebook = false
         scope.launch {
-            val id = repo.createNotebook(name, folderId, coverColor, paper, cover)
-            if (photo != null) repo.setCover(id, repo.saveCoverImage(id, photo))
+            val usePhotoPage = b.photo != null && b.coverPage
+            val id = repo.createNotebook(
+                b.name, folderId, b.coverColor, b.paper, b.cover,
+                width = b.width, height = b.height, paperColor = b.paperColor, coverPage = b.coverPage,
+            )
+            if (b.photo != null) {
+                val spec = repo.saveCoverImage(id, b.photo)
+                if (!usePhotoPage || !repo.setCoverPage(id, spec)) repo.setCover(id, spec)
+            }
             onOpen(id)
         }
     }
@@ -358,7 +389,11 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
     coverFor?.let { n ->
         CoverDialog(n.coverSpec, onDismiss = { coverFor = null }) { spec, photo ->
             coverFor = null
-            scope.launch { repo.setCover(n.id, if (photo != null) repo.saveCoverImage(n.id, photo) else spec) }
+            scope.launch {
+                val s = if (photo != null) repo.saveCoverImage(n.id, photo) else spec
+                // Notebooks with a cover page get the new design on that page.
+                if (s == "thumb" || !repo.setCoverPage(n.id, s)) repo.setCover(n.id, s)
+            }
         }
     }
 
@@ -752,18 +787,33 @@ private fun CoverDialog(current: String, onDismiss: () -> Unit, onPick: (String,
     )
 }
 
+/** Everything chosen in the "New notebook" dialog. */
+data class NewBook(
+    val name: String, val cover: String, val coverColor: Int, val paper: PaperStyle, val photo: Uri?,
+    val width: Float, val height: Float, val paperColor: Int?, val coverPage: Boolean,
+)
+
+private val PaperColors = listOf(0xFFFFFFFF, 0xFFFBF7EC, 0xFFF1F2F4, 0xFFFFF4E0, 0xFFEAF4FF, 0xFFEFF8EC, 0xFF22252B).map { it.toInt() }
+
 @OptIn(ExperimentalLayoutApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun NewNotebookDialog(
     defaultPaper: PaperStyle,
     thumbCovers: Boolean,
     onDismiss: () -> Unit,
-    onCreate: (name: String, cover: String, coverColor: Int, paper: PaperStyle, photo: Uri?) -> Unit,
+    onCreate: (NewBook) -> Unit,
 ) {
     var name by remember { mutableStateOf("Untitled notebook") }
     val startColor = remember { CoverColors.random() }
     var cover by remember { mutableStateOf(if (thumbCovers) "thumb" else "solid:$startColor") }
+    var coverPage by remember { mutableStateOf(true) }
     var paper by remember { mutableStateOf(defaultPaper) }
+    var paperColor by remember { mutableStateOf<Int?>(null) }
+    var customPaper by remember { mutableStateOf(false) }
+    var preset by remember { mutableStateOf(com.pronotes.app.data.PagePreset.A4) }
+    var landscape by remember { mutableStateOf(false) }
+    var wMm by remember { mutableStateOf("210") }
+    var hMm by remember { mutableStateOf("297") }
     var photo by remember { mutableStateOf<Uri?>(null) }
     var tab by remember { mutableStateOf(0) }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) { photo = uri; cover = "photo" } }
@@ -781,27 +831,66 @@ private fun NewNotebookDialog(
                         } else CoverArt(cover, name, null, 0, Modifier.fillMaxSize())
                     }
                     Spacer(Modifier.width(14.dp))
-                    OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Title") })
+                    OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Title") }, shape = CircleShape)
                 }
                 PrimaryTabRow(selectedTabIndex = tab) {
                     Tab(tab == 0, { tab = 0 }, text = { Text("Cover") })
                     Tab(tab == 1, { tab = 1 }, text = { Text("Paper") })
+                    Tab(tab == 2, { tab = 2 }, text = { Text("Size") })
                 }
-                Box(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
-                    if (tab == 0) {
-                        CoverGallery(cover, { cover = it; photo = null }) { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
-                    } else {
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            PaperStyle.entries.forEach { p ->
-                                val sel = p == paper
-                                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { paper = p }) {
-                                    PaperPreview(
-                                        p,
-                                        Modifier.size(width = 64.dp, height = 90.dp).clip(RoundedCornerShape(6.dp))
-                                            .border(if (sel) 2.dp else 1.dp, if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp)),
-                                    )
-                                    Text(p.label, style = MaterialTheme.typography.labelSmall)
+                Box(Modifier.heightIn(max = 340.dp).verticalScroll(rememberScrollState())) {
+                    when (tab) {
+                        0 -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            CoverGallery(cover, { cover = it; photo = null }) { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+                            if (cover != "thumb") Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Cover as first page")
+                                    Text("Write on your cover", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
+                                androidx.compose.material3.Switch(coverPage, { coverPage = it })
+                            }
+                        }
+                        1 -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                PaperStyle.entries.forEach { p ->
+                                    val sel = p == paper
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { paper = p }) {
+                                        PaperPreview(
+                                            p,
+                                            Modifier.size(width = 60.dp, height = 84.dp).clip(RoundedCornerShape(8.dp))
+                                                .border(if (sel) 2.dp else 1.dp, if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)),
+                                            tint = paperColor ?: 0xFFFFFFFF.toInt(),
+                                        )
+                                        Text(p.label, style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
+                            Text("Paper colour", style = MaterialTheme.typography.labelSmall)
+                            FlowRow {
+                                Swatch(0x00000000, paperColor == null, 22) { paperColor = null }
+                                PaperColors.forEach { c -> Swatch(c, c == paperColor, 22) { paperColor = c } }
+                                Box(
+                                    Modifier.padding(4.dp).size(26.dp).clip(CircleShape).border(1.dp, MaterialTheme.colorScheme.outline, CircleShape).clickable { customPaper = true },
+                                    contentAlignment = Alignment.Center,
+                                ) { Icon(Icons.Filled.Add, "Custom", Modifier.size(14.dp)) }
+                            }
+                        }
+                        else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                com.pronotes.app.data.PagePreset.entries.forEach { p ->
+                                    androidx.compose.material3.FilterChip(preset == p, {
+                                        preset = p
+                                        if (p != com.pronotes.app.data.PagePreset.CUSTOM) { wMm = "%.0f".format(p.wMm); hMm = "%.0f".format(p.hMm) }
+                                    }, label = { Text(p.label) }, shape = CircleShape)
+                                }
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Landscape", Modifier.weight(1f))
+                                androidx.compose.material3.Switch(landscape, { landscape = it })
+                            }
+                            if (preset == com.pronotes.app.data.PagePreset.CUSTOM) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                OutlinedTextField(wMm, { v -> wMm = v.filter { it.isDigit() }.take(4) }, label = { Text("Width mm") }, singleLine = true, modifier = Modifier.weight(1f), shape = CircleShape)
+                                OutlinedTextField(hMm, { v -> hMm = v.filter { it.isDigit() }.take(4) }, label = { Text("Height mm") }, singleLine = true, modifier = Modifier.weight(1f), shape = CircleShape)
                             }
                         }
                     }
@@ -811,9 +900,45 @@ private fun NewNotebookDialog(
         confirmButton = {
             TextButton(onClick = {
                 val color = cover.substringAfterLast(':').toLongOrNull()?.toInt() ?: startColor
-                onCreate(name.ifBlank { "Untitled notebook" }, if (cover == "photo") "" else cover, color, paper, photo)
+                var w = (wMm.toFloatOrNull() ?: 210f).coerceIn(40f, 1000f)
+                var h = (hMm.toFloatOrNull() ?: 297f).coerceIn(40f, 1000f)
+                if (landscape != (w > h)) { val t = w; w = h; h = t }
+                val k = com.pronotes.app.data.PagePreset.UNITS_PER_MM
+                onCreate(NewBook(
+                    name.ifBlank { "Untitled notebook" }, if (cover == "photo") "" else cover, color, paper, photo,
+                    w * k, h * k, paperColor, coverPage && cover != "thumb",
+                ))
             }) { Text("Create") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+    if (customPaper) ColorEditorDialog(paperColor ?: 0xFFFFFFFF.toInt(), PaperColors, emptyList(), onDismiss = { customPaper = false }) { paperColor = it; customPaper = false }
+}
+
+/** Small pill in the library header: offers in-app updates when a new release is out. */
+@Composable
+private fun UpdatePill() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val settings by SettingsStore.get(context).settings.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(settings.autoUpdateCheck) {
+        if (settings.autoUpdateCheck) com.pronotes.app.data.Updater.check(context, quiet = true)
+    }
+    val u = com.pronotes.app.data.Updater
+    val label = when (u.phase) {
+        com.pronotes.app.data.Updater.Phase.AVAILABLE -> "Update to ${u.release?.tag}"
+        com.pronotes.app.data.Updater.Phase.DOWNLOADING -> "Downloading ${(u.progress * 100).toInt()}%"
+        com.pronotes.app.data.Updater.Phase.READY -> "Install update"
+        else -> null
+    } ?: return
+    Surface(
+        shape = CircleShape, color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary,
+        modifier = Modifier.padding(horizontal = 6.dp).clickable {
+            when (u.phase) {
+                com.pronotes.app.data.Updater.Phase.AVAILABLE -> scope.launch { u.download(context) }
+                com.pronotes.app.data.Updater.Phase.READY -> u.install(context)
+                else -> Unit
+            }
+        },
+    ) { Text(label, Modifier.padding(horizontal = 14.dp, vertical = 7.dp), style = MaterialTheme.typography.labelSmall) }
 }

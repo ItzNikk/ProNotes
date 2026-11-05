@@ -67,6 +67,8 @@ enum class ProIcon(internal val parts: List<Part>) {
     BOOKMARK(listOf(P("M7 4.5h10a1 1 0 0 1 1 1V20l-6-4-6 4V5.5a1 1 0 0 1 1-1z", body = true))),
     FOCUS(listOf(P("M4 9V5.5a1.5 1.5 0 0 1 1.5-1.5H9"), P("M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9"), P("M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15"), P("M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"))),
     CLOSE(listOf(P("M6 6l12 12M18 6L6 18"))),
+    /** Two sliders: a calm, professional "settings" mark. */
+    SETTINGS(listOf(P("M4 7.5h8.5M17.5 7.5H20"), C(15f, 7.5f, 2.3f), P("M4 16.5h2.5M11.5 16.5H20"), C(9f, 16.5f, 2.3f))),
 }
 
 private val parsed = HashMap<String, Path>()
@@ -125,17 +127,35 @@ fun iconFor(tool: Tool): ProIcon = when (tool) {
     Tool.LASER -> ProIcon.LASER
 }
 
-/** Tool icon. When [active], colour tools fill their body with the current [inkColor]. */
+/** Tool icon. Colour tools always show their current [inkColor]; the shapes icon is multicolour. */
 @Composable
 fun ToolGlyph(tool: Tool, tint: Color, inkColor: Color, modifier: Modifier = Modifier, active: Boolean = false) {
-    val ink = when {
-        !active -> null
-        tool == Tool.PEN || tool == Tool.SHAPE || tool == Tool.TAPE || tool == Tool.STICKY -> inkColor
-        tool == Tool.HIGHLIGHTER -> inkColor
-        tool == Tool.LASER -> Color(0xFFFF3B30)
+    if (tool == Tool.SHAPE) {
+        Canvas(modifier) { drawShapesIcon(tint) }
+        return
+    }
+    val ink = when (tool) {
+        Tool.PEN, Tool.TAPE, Tool.STICKY, Tool.HIGHLIGHTER -> inkColor
+        Tool.LASER -> if (active) Color(0xFFFF3B30) else null
         else -> null
     }
-    ProIconView(iconFor(tool), tint, modifier, ink, if (tool == Tool.HIGHLIGHTER) 0.55f else 0.9f)
+    ProIconView(iconFor(tool), tint, modifier, ink, if (tool == Tool.HIGHLIGHTER) 0.55f else if (active) 0.9f else 0.75f)
+}
+
+/** Circle, triangle and rounded box in three colours. */
+private fun DrawScope.drawShapesIcon(tint: Color) {
+    val k = size.minDimension / 24f
+    translate((size.width - 24f * k) / 2f, (size.height - 24f * k) / 2f) {
+        scale(k, k, pivot = Offset.Zero) {
+            val s = Stroke(width = 1.75f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            drawCircle(Color(0xFFFF6B6B), 4f, Offset(7.5f, 7.5f))
+            drawCircle(tint, 4f, Offset(7.5f, 7.5f), style = s)
+            val tri = pathOf("M16.5 4L21 12.5h-9z")
+            drawPath(tri, Color(0xFFFFC53D)); drawPath(tri, tint, style = s)
+            drawRoundRect(Color(0xFF4D9BFF), Offset(6f, 15f), Size(12f, 5.5f), CornerRadius(1.5f))
+            drawRoundRect(tint, Offset(6f, 15f), Size(12f, 5.5f), CornerRadius(1.5f), style = s)
+        }
+    }
 }
 
 /** Pen bodies for the pen card. */
@@ -159,6 +179,11 @@ private fun DrawScope.drawPen(tint: Color, ink: Color, type: PenType) {
                 drawRoundRect(tint, p(10f, 7f), Size(4f * k, 15f * k), CornerRadius(2f * k), style = s)
                 drawPath(Path().apply { moveTo(10.5f * k, 7f * k); lineTo(12f * k, 2.5f * k); lineTo(13.5f * k, 7f * k); close() }, ink)
                 drawLine(tint, p(13.8f, 9f), p(13.8f, 14f), 1.1f * k, StrokeCap.Round)
+            }
+            PenType.DASHED -> {
+                drawRoundRect(tint, p(10f, 7f), Size(4f * k, 15f * k), CornerRadius(2f * k), style = s)
+                drawPath(Path().apply { moveTo(10.5f * k, 7f * k); lineTo(12f * k, 2.5f * k); lineTo(13.5f * k, 7f * k); close() }, ink)
+                for (y in listOf(9f, 12.5f, 16f)) drawLine(ink, p(12f, y), p(12f, y + 2f), 1.4f * k, StrokeCap.Round)
             }
             PenType.BRUSH -> {
                 drawRoundRect(tint, p(10f, 11f), Size(4f * k, 11f * k), CornerRadius(1.5f * k), style = s)

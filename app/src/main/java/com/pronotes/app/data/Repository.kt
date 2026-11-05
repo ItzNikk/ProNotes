@@ -126,15 +126,39 @@ class Repository private constructor(private val context: Context) {
 
     // ---------------------------------------------------------- notebooks
 
-    suspend fun createNotebook(title: String, folderId: String?, cover: Int, paper: PaperStyle, coverSpec: String = ""): String {
+    /**
+     * Creates a notebook. With [coverPage], page 1 is the cover itself (drawn from [coverSpec])
+     * so it can be written on, and the library shows that page as the cover.
+     */
+    suspend fun createNotebook(
+        title: String, folderId: String?, cover: Int, paper: PaperStyle, coverSpec: String = "",
+        width: Float = PageSize.WIDTH, height: Float = PageSize.HEIGHT, paperColor: Int? = null, coverPage: Boolean = false,
+    ): String {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
-        val doc = NoteDoc(pages = listOf(PageDoc(UUID.randomUUID().toString(), PageSize.WIDTH, PageSize.HEIGHT, paper)))
-        withContext(Dispatchers.IO) { File(noteDir(id), "note.json").writeText(json.encodeToString(NoteDoc.serializer(), doc)) }
-        updateIndex {
-            it.copy(notebooks = it.notebooks + NotebookMeta(id, title, folderId, cover, paper, now, now, 1, cover = coverSpec))
+        val pages = buildList {
+            if (coverPage) add(PageDoc(UUID.randomUUID().toString(), width, height, PaperStyle.BLANK, cover = coverSpec.ifBlank { "solid:$cover" }))
+            add(PageDoc(UUID.randomUUID().toString(), width, height, paper, paperColor = paperColor))
         }
+        withContext(Dispatchers.IO) { File(noteDir(id), "note.json").writeText(json.encodeToString(NoteDoc.serializer(), NoteDoc(pages = pages))) }
+        updateIndex {
+            it.copy(notebooks = it.notebooks + NotebookMeta(id, title, folderId, cover, paper, now, now, pages.size, cover = if (coverPage) "thumb" else coverSpec))
+        }
+        if (coverPage) withContext(Dispatchers.IO) { runCatching { writeThumbnail(id, pages.map { InkCodec.fromDoc(it) }) } }
         return id
+    }
+
+    /** Changes the design of a notebook's cover page, if it has one. */
+    suspend fun setCoverPage(id: String, spec: String): Boolean = withContext(Dispatchers.IO) {
+        val f = File(noteDir(id), "note.json")
+        val doc = runCatching { json.decodeFromString(NoteDoc.serializer(), f.readText()) }.getOrNull() ?: return@withContext false
+        val first = doc.pages.firstOrNull() ?: return@withContext false
+        if (first.cover == null) return@withContext false
+        val next = doc.copy(pages = listOf(first.copy(cover = spec)) + doc.pages.drop(1))
+        f.writeText(json.encodeToString(NoteDoc.serializer(), next))
+        runCatching { writeThumbnail(id, next.pages.map { InkCodec.fromDoc(it) }) }
+        updateIndex { it.copy(notebooks = it.notebooks.map { n -> if (n.id == id) n.copy(modified = System.currentTimeMillis(), cover = "thumb") else n }) }
+        true
     }
 
     suspend fun importPdf(uri: Uri, folderId: String?): String = withContext(Dispatchers.IO) {

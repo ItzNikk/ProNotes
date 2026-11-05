@@ -82,6 +82,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var eraserSize by mutableStateOf(1)
     var textSize by mutableStateOf(40f)
     var tapeColor by mutableStateOf(TapeColors[0])
+    var tapeFreehand by mutableStateOf(false)
     var stickyColor by mutableStateOf(StickyColors[0])
 
     // ------------------------------------------------------------ selection
@@ -459,8 +460,20 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     private fun newPage(): Page {
         val cur = currentPage
-        val paper = if (cur == null || cur.pdfPage >= 0) repo.meta(noteId)?.paper ?: settingsFlow.value.defaultPaper else cur.paper
-        return Page(UUID.randomUUID().toString(), PageSize.WIDTH, PageSize.HEIGHT, paper)
+        // New pages copy size, template and colour from a nearby writing page (not the cover or a PDF page).
+        val ref = pages.getOrNull(pageIndex)?.takeIf { it.cover == null && it.pdfPage < 0 }
+            ?: pages.lastOrNull { it.cover == null && it.pdfPage < 0 }
+        val paper = ref?.paper ?: repo.meta(noteId)?.paper ?: settingsFlow.value.defaultPaper
+        val w = ref?.width ?: cur?.takeIf { it.pdfPage < 0 }?.width ?: PageSize.WIDTH
+        val h = ref?.height ?: cur?.takeIf { it.pdfPage < 0 }?.height ?: PageSize.HEIGHT
+        return Page(UUID.randomUUID().toString(), w, h, paper, paperColor = ref?.paperColor)
+    }
+
+    /** Paper colour of the page in view; null follows the app setting. */
+    fun setPageColor(color: Int?) {
+        val p = currentPage ?: return
+        pages[pageIndex] = p.copy(paperColor = color)
+        scheduleSave(); onPagesChanged?.invoke()
     }
 
     fun addPage(atEnd: Boolean = false, paper: PaperStyle? = null) {

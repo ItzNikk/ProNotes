@@ -19,6 +19,7 @@ enum class PenType(val label: String, val family: String, val sizeFactor: Float)
     FOUNTAIN("Fountain pen", Brushes.PEN, 1f),
     BALL("Ball pen", Brushes.MARKER, 0.8f),
     BRUSH("Brush pen", Brushes.PEN, 2.2f),
+    DASHED("Dashed pen", Brushes.DASHED, 1f),
 }
 
 /** Brush families come straight from Jetpack Ink's stock brushes. */
@@ -138,6 +139,8 @@ object InkCodec {
         paper = page.paper,
         pdfPage = page.pdfPage,
         bookmarked = page.bookmarked,
+        paperColor = page.paperColor,
+        cover = page.cover,
         items = page.items.map { item ->
             when (item) {
                 is InkItem -> ItemDoc.Ink(
@@ -159,7 +162,7 @@ object InkCodec {
                 )
                 is FillItem -> ItemDoc.Fill(item.points.toList(), item.color, item.dx, item.dy)
                 is ImageItem -> ItemDoc.Image(item.file, item.x, item.y, item.w, item.h, item.rot)
-                is TapeItem -> ItemDoc.Tape(item.x, item.y, item.w, item.h, item.color, item.rot)
+                is TapeItem -> ItemDoc.Tape(item.x, item.y, item.w, item.h, item.color, item.rot, item.pts?.toList() ?: emptyList(), item.thick)
                 is StickyItem -> ItemDoc.Sticky(item.x, item.y, item.w, item.h, item.color, item.text, item.rot)
             }
         },
@@ -172,6 +175,8 @@ object InkCodec {
         paper = doc.paper,
         pdfPage = doc.pdfPage,
         bookmarked = doc.bookmarked,
+        paperColor = doc.paperColor,
+        cover = doc.cover,
         items = doc.items.mapNotNull { item ->
             runCatching<PageItem> {
                 when (item) {
@@ -193,7 +198,10 @@ object InkCodec {
                     )
                     is ItemDoc.Fill -> FillItem(ItemIds.next(), item.points.toFloatArray(), item.color, item.dx, item.dy)
                     is ItemDoc.Image -> ImageItem(ItemIds.next(), item.file, item.x, item.y, item.w, item.h, item.rot)
-                    is ItemDoc.Tape -> TapeItem(ItemIds.next(), item.x, item.y, item.w, item.h, item.color, rot = item.rot)
+                    is ItemDoc.Tape -> TapeItem(
+                        ItemIds.next(), item.x, item.y, item.w, item.h, item.color, rot = item.rot,
+                        pts = item.pts.takeIf { it.size >= 4 }?.toFloatArray(), thick = item.thick,
+                    )
                     is ItemDoc.Sticky -> StickyItem(ItemIds.next(), item.x, item.y, item.w, item.h, item.color, item.text, item.rot)
                 }
             }.getOrNull()
