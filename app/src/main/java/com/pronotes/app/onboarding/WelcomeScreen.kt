@@ -504,9 +504,8 @@ private fun PenCheckPage(active: Boolean, store: SettingsStore, onNext: () -> Un
     val primary = Color(0xFFB45CFF)
     val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
     Box(Modifier.size(230.dp).scale(pulse.value), contentAlignment = Alignment.Center) {
-        // The ring video sits inside the progress arc.
+        // The glowing ring sits inside the progress arc.
         GlowRing(Modifier.size(206.dp), energy = progress.value / 100f)
-        else Box(Modifier.size(198.dp).clip(CircleShape).background(Color.Black))
         Canvas(Modifier.fillMaxSize()) {
             val w = 6.dp.toPx()
             drawCircle(track, size.minDimension / 2 - w / 2, style = Stroke(w))
