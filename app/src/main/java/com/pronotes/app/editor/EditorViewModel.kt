@@ -430,13 +430,27 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         refreshUndo()
     }
 
-    fun setItems(page: Int, items: List<PageItem>) {
+    fun setItems(page: Int, items0: List<PageItem>) {
         touched()
         val p = pages.getOrNull(page) ?: return
+        var items = items0
+        // A maths answer goes away when the sum it belongs to is erased.
+        if (mathLinks.isNotEmpty() && items.size < p.items.size) {
+            val ids = items.map { it.id }.toHashSet()
+            val dead = mathLinks.filter { (ans, src) -> ans in ids && src.none { it in ids } }.keys
+            if (dead.isNotEmpty()) {
+                items = items.filterNot { it.id in dead }
+                dead.toList().forEach { mathLinks.remove(it) }
+                viewModelScope.launch { onPagesChanged?.invoke() }
+            }
+        }
         noteNewInk(page, p.items, items)
         pages[page] = p.copy(items = items)
         scheduleSave()
     }
+
+    /** Answer text id -> ink ids of the sum it answers. */
+    private val mathLinks = HashMap<Long, Set<Long>>()
 
     private fun applyItems(page: Int, items: List<PageItem>) {
         setItems(page, items)
@@ -1037,7 +1051,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val size = (b.height() * 0.7f).coerceIn(20f, 160f)
         val text = if (raw.trimEnd().endsWith("=")) ans else "= $ans"
         beginEdit(page)
-        applyItems(page, p.items + TextItem(ItemIds.next(), text, b.right + size * 0.3f, b.top, size, 0xFF3D6CF4.toInt()))
+        val answer = TextItem(ItemIds.next(), text, b.right + size * 0.3f, b.top, size, 0xFF3D6CF4.toInt())
+        mathLinks[answer.id] = ink.map { it.id }.toSet()
+        applyItems(page, p.items + answer)
         return true
     }
 

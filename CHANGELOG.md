@@ -1,5 +1,8 @@
 # Changelog
 
+## v7.2.1
+- **Maths:** erase a sum and its answer goes away with it.
+
 ## v7.2.0
 - **Large PDFs run smoother:** pages use lighter base images, and when you zoom in only the part on screen is drawn sharp. The full-PDF text scan no longer runs on open (it was slowing big files); text is read per page when you need it.
 - **Haptics fixed:** the app was missing the vibration permission, so paper ticks never fired. They work now, with a fallback for tablets that ignore short pulses.
