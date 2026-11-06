@@ -66,7 +66,7 @@ object StudyGen {
 
     fun flashcards(text: String, max: Int = 25): List<Card> {
         val out = ArrayList<Card>()
-        facts(text).forEach { f -> out += Card("What is ${f.term}?", f.meaning) }
+        facts(text).forEach { f -> if (f.meaning.length <= 260) out += Card("What is ${f.term}?", f.meaning) }
         if (out.size < max) {
             // Fill-in-the-blank cards from key sentences.
             val terms = keyTerms(text, 40)
@@ -89,7 +89,8 @@ object StudyGen {
         // "Which term matches this meaning?"
         for (f in facts) {
             if (out.size >= max) break
-            val wrong = terms.filter { !it.equals(f.term, true) }.shuffled(rnd).take(3)
+            // Wrong answers must not be words that appear in the meaning itself (that would give it away).
+            val wrong = terms.filter { !it.equals(f.term, true) && !f.meaning.contains(it, ignoreCase = true) }.shuffled(rnd).take(3)
             if (wrong.size < 3) continue
             val opts = (wrong + f.term).shuffled(rnd)
             out += Mcq("Which term means: \"${f.meaning.take(160)}\"?", opts, opts.indexOf(f.term), f.sentence)
@@ -111,6 +112,7 @@ object StudyGen {
 /** Evaluates handwritten maths such as "12 x (3+4) =" or "2^3 - 1". Returns null when it is not maths. */
 object MathSolver {
     fun normalize(raw: String): String = raw
+        .replace("²", "^2").replace("³", "^3").replace("**", "^")
         .replace('×', '*').replace('x', '*').replace('X', '*').replace('÷', '/').replace(':', '/')
         .replace('−', '-').replace('—', '-').replace('–', '-').replace(',', '.')
         .replace(" ", "").trimEnd('=', '?')

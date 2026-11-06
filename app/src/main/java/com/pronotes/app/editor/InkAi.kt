@@ -45,9 +45,13 @@ object Handwriting {
         return true
     }
 
-    /** Text for a group of strokes, or null. */
-    suspend fun recognize(strokes: List<InkItem>, language: String = "en-US"): String? {
-        if (strokes.isEmpty() || !prepare(language)) return null
+    /** Text for a group of strokes, or null. [before] is text written just before (helps accuracy). */
+    suspend fun recognize(strokes: List<InkItem>, language: String = "en-US", before: String = ""): String? =
+        candidates(strokes, language, before).firstOrNull()
+
+    /** All guesses, best first. Maths uses this to pick the first one that is a valid sum. */
+    suspend fun candidates(strokes: List<InkItem>, language: String = "en-US", before: String = ""): List<String> {
+        if (strokes.isEmpty() || !prepare(language)) return emptyList()
         val ink = Ink.builder()
         var t = 0L
         for (s in strokes) {
@@ -58,8 +62,14 @@ object Handwriting {
             ink.addStroke(b.build())
             t += 120
         }
-        val res = recognizer?.recognize(ink.build())?.awaitOrNull() ?: return null
-        return res.candidates.firstOrNull()?.text?.trim()?.takeIf { it.isNotEmpty() }
+        // The line box and the words before it help ML Kit tell letters apart (o / 0, l / 1, case).
+        val box = InkLayout.bounds(strokes)
+        val ctx = com.google.mlkit.vision.digitalink.RecognitionContext.builder()
+            .setPreContext(before.takeLast(20))
+            .setWritingArea(com.google.mlkit.vision.digitalink.WritingArea(box.width().coerceAtLeast(1f), box.height().coerceAtLeast(1f)))
+            .build()
+        val res = recognizer?.recognize(ink.build(), ctx)?.awaitOrNull() ?: return emptyList()
+        return res.candidates.mapNotNull { it.text?.trim()?.takeIf { s -> s.isNotEmpty() } }
     }
 }
 

@@ -180,6 +180,18 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                         Toggle("Draw with stylus only", "Fingers scroll and zoom, they never draw", s.stylusOnly) { v -> up { it.copy(stylusOnly = v) } }
                         Toggle("Palm rejection", "Ignore touches right after the pen", s.palmRejection) { v -> up { it.copy(palmRejection = v) } }
                         Toggle("Haptic feedback", "Small buzz on shapes, selection and page add", s.haptics) { v -> up { it.copy(haptics = v) } }
+                        Toggle("Pen touch tick", "A light tick when the pen lands", s.penHaptics) { v -> up { it.copy(penHaptics = v) } }
+                    }
+                    Section("Paper feel") {
+                        Toggle("Writing sound", "A soft pencil-on-paper sound that follows your speed", s.paperSound) { v -> up { it.copy(paperSound = v) } }
+                        Toggle("Paper haptics", "Tiny ticks as you write, like paper grain", s.paperHaptics) { v -> up { it.copy(paperHaptics = v) } }
+                    }
+                    Section("Smart ink (on device)") {
+                        Toggle("Convert to text as I write", "Handwriting turns into typed text a moment after you stop", s.autoConvert) { v -> up { it.copy(autoConvert = v) } }
+                        Toggle("Solve maths when I write =", "Write 12 x 4 = and the answer appears", s.mathAssist) { v -> up { it.copy(mathAssist = v) } }
+                        Toggle("Search handwriting", "Search also finds words you wrote by hand", s.inkSearch) { v -> up { it.copy(inkSearch = v) } }
+                        val langs = listOf("en-US" to "English (US)", "en-GB" to "English (UK)", "hi-IN" to "Hindi", "es-ES" to "Spanish", "fr-FR" to "French", "de-DE" to "German")
+                        Choice("Handwriting language", langs.firstOrNull { it.first == s.handwritingLang }?.second ?: s.handwritingLang, langs.map { it.second }) { i -> up { it.copy(handwritingLang = langs[i].first) } }
                     }
                     Section("Pen side button") {
                         Choice("While held", s.sideButton.label, SideButton.entries.map { it.label }) { i -> up { it.copy(sideButton = SideButton.entries[i]) } }

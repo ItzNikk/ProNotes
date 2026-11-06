@@ -134,6 +134,10 @@ data class AppSettings(
     val handwritingLang: String = "en-US",
     /** A light tick when the pen touches down and when shapes snap. */
     val penHaptics: Boolean = true,
+    /** Paper feel while writing: soft scratch sound and grain-like haptic ticks. */
+    val paperSound: Boolean = true,
+    val paperHaptics: Boolean = true,
+    val paperVolume: Float = 0.4f,
     // pens
     val hoverCursor: Boolean = true,
     val penClickDelay: PenClickDelay = PenClickDelay.NORMAL,
@@ -216,6 +220,9 @@ class SettingsStore private constructor(context: Context) {
             inkSearch = b("inkSearch", d.inkSearch),
             handwritingLang = prefs.getString("hwLang", d.handwritingLang) ?: d.handwritingLang,
             penHaptics = b("penHaptics", d.penHaptics),
+            paperSound = b("paperSound", d.paperSound),
+            paperHaptics = b("paperHaptics", d.paperHaptics),
+            paperVolume = prefs.getFloat("paperVol", d.paperVolume),
             hoverCursor = b("hoverCursor", d.hoverCursor),
             penClickDelay = enumOf("penClickDelay", d.penClickDelay),
             onboardingDone = b("onboardingDone", d.onboardingDone),
@@ -282,6 +289,9 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("inkSearch", s.inkSearch)
             .putString("hwLang", s.handwritingLang)
             .putBoolean("penHaptics", s.penHaptics)
+            .putBoolean("paperSound", s.paperSound)
+            .putBoolean("paperHaptics", s.paperHaptics)
+            .putFloat("paperVol", s.paperVolume)
             .putBoolean("hoverCursor", s.hoverCursor)
             .putString("penClickDelay", s.penClickDelay.name)
             .putBoolean("onboardingDone", s.onboardingDone)

@@ -748,6 +748,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 when (mode) {
                     Mode.INK -> {
                         val id = strokeId ?: return
+                        val fx = e.getX(idx); val fy = e.getY(idx)
+                        feel.move(hypot(fx - feelX, fy - feelY), e.eventTime - feelT)
+                        feelX = fx; feelY = fy; feelT = e.eventTime
                         for (h in 0 until e.historySize) points += toLocal(e.getHistoricalX(idx, h), e.getHistoricalY(idx, h), activePage)
                         val cur = toLocal(e.getX(idx), e.getY(idx), activePage)
                         points += cur
@@ -815,6 +818,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             }
             MotionEvent.ACTION_UP -> {
                 removeCallbacks(holdRunnable)
+                feel.stop()
                 if (circleHoldArmed) { circleHoldArmed = false; removeCallbacks(circleHoldRunnable); layer.invalidate() }
                 val isTap = SystemClock.uptimeMillis() - downTime < 350 && hypot(px - downX, py - downY) < touchSlop
                 when (mode) {
@@ -880,12 +884,24 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 mode = Mode.NONE
                 strokeId = null
             }
-            MotionEvent.ACTION_CANCEL -> cancelCurrent(e)
+            MotionEvent.ACTION_CANCEL -> { feel.stop(); cancelCurrent(e) }
         }
     }
 
+    private val feel = PaperFeel(context)
+    private var feelX = 0f
+    private var feelY = 0f
+    private var feelT = 0L
+
+    override fun onDetachedFromWindow() { super.onDetachedFromWindow(); feel.release() }
+
     private fun startInk(e: MotionEvent, t: Tool) {
         mode = Mode.INK
+        feel.sound = settings.paperSound
+        feel.haptics = settings.paperHaptics
+        feel.volume = settings.paperVolume
+        feelX = e.getX(e.findPointerIndex(activePointer).coerceAtLeast(0)); feelY = e.getY(e.findPointerIndex(activePointer).coerceAtLeast(0)); feelT = e.eventTime
+        feel.start()
         val toWorld = Matrix(inverse).apply { postTranslate(-ox(activePage), -oy(activePage)) }
         val id = wetInk.startStroke(e, activePointer, host.brush(t), toWorld, Matrix())
         strokeId = id

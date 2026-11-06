@@ -1,5 +1,11 @@
 # Changelog
 
+## v7.1.0
+- **Paper feel:** a soft pencil-on-paper sound that follows how fast you write, and tiny haptic ticks like paper grain. Both can be turned off, with a volume slider (pen card or Settings → Paper feel).
+- **Smarter handwriting:** recognition now uses the line's size and the words before it, so letters and numbers are read more accurately. Choose the handwriting language in Settings → Smart ink.
+- **Better maths:** Solve tries every reading of your sum and picks the one that works, and understands powers like x².
+- **Better generated quizzes:** wrong answers no longer give the right one away.
+
 ## v7.0.2
 - **Pull to add a page** works again: in page-by-page mode you can drag past the last page, and after a pull the app scrolls to the new page instead of bouncing back.
 

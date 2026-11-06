@@ -958,7 +958,15 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         viewModelScope.launch {
             val lines = InkLayout.lines(ink)
             val texts = ArrayList<Pair<List<InkItem>, String>>()
-            for (l in lines) { val t = recognizeOrSay(l) ?: return@launch; texts += l to t }
+            var before = ""
+            if (!Handwriting.ready) say("Getting handwriting ready… (one-time download)")
+            aiBusy = true
+            for (l in lines) {
+                val t = Handwriting.recognize(l, settingsFlow.value.handwritingLang, before) ?: continue
+                texts += l to t; before = t
+            }
+            aiBusy = false
+            if (texts.isEmpty()) { say("Couldn't read that. Try writing a little larger."); return@launch }
             replaceInkWithText(page, texts)
         }
     }
@@ -980,8 +988,12 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val ink = selectedInk()
         if (ink.isEmpty()) { say("Select a sum you wrote, like 12 x 4 ="); return }
         viewModelScope.launch {
-            val raw = recognizeOrSay(ink) ?: return@launch
-            placeAnswer(page, ink, raw, quiet = false)
+            aiBusy = true
+            val guesses = Handwriting.candidates(ink, settingsFlow.value.handwritingLang)
+            aiBusy = false
+            if (guesses.isEmpty()) { say("Couldn't read that sum"); return@launch }
+            val good = guesses.firstOrNull { MathSolver.solve(it) != null } ?: guesses.first()
+            placeAnswer(page, ink, good, quiet = false)
         }
     }
 
@@ -1044,12 +1056,14 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 }
                 if (s.mathAssist) {
                     val last = lines.lastOrNull() ?: continue
-                    val raw = Handwriting.recognize(last, s.handwritingLang) ?: continue
-                    if (raw.trimEnd().endsWith("=") && placeAnswer(pg, last, raw, quiet = true)) continue
+                    val guesses = Handwriting.candidates(last, s.handwritingLang)
+                    val raw = guesses.firstOrNull { it.trimEnd().endsWith("=") && MathSolver.solve(it) != null }
+                    if (raw != null && placeAnswer(pg, last, raw, quiet = true)) continue
                     if (!s.autoConvert) continue
                 }
                 val texts = ArrayList<Pair<List<InkItem>, String>>()
-                for (l in lines) { val t = Handwriting.recognize(l, s.handwritingLang) ?: continue; texts += l to t }
+                var before = ""
+                for (l in lines) { val t = Handwriting.recognize(l, s.handwritingLang, before) ?: continue; texts += l to t; before = t }
                 if (texts.isNotEmpty()) replaceInkWithText(pg, texts)
             }
         }

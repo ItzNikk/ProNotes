@@ -1325,6 +1325,10 @@ private fun PenCard(vm: EditorViewModel) {
         Text("SMART INK (ON DEVICE)", style = MaterialTheme.typography.labelSmall)
         ToggleLine("Convert to text as I write", s.autoConvert) { v -> store.update { it.copy(autoConvert = v) } }
         ToggleLine("Solve maths when I write =", s.mathAssist) { v -> store.update { it.copy(mathAssist = v) } }
+        Text("PAPER FEEL", style = MaterialTheme.typography.labelSmall)
+        ToggleLine("Writing sound", s.paperSound) { v -> store.update { it.copy(paperSound = v) } }
+        if (s.paperSound) SliderRow("VOLUME", "%.0f%%".format(s.paperVolume * 100), s.paperVolume, 0.05f..1f) { v -> store.update { it.copy(paperVolume = v) } }
+        ToggleLine("Paper haptics", s.paperHaptics) { v -> store.update { it.copy(paperHaptics = v) } }
     }
 }
 
