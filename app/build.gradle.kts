@@ -69,6 +69,8 @@ kotlin {
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2025.08.00")
     implementation(composeBom)
+    // On-device handwriting recognition (the model downloads once, then works offline).
+    implementation("com.google.mlkit:digital-ink-recognition:18.1.0")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.animation:animation")

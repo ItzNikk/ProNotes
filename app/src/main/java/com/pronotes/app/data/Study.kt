@@ -35,8 +35,26 @@ data class InkLink(
     val url: String? = null,
 )
 
+/** A multiple-choice question. [answer] is the index of the right option. */
 @Serializable
-data class StudyData(val cards: List<Flashcard> = emptyList(), val links: List<InkLink> = emptyList())
+data class QuizQuestion(
+    val id: String,
+    val question: String,
+    val options: List<String>,
+    val answer: Int,
+    val explanation: String = "",
+    val pageId: String? = null,
+    val generated: Boolean = false,
+    val right: Int = 0,
+    val wrong: Int = 0,
+)
+
+@Serializable
+data class StudyData(
+    val cards: List<Flashcard> = emptyList(),
+    val links: List<InkLink> = emptyList(),
+    val quiz: List<QuizQuestion> = emptyList(),
+)
 
 /** Flashcards and ink links of one notebook, kept in `study.json` next to its pages. */
 class StudyStore(private val dir: File) {

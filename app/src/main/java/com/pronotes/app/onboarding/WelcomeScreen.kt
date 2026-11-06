@@ -34,6 +34,10 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -126,9 +130,9 @@ fun WelcomeScreen(onDone: () -> Unit) {
     val context = LocalContext.current
     val view = LocalView.current
     val store = remember { SettingsStore.get(context) }
-    val pager = rememberPagerState { 4 }
+    val pager = rememberPagerState { 5 }
     val scope = rememberCoroutineScope()
-    fun next() = scope.launch { pager.animateScrollToPage((pager.currentPage + 1).coerceAtMost(3)) }
+    fun next() = scope.launch { pager.animateScrollToPage((pager.currentPage + 1).coerceAtMost(4)) }
     fun finish() { store.update { it.copy(onboardingDone = true) }; onDone() }
 
     // Immersive: hide the status and navigation bars while the welcome is on screen.
@@ -156,6 +160,7 @@ fun WelcomeScreen(onDone: () -> Unit) {
                         0 -> IntroPage(active, onStart = { next() })
                         1 -> PenCheckPage(active, store, onNext = { next() })
                         2 -> TourPage(active, onNext = { next() })
+                        3 -> SetupPage(active, store, onNext = { next() })
                         else -> ReadyPage(active, onDone = { finish() })
                     }
                 }
@@ -166,7 +171,7 @@ fun WelcomeScreen(onDone: () -> Unit) {
             Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(bottom = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            repeat(4) { i ->
+            repeat(5) { i ->
                 val w by animateFloatAsState(if (pager.currentPage == i) 26f else 8f, spring(dampingRatio = 0.7f), label = "dot")
                 Box(
                     Modifier.size(width = w.dp, height = 8.dp).clip(CircleShape)
@@ -956,6 +961,55 @@ private fun DemoArt(d: Demo, playing: Boolean, modifier: Modifier) {
             }
         }
     }
+}
+
+/** "Make it yours": theme, accent, toolbar, scrolling, paper and smart ink, before the first notebook. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SetupPage(active: Boolean, store: SettingsStore, onNext: () -> Unit) {
+    val s by store.settings.collectAsState()
+    AnimatedWords(
+        "Make it yours", TextStyle(fontSize = 40.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = MaterialTheme.colorScheme.onBackground),
+        active, gradient = listOf(Brand1, Brand2, Brand3),
+    )
+    Text("You can change all of this later in Settings.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
+    Spacer(Modifier.height(18.dp))
+    Surface(
+        shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f), shadowElevation = 6.dp,
+        modifier = Modifier.widthIn(max = 600.dp).fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(20.dp).heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            @Composable
+            fun <T> Row2(label: String, options: List<T>, sel: T, name: (T) -> String, pick: (T) -> Unit) {
+                Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    options.forEach { o ->
+                        androidx.compose.material3.FilterChip(o == sel, { pick(o) }, label = { Text(name(o)) }, shape = CircleShape)
+                    }
+                }
+            }
+            Row2("Theme", com.pronotes.app.data.ThemeMode.entries, s.themeMode, { it.label }) { v -> store.update { it.copy(themeMode = v) } }
+            Text("Accent colour", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                com.pronotes.app.data.AccentColor.entries.forEach { a ->
+                    val on = a == s.accent
+                    Box(
+                        Modifier.size(36.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Color(a.argb), Color(a.argb2))))
+                            .border(if (on) 3.dp else 0.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                            .clickable { store.update { it.copy(accent = a) } },
+                    )
+                }
+            }
+            Row2("Toolbar", com.pronotes.app.data.ToolbarDock.entries, s.toolbarDock, { it.label }) { v -> store.update { it.copy(toolbarDock = v) } }
+            Row2("Scrolling", com.pronotes.app.data.ScrollDirection.entries, s.scroll, { if (it == com.pronotes.app.data.ScrollDirection.VERTICAL) "Up and down" else "Page by page" }) { v -> store.update { it.copy(scroll = v) } }
+            Row2("Default paper", com.pronotes.app.data.PaperStyle.entries, s.defaultPaper, { it.label }) { v -> store.update { it.copy(defaultPaper = v) } }
+            Row2("Smart ink", listOf(0, 1, 2), (if (s.autoConvert) 2 else if (s.mathAssist) 1 else 0), { listOf("Off", "Solve maths", "Maths + convert to text")[it] }) { v ->
+                store.update { it.copy(mathAssist = v >= 1, autoConvert = v == 2) }
+            }
+        }
+    }
+    Spacer(Modifier.height(18.dp))
+    Button(onClick = onNext, shape = CircleShape, modifier = Modifier.widthIn(min = 200.dp)) { Text("Looks good") }
 }
 
 @Composable

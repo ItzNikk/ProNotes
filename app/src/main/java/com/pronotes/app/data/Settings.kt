@@ -124,6 +124,16 @@ data class AppSettings(
     val autoUpdateCheck: Boolean = true,
     /** Remind about new versions: a notification once a day, and the update sheet on launch. */
     val updateReminders: Boolean = true,
+    // smart ink (on-device)
+    /** Turn handwriting into typed text a moment after you stop writing. */
+    val autoConvert: Boolean = false,
+    /** Write "12 x 4 =" and the answer appears. */
+    val mathAssist: Boolean = false,
+    /** Search finds handwriting too. */
+    val inkSearch: Boolean = true,
+    val handwritingLang: String = "en-US",
+    /** A light tick when the pen touches down and when shapes snap. */
+    val penHaptics: Boolean = true,
     // pens
     val hoverCursor: Boolean = true,
     val penClickDelay: PenClickDelay = PenClickDelay.NORMAL,
@@ -201,6 +211,11 @@ class SettingsStore private constructor(context: Context) {
             toolbarTools = prefs.getString("toolbarTools", "") ?: "",
             autoUpdateCheck = b("autoUpdate", d.autoUpdateCheck),
             updateReminders = b("updRemind", d.updateReminders),
+            autoConvert = b("autoConvert", d.autoConvert),
+            mathAssist = b("mathAssist", d.mathAssist),
+            inkSearch = b("inkSearch", d.inkSearch),
+            handwritingLang = prefs.getString("hwLang", d.handwritingLang) ?: d.handwritingLang,
+            penHaptics = b("penHaptics", d.penHaptics),
             hoverCursor = b("hoverCursor", d.hoverCursor),
             penClickDelay = enumOf("penClickDelay", d.penClickDelay),
             onboardingDone = b("onboardingDone", d.onboardingDone),
@@ -262,6 +277,11 @@ class SettingsStore private constructor(context: Context) {
             .putString("toolbarTools", s.toolbarTools)
             .putBoolean("autoUpdate", s.autoUpdateCheck)
             .putBoolean("updRemind", s.updateReminders)
+            .putBoolean("autoConvert", s.autoConvert)
+            .putBoolean("mathAssist", s.mathAssist)
+            .putBoolean("inkSearch", s.inkSearch)
+            .putString("hwLang", s.handwritingLang)
+            .putBoolean("penHaptics", s.penHaptics)
             .putBoolean("hoverCursor", s.hoverCursor)
             .putString("penClickDelay", s.penClickDelay.name)
             .putBoolean("onboardingDone", s.onboardingDone)

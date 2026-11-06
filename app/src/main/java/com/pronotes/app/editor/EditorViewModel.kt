@@ -187,6 +187,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             if (repo.pdfFile(noteId).exists()) pdf = PdfPages(repo.pdfFile(noteId))
             withContext(Dispatchers.IO) { loadStudy() }
             loaded = true
+            // Text of PDFs is read in the background so long-press selection is ready quickly.
+            if (pdf != null) launch { delay(1500); textIndex() }
             prefetchPdf(startPage)
             repo.markOpened(noteId)
             onPagesChanged?.invoke()
@@ -432,6 +434,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun setItems(page: Int, items: List<PageItem>) {
         touched()
         val p = pages.getOrNull(page) ?: return
+        noteNewInk(page, p.items, items)
         pages[page] = p.copy(items = items)
         scheduleSave()
     }
@@ -708,9 +711,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var linkFrom by mutableStateOf<Triple<String, Float, Float>?>(null)
     var linkToDelete by mutableStateOf<String?>(null)
 
-    private fun loadStudy() { val d = study.load(); cards = d.cards; links = d.links }
+    private fun loadStudy() { val d = study.load(); cards = d.cards; links = d.links; quiz = d.quiz }
     private fun saveStudy() {
-        val d = com.pronotes.app.data.StudyData(cards, links)
+        val d = com.pronotes.app.data.StudyData(cards, links, quiz)
         viewModelScope.launch(Dispatchers.IO) { runCatching { study.save(d) } }
     }
 
@@ -867,12 +870,12 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             searching = true
             val hits = ArrayList<SearchHit>()
             if (isPdf) {
-                val index = pdfIndex ?: withContext(Dispatchers.IO) {
-                    runCatching { PdfTextIndex.build(getApplication(), repo.pdfFile(noteId)) }.getOrNull()
-                }.also { pdfIndex = it }
+                val index = textIndex()
                 val map = pages.withIndex().filter { it.value.pdfPage >= 0 }.associate { it.value.pdfPage to it.index }
                 if (index != null) hits += withContext(Dispatchers.Default) { index.search(query) { map[it] } }
             }
+            // Handwriting is searchable too (on-device recognition).
+            hits += runCatching { inkHits(query) }.getOrDefault(emptyList())
             // Typed text and sticky notes are searchable too.
             pages.forEachIndexed { i, p ->
                 p.items.forEach { item ->
@@ -886,6 +889,16 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             searchHits.getOrNull(0)?.let { onScrollTo?.invoke(it.page) }
             onPagesChanged?.invoke()
         }
+    }
+
+    /** PDF text with character boxes, built once on first use. */
+    private suspend fun textIndex(): PdfTextIndex? {
+        if (!isPdf) return null
+        pdfIndex?.let { return it }
+        val widths = pages.filter { it.pdfPage >= 0 }.associate { it.pdfPage to it.width }
+        return withContext(Dispatchers.IO) {
+            runCatching { PdfTextIndex.build(getApplication(), repo.pdfFile(noteId)) { widths[it] } }.getOrNull()
+        }.also { pdfIndex = it }
     }
 
     fun stepHit(delta: Int) {
@@ -905,6 +918,273 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     fun highlights(page: Int): List<RectF> = if (searchHits.isEmpty()) emptyList() else searchHits.filter { it.page == page }.flatMap { it.rects }
     fun activeHighlight(): Pair<Int, RectF>? = searchHits.getOrNull(activeHit)?.let { h -> h.rects.firstOrNull()?.let { h.page to it } }
+
+    // ----------------------------------------------------------- smart ink (on device)
+    /** Short message shown at the bottom of the editor (null = none). */
+    var toast by mutableStateOf<String?>(null)
+    private fun say(msg: String) {
+        toast = msg
+        viewModelScope.launch { delay(2600); if (toast == msg) toast = null }
+    }
+    var aiBusy by mutableStateOf(false)
+        private set
+
+    private fun selectedInk(): List<InkItem> =
+        pages.getOrNull(selectionPage)?.items?.filter { it.id in selection }?.filterIsInstance<InkItem>()?.filter { !it.isHighlighter } ?: emptyList()
+
+    private fun inkColor(items: List<InkItem>): Int = items.firstOrNull()?.stroke?.brush?.colorIntArgb?.let { Brushes.opaque(it) } ?: penStyle.color
+
+    private suspend fun recognizeOrSay(items: List<InkItem>): String? {
+        if (!Handwriting.ready) say("Getting handwriting ready… (one-time download)")
+        aiBusy = true
+        val txt = Handwriting.recognize(items, settingsFlow.value.handwritingLang)
+        aiBusy = false
+        if (txt == null) say(if (Handwriting.ready) "Couldn't read that. Try writing a little larger." else "Handwriting needs a one-time download. Check your connection.")
+        return txt
+    }
+
+    /** Selection → typed text, one text line per handwritten line, in the ink's colour and size. */
+    fun convertSelectionToText() {
+        val page = selectionPage
+        val ink = selectedInk()
+        if (ink.isEmpty()) { say("Select some handwriting first"); return }
+        viewModelScope.launch {
+            val lines = InkLayout.lines(ink)
+            val texts = ArrayList<Pair<List<InkItem>, String>>()
+            for (l in lines) { val t = recognizeOrSay(l) ?: return@launch; texts += l to t }
+            replaceInkWithText(page, texts)
+        }
+    }
+
+    private fun replaceInkWithText(page: Int, texts: List<Pair<List<InkItem>, String>>) {
+        val p = pages.getOrNull(page) ?: return
+        val drop = texts.flatMap { it.first }.map { it.id }.toSet()
+        val add = texts.map { (l, t) ->
+            val b = InkLayout.bounds(l)
+            TextItem(ItemIds.next(), t, b.left, b.top, (b.height() * 0.62f).coerceIn(18f, 160f), inkColor(l))
+        }
+        beginEdit(page)
+        applyItems(page, p.items.filterNot { it.id in drop } + add)
+    }
+
+    /** Selection ending in "=" (or any sum): writes the answer next to it. */
+    fun solveSelection() {
+        val page = selectionPage
+        val ink = selectedInk()
+        if (ink.isEmpty()) { say("Select a sum you wrote, like 12 x 4 ="); return }
+        viewModelScope.launch {
+            val raw = recognizeOrSay(ink) ?: return@launch
+            placeAnswer(page, ink, raw, quiet = false)
+        }
+    }
+
+    private fun placeAnswer(page: Int, ink: List<InkItem>, raw: String, quiet: Boolean): Boolean {
+        val ans = MathSolver.solve(raw)
+        if (ans == null) { if (!quiet) say("\"$raw\" doesn't look like a sum"); return false }
+        val p = pages.getOrNull(page) ?: return false
+        val b = InkLayout.bounds(ink)
+        val size = (b.height() * 0.7f).coerceIn(20f, 160f)
+        val text = if (raw.trimEnd().endsWith("=")) ans else "= $ans"
+        beginEdit(page)
+        applyItems(page, p.items + TextItem(ItemIds.next(), text, b.right + size * 0.3f, b.top, size, 0xFF3D6CF4.toInt()))
+        return true
+    }
+
+    /** Straightens and lines up the selected handwriting. */
+    fun tidySelection() {
+        val p = pages.getOrNull(selectionPage) ?: return
+        val sel = p.items.filter { it.id in selection }
+        if (sel.none { it is InkItem }) { say("Select some handwriting first"); return }
+        val tidy = InkLayout.tidy(sel).associateBy { it.id }
+        beginEdit(selectionPage)
+        applyItems(selectionPage, p.items.map { tidy[it.id] ?: it })
+    }
+
+    /** Selection → flashcard with the recognised text on the front. */
+    fun cardFromSelectionText() {
+        val ink = selectedInk()
+        if (ink.isEmpty()) { cardFromSelection(); return }
+        viewModelScope.launch {
+            val t = recognizeOrSay(ink) ?: return@launch
+            cardDraft = CardDraft(com.pronotes.app.data.Flashcard(UUID.randomUUID().toString(), front = t, pageId = pages.getOrNull(selectionPage)?.id, created = System.currentTimeMillis()), true)
+        }
+    }
+
+    // Convert-as-you-write and maths-as-you-write: new strokes wait a moment, then are read together.
+    private val freshInk = LinkedHashMap<Long, Int>()
+    private var autoJob: Job? = null
+
+    internal fun noteNewInk(page: Int, before: List<PageItem>, after: List<PageItem>) {
+        val s = settingsFlow.value
+        if (!s.autoConvert && !s.mathAssist) return
+        if (after.size <= before.size) { if (after.size < before.size) freshInk.keys.retainAll(after.map { it.id }.toSet()); return }
+        val old = before.map { it.id }.toHashSet()
+        after.forEach { if (it is InkItem && it.id !in old && !it.isHighlighter) freshInk[it.id] = page }
+        if (freshInk.isEmpty()) return
+        autoJob?.cancel()
+        autoJob = viewModelScope.launch {
+            delay(if (s.autoConvert) 1400 else 900)
+            val byPage = freshInk.entries.groupBy({ it.value }, { it.key })
+            freshInk.clear()
+            for ((pg, ids) in byPage) {
+                val p = pages.getOrNull(pg) ?: continue
+                val ink = p.items.filter { it.id in ids }.filterIsInstance<InkItem>()
+                if (ink.isEmpty()) continue
+                val lines = InkLayout.lines(ink)
+                if (s.mathAssist) {
+                    val last = lines.lastOrNull() ?: continue
+                    val raw = Handwriting.recognize(last, s.handwritingLang) ?: continue
+                    if (raw.trimEnd().endsWith("=") && placeAnswer(pg, last, raw, quiet = true)) continue
+                    if (!s.autoConvert) continue
+                }
+                val texts = ArrayList<Pair<List<InkItem>, String>>()
+                for (l in lines) { val t = Handwriting.recognize(l, s.handwritingLang) ?: continue; texts += l to t }
+                if (texts.isNotEmpty()) replaceInkWithText(pg, texts)
+            }
+        }
+    }
+
+    /** Handwriting index for search: recognised lines per page, kept while the page is unchanged. */
+    private val inkText = HashMap<String, Pair<Int, List<Pair<String, RectF>>>>()
+
+    private suspend fun inkLines(i: Int): List<Pair<String, RectF>> {
+        val p = pages.getOrNull(i) ?: return emptyList()
+        val ink = p.items.filterIsInstance<InkItem>().filter { !it.isHighlighter }
+        if (ink.isEmpty()) return emptyList()
+        val sig = System.identityHashCode(p.items)
+        inkText[p.id]?.takeIf { it.first == sig }?.let { return it.second }
+        val out = InkLayout.lines(ink).mapNotNull { l ->
+            Handwriting.recognize(l, settingsFlow.value.handwritingLang)?.let { it to InkLayout.bounds(l) }
+        }
+        inkText[p.id] = sig to out
+        return out
+    }
+
+    internal suspend fun inkHits(query: String): List<SearchHit> {
+        if (!settingsFlow.value.inkSearch) return emptyList()
+        if (pages.none { p -> p.items.any { it is InkItem } }) return emptyList()
+        if (!Handwriting.prepare(settingsFlow.value.handwritingLang)) return emptyList()
+        val hits = ArrayList<SearchHit>()
+        for (i in pages.indices) {
+            inkLines(i).forEach { (t, r) -> if (t.contains(query, ignoreCase = true)) hits += SearchHit(i, listOf(RectF(r).apply { inset(-6f, -6f) }), "✍ $t") }
+        }
+        return hits
+    }
+
+    // ---------------------------------------------------------------- PDF text selection
+    data class TextSel(val page: Int, val pdfPage: Int, val anchor: IntRange, val range: IntRange, val rects: List<RectF>, val text: String)
+    var textSel by mutableStateOf<TextSel?>(null)
+        private set
+    var textMenu by mutableStateOf<RectF?>(null)
+
+    fun textPress(page: Int, x: Float, y: Float): Boolean {
+        val pg = pages.getOrNull(page) ?: return false
+        if (pg.pdfPage < 0) return false
+        val idx = pdfIndex
+        if (idx == null) { viewModelScope.launch { textIndex() }; say("Preparing the PDF text… try again in a moment"); return false }
+        val c = idx.charAt(pg.pdfPage, x, y) ?: return false
+        val w = idx.wordAt(pg.pdfPage, c)
+        textSel = TextSel(page, pg.pdfPage, w, w, idx.rects(pg.pdfPage, w), idx.text(pg.pdfPage, w))
+        textMenu = null
+        return true
+    }
+
+    fun textDrag(x: Float, y: Float) {
+        val s = textSel ?: return
+        val idx = pdfIndex ?: return
+        val c = idx.charAt(s.pdfPage, x, y) ?: return
+        val w = idx.wordAt(s.pdfPage, c)
+        val r = minOf(s.anchor.first, w.first)..maxOf(s.anchor.last, w.last)
+        if (r == s.range) return
+        textSel = s.copy(range = r, rects = idx.rects(s.pdfPage, r), text = idx.text(s.pdfPage, r))
+    }
+
+    fun textEnd(screen: RectF?) { textMenu = screen }
+    fun clearTextSel() { textSel = null; textMenu = null }
+    fun textSelection(page: Int): List<RectF> = textSel?.takeIf { it.page == page }?.rects ?: emptyList()
+
+    fun highlightTextSel() {
+        val s = textSel ?: return
+        val p = pages.getOrNull(s.page) ?: return
+        val color = highlighterStyle.color
+        val items = s.rects.map { r ->
+            val brush = Brushes.create(Brushes.HIGHLIGHTER, color, r.height() * 1.05f)
+            val pts = (0..12).map { k -> (r.left + r.width() * k / 12f) to r.centerY() }
+            InkItem(ItemIds.next(), InkCodec.strokeFromPoints(pts, brush))
+        }
+        beginEdit(s.page)
+        applyItems(s.page, p.items + items)
+        clearTextSel()
+    }
+
+    fun cardFromTextSel() {
+        val s = textSel ?: return
+        cardDraft = CardDraft(com.pronotes.app.data.Flashcard(UUID.randomUUID().toString(), front = s.text, pageId = pages.getOrNull(s.page)?.id, created = System.currentTimeMillis()), true)
+        clearTextSel()
+    }
+
+    // ---------------------------------------------------------------- quiz + generation
+    var quiz by mutableStateOf<List<com.pronotes.app.data.QuizQuestion>>(emptyList())
+        private set
+
+    fun saveQuestion(q: com.pronotes.app.data.QuizQuestion) {
+        quiz = if (quiz.any { it.id == q.id }) quiz.map { if (it.id == q.id) q else it } else quiz + q
+        saveStudy()
+    }
+    fun deleteQuestion(id: String) { quiz = quiz.filterNot { it.id == id }; saveStudy() }
+    fun answerQuestion(id: String, right: Boolean) {
+        quiz = quiz.map { if (it.id == id) (if (right) it.copy(right = it.right + 1) else it.copy(wrong = it.wrong + 1)) else it }
+        saveStudy()
+    }
+
+    /** Text to learn from: PDF text, typed text, sticky notes and (when ready) handwriting. */
+    private suspend fun studyText(range: IntRange): Pair<String, String?> {
+        val idx = textIndex()
+        val sb = StringBuilder()
+        var firstPage: String? = null
+        for (i in range) {
+            val p = pages.getOrNull(i) ?: continue
+            val before = sb.length
+            if (p.pdfPage >= 0 && idx != null) sb.append(idx.pageText(p.pdfPage)).append('\n')
+            p.items.forEach { (it as? TextItem)?.text?.let { t -> sb.append(t).append(". ") }; (it as? StickyItem)?.text?.let { t -> sb.append(t).append(". ") } }
+            if (Handwriting.ready) inkLines(i).forEach { sb.append(it.first).append(". ") }
+            if (sb.length > before && firstPage == null) firstPage = p.id
+        }
+        return sb.toString() to firstPage
+    }
+
+    /** Makes flashcards from this page (or all pages). Returns how many were added. */
+    fun generateCards(allPages: Boolean) {
+        viewModelScope.launch {
+            aiBusy = true
+            val (text, pid) = studyText(if (allPages) pages.indices else pageIndex..pageIndex)
+            val made = withContext(Dispatchers.Default) { StudyGen.flashcards(text, if (allPages) 40 else 15) }
+            aiBusy = false
+            val have = cards.map { it.front.lowercase() }.toHashSet()
+            val add = made.filter { it.front.lowercase() !in have }.map {
+                com.pronotes.app.data.Flashcard(UUID.randomUUID().toString(), front = it.front, back = it.back, pageId = pid, created = System.currentTimeMillis())
+            }
+            cards = cards + add
+            saveStudy()
+            say(if (add.isEmpty()) "No new cards found on ${if (allPages) "these pages" else "this page"}" else "Added ${add.size} cards")
+        }
+    }
+
+    fun generateQuiz(allPages: Boolean) {
+        viewModelScope.launch {
+            aiBusy = true
+            val (text, pid) = studyText(if (allPages) pages.indices else pageIndex..pageIndex)
+            val made = withContext(Dispatchers.Default) { StudyGen.quiz(text, if (allPages) 30 else 12) }
+            aiBusy = false
+            val have = quiz.map { it.question }.toHashSet()
+            val add = made.filter { it.question !in have }.map {
+                com.pronotes.app.data.QuizQuestion(UUID.randomUUID().toString(), it.question, it.options, it.answer, it.explanation, pid, generated = true)
+            }
+            quiz = quiz + add
+            saveStudy()
+            say(if (add.isEmpty()) "Not enough text to make questions here" else "Added ${add.size} questions")
+        }
+    }
 
     // --------------------------------------------------------------- save
 

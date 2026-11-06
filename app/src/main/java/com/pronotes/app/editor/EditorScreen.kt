@@ -81,6 +81,8 @@ import androidx.compose.material.icons.outlined.FormatItalic
 import androidx.compose.material.icons.outlined.FormatUnderlined
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Quiz
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material.icons.outlined.Crop
 import androidx.compose.material.icons.outlined.Link
@@ -337,6 +339,8 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
         canvas?.linkPicking = vm.linkFrom != null
     }
     LaunchedEffect(vm.links, canvas) { canvas?.redraw() }
+    LaunchedEffect(vm.textSel, canvas) { canvas?.redraw() }
+    var showQuiz by remember { mutableStateOf(false) }
     var showCards by remember { mutableStateOf(false) }
 
     // Real background blur (Android 12+) while a card, dialog or sheet is open.
@@ -380,6 +384,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                         onPaste = { vm.paste()?.let { (pg, ids) -> canvas?.selectItems(pg, ids) } },
                         onPageColor = { pageColor = true },
                         onCards = { showCards = true },
+                        onQuiz = { showQuiz = true },
                         onPageImage = { pickBackground.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                     )
                     AnimatedVisibility(showSearch, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
@@ -434,6 +439,11 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                                 override fun onAreaPicked(page: Int, rect: android.graphics.RectF) { vm.capturingCard = false; vm.startCardFromArea(page, rect) }
                                 override fun onLinkTarget(page: Int, x: Float, y: Float) = vm.finishLink(page, x, y)
                                 override fun onLinkLongPress(id: String) { vm.linkToDelete = id }
+                                override fun onTextPress(page: Int, x: Float, y: Float) = vm.textPress(page, x, y)
+                                override fun onTextDrag(x: Float, y: Float) = vm.textDrag(x, y)
+                                override fun onTextEnd(screen: android.graphics.RectF?) = vm.textEnd(screen)
+                                override fun onTextClear() { if (vm.textSel != null) vm.clearTextSel() }
+                                override fun textSelection(page: Int) = vm.textSelection(page)
                                 override fun onOpenUrl(url: String) {
                                     runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
                                 }
@@ -488,16 +498,6 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 else if (settings.toolbarDock != ToolbarDock.HEADER) {
                     ToolDock(vm, settings, areaSize, onDock = { d -> store.update { it.copy(toolbarDock = d) } })
                 } else {
-                    // GoodNotes-style: undo / redo float at the top left, tool settings in a panel on the right.
-                    Surface(
-                        shape = Pill, color = glassColor(), shadowElevation = 4.dp,
-                        modifier = Modifier.align(Alignment.TopStart).padding(12.dp).glassEdge(Pill),
-                    ) {
-                        Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            BarIcon(ProIcon.UNDO, "Undo", enabled = vm.canUndo, onClick = vm::undo)
-                            BarIcon(ProIcon.REDO, "Redo", enabled = vm.canRedo, onClick = vm::redo)
-                        }
-                    }
                     SidePanel(vm, settings, Modifier.align(Alignment.CenterEnd).padding(end = 10.dp))
                 }
 
@@ -512,6 +512,48 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                         shape = Pill, color = MaterialTheme.colorScheme.surface, shadowElevation = 6.dp,
                         modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp).clickable { focus = false },
                     ) { ProIconView(ProIcon.CLOSE, MaterialTheme.colorScheme.onSurface, Modifier.padding(10.dp).size(20.dp)) }
+                }
+
+                // Undo and redo always sit at the top left, wherever the toolbar is.
+                if (!hideTools) {
+                    Surface(
+                        shape = Pill, color = glassColor(), shadowElevation = 4.dp,
+                        modifier = Modifier.align(Alignment.TopStart).padding(12.dp).glassEdge(Pill),
+                    ) {
+                        Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            BarIcon(ProIcon.UNDO, "Undo", enabled = vm.canUndo, onClick = vm::undo)
+                            BarIcon(ProIcon.REDO, "Redo", enabled = vm.canRedo, onClick = vm::redo)
+                        }
+                    }
+                }
+
+                // Long-press on PDF text: copy, highlight, flashcard, search.
+                vm.textMenu?.let { r ->
+                    val clip = androidx.compose.ui.platform.LocalClipboardManager.current
+                    Surface(
+                        shape = Pill, color = Color(0xE01B1F2A), contentColor = Color.White, shadowElevation = 8.dp,
+                        modifier = Modifier.offset {
+                            val y = (r.top - 64 * density).let { if (it < 8) r.bottom + 12 * density else it }
+                            IntOffset(r.left.roundToInt().coerceIn(8, (areaSize.width - 360 * density).roundToInt().coerceAtLeast(8)), y.roundToInt())
+                        },
+                    ) {
+                        Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { vm.textSel?.text?.let { clip.setText(androidx.compose.ui.text.AnnotatedString(it)) }; vm.clearTextSel() }) { Text("Copy", color = Color.White) }
+                            TextButton(onClick = { vm.highlightTextSel() }) { Text("Highlight", color = Color.White) }
+                            TextButton(onClick = { vm.cardFromTextSel() }) { Text("Flashcard", color = Color.White) }
+                            TextButton(onClick = { val q = vm.textSel?.text ?: ""; vm.clearTextSel(); showSearch = true; vm.search(q) }) { Text("Search", color = Color.White) }
+                        }
+                    }
+                }
+
+                vm.toast?.let { msg ->
+                    Surface(
+                        shape = Pill, color = Color(0xE01B1F2A), contentColor = Color.White, shadowElevation = 6.dp,
+                        modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 120.dp),
+                    ) { Text(msg, Modifier.padding(horizontal = 18.dp, vertical = 10.dp), style = MaterialTheme.typography.labelLarge) }
+                }
+                if (vm.aiBusy) {
+                    androidx.compose.material3.LinearProgressIndicator(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(2.dp))
                 }
 
                 if (vm.readOnly && !focus) {
@@ -569,6 +611,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     vm.cardDraft?.let { d -> CardEditorDialog(vm, d) }
     if (vm.linkSheet != null) LinkSheet(vm)
     if (showCards) FlashcardsDialog(vm, onClose = { showCards = false })
+    if (showQuiz) QuizDialog(vm, onClose = { showQuiz = false })
     vm.linkToDelete?.let { id ->
         AlertDialog(
             onDismissRequest = { vm.linkToDelete = null },
@@ -703,6 +746,7 @@ private fun TopBar(
     onExport: () -> Unit, onShare: () -> Unit, onSharePage: () -> Unit, onSettings: () -> Unit, onGoTo: () -> Unit,
     onScrollToggle: () -> Unit, onPaste: () -> Unit, onPageColor: () -> Unit, onPageImage: () -> Unit,
     onCards: () -> Unit = {},
+    onQuiz: () -> Unit = {},
 ) {
     Row(Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         BarIcon(ProIcon.HOME, "Library", onClick = onHome)
@@ -741,6 +785,8 @@ private fun TopBar(
                     onClick = { more = false; onRename() })
                 DropdownMenuItem(text = { Text("Flashcards") }, leadingIcon = { Icon(Icons.Outlined.Style, null) },
                     onClick = { more = false; onCards() })
+                DropdownMenuItem(text = { Text("Quiz") }, leadingIcon = { Icon(Icons.Outlined.Quiz, null) },
+                    onClick = { more = false; onQuiz() })
                 DropdownMenuItem(text = { Text("Flashcard from area") }, leadingIcon = { Icon(Icons.Outlined.Crop, null) },
                     onClick = { more = false; vm.capturingCard = true })
                 DropdownMenuItem(
@@ -937,8 +983,6 @@ private fun BoxScope.ToolDock(vm: EditorViewModel, settings: AppSettings, area: 
             ) { Icon(Icons.Filled.DragIndicator, "Move toolbar", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) }
         }
         val tools = @Composable {
-            BarIcon(ProIcon.UNDO, "Undo", enabled = vm.canUndo, onClick = vm::undo)
-            BarIcon(ProIcon.REDO, "Redo", enabled = vm.canRedo, onClick = vm::redo)
             ToolbarOrder.visible(settings.toolbarTools).forEach { t -> ToolButton(vm, t, settings) }
         }
         val bar = @Composable {
@@ -1273,6 +1317,11 @@ private fun PenCard(vm: EditorViewModel) {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             presets.forEach { p -> PresetChip(p, onClick = { vm.applyPreset(p) }, onRemove = { vm.removePreset(p) }) }
         }
+        val store = SettingsStore.get(LocalContext.current)
+        val s by store.settings.collectAsState()
+        Text("SMART INK (ON DEVICE)", style = MaterialTheme.typography.labelSmall)
+        ToggleLine("Convert to text as I write", s.autoConvert) { v -> store.update { it.copy(autoConvert = v) } }
+        ToggleLine("Solve maths when I write =", s.mathAssist) { v -> store.update { it.copy(mathAssist = v) } }
     }
 }
 
@@ -1622,6 +1671,16 @@ private fun SelectionMenu(
                 }
             }
             IconButton(onClick = { vm.startLinkFromSelection() }) { Icon(Icons.Outlined.Link, "Add link") }
+            var smart by remember { mutableStateOf(false) }
+            Box {
+                IconButton(onClick = { smart = true }) { Icon(Icons.Outlined.AutoAwesome, "Smart ink") }
+                DropdownMenu(smart, { smart = false }, shape = RoundedCornerShape(18.dp)) {
+                    DropdownMenuItem(text = { Text("Convert to text") }, onClick = { smart = false; vm.convertSelectionToText() })
+                    DropdownMenuItem(text = { Text("Solve maths") }, onClick = { smart = false; vm.solveSelection() })
+                    DropdownMenuItem(text = { Text("Tidy handwriting") }, onClick = { smart = false; keep { vm.tidySelection() } })
+                    DropdownMenuItem(text = { Text("Flashcard from writing") }, onClick = { smart = false; vm.cardFromSelectionText() })
+                }
+            }
             IconButton(onClick = vm::deleteSelection) { Icon(Icons.Outlined.Delete, "Delete", tint = Color(0xFFFF8A80)) }
         }
     }

@@ -77,6 +77,12 @@ interface CanvasHost {
     fun onLinkTarget(page: Int, x: Float, y: Float) {}
     fun onLinkLongPress(id: String) {}
     fun onOpenUrl(url: String) {}
+    /** Long-press on PDF text (page space). Return true when a word was selected. */
+    fun onTextPress(page: Int, x: Float, y: Float): Boolean = false
+    fun onTextDrag(x: Float, y: Float) {}
+    fun onTextEnd(screen: RectF?) {}
+    fun onTextClear() {}
+    fun textSelection(page: Int): List<RectF> = emptyList()
     fun onEraserLifted()
     fun onZoom(percent: Int?)
     /** Settings for the pen with this input-device name (registers new pens). */
@@ -553,6 +559,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             if (landing) {
                 // Each pen keeps its own settings.
                 penSide = event.device?.name?.let { host.penProfile(it).sideButton }
+                if (settings.penHaptics) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                host.onTextClear()
                 if (mode == Mode.PAN) endPan() else if (mode != Mode.NONE) cancelCurrent(event)
                 stylusPointer = event.getPointerId(if (action == MotionEvent.ACTION_DOWN) 0 else event.actionIndex)
                 handleDraw(event, MotionEvent.ACTION_DOWN, stylusPointer)
@@ -1019,7 +1027,6 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         if (points.size < 6 || pathLength(points) < 30f) return
 
         // A loop around content stays ink while drawing; press and hold its end afterwards to select.
-        if (settings.circleToLasso && strokeTool == Tool.PEN && isLooseLoop(points) && loopSelects(activePage, points).isNotEmpty()) return
         if (strokeTool == Tool.HIGHLIGHTER) {
             holdFired = true
             cancelWet(id)
@@ -1387,8 +1394,14 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 fingerDownTime = SystemClock.uptimeMillis()
                 fingerMoved = false
                 pinched = false
+                textSelecting = false
+                // Long-press on PDF text selects it.
+                removeCallbacks(textPressRunnable)
+                postDelayed(textPressRunnable, 450)
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
+                removeCallbacks(textPressRunnable)
+                if (textSelecting) return
                 mode = Mode.PAN
                 maxFingers = max(maxFingers, e.pointerCount)
                 if (fingerDownTime == 0L) fingerDownTime = SystemClock.uptimeMillis()
@@ -1403,8 +1416,14 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 panLastX = cx; panLastY = cy
             }
             MotionEvent.ACTION_MOVE -> {
+                if (textSelecting) {
+                    val (lx, ly) = toLocal(e.x, e.y, textPage)
+                    host.onTextDrag(lx, ly)
+                    layer.invalidate()
+                    return
+                }
                 val (cx, cy) = focus(e)
-                if (hypot(cx - fingerStartX, cy - fingerStartY) > touchSlop * 2) fingerMoved = true
+                if (hypot(cx - fingerStartX, cy - fingerStartY) > touchSlop * 2) { fingerMoved = true; removeCallbacks(textPressRunnable) }
                 if (e.pointerCount >= 2 && pinchStartDist > 0f) {
                     val newScale = (pinchStartScale * spacing(e) / pinchStartDist).coerceIn(gestureFit * 0.5f, 6f)
                     if (abs(newScale - scale) > 0.001f) {
@@ -1419,9 +1438,15 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 var dx = cx - panLastX; var dy = cy - panLastY
                 if (pull > 0f) { dx *= 0.45f; dy *= 0.45f }   // rubber band while pulling
                 // Horizontal paging at fit size: pages slide sideways only.
-                val paging = !pinched && settings.scroll == ScrollDirection.HORIZONTAL && e.pointerCount == 1 && scale <= fitScale() * 1.3f
+                val horizontal = settings.scroll == ScrollDirection.HORIZONTAL
+                val paging = !pinched && horizontal && e.pointerCount == 1 && scale <= fitScale() * 1.05f
                 if (paging) dy = 0f
                 transX += dx
+                // Zoomed in (horizontal mode): pan inside the current page only, never across pages.
+                if (horizontal && !paging && e.pointerCount == 1 && pages.isNotEmpty()) {
+                    val (lo, hi) = pageXRange(pageAtGestureStart.coerceIn(0, pages.size - 1))
+                    transX = transX.coerceIn(lo, hi)
+                }
                 // One swipe = one page: the drag can reach the next or previous page, no further.
                 if (paging && pages.isNotEmpty()) {
                     val lo = pageCenterX((pageAtGestureStart + 1).coerceAtMost(pages.size - 1))
@@ -1446,7 +1471,18 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                removeCallbacks(textPressRunnable)
+                if (textSelecting) {
+                    textSelecting = false
+                    val rects = host.textSelection(textPage)
+                    val sb = if (rects.isEmpty()) null else RectF(rects.first()).also { r -> rects.drop(1).forEach { r.union(it) }; pageMatrix(textPage, tmpMatrix).mapRect(r) }
+                    host.onTextEnd(sb)
+                    mode = Mode.NONE; maxFingers = 0; fingerDownTime = 0L
+                    velocity?.recycle(); velocity = null
+                    return
+                }
                 val quick = SystemClock.uptimeMillis() - fingerDownTime < 300
+                if (action == MotionEvent.ACTION_UP && quick && !fingerMoved && maxFingers == 1) host.onTextClear()
                 if (action == MotionEvent.ACTION_UP && quick && !fingerMoved && settings.fingerTapUndo && !readOnly) {
                     when (maxFingers) {
                         2 -> host.undo()
@@ -1483,13 +1519,50 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
     }
 
+    private var textSelecting = false
+    private var textPage = 0
+    private val textPressRunnable = Runnable {
+        if (fingerMoved || maxFingers != 1 || mode != Mode.PAN) return@Runnable
+        val (dx, dy) = toDoc(fingerStartX, fingerStartY)
+        val pi = pageAt(dx, dy)
+        val (lx, ly) = toLocal(fingerStartX, fingerStartY, pi)
+        if (host.onTextPress(pi, lx, ly)) {
+            textSelecting = true; textPage = pi
+            scroller.forceFinished(true)
+            buzz()
+            layer.invalidate()
+        }
+    }
+
+    /** transX range that keeps page [i] filling the screen sideways (or centred when narrower). */
+    private fun pageXRange(i: Int): Pair<Float, Float> {
+        val p = pages[i]
+        val left = -ox(i) * scale
+        val w = p.width * scale
+        if (w <= width) { val c = (width - w) / 2f + left; return c to c }
+        return (width - w + left) to left
+    }
+
     private fun releaseFling(pulled: Boolean) {
         if (pinched) { pinched = false; settleAfterPinch(); return }
         val vt = velocity ?: return
         vt.computeCurrentVelocity(1000)
         val vx = vt.xVelocity; val vy = vt.yVelocity
         val horizontal = settings.scroll == ScrollDirection.HORIZONTAL
-        val atFit = scale <= fitScale() * 1.3f
+        // A plain tap must not move the page at all.
+        if (!fingerMoved && !pulled) return
+        val atFit = scale <= fitScale() * 1.05f
+        if (horizontal && !atFit && pages.isNotEmpty()) {
+            // Zoomed in: fling inside the current page only.
+            val (lo, hi) = pageXRange(pageAtGestureStart.coerceIn(0, pages.size - 1))
+            val ch = docH * scale
+            scroller.fling(
+                transX.toInt(), transY.toInt(), vx.toInt(), vy.toInt(), lo.toInt(), hi.toInt(),
+                min(0f, height - ch - 24f * density).toInt(), (24f * density).toInt(),
+            )
+            postInvalidateOnAnimation()
+            return
+        }
         if (horizontal && atFit && !pulled) {
             // Page-by-page snapping, like turning pages: at most one page per swipe.
             val start = pageAtGestureStart.coerceIn(0, max(0, pages.size - 1))
@@ -1819,6 +1892,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 r.drawPaper(canvas, p, pdf, shadow = true)
                 val hl = host.highlights(i)
                 if (hl.isNotEmpty()) r.drawHighlights(canvas, hl, active?.takeIf { it.first == i }?.second)
+                host.textSelection(i).forEach { canvas.drawRoundRect(it, 4f, 4f, textSelPaint) }
                 if (i == selectionPage) r.drawItems(canvas, p.items, m, transform = liveMatrix, transformIds = selection)
                 else r.drawItems(canvas, p.items, m)
                 tapePreview?.takeIf { i == activePage }?.let { canvas.drawRoundRect(it, 6f, 6f, tapePreviewPaint) }
@@ -1885,6 +1959,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
 
         private val outlinePath = Path()
+        private val textSelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x553D6CF4 }
         private val linkFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt(); setShadowLayer(6f, 0f, 2f, 0x40000000) }
         private val linkGlyph = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Color.WHITE; strokeWidth = 1.8f * density; strokeCap = Paint.Cap.ROUND }
         private val linkBoxFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x143D6CF4 }

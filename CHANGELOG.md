@@ -1,5 +1,17 @@
 # Changelog
 
+## v7.0.0
+- **Smart ink, on device:** select handwriting and tap ✨ to convert it to text, solve a sum, tidy crooked lines, or make a flashcard. Turn on *Convert to text as I write* and *Solve maths when I write =* in the pen card. Handwriting is read by Google ML Kit on the tablet; the language model downloads once, then works offline.
+- **Handwriting search:** search now finds words you wrote by hand.
+- **Quiz:** write your own multiple-choice questions, or let Pro Notes make them from the PDF and your notes. Take the quiz with instant feedback and a score.
+- **Make flashcards for me:** build cards from definitions and key sentences on a page or the whole notebook.
+- **PDF text:** long-press text with a finger to select it, drag to extend, then copy, highlight, make a flashcard or search.
+- **Undo and redo** now always sit at the top left, wherever the toolbar is.
+- **Hold to snap** turns a held circle into a neat circle again. To select, lift the pen and hold the blue dot.
+- **Pen haptics:** a light tick when the pen touches down (Settings).
+- **Setup:** choose theme, accent, toolbar, scrolling, paper and smart ink while setting up.
+- **Fixes:** zoomed-in swipes stay on one page, a tap on a PDF no longer nudges the page, and search highlights now line up on every PDF.
+
 ## v6.1.0
 - **Links, like GoodNotes:** select ink and tap the new link button in the selection bar. Pick a page from thumbnails, or type a website. Linked content gets a soft blue box; tap it with a finger to follow. Long-press the badge to remove.
 - **Tour:** rebuilt as swipeable cards with small animated demos for each gesture.

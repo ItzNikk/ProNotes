@@ -44,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -120,6 +121,12 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                     Button(onClick = { studying = true }, enabled = vm.dueCards().isNotEmpty(), shape = Pill) { Text("Study due cards") }
                     FilledTonalButton(onClick = { onClose(); vm.capturingCard = true }, shape = Pill) { Text("Cut from page") }
                     OutlinedButton(onClick = { vm.newTextCard() }, shape = Pill) { Text("Text card") }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Make cards for me:", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    androidx.compose.material3.AssistChip(onClick = { vm.generateCards(false) }, label = { Text("This page") }, shape = Pill)
+                    androidx.compose.material3.AssistChip(onClick = { vm.generateCards(true) }, label = { Text("Whole notebook") }, shape = Pill)
                 }
                 Spacer(Modifier.height(12.dp))
                 if (vm.cards.isEmpty()) {
@@ -284,6 +291,149 @@ fun LinkSheet(vm: EditorViewModel) {
                 Spacer(Modifier.height(8.dp))
                 TextButton(onClick = { vm.linkSheet = null }, modifier = Modifier.align(Alignment.End)) { Text("Cancel") }
             }
+        }
+    }
+}
+
+/** Multiple-choice quiz: write your own questions or let the app make them from the notebook's text. */
+@Composable
+fun QuizDialog(vm: EditorViewModel, onClose: () -> Unit) {
+    var taking by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<com.pronotes.app.data.QuizQuestion?>(null) }
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(
+            shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.padding(24.dp).widthIn(max = 720.dp).fillMaxWidth().heightIn(max = 780.dp).statusBarsPadding(),
+        ) {
+            if (taking) TakeQuiz(vm, onDone = { taking = false })
+            else Column(Modifier.padding(20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Quiz", style = MaterialTheme.typography.headlineSmall)
+                        Text("${vm.quiz.size} questions", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    TextButton(onClick = onClose) { Text("Close") }
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { taking = true }, enabled = vm.quiz.isNotEmpty(), shape = Pill) { Text("Start quiz") }
+                    OutlinedButton(onClick = {
+                        editing = com.pronotes.app.data.QuizQuestion(java.util.UUID.randomUUID().toString(), "", listOf("", "", "", ""), 0)
+                    }, shape = Pill) { Text("Add question") }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Make questions:", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    androidx.compose.material3.AssistChip(onClick = { vm.generateQuiz(false) }, label = { Text("This page") }, shape = Pill)
+                    androidx.compose.material3.AssistChip(onClick = { vm.generateQuiz(true) }, label = { Text("Whole notebook") }, shape = Pill)
+                }
+                if (vm.aiBusy) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+                Spacer(Modifier.height(12.dp))
+                if (vm.quiz.isEmpty()) {
+                    Text(
+                        "No questions yet. Add your own, or let Pro Notes write them from the PDF text and your notes.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 24.dp),
+                    )
+                } else {
+                    LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(vm.quiz, key = { it.id }) { q ->
+                            Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f), modifier = Modifier.fillMaxWidth().clickable { editing = q }) {
+                                Column(Modifier.padding(14.dp)) {
+                                    Text(q.question, maxLines = 2, style = MaterialTheme.typography.bodyMedium)
+                                    val stats = if (q.right + q.wrong == 0) "Not tried yet" else "${q.right} right · ${q.wrong} wrong"
+                                    Text((if (q.generated) "Made for you · " else "") + stats, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    editing?.let { q -> QuestionEditor(q, onDismiss = { editing = null }, onDelete = { vm.deleteQuestion(q.id); editing = null }) { vm.saveQuestion(it); editing = null } }
+}
+
+@Composable
+private fun QuestionEditor(q: com.pronotes.app.data.QuizQuestion, onDismiss: () -> Unit, onDelete: () -> Unit, onSave: (com.pronotes.app.data.QuizQuestion) -> Unit) {
+    var question by remember { mutableStateOf(q.question) }
+    val options = remember { (q.options + List(4) { "" }).take(4).toMutableList().let { androidx.compose.runtime.mutableStateListOf(*it.toTypedArray()) } }
+    var answer by remember { mutableIntStateOf(q.answer.coerceIn(0, 3)) }
+    var why by remember { mutableStateOf(q.explanation) }
+    AlertDialog(
+        onDismissRequest = onDismiss, shape = RoundedCornerShape(28.dp),
+        title = { Text(if (q.question.isEmpty()) "New question" else "Edit question") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(question, { question = it }, minLines = 2, shape = RoundedCornerShape(16.dp), label = { Text("Question") }, modifier = Modifier.fillMaxWidth())
+                Text("Tap the circle next to the right answer", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                options.forEachIndexed { i, o ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.RadioButton(answer == i, { answer = i })
+                        OutlinedTextField(o, { options[i] = it }, singleLine = true, shape = Pill, placeholder = { Text("Option ${'A' + i}") }, modifier = Modifier.weight(1f))
+                    }
+                }
+                OutlinedTextField(why, { why = it }, shape = RoundedCornerShape(16.dp), label = { Text("Why (optional)") }, modifier = Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = {
+            val ok = question.isNotBlank() && options.count { it.isNotBlank() } >= 2 && options[answer].isNotBlank()
+            Button(onClick = {
+                val filled = options.mapIndexedNotNull { i, s -> if (s.isNotBlank()) i to s.trim() else null }
+                onSave(q.copy(question = question.trim(), options = filled.map { it.second }, answer = filled.indexOfFirst { it.first == answer }.coerceAtLeast(0), explanation = why.trim()))
+            }, enabled = ok, shape = Pill) { Text("Save") }
+        },
+        dismissButton = {
+            Row {
+                if (q.question.isNotEmpty()) TextButton(onClick = onDelete) { Text("Delete") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
+    )
+}
+
+@Composable
+private fun TakeQuiz(vm: EditorViewModel, onDone: () -> Unit) {
+    val order = remember { vm.quiz.shuffled().map { it.id } }
+    var index by remember { mutableIntStateOf(0) }
+    var picked by remember { mutableStateOf<Int?>(null) }
+    var score by remember { mutableIntStateOf(0) }
+    Column(Modifier.padding(20.dp).verticalScroll(rememberScrollState())) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(if (index < order.size) "Question ${index + 1} of ${order.size}" else "Done", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            Text("Score $score", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            TextButton(onClick = onDone) { Text("Back") }
+        }
+        androidx.compose.material3.LinearProgressIndicator(progress = { if (order.isEmpty()) 1f else index / order.size.toFloat() }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
+        val q = order.getOrNull(index)?.let { id -> vm.quiz.firstOrNull { it.id == id } }
+        if (q == null) {
+            val pct = if (order.isEmpty()) 0 else score * 100 / order.size
+            Text("$pct%", fontSize = 56.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 30.dp))
+            Text("$score of ${order.size} right", modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 24.dp))
+            Button(onClick = onDone, shape = Pill, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Finish") }
+            return@Column
+        }
+        Text(q.question, fontSize = 20.sp, modifier = Modifier.padding(vertical = 12.dp))
+        q.options.forEachIndexed { i, o ->
+            val shown = picked != null
+            val color = when {
+                shown && i == q.answer -> Color(0xFF1BAF7A)
+                shown && i == picked -> Color(0xFFE5484D)
+                else -> MaterialTheme.colorScheme.outlineVariant
+            }
+            Surface(
+                shape = RoundedCornerShape(18.dp), color = if (shown && (i == q.answer || i == picked)) color.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).border(1.5.dp, color, RoundedCornerShape(18.dp)).clickable(enabled = !shown) {
+                    picked = i
+                    val right = i == q.answer
+                    if (right) score++
+                    vm.answerQuestion(q.id, right)
+                },
+            ) { Text("${'A' + i}.  $o", Modifier.padding(14.dp)) }
+        }
+        if (picked != null) {
+            if (q.explanation.isNotBlank()) Text(q.explanation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp))
+            Spacer(Modifier.height(14.dp))
+            Button(onClick = { picked = null; index++ }, shape = Pill) { Text(if (index + 1 < order.size) "Next" else "See score") }
         }
     }
 }

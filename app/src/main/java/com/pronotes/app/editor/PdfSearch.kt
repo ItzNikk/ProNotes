@@ -38,6 +38,43 @@ class PdfTextIndex private constructor(private val pages: Map<Int, PageText>) {
         return out
     }
 
+    /** All text of one PDF page (for flashcard and quiz generation). */
+    fun pageText(pdfPage: Int): String = pages[pdfPage]?.text ?: ""
+
+    /** Character under (x, y) in page units, or the nearest one on that line. */
+    fun charAt(pdfPage: Int, x: Float, y: Float): Int? {
+        val pt = pages[pdfPage] ?: return null
+        var best = -1; var bestD = Float.MAX_VALUE
+        pt.boxes.forEachIndexed { i, b ->
+            if (b == null) return@forEachIndexed
+            if (b.contains(x, y)) return i
+            if (y < b.top - b.height() || y > b.bottom + b.height()) return@forEachIndexed
+            val d = kotlin.math.abs(b.centerX() - x) + kotlin.math.abs(b.centerY() - y) * 3f
+            if (d < bestD) { bestD = d; best = i }
+        }
+        return best.takeIf { it >= 0 && bestD < 120f }
+    }
+
+    /** Start and end (exclusive) of the word around [i]. */
+    fun wordAt(pdfPage: Int, i: Int): IntRange {
+        val t = pages[pdfPage]?.text ?: return i until i + 1
+        var a = i; var b = i + 1
+        while (a > 0 && t[a - 1].isLetterOrDigit()) a--
+        while (b < t.length && t[b].isLetterOrDigit()) b++
+        return a until b
+    }
+
+    fun text(pdfPage: Int, range: IntRange): String {
+        val t = pages[pdfPage]?.text ?: return ""
+        val a = range.first.coerceIn(0, t.length); val b = (range.last + 1).coerceIn(a, t.length)
+        return t.substring(a, b).replace('\n', ' ').trim()
+    }
+
+    fun rects(pdfPage: Int, range: IntRange): List<RectF> {
+        val pt = pages[pdfPage] ?: return emptyList()
+        return mergeLine(range.mapNotNull { pt.boxes.getOrNull(it) })
+    }
+
     private fun mergeLine(boxes: List<RectF>): List<RectF> {
         val merged = ArrayList<RectF>()
         for (b in boxes) {
@@ -50,12 +87,17 @@ class PdfTextIndex private constructor(private val pages: Map<Int, PageText>) {
     private fun abs(f: Float) = if (f < 0) -f else f
 
     companion object {
-        /** Blocking. [scale] converts PDF points to page units (pages are stored at 2x). */
-        fun build(context: Context, file: File, scale: Float = 2f): PdfTextIndex {
+        /**
+         * Blocking. [pageWidth] gives the notebook width of each PDF page, so boxes line up with
+         * the page however it was scaled on import.
+         */
+        fun build(context: Context, file: File, pageWidth: (Int) -> Float? = { null }): PdfTextIndex {
             PDFBoxResourceLoader.init(context.applicationContext)
             val result = HashMap<Int, PageText>()
             PDDocument.load(file).use { doc ->
                 for (i in 0 until doc.numberOfPages) {
+                    val mw = runCatching { doc.getPage(i).mediaBox.width }.getOrDefault(0f)
+                    val scale = pageWidth(i)?.takeIf { mw > 0f }?.let { it / mw } ?: 2f
                     val chars = StringBuilder()
                     val boxes = ArrayList<RectF?>()
                     val stripper = object : PDFTextStripper() {
