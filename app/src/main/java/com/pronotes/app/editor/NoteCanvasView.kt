@@ -257,6 +257,11 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
     fun redraw() { layer.invalidate() }
 
+    fun pageToScreen(page: Int, r: RectF): RectF? {
+        if (page !in pages.indices) return null
+        return RectF(r).also { pageMatrix(page, tmpMatrix).mapRect(it) }
+    }
+
     /** Replaces the page list (after undo, page add/delete, recolour...). */
     fun setPages(newPages: List<Page>) {
         val structural = newPages.size != pages.size || newPages.zip(pages).any { (a, b) -> a.id != b.id || a.width != b.width }

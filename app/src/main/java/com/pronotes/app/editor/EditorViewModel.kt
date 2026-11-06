@@ -794,6 +794,13 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     /** Selected content waiting for a link target (page id + box), shown in the link sheet. */
     var linkSheet by mutableStateOf<Pair<String, RectF>?>(null)
 
+    /** Top menu "Add link…": switch to the lasso and explain the next step. */
+    fun beginLinkFlow() {
+        if (selection.isNotEmpty()) { startLinkFromSelection(); return }
+        tool = Tool.LASSO
+        say("Circle what you want to link, then tap Link")
+    }
+
     fun startLinkFromSelection() {
         val r = selectionUnion() ?: return
         val page = pages.getOrNull(selectionPage) ?: return
@@ -1030,7 +1037,11 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 val p = pages.getOrNull(pg) ?: continue
                 val ink = p.items.filter { it.id in ids }.filterIsInstance<InkItem>()
                 if (ink.isEmpty()) continue
-                val lines = InkLayout.lines(ink)
+                // Only lines that look like writing: not too tall, wider than high. Drawings stay ink.
+                val lines = InkLayout.lines(ink).filter { l ->
+                    val b = InkLayout.bounds(l)
+                    b.height() in 8f..240f && (b.width() > b.height() * 0.8f || l.size >= 2)
+                }
                 if (s.mathAssist) {
                     val last = lines.lastOrNull() ?: continue
                     val raw = Handwriting.recognize(last, s.handwritingLang) ?: continue
@@ -1077,11 +1088,31 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         private set
     var textMenu by mutableStateOf<RectF?>(null)
 
+    /** Text of single PDF pages, read on demand so long-press works at once even on huge PDFs. */
+    private val pageTextIdx = java.util.concurrent.ConcurrentHashMap<Int, PdfTextIndex>()
+    private var pageTextJob: Job? = null
+
+    private fun indexFor(pdfPage: Int): PdfTextIndex? = pdfIndex ?: pageTextIdx[pdfPage]
+
     fun textPress(page: Int, x: Float, y: Float): Boolean {
         val pg = pages.getOrNull(page) ?: return false
         if (pg.pdfPage < 0) return false
-        val idx = pdfIndex
-        if (idx == null) { viewModelScope.launch { textIndex() }; say("Preparing the PDF text… try again in a moment"); return false }
+        val idx = indexFor(pg.pdfPage)
+        if (idx == null) {
+            // Read just this page, then finish the long-press.
+            if (pageTextJob?.isActive != true) pageTextJob = viewModelScope.launch {
+                aiBusy = true
+                val one = withContext(Dispatchers.IO) {
+                    runCatching { PdfTextIndex.build(getApplication(), repo.pdfFile(noteId), only = setOf(pg.pdfPage)) { if (it == pg.pdfPage) pg.width else null } }.getOrNull()
+                }
+                aiBusy = false
+                if (one == null) { say("This PDF has no selectable text (it may be a scan)"); return@launch }
+                pageTextIdx[pg.pdfPage] = one
+                if (!textPress(page, x, y)) say("No text here. Long-press on a word.")
+                else textMenu = textSel?.let { s -> s.rects.takeIf { it.isNotEmpty() }?.let { rs -> val u = RectF(rs.first()); rs.drop(1).forEach { u.union(it) }; toScreen?.invoke(s.page, u) } }
+            }
+            return false
+        }
         val c = idx.charAt(pg.pdfPage, x, y) ?: return false
         val w = idx.wordAt(pg.pdfPage, c)
         textSel = TextSel(page, pg.pdfPage, w, w, idx.rects(pg.pdfPage, w), idx.text(pg.pdfPage, w))
@@ -1089,9 +1120,12 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         return true
     }
 
+    /** Maps a page-space box to the screen (set by the editor; used to place the text menu). */
+    var toScreen: ((Int, RectF) -> RectF?)? = null
+
     fun textDrag(x: Float, y: Float) {
         val s = textSel ?: return
-        val idx = pdfIndex ?: return
+        val idx = indexFor(s.pdfPage) ?: return
         val c = idx.charAt(s.pdfPage, x, y) ?: return
         val w = idx.wordAt(s.pdfPage, c)
         val r = minOf(s.anchor.first, w.first)..maxOf(s.anchor.last, w.last)

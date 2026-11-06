@@ -1,5 +1,10 @@
 # Changelog
 
+## v7.0.1
+- **Links are easy to find:** a blue **Link** button now leads the selection bar. It is also in the selection's ⋯ menu and in the notebook's ⋯ menu (*Add link…*).
+- **Long-press PDF text** now works right away, even on big PDFs. The page under your finger is read on the spot. Scanned PDFs without text show a short note.
+- **Convert as I write** leaves drawings alone and only converts lines that look like writing.
+
 ## v7.0.0
 - **Smart ink, on device:** select handwriting and tap ✨ to convert it to text, solve a sum, tidy crooked lines, or make a flashcard. Turn on *Convert to text as I write* and *Solve maths when I write =* in the pen card. Handwriting is read by Google ML Kit on the tablet; the language model downloads once, then works offline.
 - **Handwriting search:** search now finds words you wrote by hand.

@@ -91,11 +91,12 @@ class PdfTextIndex private constructor(private val pages: Map<Int, PageText>) {
          * Blocking. [pageWidth] gives the notebook width of each PDF page, so boxes line up with
          * the page however it was scaled on import.
          */
-        fun build(context: Context, file: File, pageWidth: (Int) -> Float? = { null }): PdfTextIndex {
+        fun build(context: Context, file: File, only: Set<Int>? = null, pageWidth: (Int) -> Float? = { null }): PdfTextIndex {
             PDFBoxResourceLoader.init(context.applicationContext)
             val result = HashMap<Int, PageText>()
             PDDocument.load(file).use { doc ->
                 for (i in 0 until doc.numberOfPages) {
+                    if (only != null && i !in only) continue
                     val mw = runCatching { doc.getPage(i).mediaBox.width }.getOrDefault(0f)
                     val scale = pageWidth(i)?.takeIf { mw > 0f }?.let { it / mw } ?: 2f
                     val chars = StringBuilder()

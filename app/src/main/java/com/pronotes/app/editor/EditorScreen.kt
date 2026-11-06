@@ -285,6 +285,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
         vm.onPagesChanged = { c.setPages(vm.pages.toList()) }
         vm.onScrollTo = { i -> c.scrollToPage(i, animate = true) }
         vm.onRedraw = { c.redraw() }
+        vm.toScreen = { pg, r -> c.pageToScreen(pg, r) }
         c.startPage = vm.startPage
         c.setPages(vm.pages.toList())
     }
@@ -785,6 +786,8 @@ private fun TopBar(
                     onClick = { more = false; onRename() })
                 DropdownMenuItem(text = { Text("Flashcards") }, leadingIcon = { Icon(Icons.Outlined.Style, null) },
                     onClick = { more = false; onCards() })
+                DropdownMenuItem(text = { Text("Add link…") }, leadingIcon = { Icon(Icons.Outlined.Link, null) },
+                    onClick = { more = false; vm.beginLinkFlow() })
                 DropdownMenuItem(text = { Text("Quiz") }, leadingIcon = { Icon(Icons.Outlined.Quiz, null) },
                     onClick = { more = false; onQuiz() })
                 DropdownMenuItem(text = { Text("Flashcard from area") }, leadingIcon = { Icon(Icons.Outlined.Crop, null) },
@@ -1648,7 +1651,16 @@ private fun SelectionMenu(
     var colors by remember { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
     Surface(shape = Pill, color = Color(0xE01B1F2A), contentColor = Color.White, shadowElevation = 8.dp, modifier = Modifier.glassEdge(Pill)) {
-        Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 6.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+            // Link first and labelled, so it is easy to find.
+            Surface(
+                shape = Pill, color = Color(0xFF3D6CF4), contentColor = Color.White,
+                modifier = Modifier.padding(4.dp).clip(Pill).clickable { vm.startLinkFromSelection() },
+            ) {
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Link, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Link", style = MaterialTheme.typography.labelLarge)
+                }
+            }
             IconButton(onClick = vm::cutSelection) { Icon(Icons.Outlined.ContentCut, "Cut") }
             IconButton(onClick = vm::copySelection) { Icon(Icons.Outlined.ContentCopy, "Copy") }
             IconButton(onClick = onDuplicate) { ProIconView(ProIcon.ADD, Color.White, Modifier.size(22.dp)) }
@@ -1667,10 +1679,11 @@ private fun SelectionMenu(
                         onClick = { more = false; onShareImage() })
                     DropdownMenuItem(text = { Text("Make flashcard") }, leadingIcon = { Icon(Icons.Outlined.Style, null) },
                         onClick = { more = false; vm.cardFromSelection() })
+                    DropdownMenuItem(text = { Text("Add link…") }, leadingIcon = { Icon(Icons.Outlined.Link, null) },
+                        onClick = { more = false; vm.startLinkFromSelection() })
 
                 }
             }
-            IconButton(onClick = { vm.startLinkFromSelection() }) { Icon(Icons.Outlined.Link, "Add link") }
             var smart by remember { mutableStateOf(false) }
             Box {
                 IconButton(onClick = { smart = true }) { Icon(Icons.Outlined.AutoAwesome, "Smart ink") }
