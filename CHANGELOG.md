@@ -1,5 +1,12 @@
 # Changelog
 
+## v6.0.0
+- **Flashcards:** drag a box over any part of a PDF or your notes to make a card, or turn a selection into one. Write the answer on the back, or make text-only cards. Study due cards with a flip and Again / Good / Easy, spaced over days. Jump back to the source page, or export as CSV.
+- **Ink links:** select something, choose Link to..., then tap anywhere in the notebook. A blue chain badge sits at both ends; tap one to jump to the other. Long-press a badge to remove the link.
+- **Study timer:** drag it anywhere. New settings: start by itself, show seconds, pause when idle.
+- **New notebooks:** default page size, landscape and cover-as-first-page in Settings.
+- **Big PDFs:** pages appear faster. A light first pass shows at once, then sharpens.
+
 ## v5.2.0
 - **Toolbar:** the floating toolbar is back as the default. The top bar + side panel layout stays in Settings.
 - **Circle to select:** draw a loop around content and lift the pen. A blue dot pulses at the loop's end. Press and hold it to turn the loop into a lasso, then drag.

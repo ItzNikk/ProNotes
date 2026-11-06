@@ -316,7 +316,12 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
                         DropdownMenuItem(text = { Text("Notebook") }, leadingIcon = { Icon(Icons.Outlined.Description, null) }, onClick = { newMenu = false; newNotebook = true })
                         DropdownMenuItem(text = { Text("Quick note") }, leadingIcon = { Icon(Icons.Outlined.Edit, null) }, onClick = {
                             newMenu = false
-                            scope.launch { onOpen(repo.createNotebook("Quick note", folderId, CoverColors.random(), settings.defaultPaper)) }
+                            scope.launch {
+                                val k = com.pronotes.app.data.PagePreset.UNITS_PER_MM
+                                var w = settings.defaultPreset.wMm * k; var h = settings.defaultPreset.hMm * k
+                                if (settings.defaultLandscape != (w > h)) { val t = w; w = h; h = t }
+                                onOpen(repo.createNotebook("Quick note", folderId, CoverColors.random(), settings.defaultPaper, width = w, height = h))
+                            }
                         })
                         DropdownMenuItem(text = { Text("Folder") }, leadingIcon = { Icon(Icons.Outlined.CreateNewFolder, null) }, onClick = { newMenu = false; newFolder = true })
                         DropdownMenuItem(text = { Text("Import PDF") }, leadingIcon = { Icon(Icons.Outlined.PictureAsPdf, null) }, onClick = { newMenu = false; importPdf.launch(arrayOf("application/pdf")) })
@@ -437,7 +442,7 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
     }
 
     // ---------------------------------------------------------------- dialogs
-    if (newNotebook) NewNotebookDialog(settings.defaultPaper, settings.thumbCovers, onDismiss = { newNotebook = false }) { b ->
+    if (newNotebook) NewNotebookDialog(settings.defaultPaper, settings.thumbCovers, settings, onDismiss = { newNotebook = false }) { b ->
         newNotebook = false
         scope.launch {
             val usePhotoPage = b.photo != null && b.coverPage
@@ -928,20 +933,21 @@ private val PaperColors = listOf(0xFFFFFFFF, 0xFFFBF7EC, 0xFFF1F2F4, 0xFFFFF4E0,
 private fun NewNotebookDialog(
     defaultPaper: PaperStyle,
     thumbCovers: Boolean,
+    defaults: com.pronotes.app.data.AppSettings,
     onDismiss: () -> Unit,
     onCreate: (NewBook) -> Unit,
 ) {
     var name by remember { mutableStateOf("Untitled notebook") }
     val startColor = remember { CoverColors.random() }
     var cover by remember { mutableStateOf(if (thumbCovers) "thumb" else "solid:$startColor") }
-    var coverPage by remember { mutableStateOf(true) }
+    var coverPage by remember { mutableStateOf(defaults.defaultCoverPage) }
     var paper by remember { mutableStateOf(defaultPaper) }
     var paperColor by remember { mutableStateOf<Int?>(null) }
     var customPaper by remember { mutableStateOf(false) }
-    var preset by remember { mutableStateOf(com.pronotes.app.data.PagePreset.A4) }
-    var landscape by remember { mutableStateOf(false) }
-    var wMm by remember { mutableStateOf("210") }
-    var hMm by remember { mutableStateOf("297") }
+    var preset by remember { mutableStateOf(defaults.defaultPreset) }
+    var landscape by remember { mutableStateOf(defaults.defaultLandscape) }
+    var wMm by remember { mutableStateOf("%.0f".format(defaults.defaultPreset.wMm)) }
+    var hMm by remember { mutableStateOf("%.0f".format(defaults.defaultPreset.hMm)) }
     var photo by remember { mutableStateOf<Uri?>(null) }
     var tab by remember { mutableStateOf(0) }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) { photo = uri; cover = "photo" } }

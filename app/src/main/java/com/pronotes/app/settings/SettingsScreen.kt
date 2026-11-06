@@ -214,7 +214,14 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                             }
                         }
                     }
-                    Section("Default template") {
+                    Section("New notebooks") {
+                    Choice("Page size", s.defaultPreset.label, com.pronotes.app.data.PagePreset.entries.filter { it != com.pronotes.app.data.PagePreset.CUSTOM }.map { it.label }) { i ->
+                        up { it.copy(defaultPreset = com.pronotes.app.data.PagePreset.entries.filter { p -> p != com.pronotes.app.data.PagePreset.CUSTOM }[i]) }
+                    }
+                    Toggle("Landscape", "Pages wider than tall", s.defaultLandscape) { v -> up { it.copy(defaultLandscape = v) } }
+                    Toggle("Cover as first page", "Write on the cover of new notebooks", s.defaultCoverPage) { v -> up { it.copy(defaultCoverPage = v) } }
+                }
+                Section("Default template") {
                         FlowRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             PaperStyle.entries.forEach { p ->
                                 val sel = s.defaultPaper == p
@@ -243,7 +250,13 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                     Section("Tabs") {
                         Toggle("Notebook tabs", "Keep several notebooks open and switch between them", s.showTabs) { v -> up { it.copy(showTabs = v) } }
         Toggle("Hide toolbar while recording", "When the screen is being recorded (Android 15 and newer)", s.hideToolsWhenRecording) { v -> up { it.copy(hideToolsWhenRecording = v) } }
-        Toggle("Study timer", "A stopwatch for each study session, with a total per notebook", s.studyTimer) { v -> up { it.copy(studyTimer = v) } }
+        Toggle("Study timer", "A stopwatch for each study session, with a total per notebook. Drag it anywhere.", s.studyTimer) { v -> up { it.copy(studyTimer = v) } }
+        if (s.studyTimer) {
+            Toggle("Start by itself", "Count from the moment a notebook opens", s.studyAutoStart) { v -> up { it.copy(studyAutoStart = v) } }
+            Toggle("Show seconds", "Off shows hours and minutes only", s.studySeconds) { v -> up { it.copy(studySeconds = v) } }
+            val idle = listOf(0, 2, 5, 10)
+            Choice("Pause when idle", if (s.studyIdleMinutes == 0) "Never" else "${s.studyIdleMinutes} min", idle.map { if (it == 0) "Never" else "$it min" }) { i -> up { it.copy(studyIdleMinutes = idle[i]) } }
+        }
                     }
                 }
                 Category.LOOK -> {

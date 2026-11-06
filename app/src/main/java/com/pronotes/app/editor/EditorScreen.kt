@@ -81,6 +81,9 @@ import androidx.compose.material.icons.outlined.FormatItalic
 import androidx.compose.material.icons.outlined.FormatUnderlined
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Style
+import androidx.compose.material.icons.outlined.Crop
+import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material.icons.outlined.Palette
@@ -329,6 +332,12 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     }
     val hideTools = focus || vm.readOnly || (settings.hideToolsWhenRecording && recording)
     LaunchedEffect(vm.readOnly, canvas) { canvas?.readOnly = vm.readOnly }
+    LaunchedEffect(vm.capturingCard, vm.linkFrom, canvas) {
+        canvas?.capturing = vm.capturingCard
+        canvas?.linkPicking = vm.linkFrom != null
+    }
+    LaunchedEffect(vm.links, canvas) { canvas?.redraw() }
+    var showCards by remember { mutableStateOf(false) }
 
     // Real background blur (Android 12+) while a card, dialog or sheet is open.
     val overlayOpen = vm.textEdit != null || vm.stickyEdit != null || renaming || goTo || pageColor ||
@@ -370,6 +379,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                         },
                         onPaste = { vm.paste()?.let { (pg, ids) -> canvas?.selectItems(pg, ids) } },
                         onPageColor = { pageColor = true },
+                        onCards = { showCards = true },
                         onPageImage = { pickBackground.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                     )
                     AnimatedVisibility(showSearch, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
@@ -420,6 +430,10 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                                 override fun shapeFill() = vm.shapeFill()
                                 override fun onCircleCandidate(screenBounds: android.graphics.RectF?) = Unit
                                 override fun onCircleSelect(active: Boolean) = vm.circleSelect(active)
+                                override fun linkEnds() = vm.linkEnds()
+                                override fun onAreaPicked(page: Int, rect: android.graphics.RectF) { vm.capturingCard = false; vm.startCardFromArea(page, rect) }
+                                override fun onLinkTarget(page: Int, x: Float, y: Float) = vm.finishLink(page, x, y)
+                                override fun onLinkLongPress(id: String) { vm.linkToDelete = id }
                                 override fun onEraserLifted() = vm.onEraserLifted()
                                 override fun onZoom(percent: Int?) = vm.onZoom(percent)
                                 override fun penProfile(deviceName: String) = store.registerPen(deviceName)
@@ -510,12 +524,24 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                     }
                 }
 
-                if (settings.studyTimer && !focus) {
-                    StudyTimer(
-                        vm,
-                        Modifier.align(if (settings.toolbarDock == ToolbarDock.BOTTOM) Alignment.TopStart else Alignment.BottomCenter)
-                            .navigationBarsPadding().padding(16.dp),
-                    )
+                if (settings.studyTimer && !focus) StudyTimer(vm, settings, areaSize)
+
+                val banner = when {
+                    vm.capturingCard -> "Drag a box over what goes on the card"
+                    vm.linkFrom != null -> "Tap where this should link to"
+                    else -> null
+                }
+                if (banner != null) {
+                    Surface(
+                        shape = Pill, color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary, shadowElevation = 6.dp,
+                        modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 72.dp),
+                    ) {
+                        Row(Modifier.padding(start = 18.dp, end = 6.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(banner, style = MaterialTheme.typography.labelLarge)
+                            Spacer(Modifier.width(8.dp))
+                            TextButton(onClick = { vm.capturingCard = false; vm.linkFrom = null }) { Text("Cancel", color = MaterialTheme.colorScheme.onPrimary) }
+                        }
+                    }
                 }
 
                 if (vm.pages.isNotEmpty()) {
@@ -537,6 +563,17 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
 
     // ------------------------------------------------------------------ dialogs
     vm.textEdit?.let { edit -> TextDialog(vm, edit) }
+    vm.cardDraft?.let { d -> CardEditorDialog(vm, d) }
+    if (showCards) FlashcardsDialog(vm, onClose = { showCards = false })
+    vm.linkToDelete?.let { id ->
+        AlertDialog(
+            onDismissRequest = { vm.linkToDelete = null },
+            title = { Text("Remove this link?") },
+            text = { Text("Both ends of the link will go away. Your ink stays.") },
+            confirmButton = { TextButton(onClick = { vm.deleteLink(id) }) { Text("Remove") } },
+            dismissButton = { TextButton(onClick = { vm.linkToDelete = null }) { Text("Cancel") } },
+        )
+    }
 
     vm.stickyEdit?.let { edit ->
         var text by remember(edit) { mutableStateOf(edit.item.text) }
@@ -661,6 +698,7 @@ private fun TopBar(
     onHome: () -> Unit, onPages: () -> Unit, onSearch: () -> Unit, onRename: () -> Unit, onFocus: () -> Unit,
     onExport: () -> Unit, onShare: () -> Unit, onSharePage: () -> Unit, onSettings: () -> Unit, onGoTo: () -> Unit,
     onScrollToggle: () -> Unit, onPaste: () -> Unit, onPageColor: () -> Unit, onPageImage: () -> Unit,
+    onCards: () -> Unit = {},
 ) {
     Row(Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         BarIcon(ProIcon.HOME, "Library", onClick = onHome)
@@ -697,6 +735,10 @@ private fun TopBar(
             DropdownMenu(more, { more = false }, shape = RoundedCornerShape(18.dp)) {
                 DropdownMenuItem(text = { Text("Rename notebook") }, leadingIcon = { Icon(Icons.Outlined.Edit, null) },
                     onClick = { more = false; onRename() })
+                DropdownMenuItem(text = { Text("Flashcards") }, leadingIcon = { Icon(Icons.Outlined.Style, null) },
+                    onClick = { more = false; onCards() })
+                DropdownMenuItem(text = { Text("Flashcard from area") }, leadingIcon = { Icon(Icons.Outlined.Crop, null) },
+                    onClick = { more = false; vm.capturingCard = true })
                 DropdownMenuItem(
                     text = { Text(if (vm.readOnly) "Turn off read only" else "Read only") },
                     leadingIcon = { Icon(Icons.Outlined.Lock, null) },
@@ -1570,6 +1612,10 @@ private fun SelectionMenu(
                         onClick = { more = false; keep { vm.arrange(false) } })
                     DropdownMenuItem(text = { Text("Share as image") }, leadingIcon = { Icon(Icons.Outlined.IosShare, null) },
                         onClick = { more = false; onShareImage() })
+                    DropdownMenuItem(text = { Text("Make flashcard") }, leadingIcon = { Icon(Icons.Outlined.Style, null) },
+                        onClick = { more = false; vm.cardFromSelection() })
+                    DropdownMenuItem(text = { Text("Link to…") }, leadingIcon = { Icon(Icons.Outlined.Link, null) },
+                        onClick = { more = false; vm.startLinkFromSelection() })
                 }
             }
             IconButton(onClick = vm::deleteSelection) { Icon(Icons.Outlined.Delete, "Delete", tint = Color(0xFFFF8A80)) }
@@ -1600,15 +1646,19 @@ private fun PagePill(index: Int, count: Int, bookmarked: Boolean, onPrev: () -> 
 
 /**
  * Stopwatch for this study session. Runs while the notebook is open and the app is in front.
- * Tap to pause or resume; long-press for the notebook total and a reset. Time is saved every 30 s.
+ * Tap to pause or resume, long-press for totals, drag to move it anywhere (the spot is remembered).
  */
 @Composable
-private fun StudyTimer(vm: EditorViewModel, modifier: Modifier) {
-    var running by remember { mutableStateOf(true) }
+private fun StudyTimer(vm: EditorViewModel, settings: AppSettings, area: IntSize) {
+    var running by remember { mutableStateOf(settings.studyAutoStart) }
     var session by remember { mutableStateOf(0L) }
     var unsaved by remember { mutableStateOf(0L) }
     var menu by remember { mutableStateOf(false) }
     var resumed by remember { mutableStateOf(true) }
+    var idle by remember { mutableStateOf(false) }
+    var pos by remember { mutableStateOf(vm.timerPos()) }
+    var drag by remember { mutableStateOf(Offset.Zero) }
+    var pill by remember { mutableStateOf(IntSize.Zero) }
     val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(owner) {
         val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
@@ -1621,35 +1671,61 @@ private fun StudyTimer(vm: EditorViewModel, modifier: Modifier) {
     LaunchedEffect(running, resumed) {
         while (running && resumed) {
             kotlinx.coroutines.delay(1000)
+            val idleMs = settings.studyIdleMinutes * 60_000L
+            idle = idleMs > 0 && System.currentTimeMillis() - vm.lastActivity > idleMs
+            if (idle) continue
             session += 1000; unsaved += 1000
             if (unsaved >= 30_000) { vm.addStudy(unsaved); unsaved = 0L }
         }
     }
-    fun fmt(ms: Long): String {
+    fun fmt(ms: Long, secs: Boolean = settings.studySeconds): String {
         val s = ms / 1000; val h = s / 3600; val m = (s % 3600) / 60; val sec = s % 60
-        return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%02d:%02d".format(m, sec)
+        return when {
+            !secs -> if (h > 0) "%d h %02d m".format(h, m) else "%d min".format(m)
+            h > 0 -> "%d:%02d:%02d".format(h, m, sec)
+            else -> "%02d:%02d".format(m, sec)
+        }
     }
-    Box(modifier) {
+    if (area.width == 0) return
+    val x = (pos.first * area.width - pill.width / 2f + drag.x).coerceIn(8f, (area.width - pill.width - 8f).coerceAtLeast(8f))
+    val y = (pos.second * area.height - pill.height / 2f + drag.y).coerceIn(8f, (area.height - pill.height - 8f).coerceAtLeast(8f))
+    Box(
+        Modifier.offset { IntOffset(x.roundToInt(), y.roundToInt()) }
+            .onSizeChanged { pill = it }
+            .pointerInput(area) {
+                detectDragGestures(
+                    onDragEnd = {
+                        val nx = ((x + pill.width / 2f) / area.width).coerceIn(0f, 1f)
+                        val ny = ((y + pill.height / 2f) / area.height).coerceIn(0f, 1f)
+                        pos = nx to ny; drag = Offset.Zero
+                        vm.setTimerPos(nx, ny)
+                    },
+                    onDragCancel = { drag = Offset.Zero },
+                ) { change, amount -> change.consume(); drag += amount }
+            },
+    ) {
         Surface(
             shape = Pill, color = glassColor(), shadowElevation = 4.dp,
             modifier = Modifier.glassEdge(Pill).clip(Pill).combinedClickableCompat({ running = !running }, { menu = true }),
         ) {
             Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    Icons.Outlined.Timer, if (running) "Pause study timer" else "Resume study timer", Modifier.size(16.dp),
-                    tint = if (running) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    Icons.Outlined.Timer, if (running) "Pause study timer" else "Start study timer", Modifier.size(16.dp),
+                    tint = if (running && !idle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(fmt(session), style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"))
-                if (!running) { Spacer(Modifier.width(6.dp)); Text("paused", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                val state = when { !running && session == 0L -> "tap to start"; !running -> "paused"; idle -> "idle"; else -> null }
+                if (state != null) { Spacer(Modifier.width(6.dp)); Text(state, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
         DropdownMenu(menu, { menu = false }, shape = RoundedCornerShape(18.dp)) {
             val total = vm.studyTotal() + unsaved
-            DropdownMenuItem(text = { Text("This session: ${fmt(session)}") }, onClick = { menu = false }, enabled = false)
-            DropdownMenuItem(text = { Text("This notebook: ${fmt(total)}") }, onClick = { menu = false }, enabled = false)
-            DropdownMenuItem(text = { Text(if (running) "Pause" else "Resume") }, onClick = { menu = false; running = !running })
+            DropdownMenuItem(text = { Text("This session: ${fmt(session, true)}") }, onClick = { menu = false }, enabled = false)
+            DropdownMenuItem(text = { Text("This notebook: ${fmt(total, true)}") }, onClick = { menu = false }, enabled = false)
+            DropdownMenuItem(text = { Text(if (running) "Pause" else "Start") }, onClick = { menu = false; running = !running })
             DropdownMenuItem(text = { Text("Restart session") }, onClick = { menu = false; vm.addStudy(unsaved); unsaved = 0L; session = 0L; running = true })
+            DropdownMenuItem(text = { Text("Move back to the bottom") }, onClick = { menu = false; pos = 0.5f to 0.93f; vm.setTimerPos(0.5f, 0.93f) })
         }
     }
 }

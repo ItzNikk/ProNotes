@@ -107,6 +107,15 @@ data class AppSettings(
     val hideToolsWhenRecording: Boolean = false,
     /** Study stopwatch in the editor. */
     val studyTimer: Boolean = true,
+    /** Start counting as soon as a notebook opens (off: tap to start). */
+    val studyAutoStart: Boolean = true,
+    val studySeconds: Boolean = true,
+    /** Pause when nothing was written or scrolled for this many minutes (0 = never). */
+    val studyIdleMinutes: Int = 0,
+    // new notebooks
+    val defaultPreset: PagePreset = PagePreset.A4,
+    val defaultLandscape: Boolean = false,
+    val defaultCoverPage: Boolean = true,
     val toolbarSize: ToolbarSize = ToolbarSize.REGULAR,
     val showTabs: Boolean = true,
     /** Tool order, comma separated enum names. Hidden tools are prefixed with "-". */
@@ -179,6 +188,12 @@ class SettingsStore private constructor(context: Context) {
             toolbarDock = if (!prefs.contains("dockV52")) ToolbarDock.TOP else enumOf("toolbarDock", d.toolbarDock),
             hideToolsWhenRecording = b("hideRec", d.hideToolsWhenRecording),
             studyTimer = b("studyTimer", d.studyTimer),
+            studyAutoStart = b("studyAuto", d.studyAutoStart),
+            studySeconds = b("studySec", d.studySeconds),
+            studyIdleMinutes = prefs.getInt("studyIdle", d.studyIdleMinutes),
+            defaultPreset = enumOf("defPreset", d.defaultPreset),
+            defaultLandscape = b("defLand", d.defaultLandscape),
+            defaultCoverPage = b("defCover", d.defaultCoverPage),
             toolbarSize = enumOf("toolbarSize", d.toolbarSize),
             showTabs = b("showTabs", d.showTabs),
             toolbarTools = prefs.getString("toolbarTools", "") ?: "",
@@ -233,6 +248,12 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("dockV52", true)
             .putBoolean("hideRec", s.hideToolsWhenRecording)
             .putBoolean("studyTimer", s.studyTimer)
+            .putBoolean("studyAuto", s.studyAutoStart)
+            .putBoolean("studySec", s.studySeconds)
+            .putInt("studyIdle", s.studyIdleMinutes)
+            .putString("defPreset", s.defaultPreset.name)
+            .putBoolean("defLand", s.defaultLandscape)
+            .putBoolean("defCover", s.defaultCoverPage)
             .putString("toolbarSize", s.toolbarSize.name)
             .putBoolean("showTabs", s.showTabs)
             .putString("toolbarTools", s.toolbarTools)

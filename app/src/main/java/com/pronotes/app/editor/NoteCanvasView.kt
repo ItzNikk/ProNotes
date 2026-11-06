@@ -69,6 +69,13 @@ interface CanvasHost {
     fun onCircleCandidate(screenBounds: RectF?)
     /** Circle-and-hold made a selection (true) or that selection ended (false). The toolbar shows lasso meanwhile. */
     fun onCircleSelect(active: Boolean) {}
+    /** Ink link ends to draw as badges. */
+    fun linkEnds(): List<LinkEnd> = emptyList()
+    /** A box was dragged for a new flashcard (page space). */
+    fun onAreaPicked(page: Int, rect: RectF) {}
+    /** The other end of a new ink link was tapped (page space). */
+    fun onLinkTarget(page: Int, x: Float, y: Float) {}
+    fun onLinkLongPress(id: String) {}
     fun onEraserLifted()
     fun onZoom(percent: Int?)
     /** Settings for the pen with this input-device name (registers new pens). */
@@ -111,6 +118,37 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             field = value
             layer.invalidate()
         }
+
+    /** Waiting for a dragged box (new flashcard) or a tap (other end of an ink link). */
+    var capturing = false
+    var linkPicking = false
+    private var capturingDrag = false
+
+    private var linkPress: LinkEnd? = null
+    private var linkLongFired = false
+    private var linkPressX = 0f
+    private var linkPressY = 0f
+    private val linkLongRunnable = Runnable { linkPress?.let { linkLongFired = true; buzz(); host.onLinkLongPress(it.id) } }
+    /** Target of the last link jump, pulsed for a moment so the eye finds it. */
+    private var linkFlash: Triple<Int, Float, Float>? = null
+    private var linkFlashAt = 0L
+
+    private fun linkAt(x: Float, y: Float): LinkEnd? {
+        val ends = host.linkEnds()
+        if (ends.isEmpty()) return null
+        val a = FloatArray(2)
+        return ends.firstOrNull { e ->
+            if (e.page !in pages.indices) return@firstOrNull false
+            a[0] = e.x; a[1] = e.y; pageMatrix(e.page, tmpMatrix).mapPoints(a)
+            hypot(x - a[0], y - a[1]) < 24f * density
+        }
+    }
+
+    private fun jumpTo(e: LinkEnd) {
+        scrollToPage(e.toPage, animate = true)
+        linkFlash = Triple(e.toPage, e.tx, e.ty); linkFlashAt = SystemClock.uptimeMillis()
+        layer.invalidate()
+    }
 
     /** Read-only: pen and fingers only scroll and zoom; nothing can be changed. */
     var readOnly = false
@@ -474,6 +512,22 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> touchActive = false
         }
+        // Ink link badges answer any finger or pen, even in read-only mode.
+        if (event.actionMasked == MotionEvent.ACTION_DOWN && !capturing && !linkPicking) {
+            linkAt(event.x, event.y)?.let { hit ->
+                linkPress = hit; linkLongFired = false; linkPressX = event.x; linkPressY = event.y
+                postDelayed(linkLongRunnable, 600)
+                return true
+            }
+        }
+        linkPress?.let { lp ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_MOVE -> if (hypot(event.x - linkPressX, event.y - linkPressY) > touchSlop * 2) { removeCallbacks(linkLongRunnable); linkPress = null }
+                MotionEvent.ACTION_UP -> { removeCallbacks(linkLongRunnable); linkPress = null; if (!linkLongFired) jumpTo(lp) }
+                MotionEvent.ACTION_CANCEL -> { removeCallbacks(linkLongRunnable); linkPress = null }
+            }
+            return true
+        }
         if (readOnly) { handleFingers(event, action); return true }
         val penIndex = (0 until event.pointerCount).firstOrNull { isPen(event.getToolType(it)) }
         if (penIndex != null) { sawStylus = true; lastStylusTime = now; lastPenTouchAt = now }
@@ -512,6 +566,10 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
         if (ignoreFingers) {
             if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) ignoreFingers = false
+            return true
+        }
+        if ((capturing || linkPicking) && event.pointerCount == 1 && mode != Mode.PAN) {
+            handleDraw(event, action, event.getPointerId(0))
             return true
         }
         val fingerDraws = !settings.stylusOnly
@@ -605,6 +663,13 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 lastMovePt = wx to wy
                 val t = effectiveTool(e, pIdx)
                 strokeTool = t
+                if (capturing) {
+                    mode = Mode.LASSO; capturingDrag = true
+                    lassoPoints.clear(); lassoPoints += px to py
+                    layer.lasso = lassoPoints; layer.startAnts()
+                    return
+                }
+                if (linkPicking) { mode = Mode.IGNORE; host.onLinkTarget(activePage, wx, wy); return }
 
                 // Handles resize / rotate; touching inside the selection moves it, whatever the tool.
                 if (selection.isNotEmpty() && t != Tool.ERASER && beginGrab(px, py)) return
@@ -679,7 +744,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         layer.invalidate()
                     }
                     Mode.LASSO -> {
-                        if (settings.lassoMode == com.pronotes.app.data.LassoMode.RECT) {
+                        if (settings.lassoMode == com.pronotes.app.data.LassoMode.RECT || capturingDrag) {
                             val (sx, sy) = lassoPoints.first()
                             val cx = e.getX(idx); val cy = e.getY(idx)
                             lassoPoints.clear()
@@ -735,7 +800,13 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         val local = lassoPoints.map { toLocal(it.first, it.second, activePage) }
                         layer.lasso = null
                         layer.stopAnts()
-                        if (local.size > 3) select(activePage, Lasso(local, settings.lassoTouching), outline = local.takeIf { settings.lassoMode != com.pronotes.app.data.LassoMode.RECT })
+                        if (capturingDrag) {
+                            capturingDrag = false
+                            if (local.size > 3) {
+                                val r = RectF(local.minOf { it.first }, local.minOf { it.second }, local.maxOf { it.first }, local.maxOf { it.second })
+                                if (r.width() > 20f && r.height() > 20f) host.onAreaPicked(activePage, r)
+                            }
+                        } else if (local.size > 3) select(activePage, Lasso(local, settings.lassoTouching), outline = local.takeIf { settings.lassoMode != com.pronotes.app.data.LassoMode.RECT })
                         layer.invalidate()
                     }
                     Mode.MOVE -> commitMove()
@@ -1727,6 +1798,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 }
             }
 
+            drawLinks(canvas)
             drawPull(canvas)
             drawSelection(canvas)
             lasso?.let { drawLasso(canvas, it) }
@@ -1770,6 +1842,35 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
 
         private val outlinePath = Path()
+        private val linkFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt(); setShadowLayer(6f, 0f, 2f, 0x40000000) }
+        private val linkGlyph = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Color.WHITE; strokeWidth = 1.8f * density; strokeCap = Paint.Cap.ROUND }
+        private val linkRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0xFF3D6CF4.toInt(); strokeWidth = 3f * density }
+
+        /** Blue chain badges at both ends of every ink link, plus a pulse where the last jump landed. */
+        private fun drawLinks(canvas: Canvas) {
+            val ends = host.linkEnds()
+            val a = FloatArray(2)
+            val r = 12f * density
+            for (e in ends) {
+                if (e.page !in pages.indices) continue
+                a[0] = e.x; a[1] = e.y; pageMatrix(e.page, m).mapPoints(a)
+                if (a[0] < -r || a[1] < -r || a[0] > width + r || a[1] > height + r) continue
+                canvas.drawCircle(a[0], a[1], r, linkFill)
+                canvas.save(); canvas.rotate(-45f, a[0], a[1])
+                val w = 4.2f * density; val h = 2.6f * density
+                canvas.drawRoundRect(a[0] - w - 1.2f * density, a[1] - h, a[0] + 1.2f * density, a[1] + h, h, h, linkGlyph)
+                canvas.drawRoundRect(a[0] - 1.2f * density, a[1] - h, a[0] + w + 1.2f * density, a[1] + h, h, h, linkGlyph)
+                canvas.restore()
+            }
+            val f = linkFlash ?: return
+            val age = SystemClock.uptimeMillis() - linkFlashAt
+            if (age > 1400 || f.first !in pages.indices) { linkFlash = null; return }
+            a[0] = f.second; a[1] = f.third; pageMatrix(f.first, m).mapPoints(a)
+            val t = (age % 700) / 700f
+            linkRing.alpha = ((1f - t) * 255).toInt()
+            canvas.drawCircle(a[0], a[1], (14f + 26f * t) * density, linkRing)
+            postInvalidateOnAnimation()
+        }
         private val loopHint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f * density; color = 0xFF3D6CF4.toInt() }
         private val loopDot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt() }
 

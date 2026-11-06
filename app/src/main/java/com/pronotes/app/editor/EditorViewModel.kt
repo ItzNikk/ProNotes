@@ -151,6 +151,17 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         private set
     fun toggleReadOnly() { readOnly = !readOnly; store.setPref("ro_$noteId", if (readOnly) "1" else "0") }
 
+    /** Last time the user wrote, erased or moved around (for the study timer's idle pause). */
+    var lastActivity by mutableStateOf(System.currentTimeMillis())
+    fun touched() { lastActivity = System.currentTimeMillis() }
+
+    /** Where the study timer sits, as fractions of the canvas (shared by all notebooks). */
+    fun timerPos(): Pair<Float, Float> {
+        val p = store.pref("timerPos", "0.5,0.93").split(',')
+        return (p.getOrNull(0)?.toFloatOrNull() ?: 0.5f) to (p.getOrNull(1)?.toFloatOrNull() ?: 0.93f)
+    }
+    fun setTimerPos(x: Float, y: Float) = store.setPref("timerPos", "$x,$y")
+
     /** Total study time in this notebook, in milliseconds (sessions add to it). */
     fun studyTotal(): Long = store.pref("study_$noteId", "0").toLongOrNull() ?: 0L
     fun addStudy(ms: Long) { if (ms > 0) store.setPref("study_$noteId", (studyTotal() + ms).toString()) }
@@ -174,6 +185,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             startPage = store.pref("page_$noteId", "0").toIntOrNull()?.coerceIn(0, (loadedPages.size - 1).coerceAtLeast(0)) ?: 0
             pages.clear(); pages.addAll(loadedPages)
             if (repo.pdfFile(noteId).exists()) pdf = PdfPages(repo.pdfFile(noteId))
+            withContext(Dispatchers.IO) { loadStudy() }
             loaded = true
             prefetchPdf(startPage)
             repo.markOpened(noteId)
@@ -195,6 +207,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     fun onCurrentPage(i: Int) {
         pageIndex = i
+        touched()
         if (loaded) store.setPref("page_$noteId", i.toString())
         prefetchPdf(i)
     }
@@ -212,7 +225,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 if (page.pdfPage < 0 || src.cached(page.pdfPage) != null) continue
                 // Do not compete with a page that is on screen right now.
                 while (pendingPdf.isNotEmpty()) kotlinx.coroutines.delay(40)
-                val w = 1000
+                val w = 800
                 val h = (w * page.height / page.width).toInt()
                 withContext(Dispatchers.IO) { src.render(page.pdfPage, w, h) }
                 onRedraw?.invoke()
@@ -417,6 +430,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     }
 
     fun setItems(page: Int, items: List<PageItem>) {
+        touched()
         val p = pages.getOrNull(page) ?: return
         pages[page] = p.copy(items = items)
         scheduleSave()
@@ -631,7 +645,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 if (have != null) kotlinx.coroutines.delay(180)
                 val seen = pdfSeen[key] ?: 0L
                 if (android.os.SystemClock.uptimeMillis() - seen < 700) {
-                    val w = if (have == null) minOf(pdfWant[key] ?: want, 1100) else (pdfWant[key] ?: want)
+                    val w = if (have == null) minOf(pdfWant[key] ?: want, 760) else (pdfWant[key] ?: want)
                     withContext(Dispatchers.IO) {
                         // Skip pages that were scrolled away while waiting in line.
                         if (android.os.SystemClock.uptimeMillis() - (pdfSeen[key] ?: 0L) < 700) src.render(key, w, (w * aspect).toInt())
@@ -678,6 +692,134 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     @Synchronized
     private fun thumbPdf(): PdfPages = thumbPdfInstance ?: PdfPages(repo.pdfFile(noteId)).also { thumbPdfInstance = it }
+
+    // ------------------------------------------------------- flashcards + ink links
+    private val study = com.pronotes.app.data.StudyStore(repo.noteDir(noteId))
+    var cards by mutableStateOf<List<com.pronotes.app.data.Flashcard>>(emptyList())
+        private set
+    var links by mutableStateOf<List<com.pronotes.app.data.InkLink>>(emptyList())
+        private set
+    /** Canvas is waiting for the user to drag a box for a new flashcard. */
+    var capturingCard by mutableStateOf(false)
+    /** Card being created or edited (front picture already cut). */
+    data class CardDraft(val card: com.pronotes.app.data.Flashcard, val isNew: Boolean)
+    var cardDraft by mutableStateOf<CardDraft?>(null)
+    /** Start of a link waiting for its other end. */
+    var linkFrom by mutableStateOf<Triple<String, Float, Float>?>(null)
+    var linkToDelete by mutableStateOf<String?>(null)
+
+    private fun loadStudy() { val d = study.load(); cards = d.cards; links = d.links }
+    private fun saveStudy() {
+        val d = com.pronotes.app.data.StudyData(cards, links)
+        viewModelScope.launch(Dispatchers.IO) { runCatching { study.save(d) } }
+    }
+
+    fun dueCards(now: Long = System.currentTimeMillis()) = cards.filter { it.due <= now }
+
+    fun cardImage(name: String?): Bitmap? = name?.let { runCatching { android.graphics.BitmapFactory.decodeFile(java.io.File(study.cardDir(), it).path) }.getOrNull() }
+
+    /** Cuts a picture of [r] on page [pageIdx] (paper, PDF and ink) and opens the card editor. */
+    fun startCardFromArea(pageIdx: Int, r: RectF) {
+        val page = pages.getOrNull(pageIdx) ?: return
+        viewModelScope.launch {
+            val bmp = regionImage(page, r) ?: return@launch
+            val id = UUID.randomUUID().toString()
+            val name = "$id-front.png"
+            withContext(Dispatchers.IO) { java.io.File(study.cardDir(), name).outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+            cardDraft = CardDraft(com.pronotes.app.data.Flashcard(id, frontImage = name, pageId = page.id, created = System.currentTimeMillis()), true)
+        }
+    }
+
+    fun cardFromSelection() {
+        val r = selectionUnion() ?: return
+        r.inset(-20f, -20f)
+        startCardFromArea(selectionPage, r)
+    }
+
+    fun newTextCard() {
+        cardDraft = CardDraft(com.pronotes.app.data.Flashcard(UUID.randomUUID().toString(), pageId = currentPage?.id, created = System.currentTimeMillis()), true)
+    }
+
+    fun saveCard(card: com.pronotes.app.data.Flashcard) {
+        cards = if (cards.any { it.id == card.id }) cards.map { if (it.id == card.id) card else it } else cards + card
+        cardDraft = null
+        saveStudy()
+    }
+
+    fun deleteCard(id: String) {
+        val c = cards.firstOrNull { it.id == id } ?: return
+        cards = cards.filterNot { it.id == id }
+        listOfNotNull(c.frontImage, c.backImage).forEach { java.io.File(study.cardDir(), it).delete() }
+        saveStudy()
+    }
+
+    fun gradeCard(id: String, grade: Int) {
+        cards = cards.map { if (it.id == id) com.pronotes.app.data.StudyStore.review(it, grade) else it }
+        saveStudy()
+    }
+
+    fun showCardSource(card: com.pronotes.app.data.Flashcard) {
+        val i = pages.indexOfFirst { it.id == card.pageId }
+        if (i >= 0) goToPage(i)
+    }
+
+    /** All cards as a CSV file (front, back) for other flashcard apps. */
+    fun cardsCsv(): String = buildString {
+        append("front,back\n")
+        cards.forEach { c ->
+            fun q(s: String) = "\"" + s.replace("\"", "\"\"") + "\""
+            append(q(c.front.ifBlank { if (c.frontImage != null) "[picture]" else "" })).append(",").append(q(c.back)).append("\n")
+        }
+    }
+
+    private suspend fun regionImage(page: Page, r: RectF): Bitmap? = withContext(Dispatchers.Default) {
+        val s = (1400f / maxOf(r.width(), r.height(), 1f)).coerceIn(0.5f, 3f).coerceAtMost(3200f / page.width)
+        val pw = (page.width * s).toInt().coerceAtLeast(1)
+        val ph = (page.height * s).toInt().coerceAtLeast(1)
+        val out = Bitmap.createBitmap((r.width() * s).toInt().coerceAtLeast(1), (r.height() * s).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+        val bg = if (page.pdfPage >= 0) withContext(Dispatchers.IO) { thumbPdf().render(page.pdfPage, pw, ph, useCache = false) } else null
+        val c = Canvas(out)
+        c.translate(-r.left * s, -r.top * s)
+        thumbLock.withLock {
+            val rr = thumbRenderer ?: renderer().also { thumbRenderer = it }
+            rr.paperColor = settingsFlow.value.paperTint.argb
+            rr.renderPage(c, page, s, bg)
+        }
+        out
+    }
+
+    /** Selection menu "Link": remember where it starts; the next tap on any page sets the other end. */
+    fun startLinkFromSelection() {
+        val r = selectionUnion() ?: return
+        val page = pages.getOrNull(selectionPage) ?: return
+        linkFrom = Triple(page.id, r.right, r.top)
+    }
+
+    fun finishLink(pageIdx: Int, x: Float, y: Float) {
+        val from = linkFrom ?: return
+        linkFrom = null
+        val page = pages.getOrNull(pageIdx) ?: return
+        if (page.id == from.first && kotlin.math.hypot(x - from.second, y - from.third) < 40f) return
+        links = links + com.pronotes.app.data.InkLink(UUID.randomUUID().toString(), from.first, from.second, from.third, page.id, x, y)
+        saveStudy()
+    }
+
+    fun deleteLink(id: String) { links = links.filterNot { it.id == id }; linkToDelete = null; saveStudy() }
+
+    /** Link ends as page indexes, for drawing badges and jumping. */
+    fun linkEnds(): List<LinkEnd> {
+        if (links.isEmpty()) return emptyList()
+        val index = HashMap<String, Int>(pages.size * 2)
+        pages.forEachIndexed { i, p -> index[p.id] = i }
+        val out = ArrayList<LinkEnd>()
+        for (l in links) {
+            val a = index[l.aPage] ?: continue
+            val b = index[l.bPage] ?: continue
+            out += LinkEnd(l.id, a, l.ax, l.ay, b, l.bx, l.by)
+            out += LinkEnd(l.id, b, l.bx, l.by, a, l.ax, l.ay)
+        }
+        return out
+    }
 
     // --------------------------------------------------------------- search
 
@@ -755,3 +897,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         super.onCleared()
     }
 }
+
+/** One end of an ink link: badge on [page] at (x, y); tapping it goes to [toPage] at (tx, ty). */
+data class LinkEnd(val id: String, val page: Int, val x: Float, val y: Float, val toPage: Int, val tx: Float, val ty: Float)

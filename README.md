@@ -39,7 +39,7 @@ Pro Notes brings handwriting, PDF study and notebook organisation together in a 
 | Write | Study | Organise |
 |:--|:--|:--|
 | Natural, pressure-aware ink and a range of pen styles | Import, mark up, search and export PDFs | Folders, notebook covers, bookmarks and page templates |
-| Stylus buttons, hover preview and gesture shortcuts | Read-only revision mode and a per-notebook study timer | Customisable toolbar, themes and library backup |
+| Stylus buttons, hover preview and gesture shortcuts | Flashcards cut from PDFs, ink links and a study timer | Customisable toolbar, themes and library backup |
 
 ## Features
 
@@ -57,6 +57,13 @@ Pro Notes brings handwriting, PDF study and notebook organisation together in a 
 - Import PDFs, annotate them, search their text, use dark reading mode, and export or share.
 - Vertical or horizontal page navigation, custom page sizes, nine templates and page colours.
 - Picture pages, bookmarks and drag-to-reorder page management.
+- Large PDFs open fast: a light first pass appears at once, then sharpens, and nearby pages load ahead.
+
+### Study tools
+- Flashcards: drag a box over any part of a PDF or your notes, or turn a selection into a card. Spaced review with Again / Good / Easy, a jump back to the source page and CSV export.
+- Ink links: connect any two spots in a notebook. Tap the chain badge at one end to jump to the other.
+- A study stopwatch you can drag anywhere, with auto-start, idle pause and notebook totals.
+- Read-only mode to revise without accidental marks.
 
 ### A library that feels like yours
 - Colour-coded folders, drag and drop, writable covers and 14 cover materials.
@@ -69,7 +76,7 @@ Pro Notes brings handwriting, PDF study and notebook organisation together in a 
 - Pen setup that helps identify and configure your stylus.
 - Floating toolbar that can dock to any edge, or an alternate top-bar and side-panel layout.
 - Option to hide the toolbar while screen recording.
-- Study stopwatch with notebook totals and a read-only mode to prevent accidental marks.
+- Defaults for new notebooks: page size, orientation and cover page.
 
 ## Compatibility
 
@@ -86,7 +93,7 @@ cd ProNotes
 gradle assembleRelease
 ```
 
-CI builds on pushes to the repository. Version tags such as `v5.0.0` publish a GitHub Release, using [CHANGELOG.md](CHANGELOG.md) for release notes.
+CI builds on pushes to the repository. Version tags such as `v6.0.0` publish a GitHub Release, using [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 Optional: set `pronotes.upi` in `gradle.properties` (or `SUPPORT_UPI` in CI) to enable the in-app support screen.
 
