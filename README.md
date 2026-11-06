@@ -2,10 +2,10 @@
 
 # Pro Notes
 
-### A quieter place to think, write and learn.
+### Your ideas deserve a better workspace.
 
-A pen-first notebook for Android tablets.  
-Write naturally, work with PDFs, and keep your study material in one place.
+A thoughtfully crafted space for notes, handwritten ideas, PDF study and everything in between.  
+Create freely, stay organised, and make room for focused work on Android.
 
 <br />
 
