@@ -43,6 +43,7 @@ object Updater {
         private set
     /** True while the "what's new" dialog is open. */
     var showDialog by mutableStateOf(false)
+    var remindedThisLaunch = false
     private var apk: File? = null
     /** Lives as long as the app, so closing the dialog or leaving a screen never cancels a download. */
     private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Main)
@@ -94,6 +95,9 @@ object Updater {
             phase = if (quiet) Phase.IDLE else Phase.FAILED
         }
     }
+
+    /** Blocking; for the background reminder. */
+    fun latestBlocking(): Release? = runCatching { fetchLatest() }.getOrNull()
 
     private fun fetchLatest(): Release? {
         val conn = (URL(API).openConnection() as HttpURLConnection).apply {

@@ -232,6 +232,7 @@ private fun StudyView(vm: EditorViewModel, onDone: () -> Unit) {
 }
 
 /** "Add link" for selected content, like GoodNotes: pick a page of this notebook, or type a website. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun LinkSheet(vm: EditorViewModel) {
     var tab by remember { mutableIntStateOf(0) }

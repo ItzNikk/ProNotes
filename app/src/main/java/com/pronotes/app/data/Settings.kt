@@ -122,6 +122,8 @@ data class AppSettings(
     val toolbarTools: String = "",
     // in-app updates
     val autoUpdateCheck: Boolean = true,
+    /** Remind about new versions: a notification once a day, and the update sheet on launch. */
+    val updateReminders: Boolean = true,
     // pens
     val hoverCursor: Boolean = true,
     val penClickDelay: PenClickDelay = PenClickDelay.NORMAL,
@@ -198,6 +200,7 @@ class SettingsStore private constructor(context: Context) {
             showTabs = b("showTabs", d.showTabs),
             toolbarTools = prefs.getString("toolbarTools", "") ?: "",
             autoUpdateCheck = b("autoUpdate", d.autoUpdateCheck),
+            updateReminders = b("updRemind", d.updateReminders),
             hoverCursor = b("hoverCursor", d.hoverCursor),
             penClickDelay = enumOf("penClickDelay", d.penClickDelay),
             onboardingDone = b("onboardingDone", d.onboardingDone),
@@ -258,6 +261,7 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("showTabs", s.showTabs)
             .putString("toolbarTools", s.toolbarTools)
             .putBoolean("autoUpdate", s.autoUpdateCheck)
+            .putBoolean("updRemind", s.updateReminders)
             .putBoolean("hoverCursor", s.hoverCursor)
             .putString("penClickDelay", s.penClickDelay.name)
             .putBoolean("onboardingDone", s.onboardingDone)

@@ -42,6 +42,7 @@
         </receiver>
 
         <receiver android:name=".InstallResultReceiver" android:exported="false" />
+        <receiver android:name=".UpdateCheckReceiver" android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

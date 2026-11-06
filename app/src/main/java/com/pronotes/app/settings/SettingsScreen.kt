@@ -320,6 +320,10 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                         UpdateRow()
                         HorizontalDivider(Modifier.padding(start = 56.dp))
                         Toggle("Check for updates automatically", "When the library opens", s.autoUpdateCheck) { v -> up { it.copy(autoUpdateCheck = v) } }
+        Toggle("Update reminders", "A daily notification and a reminder when the app opens", s.updateReminders) { v ->
+            up { it.copy(updateReminders = v) }
+            com.pronotes.app.UpdateCheckReceiver.schedule(context, v)
+        }
                     }
                 }
             }

@@ -1056,7 +1056,14 @@ private fun UpdatePill() {
     val scope = rememberCoroutineScope()
     val settings by SettingsStore.get(context).settings.collectAsState()
     androidx.compose.runtime.LaunchedEffect(settings.autoUpdateCheck) {
-        if (settings.autoUpdateCheck) com.pronotes.app.data.Updater.check(context, quiet = true)
+        if (settings.autoUpdateCheck || settings.updateReminders) com.pronotes.app.data.Updater.check(context, quiet = true)
+        // Launch reminder: show what is new once per app start while an update is waiting.
+        val u0 = com.pronotes.app.data.Updater
+        if (settings.updateReminders && u0.phase == com.pronotes.app.data.Updater.Phase.AVAILABLE && !u0.remindedThisLaunch) {
+            u0.remindedThisLaunch = true
+            kotlinx.coroutines.delay(1200)
+            u0.showDialog = true
+        }
     }
     val u = com.pronotes.app.data.Updater
     val label = when (u.phase) {

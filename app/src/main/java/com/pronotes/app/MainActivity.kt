@@ -38,6 +38,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         handleIntent(intent)
+        UpdateCheckReceiver.schedule(this, SettingsStore.get(this).settings.value.updateReminders)
         setContent {
             ProNotesTheme {
               // A Surface gives every screen the right text colour in light and dark mode.

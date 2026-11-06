@@ -3,6 +3,7 @@
 ## v6.1.0
 - **Links, like GoodNotes:** select ink and tap the new link button in the selection bar. Pick a page from thumbnails, or type a website. Linked content gets a soft blue box; tap it with a finger to follow. Long-press the badge to remove.
 - **Tour:** rebuilt as swipeable cards with small animated demos for each gesture.
+- **Update reminders:** a notification once a day when a new version is out, and the what's-new sheet when you open the app. Turn it off in Settings.
 - **PDF:** double-tap zoom now eases to a fixed end point. It no longer drifts to another page or stops between two.
 
 ## v6.0.0
