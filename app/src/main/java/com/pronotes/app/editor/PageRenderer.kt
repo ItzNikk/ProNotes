@@ -58,6 +58,29 @@ class PdfPages(private val file: File) {
         }
     }
 
+    /**
+     * Renders only [region] of a page (page units; the whole page is [pageW] units wide) into an
+     * [outW] x [outH] bitmap. Used for sharp detail when zoomed in, without a giant full-page bitmap.
+     */
+    @Synchronized
+    fun renderRegion(index: Int, pageW: Float, region: RectF, outW: Int, outH: Int): Bitmap? {
+        val r = open() ?: return null
+        if (index !in 0 until r.pageCount || outW <= 0 || outH <= 0) return null
+        return r.openPage(index).use { page ->
+            val u2p = page.width / pageW                    // page units -> PDF points
+            val s = outW / (region.width() * u2p)           // PDF points -> bitmap pixels
+            val m = android.graphics.Matrix().apply {
+                setTranslate(-region.left * u2p, -region.top * u2p)
+                postScale(s, s)
+            }
+            val bmp = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+            bmp.eraseColor(Color.WHITE)
+            page.render(bmp, null, m, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+            bmp.prepareToDraw()
+            bmp
+        }
+    }
+
     @Synchronized
     fun close() {
         renderer?.close()
@@ -109,6 +132,11 @@ class PageRenderer(private val noteDir: File?) {
     private val isDark get() = Color.luminance(currentBg) < 0.4f
 
     private val coverPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    /** Sharp zoomed-in part of a PDF page, drawn over the base page bitmap. */
+    fun drawPdfDetail(canvas: Canvas, bmp: Bitmap, region: RectF) {
+        canvas.drawBitmap(bmp, null, region, if (darkPdf) invertPaint else bitmapPaint)
+    }
 
     /** A notebook cover drawn as a full page, so it can be written on. */
     fun drawCover(canvas: Canvas, r: RectF, spec: String) {

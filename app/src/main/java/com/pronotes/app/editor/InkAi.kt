@@ -30,8 +30,21 @@ object Handwriting {
     }
 
     /** Downloads the model when needed. Returns false when offline and no model is on the device yet. */
+    private val lock = kotlinx.coroutines.sync.Mutex()
+
+    /** Only one download / setup at a time; later callers wait and reuse it. */
     suspend fun prepare(language: String = "en-US"): Boolean {
         if (ready && lang == language) return true
+        return lock.withLockCompat { prepareLocked(language) }
+    }
+
+    private suspend inline fun <T> kotlinx.coroutines.sync.Mutex.withLockCompat(block: () -> T): T {
+        lock(); try { return block() } finally { unlock() }
+    }
+
+    private suspend fun prepareLocked(language: String): Boolean {
+        if (ready && lang == language) return true
+        ready = false
         val id = runCatching { DigitalInkRecognitionModelIdentifier.fromLanguageTag(language) }.getOrNull()
             ?: DigitalInkRecognitionModelIdentifier.EN_US
         val model = DigitalInkRecognitionModel.builder(id).build()

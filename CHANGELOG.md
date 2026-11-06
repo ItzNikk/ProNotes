@@ -1,5 +1,12 @@
 # Changelog
 
+## v7.2.0
+- **Large PDFs run smoother:** pages use lighter base images, and when you zoom in only the part on screen is drawn sharp. The full-PDF text scan no longer runs on open (it was slowing big files); text is read per page when you need it.
+- **Haptics fixed:** the app was missing the vibration permission, so paper ticks never fired. They work now, with a fallback for tablets that ignore short pulses.
+- **More sounds:** pens scratch, the highlighter glides, the eraser rubs. Page turns swish, shapes snap with a click, selections pop and pulling a new page clicks too.
+- **Summarise page:** key points from the page's text in one tap (notebook ⋯ menu), and add them to the page.
+- **Smart ink fixes:** no double model downloads, and the busy bar can no longer get stuck.
+
 ## v7.1.0
 - **Paper feel:** a soft pencil-on-paper sound that follows how fast you write, and tiny haptic ticks like paper grain. Both can be turned off, with a volume slider (pen card or Settings → Paper feel).
 - **Smarter handwriting:** recognition now uses the line's size and the words before it, so letters and numbers are read more accurately. Choose the handwriting language in Settings → Smart ink.

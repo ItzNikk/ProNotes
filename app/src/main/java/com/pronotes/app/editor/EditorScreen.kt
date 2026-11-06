@@ -431,6 +431,8 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                                 override fun undo() = vm.undo()
                                 override fun redo() = vm.redo()
                                 override fun pdfBitmap(page: Page, widthPx: Int, onReady: () -> Unit) = vm.pdfBitmap(page, widthPx, onReady)
+                                override fun pdfDetail(page: Int) = vm.pdfDetail(page)
+                                override fun requestDetail(wants: List<Triple<Int, android.graphics.RectF, Float>>, onReady: () -> Unit) = vm.requestDetail(wants, onReady)
                                 override fun highlights(page: Int) = vm.highlights(page)
                                 override fun activeHighlight() = vm.activeHighlight()
                                 override fun shapeFill() = vm.shapeFill()
@@ -613,6 +615,20 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     if (vm.linkSheet != null) LinkSheet(vm)
     if (showCards) FlashcardsDialog(vm, onClose = { showCards = false })
     if (showQuiz) QuizDialog(vm, onClose = { showQuiz = false })
+    vm.summary?.let { pts ->
+        AlertDialog(
+            onDismissRequest = { vm.summary = null },
+            shape = RoundedCornerShape(28.dp),
+            title = { Text("Key points") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    pts.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
+                }
+            },
+            confirmButton = { TextButton(onClick = { vm.summaryToPage() }) { Text("Add to page") } },
+            dismissButton = { TextButton(onClick = { vm.summary = null }) { Text("Close") } },
+        )
+    }
     vm.linkToDelete?.let { id ->
         AlertDialog(
             onDismissRequest = { vm.linkToDelete = null },
@@ -788,6 +804,8 @@ private fun TopBar(
                     onClick = { more = false; onCards() })
                 DropdownMenuItem(text = { Text("Add link…") }, leadingIcon = { Icon(Icons.Outlined.Link, null) },
                     onClick = { more = false; vm.beginLinkFlow() })
+                DropdownMenuItem(text = { Text("Summarise page") }, leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null) },
+                    onClick = { more = false; vm.summarize() })
                 DropdownMenuItem(text = { Text("Quiz") }, leadingIcon = { Icon(Icons.Outlined.Quiz, null) },
                     onClick = { more = false; onQuiz() })
                 DropdownMenuItem(text = { Text("Flashcard from area") }, leadingIcon = { Icon(Icons.Outlined.Crop, null) },

@@ -187,8 +187,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             if (repo.pdfFile(noteId).exists()) pdf = PdfPages(repo.pdfFile(noteId))
             withContext(Dispatchers.IO) { loadStudy() }
             loaded = true
-            // Text of PDFs is read in the background so long-press selection is ready quickly.
-            if (pdf != null) launch { delay(1500); textIndex() }
+
             prefetchPdf(startPage)
             repo.markOpened(noteId)
             onPagesChanged?.invoke()
@@ -634,10 +633,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun pdfBitmap(page: Page, widthPx: Int, onReady: () -> Unit): Bitmap? {
         val src = pdf ?: return null
         val have = src.cached(page.pdfPage)
-        var want = ((widthPx + 255) / 256 * 256).coerceIn(768, 2200)
+        var want = ((widthPx + 255) / 256 * 256).coerceIn(768, 1600)
         val aspect = page.height / page.width
         // Keep very tall pages within a sane pixel budget.
-        if (want * want * aspect > 7_000_000f) want = kotlin.math.sqrt(7_000_000f / aspect).toInt()
+        if (want * want * aspect > 4_500_000f) want = kotlin.math.sqrt(4_500_000f / aspect).toInt()
         val key = page.pdfPage
         pdfSeen[key] = android.os.SystemClock.uptimeMillis()
         pdfWant[key] = want
@@ -659,6 +658,40 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             }
         }
         return have
+    }
+
+    // ------------------------------------------------ zoomed-in PDF detail (sharp, viewport-sized)
+    private var detailPdfInstance: PdfPages? = null
+    @Synchronized private fun detailPdf(): PdfPages = detailPdfInstance ?: PdfPages(repo.pdfFile(noteId)).also { detailPdfInstance = it }
+    data class Detail(val page: Int, val region: RectF, val bmp: Bitmap, val scale: Float)
+    @Volatile private var details: List<Detail> = emptyList()
+    private var detailJob: Job? = null
+
+    fun pdfDetail(page: Int): Detail? = details.firstOrNull { it.page == page }
+
+    /**
+     * The canvas settled at a zoom where the base bitmap would look soft: render exactly what is
+     * on screen at screen resolution. Debounced, and cancelled when the view moves again.
+     */
+    fun requestDetail(wants: List<Triple<Int, RectF, Float>>, onReady: () -> Unit) {
+        detailJob?.cancel()
+        if (pdf == null) return
+        if (wants.isEmpty()) { if (details.isNotEmpty()) { details = emptyList(); onReady() }; return }
+        // Keep what still matches; it is redrawn in place until the new detail is ready.
+        detailJob = viewModelScope.launch {
+            delay(140)
+            val out = ArrayList<Detail>()
+            for ((pi, region, screenScale) in wants) {
+                val page = pages.getOrNull(pi) ?: continue
+                if (page.pdfPage < 0) continue
+                val ow = (region.width() * screenScale).toInt().coerceIn(1, 2600)
+                val oh = (region.height() * screenScale).toInt().coerceIn(1, 2600)
+                val bmp = withContext(Dispatchers.IO) { runCatching { detailPdf().renderRegion(page.pdfPage, page.width, region, ow, oh) }.getOrNull() } ?: continue
+                out += Detail(pi, RectF(region), bmp, screenScale)
+            }
+            details = out
+            onReady()
+        }
     }
 
     /** Thumbnails are cached until the page changes (pages are immutable, so identity is enough). */
@@ -944,8 +977,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     private suspend fun recognizeOrSay(items: List<InkItem>): String? {
         if (!Handwriting.ready) say("Getting handwriting ready… (one-time download)")
         aiBusy = true
-        val txt = Handwriting.recognize(items, settingsFlow.value.handwritingLang)
-        aiBusy = false
+        val txt = try { runCatching { Handwriting.recognize(items, settingsFlow.value.handwritingLang) }.getOrNull() } finally { aiBusy = false }
         if (txt == null) say(if (Handwriting.ready) "Couldn't read that. Try writing a little larger." else "Handwriting needs a one-time download. Check your connection.")
         return txt
     }
@@ -1216,6 +1248,27 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             saveStudy()
             say(if (add.isEmpty()) "No new cards found on ${if (allPages) "these pages" else "this page"}" else "Added ${add.size} cards")
         }
+    }
+
+    /** Key points of this page, shown in a sheet; null = hidden. */
+    var summary by mutableStateOf<List<String>?>(null)
+
+    fun summarize() {
+        viewModelScope.launch {
+            aiBusy = true
+            val (text, _) = try { studyText(pageIndex..pageIndex) } finally { aiBusy = false }
+            val pts = withContext(Dispatchers.Default) { StudyGen.summary(text) }
+            if (pts.isEmpty()) say("Not enough text on this page to summarise") else summary = pts
+        }
+    }
+
+    /** Puts the key points on the page as typed text, top left. */
+    fun summaryToPage() {
+        val pts = summary ?: return
+        val p = pages.getOrNull(pageIndex) ?: return
+        summary = null
+        beginEdit(pageIndex)
+        applyItems(pageIndex, p.items + TextItem(ItemIds.next(), "Key points\n" + pts.joinToString("\n") { "• $it" }, 60f, 60f, 26f, penStyle.color))
     }
 
     fun generateQuiz(allPages: Boolean) {

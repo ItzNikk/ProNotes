@@ -3,6 +3,8 @@
 
     <!-- In-app updates from GitHub releases. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Paper-feel haptics while writing. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Reopen the app after an in-app update (opt-in), or tell the user it is ready. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

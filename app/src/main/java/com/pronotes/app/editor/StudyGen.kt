@@ -62,6 +62,20 @@ object StudyGen {
             .map { it.key }.distinctBy { it.lowercase() }.take(limit)
     }
 
+    /** Key points: the sentences that share the most important words, in reading order. */
+    fun summary(text: String, max: Int = 6): List<String> {
+        val ss = sentences(text)
+        if (ss.size <= max) return ss
+        val freq = HashMap<String, Int>()
+        ss.forEach { s -> Regex("[A-Za-z]{4,}").findAll(s.lowercase()).forEach { w -> if (w.value !in stop) freq[w.value] = (freq[w.value] ?: 0) + 1 } }
+        val scored = ss.mapIndexed { i, s ->
+            val words = Regex("[A-Za-z]{4,}").findAll(s.lowercase()).map { it.value }.filter { it !in stop }.toList()
+            val score = words.sumOf { freq[it] ?: 0 }.toDouble() / (words.size + 4) + (if (facts(s).isNotEmpty()) 2.0 else 0.0) + (if (i < 3) 0.5 else 0.0)
+            i to score
+        }
+        return scored.sortedByDescending { it.second }.take(max).map { it.first }.sorted().map { ss[it] }
+    }
+
     data class Card(val front: String, val back: String)
 
     fun flashcards(text: String, max: Int = 25): List<Card> {

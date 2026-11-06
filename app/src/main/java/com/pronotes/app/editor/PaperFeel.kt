@@ -9,72 +9,141 @@ import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
-import kotlin.math.abs
+import android.view.HapticFeedbackConstants
+import android.view.View
+import kotlin.math.PI
+import kotlin.math.exp
 import kotlin.math.min
+import kotlin.math.sin
 import kotlin.random.Random
 
 /**
- * "Writing on paper": a soft pencil-on-paper scratch while the pen moves, louder when you write
- * faster, plus tiny haptic ticks spaced by distance like paper grain. The sound is made on the
- * fly from filtered noise, so no audio files ship with the app.
+ * "Writing on paper". While a tool moves, a texture sound plays that follows its speed:
+ * pencil scratch for pens, a smoother felt glide for the highlighter, a low rub for the eraser.
+ * Short one-off sounds mark page turns, snaps, selections and taps. Haptic ticks are spaced by
+ * distance like paper grain. Everything is synthesised on the fly; no audio files ship.
  */
-class PaperFeel(context: Context) {
+class PaperFeel(context: Context, private val view: View) {
+    enum class Texture { PENCIL, MARKER, ERASER }
+    enum class Cue { PAGE, SNAP, SELECT, TAP, ADD }
+
     private val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= 31)
         (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
     else @Suppress("DEPRECATION") (context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator)
 
     private val rate = 22050
-    private var track: AudioTrack? = null
-    private var thread: Thread? = null
     @Volatile private var running = false
-    /** Target loudness 0..1, set from pen speed. */
     @Volatile private var target = 0f
-    @Volatile private var lastMove = 0L
+    @Volatile private var texture = Texture.PENCIL
+    @Volatile private var lastActive = 0L
+    /** One-off sounds waiting to be mixed in. */
+    private val cues = java.util.concurrent.ConcurrentLinkedQueue<ShortArray>()
 
     var sound = false
     var haptics = false
-    /** 0..1 */
     var volume = 0.5f
 
     private var travelled = 0f
     private var lastTick = 0L
+    private var tickEvery = 26f
 
-    /** Pen went down. */
-    fun start() {
+    fun start(kind: Texture) {
+        texture = kind
         travelled = 0f
+        tickEvery = when (kind) { Texture.PENCIL -> 24f; Texture.MARKER -> 40f; Texture.ERASER -> 18f }
+        lastActive = SystemClock.uptimeMillis()
         if (sound) ensureAudio()
     }
 
-    /** Pen moved [distPx] screen pixels in [dtMs]. */
+    /** The tool moved [distPx] screen pixels in [dtMs]. */
     fun move(distPx: Float, dtMs: Long) {
         val now = SystemClock.uptimeMillis()
-        lastMove = now
+        lastActive = now
         if (sound) {
-            val speed = distPx / dtMs.coerceAtLeast(1)          // px per ms
-            target = min(1f, speed / 2.2f)
+            if (!running) ensureAudio()
+            val speed = distPx / dtMs.coerceAtLeast(1)
+            target = min(1f, speed / if (texture == Texture.ERASER) 1.4f else 2.0f)
         }
         if (haptics) {
             travelled += distPx
-            // A grain tick every ~26 px of travel, never faster than every 28 ms.
-            if (travelled > 26f && now - lastTick > 28) {
+            if (travelled > tickEvery && now - lastTick > 24) {
                 travelled = 0f; lastTick = now
-                tick()
+                tick(if (texture == Texture.ERASER) 0.55f else 0.4f)
             }
         }
     }
 
-    /** Pen lifted. */
     fun stop() { target = 0f }
 
-    private fun tick() {
-        val v = vibrator ?: return
-        if (!v.hasVibrator()) return
-        runCatching {
+    /** A short sound and buzz for an event. */
+    fun cue(c: Cue) {
+        if (haptics) when (c) {
+            Cue.PAGE -> tick(0.5f)
+            Cue.SNAP, Cue.ADD -> click()
+            Cue.SELECT -> tick(0.7f)
+            Cue.TAP -> tick(0.3f)
+        }
+        if (!sound) return
+        cues.add(synth(c))
+        lastActive = SystemClock.uptimeMillis()
+        ensureAudio()
+    }
+
+    private fun tick(strength: Float) {
+        val v = vibrator
+        val ok = v != null && v.hasVibrator() && runCatching {
             when {
-                Build.VERSION.SDK_INT >= 30 && v.areAllPrimitivesSupported(VibrationEffect.Composition.PRIMITIVE_LOW_TICK) ->
-                    v.vibrate(VibrationEffect.startComposition().addPrimitive(VibrationEffect.Composition.PRIMITIVE_LOW_TICK, 0.35f).compose())
+                Build.VERSION.SDK_INT >= 30 && v.areAllPrimitivesSupported(VibrationEffect.Composition.PRIMITIVE_TICK) ->
+                    v.vibrate(VibrationEffect.startComposition().addPrimitive(VibrationEffect.Composition.PRIMITIVE_TICK, strength).compose())
                 Build.VERSION.SDK_INT >= 29 -> v.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK))
-                else -> v.vibrate(VibrationEffect.createOneShot(4, 20))
+                else -> v.vibrate(VibrationEffect.createOneShot(6, (60 * strength).toInt().coerceIn(1, 255)))
+            }
+        }.isSuccess
+        // Some tablets ignore the vibrator API for short pulses; the view haptic still works there.
+        if (!ok) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+    }
+
+    private fun click() {
+        val v = vibrator
+        val ok = v != null && v.hasVibrator() && runCatching {
+            if (Build.VERSION.SDK_INT >= 29) v.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK))
+            else v.vibrate(VibrationEffect.createOneShot(12, 120))
+        }.isSuccess
+        if (!ok) view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+    }
+
+    private fun synth(c: Cue): ShortArray {
+        val rnd = Random(c.ordinal + 3)
+        return when (c) {
+            Cue.PAGE -> { // paper swish: noise sweeping up, then down
+                val n = (rate * 0.32f).toInt()
+                var lp = 0f
+                ShortArray(n) { i ->
+                    val t = i / n.toFloat()
+                    val env = sin(PI * t).toFloat().let { it * it }
+                    lp += (rnd.nextFloat() * 2 - 1 - lp) * (0.08f + 0.5f * t)
+                    (lp * env * 0.55f * Short.MAX_VALUE).toInt().toShort()
+                }
+            }
+            Cue.SNAP, Cue.ADD -> { // soft wooden click
+                val n = (rate * 0.06f).toInt()
+                val f = if (c == Cue.SNAP) 1400.0 else 900.0
+                ShortArray(n) { i ->
+                    val t = i / rate.toDouble()
+                    (sin(2 * PI * f * t) * exp(-t * 90) * 0.5 * Short.MAX_VALUE).toInt().toShort()
+                }
+            }
+            Cue.SELECT -> { // two-note pop
+                val n = (rate * 0.09f).toInt()
+                ShortArray(n) { i ->
+                    val t = i / rate.toDouble()
+                    val f = if (t < 0.04) 880.0 else 1320.0
+                    (sin(2 * PI * f * t) * exp(-t * 40) * 0.35 * Short.MAX_VALUE).toInt().toShort()
+                }
+            }
+            Cue.TAP -> {
+                val n = (rate * 0.025f).toInt()
+                ShortArray(n) { i -> ((rnd.nextFloat() * 2 - 1) * exp(-i / (n * 0.25)) * 0.35 * Short.MAX_VALUE).toInt().toShort() }
             }
         }
     }
@@ -90,38 +159,58 @@ class PaperFeel(context: Context) {
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .build()
         }.getOrNull() ?: return
-        track = t
         running = true
         t.play()
-        thread = Thread({ loop(t) }, "paper-sound").apply { priority = Thread.MAX_PRIORITY - 1; start() }
+        Thread({ loop(t) }, "paper-sound").apply { priority = Thread.MAX_PRIORITY - 1; start() }
     }
 
     private fun loop(t: AudioTrack) {
         val rnd = Random(7)
         val block = ShortArray(256)
         var level = 0f
-        var lp = 0f; var hp = 0f; var prev = 0f
+        var lp = 0f; var lp2 = 0f; var prev = 0f
         var grain = 0f
+        var cue: ShortArray? = null
+        var cuePos = 0
         while (running) {
-            // Fade out and park the audio after a second of silence, to save battery.
-            if (target == 0f && level < 0.001f && SystemClock.uptimeMillis() - lastMove > 1000) break
+            if (cue == null) { cue = cues.poll(); cuePos = 0 }
+            if (target == 0f && level < 0.001f && cue == null && SystemClock.uptimeMillis() - lastActive > 1200) break
+            val tex = texture
             for (i in block.indices) {
                 level += (target - level) * 0.004f
                 val n = rnd.nextFloat() * 2f - 1f
-                // Band-pass noise (paper hiss) with random grain bursts (fibres).
-                lp += (n - lp) * 0.35f
-                hp = lp - prev; prev = lp
-                if (rnd.nextFloat() < 0.0025f) grain = 1f
-                grain *= 0.96f
-                val s = (hp * 0.9f + hp * grain * 2.5f) * level * volume * 0.55f
-                block[i] = (s.coerceIn(-1f, 1f) * Short.MAX_VALUE).toInt().toShort()
+                val s = when (tex) {
+                    Texture.PENCIL -> { // bright hiss with fibre crackle
+                        lp += (n - lp) * 0.35f
+                        val hp = lp - prev; prev = lp
+                        if (rnd.nextFloat() < 0.0025f) grain = 1f
+                        grain *= 0.96f
+                        hp * 0.9f + hp * grain * 2.5f
+                    }
+                    Texture.MARKER -> { // smooth, darker felt glide
+                        lp += (n - lp) * 0.12f
+                        lp2 += (lp - lp2) * 0.3f
+                        (lp - lp2) * 1.6f
+                    }
+                    Texture.ERASER -> { // low rubbing with a slow wobble
+                        lp += (n - lp) * 0.05f
+                        lp * (0.8f + 0.2f * sin(i * 0.05f)) * 2.2f
+                    }
+                }
+                var mixed = s * level * volume * 0.55f
+                val c = cue
+                if (c != null) {
+                    mixed += c[cuePos] / Short.MAX_VALUE.toFloat() * volume
+                    cuePos++
+                    if (cuePos >= c.size) { cue = cues.poll(); cuePos = 0 }
+                }
+                block[i] = (mixed.coerceIn(-1f, 1f) * Short.MAX_VALUE).toInt().toShort()
             }
             if (t.write(block, 0, block.size) < 0) break
         }
         runCatching { t.stop(); t.release() }
         running = false
-        track = null
     }
 
-    fun release() { running = false; target = 0f }
+    fun release() { running = false; target = 0f; cues.clear() }
 }

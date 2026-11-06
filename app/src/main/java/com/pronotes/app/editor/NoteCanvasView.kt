@@ -77,6 +77,10 @@ interface CanvasHost {
     fun onLinkTarget(page: Int, x: Float, y: Float) {}
     fun onLinkLongPress(id: String) {}
     fun onOpenUrl(url: String) {}
+    /** Sharp viewport render of a zoomed PDF page, if ready. */
+    fun pdfDetail(page: Int): EditorViewModel.Detail? = null
+    /** (page, visible region in page units, screen px per unit) for zoomed PDF pages. */
+    fun requestDetail(wants: List<Triple<Int, RectF, Float>>, onReady: () -> Unit) {}
     /** Long-press on PDF text (page space). Return true when a word was selected. */
     fun onTextPress(page: Int, x: Float, y: Float): Boolean = false
     fun onTextDrag(x: Float, y: Float) {}
@@ -410,9 +414,33 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         viewMatrix.postTranslate(transX, transY)
         viewMatrix.invert(inverse)
         val idx = computeCurrent()
-        if (idx != currentIndex) { currentIndex = idx; host.onCurrentPage(idx) }
+        if (idx != currentIndex) {
+            currentIndex = idx; host.onCurrentPage(idx)
+            if (settings.scroll == ScrollDirection.HORIZONTAL) { syncFeel(); feel.cue(PaperFeel.Cue.PAGE) }
+        }
         layer.invalidate()
         reportSelection()
+        askForDetail()
+    }
+
+    /** Asks for sharp detail of the PDF pages on screen when zoomed past what the base bitmap holds. */
+    private fun askForDetail() {
+        if (width == 0 || pages.isEmpty()) return
+        val wants = ArrayList<Triple<Int, RectF, Float>>()
+        val view = RectF(0f, 0f, width.toFloat(), height.toFloat())
+        val inv = Matrix()
+        pages.forEachIndexed { i, p ->
+            if (p.pdfPage < 0 || p.width * scale < 1700f) return@forEachIndexed
+            val pm = pageMatrix(i, Matrix())
+            val sr = RectF(0f, 0f, p.width, p.height); pm.mapRect(sr)
+            if (!RectF.intersects(sr, view)) return@forEachIndexed
+            pm.invert(inv)
+            val local = RectF(view); inv.mapRect(local)
+            local.inset(-local.width() * 0.08f, -local.height() * 0.08f)
+            if (!local.intersect(0f, 0f, p.width, p.height)) return@forEachIndexed
+            wants += Triple(i, local, scale)
+        }
+        host.requestDetail(wants) { layer.postInvalidate() }
     }
 
     private fun computeCurrent(): Int {
@@ -715,6 +743,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                     }
                     Tool.ERASER -> {
                         mode = Mode.ERASE
+                        syncFeel(); feelX = px; feelY = py; feelT = e.eventTime
+                        feel.start(PaperFeel.Texture.ERASER)
                         host.beginEdit(activePage)
                         lastErase = wx to wy
                         eraseAt(wx, wy)
@@ -764,6 +794,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         }
                     }
                     Mode.ERASE -> {
+                        feel.move(hypot(e.getX(idx) - feelX, e.getY(idx) - feelY), e.eventTime - feelT)
+                        feelX = e.getX(idx); feelY = e.getY(idx); feelT = e.eventTime
                         for (h in 0 until e.historySize) {
                             val (hx, hy) = toLocal(e.getHistoricalX(idx, h), e.getHistoricalY(idx, h), activePage)
                             eraseAt(hx, hy)
@@ -888,7 +920,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
     }
 
-    private val feel = PaperFeel(context)
+    private val feel = PaperFeel(context, this)
+    private fun syncFeel() { feel.sound = settings.paperSound; feel.haptics = settings.paperHaptics; feel.volume = settings.paperVolume }
     private var feelX = 0f
     private var feelY = 0f
     private var feelT = 0L
@@ -897,11 +930,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
     private fun startInk(e: MotionEvent, t: Tool) {
         mode = Mode.INK
-        feel.sound = settings.paperSound
-        feel.haptics = settings.paperHaptics
-        feel.volume = settings.paperVolume
+        syncFeel()
         feelX = e.getX(e.findPointerIndex(activePointer).coerceAtLeast(0)); feelY = e.getY(e.findPointerIndex(activePointer).coerceAtLeast(0)); feelT = e.eventTime
-        feel.start()
+        feel.start(if (t == Tool.HIGHLIGHTER) PaperFeel.Texture.MARKER else PaperFeel.Texture.PENCIL)
         val toWorld = Matrix(inverse).apply { postTranslate(-ox(activePage), -oy(activePage)) }
         val id = wetInk.startStroke(e, activePointer, host.brush(t), toWorld, Matrix())
         strokeId = id
@@ -1066,7 +1097,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             holdFired = true
             cancelWet(id)
             addShapes(listOf(shape), fillable = strokeTool == Tool.SHAPE && isClosedLoop(shape), brushTool = strokeTool)
-            buzz()
+            buzz(); syncFeel(); feel.cue(PaperFeel.Cue.SNAP)
         }
     }
 
@@ -1286,7 +1317,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         selectionPage = page
         selectionOutline = if (ids.isEmpty()) null else outline
         layer.invalidate()
-        if (ids.isNotEmpty()) layer.popSelection()
+        if (ids.isNotEmpty()) { layer.popSelection(); syncFeel(); feel.cue(PaperFeel.Cue.SELECT) }
         reportSelection()
     }
 
@@ -1529,7 +1560,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 host.onZoom(null)
                 val pulled = pull >= pullTrigger
                 if (pulled) {
-                    buzz()
+                    buzz(); syncFeel(); feel.cue(PaperFeel.Cue.ADD)
                     host.onPullAddPage()
                 }
                 pull = 0f
@@ -1914,6 +1945,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 val pdf = if (p.pdfPage >= 0) host.pdfBitmap(p, (p.width * scale).toInt()) { postInvalidate() } else null
                 r.darkPdf = settings.darkPdf
                 r.drawPaper(canvas, p, pdf, shadow = true)
+                host.pdfDetail(i)?.let { d -> r.drawPdfDetail(canvas, d.bmp, d.region) }
                 val hl = host.highlights(i)
                 if (hl.isNotEmpty()) r.drawHighlights(canvas, hl, active?.takeIf { it.first == i }?.second)
                 host.textSelection(i).forEach { canvas.drawRoundRect(it, 4f, 4f, textSelPaint) }
