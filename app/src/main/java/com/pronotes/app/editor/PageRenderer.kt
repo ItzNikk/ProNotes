@@ -133,6 +133,34 @@ class PageRenderer(private val noteDir: File?) {
 
     private val coverPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
+    private val tapeTiles = HashMap<String, Bitmap>()
+
+    /** Repeating tile for patterned and picture tapes; null for plain colour and the classic stripes. */
+    private fun tapeShader(item: TapeItem): android.graphics.Shader? {
+        val pat = item.pattern
+        if (pat == "stripes" || pat == "plain" || pat.isBlank()) return null
+        val key = "$pat:${item.color}"
+        val tile = tapeTiles[key] ?: run {
+            val t = if (pat.startsWith("image:")) {
+                val src = image(pat.removePrefix("image:")) ?: return null
+                // Scale the picture so it is as tall as the tape.
+                val hgt = 92
+                Bitmap.createScaledBitmap(src, (src.width * hgt / src.height.toFloat()).toInt().coerceAtLeast(8), hgt, true)
+            } else TapePatterns.tile(pat, item.color)
+            if (tapeTiles.size > 24) tapeTiles.clear()
+            tapeTiles[key] = t
+            t
+        }
+        val sh = android.graphics.BitmapShader(tile, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT)
+        val m = Matrix()
+        val th = if (item.pts != null) item.thick else item.raw.height()
+        val s = (th / tile.height).coerceAtLeast(0.05f)
+        m.setScale(s, s)
+        if (item.pts == null) m.postTranslate(item.x, item.y)
+        sh.setLocalMatrix(m)
+        return sh
+    }
+
     /** Sharp zoomed-in part of a PDF page, drawn over the base page bitmap. */
     fun drawPdfDetail(canvas: Canvas, bmp: Bitmap, region: RectF) {
         canvas.drawBitmap(bmp, null, region, if (darkPdf) invertPaint else bitmapPaint)
@@ -338,31 +366,169 @@ class PageRenderer(private val noteDir: File?) {
         }
         if (page.pdfPage >= 0) return
         currentBg = bg
-        val line = if (isDark) 0xFF3A3F48.toInt() else 0xFFD5DEEA.toInt()
+        val line = page.lineColor ?: if (isDark) 0xFF3A3F48.toInt() else 0xFFD5DEEA.toInt()
+        /** Spacing multiplier chosen in the template sheet. */
+        val g = page.lineScale.coerceIn(0.5f, 2.5f)
         linePaint.color = line; boldLine.color = line; boxPaint.color = line
         dotPaint.color = if (isDark) 0xFF4A505A.toInt() else 0xFFC3CCD8.toInt()
         labelPaint.color = if (isDark) 0xFF8A93A3.toInt() else 0xFF9AA4B2.toInt()
         val w = page.width; val h = page.height
-        fun ruled(start: Float, gap: Float, left: Float = 0f) {
+        fun ruled(start: Float, gap: Float, left: Float = 0f, right: Float = w) {
             var y = start
-            while (y < h - 40f) { canvas.drawLine(left, y, w, y, linePaint); y += gap }
+            while (y < h - 40f) { canvas.drawLine(left, y, right, y, linePaint); y += gap * g }
+        }
+        fun grid(step0: Float, paint: Paint = linePaint) {
+            val step = step0 * g
+            var x = step
+            while (x < w) { canvas.drawLine(x, 0f, x, h, paint); x += step }
+            var y = step
+            while (y < h) { canvas.drawLine(0f, y, w, y, paint); y += step }
         }
         when (page.paper) {
             PaperStyle.BLANK -> Unit
             PaperStyle.RULED -> { ruled(180f, 52f); canvas.drawLine(130f, 0f, 130f, h, marginPaint) }
             PaperStyle.NARROW -> { ruled(160f, 38f); canvas.drawLine(110f, 0f, 110f, h, marginPaint) }
-            PaperStyle.GRID -> {
-                var x = 40f
-                while (x < w) { canvas.drawLine(x, 0f, x, h, linePaint); x += 40f }
-                var y = 40f
-                while (y < h) { canvas.drawLine(0f, y, w, y, linePaint); y += 40f }
-            }
+            PaperStyle.GRID -> grid(40f)
             PaperStyle.DOTTED -> {
-                var y = 40f
+                val st = 40f * g
+                var y = st
                 while (y < h) {
-                    var x = 40f
-                    while (x < w) { canvas.drawCircle(x, y, 2.6f, dotPaint); x += 40f }
-                    y += 40f
+                    var x = st
+                    while (x < w) { canvas.drawCircle(x, y, 2.6f, dotPaint); x += st }
+                    y += st
+                }
+            }
+            PaperStyle.COLLEGE -> { ruled(170f, 42f); canvas.drawLine(120f, 0f, 120f, h, marginPaint) }
+            PaperStyle.WIDE -> { ruled(190f, 64f); canvas.drawLine(140f, 0f, 140f, h, marginPaint) }
+            PaperStyle.LEGAL -> {
+                ruled(220f, 50f)
+                canvas.drawLine(150f, 0f, 150f, h, marginPaint); canvas.drawLine(158f, 0f, 158f, h, marginPaint)
+                canvas.drawLine(0f, 160f, w, 160f, marginPaint)
+            }
+            PaperStyle.HANDWRITING -> {
+                // Three-line penmanship: solid top, dashed middle, bold base line.
+                val dash = Paint(linePaint).apply { pathEffect = android.graphics.DashPathEffect(floatArrayOf(14f, 10f), 0f) }
+                var y = 180f
+                val band = 96f * g
+                while (y + band < h - 60f) {
+                    canvas.drawLine(70f, y, w - 70f, y, linePaint)
+                    canvas.drawLine(70f, y + band / 2f, w - 70f, y + band / 2f, dash)
+                    canvas.drawLine(70f, y + band, w - 70f, y + band, boldLine)
+                    y += band * 1.6f
+                }
+            }
+            PaperStyle.SMALL_GRID -> grid(24f)
+            PaperStyle.GRAPH -> {
+                grid(20f)
+                grid(100f, Paint(linePaint).apply { strokeWidth = 2.6f })
+            }
+            PaperStyle.ISOMETRIC -> {
+                val st = 46f * g
+                val rowH = st * 0.866f
+                var row = 0
+                var y = rowH
+                while (y < h) {
+                    var x = if (row % 2 == 0) st / 2f else st
+                    while (x < w) { canvas.drawCircle(x, y, 2.4f, dotPaint); x += st }
+                    y += rowH; row++
+                }
+            }
+            PaperStyle.HEX -> {
+                val r = 34f * g
+                val hh = r * 1.732f
+                val p = android.graphics.Path()
+                val stroke = Paint(linePaint).apply { style = Paint.Style.STROKE }
+                var col = 0
+                var cx = r
+                while (cx < w + r) {
+                    var cy = if (col % 2 == 0) hh / 2f else hh
+                    while (cy < h + hh) {
+                        p.reset()
+                        for (k in 0..6) {
+                            val a = Math.toRadians(60.0 * k)
+                            val px = cx + r * kotlin.math.cos(a).toFloat(); val py = cy + r * kotlin.math.sin(a).toFloat()
+                            if (k == 0) p.moveTo(px, py) else p.lineTo(px, py)
+                        }
+                        canvas.drawPath(p, stroke)
+                        cy += hh
+                    }
+                    cx += r * 1.5f; col++
+                }
+            }
+            PaperStyle.DAILY -> {
+                canvas.drawText("DATE", 80f, 110f, labelPaint)
+                canvas.drawLine(170f, 112f, w * 0.5f, 112f, linePaint)
+                val split = w * 0.55f
+                var y = 200f; var hour = 7
+                while (y < h - 80f && hour <= 21) {
+                    canvas.drawText("%02d:00".format(hour), 70f, y - 8f, labelPaint)
+                    canvas.drawLine(160f, y, split - 30f, y, linePaint)
+                    y += (h - 280f) / 15f; hour++
+                }
+                canvas.drawLine(split, 160f, split, h - 80f, boldLine)
+                canvas.drawText("TOP 3", split + 30f, 130f, labelPaint)
+                for (k in 0 until 3) canvas.drawRoundRect(RectF(split + 30f, 160f + k * 70f, split + 64f, 194f + k * 70f), 6f, 6f, boxPaint)
+                canvas.drawText("NOTES", split + 30f, 420f, labelPaint)
+                var ny = 470f
+                while (ny < h - 80f) { canvas.drawLine(split + 30f, ny, w - 60f, ny, linePaint); ny += 52f * g }
+            }
+            PaperStyle.MONTHLY -> {
+                canvas.drawText("MONTH", 70f, 110f, labelPaint)
+                val names = listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+                val top = 180f; val cw = (w - 100f) / 7f; val ch = (h - top - 60f) / 6f
+                names.forEachIndexed { i, n -> canvas.drawText(n, 50f + i * cw + 10f, top - 14f, labelPaint) }
+                for (r in 0 until 6) for (c in 0 until 7) canvas.drawRect(RectF(50f + c * cw, top + r * ch, 50f + (c + 1) * cw, top + (r + 1) * ch), boxPaint)
+            }
+            PaperStyle.MEETING -> {
+                listOf("MEETING", "DATE", "ATTENDEES").forEachIndexed { i, l ->
+                    val y = 110f + i * 60f
+                    canvas.drawText(l, 70f, y, labelPaint); canvas.drawLine(250f, y + 4f, w - 70f, y + 4f, linePaint)
+                }
+                canvas.drawLine(0f, 300f, w, 300f, boldLine)
+                canvas.drawText("NOTES", 70f, 350f, labelPaint)
+                var y = 400f
+                while (y < h * 0.78f - 20f) { canvas.drawLine(70f, y, w - 70f, y, linePaint); y += 52f * g }
+                canvas.drawLine(0f, h * 0.78f, w, h * 0.78f, boldLine)
+                canvas.drawText("ACTION ITEMS", 70f, h * 0.78f + 44f, labelPaint)
+            }
+            PaperStyle.STUDY -> {
+                canvas.drawText("TOPIC", 70f, 110f, labelPaint); canvas.drawLine(190f, 114f, w - 70f, 114f, linePaint)
+                canvas.drawRoundRect(RectF(60f, 160f, w - 60f, 330f), 18f, 18f, boxPaint)
+                canvas.drawText("KEY IDEAS", 84f, 200f, labelPaint)
+                var y = 390f
+                while (y < h - 330f) { canvas.drawLine(70f, y, w - 70f, y, linePaint); y += 52f * g }
+                canvas.drawRoundRect(RectF(60f, h - 300f, w - 60f, h - 70f), 18f, 18f, boxPaint)
+                canvas.drawText("REMEMBER", 84f, h - 260f, labelPaint)
+            }
+            PaperStyle.TWO_COLUMN -> {
+                canvas.drawLine(w / 2f, 120f, w / 2f, h - 60f, boldLine)
+                ruled(160f, 52f, 40f, w / 2f - 20f); ruled(160f, 52f, w / 2f + 20f, w - 40f)
+            }
+            PaperStyle.STORYBOARD -> {
+                val cw = (w - 120f) / 2; val ch = (h - 160f) / 3
+                for (r in 0 until 3) for (c in 0 until 2) {
+                    val x = 60f + c * cw; val y = 80f + r * ch
+                    canvas.drawRoundRect(RectF(x + 10f, y + 10f, x + cw - 10f, y + ch * 0.68f), 10f, 10f, boxPaint)
+                    canvas.drawLine(x + 10f, y + ch * 0.78f, x + cw - 10f, y + ch * 0.78f, linePaint)
+                    canvas.drawLine(x + 10f, y + ch * 0.9f, x + cw - 10f, y + ch * 0.9f, linePaint)
+                }
+            }
+            PaperStyle.CHECKLIST -> {
+                canvas.drawText("CHECKLIST", 80f, 120f, labelPaint)
+                var y = 200f
+                while (y < h - 80f) {
+                    canvas.drawCircle(98f, y - 16f, 16f, boxPaint)
+                    canvas.drawLine(140f, y, w - 80f, y, linePaint)
+                    y += 64f * g
+                }
+            }
+            PaperStyle.TABLATURE -> {
+                var y = 180f
+                val gap = 18f * g
+                while (y + 5 * gap < h - 60f) {
+                    for (k in 0 until 6) canvas.drawLine(80f, y + k * gap, w - 80f, y + k * gap, linePaint)
+                    canvas.drawText("T", 52f, y + gap * 1.6f, labelPaint); canvas.drawText("A", 52f, y + gap * 3f, labelPaint); canvas.drawText("B", 52f, y + gap * 4.4f, labelPaint)
+                    y += 5 * gap + 90f
                 }
             }
             PaperStyle.CORNELL -> {
@@ -508,25 +674,29 @@ class PageRenderer(private val noteDir: File?) {
                 }
                 is TapeItem -> {
                     tapePaint.color = if (item.revealed) (item.color and 0x00FFFFFF) or (0x40 shl 24) else item.color
+                    // Patterned or picture tape: a repeating tile used as the paint's shader.
+                    tapePaint.shader = if (item.revealed) null else tapeShader(item)
                     val tp = item.path
                     if (tp != null) {
                         tapePaint.style = Paint.Style.STROKE; tapePaint.strokeWidth = item.thick
                         tapePaint.strokeCap = Paint.Cap.SQUARE; tapePaint.strokeJoin = Paint.Join.ROUND
                         canvas.save(); canvas.translate(item.x, item.y); canvas.drawPath(tp, tapePaint); canvas.restore()
                         tapePaint.style = Paint.Style.FILL
+                        tapePaint.shader = null
                         if (moved) canvas.restore()
                         continue
                     }
                     val r = item.raw
                     rotated(canvas, r, item.rot) {
                         canvas.drawRoundRect(r, 6f, 6f, tapePaint)
-                        if (!item.revealed) {
+                        if (!item.revealed && item.pattern == "stripes") {
                             canvas.save(); canvas.clipRect(r)
                             var x = r.left - r.height()
                             while (x < r.right) { canvas.drawLine(x, r.bottom, x + r.height(), r.top, tapeStripe); x += 28f }
                             canvas.restore()
                         }
                     }
+                    tapePaint.shader = null
                 }
                 is StickyItem -> {
                     stickyPaint.color = item.color

@@ -14,6 +14,33 @@ enum class PaperStyle(val label: String) {
     TODO("To-do"),
     PLANNER("Weekly"),
     MUSIC("Music"),
+    // v8 templates
+    COLLEGE("College ruled"),
+    WIDE("Wide ruled"),
+    LEGAL("Legal pad"),
+    HANDWRITING("Handwriting practice"),
+    SMALL_GRID("Small grid"),
+    GRAPH("Graph paper"),
+    ISOMETRIC("Isometric"),
+    HEX("Hexagons"),
+    DAILY("Daily planner"),
+    MONTHLY("Monthly"),
+    MEETING("Meeting notes"),
+    STUDY("Study notes"),
+    TWO_COLUMN("Two columns"),
+    STORYBOARD("Storyboard"),
+    CHECKLIST("Checklist"),
+    TABLATURE("Guitar tab"),
+    ;
+
+    /** Groups for the template picker, GoodNotes style. */
+    val group: String get() = when (this) {
+        BLANK, RULED, NARROW, COLLEGE, WIDE, LEGAL, HANDWRITING -> "Writing"
+        GRID, SMALL_GRID, GRAPH, DOTTED, ISOMETRIC, HEX -> "Grids"
+        TODO, CHECKLIST, PLANNER, DAILY, MONTHLY, MEETING -> "Planning"
+        CORNELL, STUDY, TWO_COLUMN, STORYBOARD -> "Study"
+        MUSIC, TABLATURE -> "Music"
+    }
 }
 
 @Serializable
@@ -92,6 +119,8 @@ sealed class ItemDoc {
         val x: Float, val y: Float, val w: Float, val h: Float, val color: Int, val rot: Float = 0f,
         /** Freehand tape: path points relative to (x, y), and its thickness. */
         val pts: List<Float> = emptyList(), val thick: Float = 46f,
+        /** "stripes", "plain", "dots", "grid", "checks", "zigzag", "stars", "hearts" or "image:<file>". */
+        val pattern: String = "stripes",
     ) : ItemDoc()
 
     @Serializable
@@ -114,6 +143,9 @@ data class PageDoc(
     val cover: String? = null,
     /** Custom page: a picture file in the notebook folder used as the page background. */
     val bgImage: String? = null,
+    /** Template tuning: line spacing multiplier and line colour (null = default). */
+    val lineScale: Float = 1f,
+    val lineColor: Int? = null,
 )
 
 @Serializable

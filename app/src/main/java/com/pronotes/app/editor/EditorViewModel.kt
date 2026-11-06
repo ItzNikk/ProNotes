@@ -434,14 +434,23 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         touched()
         val p = pages.getOrNull(page) ?: return
         var items = items0
-        // A maths answer goes away when the sum it belongs to is erased.
-        if (mathLinks.isNotEmpty() && items.size < p.items.size) {
-            val ids = items.map { it.id }.toHashSet()
-            val dead = mathLinks.filter { (ans, src) -> ans in ids && src.none { it in ids } }.keys
-            if (dead.isNotEmpty()) {
-                items = items.filterNot { it.id in dead }
-                dead.toList().forEach { mathLinks.remove(it) }
-                viewModelScope.launch { onPagesChanged?.invoke() }
+        // A maths answer goes away when the sum it belongs to is erased. Answers are found by their
+        // colour and place (left of them, same line), so this also works after reopening the notebook.
+        val newIds = items.mapTo(HashSet()) { it.id }
+        val removedInk = p.items.filter { it is InkItem && it.id !in newIds }
+        if (removedInk.isNotEmpty()) {
+            val answers = items.filter { it is TextItem && it.color == MATH_COLOR }
+            if (answers.isNotEmpty()) {
+                val inkLeft = items.filterIsInstance<InkItem>()
+                val dead = answers.filter { a ->
+                    val ab = a.bounds
+                    val zone = RectF(ab.left - 2400f, ab.top - ab.height() * 0.4f, ab.left + 4f, ab.bottom + ab.height() * 0.4f)
+                    removedInk.any { RectF.intersects(it.bounds, zone) } && inkLeft.none { RectF.intersects(it.bounds, zone) }
+                }.map { it.id }.toSet()
+                if (dead.isNotEmpty()) {
+                    items = items.filterNot { it.id in dead }
+                    viewModelScope.launch { onPagesChanged?.invoke() }
+                }
             }
         }
         noteNewInk(page, p.items, items)
@@ -449,8 +458,39 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         scheduleSave()
     }
 
-    /** Answer text id -> ink ids of the sum it answers. */
-    private val mathLinks = HashMap<Long, Set<Long>>()
+    /** Pen is down: the toolbar fades so you can write under it. */
+    var penActive by mutableStateOf(false)
+
+    /** Pattern for new tape. */
+    var tapePattern by mutableStateOf("stripes")
+
+    fun useTapeImage(uri: Uri) {
+        viewModelScope.launch {
+            val name = runCatching { repo.saveImage(noteId, uri) }.getOrNull() ?: return@launch
+            tapePattern = "image:$name"
+            tool = Tool.TAPE
+        }
+    }
+
+    /**
+     * Template sheet: apply [style] with spacing and colours to this page, a new page after it,
+     * or every writing page (PDF pages and covers are left alone).
+     */
+    fun applyTemplate(style: PaperStyle, scale: Float, lineColor: Int?, paperColor: Int?, target: Int) {
+        fun styled(p: Page) = p.copy(paper = style, lineScale = scale, lineColor = lineColor, paperColor = paperColor ?: p.paperColor)
+        when (target) {
+            0 -> { val p = currentPage ?: return; pages[pageIndex] = styled(p) }
+            1 -> {
+                val base = newPage()
+                pages.add(pageIndex + 1, styled(base))
+                undoStack.clear(); redoStack.clear(); refreshUndo()
+                scheduleSave(); onPagesChanged?.invoke(); onScrollTo?.invoke(pageIndex + 1)
+                return
+            }
+            else -> pages.indices.forEach { i -> val p = pages[i]; if (p.pdfPage < 0 && p.cover == null && p.bgImage == null) pages[i] = styled(p) }
+        }
+        scheduleSave(); onPagesChanged?.invoke()
+    }
 
     private fun applyItems(page: Int, items: List<PageItem>) {
         setItems(page, items)
@@ -586,7 +626,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val paper = ref?.paper ?: repo.meta(noteId)?.paper ?: settingsFlow.value.defaultPaper
         val w = ref?.width ?: cur?.takeIf { it.pdfPage < 0 }?.width ?: PageSize.WIDTH
         val h = ref?.height ?: cur?.takeIf { it.pdfPage < 0 }?.height ?: PageSize.HEIGHT
-        return Page(UUID.randomUUID().toString(), w, h, paper, paperColor = ref?.paperColor)
+        return Page(UUID.randomUUID().toString(), w, h, paper, paperColor = ref?.paperColor, lineScale = ref?.lineScale ?: 1f, lineColor = ref?.lineColor)
     }
 
     /** Custom page: uses a picture as the background of the page in view (null removes it). */
@@ -1051,9 +1091,19 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val size = (b.height() * 0.7f).coerceIn(20f, 160f)
         val text = if (raw.trimEnd().endsWith("=")) ans else "= $ans"
         beginEdit(page)
-        val answer = TextItem(ItemIds.next(), text, b.right + size * 0.3f, b.top, size, 0xFF3D6CF4.toInt())
-        mathLinks[answer.id] = ink.map { it.id }.toSet()
+        val answer = TextItem(ItemIds.next(), text.take(1), b.right + size * 0.3f, b.top, size, MATH_COLOR)
         applyItems(page, p.items + answer)
+        // Write the answer out one character at a time, like it is being typed in.
+        viewModelScope.launch {
+            for (n in 2..text.length) {
+                delay(70)
+                val cur = pages.getOrNull(page) ?: return@launch
+                if (cur.items.none { it.id == answer.id }) return@launch
+                pages[page] = cur.copy(items = cur.items.map { if (it.id == answer.id) answer.copy(text = text.take(n)) else it })
+                onPagesChanged?.invoke()
+            }
+            scheduleSave()
+        }
         return true
     }
 
@@ -1199,10 +1249,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun clearTextSel() { textSel = null; textMenu = null }
     fun textSelection(page: Int): List<RectF> = textSel?.takeIf { it.page == page }?.rects ?: emptyList()
 
-    fun highlightTextSel() {
+    fun highlightTextSel(colorPick: Int? = null) {
         val s = textSel ?: return
         val p = pages.getOrNull(s.page) ?: return
-        val color = highlighterStyle.color
+        val color = colorPick ?: highlighterStyle.color
         val items = s.rects.map { r ->
             val brush = Brushes.create(Brushes.HIGHLIGHTER, color, r.height() * 1.05f)
             val pts = (0..12).map { k -> (r.left + r.width() * k / 12f) to r.centerY() }
@@ -1211,6 +1261,53 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         beginEdit(s.page)
         applyItems(s.page, p.items + items)
         clearTextSel()
+    }
+
+    /** Thin pen line under (or through, with [strike]) the selected PDF text. */
+    fun lineTextSel(strike: Boolean) {
+        val s = textSel ?: return
+        val p = pages.getOrNull(s.page) ?: return
+        val items = s.rects.map { r ->
+            val y = if (strike) r.centerY() else r.bottom - r.height() * 0.08f
+            val brush = Brushes.create(Brushes.MARKER, if (strike) 0xFFE5484D.toInt() else penStyle.color, (r.height() * 0.08f).coerceIn(2f, 6f))
+            InkItem(ItemIds.next(), InkCodec.strokeFromPoints((0..10).map { k -> (r.left + r.width() * k / 10f) to y }, brush))
+        }
+        beginEdit(s.page)
+        applyItems(s.page, p.items + items)
+        clearTextSel()
+    }
+
+    /** Explanation of the selected text, from Gemini Nano when this device has it. */
+    var explanation by mutableStateOf<Pair<String, String>?>(null)
+
+    fun explainTextSel() {
+        val s = textSel ?: return
+        clearTextSel()
+        viewModelScope.launch {
+            aiBusy = true
+            val ctx = try { indexFor(s.pdfPage)?.pageText(s.pdfPage) ?: "" } finally { }
+            val ans = try { runCatching { Nano.explain(s.text, ctx) }.getOrNull() } finally { aiBusy = false }
+            if (ans == null) say(if (Nano.available) "Couldn't explain that right now" else "Explain needs Gemini Nano, which this device doesn't have")
+            else explanation = s.text to ans
+        }
+    }
+
+    /** Questions made from just the selected text. */
+    fun quizFromTextSel() {
+        val s = textSel ?: return
+        val pid = pages.getOrNull(s.page)?.id
+        clearTextSel()
+        viewModelScope.launch {
+            aiBusy = true
+            val ctx = indexFor(s.pdfPage)?.pageText(s.pdfPage) ?: s.text
+            val made = try {
+                runCatching { Nano.quiz(s.text, 3) }.getOrNull() ?: withContext(Dispatchers.Default) { StudyGen.quiz(s.text + "\n" + ctx, 3) }
+            } finally { aiBusy = false }
+            val add = made.map { com.pronotes.app.data.QuizQuestion(UUID.randomUUID().toString(), it.question, it.options, it.answer, it.explanation, pid, generated = true) }
+            quiz = quiz + add
+            saveStudy()
+            say(if (add.isEmpty()) "Select a longer passage to make questions" else "Added ${add.size} quiz questions")
+        }
     }
 
     fun cardFromTextSel() {
@@ -1254,8 +1351,12 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         viewModelScope.launch {
             aiBusy = true
             val (text, pid) = studyText(if (allPages) pages.indices else pageIndex..pageIndex)
-            val made = withContext(Dispatchers.Default) { StudyGen.flashcards(text, if (allPages) 40 else 15) }
-            aiBusy = false
+            if (text.isBlank()) { aiBusy = false; say("No text found. Write or import something first."); return@launch }
+            val max = if (allPages) 40 else 15
+            // Gemini Nano on the device when it has it; the built-in rules otherwise.
+            val made = try {
+                runCatching { Nano.flashcards(text, max) }.getOrNull() ?: withContext(Dispatchers.Default) { StudyGen.flashcards(text, max) }
+            } finally { aiBusy = false }
             val have = cards.map { it.front.lowercase() }.toHashSet()
             val add = made.filter { it.front.lowercase() !in have }.map {
                 com.pronotes.app.data.Flashcard(UUID.randomUUID().toString(), front = it.front, back = it.back, pageId = pid, created = System.currentTimeMillis())
@@ -1272,8 +1373,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun summarize() {
         viewModelScope.launch {
             aiBusy = true
-            val (text, _) = try { studyText(pageIndex..pageIndex) } finally { aiBusy = false }
-            val pts = withContext(Dispatchers.Default) { StudyGen.summary(text) }
+            val pts = try {
+                val (text, _) = studyText(pageIndex..pageIndex)
+                runCatching { Nano.summary(text) }.getOrNull() ?: withContext(Dispatchers.Default) { StudyGen.summary(text) }
+            } finally { aiBusy = false }
             if (pts.isEmpty()) say("Not enough text on this page to summarise") else summary = pts
         }
     }
@@ -1291,8 +1394,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         viewModelScope.launch {
             aiBusy = true
             val (text, pid) = studyText(if (allPages) pages.indices else pageIndex..pageIndex)
-            val made = withContext(Dispatchers.Default) { StudyGen.quiz(text, if (allPages) 30 else 12) }
-            aiBusy = false
+            val max = if (allPages) 30 else 12
+            val made = try {
+                runCatching { Nano.quiz(text, max) }.getOrNull() ?: withContext(Dispatchers.Default) { StudyGen.quiz(text, max) }
+            } finally { aiBusy = false }
             val have = quiz.map { it.question }.toHashSet()
             val add = made.filter { it.question !in have }.map {
                 com.pronotes.app.data.QuizQuestion(UUID.randomUUID().toString(), it.question, it.options, it.answer, it.explanation, pid, generated = true)
@@ -1338,3 +1443,6 @@ data class LinkEnd(
     /** Website, when the link leaves the notebook. */
     val url: String? = null,
 )
+
+/** Colour of maths answers; also how the app recognises them when the sum is erased. */
+val MATH_COLOR: Int = 0xFF3D6CF5.toInt()

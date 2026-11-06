@@ -111,6 +111,8 @@ data class TapeItem(
     /** Freehand tape: points relative to (x, y). Null for a straight strip. */
     val pts: FloatArray? = null,
     val thick: Float = 46f,
+    /** See ItemDoc.Tape.pattern. */
+    val pattern: String = "stripes",
 ) : PageItem {
     val path: android.graphics.Path? by lazy {
         pts?.let { p ->
@@ -178,6 +180,8 @@ data class Page(
     val paperColor: Int? = null,
     val cover: String? = null,
     val bgImage: String? = null,
+    val lineScale: Float = 1f,
+    val lineColor: Int? = null,
 )
 
 fun strokeBounds(stroke: Stroke): RectF {
@@ -208,12 +212,12 @@ fun InkItem.worldPoints(): List<Pair<Float, Float>> {
 }
 
 /** Builds a freehand tape from absolute page points. */
-fun freehandTape(id: Long, abs: FloatArray, color: Int, thick: Float): TapeItem {
+fun freehandTape(id: Long, abs: FloatArray, color: Int, thick: Float, pattern: String = "stripes"): TapeItem {
     var l = Float.MAX_VALUE; var t = Float.MAX_VALUE; var r = -Float.MAX_VALUE; var b = -Float.MAX_VALUE
     for (i in abs.indices step 2) { l = minOf(l, abs[i]); r = maxOf(r, abs[i]); t = minOf(t, abs[i + 1]); b = maxOf(b, abs[i + 1]) }
     val x = l - thick / 2f; val y = t - thick / 2f
     val rel = FloatArray(abs.size) { i -> abs[i] - if (i % 2 == 0) x else y }
-    return TapeItem(id, x, y, (r - l) + thick, (b - t) + thick, color, pts = rel, thick = thick)
+    return TapeItem(id, x, y, (r - l) + thick, (b - t) + thick, color, pts = rel, thick = thick, pattern = pattern)
 }
 
 /** Axis-aligned bounds of [r] rotated by [deg] about its centre. */

@@ -77,6 +77,10 @@ interface CanvasHost {
     fun onLinkTarget(page: Int, x: Float, y: Float) {}
     fun onLinkLongPress(id: String) {}
     fun onOpenUrl(url: String) {}
+    /** Pattern for new tape ("stripes", "dots", "image:<file>", ...). */
+    fun tapePattern(): String = "stripes"
+    /** The pen is down (true) or lifted (false): the toolbar fades while you write under it. */
+    fun onPenActive(active: Boolean) {}
     /** Sharp viewport render of a zoomed PDF page, if ready. */
     fun pdfDetail(page: Int): EditorViewModel.Detail? = null
     /** (page, visible region in page units, screen px per unit) for zoomed PDF pages. */
@@ -331,10 +335,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     }
 
     /** Space kept free for a floating toolbar at the top or bottom edge. */
-    private fun toolbarInset(): Float = when (settings.toolbarDock) {
-        com.pronotes.app.data.ToolbarDock.TOP, com.pronotes.app.data.ToolbarDock.BOTTOM -> 112f * density
-        else -> 0f
-    }
+    /** The floating toolbar sits over the page (and fades while you write), so pages use the full height. */
+    private fun toolbarInset(): Float = 0f
 
     /** Centre pages in the space left by the toolbar (horizontal mode). */
     private fun toolbarShift(): Float = when (settings.toolbarDock) {
@@ -594,6 +596,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 penSide = event.device?.name?.let { host.penProfile(it).sideButton }
                 if (settings.penHaptics) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 host.onTextClear()
+                host.onPenActive(true)
                 if (mode == Mode.PAN) endPan() else if (mode != Mode.NONE) cancelCurrent(event)
                 stylusPointer = event.getPointerId(if (action == MotionEvent.ACTION_DOWN) 0 else event.actionIndex)
                 handleDraw(event, MotionEvent.ACTION_DOWN, stylusPointer)
@@ -603,9 +606,10 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         if (stylusPointer != -1) {
             val sIdx = event.findPointerIndex(stylusPointer)
             when {
-                action == MotionEvent.ACTION_CANCEL -> { cancelCurrent(event); stylusPointer = -1; ignoreFingers = event.pointerCount > 1 }
-                sIdx < 0 -> { cancelCurrent(event); stylusPointer = -1 }
+                action == MotionEvent.ACTION_CANCEL -> { cancelCurrent(event); stylusPointer = -1; ignoreFingers = event.pointerCount > 1; host.onPenActive(false) }
+                sIdx < 0 -> { cancelCurrent(event); stylusPointer = -1; host.onPenActive(false) }
                 action == MotionEvent.ACTION_UP || (action == MotionEvent.ACTION_POINTER_UP && event.actionIndex == sIdx) -> {
+                    host.onPenActive(false)
                     handleDraw(event, MotionEvent.ACTION_UP, stylusPointer)
                     stylusPointer = -1
                     ignoreFingers = action == MotionEvent.ACTION_POINTER_UP
@@ -893,7 +897,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                                 val abs = FloatArray(pts.size * 2).also { a -> pts.forEachIndexed { k, (x, y) -> a[k * 2] = x; a[k * 2 + 1] = y } }
                                 val p = pages[activePage]
                                 host.beginEdit(activePage)
-                                updatePage(activePage, p.items + freehandTape(ItemIds.next(), abs, host.tapeColor(), 46f))
+                                updatePage(activePage, p.items + freehandTape(ItemIds.next(), abs, host.tapeColor(), 46f, host.tapePattern()))
                             }
                             r != null -> addTape(r)
                             else -> toggleTapeAt(activePage, wx, wy)
@@ -1186,7 +1190,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         if (r.width() < 30f && r.height() < 30f) return
         val p = pages[activePage]
         host.beginEdit(activePage)
-        updatePage(activePage, p.items + TapeItem(ItemIds.next(), r.left, r.top, r.width(), r.height(), host.tapeColor()))
+        updatePage(activePage, p.items + TapeItem(ItemIds.next(), r.left, r.top, r.width(), r.height(), host.tapeColor(), pattern = host.tapePattern()))
     }
 
     private fun toggleTapeAt(page: Int, x: Float, y: Float) {

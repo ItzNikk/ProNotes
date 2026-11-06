@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -435,5 +436,109 @@ private fun TakeQuiz(vm: EditorViewModel, onDone: () -> Unit) {
             Spacer(Modifier.height(14.dp))
             Button(onClick = { picked = null; index++ }, shape = Pill) { Text(if (index + 1 < order.size) "Next" else "See score") }
         }
+    }
+}
+
+/**
+ * GoodNotes-style template picker: templates grouped by kind with live previews, then line
+ * spacing, line colour and paper colour, applied to this page, a new page, or all pages.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun TemplateSheet(vm: EditorViewModel, onClose: () -> Unit) {
+    val cur = vm.currentPage
+    var style by remember { mutableStateOf(cur?.paper ?: com.pronotes.app.data.PaperStyle.RULED) }
+    var scale by remember { mutableStateOf(cur?.lineScale ?: 1f) }
+    var lineColor by remember { mutableStateOf(cur?.lineColor) }
+    var paperColor by remember { mutableStateOf(cur?.paperColor) }
+    val groups = com.pronotes.app.data.PaperStyle.entries.groupBy { it.group }
+    var group by remember { mutableStateOf(style.group) }
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(
+            shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.padding(20.dp).widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 820.dp).statusBarsPadding(),
+        ) {
+            Column(Modifier.padding(20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Templates", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+                    TextButton(onClick = onClose) { Text("Close") }
+                }
+                Row(Modifier.horizontalScrollCompat(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    groups.keys.forEach { g -> androidx.compose.material3.FilterChip(group == g, { group = g }, label = { Text(g) }, shape = Pill) }
+                }
+                Spacer(Modifier.height(12.dp))
+                androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                    androidx.compose.foundation.lazy.grid.GridCells.Adaptive(104.dp),
+                    Modifier.weight(1f, fill = false).heightIn(max = 380.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    items(groups[group].orEmpty().size) { i ->
+                        val p = groups[group].orEmpty()[i]
+                        val on = p == style
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { style = p }) {
+                            com.pronotes.app.library.PaperPreview(
+                                p,
+                                Modifier.fillMaxWidth().height(140.dp).clip(RoundedCornerShape(10.dp))
+                                    .border(if (on) 3.dp else 1.dp, if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
+                                tint = paperColor ?: 0xFFFFFFFF.toInt(),
+                            )
+                            Text(p.label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("LINE SPACING  ${"%.1f".format(scale)}×", style = MaterialTheme.typography.labelSmall)
+                androidx.compose.material3.Slider(scale, { scale = (it * 10).toInt() / 10f }, valueRange = 0.6f..2f)
+                Text("LINE COLOUR", style = MaterialTheme.typography.labelSmall)
+                Row(Modifier.horizontalScrollCompat()) {
+                    val lines = listOf<Int?>(null, 0xFFB8C7DC.toInt(), 0xFF9AA4B2.toInt(), 0xFF7FB2F0.toInt(), 0xFFF4A3A3.toInt(), 0xFF9ED8B0.toInt(), 0xFFE0C48A.toInt(), 0xFF4A505A.toInt())
+                    lines.forEach { c -> ColorDot(c, c == lineColor) { lineColor = c } }
+                }
+                Text("PAPER", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 6.dp))
+                Row(Modifier.horizontalScrollCompat()) {
+                    val papers = listOf<Int?>(null, 0xFFFFFFFF.toInt(), 0xFFFBF7EC.toInt(), 0xFFFFF4E0.toInt(), 0xFFEAF4FF.toInt(), 0xFFEFF8EC.toInt(), 0xFFFFFDE7.toInt(), 0xFF22252B.toInt())
+                    papers.forEach { c -> ColorDot(c, c == paperColor) { paperColor = c } }
+                }
+                Spacer(Modifier.height(14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { vm.applyTemplate(style, scale, lineColor, paperColor, 0); onClose() }, shape = Pill) { Text("This page") }
+                    FilledTonalButton(onClick = { vm.applyTemplate(style, scale, lineColor, paperColor, 1); onClose() }, shape = Pill) { Text("New page") }
+                    OutlinedButton(onClick = { vm.applyTemplate(style, scale, lineColor, paperColor, 2); onClose() }, shape = Pill) { Text("All pages") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Modifier.horizontalScrollCompat(): Modifier = this.then(Modifier.horizontalScroll(rememberScrollState()))
+
+@Composable
+private fun ColorDot(c: Int?, on: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.padding(4.dp).size(30.dp).clip(CircleShape)
+            .background(if (c == null) MaterialTheme.colorScheme.surfaceVariant else Color(c))
+            .border(if (on) 3.dp else 1.dp, if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { if (c == null) Text("A", style = MaterialTheme.typography.labelSmall) }
+}
+
+/** Tape card extras: patterns and your own picture. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun TapePatternPicker(vm: EditorViewModel, onPickImage: () -> Unit) {
+    Text("PATTERN", style = MaterialTheme.typography.labelSmall)
+    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        TapePatterns.names.forEach { p ->
+            val tile = remember(p, vm.tapeColor) { TapePatterns.tile(p, vm.tapeColor).asImageBitmap() }
+            val on = vm.tapePattern == p
+            Box(
+                Modifier.size(width = 54.dp, height = 26.dp).clip(RoundedCornerShape(6.dp))
+                    .border(if (on) 2.dp else 0.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
+                    .clickable { vm.tapePattern = p },
+            ) { Image(tile, TapePatterns.label(p), contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+        }
+        androidx.compose.material3.AssistChip(onClick = onPickImage, label = { Text(if (vm.tapePattern.startsWith("image:")) "Picture ✓" else "Your picture…") }, shape = Pill)
     }
 }

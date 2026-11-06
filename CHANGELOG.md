@@ -1,5 +1,15 @@
 # Changelog
 
+## v8.0.0
+- **One toolbar:** colours and sizes now sit inside the toolbar itself, after a thin divider. The toolbar floats over the page and fades while your pen is down, so you can write right under it.
+- **Templates, GoodNotes style:** 25 templates in groups (Writing, Grids, Planning, Study, Music): college, wide and legal ruled, handwriting practice, small grid, graph, isometric, hexagons, daily, monthly, meeting, study notes, two columns, storyboard, checklist, guitar tab and more. Pick line spacing, line colour and paper colour, and apply to this page, a new page or every page (+ menu or ⋯ → Page template).
+- **Tape:** ten patterns (dots, grid, gingham, zigzag, stars, hearts, waves, flowers...) or your own picture.
+- **Gemini Nano on device:** on phones and tablets that have it, flashcards, quizzes, summaries and the new Explain use Google's free on-device model. Others keep the built-in tools.
+- **PDF text menu:** highlight in four colours, underline, strike through, explain, flashcard, quiz questions from the passage, search and share.
+- **Maths:** the answer types itself in, and erasing the sum removes it, even after reopening the notebook.
+- **Eraser sound:** a clear rubber-on-paper sound.
+- **Phones:** undo and redo move into the toolbar to save room.
+
 ## v7.2.1
 - **Maths:** erase a sum and its answer goes away with it.
 

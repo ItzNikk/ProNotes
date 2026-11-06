@@ -151,6 +151,8 @@ object InkCodec {
         paperColor = page.paperColor,
         cover = page.cover,
         bgImage = page.bgImage,
+        lineScale = page.lineScale,
+        lineColor = page.lineColor,
         items = page.items.map { item ->
             when (item) {
                 is InkItem -> ItemDoc.Ink(
@@ -172,7 +174,7 @@ object InkCodec {
                 )
                 is FillItem -> ItemDoc.Fill(item.points.toList(), item.color, item.dx, item.dy)
                 is ImageItem -> ItemDoc.Image(item.file, item.x, item.y, item.w, item.h, item.rot)
-                is TapeItem -> ItemDoc.Tape(item.x, item.y, item.w, item.h, item.color, item.rot, item.pts?.toList() ?: emptyList(), item.thick)
+                is TapeItem -> ItemDoc.Tape(item.x, item.y, item.w, item.h, item.color, item.rot, item.pts?.toList() ?: emptyList(), item.thick, item.pattern)
                 is StickyItem -> ItemDoc.Sticky(item.x, item.y, item.w, item.h, item.color, item.text, item.rot)
             }
         },
@@ -188,6 +190,8 @@ object InkCodec {
         paperColor = doc.paperColor,
         cover = doc.cover,
         bgImage = doc.bgImage,
+        lineScale = doc.lineScale,
+        lineColor = doc.lineColor,
         items = doc.items.mapNotNull { item ->
             runCatching<PageItem> {
                 when (item) {
@@ -211,7 +215,7 @@ object InkCodec {
                     is ItemDoc.Image -> ImageItem(ItemIds.next(), item.file, item.x, item.y, item.w, item.h, item.rot)
                     is ItemDoc.Tape -> TapeItem(
                         ItemIds.next(), item.x, item.y, item.w, item.h, item.color, rot = item.rot,
-                        pts = item.pts.takeIf { it.size >= 4 }?.toFloatArray(), thick = item.thick,
+                        pts = item.pts.takeIf { it.size >= 4 }?.toFloatArray(), thick = item.thick, pattern = item.pattern,
                     )
                     is ItemDoc.Sticky -> StickyItem(ItemIds.next(), item.x, item.y, item.w, item.h, item.color, item.text, item.rot)
                 }

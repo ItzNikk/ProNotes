@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -342,6 +343,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     LaunchedEffect(vm.links, canvas) { canvas?.redraw() }
     LaunchedEffect(vm.textSel, canvas) { canvas?.redraw() }
     var showQuiz by remember { mutableStateOf(false) }
+    var showTemplates by remember { mutableStateOf(false) }
     var showCards by remember { mutableStateOf(false) }
 
     // Real background blur (Android 12+) while a card, dialog or sheet is open.
@@ -386,6 +388,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                         onPageColor = { pageColor = true },
                         onCards = { showCards = true },
                         onQuiz = { showQuiz = true },
+                        onTemplates = { showTemplates = true },
                         onPageImage = { pickBackground.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                     )
                     AnimatedVisibility(showSearch, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
@@ -432,6 +435,8 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                                 override fun redo() = vm.redo()
                                 override fun pdfBitmap(page: Page, widthPx: Int, onReady: () -> Unit) = vm.pdfBitmap(page, widthPx, onReady)
                                 override fun pdfDetail(page: Int) = vm.pdfDetail(page)
+                                override fun tapePattern() = vm.tapePattern
+                                override fun onPenActive(active: Boolean) { vm.penActive = active }
                                 override fun requestDetail(wants: List<Triple<Int, android.graphics.RectF, Float>>, onReady: () -> Unit) = vm.requestDetail(wants, onReady)
                                 override fun highlights(page: Int) = vm.highlights(page)
                                 override fun activeHighlight() = vm.activeHighlight()
@@ -517,8 +522,9 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                     ) { ProIconView(ProIcon.CLOSE, MaterialTheme.colorScheme.onSurface, Modifier.padding(10.dp).size(20.dp)) }
                 }
 
-                // Undo and redo always sit at the top left, wherever the toolbar is.
-                if (!hideTools) {
+                // Undo and redo sit at the top left, wherever the toolbar is (inside the bar on phones).
+                val narrowScreen = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600
+                if (!hideTools && (!narrowScreen || settings.toolbarDock == ToolbarDock.HEADER)) {
                     Surface(
                         shape = Pill, color = glassColor(), shadowElevation = 4.dp,
                         modifier = Modifier.align(Alignment.TopStart).padding(12.dp).glassEdge(Pill),
@@ -540,11 +546,22 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                             IntOffset(r.left.roundToInt().coerceIn(8, (areaSize.width - 360 * density).roundToInt().coerceAtLeast(8)), y.roundToInt())
                         },
                     ) {
-                        Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.padding(horizontal = 6.dp).widthIn(max = 640.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                             TextButton(onClick = { vm.textSel?.text?.let { clip.setText(androidx.compose.ui.text.AnnotatedString(it)) }; vm.clearTextSel() }) { Text("Copy", color = Color.White) }
-                            TextButton(onClick = { vm.highlightTextSel() }) { Text("Highlight", color = Color.White) }
+                            // Highlight in one of four colours.
+                            listOf(0xFFFFE066, 0xFF8CE99A, 0xFF74C0FC, 0xFFFFA8A8).forEach { c ->
+                                Box(Modifier.padding(3.dp).size(22.dp).clip(CircleShape).background(Color(c)).clickable { vm.highlightTextSel(c.toInt()) })
+                            }
+                            TextButton(onClick = { vm.lineTextSel(strike = false) }) { Text("Underline", color = Color.White) }
+                            TextButton(onClick = { vm.lineTextSel(strike = true) }) { Text("Strike", color = Color.White) }
+                            TextButton(onClick = { vm.explainTextSel() }) { Text("Explain", color = Color.White) }
                             TextButton(onClick = { vm.cardFromTextSel() }) { Text("Flashcard", color = Color.White) }
+                            TextButton(onClick = { vm.quizFromTextSel() }) { Text("Quiz", color = Color.White) }
                             TextButton(onClick = { val q = vm.textSel?.text ?: ""; vm.clearTextSel(); showSearch = true; vm.search(q) }) { Text("Search", color = Color.White) }
+                            TextButton(onClick = {
+                                val q = vm.textSel?.text ?: ""; vm.clearTextSel()
+                                context.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, q), "Share"))
+                            }) { Text("Share", color = Color.White) }
                         }
                     }
                 }
@@ -615,6 +632,22 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     if (vm.linkSheet != null) LinkSheet(vm)
     if (showCards) FlashcardsDialog(vm, onClose = { showCards = false })
     if (showQuiz) QuizDialog(vm, onClose = { showQuiz = false })
+    vm.explanation?.let { (sel, ans) ->
+        AlertDialog(
+            onDismissRequest = { vm.explanation = null },
+            shape = RoundedCornerShape(28.dp),
+            title = { Text("Explained") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("\"" + sel.take(160) + "\"", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(ans, style = MaterialTheme.typography.bodyMedium)
+                    Text("By Gemini Nano, on this device", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+            confirmButton = { TextButton(onClick = { vm.explanation = null }) { Text("Done") } },
+        )
+    }
+    if (showTemplates) TemplateSheet(vm, onClose = { showTemplates = false })
     vm.summary?.let { pts ->
         AlertDialog(
             onDismissRequest = { vm.summary = null },
@@ -764,6 +797,7 @@ private fun TopBar(
     onScrollToggle: () -> Unit, onPaste: () -> Unit, onPageColor: () -> Unit, onPageImage: () -> Unit,
     onCards: () -> Unit = {},
     onQuiz: () -> Unit = {},
+    onTemplates: () -> Unit = {},
 ) {
     Row(Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         BarIcon(ProIcon.HOME, "Library", onClick = onHome)
@@ -781,7 +815,15 @@ private fun TopBar(
                 modifier = Modifier.weight(1f).padding(horizontal = 10.dp).clickable(onClick = onRename),
             )
         }
-        BarIcon(ProIcon.ADD, "Add page") { vm.addPage() }
+        var addMenu by remember { mutableStateOf(false) }
+        Box {
+            BarIcon(ProIcon.ADD, "Add page") { addMenu = true }
+            DropdownMenu(addMenu, { addMenu = false }, shape = RoundedCornerShape(18.dp)) {
+                DropdownMenuItem(text = { Text("New page after this") }, onClick = { addMenu = false; vm.addPage() })
+                DropdownMenuItem(text = { Text("New page at the end") }, onClick = { addMenu = false; vm.addPage(atEnd = true) })
+                DropdownMenuItem(text = { Text("Choose a template…") }, onClick = { addMenu = false; onTemplates() })
+            }
+        }
         var shareMenu by remember { mutableStateOf(false) }
         Box {
             BarIcon(ProIcon.SHARE, "Export") { shareMenu = true }
@@ -804,6 +846,8 @@ private fun TopBar(
                     onClick = { more = false; onCards() })
                 DropdownMenuItem(text = { Text("Add link…") }, leadingIcon = { Icon(Icons.Outlined.Link, null) },
                     onClick = { more = false; vm.beginLinkFlow() })
+                DropdownMenuItem(text = { Text("Page template…") }, leadingIcon = { Icon(Icons.Outlined.Palette, null) },
+                    onClick = { more = false; onTemplates() })
                 DropdownMenuItem(text = { Text("Summarise page") }, leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null) },
                     onClick = { more = false; vm.summarize() })
                 DropdownMenuItem(text = { Text("Quiz") }, leadingIcon = { Icon(Icons.Outlined.Quiz, null) },
@@ -1003,26 +1047,38 @@ private fun BoxScope.ToolDock(vm: EditorViewModel, settings: AppSettings, area: 
                 contentAlignment = Alignment.Center,
             ) { Icon(Icons.Filled.DragIndicator, "Move toolbar", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) }
         }
+        val narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600
         val tools = @Composable {
+            // Phones: undo and redo live in the bar itself, to save room.
+            if (narrow) {
+                BarIcon(ProIcon.UNDO, "Undo", enabled = vm.canUndo, onClick = vm::undo)
+                BarIcon(ProIcon.REDO, "Redo", enabled = vm.canRedo, onClick = vm::redo)
+            }
             ToolbarOrder.visible(settings.toolbarTools).forEach { t -> ToolButton(vm, t, settings) }
         }
+        val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.TEXT)
+        // One bar: tools, then the active tool's colours and sizes after a thin divider.
+        val divider = @Composable {
+            if (isVertical) Box(Modifier.padding(vertical = 6.dp).height(1.dp).width(22.dp).background(MaterialTheme.colorScheme.outlineVariant))
+            else Box(Modifier.padding(horizontal = 6.dp).width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant))
+        }
+        // Fades while the pen is down so you can write right under it.
+        val fade by animateFloatAsState(if (vm.penActive) 0.22f else 1f, tween(if (vm.penActive) 220 else 420), label = "fade")
         val bar = @Composable {
             Surface(
                 shape = Pill, color = glassColor(),
                 shadowElevation = if (dragging) 14.dp else 6.dp,
-                modifier = Modifier.glassEdge(Pill),
+                modifier = Modifier.graphicsLayer { alpha = fade }.glassEdge(Pill),
             ) {
-                if (isVertical) Column(Modifier.padding(5.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) { grip(); tools() }
-                else Row(Modifier.padding(5.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) { grip(); tools() }
+                if (isVertical) Column(Modifier.padding(5.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
+                    grip(); tools(); if (hasOptions) { divider(); ToolOptions(vm, true, settings) }
+                }
+                else Row(Modifier.padding(5.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                    grip(); tools(); if (hasOptions) { divider(); ToolOptions(vm, false, settings) }
+                }
             }
         }
-        val optionsBar = @Composable { OptionsBar(vm, isVertical, settings) }
-        when (d) {
-            ToolbarDock.TOP, ToolbarDock.HEADER -> Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) { bar(); optionsBar() }
-            ToolbarDock.BOTTOM -> Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) { optionsBar(); bar() }
-            ToolbarDock.LEFT -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) { bar(); optionsBar() }
-            ToolbarDock.RIGHT -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) { optionsBar(); bar() }
-        }
+        bar()
     }
 }
 
@@ -1143,8 +1199,10 @@ private fun ToolButton(vm: EditorViewModel, t: Tool, settings: AppSettings) {
                     Tool.LASER -> LaserCard()
                     Tool.TEXT -> TextCard(vm)
                     Tool.TAPE -> Card("Tape") {
+                        val pickTape = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) vm.useTapeImage(uri) }
                         Segments(listOf("Straight", "Freehand"), if (vm.tapeFreehand) 1 else 0) { vm.tapeFreehand = it == 1 }
                         Row(verticalAlignment = Alignment.CenterVertically) { CustomSwatches(TapeColors, vm.tapeColor, vm) { vm.tapeColor = it } }
+                        TapePatternPicker(vm) { pickTape.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
                     }
                     Tool.STICKY -> ColorCard("Sticky note", StickyColors, vm.stickyColor, vm) { vm.stickyColor = it }
                     Tool.STICKER, Tool.IMAGE -> Unit

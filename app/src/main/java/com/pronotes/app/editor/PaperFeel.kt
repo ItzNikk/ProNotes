@@ -62,7 +62,7 @@ class PaperFeel(context: Context, private val view: View) {
         if (sound) {
             if (!running) ensureAudio()
             val speed = distPx / dtMs.coerceAtLeast(1)
-            target = min(1f, speed / if (texture == Texture.ERASER) 1.4f else 2.0f)
+            target = min(1f, speed / if (texture == Texture.ERASER) 0.9f else 2.0f)
         }
         if (haptics) {
             travelled += distPx
@@ -194,7 +194,10 @@ class PaperFeel(context: Context, private val view: View) {
                     }
                     Texture.ERASER -> { // low rubbing with a slow wobble
                         lp += (n - lp) * 0.05f
-                        lp * (0.8f + 0.2f * sin(i * 0.05f)) * 2.2f
+                        // Rubber on paper: low rumble plus a little grit, clearly audible.
+                        if (rnd.nextFloat() < 0.004f) grain = 1f
+                        grain *= 0.93f
+                        lp * (0.8f + 0.2f * sin(i * 0.05f)) * 4.2f + n * grain * 0.35f
                     }
                 }
                 var mixed = s * level * volume * 0.55f
