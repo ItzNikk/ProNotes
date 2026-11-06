@@ -1454,8 +1454,11 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 }
                 // One swipe = one page: the drag can reach the next or previous page, no further.
                 if (paging && pages.isNotEmpty()) {
-                    val lo = pageCenterX((pageAtGestureStart + 1).coerceAtMost(pages.size - 1))
+                    val last = pageAtGestureStart >= pages.size - 1
+                    var lo = pageCenterX((pageAtGestureStart + 1).coerceAtMost(pages.size - 1))
                     val hi = pageCenterX((pageAtGestureStart - 1).coerceAtLeast(0))
+                    // On the last page the drag may go past it, so "pull to add a page" can trigger.
+                    if (last && settings.pullToAddPage) lo -= 220f * density
                     transX = transX.coerceIn(min(lo, hi), max(lo, hi))
                 }
                 transY += dy
@@ -1554,8 +1557,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         vt.computeCurrentVelocity(1000)
         val vx = vt.xVelocity; val vy = vt.yVelocity
         val horizontal = settings.scroll == ScrollDirection.HORIZONTAL
-        // A plain tap must not move the page at all.
-        if (!fingerMoved && !pulled) return
+        // A plain tap must not move the page at all, and after a pull the new page's scroll animation must not be overridden by a fling.
+        if (!fingerMoved || pulled) return
         val atFit = scale <= fitScale() * 1.05f
         if (horizontal && !atFit && pages.isNotEmpty()) {
             // Zoomed in: fling inside the current page only.

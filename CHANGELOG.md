@@ -1,5 +1,8 @@
 # Changelog
 
+## v7.0.2
+- **Pull to add a page** works again: in page-by-page mode you can drag past the last page, and after a pull the app scrolls to the new page instead of bouncing back.
+
 ## v7.0.1
 - **Links are easy to find:** a blue **Link** button now leads the selection bar. It is also in the selection's ⋯ menu and in the notebook's ⋯ menu (*Add link…*).
 - **Long-press PDF text** now works right away, even on big PDFs. The page under your finger is read on the spot. Scanned PDFs without text show a short note.
