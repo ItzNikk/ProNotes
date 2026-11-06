@@ -28,7 +28,11 @@ data class Flashcard(
 data class InkLink(
     val id: String,
     val aPage: String, val ax: Float, val ay: Float,
-    val bPage: String, val bx: Float, val by: Float,
+    val bPage: String = "", val bx: Float = 0f, val by: Float = 0f,
+    /** Linked content box (left, top, right, bottom), like GoodNotes links. Empty for old point links. */
+    val box: List<Float> = emptyList(),
+    /** Web address, when the link goes to a website instead of a page. */
+    val url: String? = null,
 )
 
 @Serializable

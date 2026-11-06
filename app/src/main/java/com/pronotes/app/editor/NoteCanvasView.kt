@@ -76,6 +76,7 @@ interface CanvasHost {
     /** The other end of a new ink link was tapped (page space). */
     fun onLinkTarget(page: Int, x: Float, y: Float) {}
     fun onLinkLongPress(id: String) {}
+    fun onOpenUrl(url: String) {}
     fun onEraserLifted()
     fun onZoom(percent: Int?)
     /** Settings for the pen with this input-device name (registers new pens). */
@@ -144,7 +145,20 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
     }
 
+    /** A finger tap (or any tap in read-only mode) inside linked content. */
+    private fun linkBoxAt(x: Float, y: Float): LinkEnd? {
+        val ends = host.linkEnds()
+        if (ends.isEmpty()) return null
+        val (dx, dy) = toDoc(x, y)
+        val pi = pageAt(dx, dy)
+        val (lx, ly) = toLocal(x, y, pi)
+        return ends.firstOrNull { e -> e.page == pi && e.box != null && RectF(e.box).apply { inset(-12f, -12f) }.contains(lx, ly) }
+    }
+
     private fun jumpTo(e: LinkEnd) {
+        buzz()
+        e.url?.let { host.onOpenUrl(it); return }
+        if (e.toPage !in pages.indices) return
         scrollToPage(e.toPage, animate = true)
         linkFlash = Triple(e.toPage, e.tx, e.ty); linkFlashAt = SystemClock.uptimeMillis()
         layer.invalidate()
@@ -1365,6 +1379,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         when (action) {
             MotionEvent.ACTION_DOWN -> {
                 scroller.forceFinished(true)
+                zoomAnim?.cancel()
                 mode = Mode.PAN
                 panLastX = e.x; panLastY = e.y
                 fingerStartX = e.x; fingerStartY = e.y
@@ -1438,7 +1453,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         3 -> host.redo()
                     }
                 }
-                if (action == MotionEvent.ACTION_UP && maxFingers == 1 && quick && !fingerMoved) {
+                val link = if (action == MotionEvent.ACTION_UP && maxFingers == 1 && quick && !fingerMoved) linkBoxAt(e.x, e.y) else null
+                if (link != null) { jumpTo(link); lastTapTime = 0L }
+                else if (action == MotionEvent.ACTION_UP && maxFingers == 1 && quick && !fingerMoved) {
                     val now = SystemClock.uptimeMillis()
                     if (settings.doubleTapZoom && now - lastTapTime < 320 && hypot(e.x - lastTapX, e.y - lastTapY) < touchSlop * 3) {
                         toggleZoom(e.x, e.y)
@@ -1528,19 +1545,45 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     }
 
     /** Double-tap with a finger: zoom in to 2x around the tap, or back to fit. */
+    private var zoomAnim: ValueAnimator? = null
+
+    /**
+     * Works out the end state first (scale and position), then eases there, so a double tap
+     * never lands between pages or on the wrong one.
+     */
     private fun toggleZoom(x: Float, y: Float) {
-        val fit = fitScale()
-        val target = if (scale > fit * 1.3f) fit else fit * 2f
+        if (pages.isEmpty()) return
+        zoomAnim?.cancel()
+        scroller.forceFinished(true)
+        val page = currentIndex
+        val fit = fitScale(page)
+        val zoomIn = scale <= fit * 1.3f
+        val fromS = scale; val fromX = transX; val fromY = transY
         val (fx, fy) = toDoc(x, y)
-        val from = scale
-        ValueAnimator.ofFloat(0f, 1f).apply {
+        if (zoomIn) {
+            scale = fit * 2f
+            transX = x - fx * scale; transY = y - fy * scale
+            clamp()
+        } else {
+            scale = fit
+            if (settings.scroll == ScrollDirection.VERTICAL) {
+                // Same spot of the page stays under the finger, centred left to right.
+                transY = y - fy * scale
+                transX = (width - docW * scale) / 2f
+                clamp()
+            } else centerOn(page)
+            lastTarget = page
+        }
+        val toS = scale; val toX = transX; val toY = transY
+        scale = fromS; transX = fromX; transY = fromY
+        zoomAnim = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 260; interpolator = DecelerateInterpolator()
             addUpdateListener {
                 val t = it.animatedValue as Float
-                scale = from + (target - from) * t
-                transX = x - fx * scale; transY = y - fy * scale
-                if (target == fit && t == 1f) { centerOn(currentIndex) }
-                clamp(); updateMatrix()
+                scale = fromS + (toS - fromS) * t
+                transX = fromX + (toX - fromX) * t
+                transY = fromY + (toY - fromY) * t
+                updateMatrix()
             }
             start()
         }
@@ -1844,6 +1887,11 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         private val outlinePath = Path()
         private val linkFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt(); setShadowLayer(6f, 0f, 2f, 0x40000000) }
         private val linkGlyph = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Color.WHITE; strokeWidth = 1.8f * density; strokeCap = Paint.Cap.ROUND }
+        private val linkBoxFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x143D6CF4 }
+        private val linkBoxLine = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = 1.5f * density; color = 0x993D6CF4.toInt()
+            pathEffect = DashPathEffect(floatArrayOf(6f * density, 4f * density), 0f)
+        }
         private val linkRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0xFF3D6CF4.toInt(); strokeWidth = 3f * density }
 
         /** Blue chain badges at both ends of every ink link, plus a pulse where the last jump landed. */
@@ -1853,6 +1901,13 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             val r = 12f * density
             for (e in ends) {
                 if (e.page !in pages.indices) continue
+                e.box?.let { b ->
+                    val sb = RectF(b); pageMatrix(e.page, m).mapRect(sb)
+                    if (RectF.intersects(sb, RectF(0f, 0f, width.toFloat(), height.toFloat()))) {
+                        canvas.drawRoundRect(sb, 8f * density, 8f * density, linkBoxFill)
+                        canvas.drawRoundRect(sb, 8f * density, 8f * density, linkBoxLine)
+                    }
+                }
                 a[0] = e.x; a[1] = e.y; pageMatrix(e.page, m).mapPoints(a)
                 if (a[0] < -r || a[1] < -r || a[0] > width + r || a[1] > height + r) continue
                 canvas.drawCircle(a[0], a[1], r, linkFill)

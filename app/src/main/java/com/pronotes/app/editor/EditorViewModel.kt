@@ -788,12 +788,44 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         out
     }
 
-    /** Selection menu "Link": remember where it starts; the next tap on any page sets the other end. */
+    /** Selected content waiting for a link target (page id + box), shown in the link sheet. */
+    var linkSheet by mutableStateOf<Pair<String, RectF>?>(null)
+
     fun startLinkFromSelection() {
         val r = selectionUnion() ?: return
         val page = pages.getOrNull(selectionPage) ?: return
-        linkFrom = Triple(page.id, r.right, r.top)
+        r.inset(-8f, -8f)
+        linkSheet = page.id to r
     }
+
+    private fun withoutOverlap(pid: String, r: RectF) = links.filterNot { l ->
+        l.aPage == pid && l.box.size == 4 && RectF.intersects(RectF(l.box[0], l.box[1], l.box[2], l.box[3]), r)
+    }
+
+    /** Link the selected content to page [target] of this notebook. */
+    fun linkToPage(target: Int) {
+        val (pid, r) = linkSheet ?: return
+        val tp = pages.getOrNull(target) ?: return
+        linkSheet = null
+        links = withoutOverlap(pid, r) + com.pronotes.app.data.InkLink(
+            UUID.randomUUID().toString(), pid, r.right, r.top, tp.id, tp.width / 2f, 0f, listOf(r.left, r.top, r.right, r.bottom),
+        )
+        saveStudy()
+    }
+
+    /** Link the selected content to a web address. */
+    fun linkToUrl(raw: String) {
+        val (pid, r) = linkSheet ?: return
+        val u = raw.trim().let { if (it.startsWith("http://") || it.startsWith("https://")) it else "https://$it" }
+        linkSheet = null
+        links = withoutOverlap(pid, r) + com.pronotes.app.data.InkLink(
+            UUID.randomUUID().toString(), pid, r.right, r.top, box = listOf(r.left, r.top, r.right, r.bottom), url = u,
+        )
+        saveStudy()
+    }
+
+    /** Text for the link list: where each link on this page goes. */
+    fun linkLabel(e: LinkEnd): String = e.url ?: "Page ${e.toPage + 1}"
 
     fun finishLink(pageIdx: Int, x: Float, y: Float) {
         val from = linkFrom ?: return
@@ -814,9 +846,12 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val out = ArrayList<LinkEnd>()
         for (l in links) {
             val a = index[l.aPage] ?: continue
+            val box = if (l.box.size == 4) RectF(l.box[0], l.box[1], l.box[2], l.box[3]) else null
+            if (l.url != null) { out += LinkEnd(l.id, a, l.ax, l.ay, -1, 0f, 0f, box, l.url); continue }
             val b = index[l.bPage] ?: continue
-            out += LinkEnd(l.id, a, l.ax, l.ay, b, l.bx, l.by)
-            out += LinkEnd(l.id, b, l.bx, l.by, a, l.ax, l.ay)
+            out += LinkEnd(l.id, a, l.ax, l.ay, b, l.bx, l.by, box)
+            // Old point links (v6.0) keep a badge at both ends.
+            if (box == null) out += LinkEnd(l.id, b, l.bx, l.by, a, l.ax, l.ay)
         }
         return out
     }
@@ -899,4 +934,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 }
 
 /** One end of an ink link: badge on [page] at (x, y); tapping it goes to [toPage] at (tx, ty). */
-data class LinkEnd(val id: String, val page: Int, val x: Float, val y: Float, val toPage: Int, val tx: Float, val ty: Float)
+data class LinkEnd(
+    val id: String, val page: Int, val x: Float, val y: Float, val toPage: Int, val tx: Float, val ty: Float,
+    /** Linked content box (page space): tap inside to follow. */
+    val box: RectF? = null,
+    /** Website, when the link leaves the notebook. */
+    val url: String? = null,
+)

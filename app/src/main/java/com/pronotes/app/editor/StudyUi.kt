@@ -230,3 +230,59 @@ private fun StudyView(vm: EditorViewModel, onDone: () -> Unit) {
         }
     }
 }
+
+/** "Add link" for selected content, like GoodNotes: pick a page of this notebook, or type a website. */
+@Composable
+fun LinkSheet(vm: EditorViewModel) {
+    var tab by remember { mutableIntStateOf(0) }
+    var url by remember { mutableStateOf("") }
+    Dialog(onDismissRequest = { vm.linkSheet = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(
+            shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.padding(24.dp).widthIn(max = 640.dp).fillMaxWidth().heightIn(max = 640.dp),
+        ) {
+            Column(Modifier.padding(20.dp)) {
+                Text("Add link", style = MaterialTheme.typography.headlineSmall)
+                Text(
+                    "Tap the linked content with a finger to follow it. Long-press its blue badge to remove.",
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                androidx.compose.material3.PrimaryTabRow(selectedTabIndex = tab) {
+                    androidx.compose.material3.Tab(tab == 0, { tab = 0 }, text = { Text("Page") })
+                    androidx.compose.material3.Tab(tab == 1, { tab = 1 }, text = { Text("Website") })
+                }
+                Spacer(Modifier.height(12.dp))
+                if (tab == 0) {
+                    androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                        androidx.compose.foundation.lazy.grid.GridCells.Adaptive(96.dp),
+                        Modifier.weight(1f, fill = false),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        items(vm.pages.size) { i ->
+                            val thumb by androidx.compose.runtime.produceState<android.graphics.Bitmap?>(null, i) { value = vm.thumbnail(i, 200) }
+                            val current = i == vm.pageIndex
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { vm.linkToPage(i) }) {
+                                Box(
+                                    Modifier.fillMaxWidth().heightIn(min = 120.dp).clip(RoundedCornerShape(10.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        .border(if (current) 2.dp else 1.dp, if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
+                                ) { thumb?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth()) } }
+                                Text("Page ${i + 1}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
+                            }
+                        }
+                    }
+                } else {
+                    OutlinedTextField(
+                        url, { url = it }, singleLine = true, shape = Pill, placeholder = { Text("example.com") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = { vm.linkToUrl(url) }, enabled = url.trim().contains('.'), shape = Pill) { Text("Add link") }
+                }
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = { vm.linkSheet = null }, modifier = Modifier.align(Alignment.End)) { Text("Cancel") }
+            }
+        }
+    }
+}

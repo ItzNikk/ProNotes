@@ -141,7 +141,7 @@ fun WelcomeScreen(onDone: () -> Unit) {
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         AuroraBackground(pager.currentPage)
-        HorizontalPager(pager, Modifier.fillMaxSize(), userScrollEnabled = pager.currentPage != 1) { page ->
+        HorizontalPager(pager, Modifier.fillMaxSize(), userScrollEnabled = pager.currentPage != 1 && pager.currentPage != 2) { page ->
             // The pager reports the page being settled; only animate the visible one.
             val active = pager.currentPage == page
             Box(Modifier.fillMaxSize()) {
@@ -752,46 +752,209 @@ private fun Bubbles(modifier: Modifier, t: Float) {
     }
 }
 
+/** One tip in the tour, with a looping drawing that shows the gesture. */
+private enum class Demo(val title: String, val body: String) {
+    LASSO("Circle to select", "Draw a loop around ink, lift, then press and hold the blue dot at its end."),
+    SCRIBBLE("Scribble to erase", "Zig-zag over ink to delete it. The pen's side button erases too."),
+    SNAP("Hold to snap", "Hold the pen still at the end of a stroke to turn it into a clean shape."),
+    LINK("Link anything", "Select ink, tap the link button, and pick a page or a website."),
+    CARDS("Flashcards", "Drag a box over a PDF to make a card, then study with spaced review."),
+    UNDO("Two-finger tap", "Tap with two fingers to undo, three to redo. Double-tap to zoom."),
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TourPage(active: Boolean, onNext: () -> Unit) {
+    val demos = Demo.entries
+    val inner = rememberPagerState { demos.size }
+    val scope = rememberCoroutineScope()
     AnimatedWords(
-        "Little things, big difference", TextStyle(fontSize = 38.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = MaterialTheme.colorScheme.onBackground),
+        "Little things, big difference", TextStyle(fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = MaterialTheme.colorScheme.onBackground),
         active, gradient = listOf(Brand3, Brand1, Brand2),
     )
-    Spacer(Modifier.height(20.dp))
-    val tips = listOf(
-        ProIcon.LASSO to ("Circle and hold" to "Loop around ink and keep the pen still to select it."),
-        ProIcon.ERASER to ("Scribble to erase" to "Zig-zag over ink to delete it. The pen side button erases too."),
-        ProIcon.SHAPES to ("Hold to snap" to "Hold at the end of a stroke to turn it into a clean shape."),
-        ProIcon.MORE to ("Pen button click" to "Click the pen button while hovering for the tool wheel."),
-        ProIcon.UNDO to ("Two-finger tap" to "Undo with two fingers, redo with three."),
-        ProIcon.ADD to ("Pull for a page" to "Scroll past the last page to add a new one."),
-    )
-    Column(Modifier.widthIn(max = 580.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        tips.forEachIndexed { i, (icon, t) ->
-            val shown = remember { Animatable(0f) }
-            LaunchedEffect(active) { if (active) { shown.snapTo(0f); delay(450L + 90L * i); shown.animateTo(1f, spring(dampingRatio = 0.75f, stiffness = 150f)) } }
-            Surface(
-                shape = CircleShape, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                modifier = Modifier.fillMaxWidth().graphicsLayer {
-                    alpha = shown.value.coerceIn(0f, 1f); translationX = (1f - shown.value) * 60.dp.toPx()
-                }.border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
-            ) {
-                Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(42.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
-                        ProIconView(icon, MaterialTheme.colorScheme.primary, Modifier.size(22.dp))
+    Spacer(Modifier.height(18.dp))
+    HorizontalPager(inner, Modifier.widthIn(max = 560.dp).fillMaxWidth().height(380.dp), pageSpacing = 16.dp) { i ->
+        val d = demos[i]
+        val offset = (inner.currentPage - i) + inner.currentPageOffsetFraction
+        Surface(
+            shape = RoundedCornerShape(32.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f), shadowElevation = 8.dp,
+            modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp).graphicsLayer {
+                val k = 1f - 0.08f * kotlin.math.abs(offset).coerceAtMost(1f)
+                scaleX = k; scaleY = k; alpha = 1f - 0.4f * kotlin.math.abs(offset).coerceAtMost(1f)
+            }.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(32.dp)),
+        ) {
+            Column(Modifier.padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(22.dp))
+                        .background(Brush.linearGradient(listOf(Color(0xFFF4F1FF), Color(0xFFEAF2FF)))),
+                    contentAlignment = Alignment.Center,
+                ) { DemoArt(d, active && inner.currentPage == i, Modifier.fillMaxSize().padding(18.dp)) }
+                Spacer(Modifier.height(16.dp))
+                Text(d.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+                Text(d.body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+            }
+        }
+    }
+    Spacer(Modifier.height(16.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+        repeat(demos.size) { i ->
+            val w by animateFloatAsState(if (inner.currentPage == i) 22f else 7f, spring(dampingRatio = 0.7f), label = "td")
+            Box(
+                Modifier.size(width = w.dp, height = 7.dp).clip(CircleShape)
+                    .background(if (inner.currentPage == i) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
+                    .clickable { scope.launch { inner.animateScrollToPage(i) } },
+            )
+        }
+    }
+    Spacer(Modifier.height(18.dp))
+    val last = inner.currentPage == demos.size - 1
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (!last) TextButton(onClick = onNext) { Text("Skip tips") }
+        Button(
+            onClick = { if (last) onNext() else scope.launch { inner.animateScrollToPage(inner.currentPage + 1) } },
+            shape = CircleShape, modifier = Modifier.widthIn(min = 180.dp),
+        ) { Text(if (last) "Continue" else "Next tip") }
+    }
+}
+
+/** Small looping drawings: a pen moves, ink appears, and the result plays out. */
+@Composable
+private fun DemoArt(d: Demo, playing: Boolean, modifier: Modifier) {
+    val t by rememberInfiniteTransition(label = "demo")
+        .animateFloat(0f, 1f, infiniteRepeatable(tween(3200, easing = LinearEasing)), label = "t")
+    val p = if (playing) t else 0.75f
+    val ink = Color(0xFF2B2F3A); val blue = Color(0xFF3D6CF4); val purple = Color(0xFF7161E0)
+    Canvas(modifier) {
+        val w = size.width; val h = size.height
+        val cx = w / 2f; val cy = h / 2f
+        val u = minOf(w, h)
+        fun seg(a: Float, b: Float) = ((p - a) / (b - a)).coerceIn(0f, 1f)
+        fun wordAt(x: Float, y: Float, alpha: Float = 1f, len: Float = 1f) {
+            // A handwritten-looking word: a few joined waves.
+            val path = androidx.compose.ui.graphics.Path()
+            val ww = u * 0.42f * len
+            path.moveTo(x - ww / 2, y)
+            var k = 0
+            var xx = x - ww / 2
+            while (xx < x + ww / 2) {
+                val nx = xx + u * 0.035f
+                path.quadraticBezierTo((xx + nx) / 2, y + if (k % 2 == 0) -u * 0.05f else u * 0.03f, nx, y)
+                xx = nx; k++
+            }
+            drawPath(path, ink.copy(alpha = alpha), style = Stroke(u * 0.012f, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+        }
+        fun penAt(x: Float, y: Float, alpha: Float = 1f) {
+            rotate(-35f, Offset(x, y)) {
+                drawRoundRect(purple.copy(alpha = alpha), Offset(x - u * 0.018f, y - u * 0.2f), androidx.compose.ui.geometry.Size(u * 0.036f, u * 0.18f), androidx.compose.ui.geometry.CornerRadius(u * 0.02f))
+            }
+            drawCircle(purple.copy(alpha = alpha), u * 0.012f, Offset(x, y))
+        }
+        when (d) {
+            Demo.LASSO -> {
+                wordAt(cx, cy)
+                val loop = seg(0.05f, 0.45f)
+                val r = u * 0.3f
+                val sweep = 340f * loop
+                val dashed = p > 0.62f
+                drawArc(
+                    if (dashed) blue else ink, -70f, sweep, false, Offset(cx - r, cy - r * 0.65f), androidx.compose.ui.geometry.Size(r * 2, r * 1.3f),
+                    style = Stroke(u * 0.01f, pathEffect = if (dashed) androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(u * 0.03f, u * 0.02f), p * 200f) else null),
+                )
+                val endA = Math.toRadians((-70f + sweep).toDouble())
+                val ex = cx + kotlin.math.cos(endA).toFloat() * r; val ey = cy + kotlin.math.sin(endA).toFloat() * r * 0.65f
+                if (p in 0.45f..0.62f) {
+                    val k = seg(0.45f, 0.62f)
+                    drawCircle(blue.copy(alpha = 1f - k), u * (0.03f + 0.05f * k), Offset(ex, ey), style = Stroke(u * 0.008f))
+                }
+                if (dashed) drawRoundRect(blue.copy(alpha = 0.08f), Offset(cx - r, cy - r * 0.65f), androidx.compose.ui.geometry.Size(r * 2, r * 1.3f), androidx.compose.ui.geometry.CornerRadius(u * 0.05f))
+                if (p < 0.62f) penAt(ex, ey)
+            }
+            Demo.SCRIBBLE -> {
+                val gone = p > 0.6f
+                if (!gone) wordAt(cx, cy) else wordAt(cx, cy, alpha = (1f - seg(0.6f, 0.75f)))
+                val s = seg(0.15f, 0.58f)
+                if (s > 0f && p < 0.75f) {
+                    val path = androidx.compose.ui.graphics.Path()
+                    val n = (12 * s).toInt().coerceAtLeast(1)
+                    path.moveTo(cx - u * 0.25f, cy)
+                    for (i in 1..n) path.lineTo(cx - u * 0.25f + i * u * 0.042f, cy + if (i % 2 == 0) u * 0.06f else -u * 0.06f)
+                    drawPath(path, Color(0xFFE5484D).copy(alpha = 0.8f), style = Stroke(u * 0.01f, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+                    penAt(cx - u * 0.25f + n * u * 0.042f, cy)
+                }
+            }
+            Demo.SNAP -> {
+                val r = u * 0.26f
+                val draw = seg(0.05f, 0.45f)
+                val snapped = p > 0.62f
+                if (!snapped) {
+                    val path = androidx.compose.ui.graphics.Path()
+                    val steps = (60 * draw).toInt()
+                    for (i in 0..steps) {
+                        val a = i / 60f * 2 * Math.PI
+                        val wob = 1f + 0.08f * kotlin.math.sin(a * 5).toFloat()
+                        val x = cx + kotlin.math.cos(a).toFloat() * r * wob; val y = cy + kotlin.math.sin(a).toFloat() * r * wob
+                        if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
                     }
-                    Spacer(Modifier.width(14.dp))
-                    Column {
-                        Text(t.first, style = MaterialTheme.typography.titleMedium)
-                        Text(t.second, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    drawPath(path, ink, style = Stroke(u * 0.012f, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                    val a = draw * 2 * Math.PI
+                    penAt(cx + kotlin.math.cos(a).toFloat() * r, cy + kotlin.math.sin(a).toFloat() * r)
+                    if (p in 0.45f..0.62f) {
+                        val k = seg(0.45f, 0.62f)
+                        drawCircle(blue.copy(alpha = 0.6f * (1f - k)), u * 0.06f * (1f + k), Offset(cx + r, cy), style = Stroke(u * 0.008f))
                     }
+                } else {
+                    val k = seg(0.62f, 0.72f)
+                    drawCircle(blue.copy(alpha = 0.15f * (1f - k)), r * (1.1f + 0.2f * k), Offset(cx, cy))
+                    drawCircle(ink, r, Offset(cx, cy), style = Stroke(u * 0.012f))
+                }
+            }
+            Demo.LINK -> {
+                val top = cy - u * 0.18f; val bottom = cy + u * 0.22f
+                drawRoundRect(Color.White, Offset(cx - u * 0.45f, top - u * 0.14f), androidx.compose.ui.geometry.Size(u * 0.4f, u * 0.5f), androidx.compose.ui.geometry.CornerRadius(u * 0.03f))
+                drawRoundRect(Color.White, Offset(cx + u * 0.05f, top - u * 0.14f), androidx.compose.ui.geometry.Size(u * 0.4f, u * 0.5f), androidx.compose.ui.geometry.CornerRadius(u * 0.03f))
+                val lx = cx - u * 0.25f
+                drawLine(ink, Offset(lx - u * 0.12f, top), Offset(lx + u * 0.12f, top), u * 0.012f)
+                val linked = p > 0.3f
+                if (linked) drawRoundRect(blue.copy(alpha = 0.12f), Offset(lx - u * 0.15f, top - u * 0.04f), androidx.compose.ui.geometry.Size(u * 0.3f, u * 0.08f), androidx.compose.ui.geometry.CornerRadius(u * 0.02f))
+                val k = seg(0.4f, 0.8f)
+                if (k > 0f) {
+                    val from = Offset(lx + u * 0.12f, top); val to = Offset(cx + u * 0.25f, bottom - u * 0.1f)
+                    val now = Offset(from.x + (to.x - from.x) * k, from.y + (to.y - from.y) * k - kotlin.math.sin(k * Math.PI).toFloat() * u * 0.12f)
+                    drawLine(blue.copy(alpha = 0.5f), from, now, u * 0.008f, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(u * 0.02f, u * 0.015f)))
+                    drawCircle(blue, u * 0.03f, now)
+                }
+                if (p > 0.8f) drawCircle(blue.copy(alpha = 1f - seg(0.8f, 1f)), u * (0.04f + 0.08f * seg(0.8f, 1f)), Offset(cx + u * 0.25f, bottom - u * 0.1f), style = Stroke(u * 0.008f))
+                drawCircle(blue, u * 0.03f, Offset(lx + u * 0.15f, top - u * 0.04f))
+            }
+            Demo.CARDS -> {
+                drawRoundRect(Color.White, Offset(cx - u * 0.42f, cy - u * 0.3f), androidx.compose.ui.geometry.Size(u * 0.84f, u * 0.6f), androidx.compose.ui.geometry.CornerRadius(u * 0.03f))
+                for (i in 0..3) drawLine(Color(0xFFB8C0CC), Offset(cx - u * 0.34f, cy - u * 0.2f + i * u * 0.1f), Offset(cx + u * 0.3f, cy - u * 0.2f + i * u * 0.1f), u * 0.01f)
+                val box = seg(0.05f, 0.4f)
+                drawRect(
+                    blue, Offset(cx - u * 0.36f, cy - u * 0.24f), androidx.compose.ui.geometry.Size(u * 0.5f * box, u * 0.2f * box),
+                    style = Stroke(u * 0.008f, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(u * 0.02f, u * 0.015f))),
+                )
+                val fly = seg(0.5f, 0.85f)
+                if (fly > 0f) {
+                    val card = Offset(cx - u * 0.25f + u * 0.3f * fly, cy - u * 0.14f - u * 0.1f * kotlin.math.sin(fly * Math.PI).toFloat())
+                    rotate(-8f * fly, card) {
+                        drawRoundRect(Color(0xFFE9E3FF), Offset(card.x - u * 0.16f, card.y - u * 0.1f), androidx.compose.ui.geometry.Size(u * 0.32f, u * 0.2f), androidx.compose.ui.geometry.CornerRadius(u * 0.03f))
+                        drawRoundRect(purple, Offset(card.x - u * 0.16f, card.y - u * 0.1f), androidx.compose.ui.geometry.Size(u * 0.32f, u * 0.2f), androidx.compose.ui.geometry.CornerRadius(u * 0.03f), style = Stroke(u * 0.006f))
+                    }
+                }
+            }
+            Demo.UNDO -> {
+                wordAt(cx, cy - u * 0.05f, alpha = if (p in 0.35f..0.75f) 0.15f else 1f)
+                val tap = p in 0.2f..0.35f
+                listOf(-1f, 1f).forEach { s ->
+                    val f = Offset(cx + s * u * 0.08f, cy + u * 0.18f)
+                    drawCircle(Color(0xFFFFC9A8).copy(alpha = if (tap) 1f else 0.5f), u * 0.045f, f)
+                    if (tap) drawCircle(blue.copy(alpha = 1f - seg(0.2f, 0.35f)), u * (0.05f + 0.06f * seg(0.2f, 0.35f)), f, style = Stroke(u * 0.006f))
                 }
             }
         }
     }
-    Spacer(Modifier.height(22.dp))
-    Button(onClick = onNext, shape = CircleShape, modifier = Modifier.widthIn(min = 200.dp)) { Text("Next") }
 }
 
 @Composable

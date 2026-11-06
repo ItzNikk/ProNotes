@@ -434,6 +434,9 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                                 override fun onAreaPicked(page: Int, rect: android.graphics.RectF) { vm.capturingCard = false; vm.startCardFromArea(page, rect) }
                                 override fun onLinkTarget(page: Int, x: Float, y: Float) = vm.finishLink(page, x, y)
                                 override fun onLinkLongPress(id: String) { vm.linkToDelete = id }
+                                override fun onOpenUrl(url: String) {
+                                    runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
+                                }
                                 override fun onEraserLifted() = vm.onEraserLifted()
                                 override fun onZoom(percent: Int?) = vm.onZoom(percent)
                                 override fun penProfile(deviceName: String) = store.registerPen(deviceName)
@@ -564,6 +567,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     // ------------------------------------------------------------------ dialogs
     vm.textEdit?.let { edit -> TextDialog(vm, edit) }
     vm.cardDraft?.let { d -> CardEditorDialog(vm, d) }
+    if (vm.linkSheet != null) LinkSheet(vm)
     if (showCards) FlashcardsDialog(vm, onClose = { showCards = false })
     vm.linkToDelete?.let { id ->
         AlertDialog(
@@ -1614,10 +1618,10 @@ private fun SelectionMenu(
                         onClick = { more = false; onShareImage() })
                     DropdownMenuItem(text = { Text("Make flashcard") }, leadingIcon = { Icon(Icons.Outlined.Style, null) },
                         onClick = { more = false; vm.cardFromSelection() })
-                    DropdownMenuItem(text = { Text("Link to…") }, leadingIcon = { Icon(Icons.Outlined.Link, null) },
-                        onClick = { more = false; vm.startLinkFromSelection() })
+
                 }
             }
+            IconButton(onClick = { vm.startLinkFromSelection() }) { Icon(Icons.Outlined.Link, "Add link") }
             IconButton(onClick = vm::deleteSelection) { Icon(Icons.Outlined.Delete, "Delete", tint = Color(0xFFFF8A80)) }
         }
     }

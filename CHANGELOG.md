@@ -1,5 +1,10 @@
 # Changelog
 
+## v6.1.0
+- **Links, like GoodNotes:** select ink and tap the new link button in the selection bar. Pick a page from thumbnails, or type a website. Linked content gets a soft blue box; tap it with a finger to follow. Long-press the badge to remove.
+- **Tour:** rebuilt as swipeable cards with small animated demos for each gesture.
+- **PDF:** double-tap zoom now eases to a fixed end point. It no longer drifts to another page or stops between two.
+
 ## v6.0.0
 - **Flashcards:** drag a box over any part of a PDF or your notes to make a card, or turn a selection into one. Write the answer on the back, or make text-only cards. Study due cards with a flip and Again / Good / Easy, spaced over days. Jump back to the source page, or export as CSV.
 - **Ink links:** select something, choose Link to..., then tap anywhere in the notebook. A blue chain badge sits at both ends; tap one to jump to the other. Long-press a badge to remove the link.
