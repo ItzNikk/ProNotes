@@ -62,7 +62,19 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     /** Current tool. Remembers the last non-eraser tool for "switch back after erasing". */
     var tool: Tool
         get() = _tool
-        set(v) { if (_tool != Tool.ERASER && _tool != v) previousTool = _tool; _tool = v }
+        set(v) { toolBeforeCircle = null; if (_tool != Tool.ERASER && _tool != v) previousTool = _tool; _tool = v }
+
+    /** Tool to go back to once a circle-and-hold selection ends (the toolbar shows lasso meanwhile). */
+    private var toolBeforeCircle: Tool? = null
+
+    fun circleSelect(active: Boolean) {
+        if (active) {
+            if (toolBeforeCircle == null && _tool != Tool.LASSO) { val keep = _tool; _tool = Tool.LASSO; toolBeforeCircle = keep }
+        } else {
+            toolBeforeCircle?.let { _tool = it }
+            toolBeforeCircle = null
+        }
+    }
     var penType by mutableStateOf(savedEnum(1, PenType.FOUNTAIN))
     var penStyle by mutableStateOf(style("pen", listOf(PenPalette[0], PenPalette[2], PenPalette[10], PenPalette[5], PenPalette[13]), listOf(2f, 4f, 7f), 4f, 2))
     var highlighterStyle by mutableStateOf(style("highlighter", HighlighterPalette, listOf(16f, 28f, 42f), 28f, 3))

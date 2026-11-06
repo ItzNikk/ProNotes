@@ -1,5 +1,11 @@
 # Changelog
 
+## v5.1.0
+- **Toolbar:** new default layout. Tools sit in the top bar, undo and redo float at the top left, and the pen types, sizes and colours sit in a panel on the right. The page counter moves to the bottom left.
+- **Circle to select:** draw a loop around content and hold. The loop turns into a dashed lasso, the toolbar switches to lasso, and you can drag right away without lifting the pen. Tap outside to let go and go back to the pen.
+- **Lasso outline:** freeform selections keep their loop shape instead of a box.
+- **Pen setup:** new steps. Bring the pen close, hold its button, then three paced taps. A short scan follows, bubbles burst and your pen is revealed. Pens without hover or a button can skip those steps.
+
 ## v5.0.1
 - **Pen setup:** a glowing ring around the circle again, and it glows brighter as the scan goes on. The percentage now sits on a solid pill.
 - **Highlighter:** stronger by default (65%), and text always stays on top. Dark PDF pages blend the highlight under their light text.

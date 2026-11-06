@@ -26,7 +26,7 @@ Every release is signed with the same key, and the app updates itself from insid
 | **Natural ink** | Low-latency, pressure-sensitive strokes powered by Jetpack Ink and motion prediction. Fountain, ball, brush and dashed pens. |
 | **Any Android pen** | Samsung S Pen, Wacom, USI 2.0, Lenovo, Xiaomi, Huawei, OnePlus and Microsoft Pen Protocol. Each pen keeps its own settings. |
 | **Pen shortcuts** | Hold the side button to erase or lasso. Click it while hovering for a radial tool wheel; double-click to undo. Hover preview shows where ink will land. |
-| **Smart gestures** | Circle and hold to select, scribble to erase, hold to snap shapes, two-finger tap to undo, pull past the last page to add one. |
+| **Smart gestures** | Circle and hold to select (the loop becomes a lasso you can drag at once), scribble to erase, hold to snap shapes, two-finger tap to undo, pull past the last page to add one. |
 | **Selection** | Lasso or rectangle with filters. Move, resize, rotate, flip, recolour, arrange, copy and share as an image. |
 | **Shapes** | Auto-recognised lines, polygons, stars and circles, plus 30 drawable shapes with fill and dashed outlines. |
 | **Highlighter** | Even, round tip that ignores pressure and tilt. Adjustable opacity, sits beneath PDF text and ink, with auto-straighten and hold-to-snap. |
@@ -36,7 +36,8 @@ Every release is signed with the same key, and the app updates itself from insid
 | **Remembers you** | Your last tool, pen type, colours, sizes and the page you were on in every notebook. |
 | **Yours** | Backup and restore the whole library, themes, accent colours and a customisable toolbar. |
 | **Updates** | In-app updates show what changed first, install through the system installer, and can reopen the app when done. |
-| **Welcome** | A full-screen intro and a pen setup that checks pressure, tilt and hover, then picks your pen brand. |
+| **Welcome** | A full-screen intro and a step-by-step pen setup: hover, button, paced taps and a scan that picks your pen brand. |
+| **Layout** | Tools in the top bar, undo and redo at the top left, pen types, sizes and colours in a side panel. Floating toolbars are still in Settings. |
 
 ## Requirements
 

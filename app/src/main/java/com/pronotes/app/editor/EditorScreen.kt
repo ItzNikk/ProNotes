@@ -398,6 +398,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                                 override fun activeHighlight() = vm.activeHighlight()
                                 override fun shapeFill() = vm.shapeFill()
                                 override fun onCircleCandidate(screenBounds: android.graphics.RectF?) = Unit
+                                override fun onCircleSelect(active: Boolean) = vm.circleSelect(active)
                                 override fun onEraserLifted() = vm.onEraserLifted()
                                 override fun onZoom(percent: Int?) = vm.onZoom(percent)
                                 override fun penProfile(deviceName: String) = store.registerPen(deviceName)
@@ -447,7 +448,17 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 if (settings.toolbarDock != ToolbarDock.HEADER) {
                     ToolDock(vm, settings, areaSize, onDock = { d -> store.update { it.copy(toolbarDock = d) } })
                 } else {
-                    Box(Modifier.align(Alignment.TopCenter).padding(top = 10.dp)) { OptionsBar(vm, vertical = false, settings = settings) }
+                    // GoodNotes-style: undo / redo float at the top left, tool settings in a panel on the right.
+                    Surface(
+                        shape = Pill, color = glassColor(), shadowElevation = 4.dp,
+                        modifier = Modifier.align(Alignment.TopStart).padding(12.dp).glassEdge(Pill),
+                    ) {
+                        Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            BarIcon(ProIcon.UNDO, "Undo", enabled = vm.canUndo, onClick = vm::undo)
+                            BarIcon(ProIcon.REDO, "Redo", enabled = vm.canRedo, onClick = vm::redo)
+                        }
+                    }
+                    SidePanel(vm, settings, Modifier.align(Alignment.CenterEnd).padding(end = 10.dp))
                 }
 
                 vm.zoomPercent?.let { z ->
@@ -468,7 +479,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                         index = vm.pageIndex, count = vm.pages.size, bookmarked = vm.currentPage?.bookmarked == true,
                         onPrev = { vm.goToPage(vm.pageIndex - 1) }, onNext = { vm.goToPage(vm.pageIndex + 1) },
                         onTap = { goTo = true },
-                        modifier = Modifier.align(if (settings.toolbarDock == ToolbarDock.BOTTOM) Alignment.TopEnd else Alignment.BottomEnd)
+                        modifier = Modifier.align(when (settings.toolbarDock) { ToolbarDock.BOTTOM -> Alignment.TopEnd; ToolbarDock.HEADER -> Alignment.BottomStart; else -> Alignment.BottomEnd })
                             .navigationBarsPadding().padding(16.dp),
                     )
                 }
@@ -614,9 +625,6 @@ private fun TopBar(
         if (settings.toolbarDock == ToolbarDock.HEADER) {
             Spacer(Modifier.weight(1f))
             Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                BarIcon(ProIcon.UNDO, "Undo", enabled = vm.canUndo, onClick = vm::undo)
-                BarIcon(ProIcon.REDO, "Redo", enabled = vm.canRedo, onClick = vm::redo)
-                Box(Modifier.padding(horizontal = 8.dp).width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant))
                 ToolbarOrder.visible(settings.toolbarTools).forEach { t -> ToolButton(vm, t, settings) }
             }
             Spacer(Modifier.weight(1f))
@@ -855,6 +863,61 @@ private fun BoxScope.ToolDock(vm: EditorViewModel, settings: AppSettings, area: 
             ToolbarDock.LEFT -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) { bar(); optionsBar() }
             ToolbarDock.RIGHT -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) { optionsBar(); bar() }
         }
+    }
+}
+
+/** Right-edge panel (top bar layout): pen types for the pen, then sizes and colours, top to bottom. */
+@Composable
+private fun SidePanel(vm: EditorViewModel, settings: AppSettings, modifier: Modifier) {
+    val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.TEXT)
+    val shape = RoundedCornerShape(26.dp)
+    AnimatedVisibility(
+        hasOptions, modifier = modifier,
+        enter = fadeIn() + androidx.compose.animation.slideInHorizontally { it / 2 },
+        exit = fadeOut() + androidx.compose.animation.slideOutHorizontally { it / 2 },
+    ) {
+        Surface(shape = shape, color = glassColor(), shadowElevation = 6.dp, modifier = Modifier.glassEdge(shape)) {
+            Column(
+                Modifier.padding(vertical = 8.dp, horizontal = 4.dp).verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                if (vm.tool == Tool.PEN) {
+                    PenType.entries.forEach { type ->
+                        val on = vm.penType == type
+                        Box(
+                            Modifier.padding(2.dp).size(40.dp).clip(CircleShape)
+                                .background(if (on) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                                .clickable { vm.penType = type },
+                            contentAlignment = Alignment.Center,
+                        ) { PenTypeGlyph(type, if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) }
+                    }
+                    HorizontalDivider(Modifier.width(26.dp).padding(vertical = 6.dp))
+                }
+                ToolOptions(vm, true, settings)
+            }
+        }
+    }
+}
+
+/** Tiny sample stroke that shows what each pen type draws like. */
+@Composable
+private fun PenTypeGlyph(type: PenType, tint: Color) {
+    androidx.compose.foundation.Canvas(Modifier.size(24.dp)) {
+        val w = size.width; val h = size.height
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.1f, h * 0.7f)
+            cubicTo(w * 0.35f, h * 0.05f, w * 0.6f, h * 0.95f, w * 0.9f, h * 0.3f)
+        }
+        val width = when (type) {
+            PenType.BRUSH -> 4.5f
+            PenType.BALL -> 1.6f
+            else -> 2.4f
+        }.dp.toPx()
+        val dash = if (type == PenType.DASHED) androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())) else null
+        drawPath(
+            path, tint,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width, cap = androidx.compose.ui.graphics.StrokeCap.Round, pathEffect = dash),
+        )
     }
 }
 

@@ -454,122 +454,263 @@ private fun IntroBackdrop() {
     }
 }
 
-/** Tap the ring three times with the pen, then watch it scan. We read the pen's name and capabilities and pick its brand. */
+/** Steps of the pen check, in order. */
+private enum class PenStep(val title: String, val hint: String) {
+    HOVER("Bring your pen close", "Hold the pen tip just above the ring without touching."),
+    BUTTON("Press and hold the button", "Keep the side button pressed while the pen hovers."),
+    TAPS("Tap the ring 3 times", "Tap gently with the pen tip, one tap at a time."),
+    SCAN("Scanning your pen", ""),
+    BURST("", ""),
+    DONE("", ""),
+}
+
+/** Watches every pen event in the window (hover and button presses never reach a normal touch handler). */
+private class PenSpy(private val base: android.view.Window.Callback, private val onEvent: (MotionEvent) -> Unit) :
+    android.view.Window.Callback by base {
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean { onEvent(event); return base.dispatchGenericMotionEvent(event) }
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean { onEvent(event); return base.dispatchTouchEvent(event) }
+}
+
+private fun MotionEvent.isPen(): Boolean {
+    val t = getToolType(0)
+    return t == MotionEvent.TOOL_TYPE_STYLUS || t == MotionEvent.TOOL_TYPE_ERASER || isFromSource(InputDevice.SOURCE_STYLUS)
+}
+
+private fun MotionEvent.penButton(): Boolean =
+    buttonState and (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_STYLUS_SECONDARY or MotionEvent.BUTTON_SECONDARY or MotionEvent.BUTTON_TERTIARY) != 0
+
+/**
+ * Pen check in steps: hover close, hold the button, three paced taps, a short scan, then a bubble
+ * burst reveals the pen. Each step waits a moment before it counts, so nothing feels instant.
+ * Steps the pen cannot do (no hover, no button) can be skipped after a few seconds.
+ */
 @OptIn(ExperimentalComposeUiApi::class, ExperimentalLayoutApi::class)
 @Composable
 private fun PenCheckPage(active: Boolean, store: SettingsStore, onNext: () -> Unit) {
-    val idleHint = "Tap the ring 3 times with your pen"
+    val context = LocalContext.current
+    var step by remember { mutableStateOf(PenStep.HOVER) }
     var taps by remember { mutableIntStateOf(0) }
-    var scanning by remember { mutableStateOf(false) }
-    var finished by remember { mutableStateOf(false) }
+    var tapBusy by remember { mutableStateOf(false) }
+    var hovering by remember { mutableStateOf(false) }
+    var buttonDown by remember { mutableStateOf(false) }
     var device by remember { mutableStateOf<String?>(null) }
-    var brand by remember { mutableStateOf<String?>(null) }
     var caps by remember { mutableStateOf<List<String>>(emptyList()) }
-    var hint by remember { mutableStateOf(idleHint) }
+    var brand by remember { mutableStateOf<String?>(null) }
+    var note by remember { mutableStateOf<String?>(null) }
+    var canSkip by remember { mutableStateOf(false) }
     var manual by remember { mutableStateOf(false) }
     val progress = remember { Animatable(0f) }
     val pulse = remember { Animatable(1f) }
+    val burst = remember { Animatable(0f) }
+    val reveal = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
 
-    // After the third tap: a short scan from 30% to 100%, then reveal the result.
-    LaunchedEffect(scanning) {
-        if (!scanning) return@LaunchedEffect
-        progress.animateTo(100f, tween(3200, easing = LinearEasing))
-        delay(250)
+    fun readDevice(ev: MotionEvent) {
+        val dev = ev.device ?: return
+        device = dev.name
+        caps = buildList {
+            if (dev.getMotionRange(MotionEvent.AXIS_PRESSURE, InputDevice.SOURCE_STYLUS) != null) add("Pressure")
+            if (dev.getMotionRange(MotionEvent.AXIS_TILT, InputDevice.SOURCE_STYLUS) != null) add("Tilt")
+            if (dev.getMotionRange(MotionEvent.AXIS_DISTANCE, InputDevice.SOURCE_STYLUS) != null) add("Hover")
+        }
+    }
+
+    // Window-level spy for hover and the pen button, only while this page is on screen.
+    DisposableEffect(active) {
+        val window = context.findActivity()?.window
+        val original = window?.callback
+        if (active && window != null && original != null) {
+            window.callback = PenSpy(original) { ev ->
+                if (!ev.isPen()) return@PenSpy
+                when (ev.actionMasked) {
+                    MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> { hovering = true; buttonDown = ev.penButton(); readDevice(ev) }
+                    MotionEvent.ACTION_HOVER_EXIT -> { hovering = false; buttonDown = false }
+                    MotionEvent.ACTION_BUTTON_PRESS -> buttonDown = true
+                    MotionEvent.ACTION_BUTTON_RELEASE -> buttonDown = false
+                    MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> { buttonDown = ev.penButton(); readDevice(ev) }
+                    MotionEvent.ACTION_UP -> buttonDown = false
+                }
+            }
+        }
+        onDispose { if (window != null && original != null && window.callback is PenSpy) window.callback = original }
+    }
+
+    // Offer "skip" when a step takes a while (some pens cannot hover or have no button).
+    LaunchedEffect(step) {
+        canSkip = false; note = null
+        if (step == PenStep.HOVER || step == PenStep.BUTTON) { delay(6000); canSkip = true }
+    }
+
+    // Step 1: the pen must hover for a moment before it counts.
+    LaunchedEffect(step, hovering) {
+        if (step != PenStep.HOVER) return@LaunchedEffect
+        if (!hovering) { progress.animateTo(0f, tween(300)); return@LaunchedEffect }
+        note = "Pen detected. Keep it there…"
+        progress.animateTo(15f, tween(1400, easing = LinearEasing))
+        if (hovering) { pulse.snapTo(0.94f); pulse.animateTo(1f, spring(dampingRatio = 0.4f)); delay(250); step = PenStep.BUTTON }
+    }
+
+    // Step 2: the button must stay held for about a second.
+    LaunchedEffect(step, buttonDown) {
+        if (step != PenStep.BUTTON) return@LaunchedEffect
+        if (!buttonDown) { if (progress.value > 15f) progress.animateTo(15f, tween(300)); return@LaunchedEffect }
+        note = "Button pressed. Keep holding…"
+        progress.animateTo(30f, tween(1200, easing = LinearEasing))
+        if (buttonDown) { pulse.snapTo(0.94f); pulse.animateTo(1f, spring(dampingRatio = 0.4f)); delay(250); step = PenStep.TAPS }
+    }
+
+    // Step 4 and 5: scan, then the bubbles burst and the pen is revealed.
+    LaunchedEffect(step) {
+        if (step != PenStep.SCAN) return@LaunchedEffect
+        progress.animateTo(100f, tween(3400, easing = LinearEasing))
+        delay(200)
         val b = PenBrands.detect(device)
         brand = b
         store.registerPen(device ?: "Stylus", b)
-        hint = if (b != null && b != "Stylus") "Found: $b" else "Pen found. Pick its brand below if you like."
-        scanning = false
-        finished = true
+        step = PenStep.BURST
+        burst.snapTo(0f)
+        burst.animateTo(1f, tween(900, easing = FastOutSlowInEasing))
+        step = PenStep.DONE
+        reveal.snapTo(0f)
+        reveal.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = 140f))
     }
+
     val pct = progress.value.toInt().coerceIn(0, 100)
-    val stepLabel = when {
-        pct < 45 -> "Reading pen signal…"
-        pct < 65 -> "Checking pressure…"
-        pct < 85 -> "Checking tilt and hover…"
+    val scanLabel = when {
+        pct < 50 -> "Reading pen signal…"
+        pct < 68 -> "Checking pressure…"
+        pct < 86 -> "Checking tilt and hover…"
         else -> "Matching brand…"
     }
+    val done = step == PenStep.DONE
 
     AnimatedWords(
         "Meet your pen", TextStyle(fontSize = 44.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = MaterialTheme.colorScheme.onBackground),
         active, gradient = listOf(Brand2, Brand1, Brand3),
     )
-    Spacer(Modifier.height(8.dp))
-    val shownHint = if (scanning) stepLabel else hint
-    AnimatedContent(targetState = shownHint, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "hint") { h ->
-        Text(h, fontSize = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+    Spacer(Modifier.height(10.dp))
+    // Step dots: hover, button, taps, scan.
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        listOf(PenStep.HOVER, PenStep.BUTTON, PenStep.TAPS, PenStep.SCAN).forEach { s ->
+            val reached = step.ordinal >= s.ordinal
+            val w by animateFloatAsState(if (step == s) 22f else 8f, spring(dampingRatio = 0.7f), label = "sd")
+            Box(Modifier.size(width = w.dp, height = 8.dp).clip(CircleShape).background(if (reached) Color(0xFFB45CFF) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f)))
+        }
     }
-    Spacer(Modifier.height(26.dp))
+    Spacer(Modifier.height(10.dp))
+    val title = when (step) {
+        PenStep.SCAN -> scanLabel
+        PenStep.BURST -> "Got it!"
+        PenStep.DONE -> brand?.takeIf { it != "Stylus" } ?: "Pen ready"
+        PenStep.TAPS -> if (taps == 0) step.title else if (tapBusy) "Reading tap $taps…" else "${3 - taps} more"
+        else -> step.title
+    }
+    AnimatedContent(targetState = title, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "title") { h ->
+        Text(h, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground, textAlign = TextAlign.Center)
+    }
+    val sub = note ?: step.hint
+    if (sub.isNotEmpty() && !done) {
+        Text(sub, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
+    }
+    Spacer(Modifier.height(22.dp))
+
     val primary = Color(0xFFB45CFF)
     val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-    Box(Modifier.size(230.dp).scale(pulse.value), contentAlignment = Alignment.Center) {
-        // The glowing ring sits inside the progress arc.
-        GlowRing(Modifier.size(206.dp), energy = progress.value / 100f)
-        Canvas(Modifier.fillMaxSize()) {
-            val w = 6.dp.toPx()
-            drawCircle(track, size.minDimension / 2 - w / 2, style = Stroke(w))
-            drawArc(
-                primary, -90f, 360f * (progress.value / 100f), false, Offset(w / 2, w / 2),
-                androidx.compose.ui.geometry.Size(size.width - w, size.height - w),
-                style = Stroke(w, cap = androidx.compose.ui.graphics.StrokeCap.Round),
-            )
-        }
-        // Percentage pill over the video.
-        Surface(shape = CircleShape, color = Color(0xE6150A24), border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x66E38BFF))) {
-            Text(
-                "$pct%", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
-            )
-        }
-        // Touch layer on top of the video.
-        Box(
-            Modifier.fillMaxSize().pointerInteropFilter { ev ->
-                if (scanning || finished || ev.actionMasked != MotionEvent.ACTION_DOWN) return@pointerInteropFilter true
-                val type = ev.getToolType(0)
-                if (type == MotionEvent.TOOL_TYPE_STYLUS || type == MotionEvent.TOOL_TYPE_ERASER) {
-                    taps++
-                    val dev = ev.device
-                    device = dev?.name
-                    if (dev != null) {
-                        caps = buildList {
-                            if (dev.getMotionRange(MotionEvent.AXIS_PRESSURE, InputDevice.SOURCE_STYLUS) != null) add("Pressure")
-                            if (dev.getMotionRange(MotionEvent.AXIS_TILT, InputDevice.SOURCE_STYLUS) != null) add("Tilt")
-                            if (dev.getMotionRange(MotionEvent.AXIS_DISTANCE, InputDevice.SOURCE_STYLUS) != null) add("Hover")
+    Box(Modifier.size(240.dp), contentAlignment = Alignment.Center) {
+        if (!done) {
+            Box(
+                Modifier.size(230.dp).graphicsLayer {
+                    val s = pulse.value * (1f + 0.25f * burst.value)
+                    scaleX = s; scaleY = s; alpha = 1f - burst.value
+                },
+                contentAlignment = Alignment.Center,
+            ) {
+                GlowRing(Modifier.size(206.dp), energy = progress.value / 100f)
+                Canvas(Modifier.fillMaxSize()) {
+                    val w = 6.dp.toPx()
+                    drawCircle(track, size.minDimension / 2 - w / 2, style = Stroke(w))
+                    drawArc(
+                        primary, -90f, 360f * (progress.value / 100f), false, Offset(w / 2, w / 2),
+                        androidx.compose.ui.geometry.Size(size.width - w, size.height - w),
+                        style = Stroke(w, cap = androidx.compose.ui.graphics.StrokeCap.Round),
+                    )
+                }
+                Surface(shape = CircleShape, color = Color(0xE6150A24), border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x66E38BFF))) {
+                    Text("$pct%", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp))
+                }
+                // Taps on the ring, paced: each one is "read" before the next counts.
+                Box(
+                    Modifier.fillMaxSize().pointerInteropFilter { ev ->
+                        if (ev.actionMasked != MotionEvent.ACTION_DOWN) return@pointerInteropFilter true
+                        if (step != PenStep.TAPS) return@pointerInteropFilter true
+                        if (!ev.isPen()) { note = "That was a finger. Please use your pen."; return@pointerInteropFilter true }
+                        if (tapBusy) return@pointerInteropFilter true
+                        readDevice(ev)
+                        tapBusy = true
+                        taps++
+                        note = null
+                        scope.launch {
+                            pulse.snapTo(0.92f); pulse.animateTo(1f, spring(dampingRatio = 0.4f))
                         }
-                    }
-                    scope.launch { pulse.snapTo(0.92f); pulse.animateTo(1f, spring(dampingRatio = 0.4f)) }
-                    scope.launch { progress.animateTo(taps * 10f, tween(250)) }
-                    if (taps >= 3) { hint = "Scanning your pen…"; scanning = true } else hint = "${3 - taps} more"
-                } else hint = "That was a finger. Please use your pen."
-                true
-            },
-        )
+                        scope.launch {
+                            progress.animateTo(30f + taps * 10f, tween(750, easing = FastOutSlowInEasing))
+                            delay(250)
+                            tapBusy = false
+                            if (taps >= 3) step = PenStep.SCAN
+                        }
+                        true
+                    },
+                )
+            }
+            if (step == PenStep.BURST || burst.value > 0f) Bubbles(Modifier.fillMaxSize(), burst.value)
+        } else {
+            // The pen, revealed.
+            Box(
+                Modifier.size(150.dp).graphicsLayer { scaleX = 0.4f + 0.6f * reveal.value; scaleY = scaleX; alpha = reveal.value.coerceIn(0f, 1f) }
+                    .clip(CircleShape).background(Brush.linearGradient(listOf(Brand2, Brand1, Color(0xFFB45CFF)))),
+                contentAlignment = Alignment.Center,
+            ) { ProIconView(ProIcon.PEN, Color.White, Modifier.size(70.dp)) }
+        }
     }
     Spacer(Modifier.height(14.dp))
-    if (finished && caps.isNotEmpty()) {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
-            caps.forEach { c ->
-                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
-                    Text(c, Modifier.padding(horizontal = 14.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+    if (done) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.graphicsLayer { alpha = reveal.value.coerceIn(0f, 1f) }) {
+            device?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            if (caps.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
+                    caps.forEach { c ->
+                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                            Text(c, Modifier.padding(horizontal = 14.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                    }
                 }
             }
         }
         Spacer(Modifier.height(12.dp))
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (taps > 0 && !scanning) OutlinedButton(onClick = {
-            taps = 0; finished = false; brand = null; device = null; caps = emptyList(); hint = idleHint
-            scope.launch { progress.animateTo(0f, tween(300)) }
-        }, shape = CircleShape) { Text("Try again") }
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (canSkip && (step == PenStep.HOVER || step == PenStep.BUTTON)) {
+            OutlinedButton(onClick = {
+                scope.launch { progress.animateTo(if (step == PenStep.HOVER) 15f else 30f, tween(400)) }
+                step = if (step == PenStep.HOVER) PenStep.BUTTON else PenStep.TAPS
+            }, shape = CircleShape) { Text(if (step == PenStep.HOVER) "My pen can't hover" else "My pen has no button") }
+        }
+        if (done) {
+            OutlinedButton(onClick = {
+                step = PenStep.HOVER; taps = 0; tapBusy = false; brand = null; device = null; caps = emptyList()
+                scope.launch { progress.snapTo(0f); burst.snapTo(0f); reveal.snapTo(0f) }
+            }, shape = CircleShape) { Text("Try again") }
+        }
         Box {
-            OutlinedButton(onClick = { manual = true }, enabled = !scanning, shape = CircleShape) { Text(brand?.let { "Brand: $it" } ?: "Choose manually") }
+            OutlinedButton(onClick = { manual = true }, enabled = step != PenStep.SCAN && step != PenStep.BURST, shape = CircleShape) {
+                Text(brand?.let { "Brand: $it" } ?: "Choose manually")
+            }
             DropdownMenu(manual, { manual = false }, shape = RoundedCornerShape(22.dp)) {
                 PenBrands.manual.forEach { b ->
                     DropdownMenuItem(text = { Text(b) }, onClick = {
                         manual = false; brand = b
                         store.registerPen(device ?: "Stylus", b)
-                        hint = "Set to $b"
                     })
                 }
             }
@@ -578,7 +719,36 @@ private fun PenCheckPage(active: Boolean, store: SettingsStore, onNext: () -> Un
     Spacer(Modifier.height(14.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         TextButton(onClick = { store.update { it.copy(stylusOnly = false) }; onNext() }) { Text("I don't use a pen") }
-        Button(onClick = onNext, shape = CircleShape, enabled = finished || brand != null) { Text("Continue") }
+        Button(onClick = onNext, shape = CircleShape, enabled = done || brand != null) { Text("Continue") }
+    }
+}
+
+/** Bubbles fly out of the ring and pop. [t] runs from 0 to 1. */
+@Composable
+private fun Bubbles(modifier: Modifier, t: Float) {
+    val bubbles = remember {
+        val rnd = kotlin.random.Random(11)
+        List(26) { floatArrayOf(rnd.nextFloat() * 360f, 0.55f + rnd.nextFloat() * 0.7f, 5f + rnd.nextFloat() * 13f, rnd.nextFloat() * 0.25f) }
+    }
+    val colors = listOf(Color(0xFFB45CFF), Color(0xFFE38BFF), Color(0xFF7161E0), Color(0xFF2A78D6), Color(0xFFF6D6FF))
+    Canvas(modifier) {
+        val c = center
+        val r = size.minDimension / 2f
+        // A soft flash at the centre as the ring pops.
+        drawCircle(Color(0xFFE38BFF).copy(alpha = (0.5f * (1f - t)).coerceIn(0f, 1f)), r * (0.3f + 0.9f * t), c)
+        bubbles.forEachIndexed { i, b ->
+            val local = ((t - b[3]) / (1f - b[3])).coerceIn(0f, 1f)
+            if (local <= 0f) return@forEachIndexed
+            val a = Math.toRadians(b[0].toDouble())
+            val dist = r * (0.6f + b[1] * local)
+            val pos = Offset(c.x + kotlin.math.cos(a).toFloat() * dist, c.y + kotlin.math.sin(a).toFloat() * dist)
+            val rad = b[2].dp.toPx() * (1f + 0.6f * local)
+            val alpha = (1f - local).coerceIn(0f, 1f)
+            val col = colors[i % colors.size]
+            drawCircle(col.copy(alpha = 0.25f * alpha), rad, pos)
+            drawCircle(col.copy(alpha = 0.9f * alpha), rad, pos, style = Stroke(1.5.dp.toPx()))
+            drawCircle(Color.White.copy(alpha = 0.7f * alpha), rad * 0.25f, Offset(pos.x - rad * 0.35f, pos.y - rad * 0.35f))
+        }
     }
 }
 

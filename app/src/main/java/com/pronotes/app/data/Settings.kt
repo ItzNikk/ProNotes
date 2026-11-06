@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 enum class ScrollDirection(val label: String) { VERTICAL("Vertical"), HORIZONTAL("Horizontal") }
-enum class ToolbarDock(val label: String) { HEADER("In top bar"), TOP("Floating top"), BOTTOM("Floating bottom"), LEFT("Floating left"), RIGHT("Floating right") }
+enum class ToolbarDock(val label: String) { HEADER("Top bar + side panel"), TOP("Floating top"), BOTTOM("Floating bottom"), LEFT("Floating left"), RIGHT("Floating right") }
 enum class ToolbarSize(val label: String, val scale: Float) { COMPACT("Compact", 0.85f), REGULAR("Regular", 1f), LARGE("Large", 1.18f) }
 enum class SideButton(val label: String) { ERASER("Eraser"), LASSO("Lasso"), NONE("Nothing") }
 /** How long the app waits after a pen-button click before acting (it waits to see if a second click follows). */
@@ -102,7 +102,7 @@ data class AppSettings(
     val keepScreenOn: Boolean = false,
     val darkPdf: Boolean = false,
     // toolbar
-    val toolbarDock: ToolbarDock = ToolbarDock.TOP,
+    val toolbarDock: ToolbarDock = ToolbarDock.HEADER,
     val toolbarSize: ToolbarSize = ToolbarSize.REGULAR,
     val showTabs: Boolean = true,
     /** Tool order, comma separated enum names. Hidden tools are prefixed with "-". */
@@ -171,7 +171,8 @@ class SettingsStore private constructor(context: Context) {
             pageNumbers = b("pageNumbers", d.pageNumbers),
             keepScreenOn = b("keepScreenOn", d.keepScreenOn),
             darkPdf = b("darkPdf", d.darkPdf),
-            toolbarDock = enumOf("toolbarDock", d.toolbarDock),
+            // v5.1 moves everyone to the top bar + side panel layout once; later changes are kept.
+            toolbarDock = if (!prefs.contains("dockV51")) ToolbarDock.HEADER else enumOf("toolbarDock", d.toolbarDock),
             toolbarSize = enumOf("toolbarSize", d.toolbarSize),
             showTabs = b("showTabs", d.showTabs),
             toolbarTools = prefs.getString("toolbarTools", "") ?: "",
@@ -223,6 +224,7 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("keepScreenOn", s.keepScreenOn)
             .putBoolean("darkPdf", s.darkPdf)
             .putString("toolbarDock", s.toolbarDock.name)
+            .putBoolean("dockV51", true)
             .putString("toolbarSize", s.toolbarSize.name)
             .putBoolean("showTabs", s.showTabs)
             .putString("toolbarTools", s.toolbarTools)

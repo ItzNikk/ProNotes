@@ -67,6 +67,8 @@ interface CanvasHost {
     fun shapeFill(): Int?
     /** A pen loop around content was drawn; show (or hide, with null) the "Select" chip. */
     fun onCircleCandidate(screenBounds: RectF?)
+    /** Circle-and-hold made a selection (true) or that selection ended (false). The toolbar shows lasso meanwhile. */
+    fun onCircleSelect(active: Boolean) {}
     fun onEraserLifted()
     fun onZoom(percent: Int?)
     /** Settings for the pen with this input-device name (registers new pens). */
@@ -586,7 +588,12 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
                 // Handles resize / rotate; touching inside the selection moves it, whatever the tool.
                 if (selection.isNotEmpty() && t != Tool.ERASER && beginGrab(px, py)) return
-                if (selection.isNotEmpty()) clearSelection()
+                if (selection.isNotEmpty()) {
+                    val wasCircle = circleSelect
+                    clearSelection()
+                    // After circle-to-select, a tap outside just lets go and goes back to the pen.
+                    if (wasCircle) { mode = Mode.IGNORE; return }
+                }
 
                 when (t) {
                     Tool.PEN, Tool.HIGHLIGHTER -> startInk(e, t)
@@ -699,7 +706,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         val local = lassoPoints.map { toLocal(it.first, it.second, activePage) }
                         layer.lasso = null
                         layer.stopAnts()
-                        if (local.size > 3) select(activePage, Lasso(local, settings.lassoTouching))
+                        if (local.size > 3) select(activePage, Lasso(local, settings.lassoTouching), outline = local.takeIf { settings.lassoMode != com.pronotes.app.data.LassoMode.RECT })
                         layer.invalidate()
                     }
                     Mode.MOVE -> commitMove()
@@ -859,12 +866,22 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 holdFired = true
                 cancelWet(id)
                 buzz()
-                // The loop turns into a marching-ants lasso, then the content is selected.
+                // Like GoodNotes: the ink loop itself becomes the dashed lasso, the content is selected
+                // at once, and the pen can keep going to drag it without lifting.
                 val page = activePage
-                val screen = points.map { (x, y) ->
+                val loop = ArrayList(points)
+                val screen = loop.map { (x, y) ->
                     val a = floatArrayOf(x, y); pageMatrix(page, tmpMatrix).mapPoints(a); a[0] to a[1]
                 }
-                layer.playLassoMorph(screen) { selectItems(page, ids) }
+                selectItems(page, ids, outline = loop)
+                if (!circleSelect) { circleSelect = true; host.onCircleSelect(true) }
+                layer.playLassoMorph(screen) {}
+                val (lx, ly) = loop.last()
+                grab = Grab.MOVE
+                mode = Mode.MOVE
+                grabStartX = lx; grabStartY = ly
+                liveScale = 1f; liveDeg = 0f
+                liveMatrix = Matrix()
                 return
             }
         }
@@ -1089,22 +1106,29 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
     // ----------------------------------------------------------- selection
 
-    private fun select(page: Int, lasso: Lasso) {
+    private fun select(page: Int, lasso: Lasso, outline: List<Pt>? = null) {
         val p = pages.getOrNull(page) ?: return
-        selectItems(page, p.items.filter { lassoAllows(it) && lasso.selects(it) }.map { it.id }.toSet())
+        selectItems(page, p.items.filter { lassoAllows(it) && lasso.selects(it) }.map { it.id }.toSet(), outline)
     }
 
-    fun selectItems(page: Int, ids: Set<Long>) {
+    /** Page-space loop drawn around a lasso selection (null = plain box). */
+    private var selectionOutline: List<Pt>? = null
+    private var circleSelect = false
+
+    fun selectItems(page: Int, ids: Set<Long>, outline: List<Pt>? = null) {
         selection = ids
         selectionPage = page
+        selectionOutline = if (ids.isEmpty()) null else outline
         layer.invalidate()
         if (ids.isNotEmpty()) layer.popSelection()
         reportSelection()
     }
 
     fun clearSelection() {
+        if (circleSelect) { circleSelect = false; host.onCircleSelect(false) }
         if (selection.isEmpty()) return
         selection = emptySet()
+        selectionOutline = null
         liveMatrix = null
         layer.invalidate()
         reportSelection()
@@ -1202,6 +1226,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 Grab.ROTATE -> p.items.map { if (it.id in selection) it.transformed(m, 1f, liveDeg) else it }
             }
             updatePage(selectionPage, items)
+            // The lasso loop follows the content.
+            selectionOutline = selectionOutline?.map { (x, y) -> val a = floatArrayOf(x, y); m.mapPoints(a); a[0] to a[1] }
         }
         liveScale = 1f; liveDeg = 0f
         reportSelection()
@@ -1686,7 +1712,21 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             canvas.drawText(if (progress >= 1f) "Release to add a page" else "Pull to add a page", cx, cy + rad + 22f * density, pullText)
         }
 
+        private val outlinePath = Path()
+
         private fun drawSelection(canvas: Canvas) {
+            val loop = selectionOutline
+            if (loop != null && selection.isNotEmpty() && loop.size > 2) {
+                outlinePath.reset()
+                loop.forEachIndexed { i, (x, y) -> if (i == 0) outlinePath.moveTo(x, y) else outlinePath.lineTo(x, y) }
+                outlinePath.close()
+                liveMatrix?.let { outlinePath.transform(it) }
+                outlinePath.transform(pageMatrix(selectionPage, m))
+                lassoFill.alpha = 0x10
+                canvas.drawPath(outlinePath, lassoFill)
+                lassoFill.alpha = 0x14
+                canvas.drawPath(outlinePath, selPaint)
+            }
             val rotating = grab == Grab.ROTATE && liveMatrix != null
             val wb = (if (rotating) selectionBaseBounds() else selectionPageBounds()) ?: return
             val sb = RectF(wb)
@@ -1695,7 +1735,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             canvas.scale(selScale, selScale, sb.centerX(), sb.centerY())
             if (rotating) canvas.rotate(liveDeg, sb.centerX(), sb.centerY())
             val rad = 10f * density
-            canvas.drawRoundRect(sb, rad, rad, selPaint)
+            if (loop == null) canvas.drawRoundRect(sb, rad, rad, selPaint)
             val hr = 6f * density
             // rotate handle
             val ry = sb.top - rotateHandleOffset()
