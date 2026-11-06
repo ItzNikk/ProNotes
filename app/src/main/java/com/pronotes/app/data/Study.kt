@@ -47,6 +47,8 @@ data class QuizQuestion(
     val generated: Boolean = false,
     val right: Int = 0,
     val wrong: Int = 0,
+    /** Picture shown with the question (file in the notebook's cards folder). */
+    val image: String? = null,
 )
 
 @Serializable

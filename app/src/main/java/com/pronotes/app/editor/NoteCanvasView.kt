@@ -77,6 +77,8 @@ interface CanvasHost {
     fun onLinkTarget(page: Int, x: Float, y: Float) {}
     fun onLinkLongPress(id: String) {}
     fun onOpenUrl(url: String) {}
+    /** Maths answer reveal in progress (sweep + glow). */
+    fun mathAnim(): EditorViewModel.MathAnim? = null
     /** Pattern for new tape ("stripes", "dots", "image:<file>", ...). */
     fun tapePattern(): String = "stripes"
     /** The pen is down (true) or lifted (false): the toolbar fades while you write under it. */
@@ -1976,6 +1978,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             }
 
             drawLinks(canvas)
+            drawMathAnim(canvas)
             drawPull(canvas)
             drawSelection(canvas)
             lasso?.let { drawLasso(canvas, it) }
@@ -2019,6 +2022,45 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
 
         private val outlinePath = Path()
+        private val sweepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeCap = Paint.Cap.ROUND; style = Paint.Style.STROKE }
+        private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+        /**
+         * Maths answer reveal: a glowing line runs under the sum from its first symbol to the answer,
+         * shifting from violet to blue to green, then a soft burst blooms where the answer lands.
+         */
+        private fun drawMathAnim(canvas: Canvas) {
+            val a = host.mathAnim() ?: return
+            if (a.page !in pages.indices) return
+            val t = (SystemClock.uptimeMillis() - a.start).toFloat()
+            val sum = RectF(a.sum); val ans = RectF(a.answer)
+            pageMatrix(a.page, m).also { it.mapRect(sum); it.mapRect(ans) }
+            val y = sum.bottom + 6f * density
+            val x0 = sum.left; val x1 = ans.right
+            val p = (t / SWEEP_MS).coerceIn(0f, 1f)
+            val e = 1f - (1f - p) * (1f - p) * (1f - p)          // ease out
+            val head = x0 + (x1 - x0) * e
+            val fadeOut = if (t > SWEEP_MS + 260f) (1f - (t - SWEEP_MS - 260f) / 400f).coerceIn(0f, 1f) else 1f
+            sweepPaint.strokeWidth = 5f * density
+            sweepPaint.shader = android.graphics.LinearGradient(x0, y, maxOf(head, x0 + 1f), y,
+                intArrayOf(0x007C5CFF, 0xFF7C5CFF.toInt(), 0xFF3D6CF5.toInt(), 0xFF1BAF7A.toInt()), floatArrayOf(0f, 0.25f, 0.7f, 1f), android.graphics.Shader.TileMode.CLAMP)
+            sweepPaint.alpha = (255 * fadeOut).toInt()
+            canvas.drawLine(x0, y, head, y, sweepPaint)
+            sweepPaint.shader = null
+            // Spark riding the head of the line.
+            glowPaint.color = 0xFFFFFFFF.toInt(); glowPaint.alpha = (230 * fadeOut).toInt()
+            canvas.drawCircle(head, y, 4f * density, glowPaint)
+            if (t >= SWEEP_MS) {
+                val k = ((t - SWEEP_MS) / 520f).coerceIn(0f, 1f)
+                val r = maxOf(ans.width(), ans.height()) * (0.6f + 0.9f * k)
+                glowPaint.shader = android.graphics.RadialGradient(ans.centerX(), ans.centerY(), r.coerceAtLeast(1f),
+                    intArrayOf((((1f - k) * 0x66).toInt() shl 24) or 0x3D6CF5, 0x003D6CF5), null, android.graphics.Shader.TileMode.CLAMP)
+                glowPaint.alpha = 255
+                canvas.drawCircle(ans.centerX(), ans.centerY(), r, glowPaint)
+                glowPaint.shader = null
+            }
+            postInvalidateOnAnimation()
+        }
         private val textSelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x553D6CF4 }
         private val linkFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt(); setShadowLayer(6f, 0f, 2f, 0x40000000) }
         private val linkGlyph = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Color.WHITE; strokeWidth = 1.8f * density; strokeCap = Paint.Cap.ROUND }

@@ -441,11 +441,11 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         if (removedInk.isNotEmpty()) {
             val answers = items.filter { it is TextItem && it.color == MATH_COLOR }
             if (answers.isNotEmpty()) {
-                val inkLeft = items.filterIsInstance<InkItem>()
+                // Erasing any part of the sum (even just one number) removes its answer.
                 val dead = answers.filter { a ->
                     val ab = a.bounds
-                    val zone = RectF(ab.left - 2400f, ab.top - ab.height() * 0.4f, ab.left + 4f, ab.bottom + ab.height() * 0.4f)
-                    removedInk.any { RectF.intersects(it.bounds, zone) } && inkLeft.none { RectF.intersects(it.bounds, zone) }
+                    val zone = RectF(ab.left - ab.height() * 12f, ab.top - ab.height() * 0.35f, ab.left + 4f, ab.bottom + ab.height() * 0.35f)
+                    removedInk.any { RectF.intersects(it.bounds, zone) }
                 }.map { it.id }.toSet()
                 if (dead.isNotEmpty()) {
                     items = items.filterNot { it.id in dead }
@@ -457,6 +457,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         pages[page] = p.copy(items = items)
         scheduleSave()
     }
+
+    /** A maths answer being revealed: the canvas draws the sweep and the glow. */
+    data class MathAnim(val page: Int, val sum: RectF, val answer: RectF, val start: Long)
+    @Volatile var mathAnim: MathAnim? = null
 
     /** Pen is down: the toolbar fades so you can write under it. */
     var penActive by mutableStateOf(false)
@@ -808,6 +812,55 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     fun cardImage(name: String?): Bitmap? = name?.let { runCatching { android.graphics.BitmapFactory.decodeFile(java.io.File(study.cardDir(), it).path) }.getOrNull() }
 
+    /** What the next dragged box is for: a flashcard (false) or a quiz question (true). */
+    var captureForQuiz by mutableStateOf(false)
+    /** A question waiting in the quiz editor (opened from outside the quiz sheet). */
+    var quizDraft by mutableStateOf<com.pronotes.app.data.QuizQuestion?>(null)
+
+    fun onAreaPicked(pageIdx: Int, r: RectF) {
+        capturingCard = false
+        if (captureForQuiz) { captureForQuiz = false; startQuizFromArea(pageIdx, r) } else startCardFromArea(pageIdx, r)
+    }
+
+    /**
+     * Picture quiz: the boxed area becomes the question's picture. With Gemini Nano the model reads
+     * the picture and writes questions; otherwise you get an editor with the picture to write your own.
+     */
+    private fun startQuizFromArea(pageIdx: Int, r: RectF) {
+        val page = pages.getOrNull(pageIdx) ?: return
+        viewModelScope.launch {
+            val bmp = regionImage(page, r) ?: return@launch
+            val name = "q-${UUID.randomUUID()}.png"
+            withContext(Dispatchers.IO) { java.io.File(study.cardDir(), name).outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+            aiBusy = true
+            val made = try { runCatching { Nano.quizFromImage(bmp, 3) }.getOrNull() } finally { aiBusy = false }
+            if (made.isNullOrEmpty()) {
+                quizDraft = com.pronotes.app.data.QuizQuestion(UUID.randomUUID().toString(), "", listOf("", "", "", ""), 0, pageId = page.id, image = name)
+                showQuizRequest++
+            } else {
+                quiz = quiz + made.map { com.pronotes.app.data.QuizQuestion(UUID.randomUUID().toString(), it.question, it.options, it.answer, it.explanation, page.id, generated = true, image = name) }
+                saveStudy()
+                say("Added ${made.size} picture questions")
+                showQuizRequest++
+            }
+        }
+    }
+
+    /** Bumped to ask the editor to open the quiz sheet. */
+    var showQuizRequest by mutableStateOf(0)
+
+    /** Best score (percent) and its time, per notebook. */
+    fun quizBest(): Pair<Int, Long>? = store.pref("quizBest_$noteId").split(',').let { p ->
+        val s = p.getOrNull(0)?.toIntOrNull() ?: return null
+        s to (p.getOrNull(1)?.toLongOrNull() ?: 0L)
+    }
+    fun recordQuiz(percent: Int, ms: Long): Boolean {
+        val b = quizBest()
+        val better = b == null || percent > b.first || (percent == b.first && ms < b.second)
+        if (better) store.setPref("quizBest_$noteId", "$percent,$ms")
+        return better
+    }
+
     /** Cuts a picture of [r] on page [pageIdx] (paper, PDF and ink) and opens the card editor. */
     fun startCardFromArea(pageIdx: Int, r: RectF) {
         val page = pages.getOrNull(pageIdx) ?: return
@@ -1090,18 +1143,36 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val b = InkLayout.bounds(ink)
         val size = (b.height() * 0.7f).coerceIn(20f, 160f)
         val text = if (raw.trimEnd().endsWith("=")) ans else "= $ans"
-        beginEdit(page)
-        val answer = TextItem(ItemIds.next(), text.take(1), b.right + size * 0.3f, b.top, size, MATH_COLOR)
-        applyItems(page, p.items + answer)
-        // Write the answer out one character at a time, like it is being typed in.
+        val ax = b.right + size * 0.3f
+        val final = TextItem(ItemIds.next(), text, ax, b.top, size, MATH_COLOR)
+        // 1) A glow sweeps along the sum from its first symbol to where the answer goes (drawn by the canvas).
+        mathAnim = MathAnim(page, RectF(b), RectF(final.bounds), android.os.SystemClock.uptimeMillis())
+        onRedraw?.invoke()
         viewModelScope.launch {
-            for (n in 2..text.length) {
-                delay(70)
-                val cur = pages.getOrNull(page) ?: return@launch
-                if (cur.items.none { it.id == answer.id }) return@launch
-                pages[page] = cur.copy(items = cur.items.map { if (it.id == answer.id) answer.copy(text = text.take(n)) else it })
+            delay(SWEEP_MS)
+            val cur = pages.getOrNull(page) ?: return@launch
+            beginEdit(page)
+            // 2) The answer pops in with a springy bounce, its colour easing from the glow into blue.
+            val steps = floatArrayOf(0.35f, 0.7f, 1.08f, 1.22f, 1.14f, 1.0f, 0.95f, 1.0f)
+            val from = 0xFF7C5CFF.toInt()
+            var items = cur.items + final.copy(size = size * steps[0], color = from)
+            applyItems(page, items)
+            for (k in 1 until steps.size) {
+                delay(34)
+                val now = pages.getOrNull(page) ?: return@launch
+                if (now.items.none { it.id == final.id }) return@launch
+                val t = k / (steps.size - 1f)
+                val col = androidx.core.graphics.ColorUtils.blendARGB(from, MATH_COLOR, t)
+                // Keep it anchored on its left middle while it grows and shrinks.
+                val s = size * steps[k]
+                val item = final.copy(size = s, y = b.top + (size - s) * 0.6f, color = if (k == steps.size - 1) MATH_COLOR else col)
+                items = now.items.map { if (it.id == final.id) item else it }
+                pages[page] = now.copy(items = items)
                 onPagesChanged?.invoke()
             }
+            delay(400)
+            mathAnim = null
+            onRedraw?.invoke()
             scheduleSave()
         }
         return true
@@ -1446,3 +1517,6 @@ data class LinkEnd(
 
 /** Colour of maths answers; also how the app recognises them when the sum is erased. */
 val MATH_COLOR: Int = 0xFF3D6CF5.toInt()
+
+/** How long the glow takes to travel along a sum before its answer appears. */
+const val SWEEP_MS = 480L

@@ -344,6 +344,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     LaunchedEffect(vm.textSel, canvas) { canvas?.redraw() }
     var showQuiz by remember { mutableStateOf(false) }
     var showTemplates by remember { mutableStateOf(false) }
+    LaunchedEffect(vm.showQuizRequest) { if (vm.showQuizRequest > 0) showQuiz = true }
     var showCards by remember { mutableStateOf(false) }
 
     // Real background blur (Android 12+) while a card, dialog or sheet is open.
@@ -436,6 +437,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                                 override fun pdfBitmap(page: Page, widthPx: Int, onReady: () -> Unit) = vm.pdfBitmap(page, widthPx, onReady)
                                 override fun pdfDetail(page: Int) = vm.pdfDetail(page)
                                 override fun tapePattern() = vm.tapePattern
+                                override fun mathAnim() = vm.mathAnim
                                 override fun onPenActive(active: Boolean) { vm.penActive = active }
                                 override fun requestDetail(wants: List<Triple<Int, android.graphics.RectF, Float>>, onReady: () -> Unit) = vm.requestDetail(wants, onReady)
                                 override fun highlights(page: Int) = vm.highlights(page)
@@ -444,7 +446,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                                 override fun onCircleCandidate(screenBounds: android.graphics.RectF?) = Unit
                                 override fun onCircleSelect(active: Boolean) = vm.circleSelect(active)
                                 override fun linkEnds() = vm.linkEnds()
-                                override fun onAreaPicked(page: Int, rect: android.graphics.RectF) { vm.capturingCard = false; vm.startCardFromArea(page, rect) }
+                                override fun onAreaPicked(page: Int, rect: android.graphics.RectF) = vm.onAreaPicked(page, rect)
                                 override fun onLinkTarget(page: Int, x: Float, y: Float) = vm.finishLink(page, x, y)
                                 override fun onLinkLongPress(id: String) { vm.linkToDelete = id }
                                 override fun onTextPress(page: Int, x: Float, y: Float) = vm.textPress(page, x, y)
@@ -592,6 +594,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 if (settings.studyTimer && !focus) StudyTimer(vm, settings, areaSize)
 
                 val banner = when {
+                    vm.capturingCard && vm.captureForQuiz -> "Drag a box over the picture or text to quiz on"
                     vm.capturingCard -> "Drag a box over what goes on the card"
                     vm.linkFrom != null -> "Tap where this should link to"
                     else -> null
@@ -649,17 +652,11 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     }
     if (showTemplates) TemplateSheet(vm, onClose = { showTemplates = false })
     vm.summary?.let { pts ->
-        AlertDialog(
-            onDismissRequest = { vm.summary = null },
-            shape = RoundedCornerShape(28.dp),
-            title = { Text("Key points") },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    pts.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
-                }
-            },
-            confirmButton = { TextButton(onClick = { vm.summaryToPage() }) { Text("Add to page") } },
-            dismissButton = { TextButton(onClick = { vm.summary = null }) { Text("Close") } },
+        val clip = androidx.compose.ui.platform.LocalClipboardManager.current
+        SummarySheet(
+            pts, onClose = { vm.summary = null },
+            onCopy = { clip.setText(androidx.compose.ui.text.AnnotatedString(pts.joinToString("\n") { "• $it" })) },
+            onAdd = { vm.summaryToPage() },
         )
     }
     vm.linkToDelete?.let { id ->
@@ -1064,11 +1061,17 @@ private fun BoxScope.ToolDock(vm: EditorViewModel, settings: AppSettings, area: 
         }
         // Fades while the pen is down so you can write right under it.
         val fade by animateFloatAsState(if (vm.penActive) 0.22f else 1f, tween(if (vm.penActive) 220 else 420), label = "fade")
+        // Never wider (or taller) than the free space: leaves room for undo / redo and the page counter.
+        val dens = LocalDensity.current
+        val areaW = with(dens) { area.width.toDp() }
+        val areaH = with(dens) { area.height.toDp() }
+        val limit = if (isVertical) Modifier.heightIn(max = (areaH - 150.dp).coerceAtLeast(160.dp))
+            else Modifier.widthIn(max = (areaW - if (narrow) 24.dp else 300.dp).coerceAtLeast(220.dp))
         val bar = @Composable {
             Surface(
                 shape = Pill, color = glassColor(),
                 shadowElevation = if (dragging) 14.dp else 6.dp,
-                modifier = Modifier.graphicsLayer { alpha = fade }.glassEdge(Pill),
+                modifier = limit.graphicsLayer { alpha = fade }.glassEdge(Pill),
             ) {
                 if (isVertical) Column(Modifier.padding(5.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
                     grip(); tools(); if (hasOptions) { divider(); ToolOptions(vm, true, settings) }

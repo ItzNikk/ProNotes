@@ -24,6 +24,8 @@ class UpdatedReceiver : BroadcastReceiver() {
     @SuppressLint("MissingPermission")
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
+        // The update is installed: the downloaded package is no longer needed.
+        runCatching { java.io.File(context.cacheDir, "updates").deleteRecursively() }
         // Only react to updates that started from inside the app.
         if (!Updater.consumeStartedFlag(context)) return
         val launch = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return

@@ -84,6 +84,39 @@ object Nano {
         return res.take(max).takeIf { it.isNotEmpty() }
     }
 
+    /** Questions about a picture (a diagram, chart or part of a PDF page), read by the model itself. */
+    suspend fun quizFromImage(image: android.graphics.Bitmap, max: Int): List<StudyGen.Mcq>? {
+        if (!ready()) return null
+        val m = model ?: return null
+        val prompt = "Look at this picture from a student's notes. Write up to $max multiple-choice questions about what it shows. " +
+            "Each has 4 options and one correct answer. Use exactly this format, one block per question:\n" +
+            "Q: <question>\nA) <option>\nB) <option>\nC) <option>\nD) <option>\nAnswer: <letter>\nWhy: <one sentence>"
+        val out = withTimeoutOrNull(60_000) {
+            runCatching {
+                m.generateContent(
+                    com.google.mlkit.genai.prompt.generateContentRequest(
+                        com.google.mlkit.genai.prompt.ImagePart(image), com.google.mlkit.genai.prompt.TextPart(prompt),
+                    ) {},
+                ).candidates.firstOrNull()?.text
+            }.getOrNull()
+        } ?: return null
+        return parseQuiz(out, max)
+    }
+
+    private fun parseQuiz(out: String, max: Int): List<StudyGen.Mcq>? {
+        val res = ArrayList<StudyGen.Mcq>()
+        for (block in out.split(Regex("(?m)^\\s*Q:")).drop(1)) {
+            val lines = block.lines().map { it.trim() }.filter { it.isNotEmpty() }
+            val q = lines.firstOrNull() ?: continue
+            val opts = lines.mapNotNull { Regex("""^([A-D])[).:]\s*(.+)$""").find(it)?.groupValues?.get(2) }
+            val ans = lines.firstNotNullOfOrNull { Regex("""(?i)^answer:\s*([A-D])""").find(it)?.groupValues?.get(1) } ?: continue
+            val why = lines.firstNotNullOfOrNull { Regex("""(?i)^why:\s*(.+)$""").find(it)?.groupValues?.get(1) } ?: ""
+            if (opts.size < 2) continue
+            res += StudyGen.Mcq(q, opts.take(4), (ans[0] - 'A').coerceIn(0, opts.size - 1), why)
+        }
+        return res.take(max).takeIf { it.isNotEmpty() }
+    }
+
     suspend fun summary(text: String): List<String>? {
         val out = ask("Summarise the notes below as 4 to 7 short key points. One point per line, starting with \"- \".\n\nNOTES:\n" + clip(text)) ?: return null
         return out.lines().map { it.trim().trimStart('-', '*', '•', ' ') }.filter { it.length > 3 }.takeIf { it.isNotEmpty() }

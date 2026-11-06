@@ -1,5 +1,14 @@
 # Changelog
 
+## v8.5.0
+- **Maths, fixed:** erase any part of a sum (even just one number) and its answer disappears. New reveal: a glow runs along the sum from its first symbol to the answer, shifting violet to blue to green, then the answer bounces in.
+- **Quiz, rebuilt:** questions from a picture (box a diagram; Gemini Nano reads it where available), 2 to 6 options, a stopwatch, streaks, an animated score ring with feedback, a review of missed questions, *Retry missed* and best score per notebook.
+- **Flashcards and summaries** get the same rich look: gradient headers, a study timer, progress and a results screen.
+- **Floating toolbar** never grows over undo / redo or the page counter.
+- **Updates clean up:** the downloaded update file is deleted once it is installed.
+- **Covers:** choosing a notebook cover is smooth (previews are drawn once and reused).
+- **Onboarding:** new tips for maths and quizzes, and a paper-feel choice during setup.
+
 ## v8.0.0
 - **One toolbar:** colours and sizes now sit inside the toolbar itself, after a thin divider. The toolbar floats over the page and fades while your pen is down, so you can write right under it.
 - **Templates, GoodNotes style:** 25 templates in groups (Writing, Grids, Planning, Study, Music): college, wide and legal ruled, handwriting practice, small grid, graph, isometric, hexagons, daily, monthly, meeting, study notes, two columns, storyboard, checklist, guitar tab and more. Pick line spacing, line colour and paper colour, and apply to this page, a new page or every page (+ menu or ⋯ → Page template).

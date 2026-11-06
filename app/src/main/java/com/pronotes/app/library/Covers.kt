@@ -67,9 +67,10 @@ fun CoverArt(spec: String, title: String, noteDir: File?, cacheKey: Any, modifie
                 val color = Color((parts.lastOrNull()?.toLongOrNull() ?: 0xFF3D6CF4).toInt())
                 val pattern = if (parts.firstOrNull() == "pattern") parts.getOrNull(1) else null
                 // Same renderer as the cover page inside the notebook, so both always match.
-                val renderer = remember { PageRenderer(null) }
+                // Drawn once into a cached bitmap: galleries of covers stay smooth while you pick.
                 Canvas(Modifier.fillMaxSize()) {
-                    drawIntoCanvas { c -> renderer.drawCover(c.nativeCanvas, android.graphics.RectF(0f, 0f, size.width, size.height), spec) }
+                    val bmp = CoverCache.get(spec, size.width.toInt(), size.height.toInt())
+                    if (bmp != null) drawIntoCanvas { c -> c.nativeCanvas.drawBitmap(bmp, 0f, 0f, null) }
                 }
                 @Suppress("UNUSED_VARIABLE") val unused = color
                 if (showTitle && pattern == null) {
@@ -150,19 +151,44 @@ private fun DrawScope.drawPattern(name: String, base: Color) {
     if (base.alpha < 0.1f) drawRect(base)
 }
 
-/** Paper template preview, drawn with the same renderer the editor uses. */
+/** Cover and template previews: one shared renderer, results cached as small bitmaps. */
+object CoverCache {
+    private val renderer by lazy { PageRenderer(null) }
+    private val cache = object : android.util.LruCache<String, android.graphics.Bitmap>(24 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: android.graphics.Bitmap) = value.byteCount
+    }
+
+    fun get(spec: String, w: Int, h: Int): android.graphics.Bitmap? {
+        if (w <= 0 || h <= 0) return null
+        val key = "c:$spec:$w:$h"
+        cache.get(key)?.let { return it }
+        val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+        renderer.drawCover(android.graphics.Canvas(bmp), android.graphics.RectF(0f, 0f, w.toFloat(), h.toFloat()), spec)
+        cache.put(key, bmp)
+        return bmp
+    }
+
+    fun paper(style: PaperStyle, tint: Int, w: Int, h: Int): android.graphics.Bitmap? {
+        if (w <= 0 || h <= 0) return null
+        val key = "p:${style.name}:$tint:$w:$h"
+        cache.get(key)?.let { return it }
+        val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+        bmp.eraseColor(tint)
+        val c = android.graphics.Canvas(bmp)
+        renderer.paperColor = tint
+        val s = w / PageSize.WIDTH
+        c.scale(s, s)
+        renderer.drawPaper(c, Page("preview", PageSize.WIDTH, PageSize.HEIGHT, style), null, shadow = false)
+        cache.put(key, bmp)
+        return bmp
+    }
+}
+
+/** Paper template preview, drawn with the same renderer the editor uses (cached). */
 @Composable
 fun PaperPreview(style: PaperStyle, modifier: Modifier = Modifier, tint: Int = 0xFFFFFFFF.toInt()) {
-    val renderer = remember { PageRenderer(null) }
     Canvas(modifier.background(Color(tint))) {
-        renderer.paperColor = tint
-        val scale = size.width / PageSize.WIDTH
-        drawIntoCanvas { c ->
-            val nc = c.nativeCanvas
-            nc.save()
-            nc.scale(scale, scale)
-            renderer.drawPaper(nc, Page("preview", PageSize.WIDTH, PageSize.HEIGHT, style), null, shadow = false)
-            nc.restore()
-        }
+        val bmp = CoverCache.paper(style, tint, size.width.toInt(), size.height.toInt())
+        if (bmp != null) drawIntoCanvas { c -> c.nativeCanvas.drawBitmap(bmp, 0f, 0f, null) }
     }
 }
