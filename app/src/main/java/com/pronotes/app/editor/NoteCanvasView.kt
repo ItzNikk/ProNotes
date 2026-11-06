@@ -112,6 +112,10 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             layer.invalidate()
         }
 
+    /** Read-only: pen and fingers only scroll and zoom; nothing can be changed. */
+    var readOnly = false
+        set(v) { field = v; if (v) { clearSelection(); clearCircleCandidate() } }
+
     /** Side-button action of the pen currently in use (from its own pen profile). */
     private var penSide: SideButton? = null
 
@@ -470,6 +474,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> touchActive = false
         }
+        if (readOnly) { handleFingers(event, action); return true }
         val penIndex = (0 until event.pointerCount).firstOrNull { isPen(event.getToolType(it)) }
         if (penIndex != null) { sawStylus = true; lastStylusTime = now; lastPenTouchAt = now }
 
@@ -574,7 +579,22 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 scroller.forceFinished(true)
                 requestUnbufferedDispatch(e)
                 activePointer = pid
-                if (pendingCircle != null) clearCircleCandidate()
+                // Circle to select: press and hold the end of a loop you just drew.
+                pendingCircle?.let { pc ->
+                    val a = floatArrayOf(pc.endX, pc.endY); pageMatrix(pc.page, tmpMatrix).mapPoints(a)
+                    val near = hypot(px - a[0], py - a[1]) < 40f * density
+                    val fresh = SystemClock.uptimeMillis() - pc.at < CIRCLE_WINDOW_MS
+                    if (near && fresh && pc.itemId != -1L && isPen(e.getToolType(pIdx))) {
+                        activePointer = pid
+                        circleHoldArmed = true
+                        holdDownX = px; holdDownY = py
+                        mode = Mode.IGNORE
+                        layer.invalidate()
+                        postDelayed(circleHoldRunnable, CIRCLE_HOLD_MS)
+                        return
+                    }
+                    clearCircleCandidate()
+                }
                 val (ddx, ddy) = toDoc(px, py)
                 activePage = pageAt(ddx, ddy)
                 points.clear()
@@ -625,6 +645,14 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             }
             MotionEvent.ACTION_MOVE -> {
                 val idx = e.findPointerIndex(activePointer).takeIf { it >= 0 } ?: return
+                if (circleHoldArmed) {
+                    if (hypot(e.getX(idx) - holdDownX, e.getY(idx) - holdDownY) > touchSlop * 1.5f) {
+                        // Not a hold: it was the start of a new stroke after all.
+                        circleHoldArmed = false; removeCallbacks(circleHoldRunnable); clearCircleCandidate(); layer.invalidate()
+                        handleDraw(e, MotionEvent.ACTION_DOWN, activePointer)
+                    }
+                    return
+                }
                 when (mode) {
                     Mode.INK -> {
                         val id = strokeId ?: return
@@ -695,6 +723,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             }
             MotionEvent.ACTION_UP -> {
                 removeCallbacks(holdRunnable)
+                if (circleHoldArmed) { circleHoldArmed = false; removeCallbacks(circleHoldRunnable); layer.invalidate() }
                 val isTap = SystemClock.uptimeMillis() - downTime < 350 && hypot(px - downX, py - downY) < touchSlop
                 when (mode) {
                     Mode.INK -> finishInk(e, isTap)
@@ -808,7 +837,53 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 return
             }
         }
+        if (settings.circleToLasso && strokeTool == Tool.PEN && isLooseLoop(points)) {
+            val ids = loopSelects(activePage, points)
+            if (ids.isNotEmpty()) {
+                val end = points.last()
+                pendingCircle = PendingCircle(id, activePage, ids, loop = ArrayList(points), endX = end.first, endY = end.second, at = SystemClock.uptimeMillis())
+                layer.invalidate()
+            }
+        }
         wetInk.finishStroke(e, activePointer, id)
+    }
+
+    /** What a hand-drawn loop would select: anything mostly or partly inside. */
+    private fun loopSelects(page: Int, loop: List<Pt>): Set<Long> {
+        val p = pages.getOrNull(page) ?: return emptySet()
+        val lasso = Lasso(loop, settings.lassoTouching, minInside = 0.3f)
+        return p.items.filter { lassoAllows(it) && lasso.selects(it) }.map { it.id }.toSet()
+    }
+
+    private var circleHoldArmed = false
+    private var holdDownX = 0f
+    private var holdDownY = 0f
+    private val circleHoldRunnable = Runnable { fireCircleHold() }
+
+    /** The end of the loop was held: the loop ink becomes the lasso and the pen can drag at once. */
+    private fun fireCircleHold() {
+        if (!circleHoldArmed) return
+        circleHoldArmed = false
+        val pc = pendingCircle ?: return
+        pendingCircle = null
+        host.onCircleCandidate(null)
+        val p = pages.getOrNull(pc.page) ?: return
+        host.beginEdit(pc.page)
+        updatePage(pc.page, p.items.filterNot { it.id == pc.itemId })
+        val ids = pc.ids.filter { id -> pages[pc.page].items.any { it.id == id } }.toSet()
+        if (ids.isEmpty()) return
+        buzz()
+        val screen = pc.loop.map { (x, y) -> val a = floatArrayOf(x, y); pageMatrix(pc.page, tmpMatrix).mapPoints(a); a[0] to a[1] }
+        selectItems(pc.page, ids, outline = pc.loop)
+        if (!circleSelect) { circleSelect = true; host.onCircleSelect(true) }
+        layer.playLassoMorph(screen) {}
+        val (lx, ly) = toLocal(holdDownX, holdDownY, pc.page)
+        activePage = pc.page
+        grab = Grab.MOVE
+        mode = Mode.MOVE
+        grabStartX = lx; grabStartY = ly
+        liveScale = 1f; liveDeg = 0f
+        liveMatrix = Matrix()
     }
 
     private fun addStraightHighlight(a: Pt, b0: Pt) {
@@ -858,33 +933,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         val p = pages.getOrNull(activePage) ?: return
         if (points.size < 6 || pathLength(points) < 30f) return
 
-        if (settings.circleToLasso && strokeTool == Tool.PEN && isLooseLoop(points)) {
-            // Free-hand loops are rough: anything mostly or partly inside counts.
-            val lasso = Lasso(points, settings.lassoTouching, minInside = 0.3f)
-            val ids = p.items.filter { lassoAllows(it) && lasso.selects(it) }.map { it.id }.toSet()
-            if (ids.isNotEmpty()) {
-                holdFired = true
-                cancelWet(id)
-                buzz()
-                // Like GoodNotes: the ink loop itself becomes the dashed lasso, the content is selected
-                // at once, and the pen can keep going to drag it without lifting.
-                val page = activePage
-                val loop = ArrayList(points)
-                val screen = loop.map { (x, y) ->
-                    val a = floatArrayOf(x, y); pageMatrix(page, tmpMatrix).mapPoints(a); a[0] to a[1]
-                }
-                selectItems(page, ids, outline = loop)
-                if (!circleSelect) { circleSelect = true; host.onCircleSelect(true) }
-                layer.playLassoMorph(screen) {}
-                val (lx, ly) = loop.last()
-                grab = Grab.MOVE
-                mode = Mode.MOVE
-                grabStartX = lx; grabStartY = ly
-                liveScale = 1f; liveDeg = 0f
-                liveMatrix = Matrix()
-                return
-            }
-        }
+        // A loop around content stays ink while drawing; press and hold its end afterwards to select.
+        if (settings.circleToLasso && strokeTool == Tool.PEN && isLooseLoop(points) && loopSelects(activePage, points).isNotEmpty()) return
         if (strokeTool == Tool.HIGHLIGHTER) {
             holdFired = true
             cancelWet(id)
@@ -947,7 +997,10 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
     // ------------------------------------------------------- circle to select
 
-    private class PendingCircle(val strokeId: InProgressStrokeId, val page: Int, val ids: Set<Long>, var itemId: Long = -1)
+    private class PendingCircle(
+        val strokeId: InProgressStrokeId, val page: Int, val ids: Set<Long>, var itemId: Long = -1,
+        val loop: List<Pt> = emptyList(), val endX: Float = 0f, val endY: Float = 0f, val at: Long = 0L,
+    )
 
     private var pendingCircle: PendingCircle? = null
 
@@ -1308,7 +1361,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 val quick = SystemClock.uptimeMillis() - fingerDownTime < 300
-                if (action == MotionEvent.ACTION_UP && quick && !fingerMoved && settings.fingerTapUndo) {
+                if (action == MotionEvent.ACTION_UP && quick && !fingerMoved && settings.fingerTapUndo && !readOnly) {
                     when (maxFingers) {
                         2 -> host.undo()
                         3 -> host.redo()
@@ -1492,6 +1545,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
     companion object {
         private const val HOLD_MS = 550L
+        /** How long after drawing a loop its end can be held to select. */
+        private const val CIRCLE_WINDOW_MS = 6000L
+        private const val CIRCLE_HOLD_MS = 450L
         private const val PALM_WINDOW_MS = 300L
     }
 
@@ -1675,6 +1731,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             drawSelection(canvas)
             lasso?.let { drawLasso(canvas, it) }
             drawMorph(canvas)
+            drawLoopEnd(canvas)
             (eraserAt ?: hoverAt)?.let { (x, y) ->
                 val rad = host.eraserRadius()
                 canvas.drawCircle(x, y, rad, eraserFill)
@@ -1713,6 +1770,22 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
 
         private val outlinePath = Path()
+        private val loopHint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f * density; color = 0xFF3D6CF4.toInt() }
+        private val loopDot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt() }
+
+        /** Pulsing dot at the end of a fresh loop: "press and hold here to select". */
+        private fun drawLoopEnd(canvas: Canvas) {
+            val pc = pendingCircle ?: return
+            if (pc.itemId == -1L) return
+            val age = SystemClock.uptimeMillis() - pc.at
+            if (age > CIRCLE_WINDOW_MS) return
+            val a = floatArrayOf(pc.endX, pc.endY); pageMatrix(pc.page, m).mapPoints(a)
+            val t = if (circleHoldArmed) 1f else (age % 1100) / 1100f
+            loopHint.alpha = if (circleHoldArmed) 230 else ((1f - t) * 200).toInt()
+            canvas.drawCircle(a[0], a[1], (7f + 12f * t) * density, loopHint)
+            canvas.drawCircle(a[0], a[1], 4.5f * density, loopDot)
+            postInvalidateOnAnimation()
+        }
 
         private fun drawSelection(canvas: Canvas) {
             val loop = selectionOutline

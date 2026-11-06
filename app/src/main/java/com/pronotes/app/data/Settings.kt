@@ -102,7 +102,11 @@ data class AppSettings(
     val keepScreenOn: Boolean = false,
     val darkPdf: Boolean = false,
     // toolbar
-    val toolbarDock: ToolbarDock = ToolbarDock.HEADER,
+    val toolbarDock: ToolbarDock = ToolbarDock.TOP,
+    /** Hide the toolbar while the screen is being recorded (Android 15+). */
+    val hideToolsWhenRecording: Boolean = false,
+    /** Study stopwatch in the editor. */
+    val studyTimer: Boolean = true,
     val toolbarSize: ToolbarSize = ToolbarSize.REGULAR,
     val showTabs: Boolean = true,
     /** Tool order, comma separated enum names. Hidden tools are prefixed with "-". */
@@ -171,8 +175,10 @@ class SettingsStore private constructor(context: Context) {
             pageNumbers = b("pageNumbers", d.pageNumbers),
             keepScreenOn = b("keepScreenOn", d.keepScreenOn),
             darkPdf = b("darkPdf", d.darkPdf),
-            // v5.1 moves everyone to the top bar + side panel layout once; later changes are kept.
-            toolbarDock = if (!prefs.contains("dockV51")) ToolbarDock.HEADER else enumOf("toolbarDock", d.toolbarDock),
+            // v5.2 puts the floating toolbar back once (v5.1 had moved everyone to the top bar).
+            toolbarDock = if (!prefs.contains("dockV52")) ToolbarDock.TOP else enumOf("toolbarDock", d.toolbarDock),
+            hideToolsWhenRecording = b("hideRec", d.hideToolsWhenRecording),
+            studyTimer = b("studyTimer", d.studyTimer),
             toolbarSize = enumOf("toolbarSize", d.toolbarSize),
             showTabs = b("showTabs", d.showTabs),
             toolbarTools = prefs.getString("toolbarTools", "") ?: "",
@@ -224,7 +230,9 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("keepScreenOn", s.keepScreenOn)
             .putBoolean("darkPdf", s.darkPdf)
             .putString("toolbarDock", s.toolbarDock.name)
-            .putBoolean("dockV51", true)
+            .putBoolean("dockV52", true)
+            .putBoolean("hideRec", s.hideToolsWhenRecording)
+            .putBoolean("studyTimer", s.studyTimer)
             .putString("toolbarSize", s.toolbarSize.name)
             .putBoolean("showTabs", s.showTabs)
             .putString("toolbarTools", s.toolbarTools)

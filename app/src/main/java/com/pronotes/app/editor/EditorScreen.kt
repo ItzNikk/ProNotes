@@ -80,6 +80,8 @@ import androidx.compose.material.icons.outlined.FormatBold
 import androidx.compose.material.icons.outlined.FormatItalic
 import androidx.compose.material.icons.outlined.FormatUnderlined
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PictureAsPdf
@@ -309,6 +311,25 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
 
     fun switchTo(id: String) { if (id != noteId) { vm.saveNow(); onSwitchNote(id) } }
 
+    // Android 15+: know when the screen is being recorded, to hide the toolbar if the user wants.
+    var recording by remember { mutableStateOf(false) }
+    DisposableEffect(settings.hideToolsWhenRecording) {
+        val activity = context as? android.app.Activity
+        var unregister: (() -> Unit)? = null
+        if (settings.hideToolsWhenRecording && activity != null && android.os.Build.VERSION.SDK_INT >= 35) {
+            runCatching {
+                val wm = activity.windowManager
+                val cb = java.util.function.Consumer<Int> { state -> recording = state == android.view.WindowManager.SCREEN_RECORDING_STATE_VISIBLE }
+                val now = wm.addScreenRecordingCallback(activity.mainExecutor, cb)
+                recording = now == android.view.WindowManager.SCREEN_RECORDING_STATE_VISIBLE
+                unregister = { runCatching { wm.removeScreenRecordingCallback(cb) } }
+            }
+        } else recording = false
+        onDispose { unregister?.invoke() }
+    }
+    val hideTools = focus || vm.readOnly || (settings.hideToolsWhenRecording && recording)
+    LaunchedEffect(vm.readOnly, canvas) { canvas?.readOnly = vm.readOnly }
+
     // Real background blur (Android 12+) while a card, dialog or sheet is open.
     val overlayOpen = vm.textEdit != null || vm.stickyEdit != null || renaming || goTo || pageColor ||
         showStickers || vm.cardOpen || wheelAt != null
@@ -333,7 +354,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                         )
                     }
                     TopBar(
-                        vm = vm, settings = settings, showSearch = showSearch, showPages = showPages,
+                        vm = vm, settings = settings, showSearch = showSearch, showPages = showPages, hideTools = hideTools,
                         onHome = { vm.saveNow(); onBack() },
                         onPages = { showPages = !showPages },
                         onSearch = { showSearch = !showSearch; if (!showSearch) vm.clearSearch() },
@@ -403,6 +424,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                                 override fun onZoom(percent: Int?) = vm.onZoom(percent)
                                 override fun penProfile(deviceName: String) = store.registerPen(deviceName)
                                 override fun onPenButton(doubleClick: Boolean, x: Float, y: Float, deviceName: String) {
+                                    if (vm.readOnly) return
                                     val prof = store.registerPen(deviceName)
                                     when (if (doubleClick) prof.doubleClick else prof.click) {
                                         com.pronotes.app.data.PenAction.QUICK_WHEEL -> wheelAt = Offset(x, y)
@@ -445,7 +467,8 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                     )
                 }
 
-                if (settings.toolbarDock != ToolbarDock.HEADER) {
+                if (hideTools) Unit
+                else if (settings.toolbarDock != ToolbarDock.HEADER) {
                     ToolDock(vm, settings, areaSize, onDock = { d -> store.update { it.copy(toolbarDock = d) } })
                 } else {
                     // GoodNotes-style: undo / redo float at the top left, tool settings in a panel on the right.
@@ -472,6 +495,27 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                         shape = Pill, color = MaterialTheme.colorScheme.surface, shadowElevation = 6.dp,
                         modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp).clickable { focus = false },
                     ) { ProIconView(ProIcon.CLOSE, MaterialTheme.colorScheme.onSurface, Modifier.padding(10.dp).size(20.dp)) }
+                }
+
+                if (vm.readOnly && !focus) {
+                    Surface(
+                        shape = Pill, color = glassColor(), shadowElevation = 4.dp,
+                        modifier = Modifier.align(Alignment.TopCenter).padding(12.dp).glassEdge(Pill).clickable { vm.toggleReadOnly() },
+                    ) {
+                        Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Outlined.Lock, null, Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Read only · tap to edit", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+
+                if (settings.studyTimer && !focus) {
+                    StudyTimer(
+                        vm,
+                        Modifier.align(if (settings.toolbarDock == ToolbarDock.BOTTOM) Alignment.TopStart else Alignment.BottomCenter)
+                            .navigationBarsPadding().padding(16.dp),
+                    )
                 }
 
                 if (vm.pages.isNotEmpty()) {
@@ -613,7 +657,7 @@ private fun BarIcon(icon: ProIcon, label: String, enabled: Boolean = true, activ
 
 @Composable
 private fun TopBar(
-    vm: EditorViewModel, settings: AppSettings, showSearch: Boolean, showPages: Boolean,
+    vm: EditorViewModel, settings: AppSettings, showSearch: Boolean, showPages: Boolean, hideTools: Boolean,
     onHome: () -> Unit, onPages: () -> Unit, onSearch: () -> Unit, onRename: () -> Unit, onFocus: () -> Unit,
     onExport: () -> Unit, onShare: () -> Unit, onSharePage: () -> Unit, onSettings: () -> Unit, onGoTo: () -> Unit,
     onScrollToggle: () -> Unit, onPaste: () -> Unit, onPageColor: () -> Unit, onPageImage: () -> Unit,
@@ -622,7 +666,7 @@ private fun TopBar(
         BarIcon(ProIcon.HOME, "Library", onClick = onHome)
         BarIcon(ProIcon.SIDEBAR, "Pages", active = showPages, onClick = onPages)
         BarIcon(ProIcon.SEARCH, "Search", active = showSearch, onClick = onSearch)
-        if (settings.toolbarDock == ToolbarDock.HEADER) {
+        if (settings.toolbarDock == ToolbarDock.HEADER && !hideTools) {
             Spacer(Modifier.weight(1f))
             Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                 ToolbarOrder.visible(settings.toolbarTools).forEach { t -> ToolButton(vm, t, settings) }
@@ -653,6 +697,11 @@ private fun TopBar(
             DropdownMenu(more, { more = false }, shape = RoundedCornerShape(18.dp)) {
                 DropdownMenuItem(text = { Text("Rename notebook") }, leadingIcon = { Icon(Icons.Outlined.Edit, null) },
                     onClick = { more = false; onRename() })
+                DropdownMenuItem(
+                    text = { Text(if (vm.readOnly) "Turn off read only" else "Read only") },
+                    leadingIcon = { Icon(Icons.Outlined.Lock, null) },
+                    onClick = { more = false; vm.toggleReadOnly() },
+                )
                 DropdownMenuItem(text = { Text("Go to page…") }, leadingIcon = { Icon(Icons.Outlined.SwapHoriz, null) },
                     onClick = { more = false; onGoTo() })
                 DropdownMenuItem(text = { Text(if (vm.currentPage?.bookmarked == true) "Remove bookmark" else "Bookmark page") },
@@ -1543,6 +1592,64 @@ private fun PagePill(index: Int, count: Int, bookmarked: Boolean, onPrev: () -> 
                 }
             }
             IconButton(onClick = onNext, enabled = index < count - 1) { Icon(Icons.Filled.KeyboardArrowUp, "Next page", Modifier.graphicsLayer { rotationZ = 90f }) }
+        }
+    }
+}
+
+// ============================================================== study timer
+
+/**
+ * Stopwatch for this study session. Runs while the notebook is open and the app is in front.
+ * Tap to pause or resume; long-press for the notebook total and a reset. Time is saved every 30 s.
+ */
+@Composable
+private fun StudyTimer(vm: EditorViewModel, modifier: Modifier) {
+    var running by remember { mutableStateOf(true) }
+    var session by remember { mutableStateOf(0L) }
+    var unsaved by remember { mutableStateOf(0L) }
+    var menu by remember { mutableStateOf(false) }
+    var resumed by remember { mutableStateOf(true) }
+    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(owner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            resumed = owner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) { vm.addStudy(unsaved); unsaved = 0L }
+        }
+        owner.lifecycle.addObserver(obs)
+        onDispose { owner.lifecycle.removeObserver(obs); vm.addStudy(unsaved); unsaved = 0L }
+    }
+    LaunchedEffect(running, resumed) {
+        while (running && resumed) {
+            kotlinx.coroutines.delay(1000)
+            session += 1000; unsaved += 1000
+            if (unsaved >= 30_000) { vm.addStudy(unsaved); unsaved = 0L }
+        }
+    }
+    fun fmt(ms: Long): String {
+        val s = ms / 1000; val h = s / 3600; val m = (s % 3600) / 60; val sec = s % 60
+        return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%02d:%02d".format(m, sec)
+    }
+    Box(modifier) {
+        Surface(
+            shape = Pill, color = glassColor(), shadowElevation = 4.dp,
+            modifier = Modifier.glassEdge(Pill).clip(Pill).combinedClickableCompat({ running = !running }, { menu = true }),
+        ) {
+            Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Outlined.Timer, if (running) "Pause study timer" else "Resume study timer", Modifier.size(16.dp),
+                    tint = if (running) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(fmt(session), style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"))
+                if (!running) { Spacer(Modifier.width(6.dp)); Text("paused", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+        }
+        DropdownMenu(menu, { menu = false }, shape = RoundedCornerShape(18.dp)) {
+            val total = vm.studyTotal() + unsaved
+            DropdownMenuItem(text = { Text("This session: ${fmt(session)}") }, onClick = { menu = false }, enabled = false)
+            DropdownMenuItem(text = { Text("This notebook: ${fmt(total)}") }, onClick = { menu = false }, enabled = false)
+            DropdownMenuItem(text = { Text(if (running) "Pause" else "Resume") }, onClick = { menu = false; running = !running })
+            DropdownMenuItem(text = { Text("Restart session") }, onClick = { menu = false; vm.addStudy(unsaved); unsaved = 0L; session = 0L; running = true })
         }
     }
 }

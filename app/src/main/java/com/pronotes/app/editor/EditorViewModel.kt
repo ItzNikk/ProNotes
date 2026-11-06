@@ -146,6 +146,15 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var onScrollTo: ((Int) -> Unit)? = null
     var onRedraw: (() -> Unit)? = null
 
+    /** Read-only: the notebook can be read and scrolled, not changed. Remembered per notebook. */
+    var readOnly by mutableStateOf(store.pref("ro_$noteId") == "1")
+        private set
+    fun toggleReadOnly() { readOnly = !readOnly; store.setPref("ro_$noteId", if (readOnly) "1" else "0") }
+
+    /** Total study time in this notebook, in milliseconds (sessions add to it). */
+    fun studyTotal(): Long = store.pref("study_$noteId", "0").toLongOrNull() ?: 0L
+    fun addStudy(ms: Long) { if (ms > 0) store.setPref("study_$noteId", (studyTotal() + ms).toString()) }
+
     /** The page this notebook was on when it was last closed. */
     var startPage = 0
         private set

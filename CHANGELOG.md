@@ -1,5 +1,12 @@
 # Changelog
 
+## v5.2.0
+- **Toolbar:** the floating toolbar is back as the default. The top bar + side panel layout stays in Settings.
+- **Circle to select:** draw a loop around content and lift the pen. A blue dot pulses at the loop's end. Press and hold it to turn the loop into a lasso, then drag.
+- **Study timer:** a stopwatch for each session. Tap to pause, long-press for the notebook total or to restart.
+- **Read only:** lock a notebook from the More menu. The pen and fingers only scroll and zoom.
+- **Recording:** option to hide the toolbar while the screen is recorded (Android 15+).
+
 ## v5.1.0
 - **Toolbar:** new default layout. Tools sit in the top bar, undo and redo float at the top left, and the pen types, sizes and colours sit in a panel on the right. The page counter moves to the bottom left.
 - **Circle to select:** draw a loop around content and hold. The loop turns into a dashed lasso, the toolbar switches to lasso, and you can drag right away without lifting the pen. Tap outside to let go and go back to the pen.

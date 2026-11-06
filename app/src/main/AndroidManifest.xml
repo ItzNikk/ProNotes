@@ -7,6 +7,8 @@
     <!-- Reopen the app after an in-app update (opt-in), or tell the user it is ready. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Lets the editor hide its toolbar while the screen is recorded (Android 15+). -->
+    <uses-permission android:name="android.permission.DETECT_SCREEN_RECORDING" />
 
     <application
         android:allowBackup="true"
