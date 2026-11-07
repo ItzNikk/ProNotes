@@ -360,7 +360,8 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().then(blurMod).background(MaterialTheme.colorScheme.background)) {
         AnimatedVisibility(!focus, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-            Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 1.dp) {
+            // The fixed bar wears the accent colour (a soft tint), so it stands apart from the page.
+            Surface(color = androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.primary, 0.14f), shadowElevation = 2.dp) {
                 Column(Modifier.statusBarsPadding()) {
                     if (settings.showTabs) {
                         TabStrip(
@@ -514,7 +515,18 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 } else {
                     // GoodNotes style: tools in the top bar, their pens, sizes and colours in a small
                     // movable bar just under it.
-                    Box(Modifier.align(Alignment.TopCenter).padding(top = 10.dp)) { OptionsBar(vm, vertical = false, settings = settings) }
+                    // The colour bar can be dragged anywhere; its spot is kept for next time.
+                    var optPos by remember { mutableStateOf(store.pref("optBarPos").split(',').let { Offset(it.getOrNull(0)?.toFloatOrNull() ?: 0f, it.getOrNull(1)?.toFloatOrNull() ?: 0f) }) }
+                    Box(
+                        Modifier.align(Alignment.TopCenter).padding(top = 10.dp)
+                            .offset { IntOffset(optPos.x.roundToInt(), optPos.y.roundToInt()) }
+                            .pointerInput(Unit) {
+                                detectDragGestures(onDragEnd = { store.setPref("optBarPos", "${optPos.x},${optPos.y}") }) { ch, d ->
+                                    ch.consume()
+                                    optPos = Offset((optPos.x + d.x).coerceIn(-areaSize.width / 2f, areaSize.width / 2f), (optPos.y + d.y).coerceIn(0f, areaSize.height - 80f))
+                                }
+                            },
+                    ) { OptionsBar(vm, vertical = false, settings = settings) }
                 }
 
                 vm.zoomPercent?.let { z ->
@@ -534,17 +546,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 val narrowScreen = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600
                 // Floating bits fade while the pen writes, so nothing hides the page.
                 val overlayFade by animateFloatAsState(if (vm.penActive) 0.12f else 1f, tween(300), label = "ov")
-                if (!hideTools && (!narrowScreen || settings.toolbarDock == ToolbarDock.HEADER)) {
-                    Surface(
-                        shape = Pill, color = glassColor(), shadowElevation = 4.dp,
-                        modifier = Modifier.align(Alignment.TopStart).padding(12.dp).graphicsLayer { alpha = overlayFade }.glassEdge(Pill),
-                    ) {
-                        Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            BarIcon(ProIcon.UNDO, "Undo", enabled = vm.canUndo, onClick = vm::undo)
-                            BarIcon(ProIcon.REDO, "Redo", enabled = vm.canRedo, onClick = vm::redo)
-                        }
-                    }
-                }
+                @Suppress("UNUSED_VARIABLE") val unusedNarrow = narrowScreen
 
                 // Long-press on PDF text: copy, highlight, flashcard, search.
                 vm.textMenu?.let { r ->
@@ -586,7 +588,6 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                     vm.aiBusy, modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 180.dp),
                     enter = fadeIn() + scaleIn(initialScale = 0.8f), exit = fadeOut() + scaleOut(targetScale = 0.8f),
                 ) { ThinkingPill() }
-                if (settings.pet && !focus) StudyPet(vm, Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 18.dp, bottom = 84.dp))
 
                 if (vm.readOnly && !focus) {
                     Surface(
@@ -810,6 +811,11 @@ private fun TopBar(
         BarIcon(ProIcon.HOME, "Library", onClick = onHome)
         BarIcon(ProIcon.SIDEBAR, "Pages", active = showPages, onClick = onPages)
         BarIcon(ProIcon.SEARCH, "Search", active = showSearch, onClick = onSearch)
+        // Undo and redo always live in the fixed top bar.
+        Box(Modifier.padding(horizontal = 6.dp).width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant))
+        BarIcon(ProIcon.UNDO, "Undo", enabled = vm.canUndo, onClick = vm::undo)
+        BarIcon(ProIcon.REDO, "Redo", enabled = vm.canRedo, onClick = vm::redo)
+        if (settings.pet) StudyPet(vm, Modifier.padding(start = 4.dp), compact = true)
         if (settings.toolbarDock == ToolbarDock.HEADER && !hideTools) {
             Spacer(Modifier.weight(1f))
             Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
@@ -1057,10 +1063,7 @@ private fun BoxScope.ToolDock(vm: EditorViewModel, settings: AppSettings, area: 
         val narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600
         val tools = @Composable {
             // Phones: undo and redo live in the bar itself, to save room.
-            if (narrow) {
-                BarIcon(ProIcon.UNDO, "Undo", enabled = vm.canUndo, onClick = vm::undo)
-                BarIcon(ProIcon.REDO, "Redo", enabled = vm.canRedo, onClick = vm::redo)
-            }
+
             ToolbarOrder.visible(settings.toolbarTools).forEach { t -> ToolButton(vm, t, settings) }
         }
         val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.TEXT)

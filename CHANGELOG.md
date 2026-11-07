@@ -1,5 +1,12 @@
 # Changelog
 
+## v9.2.0
+- **Maths like Apple Notes:** the answer is written in, letter by letter, in a handwriting style and a warm gold colour. Fixed: erasing part of a sum now always removes its answer (the canvas could put it back).
+- **Fixed top bar:** undo, redo and Pip the pet live there now, and the bar has its own soft accent tint.
+- **Pip got smarter:** hops on page turns, cheers new cards and quizzes, thinks with the AI and dozes off when you take a break. Tap for a cheer.
+- **Colour bar** (top bar layout) can be dragged anywhere and stays there.
+- **Zoom out** stops at the page, so you only see the page you are on.
+
 ## v9.1.0
 - **Pip, your study buddy:** a little pet in the corner. It breathes and blinks, watches while you write, thinks along with the AI, cheers when cards or links are added, and wiggles when you tap it. Turn it off in Settings.
 - **AI thinking animation:** a glowing *Thinking* pill with bouncing dots while on-device AI works.

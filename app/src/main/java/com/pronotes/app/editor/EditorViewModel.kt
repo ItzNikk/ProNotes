@@ -439,7 +439,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val newIds = items.mapTo(HashSet()) { it.id }
         val removedInk = p.items.filter { it is InkItem && it.id !in newIds }
         if (removedInk.isNotEmpty()) {
-            val answers = items.filter { it is TextItem && it.color == MATH_COLOR }
+            val answers = items.filter { it is TextItem && (it.color or (0xFF shl 24)).let { c -> c == MATH_COLOR || c == MATH_COLOR_OLD } }
             if (answers.isNotEmpty()) {
                 // Erasing any part of the sum (even just one number) removes its answer.
                 val dead = answers.filter { a ->
@@ -448,15 +448,14 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                     val zone = RectF(ab.left - ab.height() * 12f, ab.top - ab.height() * 0.35f, ab.left + 4f, ab.bottom + ab.height() * 0.35f)
                     removedInk.any { RectF.intersects(it.bounds, zone) }
                 }.map { it.id }.toSet()
-                if (dead.isNotEmpty()) {
-                    items = items.filterNot { it.id in dead }
-                    viewModelScope.launch { onPagesChanged?.invoke() }
-                }
+                if (dead.isNotEmpty()) items = items.filterNot { it.id in dead }
             }
         }
         noteNewInk(page, p.items, items)
         pages[page] = p.copy(items = items)
         scheduleSave()
+        // The canvas must drop the answer right now, or its next eraser move would put it back.
+        if (items.size != items0.size) onPagesChanged?.invoke()
     }
 
     /** Answer id -> box of the sum it answers (this session; older answers use the place rule). */
@@ -1163,36 +1162,27 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val size = (b.height() * 0.7f).coerceIn(20f, 160f)
         val text = if (raw.trimEnd().endsWith("=")) ans else "= $ans"
         val ax = b.right + size * 0.3f
-        val final = TextItem(ItemIds.next(), text, ax, b.top, size, MATH_COLOR)
+        // Like Apple Notes Math: the answer appears in a handwriting style and a warm accent colour,
+        // written in letter by letter, each letter fading in.
+        val hand = TextStyleSpec(font = TextFont.HAND)
+        val final = TextItem(ItemIds.next(), text, ax, b.top, size * 1.1f, MATH_COLOR, hand)
         mathSrc[final.id] = RectF(b)
-        // 1) A glow sweeps along the sum from its first symbol to where the answer goes (drawn by the canvas).
-        mathAnim = MathAnim(page, RectF(b), RectF(final.bounds), android.os.SystemClock.uptimeMillis())
-        onRedraw?.invoke()
         viewModelScope.launch {
-            delay(SWEEP_MS)
             val cur = pages.getOrNull(page) ?: return@launch
             beginEdit(page)
-            // 2) The answer pops in with a springy bounce, its colour easing from the glow into blue.
-            val steps = floatArrayOf(0.35f, 0.7f, 1.08f, 1.22f, 1.14f, 1.0f, 0.95f, 1.0f)
-            val from = 0xFFFF8A3D.toInt()
-            var items = cur.items + final.copy(size = size * steps[0], color = from)
-            applyItems(page, items)
-            for (k in 1 until steps.size) {
-                delay(34)
+            applyItems(page, cur.items + final.copy(text = "", color = MATH_COLOR and 0x00FFFFFF))
+            for (n in 1..text.length) for (a in listOf(0x55, 0xAA, 0xFF)) {
+                delay(28)
                 val now = pages.getOrNull(page) ?: return@launch
                 if (now.items.none { it.id == final.id }) return@launch
-                val t = k / (steps.size - 1f)
-                val col = androidx.core.graphics.ColorUtils.blendARGB(from, MATH_COLOR, t)
-                // Keep it anchored on its left middle while it grows and shrinks.
-                val s = size * steps[k]
-                val item = final.copy(size = s, y = b.top + (size - s) * 0.6f, color = if (k == steps.size - 1) MATH_COLOR else col)
-                items = now.items.map { if (it.id == final.id) item else it }
-                pages[page] = now.copy(items = items)
+                // Earlier letters are solid; the newest one fades in (drawn by overlaying lighter colour on the whole word).
+                val item = final.copy(text = text.take(n), color = (MATH_COLOR and 0x00FFFFFF) or (a shl 24))
+                pages[page] = now.copy(items = now.items.map { if (it.id == final.id) item else it })
                 onPagesChanged?.invoke()
             }
-            delay(400)
-            mathAnim = null
-            onRedraw?.invoke()
+            val now = pages.getOrNull(page) ?: return@launch
+            pages[page] = now.copy(items = now.items.map { if (it.id == final.id) final else it })
+            onPagesChanged?.invoke()
             scheduleSave()
         }
         return true
@@ -1578,7 +1568,9 @@ data class LinkEnd(
 )
 
 /** Colour of maths answers; also how the app recognises them when the sum is erased. */
-val MATH_COLOR: Int = 0xFF3D6CF5.toInt()
+val MATH_COLOR: Int = 0xFFF2A007.toInt()
+/** Answers made before v9.2 used this blue. */
+val MATH_COLOR_OLD: Int = 0xFF3D6CF5.toInt()
 
 /** How long the glow takes to travel along a sum before its answer appears. */
 const val SWEEP_MS = 480L

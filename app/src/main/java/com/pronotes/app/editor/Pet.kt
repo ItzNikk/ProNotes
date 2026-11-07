@@ -79,7 +79,7 @@ private fun Modifier.matchParentSizeCompat() = this.then(Modifier.size(220.dp, 4
  * thinks with you while the AI works, cheers when something is added, and wiggles when tapped.
  */
 @Composable
-fun StudyPet(vm: EditorViewModel, modifier: Modifier) {
+fun StudyPet(vm: EditorViewModel, modifier: Modifier, compact: Boolean = false) {
     val t = rememberInfiniteTransition(label = "pet")
     val breathe by t.animateFloat(0f, 1f, infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b")
     var blink by remember { mutableStateOf(false) }
@@ -98,13 +98,23 @@ fun StudyPet(vm: EditorViewModel, modifier: Modifier) {
     val writing = vm.penActive
     val thinking = vm.aiBusy
     val cheers = listOf("You've got this!", "Keep going!", "Hi! 👋", "Study time?", "Proud of you!", "Take a sip of water 💧")
-    Column(modifier.graphicsLayer { alpha = if (writing) 0.35f else 1f }, horizontalAlignment = Alignment.CenterHorizontally) {
-        val bubble = say ?: if (thinking) "Hmm…" else null
-        if (bubble != null) Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface, shadowElevation = 4.dp) {
-            Text(bubble, Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium)
+    // Hops when you turn a page, dozes off after a minute without writing.
+    var sleepy by remember { mutableStateOf(false) }
+    LaunchedEffect(vm.pageIndex) { if ((0..2).random() == 0) react(null) }
+    LaunchedEffect(vm.lastActivity) { sleepy = false; delay(60_000); sleepy = true }
+    LaunchedEffect(vm.cards.size, vm.quiz.size) { if (vm.cards.isNotEmpty() || vm.quiz.isNotEmpty()) react(null) }
+    Column(modifier.graphicsLayer { alpha = if (writing && !compact) 0.35f else 1f }, horizontalAlignment = Alignment.CenterHorizontally) {
+        val bubble = say ?: if (thinking) "Hmm…" else if (sleepy) "zzz…" else null
+        if (bubble != null) {
+            val content = @Composable {
+                Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface, shadowElevation = 4.dp) {
+                    Text(bubble, Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium)
+                }
+            }
+            if (compact) androidx.compose.ui.window.Popup(alignment = Alignment.TopCenter, offset = androidx.compose.ui.unit.IntOffset(0, 120)) { content() } else content()
         }
         Canvas(
-            Modifier.size(56.dp).graphicsLayer {
+            Modifier.size(if (compact) 34.dp else 56.dp).graphicsLayer {
                 translationY = -jump.value * 18.dp.toPx()
                 rotationZ = wiggle.value * 12f
             }.clickable(remember { MutableInteractionSource() }, null) {
@@ -126,7 +136,7 @@ fun StudyPet(vm: EditorViewModel, modifier: Modifier) {
             val ey = top + bodyH * (if (writing) 0.5f else if (thinking) 0.36f else 0.44f)
             val ex = if (thinking) w * 0.04f else 0f
             for (x in listOf(w * 0.38f, w * 0.62f)) {
-                if (blink) drawLine(Color(0xFF2B2F3A), Offset(x - 4f + ex, ey), Offset(x + 4f + ex, ey), 3f)
+                if (blink || (sleepy && say == null)) drawLine(Color(0xFF2B2F3A), Offset(x - 4f + ex, ey), Offset(x + 4f + ex, ey), 3f)
                 else { drawCircle(Color(0xFF2B2F3A), w * 0.055f, Offset(x + ex, ey)); drawCircle(Color.White, w * 0.018f, Offset(x + ex + 2f, ey - 2f)) }
             }
             // Mouth: smile, or a little "o" while thinking.

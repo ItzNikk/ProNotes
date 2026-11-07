@@ -1504,7 +1504,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 val (cx, cy) = focus(e)
                 if (hypot(cx - fingerStartX, cy - fingerStartY) > touchSlop * 2) { fingerMoved = true; removeCallbacks(textPressRunnable) }
                 if (e.pointerCount >= 2 && pinchStartDist > 0f) {
-                    val newScale = (pinchStartScale * spacing(e) / pinchStartDist).coerceIn(gestureFit * 0.5f, 6f)
+                    val newScale = (pinchStartScale * spacing(e) / pinchStartDist).coerceIn(gestureFit * 0.9f, 6f)
                     if (abs(newScale - scale) > 0.001f) {
                         fingerMoved = true
                         host.onZoom((newScale / gestureFit * 100f).toInt())
