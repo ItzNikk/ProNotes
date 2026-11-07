@@ -1198,6 +1198,42 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         return true
     }
 
+    /** Lasso → handwritten sum turned into neat typed maths ("12 × (3 + 4) = 84"). */
+    fun mathToText() {
+        val page = selectionPage
+        val ink = selectedInk()
+        if (ink.isEmpty()) { say("Select a sum you wrote"); return }
+        viewModelScope.launch {
+            aiBusy = true
+            val g = try { Handwriting.candidates(ink, settingsFlow.value.handwritingLang) } finally { aiBusy = false }
+            val raw = g.firstOrNull { MathSolver.solve(it) != null } ?: g.firstOrNull() ?: run { say("Couldn't read that"); return@launch }
+            val pretty = MathSolver.normalize(raw).replace("*", " × ").replace("/", " ÷ ").replace("+", " + ")
+                .replace(Regex("(?<=[\\d)])-"), " − ").replace("^2", "²").replace("^3", "³").replace("^", "^") +
+                (if (raw.trimEnd().endsWith("=")) " =" else "")
+            replaceInkWithText(page, listOf(ink to pretty.replace(Regex("\\s+"), " ").trim()))
+        }
+    }
+
+    /** Lasso → save the selection as a picture in Photos. */
+    fun saveSelectionScreenshot() {
+        viewModelScope.launch {
+            val bmp = selectionImage() ?: return@launch
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    val cv = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "ProNotes-${System.currentTimeMillis()}.png")
+                        put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/png")
+                        if (android.os.Build.VERSION.SDK_INT >= 29) put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Pro Notes")
+                    }
+                    val cr = getApplication<Application>().contentResolver
+                    val uri = cr.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv)!!
+                    cr.openOutputStream(uri)!!.use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                }.isSuccess
+            }
+            say(if (ok) "Saved to Photos" else "Couldn't save the picture")
+        }
+    }
+
     /** Straightens and lines up the selected handwriting. */
     fun tidySelection() {
         val p = pages.getOrNull(selectionPage) ?: return

@@ -138,6 +138,9 @@ data class AppSettings(
     val paperSound: Boolean = true,
     val paperHaptics: Boolean = true,
     val paperVolume: Float = 0.4f,
+    val liquidGlass: Boolean = true,
+    /** Little study buddy that reacts to what you do. */
+    val pet: Boolean = true,
     // pens
     val hoverCursor: Boolean = true,
     val penClickDelay: PenClickDelay = PenClickDelay.NORMAL,
@@ -223,6 +226,8 @@ class SettingsStore private constructor(context: Context) {
             paperSound = b("paperSound", d.paperSound),
             paperHaptics = b("paperHaptics", d.paperHaptics),
             paperVolume = prefs.getFloat("paperVol", d.paperVolume),
+            liquidGlass = b("glass", d.liquidGlass),
+            pet = b("pet", d.pet),
             hoverCursor = b("hoverCursor", d.hoverCursor),
             penClickDelay = enumOf("penClickDelay", d.penClickDelay),
             onboardingDone = b("onboardingDone", d.onboardingDone),
@@ -292,6 +297,8 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("paperSound", s.paperSound)
             .putBoolean("paperHaptics", s.paperHaptics)
             .putFloat("paperVol", s.paperVolume)
+            .putBoolean("glass", s.liquidGlass)
+            .putBoolean("pet", s.pet)
             .putBoolean("hoverCursor", s.hoverCursor)
             .putString("penClickDelay", s.penClickDelay.name)
             .putBoolean("onboardingDone", s.onboardingDone)

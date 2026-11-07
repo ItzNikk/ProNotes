@@ -1,5 +1,12 @@
 # Changelog
 
+## v9.1.0
+- **Pip, your study buddy:** a little pet in the corner. It breathes and blinks, watches while you write, thinks along with the AI, cheers when cards or links are added, and wiggles when you tap it. Turn it off in Settings.
+- **AI thinking animation:** a glowing *Thinking* pill with bouncing dots while on-device AI works.
+- **Lasso:** ✨ → *Maths to typed text* turns a written sum into neat typed maths. ✨ → *Save as screenshot* saves the selection to Photos.
+- **Liquid glass** can be turned off in Settings for solid bars.
+- **Top bar layout:** like GoodNotes, the tools sit in the top bar and their options in a small bar under it.
+
 ## v9.0.0
 - **Links:** select linked ink and tap the red **Unlink** button. Long-pressing a link badge also works more reliably.
 - **Auto maths:** the answer now belongs to the whole sum, even if you wrote it in parts. Erase any number and the answer goes.

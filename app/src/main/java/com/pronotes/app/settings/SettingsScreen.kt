@@ -261,6 +261,8 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                     }
                     Section("Tabs") {
                         Toggle("Notebook tabs", "Keep several notebooks open and switch between them", s.showTabs) { v -> up { it.copy(showTabs = v) } }
+        Toggle("Liquid glass", "See-through bars with a glassy edge", s.liquidGlass) { v -> up { it.copy(liquidGlass = v) } }
+        Toggle("Study buddy", "A little pet that cheers you on", s.pet) { v -> up { it.copy(pet = v) } }
         Toggle("Hide toolbar while recording", "When the screen is being recorded (Android 15 and newer)", s.hideToolsWhenRecording) { v -> up { it.copy(hideToolsWhenRecording = v) } }
         Toggle("Study timer", "A stopwatch for each study session, with a total per notebook. Drag it anywhere.", s.studyTimer) { v -> up { it.copy(studyTimer = v) } }
         if (s.studyTimer) {

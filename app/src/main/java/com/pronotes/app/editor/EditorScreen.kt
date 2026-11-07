@@ -195,10 +195,14 @@ private val Pill = CircleShape
  * top highlight. Keeps the app's own colours; works on every Android version.
  */
 @Composable
-private fun glassColor(): Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f)
+private fun glassOn(): Boolean = SettingsStore.get(LocalContext.current).settings.collectAsState().value.liquidGlass
+
+@Composable
+private fun glassColor(): Color = MaterialTheme.colorScheme.surface.copy(alpha = if (glassOn()) 0.78f else 1f)
 
 @Composable
 private fun Modifier.glassEdge(shape: androidx.compose.ui.graphics.Shape): Modifier {
+    if (!glassOn()) return this.border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
     val dark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
     return this
         .border(
@@ -508,7 +512,9 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 else if (settings.toolbarDock != ToolbarDock.HEADER) {
                     ToolDock(vm, settings, areaSize, onDock = { d -> store.update { it.copy(toolbarDock = d) } })
                 } else {
-                    SidePanel(vm, settings, Modifier.align(Alignment.CenterEnd).padding(end = 10.dp))
+                    // GoodNotes style: tools in the top bar, their pens, sizes and colours in a small
+                    // movable bar just under it.
+                    Box(Modifier.align(Alignment.TopCenter).padding(top = 10.dp)) { OptionsBar(vm, vertical = false, settings = settings) }
                 }
 
                 vm.zoomPercent?.let { z ->
@@ -576,9 +582,11 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                         modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 120.dp),
                     ) { Text(msg, Modifier.padding(horizontal = 18.dp, vertical = 10.dp), style = MaterialTheme.typography.labelLarge) }
                 }
-                if (vm.aiBusy) {
-                    androidx.compose.material3.LinearProgressIndicator(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(2.dp))
-                }
+                androidx.compose.animation.AnimatedVisibility(
+                    vm.aiBusy, modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 180.dp),
+                    enter = fadeIn() + scaleIn(initialScale = 0.8f), exit = fadeOut() + scaleOut(targetScale = 0.8f),
+                ) { ThinkingPill() }
+                if (settings.pet && !focus) StudyPet(vm, Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 18.dp, bottom = 84.dp))
 
                 if (vm.readOnly && !focus) {
                     Surface(
@@ -1780,6 +1788,8 @@ private fun SelectionMenu(
                 DropdownMenu(smart, { smart = false }, shape = RoundedCornerShape(18.dp)) {
                     DropdownMenuItem(text = { Text("Convert to text") }, onClick = { smart = false; vm.convertSelectionToText() })
                     DropdownMenuItem(text = { Text("Solve maths") }, onClick = { smart = false; vm.solveSelection() })
+                    DropdownMenuItem(text = { Text("Maths to typed text") }, onClick = { smart = false; vm.mathToText() })
+                    DropdownMenuItem(text = { Text("Save as screenshot") }, onClick = { smart = false; vm.saveSelectionScreenshot() })
                     DropdownMenuItem(text = { Text("Tidy handwriting") }, onClick = { smart = false; keep { vm.tidySelection() } })
                     DropdownMenuItem(text = { Text("Flashcard from writing") }, onClick = { smart = false; vm.cardFromSelectionText() })
                 }
