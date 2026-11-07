@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -134,7 +135,10 @@ fun SummarySheet(points: List<String>, onClose: () -> Unit, onCopy: () -> Unit, 
                 Spacer(Modifier.height(14.dp))
                 Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     points.forEachIndexed { i, p ->
-                        Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), modifier = Modifier.fillMaxWidth()) {
+                        // Points slide up and fade in one after another, like the AI is writing them.
+                        val a = remember { Animatable(0f) }
+                        LaunchedEffect(Unit) { delay(120L * i); a.animateTo(1f, tween(420, easing = FastOutSlowInEasing)) }
+                        Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), modifier = Modifier.fillMaxWidth().graphicsLayer { alpha = a.value; translationY = (1f - a.value) * 24.dp.toPx() }) {
                             Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
                                 Box(Modifier.size(28.dp).clip(CircleShape).background(Brush.linearGradient(StudyColors.summary)), contentAlignment = Alignment.Center) {
                                     Text("${i + 1}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)

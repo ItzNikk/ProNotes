@@ -1,5 +1,10 @@
 # Changelog
 
+## v9.3.0
+- **Colour bar snaps** to the nearest spot (left, centre or right; top or bottom) when you let go, like the floating toolbar.
+- **Flashcard answers from the page:** in the card editor tap *Take the answer from the page* and box it. PDF text in the box fills the answer too.
+- **AI screens:** key points slide in one by one.
+
 ## v9.2.0
 - **Maths like Apple Notes:** the answer is written in, letter by letter, in a handwriting style and a warm gold colour. Fixed: erasing part of a sum now always removes its answer (the canvas could put it back).
 - **Fixed top bar:** undo, redo and Pip the pet live there now, and the bar has its own soft accent tint.

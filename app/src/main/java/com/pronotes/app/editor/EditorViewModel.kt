@@ -820,8 +820,29 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     /** A question waiting in the quiz editor (opened from outside the quiz sheet). */
     var quizDraft by mutableStateOf<com.pronotes.app.data.QuizQuestion?>(null)
 
+    /** Card waiting for its answer to be cut from the page. */
+    var backFor by mutableStateOf<CardDraft?>(null)
+
+    fun captureBack(d: CardDraft) { backFor = d; cardDraft = null; captureForQuiz = false; capturingCard = true }
+
     fun onAreaPicked(pageIdx: Int, r: RectF) {
         capturingCard = false
+        backFor?.let { d ->
+            backFor = null
+            val page = pages.getOrNull(pageIdx) ?: return
+            viewModelScope.launch {
+                val bmp = regionImage(page, r) ?: run { cardDraft = d; return@launch }
+                val name = "${d.card.id}-back.png"
+                withContext(Dispatchers.IO) { java.io.File(study.cardDir(), name).outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+                // Also read any PDF text in the box as the written answer.
+                val txt = if (page.pdfPage >= 0) indexFor(page.pdfPage)?.let { idx ->
+                    val a = idx.charAt(page.pdfPage, r.left + 4f, r.top + 4f); val b = idx.charAt(page.pdfPage, r.right - 4f, r.bottom - 4f)
+                    if (a != null && b != null && b >= a) idx.text(page.pdfPage, a..b) else null
+                } else null
+                cardDraft = d.copy(card = d.card.copy(backImage = name, back = d.card.back.ifBlank { txt ?: "" }))
+            }
+            return
+        }
         if (captureForQuiz) { captureForQuiz = false; startQuizFromArea(pageIdx, r) } else startCardFromArea(pageIdx, r)
     }
 

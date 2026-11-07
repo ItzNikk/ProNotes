@@ -521,7 +521,14 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                         Modifier.align(Alignment.TopCenter).padding(top = 10.dp)
                             .offset { IntOffset(optPos.x.roundToInt(), optPos.y.roundToInt()) }
                             .pointerInput(Unit) {
-                                detectDragGestures(onDragEnd = { store.setPref("optBarPos", "${optPos.x},${optPos.y}") }) { ch, d ->
+                                detectDragGestures(onDragEnd = {
+                                    // Snaps to the nearest spot like the floating toolbar: left, centre or right; top or bottom.
+                                    val third = areaSize.width / 3f
+                                    val x = when { optPos.x < -third / 2 -> -areaSize.width / 2f + 260f; optPos.x > third / 2 -> areaSize.width / 2f - 260f; else -> 0f }
+                                    val y = if (optPos.y > areaSize.height / 2f) areaSize.height - 110f else 0f
+                                    optPos = Offset(x, y)
+                                    store.setPref("optBarPos", "${optPos.x},${optPos.y}")
+                                }) { ch, d ->
                                     ch.consume()
                                     optPos = Offset((optPos.x + d.x).coerceIn(-areaSize.width / 2f, areaSize.width / 2f), (optPos.y + d.y).coerceIn(0f, areaSize.height - 80f))
                                 }
@@ -605,6 +612,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 if (settings.studyTimer && !focus) StudyTimer(vm, settings, areaSize)
 
                 val banner = when {
+                    vm.capturingCard && vm.backFor != null -> "Drag a box over the answer"
                     vm.capturingCard && vm.captureForQuiz -> "Drag a box over the picture or text to quiz on"
                     vm.capturingCard -> "Drag a box over what goes on the card"
                     vm.linkFrom != null -> "Tap where this should link to"

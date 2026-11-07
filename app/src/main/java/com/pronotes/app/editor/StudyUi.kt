@@ -84,7 +84,11 @@ fun CardEditorDialog(vm: EditorViewModel, draft: EditorViewModel.CardDraft) {
                     placeholder = { Text(if (picture == null) "Question" else "Question (optional)") }, modifier = Modifier.fillMaxWidth(),
                 )
                 Text("BACK", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                remember(draft) { vm.cardImage(draft.card.backImage) }?.let {
+                    Image(it.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp).clip(RoundedCornerShape(14.dp)))
+                }
                 OutlinedTextField(back, { back = it }, minLines = 3, shape = RoundedCornerShape(16.dp), placeholder = { Text("Answer") }, modifier = Modifier.fillMaxWidth())
+                TextButton(onClick = { vm.captureBack(draft.copy(card = draft.card.copy(front = front, back = back))) }) { Text("✂  Take the answer from the page") }
             }
         },
         confirmButton = {
@@ -228,7 +232,8 @@ private fun StudyView(vm: EditorViewModel, onDone: () -> Unit) {
                         if (card.front.isNotBlank()) Text(card.front, fontSize = 22.sp, textAlign = TextAlign.Center)
                         Text("Tap to flip", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
-                        Text(card.back.ifBlank { "No answer written" }, fontSize = 22.sp, textAlign = TextAlign.Center)
+                        remember(card.id) { vm.cardImage(card.backImage) }?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp).clip(RoundedCornerShape(12.dp))) }
+                        if (card.back.isNotBlank() || card.backImage == null) Text(card.back.ifBlank { "No answer written" }, fontSize = 22.sp, textAlign = TextAlign.Center)
                     }
                 }
             }
