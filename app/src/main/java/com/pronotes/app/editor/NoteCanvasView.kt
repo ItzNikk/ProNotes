@@ -326,7 +326,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         val keep = if (!fitted) startPage.coerceIn(0, (pages.size - 1).coerceAtLeast(0)) else currentIndex
         // Horizontal page slots depend on the screen size.
         if (settings.scroll == ScrollDirection.HORIZONTAL && pages.isNotEmpty()) layout(pages)
-        if (pages.isNotEmpty() && (!fitted || w != oldw || settings.scroll == ScrollDirection.HORIZONTAL)) fit(keep) else { clamp(); updateMatrix() }
+        // Height-only changes (bars hiding, keyboard) must not refit: refitting there could jump to an older page.
+        val page = if (!scroller.isFinished) lastTarget else keep
+        if (pages.isNotEmpty() && (!fitted || w != oldw)) fit(page) else if (settings.scroll == ScrollDirection.HORIZONTAL && pages.isNotEmpty()) { centerOn(page); updateMatrix() } else { clamp(); updateMatrix() }
     }
 
     private fun fitScale(i: Int = currentIndex): Float {
@@ -579,7 +581,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
         linkPress?.let { lp ->
             when (event.actionMasked) {
-                MotionEvent.ACTION_MOVE -> if (hypot(event.x - linkPressX, event.y - linkPressY) > touchSlop * 2) { removeCallbacks(linkLongRunnable); linkPress = null }
+                MotionEvent.ACTION_MOVE -> if (hypot(event.x - linkPressX, event.y - linkPressY) > touchSlop * 5) { removeCallbacks(linkLongRunnable); linkPress = null }
                 MotionEvent.ACTION_UP -> { removeCallbacks(linkLongRunnable); linkPress = null; if (!linkLongFired) jumpTo(lp) }
                 MotionEvent.ACTION_CANCEL -> { removeCallbacks(linkLongRunnable); linkPress = null }
             }
@@ -959,12 +961,27 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
         // Scribble-to-erase: a zig-zag over existing ink erases it instead of drawing.
         if (settings.scribbleToErase && (strokeTool == Tool.PEN || strokeTool == Tool.HIGHLIGHTER) && isScribble(points)) {
-            val hit = itemsUnder(activePage, points)
+            // Only ink and typed text, only what the scribble mostly covers, never pictures, tape or
+            // stickies, and the highlighter only erases highlights (and the pen only pen ink).
+            val sb = RectF(points.minOf { it.first }, points.minOf { it.second }, points.maxOf { it.first }, points.maxOf { it.second })
+            val hit = itemsUnder(activePage, points).filter { hid ->
+                val it = p.items.firstOrNull { x -> x.id == hid } ?: return@filter false
+                val ok = when (it) {
+                    is InkItem -> it.isHighlighter == (strokeTool == Tool.HIGHLIGHTER)
+                    is TextItem -> strokeTool == Tool.PEN
+                    else -> false
+                }
+                val b = it.bounds
+                val ov = RectF(b); val covered = ov.intersect(sb) && ov.width() * ov.height() >= b.width().coerceAtLeast(1f) * b.height().coerceAtLeast(1f) * 0.35f
+                ok && covered
+            }.toSet()
             if (hit.isNotEmpty()) {
                 wetInk.cancelStroke(id, e); strokePages.remove(id)
+                val gone = p.items.filter { it.id in hit }.map { RectF(it.bounds).also { r -> pageMatrix(activePage, tmpMatrix).mapRect(r) } }
                 host.beginEdit(activePage)
                 updatePage(activePage, p.items.filterNot { it.id in hit })
-                layer.flashErase()
+                layer.puff(gone)
+                syncFeel(); feel.cue(PaperFeel.Cue.TAP)
                 return
             }
         }
@@ -988,7 +1005,11 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 return
             }
         }
-        if (settings.circleToLasso && strokeTool == Tool.PEN && isLooseLoop(points)) {
+        // Only a real pen loop (not the highlighter, shapes, eraser or side button) that is big enough
+        // and nearly closed offers circle-to-select.
+        val loopBox = RectF(points.minOf { it.first }, points.minOf { it.second }, points.maxOf { it.first }, points.maxOf { it.second })
+        if (settings.circleToLasso && strokeTool == Tool.PEN && tool == Tool.PEN && !sideButtonHeld(e) &&
+            loopBox.width() * scale > 40f * density && loopBox.height() * scale > 30f * density && isClosedLoop(points)) {
             val ids = loopSelects(activePage, points)
             if (ids.isNotEmpty()) {
                 val end = points.last()
@@ -1891,6 +1912,41 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; color = 0xFF3D6CF4.toInt()
         }
 
+        private var puffs: List<RectF> = emptyList()
+        private var puffT = 0f
+        private val puffPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val puffSeeds = FloatArray(48) { kotlin.random.Random(it * 7 + 3).nextFloat() }
+
+        /** Scribble-erase: erased ink crumbles into little flakes that drift up and fade. */
+        fun puff(rects: List<RectF>) {
+            if (rects.isEmpty()) return
+            puffs = rects
+            ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 520; interpolator = DecelerateInterpolator()
+                addUpdateListener { puffT = it.animatedValue as Float; invalidate() }
+                addListener(object : android.animation.AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: android.animation.Animator) { puffs = emptyList(); invalidate() }
+                })
+                start()
+            }
+        }
+
+        private fun drawPuffs(canvas: Canvas) {
+            if (puffs.isEmpty()) return
+            val t = puffT
+            puffs.forEach { r ->
+                for (k in 0 until 16) {
+                    val sx = r.left + r.width() * puffSeeds[k]
+                    val sy = r.top + r.height() * puffSeeds[k + 16]
+                    val dx = (puffSeeds[k + 32] - 0.5f) * 60f * density * t
+                    val dy = -40f * density * t * (0.5f + puffSeeds[k])
+                    puffPaint.color = if (k % 3 == 0) 0xFFB8C0CC.toInt() else 0xFF8A93A3.toInt()
+                    puffPaint.alpha = ((1f - t) * 220).toInt()
+                    canvas.drawCircle(sx + dx, sy + dy, (2.5f + 3f * puffSeeds[k + 8]) * density * (1f - 0.5f * t), puffPaint)
+                }
+            }
+        }
+
         /** Circle-and-hold: the ink loop glows, turns into a dashed lasso, then [onDone] selects. */
         fun playLassoMorph(screen: List<Pt>, onDone: () -> Unit) {
             morph = screen
@@ -1979,6 +2035,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
             drawLinks(canvas)
             drawMathAnim(canvas)
+            drawPuffs(canvas)
             drawPull(canvas)
             drawSelection(canvas)
             lasso?.let { drawLasso(canvas, it) }
@@ -2035,26 +2092,36 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             val t = (SystemClock.uptimeMillis() - a.start).toFloat()
             val sum = RectF(a.sum); val ans = RectF(a.answer)
             pageMatrix(a.page, m).also { it.mapRect(sum); it.mapRect(ans) }
-            val y = sum.bottom + 6f * density
-            val x0 = sum.left; val x1 = ans.right
+            // An orange glow rises off the sum and flies in an arc to where the answer lands.
+            val x0 = sum.centerX(); val y0 = sum.centerY()
+            val x1 = ans.centerX(); val y1 = ans.centerY()
+            val lift = (sum.height() * 0.9f).coerceAtLeast(24f * density)
+            fun at(q: Float): Pair<Float, Float> {
+                val u = 1f - q
+                val cx = (x0 + x1) / 2f; val cy = minOf(y0, y1) - lift
+                return (u * u * x0 + 2 * u * q * cx + q * q * x1) to (u * u * y0 + 2 * u * q * cy + q * q * y1)
+            }
             val p = (t / SWEEP_MS).coerceIn(0f, 1f)
-            val e = 1f - (1f - p) * (1f - p) * (1f - p)          // ease out
-            val head = x0 + (x1 - x0) * e
-            val fadeOut = if (t > SWEEP_MS + 260f) (1f - (t - SWEEP_MS - 260f) / 400f).coerceIn(0f, 1f) else 1f
-            sweepPaint.strokeWidth = 5f * density
-            sweepPaint.shader = android.graphics.LinearGradient(x0, y, maxOf(head, x0 + 1f), y,
-                intArrayOf(0x007C5CFF, 0xFF7C5CFF.toInt(), 0xFF3D6CF5.toInt(), 0xFF1BAF7A.toInt()), floatArrayOf(0f, 0.25f, 0.7f, 1f), android.graphics.Shader.TileMode.CLAMP)
-            sweepPaint.alpha = (255 * fadeOut).toInt()
-            canvas.drawLine(x0, y, head, y, sweepPaint)
-            sweepPaint.shader = null
-            // Spark riding the head of the line.
-            glowPaint.color = 0xFFFFFFFF.toInt(); glowPaint.alpha = (230 * fadeOut).toInt()
-            canvas.drawCircle(head, y, 4f * density, glowPaint)
+            val e = 1f - (1f - p) * (1f - p) * (1f - p)
+            if (p < 1f) {
+                // Soft orange wash over the sum, fading as the glow leaves it.
+                glowPaint.color = 0xFFFF8A3D.toInt(); glowPaint.alpha = ((1f - e) * 60).toInt()
+                canvas.drawRoundRect(sum, 10f * density, 10f * density, glowPaint)
+                for (k in 0 until 10) {
+                    val q = (e - k * 0.035f).coerceAtLeast(0f)
+                    val (hx, hy) = at(q)
+                    glowPaint.color = 0xFFFF8A3D.toInt(); glowPaint.alpha = ((1f - k / 10f) * 200).toInt()
+                    canvas.drawCircle(hx, hy, (7f - k * 0.5f) * density, glowPaint)
+                }
+                val (hx, hy) = at(e)
+                glowPaint.color = 0xFFFFFFFF.toInt(); glowPaint.alpha = 230
+                canvas.drawCircle(hx, hy, 3f * density, glowPaint)
+            }
             if (t >= SWEEP_MS) {
                 val k = ((t - SWEEP_MS) / 520f).coerceIn(0f, 1f)
                 val r = maxOf(ans.width(), ans.height()) * (0.6f + 0.9f * k)
                 glowPaint.shader = android.graphics.RadialGradient(ans.centerX(), ans.centerY(), r.coerceAtLeast(1f),
-                    intArrayOf((((1f - k) * 0x66).toInt() shl 24) or 0x3D6CF5, 0x003D6CF5), null, android.graphics.Shader.TileMode.CLAMP)
+                    intArrayOf((((1f - k) * 0x77).toInt() shl 24) or 0xFF8A3D, 0x00FF8A3D), null, android.graphics.Shader.TileMode.CLAMP)
                 glowPaint.alpha = 255
                 canvas.drawCircle(ans.centerX(), ans.centerY(), r, glowPaint)
                 glowPaint.shader = null

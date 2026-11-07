@@ -443,6 +443,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             if (answers.isNotEmpty()) {
                 // Erasing any part of the sum (even just one number) removes its answer.
                 val dead = answers.filter { a ->
+                    mathSrc[a.id]?.let { src -> return@filter removedInk.any { RectF.intersects(it.bounds, src) } }
                     val ab = a.bounds
                     val zone = RectF(ab.left - ab.height() * 12f, ab.top - ab.height() * 0.35f, ab.left + 4f, ab.bottom + ab.height() * 0.35f)
                     removedInk.any { RectF.intersects(it.bounds, zone) }
@@ -457,6 +458,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         pages[page] = p.copy(items = items)
         scheduleSave()
     }
+
+    /** Answer id -> box of the sum it answers (this session; older answers use the place rule). */
+    private val mathSrc = HashMap<Long, RectF>()
 
     /** A maths answer being revealed: the canvas draws the sweep and the glow. */
     data class MathAnim(val page: Int, val sum: RectF, val answer: RectF, val start: Long)
@@ -986,7 +990,22 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         saveStudy()
     }
 
-    fun deleteLink(id: String) { links = links.filterNot { it.id == id }; linkToDelete = null; saveStudy() }
+    /** Links whose box overlaps the current selection. */
+    fun selectionLinks(): List<String> {
+        val r = selectionUnion() ?: return emptyList()
+        val pid = pages.getOrNull(selectionPage)?.id ?: return emptyList()
+        return links.filter { it.aPage == pid && it.box.size == 4 && RectF.intersects(RectF(it.box[0], it.box[1], it.box[2], it.box[3]), r) }.map { it.id }
+    }
+
+    fun unlinkSelection() {
+        val ids = selectionLinks().toSet()
+        if (ids.isEmpty()) return
+        links = links.filterNot { it.id in ids }
+        saveStudy(); onRedraw?.invoke()
+        say("Link removed")
+    }
+
+    fun deleteLink(id: String) { links = links.filterNot { it.id == id }; linkToDelete = null; saveStudy(); onRedraw?.invoke() }
 
     /** Link ends as page indexes, for drawing badges and jumping. */
     fun linkEnds(): List<LinkEnd> {
@@ -1145,6 +1164,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val text = if (raw.trimEnd().endsWith("=")) ans else "= $ans"
         val ax = b.right + size * 0.3f
         val final = TextItem(ItemIds.next(), text, ax, b.top, size, MATH_COLOR)
+        mathSrc[final.id] = RectF(b)
         // 1) A glow sweeps along the sum from its first symbol to where the answer goes (drawn by the canvas).
         mathAnim = MathAnim(page, RectF(b), RectF(final.bounds), android.os.SystemClock.uptimeMillis())
         onRedraw?.invoke()
@@ -1154,7 +1174,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             beginEdit(page)
             // 2) The answer pops in with a springy bounce, its colour easing from the glow into blue.
             val steps = floatArrayOf(0.35f, 0.7f, 1.08f, 1.22f, 1.14f, 1.0f, 0.95f, 1.0f)
-            val from = 0xFF7C5CFF.toInt()
+            val from = 0xFFFF8A3D.toInt()
             var items = cur.items + final.copy(size = size * steps[0], color = from)
             applyItems(page, items)
             for (k in 1 until steps.size) {
@@ -1224,7 +1244,13 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                     b.height() in 8f..240f && (b.width() > b.height() * 0.8f || l.size >= 2)
                 }
                 if (s.mathAssist) {
-                    val last = lines.lastOrNull() ?: continue
+                    val lastNew = lines.lastOrNull() ?: continue
+                    // The sum may have been written in bits ("5 + 6" then a pause, then "="): read the
+                    // whole line of ink to the left, so the answer belongs to all of it.
+                    val nb = InkLayout.bounds(lastNew)
+                    val band = RectF(nb.left - 4000f, nb.top - nb.height() * 0.6f, nb.right, nb.bottom + nb.height() * 0.6f)
+                    val last = p.items.filterIsInstance<InkItem>().filter { !it.isHighlighter && RectF.intersects(it.bounds, band) }
+                        .let { all -> InkLayout.lines(all).firstOrNull { l -> l.any { it.id in ids } } ?: lastNew }
                     val guesses = Handwriting.candidates(last, s.handwritingLang)
                     val raw = guesses.firstOrNull { it.trimEnd().endsWith("=") && MathSolver.solve(it) != null }
                     if (raw != null && placeAnswer(pg, last, raw, quiet = true)) continue

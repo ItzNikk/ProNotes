@@ -1,5 +1,14 @@
 # Changelog
 
+## v9.0.0
+- **Links:** select linked ink and tap the red **Unlink** button. Long-pressing a link badge also works more reliably.
+- **Auto maths:** the answer now belongs to the whole sum, even if you wrote it in parts. Erase any number and the answer goes.
+- **New maths reveal:** an orange glow lifts off the sum and flies in an arc to the answer, which bounces in from orange to blue. The bottom bar is gone.
+- **Scribble to erase:** only erases ink or text it mostly covers, never pictures, tape or stickies. The highlighter only scribbles away highlights. Erased ink crumbles away in a small animation.
+- **Pages:** fixed jumping back to an older page when bars hide or the keyboard opens.
+- **Circle to select:** only a real, closed pen loop offers it. Other tools and the side button no longer trigger it.
+- **Page space:** undo, redo and the page counter fade while you write.
+
 ## v8.5.0
 - **Maths, fixed:** erase any part of a sum (even just one number) and its answer disappears. New reveal: a glow runs along the sum from its first symbol to the answer, shifting violet to blue to green, then the answer bounces in.
 - **Quiz, rebuilt:** questions from a picture (box a diagram; Gemini Nano reads it where available), 2 to 6 options, a stopwatch, streaks, an animated score ring with feedback, a review of missed questions, *Retry missed* and best score per notebook.

@@ -526,10 +526,12 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
 
                 // Undo and redo sit at the top left, wherever the toolbar is (inside the bar on phones).
                 val narrowScreen = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600
+                // Floating bits fade while the pen writes, so nothing hides the page.
+                val overlayFade by animateFloatAsState(if (vm.penActive) 0.12f else 1f, tween(300), label = "ov")
                 if (!hideTools && (!narrowScreen || settings.toolbarDock == ToolbarDock.HEADER)) {
                     Surface(
                         shape = Pill, color = glassColor(), shadowElevation = 4.dp,
-                        modifier = Modifier.align(Alignment.TopStart).padding(12.dp).glassEdge(Pill),
+                        modifier = Modifier.align(Alignment.TopStart).padding(12.dp).graphicsLayer { alpha = overlayFade }.glassEdge(Pill),
                     ) {
                         Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             BarIcon(ProIcon.UNDO, "Undo", enabled = vm.canUndo, onClick = vm::undo)
@@ -618,7 +620,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                         onPrev = { vm.goToPage(vm.pageIndex - 1) }, onNext = { vm.goToPage(vm.pageIndex + 1) },
                         onTap = { goTo = true },
                         modifier = Modifier.align(when (settings.toolbarDock) { ToolbarDock.BOTTOM -> Alignment.TopEnd; ToolbarDock.HEADER -> Alignment.BottomStart; else -> Alignment.BottomEnd })
-                            .navigationBarsPadding().padding(16.dp),
+                            .navigationBarsPadding().padding(16.dp).graphicsLayer { alpha = overlayFade },
                     )
                 }
             }
@@ -1744,6 +1746,11 @@ private fun SelectionMenu(
                     Icon(Icons.Outlined.Link, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Link", style = MaterialTheme.typography.labelLarge)
                 }
             }
+            // Linked content: a red Unlink right next to it.
+            if (vm.selectionLinks().isNotEmpty()) Surface(
+                shape = Pill, color = Color(0xFFE5484D), contentColor = Color.White,
+                modifier = Modifier.padding(4.dp).clip(Pill).clickable { vm.unlinkSelection() },
+            ) { Text("Unlink", Modifier.padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.labelLarge) }
             IconButton(onClick = vm::cutSelection) { Icon(Icons.Outlined.ContentCut, "Cut") }
             IconButton(onClick = vm::copySelection) { Icon(Icons.Outlined.ContentCopy, "Copy") }
             IconButton(onClick = onDuplicate) { ProIconView(ProIcon.ADD, Color.White, Modifier.size(22.dp)) }
