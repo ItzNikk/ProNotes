@@ -142,6 +142,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -348,6 +350,8 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     LaunchedEffect(vm.textSel, canvas) { canvas?.redraw() }
     var showQuiz by remember { mutableStateOf(false) }
     var showTemplates by remember { mutableStateOf(false) }
+    /** Notebook shown beside this one (split view), or null. */
+    var splitId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(vm.showQuizRequest) { if (vm.showQuizRequest > 0) showQuiz = true }
     var showCards by remember { mutableStateOf(false) }
 
@@ -395,6 +399,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                         onCards = { showCards = true },
                         onQuiz = { showQuiz = true },
                         onTemplates = { showTemplates = true },
+                        onSplit = { splitId = if (splitId != null) null else library.notebooks.firstOrNull { it.deletedAt == null && it.id != noteId }?.id ?: noteId },
                         onPageImage = { pickBackground.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                     )
                     AnimatedVisibility(showSearch, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
@@ -641,6 +646,14 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                     )
                 }
             }
+
+            // ------------------------------------------------------ split view (right)
+            splitId?.let { other ->
+                Box(Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant))
+                SplitPanel(other, library.notebooks.filter { it.deletedAt == null && it.id != noteId }.map { it.id to it.title },
+                    onPick = { splitId = it }, onOpen = { switchTo(it) }, onClose = { splitId = null },
+                    modifier = Modifier.weight(0.8f).fillMaxHeight())
+            }
         }
     }
 
@@ -814,6 +827,7 @@ private fun TopBar(
     onCards: () -> Unit = {},
     onQuiz: () -> Unit = {},
     onTemplates: () -> Unit = {},
+    onSplit: () -> Unit = {},
 ) {
     Row(Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         BarIcon(ProIcon.HOME, "Library", onClick = onHome)
@@ -867,6 +881,8 @@ private fun TopBar(
                     onClick = { more = false; onCards() })
                 DropdownMenuItem(text = { Text("Add link…") }, leadingIcon = { Icon(Icons.Outlined.Link, null) },
                     onClick = { more = false; vm.beginLinkFlow() })
+                DropdownMenuItem(text = { Text("Split view") }, leadingIcon = { ProIconView(ProIcon.SIDEBAR, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) },
+                    onClick = { more = false; onSplit() })
                 DropdownMenuItem(text = { Text("Page template…") }, leadingIcon = { Icon(Icons.Outlined.Palette, null) },
                     onClick = { more = false; onTemplates() })
                 DropdownMenuItem(text = { Text("Summarise page") }, leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null) },
@@ -1957,6 +1973,41 @@ private fun ToolWheel(vm: EditorViewModel, at: Offset, onDismiss: () -> Unit) {
             ) {
                 ToolGlyph(t, if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                     Color(vm.styleFor(t)?.color ?: vm.penStyle.color), Modifier.size(24.dp), active = sel)
+            }
+        }
+    }
+}
+
+/** Split view: a second notebook beside this one, to read from while you write. */
+@Composable
+private fun SplitPanel(
+    noteId: String, others: List<Pair<String, String>>, onPick: (String) -> Unit, onOpen: (String) -> Unit, onClose: () -> Unit,
+    modifier: Modifier,
+) {
+    val app = LocalContext.current.applicationContext as Application
+    val vm2: EditorViewModel = viewModel(key = "split-$noteId", factory = viewModelFactory { initializer { EditorViewModel(app, noteId) } })
+    var pick by remember { mutableStateOf(false) }
+    Column(modifier.background(MaterialTheme.colorScheme.surfaceContainerLow)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) {
+                TextButton(onClick = { pick = true }) { Text(vm2.title, maxLines = 1, overflow = TextOverflow.Ellipsis); Icon(Icons.Filled.KeyboardArrowDown, null) }
+                DropdownMenu(pick, { pick = false }, shape = RoundedCornerShape(18.dp)) {
+                    others.forEach { (id, t) -> DropdownMenuItem(text = { Text(t) }, onClick = { pick = false; onPick(id) }) }
+                }
+            }
+            TextButton(onClick = { onOpen(noteId) }) { Text("Open") }
+            IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Close split view") }
+        }
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val w = with(LocalDensity.current) { maxWidth.toPx().toInt() }.coerceIn(200, 1600)
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(vm2.pages.size) { i ->
+                    val bmp by androidx.compose.runtime.produceState<Bitmap?>(null, i, vm2.pages.size) { value = vm2.thumbnail(i, w) }
+                    Surface(shape = RoundedCornerShape(8.dp), shadowElevation = 2.dp, color = Color.White, modifier = Modifier.fillMaxWidth()) {
+                        bmp?.let { Image(it.asImageBitmap(), "Page ${i + 1}", Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth) }
+                            ?: Box(Modifier.fillMaxWidth().height(300.dp))
+                    }
+                }
             }
         }
     }

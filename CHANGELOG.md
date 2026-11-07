@@ -1,5 +1,8 @@
 # Changelog
 
+## v9.4.0
+- **Split view:** ⋯ → *Split view* shows another notebook beside the one you are writing in. Pick which one at the top, scroll its pages, or tap *Open* to jump into it.
+
 ## v9.3.0
 - **Colour bar snaps** to the nearest spot (left, centre or right; top or bottom) when you let go, like the floating toolbar.
 - **Flashcard answers from the page:** in the card editor tap *Take the answer from the page* and box it. PDF text in the box fills the answer too.
