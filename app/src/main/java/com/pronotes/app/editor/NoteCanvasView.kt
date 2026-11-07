@@ -859,6 +859,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             MotionEvent.ACTION_UP -> {
                 removeCallbacks(holdRunnable)
                 feel.stop()
+                if (mode == Mode.INK && feel.sound) feel.cue(PaperFeel.Cue.LIFT)
                 if (circleHoldArmed) { circleHoldArmed = false; removeCallbacks(circleHoldRunnable); layer.invalidate() }
                 val isTap = SystemClock.uptimeMillis() - downTime < 350 && hypot(px - downX, py - downY) < touchSlop
                 when (mode) {
@@ -1567,8 +1568,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 if (action == MotionEvent.ACTION_UP && quick && !fingerMoved && maxFingers == 1) host.onTextClear()
                 if (action == MotionEvent.ACTION_UP && quick && !fingerMoved && settings.fingerTapUndo && !readOnly) {
                     when (maxFingers) {
-                        2 -> host.undo()
-                        3 -> host.redo()
+                        2 -> { host.undo(); syncFeel(); feel.cue(PaperFeel.Cue.UNDO) }
+                        3 -> { host.redo(); syncFeel(); feel.cue(PaperFeel.Cue.UNDO) }
                     }
                 }
                 val link = if (action == MotionEvent.ACTION_UP && maxFingers == 1 && quick && !fingerMoved) linkBoxAt(e.x, e.y) else null

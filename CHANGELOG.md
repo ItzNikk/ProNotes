@@ -1,5 +1,8 @@
 # Changelog
 
+## v9.4.1
+- **Better sounds:** the pencil sounds brighter when you write fast and has more body and grit; the highlighter glides with a faint felt squeak; a soft tap when the pen lifts; a quick swoosh for two- and three-finger undo and redo; smoother fade in and out, with no clicks.
+
 ## v9.4.0
 - **Split view:** ⋯ → *Split view* shows another notebook beside the one you are writing in. Pick which one at the top, scroll its pages, or tap *Open* to jump into it.
 

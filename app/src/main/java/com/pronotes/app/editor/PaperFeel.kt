@@ -25,7 +25,7 @@ import kotlin.random.Random
  */
 class PaperFeel(context: Context, private val view: View) {
     enum class Texture { PENCIL, MARKER, ERASER }
-    enum class Cue { PAGE, SNAP, SELECT, TAP, ADD }
+    enum class Cue { PAGE, SNAP, SELECT, TAP, ADD, UNDO, LIFT }
 
     private val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= 31)
         (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
@@ -82,6 +82,8 @@ class PaperFeel(context: Context, private val view: View) {
             Cue.SNAP, Cue.ADD -> click()
             Cue.SELECT -> tick(0.7f)
             Cue.TAP -> tick(0.3f)
+            Cue.UNDO -> tick(0.45f)
+            Cue.LIFT -> Unit
         }
         if (!sound) return
         cues.add(synth(c))
@@ -141,6 +143,18 @@ class PaperFeel(context: Context, private val view: View) {
                     (sin(2 * PI * f * t) * exp(-t * 40) * 0.35 * Short.MAX_VALUE).toInt().toShort()
                 }
             }
+            Cue.UNDO -> { // quick reverse swoosh, falling pitch
+                val n = (rate * 0.12f).toInt()
+                ShortArray(n) { i ->
+                    val t = i / rate.toDouble()
+                    (sin(2 * PI * (900.0 - 3000.0 * t) * t) * exp(-t * 30) * 0.3 * Short.MAX_VALUE).toInt().toShort()
+                }
+            }
+            Cue.LIFT -> { // tiny tap as the pen leaves the paper
+                val n = (rate * 0.015f).toInt()
+                var lpf = 0f
+                ShortArray(n) { i -> lpf += ((rnd.nextFloat() * 2 - 1) - lpf) * 0.3f; (lpf * exp(-i / (n * 0.2)) * 0.25 * Short.MAX_VALUE).toInt().toShort() }
+            }
             Cue.TAP -> {
                 val n = (rate * 0.025f).toInt()
                 ShortArray(n) { i -> ((rnd.nextFloat() * 2 - 1) * exp(-i / (n * 0.25)) * 0.35 * Short.MAX_VALUE).toInt().toShort() }
@@ -170,6 +184,7 @@ class PaperFeel(context: Context, private val view: View) {
         var level = 0f
         var lp = 0f; var lp2 = 0f; var prev = 0f
         var grain = 0f
+        var squeak = 0f
         var cue: ShortArray? = null
         var cuePos = 0
         while (running) {
@@ -177,20 +192,27 @@ class PaperFeel(context: Context, private val view: View) {
             if (target == 0f && level < 0.001f && cue == null && SystemClock.uptimeMillis() - lastActive > 1200) break
             val tex = texture
             for (i in block.indices) {
-                level += (target - level) * 0.004f
+                // Quick attack, softer release: no clicks when the pen lands or lifts.
+                level += (target - level) * (if (target > level) 0.012f else 0.0035f)
                 val n = rnd.nextFloat() * 2f - 1f
                 val s = when (tex) {
-                    Texture.PENCIL -> { // bright hiss with fibre crackle
-                        lp += (n - lp) * 0.35f
+                    Texture.PENCIL -> {
+                        // Graphite on paper: faster strokes sound brighter (the filter opens with speed),
+                        // a low body gives weight, and random fibre clicks add grit.
+                        val open = 0.18f + 0.45f * level
+                        lp += (n - lp) * open
                         val hp = lp - prev; prev = lp
-                        if (rnd.nextFloat() < 0.0025f) grain = 1f
-                        grain *= 0.96f
-                        hp * 0.9f + hp * grain * 2.5f
+                        lp2 += (n - lp2) * 0.04f
+                        if (rnd.nextFloat() < 0.0018f + 0.004f * level) grain = 0.6f + rnd.nextFloat() * 0.6f
+                        grain *= 0.94f
+                        hp * 0.85f + lp2 * 0.5f + hp * grain * 2.8f
                     }
-                    Texture.MARKER -> { // smooth, darker felt glide
+                    Texture.MARKER -> {
+                        // Felt tip: smooth, breathy glide with a faint squeak that rises with speed.
                         lp += (n - lp) * 0.12f
                         lp2 += (lp - lp2) * 0.3f
-                        (lp - lp2) * 1.6f
+                        squeak += 0.0045f + 0.012f * level
+                        (lp - lp2) * 1.7f + sin(squeak * 6.283f * 40f) * 0.05f * level
                     }
                     Texture.ERASER -> { // low rubbing with a slow wobble
                         lp += (n - lp) * 0.05f
