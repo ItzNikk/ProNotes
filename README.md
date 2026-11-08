@@ -20,13 +20,29 @@ Create freely, stay organised, and make room for focused work on Android.
 </a>
 <img src="https://img.shields.io/badge/ANDROID-8.0%2B-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android 8.0+" />
 
+<br />
+<br />
+
+<a href="https://github.com/ItzNikk/ProNotes/releases/latest">Get the latest release</a> · <a href="https://github.com/ItzNikk/ProNotes/releases">Release history</a> · <a href="https://github.com/ItzNikk/ProNotes">Explore the source</a>
+
 </div>
 
 ---
 
+## A closer look
+
+A focused workspace for handwritten notes, PDF study and the small details that make everyday learning easier.
+
+<div align="center">
+  <img src="docs/screenshots/IMG_0562.jpeg" alt="Pro Notes document library with notebooks and folders" width="100%" />
+  <p><sub><strong>Your library.</strong> Keep notebooks, folders and study material organised in one place.</sub></p>
+  <img src="docs/screenshots/IMG_0571.jpeg" alt="Pro Notes handwriting editor with a clean notebook page and toolbar" width="100%" />
+  <p><sub><strong>Your workspace.</strong> A clean writing surface with tools close at hand.</sub></p>
+</div>
+
 ## Get Pro Notes
 
-**[Download the latest APK](https://github.com/ItzNikk/ProNotes/releases/latest/download/ProNotes.apk)** · [All releases](https://github.com/ItzNikk/ProNotes/releases)
+**[Download the latest APK](https://github.com/ItzNikk/ProNotes/releases/latest/download/ProNotes.apk)** · [Browse all releases](https://github.com/ItzNikk/ProNotes/releases)
 
 Install the APK from a release, then check **Settings → About** for in-app updates. Releases are signed with the same key.
 
@@ -53,6 +69,35 @@ Pro Notes brings handwriting, PDF study and notebook organisation together in a 
 - Automatic shape recognition, plus 30 drawable shapes with fill and dashed outlines.
 - A round-tip highlighter with adjustable opacity and consistent width.
 
+### Smart stylus gestures
+
+A few useful gestures make editing feel more direct. Bring a compatible pen close to the screen to check hover support, circle ink to select it, scribble over strokes to erase, or hold at the end of a stroke to snap it into a clean shape.
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="center" width="50%">
+        <img src="docs/screenshots/IMG_0563.jpeg" alt="Pen hover detection setup" width="100%" />
+        <sub><strong>Meet your pen</strong><br />Check stylus hover support and configure your pen.</sub>
+      </td>
+      <td align="center" width="50%">
+        <img src="docs/screenshots/IMG_0564.jpeg" alt="Circle to select handwriting gesture" width="100%" />
+        <sub><strong>Circle to select</strong><br />Loop around ink to select it.</sub>
+      </td>
+    </tr>
+    <tr>
+      <td align="center" width="50%">
+        <img src="docs/screenshots/IMG_0565.jpeg" alt="Scribble to erase handwriting gesture" width="100%" />
+        <sub><strong>Scribble to erase</strong><br />Zig-zag over ink to remove it.</sub>
+      </td>
+      <td align="center" width="50%">
+        <img src="docs/screenshots/IMG_0566.jpeg" alt="Hold to snap shape recognition gesture" width="100%" />
+        <sub><strong>Hold to snap</strong><br />Hold a stroke briefly to turn it into a clean shape.</sub>
+      </td>
+    </tr>
+  </table>
+</div>
+
 ### PDFs and pages
 - Import PDFs, annotate them, search their text, use dark reading mode, and export or share.
 - Vertical or horizontal page navigation, custom page sizes, nine templates and page colours.
@@ -64,6 +109,31 @@ Pro Notes brings handwriting, PDF study and notebook organisation together in a 
 - Ink links: connect any two spots in a notebook. Tap the chain badge at one end to jump to the other.
 - A study stopwatch you can drag anywhere, with auto-start, idle pause and notebook totals.
 - Read-only mode to revise without accidental marks.
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="center" width="50%">
+        <img src="docs/screenshots/IMG_0567.jpeg" alt="Link anything tutorial showing connected content" width="100%" />
+        <sub><strong>Link anything</strong><br />Connect ink, pages and external references.</sub>
+      </td>
+      <td align="center" width="50%">
+        <img src="docs/screenshots/IMG_0568.jpeg" alt="Create flashcards from PDF content" width="100%" />
+        <sub><strong>Flashcards</strong><br />Turn selected PDF content into study cards.</sub>
+      </td>
+    </tr>
+    <tr>
+      <td align="center" width="50%">
+        <img src="docs/screenshots/IMG_0569.jpeg" alt="Handwritten mathematics recognition and answer" width="100%" />
+        <sub><strong>Write maths, get answers</strong><br />Work through handwritten sums with answer assistance.</sub>
+      </td>
+      <td align="center" width="50%">
+        <img src="docs/screenshots/IMG_0570.jpeg" alt="Quiz yourself study feature" width="100%" />
+        <sub><strong>Quiz yourself</strong><br />Create quizzes from PDFs, pictures or your own questions.</sub>
+      </td>
+    </tr>
+  </table>
+</div>
 
 ### A library that feels like yours
 - Colour-coded folders, drag and drop, writable covers and 14 cover materials.
