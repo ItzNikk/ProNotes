@@ -10,6 +10,7 @@ import android.graphics.DashPathEffect
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PathMeasure
 import android.graphics.RectF
 import android.os.SystemClock
 import android.text.TextPaint
@@ -2140,52 +2141,128 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         private val outlinePath = Path()
         private val sweepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeCap = Paint.Cap.ROUND; style = Paint.Style.STROKE }
         private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val mathPath = Path()
+        private val mathSegment = Path()
+        private val mathMeasure = PathMeasure()
 
         /**
-         * Maths answer reveal: a glowing line runs under the sum from its first symbol to the answer,
-         * shifting from violet to blue to green, then a soft burst blooms where the answer lands.
+         * A restrained Apple Notes-inspired maths reveal: a soft colour-shifting light sweeps
+         * from the handwritten expression to the answer, then the answer receives a subtle
+         * spring-settle and a short halo. The answer text itself is revealed by the view model.
          */
         private fun drawMathAnim(canvas: Canvas) {
-            val a = host.mathAnim() ?: return
-            if (a.page !in pages.indices) return
-            val t = (SystemClock.uptimeMillis() - a.start).toFloat()
-            val sum = RectF(a.sum); val ans = RectF(a.answer)
-            pageMatrix(a.page, m).also { it.mapRect(sum); it.mapRect(ans) }
-            // An orange glow rises off the sum and flies in an arc to where the answer lands.
-            val x0 = sum.centerX(); val y0 = sum.centerY()
-            val x1 = ans.centerX(); val y1 = ans.centerY()
-            val lift = (sum.height() * 0.9f).coerceAtLeast(24f * density)
-            fun at(q: Float): Pair<Float, Float> {
-                val u = 1f - q
-                val cx = (x0 + x1) / 2f; val cy = minOf(y0, y1) - lift
-                return (u * u * x0 + 2 * u * q * cx + q * q * x1) to (u * u * y0 + 2 * u * q * cy + q * q * y1)
-            }
-            val p = (t / SWEEP_MS).coerceIn(0f, 1f)
-            val e = 1f - (1f - p) * (1f - p) * (1f - p)
-            if (p < 1f) {
-                // Soft orange wash over the sum, fading as the glow leaves it.
-                glowPaint.color = 0xFFFF8A3D.toInt(); glowPaint.alpha = ((1f - e) * 60).toInt()
-                canvas.drawRoundRect(sum, 10f * density, 10f * density, glowPaint)
-                for (k in 0 until 10) {
-                    val q = (e - k * 0.035f).coerceAtLeast(0f)
-                    val (hx, hy) = at(q)
-                    glowPaint.color = 0xFFFF8A3D.toInt(); glowPaint.alpha = ((1f - k / 10f) * 200).toInt()
-                    canvas.drawCircle(hx, hy, (7f - k * 0.5f) * density, glowPaint)
+            val anim = host.mathAnim() ?: return
+            if (anim.page !in pages.indices) return
+
+            val elapsed = (SystemClock.uptimeMillis() - anim.start).toFloat().coerceAtLeast(0f)
+            val sum = RectF(anim.sum)
+            val answer = RectF(anim.answer)
+            pageMatrix(anim.page, m).also { it.mapRect(sum); it.mapRect(answer) }
+
+            val x0 = sum.centerX()
+            val y0 = sum.centerY()
+            val x1 = answer.centerX()
+            val y1 = answer.centerY()
+            val lift = (sum.height() * 0.7f).coerceAtLeast(18f * density)
+
+            mathPath.reset()
+            mathPath.moveTo(x0, y0)
+            mathPath.quadTo((x0 + x1) * 0.5f, min(y0, y1) - lift, x1, y1)
+            mathMeasure.setPath(mathPath, false)
+            val pathLength = mathMeasure.length
+
+            val travel = (elapsed / SWEEP_MS.toFloat()).coerceIn(0f, 1f)
+            val eased = travel * travel * (3f - 2f * travel)
+            val headDistance = (pathLength * eased).coerceIn(0f, pathLength)
+
+            // A barely-there wash briefly marks the source expression before the light leaves it.
+            glowPaint.style = Paint.Style.FILL
+            glowPaint.shader = null
+            glowPaint.color = 0xFFFFC56E.toInt()
+            glowPaint.alpha = ((1f - eased) * 34f).toInt().coerceIn(0, 34)
+            canvas.drawRoundRect(sum, 12f * density, 12f * density, glowPaint)
+
+            // Draw the full travel path very faintly, then build a soft bloom under the moving edge.
+            sweepPaint.style = Paint.Style.STROKE
+            sweepPaint.strokeCap = Paint.Cap.ROUND
+            sweepPaint.strokeWidth = 1.3f * density
+            sweepPaint.shader = android.graphics.LinearGradient(
+                x0, y0, x1, y1,
+                intArrayOf(0x33F7B85B, 0x337F8BFF, 0x3366B7FF),
+                null,
+                android.graphics.Shader.TileMode.CLAMP
+            )
+            sweepPaint.alpha = 145
+            canvas.drawPath(mathPath, sweepPaint)
+            sweepPaint.shader = null
+
+            if (headDistance > 0.5f) {
+                mathSegment.reset()
+                mathMeasure.getSegment(0f, headDistance, mathSegment, true)
+
+                glowPaint.style = Paint.Style.STROKE
+                glowPaint.strokeCap = Paint.Cap.ROUND
+                glowPaint.strokeWidth = 17f * density
+                glowPaint.color = 0xFF8F9CFF.toInt()
+                glowPaint.alpha = ((1f - travel * 0.28f) * 62f).toInt()
+                canvas.drawPath(mathSegment, glowPaint)
+
+                sweepPaint.style = Paint.Style.STROKE
+                sweepPaint.strokeCap = Paint.Cap.ROUND
+                sweepPaint.strokeWidth = 3.1f * density
+                sweepPaint.shader = android.graphics.LinearGradient(
+                    x0, y0, x1, y1,
+                    intArrayOf(0xFFFFD28A.toInt(), 0xFFB9A5FF.toInt(), 0xFF83C7FF.toInt()),
+                    null,
+                    android.graphics.Shader.TileMode.CLAMP
+                )
+                sweepPaint.alpha = ((1f - travel * 0.16f) * 238f).toInt()
+                canvas.drawPath(mathSegment, sweepPaint)
+                sweepPaint.shader = null
+
+                val point = FloatArray(2)
+                if (mathMeasure.getPosTan(headDistance, point, null)) {
+                    val radius = (5.5f - travel * 1.2f) * density
+                    glowPaint.style = Paint.Style.FILL
+                    glowPaint.shader = android.graphics.RadialGradient(
+                        point[0], point[1], radius * 2.8f,
+                        intArrayOf(0xFFFFFFFF.toInt(), 0x99B8B4FF.toInt(), 0x007F8BFF),
+                        floatArrayOf(0f, 0.38f, 1f),
+                        android.graphics.Shader.TileMode.CLAMP
+                    )
+                    canvas.drawCircle(point[0], point[1], radius * 2.8f, glowPaint)
+                    glowPaint.shader = null
                 }
-                val (hx, hy) = at(e)
-                glowPaint.color = 0xFFFFFFFF.toInt(); glowPaint.alpha = 230
-                canvas.drawCircle(hx, hy, 3f * density, glowPaint)
             }
-            if (t >= SWEEP_MS) {
-                val k = ((t - SWEEP_MS) / 520f).coerceIn(0f, 1f)
-                val r = maxOf(ans.width(), ans.height()) * (0.6f + 0.9f * k)
-                glowPaint.shader = android.graphics.RadialGradient(ans.centerX(), ans.centerY(), r.coerceAtLeast(1f),
-                    intArrayOf((((1f - k) * 0x77).toInt() shl 24) or 0xFF8A3D, 0x00FF8A3D), null, android.graphics.Shader.TileMode.CLAMP)
-                glowPaint.alpha = 255
-                canvas.drawCircle(ans.centerX(), ans.centerY(), r, glowPaint)
+
+            // A short halo and spring-settle at the answer endpoint; no persistent decoration remains.
+            if (elapsed >= SWEEP_MS) {
+                val reveal = ((elapsed - SWEEP_MS) / 620f).coerceIn(0f, 1f)
+                val fade = 1f - reveal
+                val rippleRadius = max(answer.width(), answer.height()).coerceAtLeast(18f * density) * (0.52f + 0.9f * reveal)
+                glowPaint.style = Paint.Style.FILL
+                glowPaint.shader = android.graphics.RadialGradient(
+                    answer.centerX(), answer.centerY(), rippleRadius,
+                    intArrayOf(0x44A9A0FF, 0x1C7FB9FF, 0x007FB9FF),
+                    null,
+                    android.graphics.Shader.TileMode.CLAMP
+                )
+                glowPaint.alpha = (fade * 255f).toInt()
+                canvas.drawCircle(answer.centerX(), answer.centerY(), rippleRadius, glowPaint)
                 glowPaint.shader = null
+
+                val ring = 7f * density + (1f - fade) * max(answer.width(), answer.height()) * 0.22f
+                sweepPaint.style = Paint.Style.STROKE
+                sweepPaint.strokeWidth = 1.5f * density
+                sweepPaint.color = 0xFF9AA8FF.toInt()
+                sweepPaint.alpha = (fade * 105f).toInt()
+                canvas.drawRoundRect(
+                    RectF(answer.left - ring, answer.top - ring * 0.35f, answer.right + ring, answer.bottom + ring * 0.35f),
+                    ring, ring, sweepPaint
+                )
             }
-            postInvalidateOnAnimation()
+
+            if (elapsed < SWEEP_MS + 650f) postInvalidateOnAnimation()
         }
         private val textSelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x553D6CF4 }
         private val linkFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt(); setShadowLayer(6f, 0f, 2f, 0x40000000) }

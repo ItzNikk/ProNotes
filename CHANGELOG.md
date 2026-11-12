@@ -1,5 +1,11 @@
 # Changelog
 
+## v9.5.1
+- **Smarter maths:** handwriting candidates are checked before an answer is inserted, common pen/OCR confusions are normalised conservatively, and incorrect completed equalities are rejected instead of being treated as valid sums.
+- **More than basic arithmetic:** the on-device evaluator now supports implicit multiplication, powers, percentages, factorials, square/cube roots, constants, trigonometric and logarithmic functions, and one-variable linear equations.
+- **Apple Notes-inspired answer reveal:** the answer now arrives with a smoother colour-shifting light sweep, a soft endpoint bloom and a restrained spring-settle, while retaining the existing handwritten letter-by-letter reveal.
+- **Existing tools preserved:** this is a focused maths and animation update; notebook, page, PDF, pen, lasso, shape, tape, study and settings features remain in the update package.
+
 ## v9.5.0
 - **Fixed top bar is the default:** the pen, size and colour options now live inside the top bar next to the tools.
 - **Ghost ink fixed:** the pen hover dot and unfinished strokes no longer get left behind on the page.
