@@ -140,7 +140,7 @@ object ShapeRecognizer {
         val diag = bx.diag.coerceAtLeast(1f)
 
         // Straight line.
-        if (dist(raw.first(), raw.last()) / len > 0.92f) return densify(listOf(raw.first(), raw.last()))
+        if (dist(raw.first(), raw.last()) / len > 0.9f) return densify(listOf(raw.first(), raw.last()))
 
         if (!isClosedLoop(raw)) {
             // Elbow or zig-zag made of 2-3 straight segments.
@@ -166,14 +166,14 @@ object ShapeRecognizer {
             val alternates = d.indices.count { i -> (d[i] > d[(i + 1) % n]) != (d[(i + 1) % n] > d[(i + 2) % n]) } >= n - 2
             if (alternates) return ShapeBuilder.build(ShapeKind.STAR, bx.l, bx.t, bx.r, bx.b).first()
         }
-        if (n in 3..8 && polyErr < 0.035f && (polyErr < ellipseErr * 0.5f || ellipseErr > 0.08f)) {
+        if (n in 3..8 && polyErr < 0.045f && (polyErr < ellipseErr * 0.5f || ellipseErr > 0.08f)) {
             return when (n) {
                 3 -> densify(corners + corners.first())
                 4 -> quad(corners, bx)
                 else -> densify(corners + corners.first())
             }
         }
-        if (ellipseErr < 0.2f) return ellipse(bx, rx, ry)
+        if (ellipseErr < 0.28f) return ellipse(bx, rx, ry)
         return null
     }
 
@@ -227,6 +227,23 @@ fun isNearlyStraight(pts: List<Pt>, tolerance: Float): Boolean {
  */
 fun isScribble(pts: List<Pt>): Boolean {
     if (pts.size < 8) return false
+    return axisScribble(pts) || zigZagScribble(pts)
+}
+
+/** Dense scrubbing that does not follow a single axis, e.g. back and forth across a word. */
+private fun zigZagScribble(pts: List<Pt>): Boolean {
+    val bx = box(pts)
+    val diag = bx.diag
+    if (diag < 18f) return false
+    if (pathLength(pts) < diag * 4f) return false
+    val s = simplify(pts, diag * 0.04f)
+    if (s.size < 6) return false
+    var sharp = 0
+    for (i in 1 until s.size - 1) if (turnAngle(s[i - 1], s[i], s[i + 1]) > 100.0) sharp++
+    return sharp >= 4
+}
+
+private fun axisScribble(pts: List<Pt>): Boolean {
     var mx = 0.0; var my = 0.0
     for ((x, y) in pts) { mx += x; my += y }
     mx /= pts.size; my /= pts.size

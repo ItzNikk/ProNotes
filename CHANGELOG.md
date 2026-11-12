@@ -1,5 +1,12 @@
 # Changelog
 
+## v9.5.0
+- **Fixed top bar is the default:** the pen, size and colour options now live inside the top bar next to the tools.
+- **Ghost ink fixed:** the pen hover dot and unfinished strokes no longer get left behind on the page.
+- **Scribble to erase** is more reliable: scrubbing across a word and thin lines like underlines now erase, and pausing at the end no longer turns a scribble into a shape.
+- **Shapes** are built from where the pen lifts, and the auto shape picks up rougher drawings.
+- **Circle to lasso:** draw a loop around your notes and hold the pen still before lifting to turn it into a lasso, like GoodNotes.
+
 ## v9.4.1
 - **Better sounds:** the pencil sounds brighter when you write fast and has more body and grit; the highlighter glides with a faint felt squeak; a soft tap when the pen lifts; a quick swoosh for two- and three-finger undo and redo; smoother fade in and out, with no clicks.
 

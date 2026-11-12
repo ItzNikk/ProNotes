@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 enum class ScrollDirection(val label: String) { VERTICAL("Vertical"), HORIZONTAL("Horizontal") }
-enum class ToolbarDock(val label: String) { HEADER("Top bar + side panel"), TOP("Floating top"), BOTTOM("Floating bottom"), LEFT("Floating left"), RIGHT("Floating right") }
+enum class ToolbarDock(val label: String) { HEADER("Fixed top bar"), TOP("Floating top"), BOTTOM("Floating bottom"), LEFT("Floating left"), RIGHT("Floating right") }
 enum class ToolbarSize(val label: String, val scale: Float) { COMPACT("Compact", 0.85f), REGULAR("Regular", 1f), LARGE("Large", 1.18f) }
 enum class SideButton(val label: String) { ERASER("Eraser"), LASSO("Lasso"), NONE("Nothing") }
 /** How long the app waits after a pen-button click before acting (it waits to see if a second click follows). */
@@ -102,7 +102,7 @@ data class AppSettings(
     val keepScreenOn: Boolean = false,
     val darkPdf: Boolean = false,
     // toolbar
-    val toolbarDock: ToolbarDock = ToolbarDock.TOP,
+    val toolbarDock: ToolbarDock = ToolbarDock.HEADER,
     /** Hide the toolbar while the screen is being recorded (Android 15+). */
     val hideToolsWhenRecording: Boolean = false,
     /** Study stopwatch in the editor. */
@@ -203,8 +203,8 @@ class SettingsStore private constructor(context: Context) {
             pageNumbers = b("pageNumbers", d.pageNumbers),
             keepScreenOn = b("keepScreenOn", d.keepScreenOn),
             darkPdf = b("darkPdf", d.darkPdf),
-            // v5.2 puts the floating toolbar back once (v5.1 had moved everyone to the top bar).
-            toolbarDock = if (!prefs.contains("dockV52")) ToolbarDock.TOP else enumOf("toolbarDock", d.toolbarDock),
+            // The fixed top bar (tools and colours together) is the default; everyone is moved to it once.
+            toolbarDock = if (!prefs.contains("dockV60")) ToolbarDock.HEADER else enumOf("toolbarDock", d.toolbarDock),
             hideToolsWhenRecording = b("hideRec", d.hideToolsWhenRecording),
             studyTimer = b("studyTimer", d.studyTimer),
             studyAutoStart = b("studyAuto", d.studyAutoStart),
@@ -275,7 +275,7 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("keepScreenOn", s.keepScreenOn)
             .putBoolean("darkPdf", s.darkPdf)
             .putString("toolbarDock", s.toolbarDock.name)
-            .putBoolean("dockV52", true)
+            .putBoolean("dockV60", true)
             .putBoolean("hideRec", s.hideToolsWhenRecording)
             .putBoolean("studyTimer", s.studyTimer)
             .putBoolean("studyAuto", s.studyAutoStart)

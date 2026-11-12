@@ -133,6 +133,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             // Laser ink is a pointer, not ink: it goes away when you pick another tool.
             if (field == Tool.LASER && value != Tool.LASER) layer.clearLasers()
             field = value
+            layer.hoverDot = null; layer.hoverAt = null
             layer.invalidate()
         }
 
@@ -596,6 +597,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             val landing = action == MotionEvent.ACTION_DOWN ||
                 (action == MotionEvent.ACTION_POINTER_DOWN && isPen(event.getToolType(event.actionIndex)))
             if (landing) {
+                // The hover preview must never stay behind as a ghost dot once the pen touches.
+                clearHover()
                 // Each pen keeps its own settings.
                 penSide = event.device?.name?.let { host.penProfile(it).sideButton }
                 if (settings.penHaptics) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
@@ -838,7 +841,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                     Mode.SHAPE_DRAG -> {
                         val (sx, sy) = points.first()
                         val (cx, cy) = toLocal(e.getX(idx), e.getY(idx), activePage)
-                        layer.shapePreview = ShapeBuilder.build(host.shapeKind(), sx, sy, cx, cy)
+                        layer.shapePreview = runCatching { ShapeBuilder.build(host.shapeKind(), sx, sy, cx, cy) }.getOrNull() ?: layer.shapePreview
                         layer.invalidate()
                     }
                     Mode.TAPE -> {
@@ -884,9 +887,14 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                     Mode.MOVE -> commitMove()
                     Mode.LASER -> laserUp()
                     Mode.SHAPE_DRAG -> {
-                        val shapes = layer.shapePreview
+                        // Build from the final pen position, so a quick flick still makes a full-size shape.
+                        val (sx, sy) = points.first()
+                        val (ex, ey) = toLocal(px, py, activePage)
+                        val shapes = (if (hypot(ex - sx, ey - sy) >= 6f) runCatching { ShapeBuilder.build(host.shapeKind(), sx, sy, ex, ey) }.getOrNull() else null)
+                            ?: layer.shapePreview
                         layer.shapePreview = null
-                        if (shapes != null && !isTap) addShapes(shapes, fillable = host.shapeKind().closed)
+                        val moved = hypot(px - downX, py - downY) > touchSlop * 0.6f
+                        if (shapes != null && (!isTap || moved)) addShapes(shapes, fillable = host.shapeKind().closed)
                         layer.invalidate()
                     }
                     Mode.TAPE -> {
@@ -938,6 +946,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     override fun onDetachedFromWindow() { super.onDetachedFromWindow(); feel.release() }
 
     private fun startInk(e: MotionEvent, t: Tool) {
+        // A stroke that was never finished or cancelled would stay on screen forever as ghost ink.
+        strokeId?.let { old -> wetInk.cancelStroke(old, e); strokePages.remove(old) }
+        strokeId = null
         mode = Mode.INK
         syncFeel()
         feelX = e.getX(e.findPointerIndex(activePointer).coerceAtLeast(0)); feelY = e.getY(e.findPointerIndex(activePointer).coerceAtLeast(0)); feelT = e.eventTime
@@ -972,8 +983,11 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                     is TextItem -> strokeTool == Tool.PEN
                     else -> false
                 }
+                // Thin or tiny items (an underline, a dot) count as at least 24 units wide / tall.
                 val b = it.bounds
-                val ov = RectF(b); val covered = ov.intersect(sb) && ov.width() * ov.height() >= b.width().coerceAtLeast(1f) * b.height().coerceAtLeast(1f) * 0.35f
+                val ew = b.width().coerceAtLeast(24f); val eh = b.height().coerceAtLeast(24f)
+                val ov = RectF(b.centerX() - ew / 2f, b.centerY() - eh / 2f, b.centerX() + ew / 2f, b.centerY() + eh / 2f)
+                val covered = ov.intersect(sb) && ov.width() * ov.height() >= ew * eh * 0.3f
                 ok && covered
             }.toSet()
             if (hit.isNotEmpty()) {
@@ -1059,6 +1073,28 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         liveMatrix = Matrix()
     }
 
+    /** The loop was held still before lifting: its ink becomes the lasso and the pen can drag it straight away. */
+    private fun fireLiveCircle(id: InProgressStrokeId, ids: Set<Long>) {
+        holdFired = true
+        val page = activePage
+        val loop = ArrayList(points)
+        cancelWet(id)
+        strokeId = null
+        clearCircleCandidate()
+        buzz()
+        val screen = loop.map { (x, y) -> val a = floatArrayOf(x, y); pageMatrix(page, tmpMatrix).mapPoints(a); a[0] to a[1] }
+        selectItems(page, ids, outline = loop)
+        if (!circleSelect) { circleSelect = true; host.onCircleSelect(true) }
+        layer.playLassoMorph(screen) {}
+        val (lx, ly) = points.last()
+        activePage = page
+        grab = Grab.MOVE
+        mode = Mode.MOVE
+        grabStartX = lx; grabStartY = ly
+        liveScale = 1f; liveDeg = 0f
+        liveMatrix = Matrix()
+    }
+
     private fun addStraightHighlight(a: Pt, b0: Pt) {
         val p = pages.getOrNull(activePage) ?: return
         var b = b0
@@ -1105,8 +1141,19 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         val id = strokeId ?: return
         val p = pages.getOrNull(activePage) ?: return
         if (points.size < 6 || pathLength(points) < 30f) return
+        // A scribble that ends with a pause is still a scribble (erase), never a shape.
+        if (settings.scribbleToErase && (strokeTool == Tool.PEN || strokeTool == Tool.HIGHLIGHTER) && isScribble(points)) return
 
-        // A loop around content stays ink while drawing; press and hold its end afterwards to select.
+        // Circle to lasso, GoodNotes style: draw a loop around content and keep the pen still at its end.
+        if (settings.circleToLasso && strokeTool == Tool.PEN && tool == Tool.PEN && isLooseLoop(points)) {
+            val box = RectF(points.minOf { it.first }, points.minOf { it.second }, points.maxOf { it.first }, points.maxOf { it.second })
+            if (box.width() * scale > 40f * density && box.height() * scale > 30f * density) {
+                val ids = loopSelects(activePage, points)
+                if (ids.isNotEmpty()) { fireLiveCircle(id, ids); return }
+            }
+        }
+
+        // A loop around nothing stays ink while drawing; highlighter holds snap below.
         if (strokeTool == Tool.HIGHLIGHTER) {
             holdFired = true
             cancelWet(id)
@@ -1790,6 +1837,14 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
     }
 
+    private val hoverTimeout = Runnable { clearHover() }
+
+    /** Removes the hover dot / eraser ring (pen left, touched down, or stopped reporting hover). */
+    private fun clearHover() {
+        removeCallbacks(hoverTimeout)
+        if (layer.hoverDot != null || layer.hoverAt != null) { layer.hoverDot = null; layer.hoverAt = null; layer.invalidate() }
+    }
+
     // Stylus hover: show the eraser ring when the side button is held over the page.
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
         val tt = event.getToolType(0)
@@ -1801,11 +1856,14 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                     val erasing = effectiveTool(event) == Tool.ERASER
                     layer.hoverAt = if (erasing) event.x to event.y else null
                     // Hover preview: a dot in the pen's colour and size where it will touch.
-                    layer.hoverDot = if (!erasing && settings.hoverCursor && (tool == Tool.PEN || tool == Tool.HIGHLIGHTER || tool == Tool.SHAPE))
+                    layer.hoverDot = if (!erasing && settings.hoverCursor && stylusPointer == -1 && mode == Mode.NONE &&
+                        (tool == Tool.PEN || tool == Tool.HIGHLIGHTER || tool == Tool.SHAPE))
                         host.hoverInk()?.let { (c, s) -> Triple(event.x, event.y, c to s * scale) } else null
                     layer.invalidate()
+                    // Some pens never send HOVER_EXIT: drop the dot when hover reports stop.
+                    removeCallbacks(hoverTimeout); postDelayed(hoverTimeout, 350)
                 }
-                MotionEvent.ACTION_HOVER_EXIT -> { layer.hoverAt = null; layer.hoverDot = null; layer.invalidate() }
+                MotionEvent.ACTION_HOVER_EXIT -> clearHover()
             }
         }
         return super.dispatchGenericMotionEvent(event)

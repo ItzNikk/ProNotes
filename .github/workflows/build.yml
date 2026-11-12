@@ -41,10 +41,22 @@ jobs:
             echo "SIGNING_KEYSTORE_PATH=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
           fi
 
+      # Every push to main is a release: version = newest CHANGELOG heading + build number (9.5.0.12),
+      # so the in-app updater always sees it as newer. Tagged pushes (v9.5.0) keep the tag as the version.
+      - name: Work out the version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            NAME="${GITHUB_REF_NAME#v}"
+          else
+            TOP=$(grep -m1 -oE '^## v[0-9]+(\.[0-9]+)*' CHANGELOG.md | sed 's/^## v//')
+            NAME="${TOP:-1.0}.${GITHUB_RUN_NUMBER}"
+          fi
+          echo "VERSION_NAME=$NAME" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v$NAME" >> "$GITHUB_ENV"
+
       - name: Build release APK
         env:
           VERSION_CODE: ${{ github.run_number }}
-          VERSION_NAME: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('1.0.{0}', github.run_number) }}
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
@@ -62,14 +74,22 @@ jobs:
           path: dist/ProNotes.apk
 
       - name: Release notes from CHANGELOG.md
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name != 'pull_request'
         run: |
-          awk -v tag="## ${GITHUB_REF_NAME}" '$0==tag{f=1;next} /^## /{f=0} f' CHANGELOG.md > RELEASE_NOTES.md
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            awk -v tag="## ${GITHUB_REF_NAME}" '$0==tag{f=1;next} /^## /{f=0} f' CHANGELOG.md > RELEASE_NOTES.md
+          else
+            awk '/^## /{n++; next} n==1' CHANGELOG.md > RELEASE_NOTES.md
+          fi
           [ -s RELEASE_NOTES.md ] || echo "Improvements and fixes." > RELEASE_NOTES.md
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          name: Pro Notes ${{ env.VERSION_NAME }}
+          make_latest: true
           files: dist/ProNotes.apk
           body_path: RELEASE_NOTES.md

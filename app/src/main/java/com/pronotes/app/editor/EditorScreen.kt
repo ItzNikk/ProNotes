@@ -517,29 +517,8 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 if (hideTools) Unit
                 else if (settings.toolbarDock != ToolbarDock.HEADER) {
                     ToolDock(vm, settings, areaSize, onDock = { d -> store.update { it.copy(toolbarDock = d) } })
-                } else {
-                    // GoodNotes style: tools in the top bar, their pens, sizes and colours in a small
-                    // movable bar just under it.
-                    // The colour bar can be dragged anywhere; its spot is kept for next time.
-                    var optPos by remember { mutableStateOf(store.pref("optBarPos").split(',').let { Offset(it.getOrNull(0)?.toFloatOrNull() ?: 0f, it.getOrNull(1)?.toFloatOrNull() ?: 0f) }) }
-                    Box(
-                        Modifier.align(Alignment.TopCenter).padding(top = 10.dp)
-                            .offset { IntOffset(optPos.x.roundToInt(), optPos.y.roundToInt()) }
-                            .pointerInput(Unit) {
-                                detectDragGestures(onDragEnd = {
-                                    // Snaps to the nearest spot like the floating toolbar: left, centre or right; top or bottom.
-                                    val third = areaSize.width / 3f
-                                    val x = when { optPos.x < -third / 2 -> -areaSize.width / 2f + 260f; optPos.x > third / 2 -> areaSize.width / 2f - 260f; else -> 0f }
-                                    val y = if (optPos.y > areaSize.height / 2f) areaSize.height - 110f else 0f
-                                    optPos = Offset(x, y)
-                                    store.setPref("optBarPos", "${optPos.x},${optPos.y}")
-                                }) { ch, d ->
-                                    ch.consume()
-                                    optPos = Offset((optPos.x + d.x).coerceIn(-areaSize.width / 2f, areaSize.width / 2f), (optPos.y + d.y).coerceIn(0f, areaSize.height - 80f))
-                                }
-                            },
-                    ) { OptionsBar(vm, vertical = false, settings = settings) }
                 }
+                // With the fixed top bar the tools and the colour / size options all live inside the bar itself.
 
                 vm.zoomPercent?.let { z ->
                     Surface(shape = Pill, color = Color(0xCC1B1F2A), contentColor = Color.White, modifier = Modifier.align(Alignment.Center)) {
@@ -839,11 +818,17 @@ private fun TopBar(
         BarIcon(ProIcon.REDO, "Redo", enabled = vm.canRedo, onClick = vm::redo)
         if (settings.pet) StudyPet(vm, Modifier.padding(start = 4.dp), compact = true)
         if (settings.toolbarDock == ToolbarDock.HEADER && !hideTools) {
-            Spacer(Modifier.weight(1f))
-            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                ToolbarOrder.visible(settings.toolbarTools).forEach { t -> ToolButton(vm, t, settings) }
+            // Tools, then the colours and sizes of the selected tool, all in the fixed bar.
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                    ToolbarOrder.visible(settings.toolbarTools).forEach { t -> ToolButton(vm, t, settings) }
+                    val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.TEXT)
+                    if (hasOptions) {
+                        Box(Modifier.padding(horizontal = 8.dp).width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant))
+                        ToolOptions(vm, false, settings)
+                    }
+                }
             }
-            Spacer(Modifier.weight(1f))
         } else {
             Text(
                 vm.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
