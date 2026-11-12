@@ -60,6 +60,10 @@ enum class ProIcon(internal val parts: List<Part>) {
     MORE(listOf(C(5.5f, 12f, 1.2f, true), C(12f, 12f, 1.2f, true), C(18.5f, 12f, 1.2f, true))),
     // Same style, for the extra tools and actions.
     STICKY(listOf(P("M5 4.5h14a1 1 0 0 1 1 1V14l-6 6H5a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1z", body = true), P("M20 14h-5a1 1 0 0 0-1 1v5"))),
+    MINDMAP(listOf(
+        C(6f, 12f, 2.5f, body = true), C(18f, 6.5f, 2.2f, body = true), C(18f, 17.5f, 2.2f, body = true),
+        P("M8.5 11.2C11.5 10.5 13 7.2 15.8 6.7"), P("M8.5 12.8C11.5 13.5 13 16.8 15.8 17.3"),
+    )),
     TAPE(listOf(C(9f, 10f, 5.5f, body = true), C(9f, 10f, 2f), P("M9 15.5h11l-1.5 2 1.5 2H9"))),
     STICKER(listOf(C(12f, 12f, 8.5f, body = true), P("M8.5 14.5c1.8 2 5.2 2 7 0"), C(9.3f, 10f, 0.9f, true), C(14.7f, 10f, 0.9f, true))),
     PAGES(listOf(Rr(4f, 4f, 7f, 7f, 1.5f), Rr(13f, 4f, 7f, 7f, 1.5f), Rr(4f, 13f, 7f, 7f, 1.5f), Rr(13f, 13f, 7f, 7f, 1.5f))),
@@ -135,6 +139,7 @@ fun iconFor(tool: Tool): ProIcon = when (tool) {
     Tool.TEXT -> ProIcon.TEXT
     Tool.IMAGE -> ProIcon.IMAGE
     Tool.STICKY -> ProIcon.STICKY
+    Tool.MINDMAP -> ProIcon.MINDMAP
     Tool.TAPE -> ProIcon.TAPE
     Tool.STICKER -> ProIcon.STICKER
     Tool.LASER -> ProIcon.LASER

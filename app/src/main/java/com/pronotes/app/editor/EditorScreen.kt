@@ -80,6 +80,7 @@ import androidx.compose.material.icons.outlined.FormatAlignCenter
 import androidx.compose.material.icons.outlined.FormatBold
 import androidx.compose.material.icons.outlined.FormatItalic
 import androidx.compose.material.icons.outlined.FormatUnderlined
+import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Quiz
@@ -96,6 +97,8 @@ import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material.icons.outlined.UnfoldLess
+import androidx.compose.material.icons.outlined.UnfoldMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -348,6 +351,10 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     }
     LaunchedEffect(vm.links, canvas) { canvas?.redraw() }
     LaunchedEffect(vm.textSel, canvas) { canvas?.redraw() }
+    LaunchedEffect(vm.activeMindNodeId, canvas) {
+        canvas?.activeMindNodeId = vm.activeMindNodeId
+        canvas?.redraw()
+    }
     var showQuiz by remember { mutableStateOf(false) }
     var showTemplates by remember { mutableStateOf(false) }
     /** Notebook shown beside this one (split view), or null. */
@@ -356,8 +363,8 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     var showCards by remember { mutableStateOf(false) }
 
     // Real background blur (Android 12+) while a card, dialog or sheet is open.
-    val overlayOpen = vm.textEdit != null || vm.stickyEdit != null || renaming || goTo || pageColor ||
-        showStickers || vm.cardOpen || wheelAt != null
+    val overlayOpen = vm.textEdit != null || vm.stickyEdit != null || vm.mindNodeEdit != null ||
+        renaming || goTo || pageColor || showStickers || vm.cardOpen || wheelAt != null
     val blurRadius by androidx.compose.animation.core.animateDpAsState(if (overlayOpen) 14.dp else 0.dp, label = "blur")
     val blurMod = if (android.os.Build.VERSION.SDK_INT >= 31 && blurRadius > 0.dp) Modifier.blur(blurRadius) else Modifier
 
@@ -440,6 +447,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                                     vm.textEdit = EditorViewModel.TextEdit(page, x, y, existing)
                                 }
                                 override fun onStickyTap(page: Int, x: Float, y: Float, existing: StickyItem?) = vm.openSticky(page, x, y, existing)
+                                override fun onMindMapTap(page: Int, x: Float, y: Float, existing: MindNodeItem?) = vm.onMindMapTap(page, x, y, existing)
                                 override fun onCurrentPage(index: Int) = vm.onCurrentPage(index)
                                 override fun onPullAddPage() = vm.addPage(atEnd = true)
                                 override fun undo() = vm.undo()
@@ -578,7 +586,59 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 androidx.compose.animation.AnimatedVisibility(
                     vm.aiBusy, modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 180.dp),
                     enter = fadeIn() + scaleIn(initialScale = 0.8f), exit = fadeOut() + scaleOut(targetScale = 0.8f),
-                ) { ThinkingPill() }
+                ) { ThinkingPill(engine = vm.aiEngineLabel) }
+
+                if (vm.currentPage?.isWhiteboard == true && !focus) {
+                    Surface(
+                        shape = Pill, color = glassColor(), shadowElevation = 4.dp,
+                        modifier = Modifier.align(Alignment.TopStart).padding(12.dp).glassEdge(Pill).graphicsLayer { alpha = overlayFade },
+                    ) {
+                        Row(Modifier.padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("∞ Whiteboard", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(4.dp))
+                            TextButton(onClick = { canvas?.resetWhiteboardView() }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
+                                Text("Reset view", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+
+                if (!focus && !vm.readOnly && (vm.tool == Tool.MINDMAP || vm.activeMindNodeId != null)) {
+                    val selNode = vm.selectedMindNode()
+                    val hasKids = selNode != null && vm.currentPage?.items?.any { it is MindNodeItem && it.parentId == selNode.id } == true
+                    Surface(
+                        shape = Pill, color = glassColor(), shadowElevation = 8.dp,
+                        modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
+                            .padding(bottom = if (settings.toolbarDock == ToolbarDock.BOTTOM) 84.dp else 18.dp)
+                            .glassEdge(Pill).graphicsLayer { alpha = overlayFade },
+                    ) {
+                        Row(Modifier.padding(horizontal = 8.dp, vertical = 2.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                            if (selNode != null) {
+                                TextButton(onClick = { vm.openEditSelectedMindNode() }) { Text("Edit") }
+                                TextButton(onClick = { vm.addChildMindNode() }) { Text("+ Child") }
+                                if (selNode.parentId != null) {
+                                    TextButton(onClick = { vm.addSiblingMindNode() }) { Text("+ Sibling") }
+                                }
+                                if (hasKids) {
+                                    TextButton(onClick = { vm.toggleCollapseMindNode(selNode.id) }) {
+                                        Icon(if (selNode.collapsed) Icons.Outlined.UnfoldMore else Icons.Outlined.UnfoldLess, null, Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(if (selNode.collapsed) "Expand" else "Collapse")
+                                    }
+                                }
+                                TextButton(onClick = { vm.deleteMindNode(selNode.id) }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                                Box(Modifier.padding(horizontal = 4.dp).width(1.dp).height(18.dp).background(MaterialTheme.colorScheme.outlineVariant))
+                            }
+                            TextButton(onClick = { vm.autoLayoutMindMap(radial = true) }) { Text("Radial") }
+                            TextButton(onClick = { vm.autoLayoutMindMap(radial = false) }) { Text("Tree") }
+                            TextButton(onClick = { vm.generateMindMapFromNotes() }) {
+                                Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("AI Map")
+                            }
+                        }
+                    }
+                }
 
                 if (vm.readOnly && !focus) {
                     Surface(
@@ -642,6 +702,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
 
     // ------------------------------------------------------------------ dialogs
     vm.textEdit?.let { edit -> TextDialog(vm, edit) }
+    vm.mindNodeEdit?.let { edit -> MindNodeDialog(vm, edit) }
     vm.cardDraft?.let { d -> CardEditorDialog(vm, d) }
     if (vm.linkSheet != null) LinkSheet(vm)
     if (showCards) FlashcardsDialog(vm, onClose = { showCards = false })
@@ -655,7 +716,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("\"" + sel.take(160) + "\"", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(ans, style = MaterialTheme.typography.bodyMedium)
-                    Text("By Gemini Nano, on this device", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("By ${vm.aiEngineLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
             confirmButton = { TextButton(onClick = { vm.explanation = null }) { Text("Done") } },
@@ -822,7 +883,7 @@ private fun TopBar(
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                     ToolbarOrder.visible(settings.toolbarTools).forEach { t -> ToolButton(vm, t, settings) }
-                    val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.TEXT)
+                    val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.TEXT, Tool.MINDMAP)
                     if (hasOptions) {
                         Box(Modifier.padding(horizontal = 8.dp).width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant))
                         ToolOptions(vm, false, settings)
@@ -841,6 +902,7 @@ private fun TopBar(
             DropdownMenu(addMenu, { addMenu = false }, shape = RoundedCornerShape(18.dp)) {
                 DropdownMenuItem(text = { Text("New page after this") }, onClick = { addMenu = false; vm.addPage() })
                 DropdownMenuItem(text = { Text("New page at the end") }, onClick = { addMenu = false; vm.addPage(atEnd = true) })
+                DropdownMenuItem(text = { Text("Infinite whiteboard page") }, onClick = { addMenu = false; vm.addPage(paper = PaperStyle.DOTTED, isWhiteboard = true) })
                 DropdownMenuItem(text = { Text("Choose a template…") }, onClick = { addMenu = false; onTemplates() })
             }
         }
@@ -870,6 +932,13 @@ private fun TopBar(
                     onClick = { more = false; onSplit() })
                 DropdownMenuItem(text = { Text("Page template…") }, leadingIcon = { Icon(Icons.Outlined.Palette, null) },
                     onClick = { more = false; onTemplates() })
+                DropdownMenuItem(
+                    text = { Text(if (vm.currentPage?.isWhiteboard == true) "Switch to standard page" else "Infinite whiteboard") },
+                    leadingIcon = { Icon(Icons.Outlined.Edit, null) },
+                    onClick = { more = false; vm.toggleCurrentWhiteboard() },
+                )
+                DropdownMenuItem(text = { Text("Generate mind map") }, leadingIcon = { Icon(Icons.Outlined.Hub, null) },
+                    onClick = { more = false; vm.generateMindMapFromNotes() })
                 DropdownMenuItem(text = { Text("Summarise page") }, leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null) },
                     onClick = { more = false; vm.summarize() })
                 DropdownMenuItem(text = { Text("Quiz") }, leadingIcon = { Icon(Icons.Outlined.Quiz, null) },
@@ -1075,7 +1144,7 @@ private fun BoxScope.ToolDock(vm: EditorViewModel, settings: AppSettings, area: 
 
             ToolbarOrder.visible(settings.toolbarTools).forEach { t -> ToolButton(vm, t, settings) }
         }
-        val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.TEXT)
+        val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.TEXT, Tool.MINDMAP)
         // One bar: tools, then the active tool's colours and sizes after a thin divider.
         val divider = @Composable {
             if (isVertical) Box(Modifier.padding(vertical = 6.dp).height(1.dp).width(22.dp).background(MaterialTheme.colorScheme.outlineVariant))
@@ -1110,7 +1179,7 @@ private fun BoxScope.ToolDock(vm: EditorViewModel, settings: AppSettings, area: 
 /** Right-edge panel (top bar layout): pen types for the pen, then sizes and colours, top to bottom. */
 @Composable
 private fun SidePanel(vm: EditorViewModel, settings: AppSettings, modifier: Modifier) {
-    val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.TEXT)
+    val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.TEXT, Tool.MINDMAP)
     val shape = RoundedCornerShape(26.dp)
     AnimatedVisibility(
         hasOptions, modifier = modifier,
@@ -1165,7 +1234,7 @@ private fun PenTypeGlyph(type: PenType, tint: Color) {
 /** Compact pill with the active tool's colours and sizes. Hidden when the tool has none. */
 @Composable
 private fun OptionsBar(vm: EditorViewModel, vertical: Boolean, settings: AppSettings) {
-    val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.TEXT)
+    val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.TEXT, Tool.MINDMAP)
     AnimatedVisibility(hasOptions, enter = fadeIn() + scaleIn(initialScale = 0.9f), exit = fadeOut() + scaleOut(targetScale = 0.9f)) {
         Surface(shape = Pill, color = glassColor(), shadowElevation = 4.dp, modifier = Modifier.glassEdge(Pill)) {
             if (vertical) Column(Modifier.padding(vertical = 6.dp, horizontal = 3.dp), horizontalAlignment = Alignment.CenterHorizontally) { ToolOptions(vm, true, settings) }
@@ -1230,6 +1299,7 @@ private fun ToolButton(vm: EditorViewModel, t: Tool, settings: AppSettings) {
                         TapePatternPicker(vm) { pickTape.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
                     }
                     Tool.STICKY -> ColorCard("Sticky note", StickyColors, vm.stickyColor, vm) { vm.stickyColor = it }
+                    Tool.MINDMAP -> MindMapCard(vm)
                     Tool.STICKER, Tool.IMAGE -> Unit
                 }
             }
@@ -1263,6 +1333,16 @@ private fun ToolOptions(vm: EditorViewModel, vertical: Boolean, settings: AppSet
                     MiniChip(if (vm.tapeFreehand) "Freehand" else "Straight") { vm.tapeFreehand = !vm.tapeFreehand }
                 }
                 t == Tool.STICKY -> CustomSwatches(StickyColors, vm.stickyColor, vm) { vm.stickyColor = it }
+                t == Tool.MINDMAP -> {
+                    MindPalette.take(5).forEach { c ->
+                        Swatch(c, c == vm.mindColor, 18) {
+                            vm.recolorMindNode(color = c)
+                        }
+                    }
+                    MiniChip("Radial") { vm.autoLayoutMindMap(radial = true) }
+                    MiniChip("Tree") { vm.autoLayoutMindMap(radial = false) }
+                    MiniChip("AI Map") { vm.generateMindMapFromNotes() }
+                }
                 else -> Unit
             }
         }
@@ -1533,6 +1613,77 @@ private fun TextCard(vm: EditorViewModel) {
 @Composable
 private fun ColorCard(title: String, base: List<Int>, current: Int, vm: EditorViewModel, onPick: (Int) -> Unit) {
     Card(title) { Row(verticalAlignment = Alignment.CenterVertically) { CustomSwatches(base, current, vm, onPick) } }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun MindMapCard(vm: EditorViewModel) {
+    val shapes = listOf("pill" to "Pill", "rect" to "Card", "diamond" to "Diamond", "circle" to "Oval")
+    Card("Mind map") {
+        Text("NODE SHAPE", style = MaterialTheme.typography.labelSmall)
+        Segments(shapes.map { it.second }, shapes.indexOfFirst { it.first == vm.mindShape }.coerceAtLeast(0)) { i ->
+            vm.mindShape = shapes[i].first
+        }
+        Text("NODE COLOUR", style = MaterialTheme.typography.labelSmall)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            MindPalette.forEach { c ->
+                Swatch(c, c == vm.mindColor, 20) { vm.recolorMindNode(color = c) }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = { vm.autoLayoutMindMap(radial = true) }, modifier = Modifier.weight(1f)) { Text("Radial layout") }
+            TextButton(onClick = { vm.autoLayoutMindMap(radial = false) }, modifier = Modifier.weight(1f)) { Text("Tree layout") }
+        }
+        TextButton(onClick = { vm.generateMindMapFromNotes() }, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Generate mind map from notes")
+        }
+        Text("Tap the canvas to add nodes, drag nodes to arrange, and double-tap a node to edit.",
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun MindNodeDialog(vm: EditorViewModel, edit: EditorViewModel.MindNodeEdit) {
+    var label by remember(edit) { mutableStateOf(edit.item.label) }
+    var color by remember(edit) { mutableStateOf(edit.item.color) }
+    var shape by remember(edit) { mutableStateOf(edit.item.shape) }
+    val shapes = listOf("pill" to "Pill", "rect" to "Card", "diamond" to "Diamond", "circle" to "Oval")
+    AlertDialog(
+        onDismissRequest = { vm.mindNodeEdit = null },
+        title = { Text(if (edit.isNew) "New mind map node" else "Edit node") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    label, { label = it },
+                    placeholder = { Text("Enter concept or branch title") },
+                    minLines = 2, maxLines = 4,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text("Shape", style = MaterialTheme.typography.labelSmall)
+                Segments(shapes.map { it.second }, shapes.indexOfFirst { it.first == shape }.coerceAtLeast(0)) { i ->
+                    shape = shapes[i].first
+                }
+                Text("Colour", style = MaterialTheme.typography.labelSmall)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    MindPalette.forEach { c -> Swatch(c, c == color, 20) { color = c } }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { vm.commitMindNode(label, color, shape) }) { Text("Save") }
+        },
+        dismissButton = {
+            if (!edit.isNew) {
+                TextButton(onClick = { vm.deleteMindNode(edit.item.id) }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            } else {
+                TextButton(onClick = { vm.mindNodeEdit = null }) { Text("Cancel") }
+            }
+        },
+    )
 }
 
 @Composable
@@ -1924,7 +2075,7 @@ private fun StudyTimer(vm: EditorViewModel, settings: AppSettings, area: IntSize
 @Composable
 private fun ToolWheel(vm: EditorViewModel, at: Offset, onDismiss: () -> Unit) {
     val density = LocalDensity.current.density
-    val tools = listOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.LASSO, Tool.SHAPE, Tool.TEXT, Tool.LASER, Tool.TAPE)
+    val tools = listOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.LASSO, Tool.SHAPE, Tool.MINDMAP, Tool.TEXT, Tool.LASER, Tool.TAPE)
     val appear = remember { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(Unit) { appear.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.62f, stiffness = 420f)) }
     var size by remember { mutableStateOf(IntSize.Zero) }

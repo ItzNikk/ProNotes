@@ -168,17 +168,18 @@ object CoverCache {
         return bmp
     }
 
-    fun paper(style: PaperStyle, tint: Int, w: Int, h: Int): android.graphics.Bitmap? {
+    fun paper(style: PaperStyle, tint: Int, w: Int, h: Int, pageW: Float = PageSize.WIDTH, pageH: Float = PageSize.HEIGHT): android.graphics.Bitmap? {
         if (w <= 0 || h <= 0) return null
-        val key = "p:${style.name}:$tint:$w:$h"
+        val key = "p:${style.name}:$tint:$w:$h:${pageW.toInt()}:${pageH.toInt()}"
         cache.get(key)?.let { return it }
         val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
         bmp.eraseColor(tint)
         val c = android.graphics.Canvas(bmp)
         renderer.paperColor = tint
-        val s = w / PageSize.WIDTH
-        c.scale(s, s)
-        renderer.drawPaper(c, Page("preview", PageSize.WIDTH, PageSize.HEIGHT, style), null, shadow = false)
+        val sx = w / pageW
+        val sy = h / pageH
+        c.scale(sx, sy)
+        renderer.drawPaper(c, Page("preview", pageW, pageH, style), null, shadow = false)
         cache.put(key, bmp)
         return bmp
     }
@@ -186,9 +187,16 @@ object CoverCache {
 
 /** Paper template preview, drawn with the same renderer the editor uses (cached). */
 @Composable
-fun PaperPreview(style: PaperStyle, modifier: Modifier = Modifier, tint: Int = 0xFFFFFFFF.toInt()) {
+fun PaperPreview(
+    style: PaperStyle,
+    modifier: Modifier = Modifier,
+    tint: Int = 0xFFFFFFFF.toInt(),
+    landscape: Boolean = false,
+) {
+    val pw = if (landscape) PageSize.HEIGHT else PageSize.WIDTH
+    val ph = if (landscape) PageSize.WIDTH else PageSize.HEIGHT
     Canvas(modifier.background(Color(tint))) {
-        val bmp = CoverCache.paper(style, tint, size.width.toInt(), size.height.toInt())
+        val bmp = CoverCache.paper(style, tint, size.width.toInt(), size.height.toInt(), pw, ph)
         if (bmp != null) drawIntoCanvas { c -> c.nativeCanvas.drawBitmap(bmp, 0f, 0f, null) }
     }
 }

@@ -10,3 +10,6 @@ build/
 *.jks
 *.keystore
 dist/
+node_modules/
+metadata.json
+

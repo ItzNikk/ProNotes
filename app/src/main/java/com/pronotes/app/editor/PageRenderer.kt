@@ -98,6 +98,9 @@ class PageRenderer(private val noteDir: File?) {
     /** Highlighter ink goes under pen ink, like a real highlighter under printed text. */
     var highlighterBehind: Boolean = true
 
+    /** Currently selected mind-map node (gets an active focus ring). */
+    var activeMindNodeId: Long? = null
+
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
 
     /** Shows PDF pages inverted (light text on dark) for night reading. */
@@ -132,6 +135,16 @@ class PageRenderer(private val noteDir: File?) {
     private val isDark get() = Color.luminance(currentBg) < 0.4f
 
     private val coverPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val mindLinkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+    private val mindFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; setShadowLayer(10f, 0f, 4f, 0x26000000) }
+    private val mindStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val mindTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
+    private val mindPath = Path()
+    private val wbOriginPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
+        pathEffect = android.graphics.DashPathEffect(floatArrayOf(10f, 10f), 0f)
+    }
 
     private val tapeTiles = HashMap<String, Bitmap>()
 
@@ -568,6 +581,87 @@ class PageRenderer(private val noteDir: File?) {
         }
     }
 
+    /** Unbounded whiteboard backdrop: infinite grid/dots across the viewport plus a subtle origin frame. */
+    fun drawInfiniteBackdrop(canvas: Canvas, pageWorldToScreen: Matrix, viewW: Float, viewH: Float, page: Page) {
+        val bg = page.paperColor ?: paperColor
+        currentBg = bg
+        pagePaint.color = bg
+        canvas.drawRect(0f, 0f, viewW, viewH, pagePaint)
+        val inv = Matrix()
+        if (!pageWorldToScreen.invert(inv)) return
+        val world = RectF(0f, 0f, viewW, viewH)
+        inv.mapRect(world)
+
+        val line = page.lineColor ?: if (isDark) 0xFF333944.toInt() else 0xFFD9E1EC.toInt()
+        val dotCol = if (isDark) 0xFF474E5C.toInt() else 0xFFC0CAD8.toInt()
+        val g = page.lineScale.coerceIn(0.5f, 2.5f)
+        val baseStep = when (page.paper) {
+            PaperStyle.SMALL_GRID -> 28f
+            PaperStyle.GRAPH -> 24f
+            else -> 44f
+        } * g
+        val step = if (world.width() / baseStep > 90f) baseStep * 4f else baseStep
+
+        canvas.save()
+        canvas.concat(pageWorldToScreen)
+        if (page.paper == PaperStyle.GRID || page.paper == PaperStyle.SMALL_GRID || page.paper == PaperStyle.GRAPH) {
+            linePaint.color = line
+            linePaint.strokeWidth = (if (page.paper == PaperStyle.GRAPH) 1.4f else 1.8f)
+            var x = kotlin.math.floor((world.left / step).toDouble()).toFloat() * step
+            while (x <= world.right) {
+                canvas.drawLine(x, world.top, x, world.bottom, linePaint)
+                x += step
+            }
+            var y = kotlin.math.floor((world.top / step).toDouble()).toFloat() * step
+            while (y <= world.bottom) {
+                canvas.drawLine(world.left, y, world.right, y, linePaint)
+                y += step
+            }
+        } else {
+            dotPaint.color = dotCol
+            val radius = (2.2f).coerceAtLeast(1.4f)
+            val startX = kotlin.math.floor((world.left / step).toDouble()).toFloat() * step
+            val startY = kotlin.math.floor((world.top / step).toDouble()).toFloat() * step
+            var y = startY
+            while (y <= world.bottom) {
+                var x = startX
+                while (x <= world.right) {
+                    canvas.drawCircle(x, y, radius, dotPaint)
+                    x += step
+                }
+                y += step
+            }
+        }
+        // Subtle origin crosshair and soft starting sheet outline so spatial orientation is always clear.
+        wbOriginPaint.color = if (isDark) 0x33FFFFFF else 0x26000000
+        canvas.drawRoundRect(RectF(0f, 0f, page.width, page.height), 14f, 14f, wbOriginPaint)
+        linePaint.color = if (isDark) 0x44FFFFFF else 0x303D6CF4
+        canvas.drawLine(-40f, 0f, 40f, 0f, linePaint)
+        canvas.drawLine(0f, -40f, 0f, 40f, linePaint)
+        canvas.restore()
+    }
+
+    /** IDs of mind-map nodes whose ancestor is collapsed. */
+    fun hiddenMindNodeIds(items: List<PageItem>): Set<Long> {
+        val nodes = items.filterIsInstance<MindNodeItem>()
+        if (nodes.isEmpty()) return emptySet()
+        val byId = nodes.associateBy { it.id }
+        val hidden = HashSet<Long>()
+        for (n in nodes) {
+            var cur = n.parentId
+            val seen = HashSet<Long>()
+            while (cur != null && seen.add(cur)) {
+                val p = byId[cur] ?: break
+                if (p.collapsed) {
+                    hidden += n.id
+                    break
+                }
+                cur = p.parentId
+            }
+        }
+        return hidden
+    }
+
     /**
      * Draws page content. [worldToScreen] must already be applied to [canvas];
      * it is passed again so Ink can pick the right level of detail.
@@ -582,17 +676,52 @@ class PageRenderer(private val noteDir: File?) {
         // The part of the page currently on screen, in page coordinates. Anything outside is skipped.
         val clip = canvas.clipBounds
         visible.set(clip.left.toFloat(), clip.top.toFloat(), clip.right.toFloat(), clip.bottom.toFloat())
+        val hiddenNodes = hiddenMindNodeIds(items)
+        val nodes = items.filterIsInstance<MindNodeItem>().filter { it.id !in hiddenNodes }
+        if (nodes.isNotEmpty()) drawMindConnectors(canvas, items, nodes, transform, transformIds)
         val parts = partsOf(items)
         if (parts.hasHighlight) {
-            drawSeq(canvas, parts.fills, worldToScreen, transform, transformIds)
+            drawSeq(canvas, parts.fills, worldToScreen, transform, transformIds, hiddenNodes, items)
             // Highlights blend with the page so text always stays on top: multiply keeps dark text dark
             // on light pages, lighten keeps light text bright on dark pages.
             // The offscreen layer covers only the visible area, not the whole screen.
             val layer = canvas.saveLayer(visible, if (isDark) lightenPaint else multiplyPaint)
-            drawSeq(canvas, parts.highlights, worldToScreen, transform, transformIds)
+            drawSeq(canvas, parts.highlights, worldToScreen, transform, transformIds, hiddenNodes, items)
             canvas.restoreToCount(layer)
-            drawSeq(canvas, parts.rest, worldToScreen, transform, transformIds)
-        } else drawSeq(canvas, items, worldToScreen, transform, transformIds)
+            drawSeq(canvas, parts.rest, worldToScreen, transform, transformIds, hiddenNodes, items)
+        } else drawSeq(canvas, items, worldToScreen, transform, transformIds, hiddenNodes, items)
+    }
+
+    private fun drawMindConnectors(
+        canvas: Canvas,
+        allItems: List<PageItem>,
+        visibleNodes: List<MindNodeItem>,
+        transform: Matrix?,
+        transformIds: Set<Long>,
+    ) {
+        val map = allItems.filterIsInstance<MindNodeItem>().associateBy { it.id }
+        val pt = FloatArray(2)
+        for (child in visibleNodes) {
+            val pid = child.parentId ?: continue
+            val parent = map[pid] ?: continue
+            var px = parent.x + parent.w / 2f
+            var py = parent.y + parent.h / 2f
+            var cx = child.x + child.w / 2f
+            var cy = child.y + child.h / 2f
+            if (transform != null && parent.id in transformIds) {
+                pt[0] = px; pt[1] = py; transform.mapPoints(pt); px = pt[0]; py = pt[1]
+            }
+            if (transform != null && child.id in transformIds) {
+                pt[0] = cx; pt[1] = cy; transform.mapPoints(pt); cx = pt[0]; cy = pt[1]
+            }
+            val dx = (cx - px) * 0.45f
+            mindPath.reset()
+            mindPath.moveTo(px, py)
+            mindPath.cubicTo(px + dx, py, cx - dx, cy, cx, cy)
+            mindLinkPaint.color = (child.color and 0x00FFFFFF) or (0xB8 shl 24)
+            mindLinkPaint.strokeWidth = 4.2f
+            canvas.drawPath(mindPath, mindLinkPaint)
+        }
     }
 
     private val visible = RectF()
@@ -645,8 +774,17 @@ class PageRenderer(private val noteDir: File?) {
         else xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.MULTIPLY)
     }
 
-    private fun drawSeq(canvas: Canvas, ordered: List<PageItem>, worldToScreen: Matrix, transform: Matrix?, transformIds: Set<Long>) {
+    private fun drawSeq(
+        canvas: Canvas,
+        ordered: List<PageItem>,
+        worldToScreen: Matrix,
+        transform: Matrix?,
+        transformIds: Set<Long>,
+        hiddenNodes: Set<Long>,
+        allItems: List<PageItem>,
+    ) {
         for (item in ordered) {
+            if (item is MindNodeItem && item.id in hiddenNodes) continue
             val moved = transform != null && item.id in transformIds
             if (!moved && !onScreen(item)) continue
             if (moved) {
@@ -711,8 +849,74 @@ class PageRenderer(private val noteDir: File?) {
                         }
                     }
                 }
+                is MindNodeItem -> drawMindNode(canvas, item, allItems)
             }
             if (moved) canvas.restore()
+        }
+    }
+
+    private fun drawMindNode(canvas: Canvas, item: MindNodeItem, allItems: List<PageItem>) {
+        val r = RectF(item.x, item.y, item.x + item.w, item.y + item.h)
+        val isRoot = item.parentId == null
+        val isSelected = item.id == activeMindNodeId
+        mindFillPaint.color = item.color
+        mindStrokePaint.color = if (isSelected) 0xFFFFD60A.toInt() else (0x55FFFFFF)
+        mindStrokePaint.strokeWidth = if (isSelected) 5.5f else if (isRoot) 3.5f else 2f
+
+        when (item.shape) {
+            "diamond" -> {
+                mindPath.reset()
+                mindPath.moveTo(r.centerX(), r.top)
+                mindPath.lineTo(r.right, r.centerY())
+                mindPath.lineTo(r.centerX(), r.bottom)
+                mindPath.lineTo(r.left, r.centerY())
+                mindPath.close()
+                canvas.drawPath(mindPath, mindFillPaint)
+                canvas.drawPath(mindPath, mindStrokePaint)
+            }
+            "circle" -> {
+                canvas.drawOval(r, mindFillPaint)
+                canvas.drawOval(r, mindStrokePaint)
+            }
+            "rect" -> {
+                canvas.drawRoundRect(r, 16f, 16f, mindFillPaint)
+                canvas.drawRoundRect(r, 16f, 16f, mindStrokePaint)
+            }
+            else -> {
+                val rad = minOf(r.width(), r.height()) / 2f
+                canvas.drawRoundRect(r, rad, rad, mindFillPaint)
+                canvas.drawRoundRect(r, rad, rad, mindStrokePaint)
+            }
+        }
+
+        val lum = Color.luminance(item.color)
+        mindTextPaint.color = if (lum > 0.56f) 0xFF1B1F2A.toInt() else Color.WHITE
+        mindTextPaint.textSize = if (isRoot) 26f else 22f
+        mindTextPaint.isFakeBoldText = isRoot
+        val padX = if (item.shape == "diamond") r.width() * 0.22f else 18f
+        val availW = (r.width() - padX * 2f).toInt().coerceAtLeast(24)
+        val txt = item.label.ifBlank { "Idea" }
+        val layout = StaticLayout.Builder.obtain(txt, 0, txt.length, mindTextPaint, availW)
+            .setAlignment(Layout.Alignment.ALIGN_CENTER)
+            .setMaxLines(4)
+            .build()
+        canvas.save()
+        canvas.translate(r.left + (r.width() - availW) / 2f, r.centerY() - layout.height / 2f)
+        layout.draw(canvas)
+        canvas.restore()
+
+        if (item.collapsed) {
+            val hiddenCount = allItems.count { it is MindNodeItem && it.parentId == item.id }
+            val badge = if (hiddenCount > 0) "+$hiddenCount" else "+"
+            val bx = r.right - 6f
+            val by = r.centerY()
+            fillPaint.color = 0xFF1B1F2A.toInt()
+            canvas.drawCircle(bx, by, 16f, fillPaint)
+            mindTextPaint.color = Color.WHITE
+            mindTextPaint.textSize = 15f
+            mindTextPaint.textAlign = Paint.Align.CENTER
+            canvas.drawText(badge, bx, by + 5.5f, mindTextPaint)
+            mindTextPaint.textAlign = Paint.Align.LEFT
         }
     }
 

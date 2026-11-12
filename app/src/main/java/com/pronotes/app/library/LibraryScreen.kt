@@ -66,10 +66,12 @@ import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Draw
 import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Palette
@@ -314,13 +316,49 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
                     }
                     DropdownMenu(newMenu, { newMenu = false }) {
                         DropdownMenuItem(text = { Text("Notebook") }, leadingIcon = { Icon(Icons.Outlined.Description, null) }, onClick = { newMenu = false; newNotebook = true })
+                        DropdownMenuItem(text = { Text("Infinite whiteboard") }, leadingIcon = { Icon(Icons.Outlined.Draw, null) }, onClick = {
+                            newMenu = false
+                            scope.launch {
+                                val k = com.pronotes.app.data.PagePreset.UNITS_PER_MM
+                                val p = com.pronotes.app.data.PagePreset.WHITEBOARD
+                                val id = repo.createNotebook(
+                                    "Whiteboard", folderId, 0xFF3D6CF4.toInt(), PaperStyle.DOTTED,
+                                    width = p.wMm * k, height = p.hMm * k, isWhiteboard = true,
+                                )
+                                onOpen(id)
+                            }
+                        })
+                        DropdownMenuItem(text = { Text("Mind map canvas") }, leadingIcon = { Icon(Icons.Outlined.Hub, null) }, onClick = {
+                            newMenu = false
+                            scope.launch {
+                                val k = com.pronotes.app.data.PagePreset.UNITS_PER_MM
+                                val p = com.pronotes.app.data.PagePreset.WHITEBOARD
+                                val id = repo.createNotebook(
+                                    "Mind map", folderId, 0xFF9B51E0.toInt(), PaperStyle.DOTTED,
+                                    width = p.wMm * k, height = p.hMm * k, isWhiteboard = true,
+                                )
+                                val pages = repo.loadPages(id).toMutableList()
+                                if (pages.isNotEmpty()) {
+                                    val first = pages[0]
+                                    val root = com.pronotes.app.editor.MindNodeItem(
+                                        com.pronotes.app.editor.ItemIds.next(),
+                                        first.width / 2f - 130f, first.height / 2f - 44f, 260f, 88f,
+                                        "Central Topic", null, 0xFF3D6CF4.toInt(), "pill",
+                                    )
+                                    pages[0] = first.copy(items = listOf(root))
+                                    repo.savePages(id, pages)
+                                }
+                                SettingsStore.get(context).setPref("startTool_$id", com.pronotes.app.editor.Tool.MINDMAP.name)
+                                onOpen(id)
+                            }
+                        })
                         DropdownMenuItem(text = { Text("Quick note") }, leadingIcon = { Icon(Icons.Outlined.Edit, null) }, onClick = {
                             newMenu = false
                             scope.launch {
                                 val k = com.pronotes.app.data.PagePreset.UNITS_PER_MM
                                 var w = settings.defaultPreset.wMm * k; var h = settings.defaultPreset.hMm * k
-                                if (settings.defaultLandscape != (w > h)) { val t = w; w = h; h = t }
-                                onOpen(repo.createNotebook("Quick note", folderId, CoverColors.random(), settings.defaultPaper, width = w, height = h))
+                                if (!settings.defaultPreset.isWhiteboard && settings.defaultLandscape != (w > h)) { val t = w; w = h; h = t }
+                                onOpen(repo.createNotebook("Quick note", folderId, CoverColors.random(), settings.defaultPaper, width = w, height = h, isWhiteboard = settings.defaultPreset.isWhiteboard))
                             }
                         })
                         DropdownMenuItem(text = { Text("Folder") }, leadingIcon = { Icon(Icons.Outlined.CreateNewFolder, null) }, onClick = { newMenu = false; newFolder = true })
@@ -449,6 +487,7 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
             val id = repo.createNotebook(
                 b.name, folderId, b.coverColor, b.paper, b.cover,
                 width = b.width, height = b.height, paperColor = b.paperColor, coverPage = b.coverPage,
+                isWhiteboard = b.isWhiteboard,
             )
             if (b.photo != null) {
                 val spec = repo.saveCoverImage(id, b.photo)
@@ -924,6 +963,7 @@ private fun CoverDialog(current: String, onDismiss: () -> Unit, onPick: (String,
 data class NewBook(
     val name: String, val cover: String, val coverColor: Int, val paper: PaperStyle, val photo: Uri?,
     val width: Float, val height: Float, val paperColor: Int?, val coverPage: Boolean,
+    val isWhiteboard: Boolean = false,
 )
 
 private val PaperColors = listOf(0xFFFFFFFF, 0xFFFBF7EC, 0xFFF1F2F4, 0xFFFFF4E0, 0xFFEAF4FF, 0xFFEFF8EC, 0xFF22252B).map { it.toInt() }
@@ -972,11 +1012,11 @@ private fun NewNotebookDialog(
                     Tab(tab == 1, { tab = 1 }, text = { Text("Paper") })
                     Tab(tab == 2, { tab = 2 }, text = { Text("Size") })
                 }
-                Box(Modifier.heightIn(max = 340.dp).verticalScroll(rememberScrollState())) {
+                Box(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
                     when (tab) {
                         0 -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             CoverGallery(cover, { cover = it; photo = null }) { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
-                            if (cover != "thumb") Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (cover != "thumb" && !preset.isWhiteboard) Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text("Cover as first page")
                                     Text("Write on your cover", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -984,7 +1024,40 @@ private fun NewNotebookDialog(
                                 androidx.compose.material3.Switch(coverPage, { coverPage = it })
                             }
                         }
-                        1 -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        1 -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            val effectiveLandscape = if (preset.isWhiteboard) true else landscape
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    PaperPreview(
+                                        paper,
+                                        Modifier.size(
+                                            width = if (effectiveLandscape) 128.dp else 92.dp,
+                                            height = if (effectiveLandscape) 92.dp else 128.dp,
+                                        ).clip(RoundedCornerShape(10.dp))
+                                            .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), RoundedCornerShape(10.dp)),
+                                        tint = paperColor ?: 0xFFFFFFFF.toInt(),
+                                        landscape = effectiveLandscape,
+                                    )
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text("Live page preview", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                        Text(paper.label, style = MaterialTheme.typography.titleMedium)
+                                        Text(
+                                            buildString {
+                                                append(preset.label)
+                                                if (preset.recommended) append(" · Recommended")
+                                                if (preset.isWhiteboard) append(" · ∞ Canvas")
+                                                else append(if (effectiveLandscape) " · Landscape" else " · Portrait")
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 PaperStyle.entries.forEach { p ->
                                     val sel = p == paper
@@ -1012,15 +1085,31 @@ private fun NewNotebookDialog(
                         else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 com.pronotes.app.data.PagePreset.entries.forEach { p ->
+                                    val chipLabel = when {
+                                        p.recommended -> "${p.label} · Recommended"
+                                        p.isWhiteboard -> "${p.label} · ∞"
+                                        else -> p.label
+                                    }
                                     androidx.compose.material3.FilterChip(preset == p, {
                                         preset = p
-                                        if (p != com.pronotes.app.data.PagePreset.CUSTOM) { wMm = "%.0f".format(p.wMm); hMm = "%.0f".format(p.hMm) }
-                                    }, label = { Text(p.label) }, shape = CircleShape)
+                                        if (p != com.pronotes.app.data.PagePreset.CUSTOM) {
+                                            wMm = "%.0f".format(p.wMm); hMm = "%.0f".format(p.hMm)
+                                        }
+                                        if (p.isWhiteboard && paper == PaperStyle.BLANK) paper = PaperStyle.DOTTED
+                                    }, label = { Text(chipLabel) }, shape = CircleShape)
                                 }
                             }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Landscape", Modifier.weight(1f))
-                                androidx.compose.material3.Switch(landscape, { landscape = it })
+                            if (preset.isWhiteboard) {
+                                Text(
+                                    "Unbounded infinite canvas with pan & zoom — great for diagrams, sketching, and mind maps.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            } else {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Landscape", Modifier.weight(1f))
+                                    androidx.compose.material3.Switch(landscape, { landscape = it })
+                                }
                             }
                             if (preset == com.pronotes.app.data.PagePreset.CUSTOM) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 OutlinedTextField(wMm, { v -> wMm = v.filter { it.isDigit() }.take(4) }, label = { Text("Width mm") }, singleLine = true, modifier = Modifier.weight(1f), shape = CircleShape)
@@ -1036,11 +1125,13 @@ private fun NewNotebookDialog(
                 val color = cover.substringAfterLast(':').toLongOrNull()?.toInt() ?: startColor
                 var w = (wMm.toFloatOrNull() ?: 210f).coerceIn(40f, 1000f)
                 var h = (hMm.toFloatOrNull() ?: 297f).coerceIn(40f, 1000f)
-                if (landscape != (w > h)) { val t = w; w = h; h = t }
+                if (!preset.isWhiteboard && landscape != (w > h)) { val t = w; w = h; h = t }
                 val k = com.pronotes.app.data.PagePreset.UNITS_PER_MM
                 onCreate(NewBook(
-                    name.ifBlank { "Untitled notebook" }, if (cover == "photo") "" else cover, color, paper, photo,
-                    w * k, h * k, paperColor, coverPage && cover != "thumb",
+                    name.ifBlank { if (preset.isWhiteboard) "Whiteboard" else "Untitled notebook" },
+                    if (cover == "photo") "" else cover, color, paper, photo,
+                    w * k, h * k, paperColor, coverPage && cover != "thumb" && !preset.isWhiteboard,
+                    isWhiteboard = preset.isWhiteboard,
                 ))
             }) { Text("Create") }
         },

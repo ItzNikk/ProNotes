@@ -77,6 +77,7 @@ data class NotebookMeta(
     val opened: Long = modified,
     /** Set when the notebook is in the trash. */
     val deletedAt: Long? = null,
+    val isWhiteboard: Boolean = false,
 ) {
     val coverSpec: String get() = cover.ifBlank { if (fromPdf) "thumb" else "solid:$coverColor" }
 }
@@ -126,6 +127,21 @@ sealed class ItemDoc {
     @Serializable
     @SerialName("sticky")
     data class Sticky(val x: Float, val y: Float, val w: Float, val h: Float, val color: Int, val text: String, val rot: Float = 0f) : ItemDoc()
+
+    @Serializable
+    @SerialName("mindnode")
+    data class MindNode(
+        val nodeId: Long,
+        val x: Float,
+        val y: Float,
+        val w: Float,
+        val h: Float,
+        val label: String,
+        val parentId: Long? = null,
+        val color: Int,
+        val shape: String = "pill",
+        val collapsed: Boolean = false,
+    ) : ItemDoc()
 }
 
 @Serializable
@@ -146,6 +162,7 @@ data class PageDoc(
     /** Template tuning: line spacing multiplier and line colour (null = default). */
     val lineScale: Float = 1f,
     val lineColor: Int? = null,
+    val isWhiteboard: Boolean = false,
 )
 
 @Serializable
@@ -158,14 +175,21 @@ object PageSize {
 }
 
 /** Page size presets in millimetres; world units are 150 dpi (5.906 per mm). */
-enum class PagePreset(val label: String, val wMm: Float, val hMm: Float) {
-    A4("A4", 210f, 297f),
+enum class PagePreset(
+    val label: String,
+    val wMm: Float,
+    val hMm: Float,
+    val recommended: Boolean = false,
+    val isWhiteboard: Boolean = false,
+) {
+    A4("A4", 210f, 297f, recommended = true),
     LETTER("Letter", 215.9f, 279.4f),
     A5("A5", 148f, 210f),
     A3("A3", 297f, 420f),
     SQUARE("Square", 210f, 210f),
     WIDE("16:9", 297f, 167f),
     PHONE("Phone", 75f, 160f),
+    WHITEBOARD("Whiteboard", 520f, 360f, isWhiteboard = true),
     CUSTOM("Custom", 210f, 297f);
 
     companion object {

@@ -1,0 +1,155 @@
+import React, { useEffect, useState } from 'react';
+import { useProNotesStore } from './store/useProNotesStore';
+import { LibraryScreen } from './components/LibraryScreen';
+import { EditorScreen } from './components/EditorScreen';
+import { SettingsScreen } from './components/SettingsScreen';
+import { LocalAiModal } from './components/StudyModals';
+
+export function App() {
+  const {
+    state,
+    modelStates,
+    updateSettings,
+    createFolder,
+    updateFolder,
+    deleteFolder,
+    createNotebook,
+    updateNotebook,
+    openNotebookTab,
+    closeTab,
+    softDeleteNotebook,
+    restoreNotebook,
+    deleteForeverNotebook,
+    emptyTrash,
+    duplicateNotebook,
+    addFlashcards,
+    updateFlashcard,
+    deleteFlashcard,
+    recordQuizScore,
+    startModelDownload,
+    pauseModelDownload,
+    removeLocalModel,
+    exportBackupJson,
+    importBackupJson,
+  } = useProNotesStore();
+
+  const [route, setRoute] = useState<{ screen: 'LIBRARY' | 'EDITOR' | 'SETTINGS'; noteId?: string }>({
+    screen: 'LIBRARY',
+  });
+  const [modelsModalOpen, setModelsModalOpen] = useState(false);
+
+  // Sync light/dark theme class on <html>
+  useEffect(() => {
+    const applyTheme = () => {
+      const m = state.settings.themeMode;
+      const dark =
+        m === 'DARK' ||
+        (m === 'SYSTEM' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.classList.toggle('dark', dark);
+    };
+    applyTheme();
+    const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
+    mq?.addEventListener?.('change', applyTheme);
+    return () => mq?.removeEventListener?.('change', applyTheme);
+  }, [state.settings.themeMode]);
+
+  const openNote = (id: string) => {
+    openNotebookTab(id);
+    setRoute({ screen: 'EDITOR', noteId: id });
+  };
+
+  const activeNotebook =
+    route.screen === 'EDITOR' && route.noteId
+      ? state.notebooks.find((n) => n.id === route.noteId && n.deletedAt === null)
+      : undefined;
+
+  return (
+    <>
+      {route.screen === 'EDITOR' && activeNotebook ? (
+        <EditorScreen
+          notebook={activeNotebook}
+          allNotebooks={state.notebooks}
+          openTabIds={state.tabs}
+          settings={state.settings}
+          flashcards={state.flashcards.filter((c) => c.notebookId === activeNotebook.id)}
+          bestQuizScore={state.bestQuizScores[activeNotebook.id] || 0}
+          modelStates={modelStates}
+          onBackHome={() => setRoute({ screen: 'LIBRARY' })}
+          onSwitchNote={openNote}
+          onCloseTab={(id) => {
+            closeTab(id);
+            if (id === activeNotebook.id) {
+              const rem = state.tabs.filter((t) => t !== id);
+              if (rem.length > 0) setRoute({ screen: 'EDITOR', noteId: rem[rem.length - 1] });
+              else setRoute({ screen: 'LIBRARY' });
+            }
+          }}
+          onUpdateNotebook={updateNotebook}
+          onAddFlashcards={addFlashcards}
+          onUpdateFlashcard={updateFlashcard}
+          onDeleteFlashcard={deleteFlashcard}
+          onRecordQuizScore={recordQuizScore}
+          onOpenSettings={() => setRoute({ screen: 'SETTINGS' })}
+          onOpenLocalModels={() => setModelsModalOpen(true)}
+        />
+      ) : route.screen === 'SETTINGS' ? (
+        <SettingsScreen
+          settings={state.settings}
+          onUpdate={updateSettings}
+          onBack={() => setRoute({ screen: 'LIBRARY' })}
+          onOpenLocalModels={() => setModelsModalOpen(true)}
+          onExportBackup={exportBackupJson}
+          onImportBackup={importBackupJson}
+        />
+      ) : (
+        <LibraryScreen
+          folders={state.folders}
+          notebooks={state.notebooks}
+          settings={state.settings}
+          modelStates={modelStates}
+          onOpenNote={openNote}
+          onCreateNotebook={(payload) => {
+            const nb = createNotebook({
+              title: payload.title,
+              folderId: payload.folderId,
+              cover: payload.cover,
+              coverColor: payload.coverColor,
+              paper: payload.paper,
+              width: payload.width,
+              height: payload.height,
+              paperColor: payload.paperColor,
+              coverPage: payload.coverPage,
+              isWhiteboard: payload.isWhiteboard,
+              isMindMap: payload.isMindMap,
+            });
+            openNote(nb.id);
+          }}
+          onCreateFolder={createFolder}
+          onUpdateFolder={updateFolder}
+          onDeleteFolder={deleteFolder}
+          onUpdateNotebook={updateNotebook}
+          onDuplicateNotebook={duplicateNotebook}
+          onSoftDeleteNotebook={softDeleteNotebook}
+          onRestoreNotebook={restoreNotebook}
+          onDeleteForeverNotebook={deleteForeverNotebook}
+          onEmptyTrash={emptyTrash}
+          onOpenSettings={() => setRoute({ screen: 'SETTINGS' })}
+          onOpenLocalModels={() => setModelsModalOpen(true)}
+        />
+      )}
+
+      <LocalAiModal
+        open={modelsModalOpen}
+        modelStates={modelStates}
+        activeModelId={state.settings.activeLocalModelId}
+        onClose={() => setModelsModalOpen(false)}
+        onDownload={startModelDownload}
+        onPause={pauseModelDownload}
+        onDelete={removeLocalModel}
+        onActivate={(id) => updateSettings({ activeLocalModelId: id })}
+      />
+    </>
+  );
+}
+
+export default App;

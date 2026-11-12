@@ -169,6 +169,23 @@ class FillItem(
     fun recolored(c: Int) = FillItem(id, points, c, dx, dy)
 }
 
+data class MindNodeItem(
+    override val id: Long,
+    val x: Float,
+    val y: Float,
+    val w: Float,
+    val h: Float,
+    val label: String,
+    val parentId: Long? = null,
+    val color: Int = 0xFF3D6CF4.toInt(),
+    val shape: String = "pill",
+    val collapsed: Boolean = false,
+) : PageItem {
+    override val bounds: RectF get() = RectF(x, y, x + w, y + h)
+    override fun translated(dx: Float, dy: Float): PageItem = copy(x = x + dx, y = y + dy)
+    override fun withId(newId: Long): PageItem = copy(id = newId)
+}
+
 data class Page(
     val id: String,
     val width: Float,
@@ -182,6 +199,7 @@ data class Page(
     val bgImage: String? = null,
     val lineScale: Float = 1f,
     val lineColor: Int? = null,
+    val isWhiteboard: Boolean = false,
 )
 
 fun strokeBounds(stroke: Stroke): RectF {
@@ -253,6 +271,7 @@ fun PageItem.transformed(m: android.graphics.Matrix, s: Float, deg: Float): Page
         }
         is ImageItem -> { val (cx, cy) = movedCenter(raw); copy(x = cx - w * s / 2f, y = cy - h * s / 2f, w = w * s, h = h * s, rot = (rot + deg) % 360f) }
         is StickyItem -> { val (cx, cy) = movedCenter(raw); copy(x = cx - w * s / 2f, y = cy - h * s / 2f, w = w * s, h = h * s, rot = (rot + deg) % 360f) }
+        is MindNodeItem -> { val (cx, cy) = movedCenter(bounds); val nw = (w * s).coerceIn(110f, 520f); val nh = (h * s).coerceIn(48f, 220f); copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh) }
         is TapeItem -> if (pts != null) {
             val abs = FloatArray(pts.size) { i -> pts[i] + if (i % 2 == 0) x else y }
             m.mapPoints(abs)
@@ -265,7 +284,12 @@ val textPaint = TextPaint(TextPaint.ANTI_ALIAS_FLAG)
 
 fun applyTextStyle(paint: TextPaint, size: Float, style: TextStyleSpec) {
     paint.textSize = size
-    val styleFlags = (if (style.bold) Typeface.BOLD else 0) or (if (style.italic) Typeface.ITALIC else 0)
+    val styleFlags = when {
+        style.bold && style.italic -> Typeface.BOLD_ITALIC
+        style.bold -> Typeface.BOLD
+        style.italic -> Typeface.ITALIC
+        else -> Typeface.NORMAL
+    }
     paint.typeface = Typeface.create(style.font.typeface, styleFlags)
     paint.isUnderlineText = style.underline
     paint.textAlign = android.graphics.Paint.Align.LEFT

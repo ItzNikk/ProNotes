@@ -39,32 +39,56 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** "Thinking…" pill with three bouncing dots and a moving shine, shown while on-device AI works. */
+/** "Thinking…" pill with animated orbital glow, shimmer sweep, and active AI model label. */
 @Composable
-fun ThinkingPill() {
+fun ThinkingPill(engine: String = "") {
     val t = rememberInfiniteTransition(label = "think")
     val phase by t.animateFloat(0f, 1f, infiniteRepeatable(tween(1100, easing = LinearEasing)), label = "p")
-    val shine by t.animateFloat(-1f, 2f, infiniteRepeatable(tween(1600, easing = LinearEasing)), label = "s")
-    Surface(shape = CircleShape, color = Color(0xF21B1F2A), shadowElevation = 8.dp) {
+    val shine by t.animateFloat(-1f, 2f, infiniteRepeatable(tween(1700, easing = LinearEasing)), label = "s")
+    val spin by t.animateFloat(0f, 360f, infiniteRepeatable(tween(2400, easing = LinearEasing)), label = "spin")
+    val pulse by t.animateFloat(0.75f, 1f, infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "pulse")
+    Surface(shape = CircleShape, color = Color(0xF5181C28), shadowElevation = 10.dp) {
         Box {
             Canvas(Modifier.matchParentSizeCompat()) {
-                drawRect(Brush.linearGradient(listOf(Color.Transparent, Color(0x33B45CFF), Color.Transparent), Offset(size.width * shine - 80f, 0f), Offset(size.width * shine + 80f, size.height)))
+                drawRect(
+                    Brush.linearGradient(
+                        listOf(Color.Transparent, Color(0x40B45CFF), Color(0x383D9EFF), Color.Transparent),
+                        Offset(size.width * shine - 90f, 0f),
+                        Offset(size.width * shine + 90f, size.height),
+                    ),
+                )
             }
             Row(Modifier.padding(horizontal = 18.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("✨", color = Color.White)
-                Spacer(Modifier.width(8.dp))
-                Text("Thinking", color = Color.White, style = MaterialTheme.typography.labelLarge)
-                Spacer(Modifier.width(6.dp))
-                for (i in 0 until 3) {
-                    val k = ((phase * 3f - i) % 3f + 3f) % 3f
-                    val up = if (k < 1f) kotlin.math.sin(k * Math.PI).toFloat() else 0f
-                    Box(Modifier.padding(horizontal = 2.dp).size(5.dp).graphicsLayer { translationY = -up * 6.dp.toPx() }) {
-                        Canvas(Modifier.size(5.dp)) { drawCircle(Color(0xFFE38BFF)) }
+                Canvas(Modifier.size(20.dp).graphicsLayer { rotationZ = spin; scaleX = pulse; scaleY = pulse }) {
+                    val r = size.minDimension / 2f
+                    drawCircle(
+                        brush = Brush.sweepGradient(listOf(Color(0xFFE38BFF), Color(0xFF5AC8FA), Color(0xFF8B6CF0), Color(0xFFE38BFF))),
+                        radius = r - 2f,
+                        style = Stroke(width = 2.6.dp.toPx()),
+                    )
+                    drawCircle(Color(0xFFE38BFF), radius = 2.6.dp.toPx(), center = center)
+                }
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Thinking", color = Color.White, style = MaterialTheme.typography.labelLarge)
+                        Spacer(Modifier.width(6.dp))
+                        for (i in 0 until 3) {
+                            val k = ((phase * 3f - i) % 3f + 3f) % 3f
+                            val up = if (k < 1f) kotlin.math.sin(k * Math.PI).toFloat() else 0f
+                            Box(Modifier.padding(horizontal = 2.dp).size(5.dp).graphicsLayer { translationY = -up * 6.dp.toPx() }) {
+                                Canvas(Modifier.size(5.dp)) { drawCircle(if (i % 2 == 0) Color(0xFFE38BFF) else Color(0xFF74C0FC)) }
+                            }
+                        }
+                    }
+                    if (engine.isNotBlank()) {
+                        Text(engine, color = Color(0xFFB4BED2), style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }
@@ -72,7 +96,7 @@ fun ThinkingPill() {
     }
 }
 
-private fun Modifier.matchParentSizeCompat() = this.then(Modifier.size(220.dp, 44.dp))
+private fun Modifier.matchParentSizeCompat() = this.then(Modifier.size(260.dp, 52.dp))
 
 /**
  * Pip, the study buddy: a little round blob that breathes and blinks, watches while you write,
@@ -82,6 +106,7 @@ private fun Modifier.matchParentSizeCompat() = this.then(Modifier.size(220.dp, 4
 fun StudyPet(vm: EditorViewModel, modifier: Modifier, compact: Boolean = false) {
     val t = rememberInfiniteTransition(label = "pet")
     val breathe by t.animateFloat(0f, 1f, infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b")
+    val aiSpin by t.animateFloat(0f, 360f, infiniteRepeatable(tween(2200, easing = LinearEasing)), label = "ai")
     var blink by remember { mutableStateOf(false) }
     var say by remember { mutableStateOf<String?>(null) }
     val jump = remember { Animatable(0f) }
@@ -123,6 +148,17 @@ fun StudyPet(vm: EditorViewModel, modifier: Modifier, compact: Boolean = false) 
             },
         ) {
             val w = size.width; val h = size.height
+            if (thinking) {
+                val r = w * 0.56f
+                rotate(aiSpin, pivot = Offset(w / 2f, h * 0.56f)) {
+                    drawCircle(
+                        brush = Brush.sweepGradient(listOf(Color(0xFFE38BFF), Color(0xFF5AC8FA), Color.Transparent, Color(0xFFE38BFF))),
+                        radius = r,
+                        center = Offset(w / 2f, h * 0.56f),
+                        style = Stroke(width = if (compact) 2f else 3.5f),
+                    )
+                }
+            }
             val squish = 1f + 0.04f * breathe - jump.value * 0.08f
             val bodyH = h * 0.78f * squish; val bodyW = w * 0.9f / squish
             val top = h - bodyH

@@ -43,7 +43,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-enum class Tool { PEN, HIGHLIGHTER, ERASER, SHAPE, LASSO, TEXT, IMAGE, STICKY, TAPE, STICKER, LASER }
+enum class Tool { PEN, HIGHLIGHTER, ERASER, SHAPE, LASSO, MINDMAP, TEXT, IMAGE, STICKY, TAPE, STICKER, LASER }
 
 /** Callbacks from the canvas to the editor state. Page indices refer to the notebook's page list. */
 interface CanvasHost {
@@ -57,6 +57,7 @@ interface CanvasHost {
     fun onSelectionChanged(page: Int, ids: Set<Long>, screenBounds: RectF?)
     fun onTextTap(page: Int, x: Float, y: Float, existing: TextItem?)
     fun onStickyTap(page: Int, x: Float, y: Float, existing: StickyItem?)
+    fun onMindMapTap(page: Int, x: Float, y: Float, existing: MindNodeItem?) {}
     fun onCurrentPage(index: Int)
     fun onPullAddPage()
     fun undo()
@@ -126,8 +127,19 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     private val scroller = OverScroller(context, DecelerateInterpolator(1.6f))
     private var velocity: VelocityTracker? = null
 
+    var activeMindNodeId: Long? = null
+        set(value) {
+            field = value
+            renderer?.activeMindNodeId = value
+            layer.invalidate()
+        }
+
     var renderer: PageRenderer? = null
-        set(value) { field = value; layer.invalidate() }
+        set(value) {
+            field = value
+            value?.activeMindNodeId = activeMindNodeId
+            layer.invalidate()
+        }
 
     var tool: Tool = Tool.PEN
         set(value) {
@@ -400,7 +412,14 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         } else updateMatrix()
     }
 
+    private val isWhiteboard: Boolean
+        get() = pages.getOrNull(currentIndex)?.isWhiteboard == true
+
     private fun clamp(allowPull: Boolean = false) {
+        if (isWhiteboard) {
+            pull = 0f
+            return
+        }
         val pad = 24f * density
         val cw = docW * scale; val ch = docH * scale
         val vertical = settings.scroll == ScrollDirection.VERTICAL
@@ -504,7 +523,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
     // ------------------------------------------------------------------ input
 
-    private enum class Mode { NONE, INK, ERASE, LASSO, MOVE, LASER, PAN, TAP, SHAPE_DRAG, TAPE, IGNORE }
+    private enum class Mode { NONE, INK, ERASE, LASSO, MOVE, LASER, PAN, TAP, SHAPE_DRAG, TAPE, MIND_DRAG, IGNORE }
 
     private var mode = Mode.NONE
     private var activePointer = -1
@@ -514,6 +533,14 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     private val points = ArrayList<Pt>()       // page-local points of the current gesture
     private val lassoPoints = ArrayList<Pt>()  // screen points
     private var lastErase: Pt? = null
+    private var scribbleErased = false
+    private var dragMindId: Long = -1L
+    private var dragMindOrigX = 0f
+    private var dragMindOrigY = 0f
+    private var dragMindOrigPage = 0
+    private var dragMindMoved = false
+    private var dragMindDownWx = 0f
+    private var dragMindDownWy = 0f
     private var moveStart: Pt? = null
     private var holdFired = false
     private var lastMovePt: Pt? = null
@@ -773,6 +800,23 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         layer.laserBegin(toDoc(px, py))
                     }
                     Tool.TAPE -> { mode = Mode.TAPE; layer.tapePreview = null }
+                    Tool.MINDMAP -> {
+                        val p = pages.getOrNull(activePage)
+                        val hidden = renderer?.hiddenMindNodeIds(p?.items ?: emptyList()) ?: emptySet()
+                        val hit = p?.items?.lastOrNull { it is MindNodeItem && it.id !in hidden && it.bounds.contains(wx, wy) } as MindNodeItem?
+                        if (hit != null) {
+                            dragMindId = hit.id
+                            dragMindOrigX = hit.x
+                            dragMindOrigY = hit.y
+                            dragMindOrigPage = activePage
+                            dragMindMoved = false
+                            dragMindDownWx = wx
+                            dragMindDownWy = wy
+                            mode = Mode.MIND_DRAG
+                        } else {
+                            mode = Mode.TAP
+                        }
+                    }
                     Tool.TEXT, Tool.STICKY -> mode = Mode.TAP
                     Tool.IMAGE, Tool.STICKER -> mode = Mode.IGNORE
                 }
@@ -798,6 +842,23 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         points += cur
                         trackHold(cur)
                         if (holdFired) return
+                        if (settings.scribbleToErase && settings.liveScribbleErase &&
+                            (strokeTool == Tool.PEN || strokeTool == Tool.HIGHLIGHTER) &&
+                            points.size >= 12 && isLiveScribble(points)
+                        ) {
+                            val recent = if (points.size > 28) points.subList(points.size - 28, points.size) else points
+                            cancelWet(id)
+                            strokeId = null
+                            removeCallbacks(holdRunnable)
+                            mode = Mode.ERASE
+                            scribbleErased = true
+                            lastErase = cur
+                            host.beginEdit(activePage)
+                            eraseScribbleWindow(activePage, recent, highlighter = (strokeTool == Tool.HIGHLIGHTER))
+                            layer.eraserAt = fx to fy
+                            layer.invalidate()
+                            return
+                        }
                         val predicted = predictor.predict()
                         try {
                             wetInk.addToStroke(e, activePointer, id, predicted)
@@ -857,6 +918,24 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         }
                         layer.invalidate()
                     }
+                    Mode.MIND_DRAG -> {
+                        val (wx, wy) = toLocal(e.getX(idx), e.getY(idx), dragMindOrigPage)
+                        val dx = wx - dragMindDownWx
+                        val dy = wy - dragMindDownWy
+                        if (!dragMindMoved && hypot(dx, dy) * scale > touchSlop * 0.6f) {
+                            dragMindMoved = true
+                            host.beginEdit(dragMindOrigPage)
+                        }
+                        if (dragMindMoved) {
+                            val p = pages.getOrNull(dragMindOrigPage) ?: return
+                            val updated = p.items.map { item ->
+                                if (item is MindNodeItem && item.id == dragMindId) item.copy(x = dragMindOrigX + dx, y = dragMindOrigY + dy)
+                                else item
+                            }
+                            pages = pages.toMutableList().also { it[dragMindOrigPage] = p.copy(items = updated) }
+                            layer.invalidate()
+                        }
+                    }
                     else -> Unit
                 }
             }
@@ -869,8 +948,10 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 when (mode) {
                     Mode.INK -> finishInk(e, isTap)
                     Mode.ERASE -> {
+                        val wasScribble = scribbleErased
+                        scribbleErased = false
                         layer.eraserAt = null; lastErase = null; layer.invalidate()
-                        if (strokeTool == Tool.ERASER && tool == Tool.ERASER) host.onEraserLifted()
+                        if (!wasScribble && strokeTool == Tool.ERASER && tool == Tool.ERASER) host.onEraserLifted()
                     }
                     Mode.LASSO -> {
                         val local = lassoPoints.map { toLocal(it.first, it.second, activePage) }
@@ -918,21 +999,42 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         }
                         layer.invalidate()
                     }
+                    Mode.MIND_DRAG -> {
+                        val p = pages.getOrNull(dragMindOrigPage)
+                        if (dragMindMoved && p != null) {
+                            updatePage(dragMindOrigPage, p.items)
+                        } else if (p != null) {
+                            val node = p.items.firstOrNull { it is MindNodeItem && it.id == dragMindId } as MindNodeItem?
+                            val (wx, wy) = toLocal(px, py, dragMindOrigPage)
+                            host.onMindMapTap(dragMindOrigPage, wx, wy, node)
+                        }
+                        dragMindId = -1L
+                        dragMindMoved = false
+                    }
                     Mode.TAP -> {
                         val (wx, wy) = toLocal(px, py, activePage)
                         val items = pages[activePage].items
-                        if (strokeTool == Tool.TEXT) {
-                            val hit = items.lastOrNull { it is TextItem && it.bounds.contains(wx, wy) } as TextItem?
-                            host.onTextTap(activePage, wx, wy, hit)
-                        } else {
-                            val hit = items.lastOrNull { it is StickyItem && it.bounds.contains(wx, wy) } as StickyItem?
-                            host.onStickyTap(activePage, wx, wy, hit)
+                        when (strokeTool) {
+                            Tool.TEXT -> {
+                                val hit = items.lastOrNull { it is TextItem && it.bounds.contains(wx, wy) } as TextItem?
+                                host.onTextTap(activePage, wx, wy, hit)
+                            }
+                            Tool.MINDMAP -> {
+                                val hidden = renderer?.hiddenMindNodeIds(items) ?: emptySet()
+                                val hit = items.lastOrNull { it is MindNodeItem && it.id !in hidden && it.bounds.contains(wx, wy) } as MindNodeItem?
+                                host.onMindMapTap(activePage, wx, wy, hit)
+                            }
+                            else -> {
+                                val hit = items.lastOrNull { it is StickyItem && it.bounds.contains(wx, wy) } as StickyItem?
+                                host.onStickyTap(activePage, wx, wy, hit)
+                            }
                         }
                     }
                     else -> Unit
                 }
                 mode = Mode.NONE
                 strokeId = null
+                scribbleErased = false
             }
             MotionEvent.ACTION_CANCEL -> { feel.stop(); cancelCurrent(e) }
         }
@@ -950,6 +1052,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         // A stroke that was never finished or cancelled would stay on screen forever as ghost ink.
         strokeId?.let { old -> wetInk.cancelStroke(old, e); strokePages.remove(old) }
         strokeId = null
+        scribbleErased = false
         mode = Mode.INK
         syncFeel()
         feelX = e.getX(e.findPointerIndex(activePointer).coerceAtLeast(0)); feelY = e.getY(e.findPointerIndex(activePointer).coerceAtLeast(0)); feelT = e.eventTime
@@ -974,23 +1077,22 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
         // Scribble-to-erase: a zig-zag over existing ink erases it instead of drawing.
         if (settings.scribbleToErase && (strokeTool == Tool.PEN || strokeTool == Tool.HIGHLIGHTER) && isScribble(points)) {
-            // Only ink and typed text, only what the scribble mostly covers, never pictures, tape or
-            // stickies, and the highlighter only erases highlights (and the pen only pen ink).
             val sb = RectF(points.minOf { it.first }, points.minOf { it.second }, points.maxOf { it.first }, points.maxOf { it.second })
-            val hit = itemsUnder(activePage, points).filter { hid ->
-                val it = p.items.firstOrNull { x -> x.id == hid } ?: return@filter false
+                .apply { inset(-10f, -10f) }
+            val touched = itemsUnder(activePage, points)
+            val hit = p.items.filter { it ->
                 val ok = when (it) {
                     is InkItem -> it.isHighlighter == (strokeTool == Tool.HIGHLIGHTER)
                     is TextItem -> strokeTool == Tool.PEN
                     else -> false
                 }
-                // Thin or tiny items (an underline, a dot) count as at least 24 units wide / tall.
+                if (!ok) return@filter false
                 val b = it.bounds
                 val ew = b.width().coerceAtLeast(24f); val eh = b.height().coerceAtLeast(24f)
                 val ov = RectF(b.centerX() - ew / 2f, b.centerY() - eh / 2f, b.centerX() + ew / 2f, b.centerY() + eh / 2f)
-                val covered = ov.intersect(sb) && ov.width() * ov.height() >= ew * eh * 0.3f
-                ok && covered
-            }.toSet()
+                val covered = ov.intersect(sb) && (ov.width() * ov.height() >= ew * eh * 0.16f || it.id in touched)
+                covered
+            }.map { it.id }.toSet()
             if (hit.isNotEmpty()) {
                 wetInk.cancelStroke(id, e); strokePages.remove(id)
                 val gone = p.items.filter { it.id in hit }.map { RectF(it.bounds).also { r -> pageMatrix(activePage, tmpMatrix).mapRect(r) } }
@@ -1303,16 +1405,47 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
     // ----------------------------------------------------------- eraser
 
+    private fun eraseScribbleWindow(page: Int, pts: List<Pt>, highlighter: Boolean) {
+        if (pts.size < 2) return
+        val p = pages.getOrNull(page) ?: return
+        val sb = RectF(pts.minOf { it.first }, pts.minOf { it.second }, pts.maxOf { it.first }, pts.maxOf { it.second })
+            .apply { inset(-14f, -14f) }
+        val touched = itemsUnder(page, pts)
+        val hit = p.items.filter { item ->
+            val ok = when (item) {
+                is InkItem -> item.isHighlighter == highlighter
+                is TextItem -> !highlighter
+                else -> false
+            }
+            if (!ok) return@filter false
+            item.id in touched || RectF.intersects(item.bounds, sb)
+        }.map { it.id }.toSet()
+        if (hit.isNotEmpty()) {
+            val gone = p.items.filter { it.id in hit }.map { RectF(it.bounds).also { r -> pageMatrix(page, tmpMatrix).mapRect(r) } }
+            updatePage(page, p.items.filterNot { it.id in hit })
+            layer.puff(gone)
+            buzz(HapticFeedbackConstants.CLOCK_TICK)
+        }
+    }
+
     private fun eraseAt(wx: Float, wy: Float) {
         val p = pages.getOrNull(activePage) ?: return
         val prev = lastErase ?: (wx to wy)
         lastErase = wx to wy
         val r = host.eraserRadius() / scale
-        if (settings.eraserMode == com.pronotes.app.data.EraserMode.PIXEL) { pixelErase(p, prev, wx, wy, r); return }
+        if (settings.eraserMode == com.pronotes.app.data.EraserMode.PIXEL && !scribbleErased) { pixelErase(p, prev, wx, wy, r); return }
         val hit = HashSet<Long>()
         val para = MutableParallelogram()
         for (item in p.items) {
-            if (settings.eraseHighlighterOnly && !(item is InkItem && item.isHighlighter)) continue
+            if (scribbleErased) {
+                val scribbleHigh = strokeTool == Tool.HIGHLIGHTER
+                val ok = when (item) {
+                    is InkItem -> item.isHighlighter == scribbleHigh
+                    is TextItem -> !scribbleHigh
+                    else -> false
+                }
+                if (!ok) continue
+            } else if (settings.eraseHighlighterOnly && !(item is InkItem && item.isHighlighter)) continue
             when (item) {
                 is InkItem -> {
                     val b = item.bounds
@@ -1553,7 +1686,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 val (cx, cy) = focus(e)
                 if (hypot(cx - fingerStartX, cy - fingerStartY) > touchSlop * 2) { fingerMoved = true; removeCallbacks(textPressRunnable) }
                 if (e.pointerCount >= 2 && pinchStartDist > 0f) {
-                    val newScale = (pinchStartScale * spacing(e) / pinchStartDist).coerceIn(gestureFit * 0.9f, 6f)
+                    val minScale = if (isWhiteboard) 0.16f else gestureFit * 0.9f
+                    val maxScale = if (isWhiteboard) 8f else 6f
+                    val newScale = (pinchStartScale * spacing(e) / pinchStartDist).coerceIn(minScale, maxScale)
                     if (abs(newScale - scale) > 0.001f) {
                         fingerMoved = true
                         host.onZoom((newScale / gestureFit * 100f).toInt())
@@ -1565,13 +1700,13 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 }
                 var dx = cx - panLastX; var dy = cy - panLastY
                 if (pull > 0f) { dx *= 0.45f; dy *= 0.45f }   // rubber band while pulling
-                // Horizontal paging at fit size: pages slide sideways only.
+                // Horizontal paging at fit size: pages slide sideways only (disabled on infinite whiteboards).
                 val horizontal = settings.scroll == ScrollDirection.HORIZONTAL
-                val paging = !pinched && horizontal && e.pointerCount == 1 && scale <= fitScale() * 1.05f
+                val paging = !isWhiteboard && !pinched && horizontal && e.pointerCount == 1 && scale <= fitScale() * 1.05f
                 if (paging) dy = 0f
                 transX += dx
                 // Zoomed in (horizontal mode): pan inside the current page only, never across pages.
-                if (horizontal && !paging && e.pointerCount == 1 && pages.isNotEmpty()) {
+                if (horizontal && !paging && !isWhiteboard && e.pointerCount == 1 && pages.isNotEmpty()) {
                     val (lo, hi) = pageXRange(pageAtGestureStart.coerceIn(0, pages.size - 1))
                     transX = transX.coerceIn(lo, hi)
                 }
@@ -1682,6 +1817,14 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         val horizontal = settings.scroll == ScrollDirection.HORIZONTAL
         // A plain tap must not move the page at all, and after a pull the new page's scroll animation must not be overridden by a fling.
         if (!fingerMoved || pulled) return
+        if (isWhiteboard) {
+            scroller.fling(
+                transX.toInt(), transY.toInt(), vx.toInt(), vy.toInt(),
+                -1_000_000, 1_000_000, -1_000_000, 1_000_000,
+            )
+            postInvalidateOnAnimation()
+            return
+        }
         val atFit = scale <= fitScale() * 1.05f
         if (horizontal && !atFit && pages.isNotEmpty()) {
             // Zoomed in: fling inside the current page only.
@@ -1720,6 +1863,10 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
      */
     private fun settleAfterPinch() {
         if (pages.isEmpty() || width == 0) return
+        if (isWhiteboard) {
+            updateMatrix()
+            return
+        }
         val horizontal = settings.scroll == ScrollDirection.HORIZONTAL
         val page = pageAtGestureStart.coerceIn(0, pages.size - 1)
         val fromS = scale; val fromX = transX; val fromY = transY
@@ -1751,6 +1898,29 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     /** Double-tap with a finger: zoom in to 2x around the tap, or back to fit. */
     private var zoomAnim: ValueAnimator? = null
 
+    fun resetWhiteboardView() {
+        if (pages.isEmpty() || width == 0) return
+        zoomAnim?.cancel()
+        scroller.forceFinished(true)
+        val page = currentIndex
+        val p = pages[page]
+        val fromS = scale; val fromX = transX; val fromY = transY
+        val toS = fitScale(page)
+        val toX = (width - p.width * toS) / 2f - ox(page) * toS
+        val toY = (height - p.height * toS) / 2f - oy(page) * toS
+        zoomAnim = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 280; interpolator = DecelerateInterpolator()
+            addUpdateListener {
+                val t = it.animatedValue as Float
+                scale = fromS + (toS - fromS) * t
+                transX = fromX + (toX - fromX) * t
+                transY = fromY + (toY - fromY) * t
+                updateMatrix()
+            }
+            start()
+        }
+    }
+
     /**
      * Works out the end state first (scale and position), then eases there, so a double tap
      * never lands between pages or on the wrong one.
@@ -1770,7 +1940,11 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             clamp()
         } else {
             scale = fit
-            if (settings.scroll == ScrollDirection.VERTICAL) {
+            if (isWhiteboard) {
+                val p = pages[page]
+                transX = (width - p.width * scale) / 2f - ox(page) * scale
+                transY = (height - p.height * scale) / 2f - oy(page) * scale
+            } else if (settings.scroll == ScrollDirection.VERTICAL) {
                 // Same spot of the page stays under the finger, centred left to right.
                 transY = y - fy * scale
                 transX = (width - docW * scale) / 2f
@@ -2061,13 +2235,19 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             pages.forEachIndexed { i, p ->
                 val sr = RectF(0f, 0f, p.width, p.height)
                 pageMatrix(i, m).mapRect(sr)
-                if (!RectF.intersects(sr, view)) return@forEachIndexed
+                if (!p.isWhiteboard && !RectF.intersects(sr, view)) return@forEachIndexed
+                if (p.isWhiteboard && i != currentIndex && !RectF.intersects(sr, view)) return@forEachIndexed
+                r.darkPdf = settings.darkPdf
+                if (p.isWhiteboard) {
+                    r.drawInfiniteBackdrop(canvas, m, width.toFloat(), height.toFloat(), p)
+                }
                 canvas.save()
                 canvas.concat(m)
                 val pdf = if (p.pdfPage >= 0) host.pdfBitmap(p, (p.width * scale).toInt()) { postInvalidate() } else null
-                r.darkPdf = settings.darkPdf
-                r.drawPaper(canvas, p, pdf, shadow = true)
-                host.pdfDetail(i)?.let { d -> r.drawPdfDetail(canvas, d.bmp, d.region) }
+                if (!p.isWhiteboard) {
+                    r.drawPaper(canvas, p, pdf, shadow = true)
+                    host.pdfDetail(i)?.let { d -> r.drawPdfDetail(canvas, d.bmp, d.region) }
+                }
                 val hl = host.highlights(i)
                 if (hl.isNotEmpty()) r.drawHighlights(canvas, hl, active?.takeIf { it.first == i }?.second)
                 host.textSelection(i).forEach { canvas.drawRoundRect(it, 4f, 4f, textSelPaint) }
@@ -2088,7 +2268,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                     canvas.drawPath(tmpPath, previewPaint)
                 }
                 canvas.restore()
-                if (settings.pageNumbers && pages.size > 1) {
+                if (!p.isWhiteboard && settings.pageNumbers && pages.size > 1) {
                     canvas.drawText("${i + 1}", sr.centerX(), sr.bottom + 18f * density, pageNumberPaint)
                 }
             }

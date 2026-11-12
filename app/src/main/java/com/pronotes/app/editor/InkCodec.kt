@@ -1,5 +1,6 @@
 package com.pronotes.app.editor
 
+import android.annotation.SuppressLint
 import android.util.Base64
 import androidx.ink.brush.Brush
 import androidx.ink.brush.BrushFamily
@@ -41,9 +42,11 @@ object Brushes {
      * Highlighter: an even, round tip. Same width in every direction, and it ignores pressure,
      * tilt and speed, so every highlight looks clean and uniform. Drawn translucent behind ink.
      */
-    private val highlighter by lazy {
+    private val highlighter by lazy { buildHighlighter() }
+
+    @SuppressLint("RestrictedApi")
+    private fun buildHighlighter(): BrushFamily =
         BrushFamily(tip = BrushTip(scaleX = 1f, scaleY = 1f, cornerRounding = 1f, behaviors = emptyList()), paint = BrushPaint())
-    }
     private val dashed by lazy { StockBrushes.dashedLine() }
 
     fun family(name: String): BrushFamily = when (name) {
@@ -153,6 +156,7 @@ object InkCodec {
         bgImage = page.bgImage,
         lineScale = page.lineScale,
         lineColor = page.lineColor,
+        isWhiteboard = page.isWhiteboard,
         items = page.items.map { item ->
             when (item) {
                 is InkItem -> ItemDoc.Ink(
@@ -176,50 +180,70 @@ object InkCodec {
                 is ImageItem -> ItemDoc.Image(item.file, item.x, item.y, item.w, item.h, item.rot)
                 is TapeItem -> ItemDoc.Tape(item.x, item.y, item.w, item.h, item.color, item.rot, item.pts?.toList() ?: emptyList(), item.thick, item.pattern)
                 is StickyItem -> ItemDoc.Sticky(item.x, item.y, item.w, item.h, item.color, item.text, item.rot)
+                is MindNodeItem -> ItemDoc.MindNode(item.id, item.x, item.y, item.w, item.h, item.label, item.parentId, item.color, item.shape, item.collapsed)
             }
         },
     )
 
-    fun fromDoc(doc: PageDoc): Page = Page(
-        id = doc.id,
-        width = doc.width,
-        height = doc.height,
-        paper = doc.paper,
-        pdfPage = doc.pdfPage,
-        bookmarked = doc.bookmarked,
-        paperColor = doc.paperColor,
-        cover = doc.cover,
-        bgImage = doc.bgImage,
-        lineScale = doc.lineScale,
-        lineColor = doc.lineColor,
-        items = doc.items.mapNotNull { item ->
-            runCatching<PageItem> {
-                when (item) {
-                    is ItemDoc.Ink -> {
-                        // Stored colour already carries the right alpha.
-                        val brush = Brush.createWithColorIntArgb(
-                            Brushes.family(item.brush.family), item.brush.color, item.brush.size, item.brush.epsilon,
+    fun fromDoc(doc: PageDoc): Page {
+        val nodeIds = HashMap<Long, Long>()
+        for (item in doc.items) {
+            if (item is ItemDoc.MindNode) nodeIds[item.nodeId] = ItemIds.next()
+        }
+        return Page(
+            id = doc.id,
+            width = doc.width,
+            height = doc.height,
+            paper = doc.paper,
+            pdfPage = doc.pdfPage,
+            bookmarked = doc.bookmarked,
+            paperColor = doc.paperColor,
+            cover = doc.cover,
+            bgImage = doc.bgImage,
+            lineScale = doc.lineScale,
+            lineColor = doc.lineColor,
+            isWhiteboard = doc.isWhiteboard,
+            items = doc.items.mapNotNull { item ->
+                runCatching<PageItem> {
+                    when (item) {
+                        is ItemDoc.Ink -> {
+                            // Stored colour already carries the right alpha.
+                            val brush = Brush.createWithColorIntArgb(
+                                Brushes.family(item.brush.family), item.brush.color, item.brush.size, item.brush.epsilon,
+                            )
+                            InkItem(ItemIds.next(), Stroke(brush, decodeInputs(item.inputs)), item.dx, item.dy)
+                        }
+                        is ItemDoc.Text -> TextItem(
+                            ItemIds.next(), item.text, item.x, item.y, item.size, item.color,
+                            TextStyleSpec(
+                                font = runCatching { TextFont.valueOf(item.font) }.getOrDefault(TextFont.SANS),
+                                bold = item.bold, italic = item.italic, underline = item.underline, gradient = item.gradient,
+                                align = runCatching { TextAlign.valueOf(item.align) }.getOrDefault(TextAlign.LEFT),
+                            ),
+                            item.rot,
                         )
-                        InkItem(ItemIds.next(), Stroke(brush, decodeInputs(item.inputs)), item.dx, item.dy)
+                        is ItemDoc.Fill -> FillItem(ItemIds.next(), item.points.toFloatArray(), item.color, item.dx, item.dy)
+                        is ItemDoc.Image -> ImageItem(ItemIds.next(), item.file, item.x, item.y, item.w, item.h, item.rot)
+                        is ItemDoc.Tape -> TapeItem(
+                            ItemIds.next(), item.x, item.y, item.w, item.h, item.color, rot = item.rot,
+                            pts = item.pts.takeIf { it.size >= 4 }?.toFloatArray(), thick = item.thick, pattern = item.pattern,
+                        )
+                        is ItemDoc.Sticky -> StickyItem(ItemIds.next(), item.x, item.y, item.w, item.h, item.color, item.text, item.rot)
+                        is ItemDoc.MindNode -> MindNodeItem(
+                            id = nodeIds[item.nodeId] ?: ItemIds.next(),
+                            x = item.x,
+                            y = item.y,
+                            w = item.w,
+                            h = item.h,
+                            label = item.label,
+                            parentId = item.parentId?.let { nodeIds[it] ?: it },
+                            color = item.color,
+                            shape = item.shape,
+                            collapsed = item.collapsed,
+                        )
                     }
-                    is ItemDoc.Text -> TextItem(
-                        ItemIds.next(), item.text, item.x, item.y, item.size, item.color,
-                        TextStyleSpec(
-                            font = runCatching { TextFont.valueOf(item.font) }.getOrDefault(TextFont.SANS),
-                            bold = item.bold, italic = item.italic, underline = item.underline, gradient = item.gradient,
-                            align = runCatching { TextAlign.valueOf(item.align) }.getOrDefault(TextAlign.LEFT),
-                        ),
-                        item.rot,
-                    )
-                    is ItemDoc.Fill -> FillItem(ItemIds.next(), item.points.toFloatArray(), item.color, item.dx, item.dy)
-                    is ItemDoc.Image -> ImageItem(ItemIds.next(), item.file, item.x, item.y, item.w, item.h, item.rot)
-                    is ItemDoc.Tape -> TapeItem(
-                        ItemIds.next(), item.x, item.y, item.w, item.h, item.color, rot = item.rot,
-                        pts = item.pts.takeIf { it.size >= 4 }?.toFloatArray(), thick = item.thick, pattern = item.pattern,
-                    )
-                    is ItemDoc.Sticky -> StickyItem(ItemIds.next(), item.x, item.y, item.w, item.h, item.color, item.text, item.rot)
-                }
-            }.getOrNull()
-        },
-    )
+                }.getOrNull()
+            },
+        )
+    }
 }

@@ -88,6 +88,7 @@ data class AppSettings(
     val haptics: Boolean = true,
     // gestures
     val scribbleToErase: Boolean = true,
+    val liveScribbleErase: Boolean = true,
     val holdToShape: Boolean = true,
     val circleToLasso: Boolean = true,
     val fingerTapUndo: Boolean = true,
@@ -165,6 +166,8 @@ data class AppSettings(
     val gradientTitles: Boolean = true,
     // library
     val thumbCovers: Boolean = false,
+    // on-device local models
+    val activeLocalModelId: String = "",
 )
 
 /** A saved pen: type, colour and thickness, one tap away. */
@@ -191,6 +194,7 @@ class SettingsStore private constructor(context: Context) {
             palmRejection = b("palmRejection", d.palmRejection),
             haptics = b("haptics", d.haptics),
             scribbleToErase = b("scribble", d.scribbleToErase),
+            liveScribbleErase = b("liveScribble", d.liveScribbleErase),
             holdToShape = b("holdShape", d.holdToShape),
             circleToLasso = b("circleLasso", d.circleToLasso),
             fingerTapUndo = b("fingerTapUndo", d.fingerTapUndo),
@@ -250,6 +254,7 @@ class SettingsStore private constructor(context: Context) {
             accent = enumOf("accent", d.accent),
             gradientTitles = b("gradientTitles", d.gradientTitles),
             thumbCovers = b("thumbCovers", d.thumbCovers),
+            activeLocalModelId = prefs.getString("activeLocalModelId", d.activeLocalModelId) ?: "",
         )
     }
 
@@ -262,6 +267,7 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("palmRejection", s.palmRejection)
             .putBoolean("haptics", s.haptics)
             .putBoolean("scribble", s.scribbleToErase)
+            .putBoolean("liveScribble", s.liveScribbleErase)
             .putBoolean("holdShape", s.holdToShape)
             .putBoolean("circleLasso", s.circleToLasso)
             .putBoolean("fingerTapUndo", s.fingerTapUndo)
@@ -322,6 +328,7 @@ class SettingsStore private constructor(context: Context) {
             .putString("accent", s.accent.name)
             .putBoolean("gradientTitles", s.gradientTitles)
             .putBoolean("thumbCovers", s.thumbCovers)
+            .putString("activeLocalModelId", s.activeLocalModelId)
             .apply()
     }
 

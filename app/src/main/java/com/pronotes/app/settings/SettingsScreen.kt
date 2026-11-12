@@ -49,17 +49,22 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material.icons.outlined.ViewQuilt
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -96,6 +101,7 @@ import com.pronotes.app.ui.GradientTitle
 
 private enum class Category(val label: String, val sub: String, val icon: ProIcon, val tint: Long) {
     STYLUS("Stylus & input", "Pens, side button, palm rejection", ProIcon.PEN, 0xFF2A78D6),
+    AI("On-device AI", "Downloadable local models, offline features", ProIcon.STAR, 0xFF6B5CE7),
     GESTURES("Gestures", "Scribble, circle, taps", ProIcon.LASSO, 0xFF7161E0),
     PAGES("Pages & paper", "Scroll, templates, paper colour", ProIcon.DOCUMENT, 0xFF0F7E5C),
     TOOLBAR("Toolbar & tabs", "Position, size, tool order, tabs", ProIcon.TOOLBAR, 0xFFC04873),
@@ -200,9 +206,15 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                     }
                     PensSection(store, onTour)
                 }
+                Category.AI -> {
+                    LocalAiSection(s, store)
+                }
                 Category.GESTURES -> {
                     Section("Pen gestures") {
-                        Toggle("Scribble to erase", "Zig-zag over ink to delete it", s.scribbleToErase) { v -> up { it.copy(scribbleToErase = v) } }
+                        Toggle("Scribble to erase", "Zig-zag or scrub over ink to delete it", s.scribbleToErase) { v -> up { it.copy(scribbleToErase = v) } }
+                        if (s.scribbleToErase) {
+                            Toggle("Erase live while scribbling", "Deletes touched strokes immediately without lifting the pen", s.liveScribbleErase) { v -> up { it.copy(liveScribbleErase = v) } }
+                        }
                         Toggle("Draw and hold for shapes", "Hold the pen still at the end of a line", s.holdToShape) { v -> up { it.copy(holdToShape = v) } }
                         Toggle("Circle and hold to select", "Loop around ink, then hold the pen still", s.circleToLasso) { v -> up { it.copy(circleToLasso = v) } }
                     }
@@ -227,8 +239,13 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                         }
                     }
                     Section("New notebooks") {
-                    Choice("Page size", s.defaultPreset.label, com.pronotes.app.data.PagePreset.entries.filter { it != com.pronotes.app.data.PagePreset.CUSTOM }.map { it.label }) { i ->
-                        up { it.copy(defaultPreset = com.pronotes.app.data.PagePreset.entries.filter { p -> p != com.pronotes.app.data.PagePreset.CUSTOM }[i]) }
+                    val presets = com.pronotes.app.data.PagePreset.entries.filter { it != com.pronotes.app.data.PagePreset.CUSTOM }
+                    Choice(
+                        "Page size",
+                        if (s.defaultPreset.recommended) "${s.defaultPreset.label} (Recommended)" else s.defaultPreset.label,
+                        presets.map { if (it.recommended) "${it.label} (Recommended)" else it.label },
+                    ) { i ->
+                        up { it.copy(defaultPreset = presets[i]) }
                     }
                     Toggle("Landscape", "Pages wider than tall", s.defaultLandscape) { v -> up { it.copy(defaultLandscape = v) } }
                     Toggle("Cover as first page", "Write on the cover of new notebooks", s.defaultCoverPage) { v -> up { it.copy(defaultCoverPage = v) } }
@@ -563,3 +580,100 @@ private fun PensSection(store: SettingsStore, onSetup: () -> Unit) {
         }
     }
 }
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LocalAiSection(s: AppSettings, store: SettingsStore) {
+    val context = LocalContext.current
+    val states by com.pronotes.app.editor.LocalAiManager.states.collectAsState()
+    LaunchedEffect(Unit) { com.pronotes.app.editor.LocalAiManager.refresh(context) }
+
+    Section("Active AI Engine") {
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            ProIconView(ProIcon.STAR, Color(0xFF6B5CE7), Modifier.size(24.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(com.pronotes.app.editor.LocalAiManager.activeEngineLabel(context), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (com.pronotes.app.editor.Nano.available) "Gemini Nano AICore is active on this device"
+                    else "Download a free lightweight model below for richer offline AI operations",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (s.activeLocalModelId.isNotBlank()) {
+            HorizontalDivider(Modifier.padding(start = 54.dp))
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Use built-in fallback rules only", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = { com.pronotes.app.editor.LocalAiManager.activateModel(context, "") }) { Text("Reset") }
+            }
+        }
+    }
+
+    Section("Free lightweight models (on-device)") {
+        com.pronotes.app.editor.LocalAiManager.catalog.forEachIndexed { idx, spec ->
+            if (idx > 0) HorizontalDivider()
+            val rt = states[spec.id] ?: com.pronotes.app.editor.LocalModelRuntime()
+            val isActive = s.activeLocalModelId == spec.id && rt.status == com.pronotes.app.editor.LocalModelStatus.READY
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(spec.name, style = MaterialTheme.typography.titleMedium)
+                        Text("${spec.family} · ${spec.quantization} · ${spec.sizeLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                    if (isActive) {
+                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                            Text("Active", Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+                Text(spec.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    spec.tags.forEach { tag ->
+                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
+                            Text(tag, Modifier.padding(horizontal = 10.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+                when (rt.status) {
+                    com.pronotes.app.editor.LocalModelStatus.DOWNLOADING -> {
+                        val dlMb = rt.downloadedBytes / (1024f * 1024f)
+                        val totMb = (rt.totalBytes.coerceAtLeast(1L)) / (1024f * 1024f)
+                        LinearProgressIndicator(progress = { rt.progress }, modifier = Modifier.fillMaxWidth())
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Downloading ${"%.1f".format(dlMb)} / ${"%.0f".format(totMb)} MB", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                            TextButton(onClick = { com.pronotes.app.editor.LocalAiManager.cancelDownload(context, spec.id) }) { Text("Cancel") }
+                        }
+                    }
+                    com.pronotes.app.editor.LocalModelStatus.READY -> {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (!isActive) {
+                                Button(onClick = { com.pronotes.app.editor.LocalAiManager.activateModel(context, spec.id) }, shape = CircleShape) {
+                                    Text("Use Model")
+                                }
+                            }
+                            OutlinedButton(onClick = { com.pronotes.app.editor.LocalAiManager.deleteModel(context, spec.id) }, shape = CircleShape) {
+                                Text("Delete")
+                            }
+                        }
+                    }
+                    com.pronotes.app.editor.LocalModelStatus.ERROR -> {
+                        Text(rt.error ?: "Download error", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                        Button(onClick = { com.pronotes.app.editor.LocalAiManager.startDownload(context, spec.id) }, shape = CircleShape) {
+                            Text("Retry Download")
+                        }
+                    }
+                    com.pronotes.app.editor.LocalModelStatus.NOT_DOWNLOADED -> {
+                        Button(onClick = { com.pronotes.app.editor.LocalAiManager.startDownload(context, spec.id) }, shape = CircleShape) {
+                            Text("Download Free (${spec.sizeLabel})")
+                        }
+                    }
+                }
+            }
+        }
+        HorizontalDivider()
+        Info("Downloaded GGUF weights are stored privately in app storage and run offline for summaries, explanations, quizzes, and mind maps.")
+    }
+}
+

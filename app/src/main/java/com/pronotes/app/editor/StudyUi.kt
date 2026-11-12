@@ -132,7 +132,7 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                 }
                 if (vm.aiBusy) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 10.dp))
                 Text(
-                    if (Nano.available) "Smart cards by Gemini Nano, on this device" else "Smart cards use the app's built-in study rules",
+                    "Powered by ${LocalAiManager.activeEngineLabel(context)}",
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp),
                 )
                 Spacer(Modifier.height(12.dp))
@@ -143,7 +143,9 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                     )
                 } else {
                     LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(vm.cards, key = { it.id }) { c -> CardRow(vm, c, onShow = { onClose(); vm.showCardSource(c) }) }
+                        items(vm.cards, key = { it.id }) { c ->
+                            Box(Modifier.animateItem()) { CardRow(vm, c, onShow = { onClose(); vm.showCardSource(c) }) }
+                        }
                     }
                     Spacer(Modifier.height(8.dp))
                     TextButton(onClick = {
@@ -348,8 +350,9 @@ fun QuizDialog(vm: EditorViewModel, onClose: () -> Unit) {
                     OutlinedButton(onClick = { vm.generateQuiz(true) }, shape = Pill) { Text("✨  Whole notebook") }
                 }
                 if (vm.aiBusy) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 10.dp))
+                val quizCtx = LocalContext.current
                 Text(
-                    if (Nano.available) "Questions and picture reading by Gemini Nano, on this device" else "Smart questions use the app's built-in study rules",
+                    "Powered by ${LocalAiManager.activeEngineLabel(quizCtx)}",
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp),
                 )
                 Spacer(Modifier.height(10.dp))
@@ -362,7 +365,7 @@ fun QuizDialog(vm: EditorViewModel, onClose: () -> Unit) {
                     LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(vm.quiz, key = { it.id }) { q ->
                             val pic = remember(q.image) { vm.cardImage(q.image) }
-                            Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), modifier = Modifier.fillMaxWidth().clickable { editing = q }) {
+                            Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), modifier = Modifier.animateItem().fillMaxWidth().clickable { editing = q }) {
                                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                     if (pic != null) {
                                         Image(pic.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)))

@@ -1,5 +1,13 @@
 # Changelog
 
+## v9.6.0
+- **Live scribble-to-erase:** scribble or zig-zag directly across ink or text and watch it erase live while your pen is still down, alongside improved zig-zag and underline recognition.
+- **Upgraded maths engine:** now handles quadratic equations (`x^2 - 5x + 6 = 0`), percentages (`20% of 150`, `15% off 200`), unit conversions (`10 km to m`, `72 f to c`), `nCr` / `nPr`, `log2`, constants (`tau`, `phi`), and smart candidate ranking.
+- **Whiteboard & infinite canvas:** create dedicated infinite-canvas whiteboards or toggle any page into an unbounded pannable & zoomable workspace with live grid/dot backdrop and quick origin reset.
+- **Mind mapping:** new Mind Map tool in the toolbar with drag-to-arrange nodes, cubic Bezier connectors, collapse/expand branches, colour/shape styling, radial & tree auto-layout, and AI notes-to-mindmap generation.
+- **Notebook creation previews & recommendations:** A4 is highlighted as the recommended page size, and the Paper tab shows a live full-card preview that updates with pattern, tint, and orientation.
+- **Downloadable local AI models & richer AI UI:** download free lightweight on-device GGUF models directly in Settings → On-Device AI, paired with an animated orbital thinking pill, rotating Pip study halo, and offline Explain & Mind Map support.
+
 ## v9.5.1
 - **Smarter maths:** handwriting candidates are checked before an answer is inserted, common pen/OCR confusions are normalised conservatively, and incorrect completed equalities are rejected instead of being treated as valid sums.
 - **More than basic arithmetic:** the on-device evaluator now supports implicit multiplication, powers, percentages, factorials, square/cube roots, constants, trigonometric and logarithmic functions, and one-variable linear equations.

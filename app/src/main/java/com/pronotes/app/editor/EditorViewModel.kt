@@ -37,6 +37,7 @@ val PenPalette = listOf(
 val HighlighterPalette = listOf(0xFFFFE066, 0xFF8CE99A, 0xFF74C0FC, 0xFFFFA8A8, 0xFFE599F7).map { it.toInt() }
 val TapeColors = listOf(0xFFF4A7C0, 0xFF9AD0EC, 0xFFB8E0A8, 0xFFFFD98E, 0xFFCDB4F0).map { it.toInt() }
 val StickyColors = listOf(0xFFFFF3A3, 0xFFFFD6E0, 0xFFCDEBFF, 0xFFD8F5C8, 0xFFFFE2C2).map { it.toInt() }
+val MindPalette = listOf(0xFF3D6CF4, 0xFF9B51E0, 0xFF2BB673, 0xFFF2994A, 0xFFEB5757, 0xFF00897B, 0xFF5B6475).map { it.toInt() }
 
 class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(app) {
     private val repo = Repository.get(app)
@@ -51,6 +52,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var title by mutableStateOf(repo.meta(noteId)?.title ?: "Notebook")
         private set
     val isPdf: Boolean get() = repo.pdfFile(noteId).exists()
+    val aiEngineLabel: String get() = LocalAiManager.activeEngineLabel(getApplication())
 
     // ---------------------------------------------------------------- tools
     /** Last session's choices: tool, pen type, colours, sizes. */
@@ -113,8 +115,13 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     // --------------------------------------------------------------- dialogs
     data class TextEdit(val page: Int, val x: Float, val y: Float, val existing: TextItem?)
     data class StickyEdit(val page: Int, val item: StickyItem, val isNew: Boolean)
+    data class MindNodeEdit(val page: Int, val item: MindNodeItem, val isNew: Boolean)
     var textEdit by mutableStateOf<TextEdit?>(null)
     var stickyEdit by mutableStateOf<StickyEdit?>(null)
+    var mindNodeEdit by mutableStateOf<MindNodeEdit?>(null)
+    var activeMindNodeId by mutableStateOf<Long?>(null)
+    var mindColor by mutableStateOf(MindPalette[0])
+    var mindShape by mutableStateOf("pill")
 
     var canUndo by mutableStateOf(false)
         private set
@@ -180,7 +187,13 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 ).joinToString("|")
             }.collect { store.setPref("tools", it) }
         }
+        val initTool = store.pref("startTool_$noteId").takeIf { it.isNotBlank() }?.let { n ->
+            store.setPref("startTool_$noteId", "")
+            enumValues<Tool>().firstOrNull { it.name == n }
+        }
+        if (initTool != null) _tool = initTool
         viewModelScope.launch {
+            LocalAiManager.refresh(app)
             val loadedPages = repo.loadPages(noteId)
             startPage = store.pref("page_$noteId", "0").toIntOrNull()?.coerceIn(0, (loadedPages.size - 1).coerceAtLeast(0)) ?: 0
             pages.clear(); pages.addAll(loadedPages)
@@ -597,6 +610,290 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         applyItems(edit.page, p.items.filterNot { it.id == edit.item.id })
     }
 
+    // ------------------------------------------------------------- mind maps
+
+    fun selectedMindNode(): MindNodeItem? {
+        val id = activeMindNodeId ?: return null
+        return currentPage?.items?.filterIsInstance<MindNodeItem>()?.firstOrNull { it.id == id }
+    }
+
+    private fun mindBoxSize(label: String, shape: String): Pair<Float, Float> {
+        val clean = label.trim().ifBlank { "Idea" }
+        val w = (clean.length * 13.5f + 72f).coerceIn(170f, 340f)
+        val h = when (shape) {
+            "circle" -> (w * 0.62f).coerceIn(110f, 180f)
+            "diamond" -> 112f
+            else -> if (clean.length > 22) 96f else 78f
+        }
+        return w to h
+    }
+
+    fun onMindMapTap(page: Int, x: Float, y: Float, existing: MindNodeItem?) {
+        if (existing != null) {
+            if (activeMindNodeId == existing.id) {
+                mindNodeEdit = MindNodeEdit(page, existing, false)
+            } else {
+                activeMindNodeId = existing.id
+                mindColor = existing.color
+                mindShape = existing.shape
+                onRedraw?.invoke()
+            }
+            return
+        }
+        val p = pages.getOrNull(page) ?: return
+        val existingNodes = p.items.filterIsInstance<MindNodeItem>()
+        val parent = activeMindNodeId?.let { aid -> existingNodes.firstOrNull { it.id == aid } }
+            ?: existingNodes.firstOrNull { it.parentId == null }
+        val (w, h) = mindBoxSize(if (parent == null) "Central Topic" else "New idea", mindShape)
+        val col = if (parent == null) mindColor else MindPalette[(existingNodes.size + 1) % MindPalette.size]
+        val draft = MindNodeItem(
+            id = ItemIds.next(),
+            x = x - w / 2f,
+            y = y - h / 2f,
+            w = w,
+            h = h,
+            label = if (parent == null) "Central Topic" else "",
+            parentId = parent?.id,
+            color = col,
+            shape = mindShape,
+        )
+        mindNodeEdit = MindNodeEdit(page, draft, true)
+    }
+
+    fun openEditSelectedMindNode() {
+        val n = selectedMindNode() ?: return
+        mindNodeEdit = MindNodeEdit(pageIndex, n, false)
+    }
+
+    fun addChildMindNode() {
+        val p = currentPage ?: return
+        val nodes = p.items.filterIsInstance<MindNodeItem>()
+        val parent = selectedMindNode() ?: nodes.firstOrNull { it.parentId == null } ?: nodes.firstOrNull()
+        val siblings = if (parent != null) nodes.count { it.parentId == parent.id } else 0
+        val baseX = if (parent != null) parent.x + parent.w + 130f else p.width / 2f - 110f
+        val baseY = if (parent != null) parent.y + (siblings - 0.5f) * 115f else p.height / 2f - 44f
+        val col = MindPalette[(nodes.size + 1) % MindPalette.size]
+        val (w, h) = mindBoxSize("New idea", mindShape)
+        val draft = MindNodeItem(
+            id = ItemIds.next(),
+            x = baseX,
+            y = baseY,
+            w = w,
+            h = h,
+            label = "",
+            parentId = parent?.id,
+            color = col,
+            shape = mindShape,
+        )
+        mindNodeEdit = MindNodeEdit(pageIndex, draft, true)
+    }
+
+    fun addSiblingMindNode() {
+        val sel = selectedMindNode() ?: return
+        val p = currentPage ?: return
+        val nodes = p.items.filterIsInstance<MindNodeItem>()
+        val sameParent = nodes.count { it.parentId == sel.parentId }
+        val col = MindPalette[(nodes.size + 1) % MindPalette.size]
+        val (w, h) = mindBoxSize("New idea", sel.shape)
+        val draft = MindNodeItem(
+            id = ItemIds.next(),
+            x = sel.x,
+            y = sel.y + sel.h + 44f + (sameParent % 2) * 12f,
+            w = w,
+            h = h,
+            label = "",
+            parentId = sel.parentId,
+            color = col,
+            shape = sel.shape,
+        )
+        mindNodeEdit = MindNodeEdit(pageIndex, draft, true)
+    }
+
+    fun commitMindNode(label: String, color: Int, shape: String) {
+        val edit = mindNodeEdit ?: return
+        mindNodeEdit = null
+        val p = pages.getOrNull(edit.page) ?: return
+        val clean = label.trim().ifBlank { if (edit.item.parentId == null) "Central Topic" else "Idea" }
+        val (w, h) = mindBoxSize(clean, shape)
+        val updated = edit.item.copy(
+            label = clean,
+            color = color,
+            shape = shape,
+            w = w,
+            h = h,
+        )
+        mindColor = color
+        mindShape = shape
+        activeMindNodeId = updated.id
+        beginEdit(edit.page)
+        val expanded = p.items.map {
+            if (it is MindNodeItem && it.id == updated.parentId && it.collapsed) it.copy(collapsed = false) else it
+        }
+        applyItems(
+            edit.page,
+            if (edit.isNew) expanded + updated else expanded.map { if (it.id == updated.id) updated else it },
+        )
+    }
+
+    fun deleteMindNode(nodeId: Long? = activeMindNodeId) {
+        val id = nodeId ?: return
+        mindNodeEdit = null
+        val p = currentPage ?: return
+        val nodes = p.items.filterIsInstance<MindNodeItem>()
+        if (nodes.none { it.id == id }) return
+        val dead = HashSet<Long>().apply { add(id) }
+        var grew = true
+        while (grew) {
+            grew = false
+            nodes.forEach { n -> if (n.parentId in dead && dead.add(n.id)) grew = true }
+        }
+        if (activeMindNodeId in dead) activeMindNodeId = null
+        beginEdit(pageIndex)
+        applyItems(pageIndex, p.items.filterNot { it.id in dead })
+    }
+
+    fun toggleCollapseMindNode(nodeId: Long? = activeMindNodeId) {
+        val id = nodeId ?: return
+        val p = currentPage ?: return
+        if (p.items.none { it is MindNodeItem && it.id == id }) return
+        beginEdit(pageIndex)
+        applyItems(pageIndex, p.items.map { if (it is MindNodeItem && it.id == id) it.copy(collapsed = !it.collapsed) else it })
+    }
+
+    fun recolorMindNode(nodeId: Long? = activeMindNodeId, color: Int) {
+        val id = nodeId ?: return
+        val p = currentPage ?: return
+        mindColor = color
+        if (p.items.none { it is MindNodeItem && it.id == id }) return
+        beginEdit(pageIndex)
+        applyItems(pageIndex, p.items.map { if (it is MindNodeItem && it.id == id) it.copy(color = color) else it })
+    }
+
+    fun autoLayoutMindMap(radial: Boolean = true) {
+        val p = currentPage ?: return
+        val nodes = p.items.filterIsInstance<MindNodeItem>()
+        if (nodes.isEmpty()) return
+        val byId = nodes.associateBy { it.id }
+        val roots = nodes.filter { it.parentId == null || it.parentId !in byId }
+        val children = nodes.filter { it.parentId != null && it.parentId in byId }.groupBy { it.parentId!! }
+        val pos = HashMap<Long, Pair<Float, Float>>()
+        val cx = p.width / 2f
+        val cy = p.height / 2f
+
+        if (radial) {
+            fun countLeaves(id: Long, seen: HashSet<Long>): Int {
+                if (!seen.add(id)) return 1
+                val ch = children[id].orEmpty()
+                return if (ch.isEmpty()) 1 else ch.sumOf { countLeaves(it.id, seen) }
+            }
+            fun placeSubtree(id: Long, cxNode: Float, cyNode: Float, aStart: Double, aEnd: Double, depth: Int, seen: HashSet<Long>) {
+                if (!seen.add(id)) return
+                val n = byId[id] ?: return
+                pos[id] = (cxNode - n.w / 2f) to (cyNode - n.h / 2f)
+                val ch = children[id].orEmpty()
+                if (ch.isEmpty()) return
+                val totalLeaves = ch.sumOf { countLeaves(it.id, HashSet()) }.coerceAtLeast(1)
+                val radius = if (depth == 0) 310f else 245f
+                var cursor = aStart
+                for (c in ch) {
+                    val weight = countLeaves(c.id, HashSet()).toDouble() / totalLeaves
+                    val span = (aEnd - aStart) * weight
+                    val mid = cursor + span / 2.0
+                    val nx = cxNode + (radius * kotlin.math.cos(mid)).toFloat()
+                    val ny = cyNode + (radius * kotlin.math.sin(mid)).toFloat()
+                    placeSubtree(c.id, nx, ny, mid - span / 2.0, mid + span / 2.0, depth + 1, seen)
+                    cursor += span
+                }
+            }
+            roots.forEachIndexed { idx, root ->
+                val rx = cx + (idx - (roots.size - 1) / 2f) * 680f
+                placeSubtree(root.id, rx, cy, -Math.PI, Math.PI, 0, HashSet())
+            }
+        } else {
+            val rowGap = 110f
+            val colGap = 290f
+            fun subtreeHeight(id: Long, seen: HashSet<Long>): Float {
+                if (!seen.add(id)) return rowGap
+                val ch = children[id].orEmpty()
+                return if (ch.isEmpty()) rowGap else ch.sumOf { subtreeHeight(it.id, seen).toDouble() }.toFloat()
+            }
+            fun placeTree(id: Long, xCenter: Float, yTop: Float, spanH: Float, seen: HashSet<Long>) {
+                if (!seen.add(id)) return
+                val n = byId[id] ?: return
+                pos[id] = (xCenter - n.w / 2f) to (yTop + spanH / 2f - n.h / 2f)
+                val ch = children[id].orEmpty()
+                var curY = yTop
+                for (c in ch) {
+                    val chH = subtreeHeight(c.id, HashSet())
+                    placeTree(c.id, xCenter + colGap, curY, chH, seen)
+                    curY += chH
+                }
+            }
+            var curTop = cy - roots.sumOf { subtreeHeight(it.id, HashSet()).toDouble() }.toFloat() / 2f
+            val startX = (cx - 280f).coerceAtLeast(140f)
+            roots.forEach { r ->
+                val h = subtreeHeight(r.id, HashSet())
+                placeTree(r.id, startX, curTop, h, HashSet())
+                curTop += h + 60f
+            }
+        }
+
+        beginEdit(pageIndex)
+        applyItems(
+            pageIndex,
+            p.items.map { item ->
+                if (item is MindNodeItem) pos[item.id]?.let { (nx, ny) -> item.copy(x = nx, y = ny) } ?: item else item
+            },
+        )
+    }
+
+    fun generateMindMapFromNotes() {
+        val pageIdx = pageIndex
+        val p = pages.getOrNull(pageIdx) ?: return
+        viewModelScope.launch {
+            aiBusy = true
+            val (rootTitle, branches) = try {
+                val (text, _) = studyText(pageIdx..pageIdx)
+                runCatching { Nano.mindMap(title, text) }.getOrNull()
+                    ?: LocalAiManager.buildMindMap(getApplication(), title, text)
+            } finally {
+                aiBusy = false
+            }
+            val nowPage = pages.getOrNull(pageIdx) ?: return@launch
+            val outNodes = ArrayList<MindNodeItem>()
+            val (rw, rh) = mindBoxSize(rootTitle, "pill")
+            val rootId = ItemIds.next()
+            outNodes += MindNodeItem(
+                id = rootId,
+                x = nowPage.width / 2f - rw / 2f,
+                y = nowPage.height / 2f - rh / 2f,
+                w = rw,
+                h = rh,
+                label = rootTitle,
+                parentId = null,
+                color = MindPalette[0],
+                shape = "pill",
+            )
+            branches.forEachIndexed { bIdx, (branchTitle, children) ->
+                val branchColor = MindPalette[(bIdx + 1) % MindPalette.size]
+                val (bw, bh) = mindBoxSize(branchTitle, "rect")
+                val bid = ItemIds.next()
+                outNodes += MindNodeItem(bid, 0f, 0f, bw, bh, branchTitle, rootId, branchColor, "rect")
+                children.forEach { childLabel ->
+                    val (cw, ch) = mindBoxSize(childLabel, "pill")
+                    outNodes += MindNodeItem(ItemIds.next(), 0f, 0f, cw, ch, childLabel, bid, branchColor, "pill")
+                }
+            }
+            tool = Tool.MINDMAP
+            activeMindNodeId = rootId
+            beginEdit(pageIdx)
+            val kept = nowPage.items.filterNot { it is MindNodeItem }
+            applyItems(pageIdx, kept + outNodes)
+            autoLayoutMindMap(radial = true)
+            say("Generated mind map (${outNodes.size} nodes)")
+        }
+    }
+
     /** Emoji stickers are large text items placed in the middle of the visible page. */
     fun insertSticker(emoji: String): Pair<Int, Long>? {
         val p = currentPage ?: return null
@@ -633,7 +930,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val paper = ref?.paper ?: repo.meta(noteId)?.paper ?: settingsFlow.value.defaultPaper
         val w = ref?.width ?: cur?.takeIf { it.pdfPage < 0 }?.width ?: PageSize.WIDTH
         val h = ref?.height ?: cur?.takeIf { it.pdfPage < 0 }?.height ?: PageSize.HEIGHT
-        return Page(UUID.randomUUID().toString(), w, h, paper, paperColor = ref?.paperColor, lineScale = ref?.lineScale ?: 1f, lineColor = ref?.lineColor)
+        return Page(UUID.randomUUID().toString(), w, h, paper, paperColor = ref?.paperColor, lineScale = ref?.lineScale ?: 1f, lineColor = ref?.lineColor, isWhiteboard = ref?.isWhiteboard ?: false)
     }
 
     /** Custom page: uses a picture as the background of the page in view (null removes it). */
@@ -655,8 +952,22 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         scheduleSave(); onPagesChanged?.invoke()
     }
 
-    fun addPage(atEnd: Boolean = false, paper: PaperStyle? = null) {
-        val np = newPage().let { if (paper != null) it.copy(paper = paper) else it }
+    fun toggleCurrentWhiteboard() {
+        val p = currentPage ?: return
+        val nextWb = !p.isWhiteboard
+        val nextPaper = if (nextWb && p.paper == PaperStyle.BLANK) PaperStyle.DOTTED else p.paper
+        pages[pageIndex] = p.copy(isWhiteboard = nextWb, paper = nextPaper)
+        scheduleSave(); onPagesChanged?.invoke()
+        say(if (nextWb) "Switched to ∞ Infinite Whiteboard" else "Switched to standard page")
+    }
+
+    fun addPage(atEnd: Boolean = false, paper: PaperStyle? = null, isWhiteboard: Boolean? = null) {
+        val np = newPage().let {
+            it.copy(
+                paper = paper ?: it.paper,
+                isWhiteboard = isWhiteboard ?: it.isWhiteboard,
+            )
+        }
         val at = if (atEnd) pages.size else pageIndex + 1
         pages.add(at, np)
         undoStack.clear(); redoStack.clear(); refreshUndo()
@@ -1170,7 +1481,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             val guesses = Handwriting.candidates(ink, settingsFlow.value.handwritingLang)
             aiBusy = false
             if (guesses.isEmpty()) { say("Couldn't read that sum"); return@launch }
-            val good = guesses.firstOrNull { MathSolver.solve(it) != null } ?: guesses.first()
+            val good = MathSolver.bestCandidate(guesses) ?: guesses.first()
             placeAnswer(page, ink, good, quiet = false)
         }
     }
@@ -1217,7 +1528,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         viewModelScope.launch {
             aiBusy = true
             val g = try { Handwriting.candidates(ink, settingsFlow.value.handwritingLang) } finally { aiBusy = false }
-            val raw = g.firstOrNull { MathSolver.solve(it) != null } ?: g.firstOrNull() ?: run { say("Couldn't read that"); return@launch }
+            val raw = MathSolver.bestCandidate(g) ?: g.firstOrNull() ?: run { say("Couldn't read that"); return@launch }
             val pretty = MathSolver.normalize(raw).replace("*", " × ").replace("/", " ÷ ").replace("+", " + ")
                 .replace(Regex("(?<=[\\d)])-"), " − ").replace("^2", "²").replace("^3", "³").replace("^", "^") +
                 (if (raw.trimEnd().endsWith("=")) " =" else "")
@@ -1299,7 +1610,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                     val last = p.items.filterIsInstance<InkItem>().filter { !it.isHighlighter && RectF.intersects(it.bounds, band) }
                         .let { all -> InkLayout.lines(all).firstOrNull { l -> l.any { it.id in ids } } ?: lastNew }
                     val guesses = Handwriting.candidates(last, s.handwritingLang)
-                    val raw = guesses.firstOrNull { it.trimEnd().endsWith("=") && MathSolver.solve(it) != null }
+                    val eqGuesses = guesses.filter { it.trimEnd().endsWith("=") }
+                    val raw = MathSolver.bestCandidate(eqGuesses)
                     if (raw != null && placeAnswer(pg, last, raw, quiet = true)) continue
                     if (!s.autoConvert) continue
                 }
@@ -1430,9 +1742,11 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         viewModelScope.launch {
             aiBusy = true
             val ctx = try { indexFor(s.pdfPage)?.pageText(s.pdfPage) ?: "" } finally { }
-            val ans = try { runCatching { Nano.explain(s.text, ctx) }.getOrNull() } finally { aiBusy = false }
-            if (ans == null) say(if (Nano.available) "Couldn't explain that right now" else "Explain needs Gemini Nano, which this device doesn't have")
-            else explanation = s.text to ans
+            val ans = try {
+                runCatching { Nano.explain(s.text, ctx) }.getOrNull()
+                    ?: LocalAiManager.explain(getApplication(), s.text, ctx)
+            } finally { aiBusy = false }
+            explanation = s.text to ans
         }
     }
 

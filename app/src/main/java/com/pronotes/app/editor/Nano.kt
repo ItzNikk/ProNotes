@@ -124,4 +124,20 @@ object Nano {
 
     suspend fun explain(selection: String, context: String): String? =
         ask("Explain this simply for a student, in 2 to 4 sentences: \"$selection\"\n\nIt comes from these notes:\n" + clip(context, 1200))
+
+    suspend fun mindMap(title: String, text: String): Pair<String, List<Pair<String, List<String>>>>? {
+        val out = ask(
+            "Turn the notes below into a concise mind map about \"$title\". " +
+                "Return up to 5 main branches, each on a line formatted strictly as: Branch: child1 | child2\n\nNOTES:\n" + clip(text, 1600),
+        ) ?: return null
+        val branches = out.lines().mapNotNull { line ->
+            val parts = line.split(':', limit = 2)
+            if (parts.size < 2) return@mapNotNull null
+            val b = parts[0].trim().trimStart('-', '*', '•', ' ').take(34)
+            if (b.isBlank()) return@mapNotNull null
+            val kids = parts[1].split('|').map { it.trim().take(34) }.filter { it.isNotBlank() }.take(3)
+            b to kids
+        }.take(6)
+        return if (branches.isEmpty()) null else title.ifBlank { "Central Topic" } to branches
+    }
 }

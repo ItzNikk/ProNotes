@@ -222,28 +222,41 @@ fun isNearlyStraight(pts: List<Pt>, tolerance: Float): Boolean {
 
 /**
  * A fast back-and-forth zig-zag means "erase this". The stroke is projected onto its
- * main direction (PCA); the motion along that axis must reverse at least three times.
- * Letters like "W" or "m" move steadily forward and never qualify.
+ * main direction (PCA); the motion along that axis must reverse several times while staying dense.
+ * Normal cursive/letters move forward steadily and never qualify.
  */
 fun isScribble(pts: List<Pt>): Boolean {
-    if (pts.size < 8) return false
+    if (pts.size < 7) return false
     return axisScribble(pts) || zigZagScribble(pts)
 }
 
-/** Dense scrubbing that does not follow a single axis, e.g. back and forth across a word. */
-private fun zigZagScribble(pts: List<Pt>): Boolean {
-    val bx = box(pts)
+/**
+ * Live continuous scribble detection called while moving: inspects the trailing window of points
+ * so users can scrub back and forth over ink/text and watch it erase immediately without lifting.
+ */
+fun isLiveScribble(pts: List<Pt>): Boolean {
+    if (pts.size < 10) return false
+    val win = if (pts.size > 68) pts.subList(pts.size - 68, pts.size) else pts
+    val bx = box(win)
     val diag = bx.diag
-    if (diag < 18f) return false
-    if (pathLength(pts) < diag * 4f) return false
-    val s = simplify(pts, diag * 0.04f)
-    if (s.size < 6) return false
-    var sharp = 0
-    for (i in 1 until s.size - 1) if (turnAngle(s[i - 1], s[i], s[i + 1]) > 100.0) sharp++
-    return sharp >= 4
+    if (diag < 16f || pathLength(win) < diag * 2.5f) return false
+    return axisScribble(win, minReversals = 3, minRatio = 2.0f) || zigZagScribble(win, minSharp = 3, minRatio = 2.5f)
 }
 
-private fun axisScribble(pts: List<Pt>): Boolean {
+/** Dense scrubbing that does not follow a single axis, e.g. back and forth across a word or underline. */
+private fun zigZagScribble(pts: List<Pt>, minSharp: Int = 3, minRatio: Float = 2.8f): Boolean {
+    val bx = box(pts)
+    val diag = bx.diag
+    if (diag < 14f) return false
+    if (pathLength(pts) < diag * minRatio) return false
+    val s = simplify(pts, max(2f, diag * 0.035f))
+    if (s.size < 5) return false
+    var sharp = 0
+    for (i in 1 until s.size - 1) if (turnAngle(s[i - 1], s[i], s[i + 1]) > 88.0) sharp++
+    return sharp >= minSharp
+}
+
+private fun axisScribble(pts: List<Pt>, minReversals: Int = 3, minRatio: Float = 1.9f): Boolean {
     var mx = 0.0; var my = 0.0
     for ((x, y) in pts) { mx += x; my += y }
     mx /= pts.size; my /= pts.size
@@ -253,8 +266,9 @@ private fun axisScribble(pts: List<Pt>): Boolean {
     val ux = cos(theta).toFloat(); val uy = sin(theta).toFloat()
     val proj = pts.map { (x, y) -> x * ux + y * uy }
     val extent = (proj.maxOrNull() ?: 0f) - (proj.minOrNull() ?: 0f)
-    if (extent < 18f) return false
-    val thresh = extent * 0.3f
+    if (extent < 12f) return false
+    if (pathLength(pts) < extent * minRatio) return false
+    val thresh = max(4f, extent * 0.22f)
     var dir = 0; var anchor = proj[0]; var reversals = 0
     for (v in proj) {
         when (dir) {
@@ -263,7 +277,7 @@ private fun axisScribble(pts: List<Pt>): Boolean {
             else -> if (v < anchor) anchor = v else if (v - anchor > thresh) { reversals++; dir = 1; anchor = v }
         }
     }
-    return reversals >= 3
+    return reversals >= minReversals
 }
 
 /** Point-in-polygon test backed by the platform's Region. */

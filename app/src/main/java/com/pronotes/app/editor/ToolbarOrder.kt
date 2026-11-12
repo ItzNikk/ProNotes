@@ -3,8 +3,8 @@ package com.pronotes.app.editor
 /** Order and visibility of toolbar tools, stored as "PEN,HIGHLIGHTER,-LASER,..." ("-" = hidden). */
 object ToolbarOrder {
     val defaults = listOf(
-        Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.SHAPE, Tool.LASSO, Tool.IMAGE, Tool.TEXT,
-        Tool.STICKY, Tool.TAPE, Tool.STICKER, Tool.LASER,
+        Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.SHAPE, Tool.LASSO, Tool.MINDMAP,
+        Tool.IMAGE, Tool.TEXT, Tool.STICKY, Tool.TAPE, Tool.STICKER, Tool.LASER,
     )
 
     fun parse(spec: String): List<Pair<Tool, Boolean>> {

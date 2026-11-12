@@ -134,18 +134,19 @@ class Repository private constructor(private val context: Context) {
     suspend fun createNotebook(
         title: String, folderId: String?, cover: Int, paper: PaperStyle, coverSpec: String = "",
         width: Float = PageSize.WIDTH, height: Float = PageSize.HEIGHT, paperColor: Int? = null, coverPage: Boolean = false,
+        isWhiteboard: Boolean = false,
     ): String {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
         val pages = buildList {
-            if (coverPage) add(PageDoc(UUID.randomUUID().toString(), width, height, PaperStyle.BLANK, cover = coverSpec.ifBlank { "solid:$cover" }))
-            add(PageDoc(UUID.randomUUID().toString(), width, height, paper, paperColor = paperColor))
+            if (coverPage && !isWhiteboard) add(PageDoc(UUID.randomUUID().toString(), width, height, PaperStyle.BLANK, cover = coverSpec.ifBlank { "solid:$cover" }))
+            add(PageDoc(UUID.randomUUID().toString(), width, height, paper, paperColor = paperColor, isWhiteboard = isWhiteboard))
         }
         withContext(Dispatchers.IO) { File(noteDir(id), "note.json").writeText(json.encodeToString(NoteDoc.serializer(), NoteDoc(pages = pages))) }
         updateIndex {
-            it.copy(notebooks = it.notebooks + NotebookMeta(id, title, folderId, cover, paper, now, now, pages.size, cover = if (coverPage) "thumb" else coverSpec))
+            it.copy(notebooks = it.notebooks + NotebookMeta(id, title, folderId, cover, paper, now, now, pages.size, cover = if (coverPage && !isWhiteboard) "thumb" else coverSpec, isWhiteboard = isWhiteboard))
         }
-        if (coverPage) withContext(Dispatchers.IO) { runCatching { writeThumbnail(id, pages.map { InkCodec.fromDoc(it) }) } }
+        if (coverPage && !isWhiteboard) withContext(Dispatchers.IO) { runCatching { writeThumbnail(id, pages.map { InkCodec.fromDoc(it) }) } }
         return id
     }
 
