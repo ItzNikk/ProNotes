@@ -123,14 +123,41 @@ object StudyGen {
     }
 }
 
-/**
- * On-device maths evaluator for handwritten expressions. Supports arithmetic, powers,
- * implicit multiplication, percentages ("20% of 150", "15% off 200"), factorials,
- * common scientific functions/constants (tau, phi, log2, nCr, nPr), unit conversions
- * ("10 km to m", "72 f to c"), and linear or quadratic equations.
- * Invalid or ambiguous expressions return null rather than inventing an answer.
- */
+data class MathDetailedResult(
+    val normalized: String,
+    val answer: String,
+    val steps: List<String>,
+    val fractionHint: String? = null,
+)
+
 object MathSolver {
+    private val superDigits = mapOf('⁰' to '0', '¹' to '1', '²' to '2', '³' to '3', '⁴' to '4', '⁵' to '5', '⁶' to '6', '⁷' to '7', '⁸' to '8', '⁹' to '9')
+    private val reservedNames = setOf(
+        "pi", "tau", "phi", "e", "sqrt", "cbrt", "abs", "sin", "cos", "tan", "sind", "cosd", "tand",
+        "asin", "acos", "atan", "ln", "log", "log2", "log10", "floor", "ceil", "round", "exp", "deg", "rad", "ncr", "npr",
+    )
+
+    private fun replaceUnicodeSuperscripts(raw: String): String {
+        val out = StringBuilder(raw.length + 8)
+        var i = 0
+        while (i < raw.length) {
+            val ch = raw[i]
+            val mapped = superDigits[ch]
+            if (mapped != null) {
+                val run = StringBuilder()
+                while (i < raw.length && superDigits[raw[i]] != null) {
+                    run.append(superDigits[raw[i]])
+                    i++
+                }
+                out.append("^(").append(run).append(')')
+            } else {
+                out.append(ch)
+                i++
+            }
+        }
+        return out.toString()
+    }
+
     private fun preserveFunctionArgCommas(input: String): String {
         val sb = StringBuilder(input)
         val multiArg = Regex("""(?i)\b(?:ncr|npr|log10|log)\s*\(""")
@@ -149,25 +176,31 @@ object MathSolver {
         return sb.toString()
     }
 
-    fun normalize(raw: String): String = preserveFunctionArgCommas(raw.trim())
-        .replace("√", "sqrt")
-        .replace("²", "^2").replace("³", "^3").replace("**", "^")
-        .replace('×', '*').replace('·', '*').replace('⋅', '*')
-        .replace('÷', '/').replace(':', '/')
-        .replace('−', '-').replace('—', '-').replace('–', '-')
-        .replace("π", "pi")
-        .replace("τ", "tau")
-        .replace("φ", "phi")
-        .replace(Regex("(?<=\\d),(?=\\d{3}\\b)"), "")
-        .replace(',', '.')
-        .replace(Regex("\\s+"), "")
-        .replace(Regex("(?<=[0-9.)])(?:x|X)(?=[0-9.(])"), "*")
-        .replace('X', 'x')
-        // Correct common handwriting/OCR confusions only when they occur between digits.
-        .replace(Regex("(?<=\\d)[oO](?=\\d)"), "0")
-        .replace(Regex("(?<=\\d)[lI](?=\\d)"), "1")
-        .replace(Regex("(?<=\\d)[sS](?=\\d)"), "5")
-        .replace(Regex("sqrt(\\d+(?:\\.\\d+)?)"), "sqrt($1)")
+    fun normalize(raw: String): String {
+        var s = replaceUnicodeSuperscripts(preserveFunctionArgCommas(raw.trim()))
+            .replace("√", "sqrt")
+            .replace("**", "^")
+            .replace('×', '*').replace('·', '*').replace('⋅', '*')
+            .replace('÷', '/').replace(':', '/')
+            .replace('−', '-').replace('—', '-').replace('–', '-')
+            .replace("π", "pi")
+            .replace("τ", "tau")
+            .replace("φ", "phi")
+            .replace(Regex("(?<=\\d),(?=\\d{3}\\b)"), "")
+            .replace(',', '.')
+            .replace(Regex("\\s+"), "")
+            // Convert 'x' or 'X' into '*' ONLY when standing between two numbers: e.g. 12x4 -> 12*4, NOT 2x(x+1)
+            .replace(Regex("(?<=\\d)[xX](?=\\d)"), "*")
+            // Fix handwritten OCR digit slips only when surrounded by digits
+            .replace(Regex("(?<=\\d)[oO](?=\\d)"), "0")
+            .replace(Regex("(?<=\\d)[lI](?=\\d)"), "1")
+            .replace(Regex("(?<=\\d)[sS](?=\\d)"), "5")
+            .replace(Regex("sqrt(\\d+(?:\\.\\d+)?|[a-zA-Z])"), "sqrt($1)")
+
+        // Handle powers wrapped simply like x^(2) -> x^2 when safe
+        s = s.replace(Regex("""\^\((\d+)\)"""), "^$1")
+        return s
+    }
 
     /** Choose the first highest-confidence parseable recognition candidate; ties retain model order. */
     fun bestCandidate(candidates: List<String>): String? {
@@ -182,50 +215,155 @@ object MathSolver {
         }.maxWithOrNull(compareBy<Ranked> { it.score }.thenBy { -it.index })?.raw
     }
 
-    fun solve(raw: String): String? {
-        val source = raw.trim().removeSuffix("?").trim()
-        if (source.isEmpty() || source.length > 200) return null
+    fun solve(raw: String): String? = solveDetailed(raw)?.answer
 
+    fun solveDetailed(raw: String): MathDetailedResult? {
+        val source = raw.trim().removeSuffix("?").trim()
+        if (source.isEmpty() || source.length > 400) return null
+
+        // Multi-line or semicolon-separated statements (e.g., "x = 3; y = 2x + 1; x^2 + y")
+        val lines = source.split('\n', ';').map { it.trim() }.filter { it.isNotEmpty() }
+        if (lines.size > 1 && source.none { it.equals('d') } ) {
+            solveMultiStatement(lines)?.let { return it }
+        } else if (lines.size > 1) {
+            solveMultiStatement(lines)?.let { return it }
+        }
+
+        solveDerivative(source)?.let { return it }
         solvePercentPhrase(source)?.let { return it }
         solveUnitConversion(source)?.let { return it }
 
-        // A complete equation is handled separately so an incorrect equality is never treated as a sum.
         val equalsAt = source.indexOf('=')
         if (equalsAt >= 0 && equalsAt < source.lastIndex && source.substring(equalsAt + 1).isNotBlank()) {
             if (source.indexOf('=', equalsAt + 1) >= 0) return null
             val left = source.substring(0, equalsAt)
             val right = source.substring(equalsAt + 1)
             if (left.isBlank() || right.isBlank()) return null
-            solvePolynomialEquation(left, right)?.let { return it }
-            val leftValue = evaluate(left) ?: return null
-            val rightValue = evaluate(right) ?: return null
-            return if (abs(leftValue - rightValue) <= 1e-8 * maxOf(1.0, abs(leftValue), abs(rightValue))) format(rightValue) else null
+
+            solvePolynomialEquationDetailed(left, right)?.let { return it }
+            solveExponentialEquationDetailed(left, right)?.let { return it }
+
+            val lv = evaluate(normalize(left)) ?: return null
+            val rv = evaluate(normalize(right)) ?: return null
+            if (abs(lv - rv) <= 1e-8 * maxOf(1.0, abs(lv), abs(rv))) {
+                val formatted = format(rv)
+                return MathDetailedResult(
+                    normalized = "${normalize(left)} = ${normalize(right)}",
+                    answer = formatted,
+                    steps = listOf("Both sides evaluate to $formatted (identity holds)"),
+                    fractionHint = toFractionHint(rv),
+                )
+            }
+            return null
         }
 
-        val expression = normalize(source).trimEnd('=', '?')
-        if (expression.isEmpty() || expression.none { it.isDigit() }) return null
-        if (expression.none { it in "+-*/^%!()" || it.isLetter() }) return null
-        return evaluate(expression)?.let(::format)
+        val expr = normalize(source).trimEnd('=', '?')
+        if (expr.isEmpty() || expr.none { it.isDigit() || it in "piPi" }) return null
+        if (expr.none { it in "+-*/^%!()" || it.isLetter() }) return null
+        val value = evaluate(expr) ?: return null
+        val formatted = format(value)
+        return MathDetailedResult(
+            normalized = expr,
+            answer = formatted,
+            steps = listOf("Evaluated $expr = $formatted"),
+            fractionHint = toFractionHint(value),
+        )
     }
 
-    private fun solvePercentPhrase(raw: String): String? {
+    private fun solveMultiStatement(lines: List<String>): MathDetailedResult? {
+        val vars = HashMap<String, Double>()
+        val steps = ArrayList<String>()
+        for (idx in lines.indices) {
+            val line = lines[idx]
+            val eqIdx = line.indexOf('=')
+            val isLast = idx == lines.lastIndex
+            if (eqIdx > 0 && eqIdx < line.lastIndex) {
+                val lhs = line.substring(0, eqIdx).trim()
+                val rhs = line.substring(eqIdx + 1).trim()
+                if (lhs.matches(Regex("[a-zA-Z]")) && lhs.lowercase(Locale.US) !in reservedNames) {
+                    val valRhs = evaluate(normalize(rhs), vars) ?: return null
+                    vars[lhs] = valRhs
+                    steps += "$lhs = ${format(valRhs)}"
+                    if (isLast) {
+                        val ans = format(valRhs)
+                        return MathDetailedResult(normalize(line), "$lhs = $ans", steps, toFractionHint(valRhs))
+                    }
+                    continue
+                }
+            }
+            if (isLast) {
+                val expr = normalize(line).trimEnd('=', '?')
+                val v = evaluate(expr, vars) ?: return null
+                val ans = format(v)
+                steps += "$expr = $ans"
+                return MathDetailedResult(expr, ans, steps, toFractionHint(v))
+            }
+        }
+        return null
+    }
+
+    private fun solveDerivative(raw: String): MathDetailedResult? {
+        val m = Regex("""^d/d([a-zA-Z])\s*\((.+)\)(?:\s*at\s*\1\s*=\s*([+-]?\d+(?:\.\d+)?))?=?$""", RegexOption.IGNORE_CASE)
+            .matchEntire(raw.trim().trimEnd('=', '?').trim()) ?: return null
+        val vName = m.groupValues[1]
+        val body = normalize(m.groupValues[2])
+        val atVal = m.groupValues[3].toDoubleOrNull()
+        if (atVal != null) {
+            val h = 1e-6
+            val f1 = evaluate(body, mapOf(vName to (atVal + h))) ?: return null
+            val f0 = evaluate(body, mapOf(vName to (atVal - h))) ?: return null
+            val deriv = (f1 - f0) / (2.0 * h)
+            val ans = format(deriv)
+            return MathDetailedResult(
+                normalized = "d/d$vName($body) at $vName=$atVal",
+                answer = ans,
+                steps = listOf("Central difference around $vName = ${format(atVal)}", "f'(${format(atVal)}) ≈ $ans"),
+                fractionHint = toFractionHint(deriv),
+            )
+        }
+        // Symbolic derivative via PolyParser when body is polynomial up to degree 2 in vName
+        val poly = runCatching { PolyParser(body, vName[0]).parse() }.getOrNull() ?: return null
+        val c1 = 2.0 * poly.x2
+        val c0 = poly.x
+        val parts = ArrayList<String>()
+        if (abs(c1) > 1e-11) {
+            parts += if (abs(c1 - 1.0) < 1e-11) vName else if (abs(c1 + 1.0) < 1e-11) "-$vName" else "${format(c1)}$vName"
+        }
+        if (abs(c0) > 1e-11) {
+            val cStr = format(c0)
+            if (parts.isEmpty()) parts += cStr
+            else if (c0 > 0) parts += "+ $cStr" else parts += "- ${format(-c0)}"
+        }
+        val ans = if (parts.isEmpty()) "0" else parts.joinToString(" ")
+        return MathDetailedResult(
+            normalized = "d/d$vName($body)",
+            answer = ans,
+            steps = listOf("Differentiate each term with respect to $vName", "Result: $ans"),
+        )
+    }
+
+    private fun solvePercentPhrase(raw: String): MathDetailedResult? {
         val clean = raw.trim().trimEnd('=', '?').trim()
         val ofM = Regex("""^([+-]?\d+(?:\.\d+)?)\s*%\s*of\s*([+-]?\d+(?:\.\d+)?)$""", RegexOption.IGNORE_CASE).matchEntire(clean)
         if (ofM != null) {
             val pct = ofM.groupValues[1].toDoubleOrNull() ?: return null
             val base = ofM.groupValues[2].toDoubleOrNull() ?: return null
-            return format(base * pct / 100.0)
+            val res = base * pct / 100.0
+            val ans = format(res)
+            return MathDetailedResult(clean, ans, listOf("$pct% × $base = ($pct / 100) × $base = $ans"), toFractionHint(res))
         }
         val offM = Regex("""^([+-]?\d+(?:\.\d+)?)\s*%\s*off\s*([+-]?\d+(?:\.\d+)?)$""", RegexOption.IGNORE_CASE).matchEntire(clean)
         if (offM != null) {
             val pct = offM.groupValues[1].toDoubleOrNull() ?: return null
             val base = offM.groupValues[2].toDoubleOrNull() ?: return null
-            return format(base * (1.0 - pct / 100.0))
+            val res = base * (1.0 - pct / 100.0)
+            val ans = format(res)
+            return MathDetailedResult(clean, ans, listOf("$base − ($pct% of $base) = $ans"), toFractionHint(res))
         }
         return null
     }
 
-    private fun solveUnitConversion(raw: String): String? {
+    private fun solveUnitConversion(raw: String): MathDetailedResult? {
         val clean = raw.trim().trimEnd('=', '?').trim()
         val m = Regex("""^([+-]?\d+(?:\.\d+)?)\s*([a-zA-Z]+)\s+(?:to|in)\s+([a-zA-Z]+)$""", RegexOption.IGNORE_CASE).matchEntire(clean) ?: return null
         val v = m.groupValues[1].toDoubleOrNull() ?: return null
@@ -240,24 +378,35 @@ object MathSolver {
                 val len = mapOf("mm" to 0.001, "cm" to 0.01, "m" to 1.0, "km" to 1000.0, "in" to 0.0254, "ft" to 0.3048, "yd" to 0.9144, "mi" to 1609.344)
                 val mass = mapOf("mg" to 0.001, "g" to 1.0, "kg" to 1000.0, "oz" to 28.349523125, "lb" to 453.59237, "lbs" to 453.59237)
                 val time = mapOf("s" to 1.0, "sec" to 1.0, "min" to 60.0, "h" to 3600.0, "hr" to 3600.0, "day" to 86400.0, "days" to 86400.0)
-                val groups = listOf(len, mass, time)
-                val group = groups.firstOrNull { from in it && to in it } ?: return null
+                val data = mapOf("b" to 1.0, "kb" to 1024.0, "mb" to 1048576.0, "gb" to 1073741824.0)
+                val group = listOf(len, mass, time, data).firstOrNull { from in it && to in it } ?: return null
                 v * group.getValue(from) / group.getValue(to)
             }
         }
-        return "${format(out)} $to"
+        val ans = "${format(out)} $to"
+        return MathDetailedResult(clean, ans, listOf("Convert ${format(v)} $from → $ans"))
     }
 
-    private fun evaluate(expression: String): Double? = runCatching {
-        val value = NumericParser(expression).parse()
+    private fun detectVariable(expr: String): Char? {
+        val masked = Regex("""\b(?:pi|tau|phi|sqrt|cbrt|abs|sind|cosd|tand|sin|cos|tan|asin|acos|atan|ln|log10|log2|log|floor|ceil|round|exp|deg|rad|ncr|npr)\b""", RegexOption.IGNORE_CASE)
+            .replace(expr, "")
+        val vars = masked.filter { it.isLetter() }.toSet()
+        return if (vars.size == 1) vars.first() else null
+    }
+
+    private fun evaluate(expression: String, vars: Map<String, Double> = emptyMap()): Double? = runCatching {
+        val value = NumericParser(expression, vars).parse()
         require(value.isFinite())
         require(abs(value) < 1.0e100)
         value
     }.getOrNull()
 
-    private fun solvePolynomialEquation(left: String, right: String): String? = runCatching {
-        val a = PolyParser(normalize(left)).parse()
-        val b = PolyParser(normalize(right)).parse()
+    private fun solvePolynomialEquationDetailed(left: String, right: String): MathDetailedResult? = runCatching {
+        val nl = normalize(left)
+        val nr = normalize(right)
+        val v = detectVariable("$nl=$nr") ?: 'x'
+        val a = PolyParser(nl, v).parse()
+        val b = PolyParser(nr, v).parse()
         val c2 = a.x2 - b.x2
         val c1 = a.x - b.x
         val c0 = a.c - b.c
@@ -265,21 +414,82 @@ object MathSolver {
             require(abs(c1) > 1e-12)
             val ans = -c0 / c1
             require(ans.isFinite() && abs(ans) < 1.0e100)
-            return@runCatching "x = ${format(ans)}"
+            val f = format(ans)
+            return@runCatching MathDetailedResult(
+                normalized = "$nl = $nr",
+                answer = "$v = $f",
+                steps = listOf(
+                    "Collect terms: ${format(c1)}$v + (${format(c0)}) = 0",
+                    "$v = ${format(-c0)} / ${format(c1)} = $f",
+                ),
+                fractionHint = toFractionHint(ans),
+            )
         }
         val disc = c1 * c1 - 4.0 * c2 * c0
         require(disc >= -1e-9)
         if (disc <= 1e-9) {
             val r = -c1 / (2.0 * c2)
-            return@runCatching "x = ${format(r)}"
+            val f = format(r)
+            return@runCatching MathDetailedResult(
+                normalized = "$nl = $nr",
+                answer = "$v = $f",
+                steps = listOf(
+                    "Standard form: ${format(c2)}$v² + (${format(c1)})$v + (${format(c0)}) = 0",
+                    "Discriminant Δ = 0 → double root $v = $f",
+                ),
+                fractionHint = toFractionHint(r),
+            )
         }
         val root = kotlin.math.sqrt(disc)
         val r1 = (-c1 - root) / (2.0 * c2)
         val r2 = (-c1 + root) / (2.0 * c2)
         val lo = minOf(r1, r2)
         val hi = maxOf(r1, r2)
-        "x = ${format(lo)}, ${format(hi)}"
+        MathDetailedResult(
+            normalized = "$nl = $nr",
+            answer = "$v = ${format(lo)}, ${format(hi)}",
+            steps = listOf(
+                "Standard form: ${format(c2)}$v² + (${format(c1)})$v + (${format(c0)}) = 0",
+                "Discriminant Δ = ${format(disc)}",
+                "Roots: $v₁ = ${format(lo)}, $v₂ = ${format(hi)}",
+            ),
+        )
     }.getOrNull()
+
+    private fun solveExponentialEquationDetailed(left: String, right: String): MathDetailedResult? {
+        val nl = normalize(left)
+        val nr = normalize(right)
+        val m = Regex("""^(\d+(?:\.\d+)?)\^([a-zA-Z])$""").matchEntire(nl) ?: return null
+        val base = m.groupValues[1].toDoubleOrNull() ?: return null
+        val v = m.groupValues[2]
+        val target = evaluate(nr) ?: return null
+        if (base <= 0.0 || base == 1.0 || target <= 0.0) return null
+        val ans = kotlin.math.ln(target) / kotlin.math.ln(base)
+        val f = format(ans)
+        return MathDetailedResult(
+            normalized = "$nl = $nr",
+            answer = "$v = $f",
+            steps = listOf(
+                "Take log base ${format(base)} of both sides",
+                "$v = ln(${format(target)}) / ln(${format(base)}) = $f",
+            ),
+            fractionHint = toFractionHint(ans),
+        )
+    }
+
+    private fun toFractionHint(value: Double): String? {
+        if (!value.isFinite() || abs(value - kotlin.math.round(value)) < 1e-8) return null
+        for (den in 2..64) {
+            val num = kotlin.math.round(value * den)
+            if (abs(value - num / den.toDouble()) < 1e-6) {
+                fun gcd(a: Long, b: Long): Long = if (b == 0L) a else gcd(b, a % b)
+                val n = kotlin.math.round(num).toLong()
+                val g = gcd(abs(n), den.toLong())
+                return "${n / g}/${den / g}"
+            }
+        }
+        return null
+    }
 
     private fun format(value: Double): String {
         require(value.isFinite())
@@ -288,7 +498,7 @@ object MathSolver {
         return BigDecimal.valueOf(clean).setScale(8, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
     }
 
-    private class NumericParser(private val s: String) {
+    private class NumericParser(private val s: String, private val vars: Map<String, Double> = emptyMap()) {
         private var i = 0
         fun parse(): Double {
             val result = expression()
@@ -312,10 +522,8 @@ object MathSolver {
                 when (peek()) {
                     '*' -> { i++; value *= unary() }
                     '/' -> { i++; value /= unary() }
-                    '%' -> {
-                        if (startsPrimary(i + 1)) { i++; value %= unary() } else break
-                    }
-                    else -> if (startsPrimary(i)) value *= unary() else break // e.g. 2(3+4), 3pi
+                    '%' -> { if (startsPrimary(i + 1)) { i++; value %= unary() } else break }
+                    else -> if (startsPrimary(i)) value *= unary() else break
                 }
             }
             return value
@@ -359,7 +567,14 @@ object MathSolver {
             if (c.isLetter()) {
                 val start = i
                 while (i < s.length && (s[i].isLetter() || s[i].isDigit())) i++
-                val name = s.substring(start, i).lowercase(Locale.US)
+                val rawName = s.substring(start, i)
+                val name = rawName.lowercase(Locale.US)
+                vars[rawName]?.let { return it }
+                vars.entries.firstOrNull { it.key.equals(rawName, ignoreCase = true) }?.let { return it.value }
+                if (rawName.length == 1 && peek() != '(' && name !in setOf("e")) {
+                    // Single letter unknown -> not evaluable numerically unless bound
+                    error("Unbound variable")
+                }
                 return when (name) {
                     "pi" -> Math.PI
                     "tau" -> Math.PI * 2.0
@@ -461,7 +676,6 @@ object MathSolver {
         private fun peek(): Char = if (i < s.length) s[i] else '\u0000'
     }
 
-    /** Quadratic polynomial evaluator: each expression is represented as a*x^2 + b*x + c. */
     private data class Poly(val x2: Double, val x: Double, val c: Double) {
         operator fun plus(other: Poly) = Poly(x2 + other.x2, x + other.x, c + other.c)
         operator fun minus(other: Poly) = Poly(x2 - other.x2, x - other.x, c - other.c)
@@ -469,11 +683,7 @@ object MathSolver {
             val d1 = if (abs(x2) > 1e-12) 2 else if (abs(x) > 1e-12) 1 else 0
             val d2 = if (abs(other.x2) > 1e-12) 2 else if (abs(other.x) > 1e-12) 1 else 0
             require(d1 + d2 <= 2)
-            return Poly(
-                x2 * other.c + x * other.x + c * other.x2,
-                x * other.c + c * other.x,
-                c * other.c,
-            )
+            return Poly(x2 * other.c + x * other.x + c * other.x2, x * other.c + c * other.x, c * other.c)
         }
         fun dividedBy(other: Poly): Poly {
             require(abs(other.x2) < 1e-12 && abs(other.x) < 1e-12 && abs(other.c) > 1e-12)
@@ -481,7 +691,7 @@ object MathSolver {
         }
     }
 
-    private class PolyParser(private val s: String) {
+    private class PolyParser(private val s: String, private val variable: Char = 'x') {
         private var i = 0
         fun parse(): Poly { val result = expression(); require(i == s.length); return result }
         private fun expression(): Poly {
@@ -529,18 +739,15 @@ object MathSolver {
         }
         private fun primary(): Poly {
             require(i < s.length)
-            when (peek()) {
-                '(' -> { i++; val v = expression(); require(peek() == ')'); i++; return v }
-                'x' -> { i++; return Poly(0.0, 1.0, 0.0) }
-                else -> {
-                    val start = i
-                    while (i < s.length && (s[i].isDigit() || s[i] == '.')) i++
-                    require(i > start)
-                    return Poly(0.0, 0.0, s.substring(start, i).toDouble())
-                }
-            }
+            val p = peek()
+            if (p == '(') { i++; val v = expression(); require(peek() == ')'); i++; return v }
+            if (p.equals(variable, ignoreCase = true)) { i++; return Poly(0.0, 1.0, 0.0) }
+            val start = i
+            while (i < s.length && (s[i].isDigit() || s[i] == '.')) i++
+            require(i > start)
+            return Poly(0.0, 0.0, s.substring(start, i).toDouble())
         }
-        private fun startsPrimary(): Boolean = i < s.length && (s[i].isDigit() || s[i] == '.' || s[i] == '(' || s[i] == 'x')
+        private fun startsPrimary(): Boolean = i < s.length && (s[i].isDigit() || s[i] == '.' || s[i] == '(' || s[i].equals(variable, ignoreCase = true))
         private fun peek(): Char = if (i < s.length) s[i] else '\u0000'
     }
 }

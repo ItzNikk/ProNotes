@@ -179,7 +179,10 @@ object InkCodec {
                 is FillItem -> ItemDoc.Fill(item.points.toList(), item.color, item.dx, item.dy)
                 is ImageItem -> ItemDoc.Image(item.file, item.x, item.y, item.w, item.h, item.rot)
                 is TapeItem -> ItemDoc.Tape(item.x, item.y, item.w, item.h, item.color, item.rot, item.pts?.toList() ?: emptyList(), item.thick, item.pattern)
-                is StickyItem -> ItemDoc.Sticky(item.x, item.y, item.w, item.h, item.color, item.text, item.rot)
+                is StickyItem -> ItemDoc.Sticky(
+                    item.x, item.y, item.w, item.h, item.color, item.text, item.rot,
+                    item.fontSize, item.font, item.collapsed, item.pinned,
+                )
                 is MindNodeItem -> ItemDoc.MindNode(item.id, item.x, item.y, item.w, item.h, item.label, item.parentId, item.color, item.shape, item.collapsed)
             }
         },
@@ -228,7 +231,10 @@ object InkCodec {
                             ItemIds.next(), item.x, item.y, item.w, item.h, item.color, rot = item.rot,
                             pts = item.pts.takeIf { it.size >= 4 }?.toFloatArray(), thick = item.thick, pattern = item.pattern,
                         )
-                        is ItemDoc.Sticky -> StickyItem(ItemIds.next(), item.x, item.y, item.w, item.h, item.color, item.text, item.rot)
+                        is ItemDoc.Sticky -> StickyItem(
+                            ItemIds.next(), item.x, item.y, item.w, item.h, item.color, item.text, item.rot,
+                            item.fontSize, item.font, item.collapsed, item.pinned,
+                        )
                         is ItemDoc.MindNode -> MindNodeItem(
                             id = nodeIds[item.nodeId] ?: ItemIds.next(),
                             x = item.x,

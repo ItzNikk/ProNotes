@@ -1,16 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft,
+  ArrowLeftRight,
   BookOpen,
+  BookmarkMinus,
   Brain,
   Calculator,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Columns2,
+  Copy,
   Cpu,
   Download,
   Eraser,
-  FileText,
   GitBranch,
   Hand,
   Highlighter,
@@ -19,18 +21,22 @@ import {
   Lasso as LassoIcon,
   Layers,
   Maximize2,
+  Minimize2,
   MoreHorizontal,
   Network,
+  Palette,
   PanelLeft,
   Pen,
+  Pin,
+  PinOff,
   Plus,
   Redo2,
-  RotateCcw,
   Search,
+  Settings,
   Shapes,
+  Sliders,
   Sparkles,
   Sticker,
-  BookmarkMinus,
   StickyNote,
   Timer,
   Trash2,
@@ -44,6 +50,7 @@ import {
 import {
   ACCENT_COLORS,
   AppSettings,
+  EraserMode,
   Flashcard,
   InkItem,
   LocalModelState,
@@ -53,10 +60,13 @@ import {
   PageItem,
   PAPER_STYLES,
   PAPER_TINTS,
-  PaperStyle,
   PenKind,
+  PenPreset,
+  PetId,
   QuizQuestion,
+  ScribbleSensitivity,
   ShapeKind,
+  StickyFont,
   StickyItem,
   StrokePt,
   TAPE_PATTERNS,
@@ -66,9 +76,7 @@ import {
 } from '../types/models';
 import {
   dist,
-  getBox,
   getItemBounds,
-  isClosedLoop,
   isLiveScribble,
   isNearlyStraight,
   isScribble,
@@ -79,6 +87,7 @@ import {
   SHAPE_KINDS,
   ShapeBuilder,
   ShapeRecognizer,
+  splitStrokeByEraser,
 } from '../utils/geometry';
 import {
   drawPaperTemplate,
@@ -92,6 +101,7 @@ import {
   extractNotebookText,
   generateMindMapFromText,
   LOCAL_MODELS_CATALOG,
+  RichSummaryResult,
   runLocalExplain,
   runLocalFlashcards,
   runLocalQuiz,
@@ -124,6 +134,11 @@ interface LaserTrail {
   born: number;
 }
 
+interface UndoEntry {
+  pageIdx: number;
+  items: PageItem[];
+}
+
 interface EditorScreenProps {
   notebook: NotebookMeta;
   allNotebooks: NotebookMeta[];
@@ -136,6 +151,11 @@ interface EditorScreenProps {
   onSwitchNote: (id: string) => void;
   onCloseTab: (id: string) => void;
   onUpdateNotebook: (id: string, updater: (nb: NotebookMeta) => NotebookMeta) => void;
+  onUpdateSettings: (patch: Partial<AppSettings>) => void;
+  onSwitchPet: (id: PetId) => void;
+  onRecordPetAction: (kind: 'pet' | 'treat' | 'study', xpGain?: number) => void;
+  onSavePenPreset: (preset: PenPreset) => void;
+  onDeletePenPreset: (id: string) => void;
   onAddFlashcards: (cards: Flashcard[]) => void;
   onUpdateFlashcard: (card: Flashcard) => void;
   onDeleteFlashcard: (id: string) => void;
@@ -146,9 +166,242 @@ interface EditorScreenProps {
 
 const PEN_COLORS = ['#1B1F2A', '#2A78D6', '#E5484D', '#0F7E5C', '#7C3AED', '#F2994A', '#FFFFFF'];
 const HL_COLORS = ['#FFE066', '#8CE99A', '#74C0FC', '#FFA8A8', '#D0BFFF'];
-const STICKY_COLORS = ['#FFF3B0', '#D8F3DC', '#CFE2FF', '#FDE2E4', '#E9D8FD'];
+const STICKY_COLORS = ['#FFF3B0', '#D8F3DC', '#CFE2FF', '#FDE2E4', '#E9D8FD', '#FFE8CC'];
 const MIND_COLORS = ['#3D6CF4', '#2BB673', '#F2994A', '#9B51E0', '#EB5757', '#0EA5E9'];
 const STICKERS = ['⭐', '💡', '📌', '🔥', '✅', '🧠', '🎯', '📐', '🧪', '⚡', '🏆', '❤️'];
+
+const PEN_NIBS: { id: PenKind; label: string; desc: string }[] = [
+  { id: 'ballpoint', label: 'Ballpoint', desc: 'Uniform crisp everyday line' },
+  { id: 'fountain', label: 'Fountain', desc: 'Tapered calligraphic feel' },
+  { id: 'brush', label: 'Brush', desc: 'Expressive thick-to-thin ink' },
+  { id: 'fineliner', label: 'Fineliner', desc: 'Technical flat stroke' },
+  { id: 'pencil', label: 'Pencil', desc: 'Textured graphite grain' },
+];
+
+// ================================================================
+// Interactive Secondary Canvas for Split Notes Workspace
+// ================================================================
+const SplitNotebookPane: React.FC<{
+  splitNotebook: NotebookMeta;
+  allNotebooks: NotebookMeta[];
+  paperTintDefault: string;
+  highlighterBehind: boolean;
+  width: number;
+  onChangeNotebook: (id: string) => void;
+  onSwapWithPrimary: (id: string) => void;
+  onCopyTextToPrimary: (text: string) => void;
+  onClose: () => void;
+}> = ({
+  splitNotebook,
+  allNotebooks,
+  paperTintDefault,
+  highlighterBehind,
+  width,
+  onChangeNotebook,
+  onSwapWithPrimary,
+  onCopyTextToPrimary,
+  onClose,
+}) => {
+  const [splitPageIdx, setSplitPageIdx] = useState(0);
+  const [splitZoom, setSplitZoom] = useState(0.5);
+  const [splitPan, setSplitPan] = useState({ x: 16, y: 16 });
+  const splitCanvasRef = useRef<HTMLCanvasElement>(null);
+  const splitWrapRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ active: boolean; lx: number; ly: number }>({ active: false, lx: 0, ly: 0 });
+
+  const sSafeIdx = Math.min(splitPageIdx, Math.max(0, splitNotebook.pages.length - 1));
+  const spPage = splitNotebook.pages[sSafeIdx];
+
+  useEffect(() => {
+    setSplitPageIdx(0);
+  }, [splitNotebook.id]);
+
+  useEffect(() => {
+    const el = splitWrapRef.current;
+    if (!el || !spPage) return;
+    const fit = Math.min((el.clientWidth - 28) / spPage.width, (el.clientHeight - 28) / spPage.height, 0.85);
+    const z = Math.max(0.24, fit);
+    setSplitZoom(z);
+    setSplitPan({ x: Math.max(12, (el.clientWidth - spPage.width * z) / 2), y: 14 });
+  }, [splitNotebook.id, sSafeIdx, width, spPage]);
+
+  useEffect(() => {
+    const canvas = splitCanvasRef.current;
+    const wrap = splitWrapRef.current;
+    if (!canvas || !wrap || !spPage) return;
+    const dpr = window.devicePixelRatio || 1;
+    const cw = wrap.clientWidth;
+    const ch = wrap.clientHeight;
+    canvas.width = Math.round(cw * dpr);
+    canvas.height = Math.round(ch * dpr);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    const paperBg = spPage.paperColor || paperTintDefault || '#FFFFFF';
+    if (spPage.isWhiteboard) {
+      drawWhiteboardBackdrop(ctx, cw, ch, splitPan.x, splitPan.y, splitZoom, paperBg);
+    } else {
+      ctx.fillStyle = isColorDark(paperBg) ? '#14151A' : '#E5E7EE';
+      ctx.fillRect(0, 0, cw, ch);
+    }
+    ctx.save();
+    ctx.translate(splitPan.x, splitPan.y);
+    ctx.scale(splitZoom, splitZoom);
+    if (!spPage.isWhiteboard) {
+      ctx.fillStyle = paperBg;
+      ctx.fillRect(0, 0, spPage.width, spPage.height);
+      drawPaperTemplate(ctx, spPage.width, spPage.height, spPage.paper, paperBg, spPage.lineScale ?? 1, spPage.lineColor);
+    }
+    renderPageItems(ctx, spPage, new Map(), new Set(), highlighterBehind);
+    ctx.restore();
+    ctx.restore();
+  }, [spPage, splitPan, splitZoom, width, paperTintDefault, highlighterBehind]);
+
+  const pageText = useMemo(() => {
+    if (!spPage) return '';
+    return spPage.items
+      .map((it) =>
+        it.kind === 'text' ? it.text : it.kind === 'sticky' ? it.text : it.kind === 'mindnode' ? it.label : ''
+      )
+      .filter(Boolean)
+      .join('\n');
+  }, [spPage]);
+
+  return (
+    <aside
+      style={{ width }}
+      className="hidden shrink-0 flex-col border-l border-black/10 bg-white dark:border-white/10 dark:bg-[#18191E] md:flex"
+    >
+      {/* Top Header */}
+      <div className="flex items-center justify-between gap-2 border-b border-black/8 px-3 py-2.5 dark:border-white/10">
+        <select
+          value={splitNotebook.id}
+          onChange={(e) => onChangeNotebook(e.target.value)}
+          className="min-w-0 flex-1 truncate rounded-xl border border-black/10 bg-slate-50 px-2.5 py-1.5 text-xs font-bold outline-none dark:border-white/12 dark:bg-[#22242C]"
+        >
+          {allNotebooks
+            .filter((n) => n.deletedAt === null)
+            .map((n) => (
+              <option key={n.id} value={n.id}>
+                {n.title}
+              </option>
+            ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => onSwapWithPrimary(splitNotebook.id)}
+          title="Swap primary & split notebooks"
+          className="rounded-lg p-1.5 text-slate-500 hover:bg-black/5 hover:text-blue-600 dark:hover:bg-white/10"
+        >
+          <ArrowLeftRight className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          title="Close split pane"
+          className="rounded-lg p-1.5 text-slate-400 hover:bg-black/5 dark:hover:bg-white/10"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Controls Bar */}
+      <div className="flex items-center justify-between border-b border-black/6 bg-slate-50/70 px-3 py-1.5 text-[11px] dark:border-white/8 dark:bg-[#14151A]">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            disabled={sSafeIdx === 0}
+            onClick={() => setSplitPageIdx((i) => Math.max(0, i - 1))}
+            className="rounded p-1 hover:bg-black/5 disabled:opacity-30"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          <span className="font-mono-num font-semibold">
+            {sSafeIdx + 1}/{splitNotebook.pages.length}
+          </span>
+          <button
+            type="button"
+            disabled={sSafeIdx >= splitNotebook.pages.length - 1}
+            onClick={() => setSplitPageIdx((i) => Math.min(splitNotebook.pages.length - 1, i + 1))}
+            className="rounded p-1 hover:bg-black/5 disabled:opacity-30"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setSplitZoom((z) => Math.max(0.2, z * 0.85))}
+            className="rounded p-1 hover:bg-black/5"
+          >
+            <ZoomOut className="h-3.5 w-3.5" />
+          </button>
+          <span className="font-mono-num min-w-[36px] text-center font-semibold">
+            {Math.round(splitZoom * 100)}%
+          </span>
+          <button
+            type="button"
+            onClick={() => setSplitZoom((z) => Math.min(2.5, z * 1.15))}
+            className="rounded p-1 hover:bg-black/5"
+          >
+            <ZoomIn className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Interactive Pan/Zoom Preview Canvas */}
+      <div ref={splitWrapRef} className="relative min-h-0 flex-1 overflow-hidden">
+        <canvas
+          ref={splitCanvasRef}
+          onPointerDown={(e) => {
+            dragRef.current = { active: true, lx: e.clientX, ly: e.clientY };
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }}
+          onPointerMove={(e) => {
+            if (!dragRef.current.active) return;
+            const dx = e.clientX - dragRef.current.lx;
+            const dy = e.clientY - dragRef.current.ly;
+            dragRef.current.lx = e.clientX;
+            dragRef.current.ly = e.clientY;
+            setSplitPan((p) => ({ x: p.x + dx, y: p.y + dy }));
+          }}
+          onPointerUp={() => {
+            dragRef.current.active = false;
+          }}
+          onWheel={(e) => {
+            e.preventDefault();
+            if (e.ctrlKey || e.metaKey) {
+              setSplitZoom((z) => Math.max(0.2, Math.min(2.5, z * (e.deltaY < 0 ? 1.1 : 0.9))));
+            } else {
+              setSplitPan((p) => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+            }
+          }}
+          className="h-full w-full cursor-grab active:cursor-grabbing"
+        />
+      </div>
+
+      {/* Quick Clip Footer */}
+      {pageText && (
+        <div className="border-t border-black/8 p-2.5 dark:border-white/10">
+          <button
+            type="button"
+            onClick={() => onCopyTextToPrimary(pageText)}
+            className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-blue-600/10 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-600/20 dark:text-blue-300"
+          >
+            <Copy className="h-3.5 w-3.5" /> Clip Reference Sticky to Active Note
+          </button>
+        </div>
+      )}
+    </aside>
+  );
+};
+
+// ================================================================
+// Main Editor Screen
+// ================================================================
 
 export const EditorScreen: React.FC<EditorScreenProps> = ({
   notebook,
@@ -161,10 +414,16 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   onSwitchNote,
   onCloseTab,
   onUpdateNotebook,
+  onUpdateSettings,
+  onSwitchPet,
+  onRecordPetAction,
+  onSavePenPreset,
+  onDeletePenPreset,
   onAddFlashcards,
   onUpdateFlashcard,
   onDeleteFlashcard,
   onRecordQuizScore,
+  onOpenSettings,
   onOpenLocalModels,
 }) => {
   const accent = ACCENT_COLORS[settings.accent];
@@ -172,12 +431,20 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
 
   const [pageIdx, setPageIdx] = useState(0);
   const [tool, setTool] = useState<ToolId>(notebook.isMindMap ? 'MINDMAP' : 'PEN');
-  const [penKind, setPenKind] = useState<PenKind>('fountain');
-  const [penColor, setPenColor] = useState('#1B1F2A');
-  const [penSize, setPenSize] = useState(3.5);
+
+  // Pen & Tool Local State synced with settings
+  const [penKind, setPenKind] = useState<PenKind>(settings.penKind);
+  const [penColor, setPenColor] = useState(settings.penColor);
+  const [penSize, setPenSize] = useState(settings.penSize);
+  const [penOpacity, setPenOpacity] = useState(settings.penOpacity);
+  const [penStabilizer, setPenStabilizer] = useState(settings.penStabilizer);
+  const [penStudioOpen, setPenStudioOpen] = useState(false);
+  const [newPresetName, setNewPresetName] = useState('');
+
   const [hlColor, setHlColor] = useState('#FFE066');
   const [hlSize, setHlSize] = useState(22);
   const [eraserSize, setEraserSize] = useState(26);
+  const [eraserMode, setEraserMode] = useState<EraserMode>(settings.eraserMode);
   const [shapeKind, setShapeKind] = useState<ShapeKind>('AUTO');
   const [tapeColor, setTapeColor] = useState('#7161E0');
   const [tapePattern, setTapePattern] = useState('stripes');
@@ -185,16 +452,17 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   const [textFont, setTextFont] = useState<TextFont>('SANS');
   const [textSize, setTextSize] = useState(26);
 
-  // Selection & Editing
+  // Selection & Inline Studio Editors (No browser prompts!)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [textDraft, setTextDraft] = useState('');
+  const [editingStickyId, setEditingStickyId] = useState<string | null>(null);
   const [editingMindId, setEditingMindId] = useState<string | null>(null);
   const [mindDraft, setMindDraft] = useState('');
 
-  // History per notebook
-  const [undoStack, setUndoStack] = useState<Page[][]>([]);
-  const [redoStack, setRedoStack] = useState<Page[][]>([]);
+  // Lightweight per-page undo/redo
+  const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
+  const [redoStack, setRedoStack] = useState<UndoEntry[]>([]);
 
   // Drawers & Modals
   const [pagesOpen, setPagesOpen] = useState(false);
@@ -205,32 +473,43 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [stickerOpen, setStickerOpen] = useState(false);
   const [mathPadOpen, setMathPadOpen] = useState(false);
-  const [mathInput, setMathInput] = useState('2x + 3 = x + 7');
-  const [splitNoteId, setSplitNoteId] = useState<string | null>(null);
+  const [mathInput, setMathInput] = useState('2x(x + 1) - 4 = 0');
+  const [mathStepsOpen, setMathStepsOpen] = useState(false);
 
-  // Study & AI States
+  // Resizable Split Workspace
+  const [splitNoteId, setSplitNoteId] = useState<string | null>(null);
+  const [splitWidth, setSplitWidth] = useState(360);
+  const splitResizeRef = useRef<{ active: boolean; startX: number; startW: number }>({
+    active: false,
+    startX: 0,
+    startW: 360,
+  });
+
+  // Study & AI States with visible progress stages
   const [aiBusyLabel, setAiBusyLabel] = useState<string | null>(null);
+  const [aiStageLabel, setAiStageLabel] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [cheerTrigger, setCheerTrigger] = useState(0);
   const [summaryModal, setSummaryModal] = useState<{
     open: boolean;
     title: string;
-    points: string[];
-    engineLabel: string;
+    summary: RichSummaryResult | null;
+    loadingStage?: string | null;
     explainText?: string | null;
-  }>({ open: false, title: '', points: [], engineLabel: '' });
+  }>({ open: false, title: '', summary: null });
   const [flashModalOpen, setFlashModalOpen] = useState(false);
   const [quizModal, setQuizModal] = useState<{
     open: boolean;
     questions: QuizQuestion[];
     engineLabel: string;
+    loadingStage?: string | null;
   }>({ open: false, questions: [], engineLabel: '' });
 
-  // Timer
+  // Study timer
   const [studySec, setStudySec] = useState(0);
   const [timerRunning, setTimerRunning] = useState(settings.studyAutoStart);
 
-  // Viewport / Camera (works seamlessly for both bounded Pages AND Infinite Whiteboard)
+  // Camera
   const [camera, setCamera] = useState<{ panX: number; panY: number; zoom: number }>({
     panX: 60,
     panY: 32,
@@ -243,10 +522,31 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Active gesture refs (mutated at 60fps without React re-render overhead)
+  // Offscreen static paper cache & dirty-flag render loop
+  const paperCacheRef = useRef<{ key: string; canvas: HTMLCanvasElement } | null>(null);
+  const needsDrawRef = useRef(true);
+  const requestDraw = useCallback(() => {
+    needsDrawRef.current = true;
+  }, []);
+
+  // Mutable working copy of page items during drags/live-erase so React doesn't thrash at 60fps
+  const workingItemsRef = useRef<PageItem[] | null>(null);
+  const hoverWorldRef = useRef<Pt | null>(null);
+
   const gestureRef = useRef<{
     active: boolean;
-    mode: 'NONE' | 'INK' | 'ERASE' | 'SHAPE' | 'LASSO' | 'PAN' | 'DRAG_ITEMS' | 'DRAG_MIND' | 'TAPE' | 'LASER';
+    mode:
+      | 'NONE'
+      | 'INK'
+      | 'ERASE'
+      | 'SHAPE'
+      | 'LASSO'
+      | 'PAN'
+      | 'DRAG_ITEMS'
+      | 'DRAG_MIND'
+      | 'RESIZE_STICKY'
+      | 'TAPE'
+      | 'LASER';
     pts: StrokePt[];
     startScreen: Pt;
     lastScreen: Pt;
@@ -254,6 +554,8 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     lastWorld: Pt;
     scribbleConsumed: boolean;
     dragMindId: string | null;
+    resizeStickyId: string | null;
+    origStickySize: { w: number; h: number } | null;
     dragOrigItems: PageItem[] | null;
   }>({
     active: false,
@@ -265,6 +567,8 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     lastWorld: { x: 0, y: 0 },
     scribbleConsumed: false,
     dragMindId: null,
+    resizeStickyId: null,
+    origStickySize: null,
     dragOrigItems: null,
   });
 
@@ -279,52 +583,185 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast((cur) => (cur === msg ? null : cur)), 2600);
+    window.setTimeout(() => setToast((cur) => (cur === msg ? null : cur)), 2600);
   }, []);
 
-  // Reset camera appropriately when switching notebook or page
-  const fitPageToView = useCallback(
-    (targetPage: Page | undefined) => {
-      const el = containerRef.current;
-      if (!el || !targetPage) return;
-      const cw = el.clientWidth;
-      const ch = el.clientHeight;
-      if (targetPage.isWhiteboard) {
-        setCamera({
-          panX: targetPage.wbPanX ?? Math.max(40, cw * 0.12),
-          panY: targetPage.wbPanY ?? Math.max(40, ch * 0.1),
-          zoom: targetPage.wbZoom ?? 0.88,
-        });
-      } else {
-        const fit = Math.min((cw - 64) / targetPage.width, (ch - 56) / targetPage.height, 1.0);
-        const z = Math.max(0.28, fit);
-        setCamera({
-          panX: (cw - targetPage.width * z) / 2,
-          panY: 28,
-          zoom: z,
-        });
-      }
-    },
-    []
-  );
+  const fitPageToView = useCallback((targetPage: Page | undefined) => {
+    const el = containerRef.current;
+    if (!el || !targetPage) return;
+    const cw = el.clientWidth;
+    const ch = el.clientHeight;
+    if (targetPage.isWhiteboard) {
+      setCamera({
+        panX: targetPage.wbPanX ?? Math.max(40, cw * 0.12),
+        panY: targetPage.wbPanY ?? Math.max(40, ch * 0.1),
+        zoom: targetPage.wbZoom ?? 0.88,
+      });
+    } else {
+      const fit = Math.min((cw - 64) / targetPage.width, (ch - 56) / targetPage.height, 1.0);
+      const z = Math.max(0.28, fit);
+      setCamera({
+        panX: (cw - targetPage.width * z) / 2,
+        panY: 28,
+        zoom: z,
+      });
+    }
+  }, []);
 
   useEffect(() => {
     setPageIdx(0);
     setSelectedIds(new Set());
+    setEditingStickyId(null);
     setUndoStack([]);
     setRedoStack([]);
+    workingItemsRef.current = null;
     setTool(notebook.isMindMap ? 'MINDMAP' : 'PEN');
-    setTimeout(() => fitPageToView(notebook.pages[0]), 20);
+    window.setTimeout(() => fitPageToView(notebook.pages[0]), 20);
   }, [notebook.id, fitPageToView]);
+
+  // Mark canvas dirty whenever React props/state affecting display change
+  useEffect(() => {
+    requestDraw();
+  }, [
+    page,
+    isWhiteboard,
+    camera,
+    settings,
+    selectedIds,
+    tool,
+    penColor,
+    penSize,
+    penKind,
+    penOpacity,
+    hlColor,
+    hlSize,
+    eraserSize,
+    eraserMode,
+    shapeKind,
+    tapeColor,
+    requestDraw,
+  ]);
+
+  // Split pane resize pointer tracking
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!splitResizeRef.current.active) return;
+      const dx = splitResizeRef.current.startX - e.clientX;
+      setSplitWidth(Math.max(280, Math.min(640, splitResizeRef.current.startW + dx)));
+    };
+    const onUp = () => {
+      splitResizeRef.current.active = false;
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
 
   // Study timer
   useEffect(() => {
     if (!settings.studyTimer || !timerRunning) return;
-    const id = setInterval(() => setStudySec((s) => s + 1), 1000);
-    return () => clearInterval(id);
+    const id = window.setInterval(() => setStudySec((s) => s + 1), 1000);
+    return () => window.clearInterval(id);
   }, [settings.studyTimer, timerRunning]);
 
-  // Spacebar pan + keyboard shortcuts
+  // Lightweight per-page undo/redo
+  const commitPages = useCallback(
+    (updater: (pages: Page[]) => Page[], pushHistory = true) => {
+      if (pushHistory && page) {
+        setUndoStack((prev) => [...prev.slice(-28), { pageIdx: safeIdx, items: [...page.items] }]);
+        setRedoStack([]);
+      }
+      onUpdateNotebook(notebook.id, (nb) => ({
+        ...nb,
+        pages: updater(nb.pages),
+      }));
+    },
+    [notebook.id, page, safeIdx, onUpdateNotebook]
+  );
+
+  const commitPageItems = useCallback(
+    (updater: (items: PageItem[]) => PageItem[], pushHistory = true) => {
+      commitPages(
+        (pages) => pages.map((pg, idx) => (idx === safeIdx ? { ...pg, items: updater(pg.items) } : pg)),
+        pushHistory
+      );
+    },
+    [commitPages, safeIdx]
+  );
+
+  const handleUndo = useCallback(() => {
+    if (undoStack.length === 0 || !page) return;
+    const entry = undoStack[undoStack.length - 1];
+    const targetPage = notebook.pages[entry.pageIdx];
+    setUndoStack((s) => s.slice(0, -1));
+    if (targetPage) {
+      setRedoStack((s) => [...s.slice(-28), { pageIdx: entry.pageIdx, items: [...targetPage.items] }]);
+    }
+    onUpdateNotebook(notebook.id, (nb) => ({
+      ...nb,
+      pages: nb.pages.map((pg, idx) => (idx === entry.pageIdx ? { ...pg, items: entry.items } : pg)),
+    }));
+    setSelectedIds(new Set());
+  }, [undoStack, page, notebook.id, notebook.pages, onUpdateNotebook]);
+
+  const handleRedo = useCallback(() => {
+    if (redoStack.length === 0) return;
+    const entry = redoStack[redoStack.length - 1];
+    const targetPage = notebook.pages[entry.pageIdx];
+    setRedoStack((s) => s.slice(0, -1));
+    if (targetPage) {
+      setUndoStack((s) => [...s.slice(-28), { pageIdx: entry.pageIdx, items: [...targetPage.items] }]);
+    }
+    onUpdateNotebook(notebook.id, (nb) => ({
+      ...nb,
+      pages: nb.pages.map((pg, idx) => (idx === entry.pageIdx ? { ...pg, items: entry.items } : pg)),
+    }));
+    setSelectedIds(new Set());
+  }, [redoStack, notebook.id, notebook.pages, onUpdateNotebook]);
+
+  const spawnPuffForItems = useCallback((items: PageItem[]) => {
+    const now = performance.now();
+    for (const it of items) {
+      const b = getItemBounds(it);
+      for (let k = 0; k < 12; k++) {
+        puffsRef.current.push({
+          x: b.l + Math.random() * Math.max(12, b.w),
+          y: b.t + Math.random() * Math.max(12, b.h),
+          vx: (Math.random() - 0.5) * 2.2,
+          vy: -0.8 - Math.random() * 2.0,
+          r: 2.2 + Math.random() * 2.6,
+          born: now,
+          color: it.kind === 'ink' ? it.color : '#8A93A3',
+        });
+      }
+    }
+    requestDraw();
+  }, [requestDraw]);
+
+  const deleteSelected = useCallback(() => {
+    if (selectedIds.size === 0 || !page) return;
+    const mindNodes = page.items.filter((i): i is MindNodeItem => i.kind === 'mindnode');
+    const toRemove = new Set(selectedIds);
+    let added = true;
+    while (added) {
+      added = false;
+      for (const n of mindNodes) {
+        if (n.parentId && toRemove.has(n.parentId) && !toRemove.has(n.id)) {
+          toRemove.add(n.id);
+          added = true;
+        }
+      }
+    }
+    const gone = page.items.filter((it) => toRemove.has(it.id));
+    spawnPuffForItems(gone);
+    commitPageItems((items) => items.filter((it) => !toRemove.has(it.id)));
+    setSelectedIds(new Set());
+    if (editingStickyId && toRemove.has(editingStickyId)) setEditingStickyId(null);
+  }, [selectedIds, page, commitPageItems, spawnPuffForItems, editingStickyId]);
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -351,90 +788,8 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  });
+  }, [handleUndo, handleRedo, deleteSelected, selectedIds]);
 
-  const commitPages = useCallback(
-    (updater: (pages: Page[]) => Page[], pushHistory = true) => {
-      if (pushHistory) {
-        setUndoStack((prev) => [...prev.slice(-30), structuredClone(notebook.pages)]);
-        setRedoStack([]);
-      }
-      onUpdateNotebook(notebook.id, (nb) => ({
-        ...nb,
-        pages: updater(nb.pages),
-      }));
-    },
-    [notebook.id, notebook.pages, onUpdateNotebook]
-  );
-
-  const commitPageItems = useCallback(
-    (updater: (items: PageItem[]) => PageItem[], pushHistory = true) => {
-      commitPages(
-        (pages) => pages.map((pg, idx) => (idx === safeIdx ? { ...pg, items: updater(pg.items) } : pg)),
-        pushHistory
-      );
-    },
-    [commitPages, safeIdx]
-  );
-
-  const handleUndo = useCallback(() => {
-    if (undoStack.length === 0) return;
-    const prev = undoStack[undoStack.length - 1];
-    setUndoStack((s) => s.slice(0, -1));
-    setRedoStack((s) => [...s, structuredClone(notebook.pages)]);
-    onUpdateNotebook(notebook.id, (nb) => ({ ...nb, pages: prev }));
-    setSelectedIds(new Set());
-  }, [undoStack, notebook.id, notebook.pages, onUpdateNotebook]);
-
-  const handleRedo = useCallback(() => {
-    if (redoStack.length === 0) return;
-    const next = redoStack[redoStack.length - 1];
-    setRedoStack((s) => s.slice(0, -1));
-    setUndoStack((s) => [...s, structuredClone(notebook.pages)]);
-    onUpdateNotebook(notebook.id, (nb) => ({ ...nb, pages: next }));
-    setSelectedIds(new Set());
-  }, [redoStack, notebook.id, notebook.pages, onUpdateNotebook]);
-
-  const spawnPuffForItems = useCallback((items: PageItem[]) => {
-    const now = performance.now();
-    for (const it of items) {
-      const b = getItemBounds(it);
-      for (let k = 0; k < 14; k++) {
-        puffsRef.current.push({
-          x: b.l + Math.random() * Math.max(12, b.w),
-          y: b.t + Math.random() * Math.max(12, b.h),
-          vx: (Math.random() - 0.5) * 2.2,
-          vy: -0.8 - Math.random() * 2.0,
-          r: 2.2 + Math.random() * 2.8,
-          born: now,
-          color: it.kind === 'ink' ? it.color : '#8A93A3',
-        });
-      }
-    }
-  }, []);
-
-  const deleteSelected = useCallback(() => {
-    if (selectedIds.size === 0 || !page) return;
-    const mindNodes = page.items.filter((i): i is MindNodeItem => i.kind === 'mindnode');
-    const toRemove = new Set(selectedIds);
-    // Cascade delete child mind map nodes
-    let added = true;
-    while (added) {
-      added = false;
-      for (const n of mindNodes) {
-        if (n.parentId && toRemove.has(n.parentId) && !toRemove.has(n.id)) {
-          toRemove.add(n.id);
-          added = true;
-        }
-      }
-    }
-    const gone = page.items.filter((it) => toRemove.has(it.id));
-    spawnPuffForItems(gone);
-    commitPageItems((items) => items.filter((it) => !toRemove.has(it.id)));
-    setSelectedIds(new Set());
-  }, [selectedIds, page, commitPageItems, spawnPuffForItems]);
-
-  // Coordinate conversions
   const screenToWorld = useCallback(
     (sx: number, sy: number): Pt => ({
       x: (sx - camera.panX) / camera.zoom,
@@ -444,7 +799,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   );
 
   // ================================================================
-  // Mind Map Helpers (Add Child / Sibling / Auto-Layout / AI Expand)
+  // Mind Map Helpers
   // ================================================================
 
   const mindNodesOnPage = useMemo(
@@ -458,6 +813,13 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     return mindNodesOnPage.find((n) => n.id === id) || null;
   }, [selectedIds, mindNodesOnPage]);
 
+  const selectedStickyNode = useMemo(() => {
+    const id = editingStickyId || (selectedIds.size === 1 ? Array.from(selectedIds)[0] : null);
+    if (!id || !page) return null;
+    const found = page.items.find((i) => i.id === id && i.kind === 'sticky');
+    return found && found.kind === 'sticky' ? found : null;
+  }, [editingStickyId, selectedIds, page]);
+
   const addMindNode = useCallback(
     (parent: MindNodeItem | null, worldPos?: Pt, label = 'New Idea') => {
       const siblings = mindNodesOnPage.filter((n) => n.parentId === (parent?.id ?? null));
@@ -468,16 +830,8 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             ? MIND_COLORS[siblings.length % MIND_COLORS.length]
             : parent.color;
 
-      const x = worldPos
-        ? worldPos.x - 75
-        : parent
-          ? parent.x + parent.w + 75
-          : 400;
-      const y = worldPos
-        ? worldPos.y - 21
-        : parent
-          ? parent.y + (siblings.length - 0.5) * 68
-          : 300;
+      const x = worldPos ? worldPos.x - 75 : parent ? parent.x + parent.w + 75 : 400;
+      const y = worldPos ? worldPos.y - 21 : parent ? parent.y + (siblings.length - 0.5) * 68 : 300;
 
       const newNode: MindNodeItem = {
         id: `mm-${Date.now()}-${Math.floor(Math.random() * 999)}`,
@@ -536,7 +890,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         };
         placeRadial(root, -Math.PI, Math.PI, 240);
       } else {
-        // Horizontal balanced tree
         let nextY = cy - 180;
         const placeTree = (node: MindNodeItem, depth: number): number => {
           const kids = byParent.get(node.id) || [];
@@ -577,7 +930,12 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         showToast(`Could not evaluate "${expr}"`);
         return false;
       }
-      const displayAns = expr.trim().includes('=') && !expr.trim().endsWith('=') ? `✓ ${ans}` : `= ${ans}`;
+      const displayAns =
+        expr.trim().includes('=') && !expr.trim().endsWith('=') && !ans.includes('=')
+          ? `→ ${ans}`
+          : ans.includes('=')
+            ? `→ ${ans}`
+            : `= ${ans}`;
       const ansItem: TextItem = {
         id: `math-${Date.now()}`,
         kind: 'text',
@@ -601,60 +959,85 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         });
       }
       commitPageItems((items) => [...items, ansItem]);
+      onRecordPetAction('study', 6);
       setCheerTrigger((c) => c + 1);
       return true;
     },
-    [commitPageItems, settings.aiAnimations, showToast]
+    [commitPageItems, settings.aiAnimations, onRecordPetAction, showToast]
   );
 
   // ================================================================
-  // Canvas Animation & Rendering Loop
+  // Idle-Aware Dirty-Flag Canvas Loop + Paper Template Caching
   // ================================================================
 
   useEffect(() => {
     let rafId = 0;
-    const draw = () => {
+
+    const drawFrame = () => {
+      rafId = requestAnimationFrame(drawFrame);
+
+      const now = performance.now();
+      const hasAnims =
+        gestureRef.current.active ||
+        glowsRef.current.length > 0 ||
+        puffsRef.current.length > 0 ||
+        lasersRef.current.length > 0;
+
+      if (!needsDrawRef.current && !hasAnims) return;
+      needsDrawRef.current = false;
+
       const canvas = canvasRef.current;
       const container = containerRef.current;
-      if (canvas && container && page) {
-        const dpr = window.devicePixelRatio || 1;
-        const cw = container.clientWidth;
-        const ch = container.clientHeight;
-        if (canvas.width !== Math.round(cw * dpr) || canvas.height !== Math.round(ch * dpr)) {
-          canvas.width = Math.round(cw * dpr);
-          canvas.height = Math.round(ch * dpr);
-        }
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.save();
-          ctx.scale(dpr, dpr);
+      if (!canvas || !container || !page) return;
 
-          const paperBg = page.paperColor || settings.paperTint || '#FFFFFF';
+      const dpr = window.devicePixelRatio || 1;
+      const cw = container.clientWidth;
+      const ch = container.clientHeight;
+      if (canvas.width !== Math.round(cw * dpr) || canvas.height !== Math.round(ch * dpr)) {
+        canvas.width = Math.round(cw * dpr);
+        canvas.height = Math.round(ch * dpr);
+      }
 
-          if (isWhiteboard) {
-            drawWhiteboardBackdrop(ctx, cw, ch, camera.panX, camera.panY, camera.zoom, paperBg);
-          } else {
-            ctx.fillStyle = isColorDark(paperBg) ? '#121316' : '#E7E9EF';
-            ctx.fillRect(0, 0, cw, ch);
-          }
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
 
-          // World Space Transform
-          ctx.save();
-          ctx.translate(camera.panX, camera.panY);
-          ctx.scale(camera.zoom, camera.zoom);
+      ctx.save();
+      ctx.scale(dpr, dpr);
 
-          if (!isWhiteboard) {
-            // Page drop shadow + template
-            ctx.save();
-            ctx.shadowColor = 'rgba(0,0,0,0.16)';
-            ctx.shadowBlur = 24;
-            ctx.shadowOffsetY = 8;
-            ctx.fillStyle = paperBg;
-            ctx.fillRect(0, 0, page.width, page.height);
-            ctx.restore();
+      const paperBg = page.paperColor || settings.paperTint || '#FFFFFF';
 
+      if (isWhiteboard) {
+        drawWhiteboardBackdrop(ctx, cw, ch, camera.panX, camera.panY, camera.zoom, paperBg);
+      } else {
+        ctx.fillStyle = isColorDark(paperBg) ? '#121316' : '#E7E9EF';
+        ctx.fillRect(0, 0, cw, ch);
+      }
+
+      ctx.save();
+      ctx.translate(camera.panX, camera.panY);
+      ctx.scale(camera.zoom, camera.zoom);
+
+      if (!isWhiteboard) {
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,0.16)';
+        ctx.shadowBlur = 24;
+        ctx.shadowOffsetY = 8;
+        ctx.fillStyle = paperBg;
+        ctx.fillRect(0, 0, page.width, page.height);
+        ctx.restore();
+
+        // Offscreen cached paper template
+        const cacheKey = `${page.width}x${page.height}-${page.paper}-${paperBg}-${page.lineScale ?? 1}-${page.lineColor ?? ''}`;
+        if (!paperCacheRef.current || paperCacheRef.current.key !== cacheKey) {
+          const off = document.createElement('canvas');
+          off.width = page.width;
+          off.height = page.height;
+          const octx = off.getContext('2d');
+          if (octx) {
+            octx.fillStyle = paperBg;
+            octx.fillRect(0, 0, page.width, page.height);
             drawPaperTemplate(
-              ctx,
+              octx,
               page.width,
               page.height,
               page.paper,
@@ -663,163 +1046,189 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               page.lineColor
             );
           }
+          paperCacheRef.current = { key: cacheKey, canvas: off };
+        }
+        ctx.drawImage(paperCacheRef.current.canvas, 0, 0);
+      }
 
-          // Render committed page items
-          renderPageItems(ctx, page, imageCacheRef.current, selectedIds, settings.highlighterBehind);
+      const renderPage = workingItemsRef.current ? { ...page, items: workingItemsRef.current } : page;
+      renderPageItems(ctx, renderPage, imageCacheRef.current, selectedIds, settings.highlighterBehind);
 
-          // Render live in-progress gesture (wet ink / shape preview / lasso / tape / laser)
-          const g = gestureRef.current;
-          if (g.active) {
-            if (g.mode === 'INK' && g.pts.length > 0) {
-              const liveInk: InkItem = {
-                id: 'live',
-                kind: 'ink',
-                points: g.pts,
-                color: tool === 'HIGHLIGHTER' ? hlColor : penColor,
-                size: tool === 'HIGHLIGHTER' ? hlSize : penSize,
-                isHighlighter: tool === 'HIGHLIGHTER',
-                opacity: settings.highlighterOpacity,
-                penKind,
-              };
-              renderPageItems(
-                ctx,
-                { ...page, items: [liveInk] },
-                imageCacheRef.current,
-                selectedIds,
-                settings.highlighterBehind
-              );
-            } else if (g.mode === 'SHAPE') {
-              const shapes = ShapeBuilder.build(shapeKind, g.startWorld.x, g.startWorld.y, g.lastWorld.x, g.lastWorld.y);
-              ctx.save();
-              ctx.strokeStyle = penColor;
-              ctx.lineWidth = penSize;
-              ctx.lineCap = 'round';
-              ctx.lineJoin = 'round';
-              for (const poly of shapes) {
-                ctx.beginPath();
-                poly.forEach((p, idx) => (idx === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
-                ctx.stroke();
-              }
-              ctx.restore();
-            } else if (g.mode === 'TAPE') {
-              const l = Math.min(g.startWorld.x, g.lastWorld.x);
-              const t = Math.min(g.startWorld.y, g.lastWorld.y);
-              const w = Math.abs(g.lastWorld.x - g.startWorld.x);
-              const h = Math.max(36, Math.abs(g.lastWorld.y - g.startWorld.y));
-              ctx.save();
-              ctx.globalAlpha = 0.6;
-              ctx.fillStyle = tapeColor;
-              ctx.fillRect(l, t, Math.max(24, w), h);
-              ctx.restore();
-            } else if (g.mode === 'LASSO' && g.pts.length > 1) {
-              ctx.save();
-              ctx.strokeStyle = '#3D6CF4';
-              ctx.fillStyle = 'rgba(61,108,244,0.08)';
-              ctx.lineWidth = 2 / camera.zoom;
-              ctx.setLineDash([8 / camera.zoom, 5 / camera.zoom]);
-              ctx.lineDashOffset = -(performance.now() * 0.03) % 26;
-              ctx.beginPath();
-              g.pts.forEach((p, idx) => (idx === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
-              ctx.closePath();
-              ctx.fill();
-              ctx.stroke();
-              ctx.restore();
-            } else if (g.mode === 'ERASE') {
-              ctx.save();
-              ctx.strokeStyle = 'rgba(229,72,77,0.85)';
-              ctx.fillStyle = 'rgba(229,72,77,0.12)';
-              ctx.lineWidth = 1.6 / camera.zoom;
-              ctx.beginPath();
-              ctx.arc(g.lastWorld.x, g.lastWorld.y, eraserSize / 2, 0, Math.PI * 2);
-              ctx.fill();
-              ctx.stroke();
-              ctx.restore();
-            }
-          }
-
-          // Selection bounding box
-          if (selectedIds.size > 0) {
-            const selItems = page.items.filter((i) => selectedIds.has(i.id));
-            if (selItems.length > 0) {
-              let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
-              for (const it of selItems) {
-                const bx = getItemBounds(it);
-                l = Math.min(l, bx.l);
-                t = Math.min(t, bx.t);
-                r = Math.max(r, bx.r);
-                b = Math.max(b, bx.b);
-              }
-              ctx.save();
-              ctx.strokeStyle = '#3D6CF4';
-              ctx.lineWidth = 2 / camera.zoom;
-              ctx.setLineDash([7 / camera.zoom, 5 / camera.zoom]);
-              ctx.strokeRect(l - 6, t - 6, r - l + 12, b - t + 12);
-              ctx.restore();
-            }
-          }
-
-          // Animated Apple-Notes-style Math Glow Sweeps
-          const now = performance.now();
-          glowsRef.current = glowsRef.current.filter((sw) => now - sw.born < 950);
-          for (const sw of glowsRef.current) {
-            const t = (now - sw.born) / 950;
-            const headX = sw.x + sw.w * Math.min(1, t * 1.15);
-            ctx.save();
-            const grad = ctx.createLinearGradient(sw.x, sw.y, headX + 40, sw.y);
-            grad.addColorStop(0, 'rgba(139,92,246,0)');
-            grad.addColorStop(0.5, `rgba(242,169,42,${0.55 * (1 - t)})`);
-            grad.addColorStop(1, 'rgba(56,189,248,0)');
-            ctx.fillStyle = grad;
-            ctx.beginPath();
-            ctx.roundRect(sw.x - 10, sw.y - 6, Math.max(20, headX - sw.x + 20), sw.h + 12, 12);
-            ctx.fill();
-            ctx.restore();
-          }
-
-          // Scribble-erase Crumble Particles
-          puffsRef.current = puffsRef.current.filter((pf) => now - pf.born < 520);
-          for (const pf of puffsRef.current) {
-            const t = (now - pf.born) / 520;
-            ctx.save();
-            ctx.globalAlpha = 1 - t;
-            ctx.fillStyle = pf.color;
-            ctx.beginPath();
-            ctx.arc(pf.x + pf.vx * t * 32, pf.y + pf.vy * t * 32, pf.r * (1 - t * 0.4), 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
-          }
-
-          // Laser Trails
-          lasersRef.current = lasersRef.current.filter((lt) => now - lt.born < 2200);
-          for (const lt of lasersRef.current) {
-            if (lt.pts.length < 2) continue;
-            const alpha = Math.max(0, 1 - (now - lt.born) / 2200);
-            ctx.save();
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            ctx.strokeStyle = `rgba(239, 68, 68, ${alpha * 0.35})`;
-            ctx.lineWidth = 14;
-            ctx.beginPath();
-            lt.pts.forEach((p, idx) => (idx === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
-            ctx.stroke();
-            ctx.strokeStyle = `rgba(255, 255, 255, ${alpha * 0.9})`;
-            ctx.lineWidth = 4;
-            ctx.stroke();
-            ctx.restore();
-          }
-
-          ctx.restore(); // end world transform
-          ctx.restore(); // end dpr
+      // Selected Sticky resize grip handle (bottom-right)
+      if (selectedIds.size === 1) {
+        const sid = Array.from(selectedIds)[0];
+        const st = renderPage.items.find((i): i is StickyItem => i.id === sid && i.kind === 'sticky');
+        if (st && !st.collapsed) {
+          ctx.save();
+          ctx.fillStyle = '#3D6CF4';
+          ctx.beginPath();
+          ctx.arc(st.x + st.w, st.y + st.h, 7 / camera.zoom, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#FFFFFF';
+          ctx.lineWidth = 2 / camera.zoom;
+          ctx.stroke();
+          ctx.restore();
         }
       }
-      rafId = requestAnimationFrame(draw);
+
+      const g = gestureRef.current;
+      if (g.active) {
+        if (g.mode === 'INK' && g.pts.length > 0) {
+          const liveInk: InkItem = {
+            id: 'live',
+            kind: 'ink',
+            points: g.pts,
+            color: tool === 'HIGHLIGHTER' ? hlColor : penColor,
+            size: tool === 'HIGHLIGHTER' ? hlSize : penSize,
+            isHighlighter: tool === 'HIGHLIGHTER',
+            opacity: tool === 'HIGHLIGHTER' ? settings.highlighterOpacity : penOpacity,
+            penKind,
+          };
+          renderPageItems(
+            ctx,
+            { ...renderPage, items: [liveInk] },
+            imageCacheRef.current,
+            selectedIds,
+            settings.highlighterBehind
+          );
+        } else if (g.mode === 'SHAPE') {
+          const shapes = ShapeBuilder.build(shapeKind, g.startWorld.x, g.startWorld.y, g.lastWorld.x, g.lastWorld.y);
+          ctx.save();
+          ctx.strokeStyle = penColor;
+          ctx.lineWidth = penSize;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          for (const poly of shapes) {
+            ctx.beginPath();
+            poly.forEach((p, idx) => (idx === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+            ctx.stroke();
+          }
+          ctx.restore();
+        } else if (g.mode === 'TAPE') {
+          const l = Math.min(g.startWorld.x, g.lastWorld.x);
+          const t = Math.min(g.startWorld.y, g.lastWorld.y);
+          const w = Math.abs(g.lastWorld.x - g.startWorld.x);
+          const h = Math.max(36, Math.abs(g.lastWorld.y - g.startWorld.y));
+          ctx.save();
+          ctx.globalAlpha = 0.6;
+          ctx.fillStyle = tapeColor;
+          ctx.fillRect(l, t, Math.max(24, w), h);
+          ctx.restore();
+        } else if (g.mode === 'LASSO' && g.pts.length > 1) {
+          ctx.save();
+          ctx.strokeStyle = '#3D6CF4';
+          ctx.fillStyle = 'rgba(61,108,244,0.08)';
+          ctx.lineWidth = 2 / camera.zoom;
+          ctx.setLineDash([8 / camera.zoom, 5 / camera.zoom]);
+          ctx.lineDashOffset = -(now * 0.03) % 26;
+          ctx.beginPath();
+          g.pts.forEach((p, idx) => (idx === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+
+      // Live Eraser cursor ring (visible both hovering & dragging)
+      if (tool === 'ERASER' && (hoverWorldRef.current || g.mode === 'ERASE')) {
+        const pt = g.mode === 'ERASE' ? g.lastWorld : hoverWorldRef.current!;
+        ctx.save();
+        ctx.strokeStyle = eraserMode === 'PIXEL' ? '#F59E0B' : eraserMode === 'HIGHLIGHTER' ? '#EAB308' : '#E5484D';
+        ctx.fillStyle =
+          eraserMode === 'PIXEL'
+            ? 'rgba(245,158,11,0.12)'
+            : eraserMode === 'HIGHLIGHTER'
+              ? 'rgba(234,179,8,0.14)'
+              : 'rgba(229,72,77,0.12)';
+        ctx.lineWidth = 1.6 / camera.zoom;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, eraserSize / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Selection bounding box
+      if (selectedIds.size > 0) {
+        const selItems = renderPage.items.filter((i) => selectedIds.has(i.id));
+        if (selItems.length > 0) {
+          let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+          for (const it of selItems) {
+            const bx = getItemBounds(it);
+            l = Math.min(l, bx.l);
+            t = Math.min(t, bx.t);
+            r = Math.max(r, bx.r);
+            b = Math.max(b, bx.b);
+          }
+          ctx.save();
+          ctx.strokeStyle = '#3D6CF4';
+          ctx.lineWidth = 2 / camera.zoom;
+          ctx.setLineDash([7 / camera.zoom, 5 / camera.zoom]);
+          ctx.strokeRect(l - 6, t - 6, r - l + 12, b - t + 12);
+          ctx.restore();
+        }
+      }
+
+      // Animated Math Glow Sweeps
+      glowsRef.current = glowsRef.current.filter((sw) => now - sw.born < 950);
+      for (const sw of glowsRef.current) {
+        const t = (now - sw.born) / 950;
+        const headX = sw.x + sw.w * Math.min(1, t * 1.15);
+        ctx.save();
+        const grad = ctx.createLinearGradient(sw.x, sw.y, headX + 40, sw.y);
+        grad.addColorStop(0, 'rgba(139,92,246,0)');
+        grad.addColorStop(0.5, `rgba(242,169,42,${0.55 * (1 - t)})`);
+        grad.addColorStop(1, 'rgba(56,189,248,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.roundRect(sw.x - 10, sw.y - 6, Math.max(20, headX - sw.x + 20), sw.h + 12, 12);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Crumble Particles
+      puffsRef.current = puffsRef.current.filter((pf) => now - pf.born < 520);
+      for (const pf of puffsRef.current) {
+        const t = (now - pf.born) / 520;
+        ctx.save();
+        ctx.globalAlpha = 1 - t;
+        ctx.fillStyle = pf.color;
+        ctx.beginPath();
+        ctx.arc(pf.x + pf.vx * t * 32, pf.y + pf.vy * t * 32, pf.r * (1 - t * 0.4), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Laser Trails
+      lasersRef.current = lasersRef.current.filter((lt) => now - lt.born < 2200);
+      for (const lt of lasersRef.current) {
+        if (lt.pts.length < 2) continue;
+        const alpha = Math.max(0, 1 - (now - lt.born) / 2200);
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = `rgba(239, 68, 68, ${alpha * 0.35})`;
+        ctx.lineWidth = 14;
+        ctx.beginPath();
+        lt.pts.forEach((p, idx) => (idx === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha * 0.9})`;
+        ctx.lineWidth = 4;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      ctx.restore();
+      ctx.restore();
     };
-    rafId = requestAnimationFrame(draw);
+
+    rafId = requestAnimationFrame(drawFrame);
     return () => cancelAnimationFrame(rafId);
-  }, [page, isWhiteboard, camera, settings, selectedIds, tool, penColor, penSize, penKind, hlColor, hlSize, eraserSize, shapeKind, tapeColor]);
+  }, [page, isWhiteboard, camera, settings, selectedIds, tool, penColor, penSize, penKind, penOpacity, hlColor, hlSize, eraserSize, eraserMode, shapeKind, tapeColor]);
 
   // ================================================================
-  // Canvas Pointer Handlers (with Live Scribble-to-Erase!)
+  // Pointer Handlers (Zero-lag Mutable Drag + Precision/Live Scribble Erase)
   // ================================================================
 
   const hitTestMindNode = (world: Pt): MindNodeItem | undefined => {
@@ -839,23 +1248,54 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     });
   };
 
-  const eraseAtPoint = (world: Pt) => {
-    if (!page) return;
+  const eraseInWorkingItems = (world: Pt) => {
+    const current = workingItemsRef.current || page?.items;
+    if (!current) return;
     const r = eraserSize / 2;
-    const hit = page.items.filter((it) => {
+    const removed: PageItem[] = [];
+    const next: PageItem[] = [];
+
+    for (const it of current) {
+      if (eraserMode === 'HIGHLIGHTER') {
+        if (it.kind === 'ink' && it.isHighlighter && it.points.some((p) => dist(p, world) <= r + it.size / 2)) {
+          removed.push(it);
+        } else {
+          next.push(it);
+        }
+        continue;
+      }
+
+      if (eraserMode === 'PIXEL' && it.kind === 'ink') {
+        const split = splitStrokeByEraser(it, world, r);
+        if (split !== null) {
+          removed.push(it);
+          next.push(...split);
+          continue;
+        }
+        next.push(it);
+        continue;
+      }
+
+      // Whole Stroke + Text eraser
       if (it.kind === 'ink') {
-        return it.points.some((p) => dist(p, world) <= r + it.size / 2);
-      }
-      if (it.kind === 'text') {
+        if (it.points.some((p) => dist(p, world) <= r + it.size / 2)) {
+          removed.push(it);
+          continue;
+        }
+      } else if (it.kind === 'text') {
         const b = getItemBounds(it);
-        return world.x >= b.l - r && world.x <= b.r + r && world.y >= b.t - r && world.y <= b.b + r;
+        if (world.x >= b.l - r && world.x <= b.r + r && world.y >= b.t - r && world.y <= b.b + r) {
+          removed.push(it);
+          continue;
+        }
       }
-      return false;
-    });
-    if (hit.length > 0) {
-      const hitIds = new Set(hit.map((h) => h.id));
-      spawnPuffForItems(hit);
-      commitPageItems((items) => items.filter((it) => !hitIds.has(it.id)), false);
+      next.push(it);
+    }
+
+    if (removed.length > 0) {
+      workingItemsRef.current = next;
+      spawnPuffForItems(removed);
+      requestDraw();
     }
   };
 
@@ -875,23 +1315,34 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     g.scribbleConsumed = false;
     g.pts = [{ x: world.x, y: world.y, p: e.pressure || 0.65 }];
 
-    // Pan with Spacebar, Middle mouse, or Pan tool
     if (spaceDown || e.button === 1 || tool === 'PAN') {
       g.mode = 'PAN';
       return;
     }
 
-    // Check Mind Map node hit first in MINDMAP or LASSO mode
+    // Check Sticky Resize Grip
+    if (selectedIds.size === 1) {
+      const sid = Array.from(selectedIds)[0];
+      const st = page.items.find((i): i is StickyItem => i.id === sid && i.kind === 'sticky');
+      if (st && !st.collapsed && dist(world, { x: st.x + st.w, y: st.y + st.h }) <= 16 / camera.zoom) {
+        g.mode = 'RESIZE_STICKY';
+        g.resizeStickyId = st.id;
+        g.origStickySize = { w: st.w, h: st.h };
+        workingItemsRef.current = [...page.items];
+        return;
+      }
+    }
+
     const hitMind = hitTestMindNode(world);
     if (tool === 'MINDMAP') {
       if (hitMind) {
         setSelectedIds(new Set([hitMind.id]));
         g.mode = 'DRAG_MIND';
         g.dragMindId = hitMind.id;
-        g.dragOrigItems = structuredClone(page.items);
+        g.dragOrigItems = [...page.items];
+        workingItemsRef.current = [...page.items];
       } else {
         setSelectedIds(new Set());
-        // Clicking empty canvas in Mind Map tool creates a node if no parent or adds child to root!
         const root = mindNodesOnPage[0] || null;
         addMindNode(root, world, root ? 'Branch Idea' : 'Central Topic');
         g.active = false;
@@ -899,30 +1350,28 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       return;
     }
 
-    // Check dragging existing selection
     if (selectedIds.size > 0 && tool !== 'ERASER') {
       const hitSel = hitTestAnyItem(world);
       if (hitSel && selectedIds.has(hitSel.id)) {
         g.mode = 'DRAG_ITEMS';
-        g.dragOrigItems = structuredClone(page.items);
+        g.dragOrigItems = [...page.items];
+        workingItemsRef.current = [...page.items];
         return;
       }
       setSelectedIds(new Set());
+      setEditingStickyId(null);
     }
 
     if (tool === 'PEN' || tool === 'HIGHLIGHTER') {
       g.mode = 'INK';
+      workingItemsRef.current = [...page.items];
       setWritingActive(true);
     } else if (tool === 'ERASER') {
       g.mode = 'ERASE';
-      setUndoStack((s) => [...s.slice(-30), structuredClone(notebook.pages)]);
-      eraseAtPoint(world);
+      workingItemsRef.current = [...page.items];
+      eraseInWorkingItems(world);
     } else if (tool === 'SHAPE') {
-      if (shapeKind === 'AUTO') {
-        g.mode = 'INK';
-      } else {
-        g.mode = 'SHAPE';
-      }
+      g.mode = shapeKind === 'AUTO' ? 'INK' : 'SHAPE';
     } else if (tool === 'LASSO') {
       g.mode = 'LASSO';
       g.pts = [{ x: world.x, y: world.y }];
@@ -935,25 +1384,23 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       const hit = hitTestAnyItem(world);
       if (hit && hit.kind === 'sticky') {
         setSelectedIds(new Set([hit.id]));
-        const nextText = window.prompt('Edit sticky note:', hit.text);
-        if (nextText !== null) {
-          commitPageItems((items) =>
-            items.map((it) => (it.id === hit.id && it.kind === 'sticky' ? { ...it, text: nextText } : it))
-          );
-        }
+        setEditingStickyId(hit.id);
       } else {
         const newSticky: StickyItem = {
           id: `stk-${Date.now()}`,
           kind: 'sticky',
-          x: world.x - 120,
-          y: world.y - 90,
-          w: 240,
-          h: 180,
+          x: world.x - 130,
+          y: world.y - 95,
+          w: 260,
+          h: 195,
           color: stickyColor,
-          text: 'Sticky note…',
+          text: 'New sticky note…',
+          fontSize: 18,
+          font: 'SANS',
         };
         commitPageItems((items) => [...items, newSticky]);
         setSelectedIds(new Set([newSticky.id]));
+        setEditingStickyId(newSticky.id);
       }
       g.active = false;
     } else if (tool === 'TEXT') {
@@ -979,15 +1426,22 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       }
       g.active = false;
     }
+    requestDraw();
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const g = gestureRef.current;
-    if (!g.active || !page) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
     const world = screenToWorld(sx, sy);
+
+    if (tool === 'ERASER') {
+      hoverWorldRef.current = world;
+      requestDraw();
+    }
+
+    const g = gestureRef.current;
+    if (!g.active || !page) return;
 
     if (g.mode === 'PAN') {
       const dx = sx - g.lastScreen.x;
@@ -997,48 +1451,63 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       return;
     }
 
-    if (g.mode === 'DRAG_MIND' && g.dragMindId) {
+    if (g.mode === 'RESIZE_STICKY' && g.resizeStickyId && g.origStickySize && workingItemsRef.current) {
+      const dx = world.x - g.startWorld.x;
+      const dy = world.y - g.startWorld.y;
+      const nw = Math.max(140, Math.round(g.origStickySize.w + dx));
+      const nh = Math.max(90, Math.round(g.origStickySize.h + dy));
+      workingItemsRef.current = workingItemsRef.current.map((it) =>
+        it.id === g.resizeStickyId && it.kind === 'sticky' ? { ...it, w: nw, h: nh } : it
+      );
+      requestDraw();
+      return;
+    }
+
+    if (g.mode === 'DRAG_MIND' && g.dragMindId && g.dragOrigItems) {
       const dx = world.x - g.startWorld.x;
       const dy = world.y - g.startWorld.y;
       const snap = settings.whiteboardGridSnap ? 20 : 1;
-      const orig = g.dragOrigItems?.find((i) => i.id === g.dragMindId) as MindNodeItem | undefined;
+      const orig = g.dragOrigItems.find((i) => i.id === g.dragMindId) as MindNodeItem | undefined;
       if (orig) {
         const nx = Math.round((orig.x + dx) / snap) * snap;
         const ny = Math.round((orig.y + dy) / snap) * snap;
-        commitPageItems(
-          (items) => items.map((it) => (it.id === g.dragMindId ? { ...(it as MindNodeItem), x: nx, y: ny } : it)),
-          false
+        workingItemsRef.current = g.dragOrigItems.map((it) =>
+          it.id === g.dragMindId ? { ...(it as MindNodeItem), x: nx, y: ny } : it
         );
       }
       g.lastWorld = world;
+      requestDraw();
       return;
     }
 
     if (g.mode === 'DRAG_ITEMS' && g.dragOrigItems) {
       const dx = world.x - g.startWorld.x;
       const dy = world.y - g.startWorld.y;
-      commitPageItems(
-        () =>
-          g.dragOrigItems!.map((it) => {
-            if (!selectedIds.has(it.id)) return it;
-            if (it.kind === 'ink') {
-              return { ...it, points: it.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })) };
-            }
-            if (it.kind === 'fill') {
-              return { ...it, points: it.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) };
-            }
-            return { ...it, x: it.x + dx, y: it.y + dy };
-          }),
-        false
-      );
+      workingItemsRef.current = g.dragOrigItems.map((it) => {
+        if (!selectedIds.has(it.id)) return it;
+        if (it.kind === 'ink') {
+          return { ...it, points: it.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })) };
+        }
+        if (it.kind === 'fill') {
+          return { ...it, points: it.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) };
+        }
+        return { ...it, x: it.x + dx, y: it.y + dy };
+      });
       g.lastWorld = world;
+      requestDraw();
       return;
     }
 
     if (g.mode === 'INK') {
       const prev = g.pts[g.pts.length - 1];
-      if (!prev || dist(prev, world) >= 2.2) {
-        g.pts.push({ x: world.x, y: world.y, p: e.pressure || 0.65 });
+      // Apply gentle input stabilization
+      const stab = tool === 'PEN' ? penStabilizer * 0.55 : 0;
+      const nx = prev ? prev.x * stab + world.x * (1 - stab) : world.x;
+      const ny = prev ? prev.y * stab + world.y * (1 - stab) : world.y;
+      const pt = { x: nx, y: ny, p: e.pressure || 0.65 };
+
+      if (!prev || dist(prev, pt) >= 2.0) {
+        g.pts.push(pt);
       }
 
       // LIVE SCRIBBLE-TO-ERASE WHILE DRAWING!
@@ -1046,25 +1515,23 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         settings.scribbleToErase &&
         settings.liveScribbleErase &&
         (tool === 'PEN' || tool === 'HIGHLIGHTER') &&
-        isLiveScribble(g.pts)
+        isLiveScribble(g.pts, settings.scribbleSensitivity)
       ) {
         const isHl = tool === 'HIGHLIGHTER';
-        const recent = g.pts.slice(-52);
-        const hits = page.items.filter((it) => scribbleHitsItem(recent, it, isHl));
+        const recent = g.pts.slice(-56);
+        const curItems = workingItemsRef.current || page.items;
+        const hits = curItems.filter((it) => scribbleHitsItem(recent, it, isHl));
         if (hits.length > 0) {
-          if (!g.scribbleConsumed) {
-            setUndoStack((s) => [...s.slice(-30), structuredClone(notebook.pages)]);
-          }
           g.scribbleConsumed = true;
           const hitIds = new Set(hits.map((h) => h.id));
           spawnPuffForItems(hits);
-          commitPageItems((items) => items.filter((it) => !hitIds.has(it.id)), false);
-          // Keep tail of stroke so continuous scrubbing can keep erasing nearby ink seamlessly
+          workingItemsRef.current = curItems.filter((it) => !hitIds.has(it.id));
           g.pts = g.pts.slice(-14);
         }
       }
+      requestDraw();
     } else if (g.mode === 'ERASE') {
-      eraseAtPoint(world);
+      eraseInWorkingItems(world);
     } else if (g.mode === 'LASSO') {
       if (settings.lassoMode === 'RECT') {
         const s = g.startWorld;
@@ -1077,12 +1544,16 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       } else {
         g.pts.push({ x: world.x, y: world.y });
       }
+      requestDraw();
     } else if (g.mode === 'LASER') {
       const last = lasersRef.current[lasersRef.current.length - 1];
       if (last) {
         last.pts.push(world);
         last.born = performance.now();
       }
+      requestDraw();
+    } else if (g.mode === 'SHAPE' || g.mode === 'TAPE') {
+      requestDraw();
     }
 
     g.lastScreen = { x: sx, y: sy };
@@ -1108,12 +1579,25 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       return;
     }
 
+    if (g.mode === 'RESIZE_STICKY') {
+      if (workingItemsRef.current) {
+        const finalItems = workingItemsRef.current;
+        workingItemsRef.current = null;
+        commitPageItems(() => finalItems, true);
+      }
+      g.resizeStickyId = null;
+      g.origStickySize = null;
+      g.mode = 'NONE';
+      return;
+    }
+
     if (g.mode === 'DRAG_MIND' || g.mode === 'DRAG_ITEMS') {
-      if (g.dragOrigItems) {
-        setUndoStack((s) => [
-          ...s.slice(-30),
-          notebook.pages.map((pg, i) => (i === safeIdx ? { ...pg, items: g.dragOrigItems! } : pg)),
-        ]);
+      if (workingItemsRef.current && (dist(g.startWorld, g.lastWorld) > 1.5)) {
+        const finalItems = workingItemsRef.current;
+        workingItemsRef.current = null;
+        commitPageItems(() => finalItems, true);
+      } else {
+        workingItemsRef.current = null;
       }
       g.dragMindId = null;
       g.dragOrigItems = null;
@@ -1121,18 +1605,34 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       return;
     }
 
+    if (g.mode === 'ERASE') {
+      if (workingItemsRef.current && workingItemsRef.current !== page.items) {
+        const finalItems = workingItemsRef.current;
+        workingItemsRef.current = null;
+        if (finalItems.length !== page.items.length || finalItems.some((it, i) => it !== page.items[i])) {
+          commitPageItems(() => finalItems, true);
+        }
+      }
+      workingItemsRef.current = null;
+      g.mode = 'NONE';
+      return;
+    }
+
     if (g.mode === 'INK') {
       if (g.scribbleConsumed) {
+        const finalItems = workingItemsRef.current || page.items;
+        workingItemsRef.current = null;
+        commitPageItems(() => finalItems, true);
         g.mode = 'NONE';
         g.pts = [];
         return;
       }
+      workingItemsRef.current = null;
 
-      // Final check for fast scribble-to-erase on release
       if (
         settings.scribbleToErase &&
         (tool === 'PEN' || tool === 'HIGHLIGHTER') &&
-        isScribble(g.pts)
+        isScribble(g.pts, settings.scribbleSensitivity)
       ) {
         const hits = page.items.filter((it) => scribbleHitsItem(g.pts, it, tool === 'HIGHLIGHTER'));
         if (hits.length > 0) {
@@ -1145,7 +1645,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         }
       }
 
-      // Auto Shape Tool
       if (tool === 'SHAPE' && shapeKind === 'AUTO') {
         const recognized = ShapeRecognizer.recognize(g.pts);
         if (recognized) {
@@ -1156,6 +1655,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             color: penColor,
             size: penSize,
             isHighlighter: false,
+            opacity: penOpacity,
             penKind: 'ballpoint',
           };
           commitPageItems((items) => [...items, ink]);
@@ -1165,7 +1665,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         }
       }
 
-      // Highlighter Auto-Straighten
       let finalPts = g.pts;
       if (tool === 'HIGHLIGHTER' && g.pts.length > 1) {
         const len = pathLength(g.pts);
@@ -1180,7 +1679,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         }
       }
 
-      // Tap on Tape toggles reveal
       const isTap = g.pts.length < 4 && pathLength(g.pts) < 10;
       if (isTap) {
         const hitTape = page.items.find((it) => {
@@ -1205,7 +1703,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         color: tool === 'HIGHLIGHTER' ? hlColor : penColor,
         size: tool === 'HIGHLIGHTER' ? hlSize : penSize,
         isHighlighter: tool === 'HIGHLIGHTER',
-        opacity: settings.highlighterOpacity,
+        opacity: tool === 'HIGHLIGHTER' ? settings.highlighterOpacity : penOpacity,
         penKind,
       };
       commitPageItems((items) => [...items, ink]);
@@ -1219,6 +1717,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           color: penColor,
           size: penSize,
           isHighlighter: false,
+          opacity: penOpacity,
           penKind: 'ballpoint',
         }));
         commitPageItems((items) => [...items, ...inks]);
@@ -1258,10 +1757,14 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     } else if (g.mode === 'LASSO' && g.pts.length > 2) {
       const picked = page.items.filter((it) => lassoSelectsItem(g.pts, it, settings.lassoTouching));
       setSelectedIds(new Set(picked.map((i) => i.id)));
+      if (picked.length === 1 && picked[0].kind === 'sticky') {
+        setEditingStickyId(picked[0].id);
+      }
     }
 
     g.mode = 'NONE';
     g.pts = [];
+    requestDraw();
   };
 
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
@@ -1291,37 +1794,54 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   };
 
   // ================================================================
-  // AI Actions (Summary, Flashcards, Quiz, Explain, Mind Map Gen)
+  // AI Actions (Animated Stages + Companion XP)
   // ================================================================
 
   const handleAiSummary = async () => {
     setAiMenuOpen(false);
     setAiBusyLabel('Summarizing notes');
+    setAiStageLabel('Reading notebook pages');
+    setSummaryModal({
+      open: true,
+      title: `Key Points · ${notebook.title}`,
+      summary: null,
+      loadingStage: 'Reading notebook pages',
+      explainText: null,
+    });
     try {
       const txt = extractNotebookText(notebook.pages);
-      const res = await runLocalSummary(txt, settings.activeLocalModelId);
+      const res = await runLocalSummary(txt, settings.activeLocalModelId, (stage) => {
+        setAiStageLabel(stage);
+        setSummaryModal((s) => ({ ...s, loadingStage: stage }));
+      });
       setSummaryModal({
         open: true,
         title: `Key Points · ${notebook.title}`,
-        points: res.points,
-        engineLabel: res.engineLabel,
+        summary: res,
+        loadingStage: null,
         explainText: null,
       });
+      onRecordPetAction('study', 12);
       setCheerTrigger((c) => c + 1);
     } finally {
       setAiBusyLabel(null);
+      setAiStageLabel(null);
     }
   };
 
   const handleAiFlashcards = async () => {
     setAiMenuOpen(false);
     setAiBusyLabel('Crafting flashcards');
+    setAiStageLabel('Scanning definitions');
     try {
       const txt = extractNotebookText(notebook.pages);
-      const res = await runLocalFlashcards(txt, notebook.id, settings.activeLocalModelId);
+      const res = await runLocalFlashcards(txt, notebook.id, settings.activeLocalModelId, (stage) =>
+        setAiStageLabel(stage)
+      );
       if (res.cards.length > 0) {
         onAddFlashcards(res.cards);
         showToast(`Added ${res.cards.length} flashcards (${res.engineLabel})`);
+        onRecordPetAction('study', 14);
         setCheerTrigger((c) => c + 1);
       } else {
         showToast('Add definitions like "X is..." to auto-generate cards');
@@ -1329,42 +1849,61 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       setFlashModalOpen(true);
     } finally {
       setAiBusyLabel(null);
+      setAiStageLabel(null);
     }
   };
 
   const handleAiQuiz = async () => {
     setAiMenuOpen(false);
     setAiBusyLabel('Building quiz');
+    setAiStageLabel('Extracting quiz concepts');
+    setQuizModal({
+      open: true,
+      questions: [],
+      engineLabel: activeModel?.name || 'Built-in Study Engine',
+      loadingStage: 'Extracting quiz concepts',
+    });
     try {
       const txt = extractNotebookText(notebook.pages);
-      const res = await runLocalQuiz(txt, settings.activeLocalModelId);
+      const res = await runLocalQuiz(txt, settings.activeLocalModelId, (stage) => {
+        setAiStageLabel(stage);
+        setQuizModal((q) => ({ ...q, loadingStage: stage }));
+      });
       setQuizModal({
         open: true,
         questions: res.questions,
         engineLabel: res.engineLabel,
+        loadingStage: null,
       });
+      onRecordPetAction('study', 12);
       setCheerTrigger((c) => c + 1);
     } finally {
       setAiBusyLabel(null);
+      setAiStageLabel(null);
     }
   };
 
   const handleAiGenerateMindMap = async () => {
     setAiMenuOpen(false);
     setAiBusyLabel('Mapping concepts');
+    setAiStageLabel('Structuring concept tree');
     try {
       const txt = extractNotebookText(notebook.pages) || notebook.title;
       const center = screenToWorld(
         (containerRef.current?.clientWidth || 800) / 2,
         (containerRef.current?.clientHeight || 600) / 2
       );
-      const res = await generateMindMapFromText(txt, center.x, center.y, settings.activeLocalModelId);
+      const res = await generateMindMapFromText(txt, center.x, center.y, settings.activeLocalModelId, (stage) =>
+        setAiStageLabel(stage)
+      );
       commitPageItems((items) => [...items, ...res.nodes]);
       setTool('MINDMAP');
       showToast(`Mind Map generated (${res.engineLabel})`);
+      onRecordPetAction('study', 15);
       setCheerTrigger((c) => c + 1);
     } finally {
       setAiBusyLabel(null);
+      setAiStageLabel(null);
     }
   };
 
@@ -1380,18 +1919,39 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       return;
     }
     setAiBusyLabel('Explaining selection');
+    setAiStageLabel('Reasoning with local context');
+    setSummaryModal({
+      open: true,
+      title: 'Simple Explanation',
+      summary: null,
+      loadingStage: 'Reasoning with local context',
+      explainText: null,
+    });
     try {
       const ctxTxt = extractNotebookText([page]);
-      const res = await runLocalExplain(selTxt, ctxTxt, settings.activeLocalModelId);
+      const res = await runLocalExplain(selTxt, ctxTxt, settings.activeLocalModelId, (stage) => {
+        setAiStageLabel(stage);
+        setSummaryModal((s) => ({ ...s, loadingStage: stage }));
+      });
       setSummaryModal({
         open: true,
         title: 'Simple Explanation',
-        points: [],
-        engineLabel: res.engineLabel,
+        summary: {
+          headline: 'Concept Breakdown',
+          points: [],
+          definitions: [],
+          formulas: [],
+          keywords: [],
+          wordCount: selTxt.split(/\s+/).length,
+          engineLabel: res.engineLabel,
+        },
+        loadingStage: null,
         explainText: res.explanation,
       });
+      onRecordPetAction('study', 10);
     } finally {
       setAiBusyLabel(null);
+      setAiStageLabel(null);
     }
   };
 
@@ -1446,8 +2006,8 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   const addNewPage = () => {
     const newPg: Page = {
       id: `pg-${Date.now()}`,
-      width: page?.width || 1240,
-      height: page?.height || 1754,
+      width: page?.width || 1200,
+      height: page?.height || 1697,
       paper: page?.paper || notebook.paper,
       isWhiteboard: page?.isWhiteboard,
       paperColor: page?.paperColor,
@@ -1455,6 +2015,23 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     };
     commitPages((pages) => [...pages, newPg]);
     setPageIdx(notebook.pages.length);
+  };
+
+  const applyPenPreset = (preset: PenPreset) => {
+    setPenKind(preset.kind);
+    setPenColor(preset.color);
+    setPenSize(preset.size);
+    setPenOpacity(preset.opacity);
+    setPenStabilizer(preset.stabilizer);
+    onUpdateSettings({
+      penName: preset.name,
+      penKind: preset.kind,
+      penColor: preset.color,
+      penSize: preset.size,
+      penOpacity: preset.opacity,
+      penStabilizer: preset.stabilizer,
+    });
+    showToast(`Switched to "${preset.name}"`);
   };
 
   const searchHits = useMemo(() => {
@@ -1473,7 +2050,8 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     return hits;
   }, [notebook.pages, searchQuery]);
 
-  const splitNotebook = splitNoteId ? allNotebooks.find((n) => n.id === splitNoteId) : null;
+  const splitNotebook = splitNoteId ? allNotebooks.find((n) => n.id === splitNoteId && n.deletedAt === null) : null;
+  const mathDetailed = useMemo(() => MathSolver.solveDetailed(mathInput), [mathInput]);
 
   const TOOLS: { id: ToolId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'PEN', label: 'Pen', icon: Pen },
@@ -1491,7 +2069,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     { id: 'PAN', label: 'Pan', icon: Hand },
   ];
 
-  // Calculate screen coordinates of Selected Mind Node for contextual floating controls
   const selectedMindScreen = useMemo(() => {
     if (!selectedMindNode) return null;
     return {
@@ -1499,6 +2076,14 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       top: selectedMindNode.y * camera.zoom + camera.panY,
     };
   }, [selectedMindNode, camera]);
+
+  const selectedStickyScreen = useMemo(() => {
+    if (!selectedStickyNode) return null;
+    return {
+      left: (selectedStickyNode.x + selectedStickyNode.w / 2) * camera.zoom + camera.panX,
+      top: (selectedStickyNode.y + selectedStickyNode.h) * camera.zoom + camera.panY + 10,
+    };
+  }, [selectedStickyNode, camera]);
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#E7E9EF] text-[#1B1F2A] dark:bg-[#0F1013] dark:text-[#F3F4F6]">
@@ -1545,7 +2130,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             : accent.softBg,
         }}
       >
-        {/* Left Nav & History & Pip */}
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -1592,7 +2176,15 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           </button>
           {settings.pet && (
             <div className="ml-1 hidden sm:block">
-              <PipPet writing={writingActive} thinking={Boolean(aiBusyLabel)} cheerTrigger={cheerTrigger} />
+              <PipPet
+                petId={settings.petId}
+                bond={settings.petBond}
+                writing={writingActive}
+                thinking={Boolean(aiBusyLabel)}
+                cheerTrigger={cheerTrigger}
+                onSwitchPet={onSwitchPet}
+                onPetAction={onRecordPetAction}
+              />
             </div>
           )}
         </div>
@@ -1615,6 +2207,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                   } else {
                     setTool(t.id);
                     setStickerOpen(false);
+                    setPenStudioOpen(false);
                   }
                 }}
                 className={`flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-semibold transition ${
@@ -1632,7 +2225,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           <input ref={fileInputRef} type="file" accept="image/*" onChange={handleInsertImage} className="hidden" />
         </div>
 
-        {/* Right Actions: Study Timer, AI Spark, +Page, More */}
+        {/* Right Actions */}
         <div className="flex items-center gap-1">
           {settings.studyTimer && (
             <button
@@ -1649,7 +2242,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             </button>
           )}
 
-          {/* Maths Quick-Pad button */}
           <button
             type="button"
             onClick={() => setMathPadOpen((v) => !v)}
@@ -1660,18 +2252,21 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             <span className="hidden lg:inline">Maths</span>
           </button>
 
-          {/* AI Spark Menu */}
+          {/* AI Study Menu */}
           <div className="relative">
             <button
               type="button"
-              onClick={() => setAiMenuOpen((v) => !v)}
+              onClick={() => {
+                setAiMenuOpen((v) => !v);
+                setMoreMenuOpen(false);
+              }}
               className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:opacity-95"
             >
               <Sparkles className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">AI Study</span>
             </button>
             {aiMenuOpen && (
-              <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-2xl border border-black/10 bg-white p-1.5 shadow-2xl dark:border-white/10 dark:bg-[#1E2027]">
+              <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-2xl border border-black/10 bg-white p-1.5 shadow-2xl dark:border-white/10 dark:bg-[#1E2027] animate-stagger-in">
                 <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                   {activeModel ? `Model: ${activeModel.name}` : 'Built-in On-Device Engine'}
                 </div>
@@ -1680,7 +2275,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                   onClick={handleAiSummary}
                   className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
                 >
-                  <FileText className="h-4 w-4 text-violet-600" /> Summarize Page Key Points
+                  <Sparkles className="h-4 w-4 text-violet-600" /> Summarize Page Key Points
                 </button>
                 <button
                   type="button"
@@ -1701,7 +2296,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                   onClick={handleAiQuiz}
                   className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
                 >
-                  <Sparkles className="h-4 w-4 text-amber-500" /> Take Study Quiz
+                  <Calculator className="h-4 w-4 text-amber-500" /> Take Study Quiz
                 </button>
                 <div className="my-1 border-t border-black/8 dark:border-white/10" />
                 <button
@@ -1727,16 +2322,20 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             <Plus className="h-4 w-4" />
           </button>
 
+          {/* 3-Dots More Menu — Distinct Semantic Icons on Every Item */}
           <div className="relative">
             <button
               type="button"
-              onClick={() => setMoreMenuOpen((v) => !v)}
+              onClick={() => {
+                setMoreMenuOpen((v) => !v);
+                setAiMenuOpen(false);
+              }}
               className="rounded-xl p-2 hover:bg-black/8 dark:hover:bg-white/10"
             >
               <MoreHorizontal className="h-4 w-4" />
             </button>
             {moreMenuOpen && (
-              <div className="absolute right-0 top-full z-50 mt-2 w-60 rounded-2xl border border-black/10 bg-white p-1.5 shadow-2xl dark:border-white/10 dark:bg-[#1E2027]">
+              <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-2xl border border-black/10 bg-white p-1.5 shadow-2xl dark:border-white/10 dark:bg-[#1E2027] animate-stagger-in">
                 <button
                   type="button"
                   onClick={() => {
@@ -1759,7 +2358,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                   }}
                   className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
                 >
-                  <FileText className="h-4 w-4 text-blue-600" /> Paper Template & Color…
+                  <Palette className="h-4 w-4 text-blue-600" /> Paper Template & Tint…
                 </button>
                 <button
                   type="button"
@@ -1769,18 +2368,18 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                   }}
                   className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
                 >
-                  <BookOpen className="h-4 w-4" /> View Flashcard Deck ({flashcards.length})
+                  <BookOpen className="h-4 w-4 text-amber-500" /> Open Flashcards ({flashcards.length})
                 </button>
                 <button
                   type="button"
                   onClick={() => {
                     const other = allNotebooks.find((n) => n.id !== notebook.id && n.deletedAt === null);
-                    setSplitNoteId((cur) => (cur ? null : other?.id || null));
+                    setSplitNoteId((cur) => (cur ? null : other?.id || notebook.id));
                     setMoreMenuOpen(false);
                   }}
                   className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
                 >
-                  <Columns2 className="h-4 w-4" /> {splitNoteId ? 'Close Split View' : 'Open Split View'}
+                  <Columns2 className="h-4 w-4 text-cyan-600" /> {splitNoteId ? 'Close Split View' : 'Open Split Notes'}
                 </button>
                 <button
                   type="button"
@@ -1790,7 +2389,28 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                   }}
                   className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
                 >
-                  <Download className="h-4 w-4" /> Export Current View as PNG
+                  <Download className="h-4 w-4 text-indigo-600" /> Export Current View as PNG
+                </button>
+                <div className="my-1 border-t border-black/8 dark:border-white/10" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMoreMenuOpen(false);
+                    onOpenLocalModels();
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  <Cpu className="h-4 w-4 text-violet-600" /> Local AI Models
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMoreMenuOpen(false);
+                    onOpenSettings();
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  <Settings className="h-4 w-4 text-slate-500" /> Studio Settings
                 </button>
               </div>
             )}
@@ -1799,25 +2419,43 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       </header>
 
       {/* Secondary Contextual Tool Options Bar */}
-      <div className="z-20 flex shrink-0 flex-wrap items-center justify-center gap-3 border-b border-black/6 bg-white/90 px-4 py-1.5 text-xs backdrop-blur-md dark:border-white/8 dark:bg-[#191A20]/90">
+      <div className="relative z-20 flex shrink-0 flex-wrap items-center justify-center gap-3 border-b border-black/6 bg-white/90 px-4 py-1.5 text-xs backdrop-blur-md dark:border-white/8 dark:bg-[#191A20]/90">
         {(tool === 'PEN' || tool === 'SHAPE' || tool === 'TEXT') && (
           <>
             {tool === 'PEN' && (
-              <div className="flex items-center gap-1 rounded-lg bg-black/5 p-0.5 dark:bg-white/8">
-                {(['ballpoint', 'fountain', 'brush'] as PenKind[]).map((k) => (
-                  <button
-                    key={k}
-                    type="button"
-                    onClick={() => setPenKind(k)}
-                    className={`rounded-md px-2 py-0.5 text-[11px] font-semibold capitalize ${
-                      penKind === k ? 'bg-white shadow-sm dark:bg-[#2A2C34]' : 'text-slate-500'
-                    }`}
-                  >
-                    {k}
-                  </button>
-                ))}
-              </div>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setPenStudioOpen((v) => !v)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-black/10 bg-black/[0.04] px-2.5 py-1 text-[11px] font-bold hover:bg-black/8 dark:border-white/12 dark:bg-white/8"
+                >
+                  <Sliders className="h-3 w-3 text-blue-600" />
+                  <span>{settings.penName || 'Pro Stylus'}</span>
+                  <span className="capitalize text-slate-500">· {penKind}</span>
+                  <ChevronDown className="h-3 w-3 text-slate-400" />
+                </button>
+
+                {/* Favorite Pen Presets Quick Chips */}
+                <div className="hidden items-center gap-1 md:flex">
+                  {settings.penPresets.slice(0, 4).map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => applyPenPreset(p)}
+                      className={`inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[11px] font-semibold transition ${
+                        penKind === p.kind && penColor === p.color
+                          ? 'bg-blue-600/12 text-blue-700 dark:text-blue-300'
+                          : 'hover:bg-black/5 text-slate-600 dark:text-slate-300'
+                      }`}
+                    >
+                      <span className="h-2.5 w-2.5 rounded-full border border-black/15" style={{ backgroundColor: p.color }} />
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
+
             <div className="flex items-center gap-1.5">
               {PEN_COLORS.map((c) => (
                 <button
@@ -1830,7 +2468,16 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                   style={{ backgroundColor: c }}
                 />
               ))}
+              <label className="relative flex h-5 w-5 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-black/20 bg-gradient-to-tr from-rose-500 via-amber-400 to-blue-500" title="Custom color">
+                <input
+                  type="color"
+                  value={penColor}
+                  onChange={(e) => setPenColor(e.target.value)}
+                  className="absolute inset-0 cursor-pointer opacity-0"
+                />
+              </label>
             </div>
+
             {tool === 'TEXT' ? (
               <div className="flex items-center gap-2">
                 <select
@@ -1859,7 +2506,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 <input
                   type="range"
                   min={1.5}
-                  max={14}
+                  max={16}
                   step={0.5}
                   value={penSize}
                   onChange={(e) => setPenSize(Number(e.target.value))}
@@ -1868,6 +2515,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 <span className="font-mono-num text-[11px]">{penSize}</span>
               </div>
             )}
+
             {tool === 'SHAPE' && (
               <select
                 value={shapeKind}
@@ -1881,9 +2529,10 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 ))}
               </select>
             )}
+
             {tool === 'PEN' && settings.liveScribbleErase && (
-              <span className="hidden text-[11px] text-emerald-600 dark:text-emerald-400 md:inline">
-                • Live scribble-erase active
+              <span className="hidden text-[11px] font-medium text-emerald-600 dark:text-emerald-400 lg:inline">
+                • Live scribble-erase ({settings.scribbleSensitivity})
               </span>
             )}
           </>
@@ -1917,17 +2566,74 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         )}
 
         {tool === 'ERASER' && (
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-semibold">Eraser diameter</span>
-            <input
-              type="range"
-              min={10}
-              max={64}
-              value={eraserSize}
-              onChange={(e) => setEraserSize(Number(e.target.value))}
-              className="w-28 accent-red-500"
-            />
-            <span className="font-mono-num text-[11px]">{eraserSize}px</span>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1 rounded-xl bg-black/5 p-0.5 dark:bg-white/10">
+              {(
+                [
+                  { id: 'STROKE' as EraserMode, label: 'Stroke' },
+                  { id: 'PIXEL' as EraserMode, label: 'Precision' },
+                  { id: 'HIGHLIGHTER' as EraserMode, label: 'Highlighter' },
+                ]
+              ).map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => {
+                    setEraserMode(m.id);
+                    onUpdateSettings({ eraserMode: m.id });
+                  }}
+                  className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition ${
+                    eraserMode === m.id
+                      ? 'bg-red-500 text-white shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900 dark:text-slate-300'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold">Size</span>
+              <input
+                type="range"
+                min={8}
+                max={68}
+                value={eraserSize}
+                onChange={(e) => setEraserSize(Number(e.target.value))}
+                className="w-24 accent-red-500"
+              />
+              <span className="font-mono-num text-[11px]">{eraserSize}px</span>
+            </div>
+            <div className="hidden items-center gap-1 sm:flex">
+              <span className="text-[11px] text-slate-500">Scribble:</span>
+              {(['gentle', 'balanced', 'instant'] as ScribbleSensitivity[]).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => onUpdateSettings({ scribbleSensitivity: s })}
+                  className={`rounded-lg px-2 py-0.5 text-[10px] font-semibold capitalize ${
+                    settings.scribbleSensitivity === s
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-black/5 text-slate-500 dark:bg-white/10'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const inkItems = page?.items.filter((i) => i.kind === 'ink') || [];
+                if (inkItems.length === 0) return;
+                spawnPuffForItems(inkItems);
+                commitPageItems((items) => items.filter((i) => i.kind !== 'ink'));
+                showToast('Cleared all ink on page');
+              }}
+              className="rounded-xl bg-red-500/12 px-2.5 py-1 text-[11px] font-bold text-red-600 hover:bg-red-500/20 dark:text-red-400"
+            >
+              Clear Page Ink
+            </button>
           </div>
         )}
 
@@ -1958,7 +2664,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
 
         {tool === 'STICKY' && (
           <div className="flex items-center gap-2">
-            <span className="text-[11px] text-slate-500">Sticky color:</span>
+            <span className="text-[11px] text-slate-500">Default Sticky Color:</span>
             {STICKY_COLORS.map((c) => (
               <button
                 key={c}
@@ -1970,6 +2676,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 style={{ backgroundColor: c }}
               />
             ))}
+            <span className="text-[11px] text-slate-400">· Tap canvas to place or tap sticky to customize</span>
           </div>
         )}
 
@@ -2014,7 +2721,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
 
         {tool === 'LASSO' && (
           <span className="text-[11px] text-slate-500">
-            Draw a loop around ink, text, shapes, or nodes to select & transform
+            Draw a loop around ink, text, stickies, or nodes to move, solve maths, or AI explain
           </span>
         )}
         {tool === 'PAN' && (
@@ -2022,11 +2729,179 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             Drag to pan canvas · Scroll or pinch to zoom freely
           </span>
         )}
+
+        {/* Redesigned Pen Customisation Studio Popover */}
+        {penStudioOpen && (
+          <div className="absolute left-1/2 top-full z-50 mt-2 w-[360px] -translate-x-1/2 rounded-3xl border border-black/10 bg-white p-4 shadow-2xl dark:border-white/12 dark:bg-[#1C1E26] animate-stagger-in">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-sm font-bold">Pen Studio</span>
+              <button type="button" onClick={() => setPenStudioOpen(false)}>
+                <X className="h-4 w-4 text-slate-400" />
+              </button>
+            </div>
+
+            {/* Live Stroke Preview */}
+            <div className="mb-3 flex h-16 items-center justify-center rounded-2xl border border-black/8 bg-slate-50 dark:border-white/10 dark:bg-[#14151B]">
+              <svg viewBox="0 0 280 54" className="h-full w-full px-3">
+                <path
+                  d="M 14 34 C 55 10, 95 46, 140 24 C 185 6, 225 44, 266 22"
+                  fill="none"
+                  stroke={penColor}
+                  strokeWidth={penSize}
+                  strokeOpacity={penOpacity}
+                  strokeLinecap={penKind === 'fineliner' ? 'butt' : 'round'}
+                  strokeDasharray={penKind === 'pencil' ? '1.2 0.8' : undefined}
+                />
+              </svg>
+            </div>
+
+            {/* Active Pen Name */}
+            <div className="mb-3 flex items-center gap-2">
+              <span className="text-[11px] font-semibold text-slate-500">Pen Name</span>
+              <input
+                type="text"
+                value={settings.penName}
+                onChange={(e) => onUpdateSettings({ penName: e.target.value })}
+                className="flex-1 rounded-xl border border-black/12 bg-slate-50 px-2.5 py-1 text-xs font-semibold outline-none focus:border-blue-500 dark:border-white/12 dark:bg-[#242630]"
+              />
+            </div>
+
+            {/* Nib Selector */}
+            <div className="mb-3 grid grid-cols-5 gap-1">
+              {PEN_NIBS.map((n) => (
+                <button
+                  key={n.id}
+                  type="button"
+                  title={n.desc}
+                  onClick={() => {
+                    setPenKind(n.id);
+                    onUpdateSettings({ penKind: n.id });
+                  }}
+                  className={`rounded-xl py-1.5 text-[10px] font-bold transition ${
+                    penKind === n.id
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-black/5 text-slate-600 hover:bg-black/10 dark:bg-white/10 dark:text-slate-300'
+                  }`}
+                >
+                  {n.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Sliders */}
+            <div className="space-y-2 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="w-20 text-slate-500">Thickness</span>
+                <input
+                  type="range"
+                  min={1.5}
+                  max={16}
+                  step={0.5}
+                  value={penSize}
+                  onChange={(e) => setPenSize(Number(e.target.value))}
+                  className="flex-1 accent-blue-600"
+                />
+                <span className="font-mono-num w-10 text-right font-semibold">{penSize}px</span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="w-20 text-slate-500">Opacity</span>
+                <input
+                  type="range"
+                  min={0.35}
+                  max={1}
+                  step={0.05}
+                  value={penOpacity}
+                  onChange={(e) => setPenOpacity(Number(e.target.value))}
+                  className="flex-1 accent-blue-600"
+                />
+                <span className="font-mono-num w-10 text-right font-semibold">
+                  {Math.round(penOpacity * 100)}%
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="w-20 text-slate-500">Stabilizer</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={0.85}
+                  step={0.05}
+                  value={penStabilizer}
+                  onChange={(e) => setPenStabilizer(Number(e.target.value))}
+                  className="flex-1 accent-blue-600"
+                />
+                <span className="font-mono-num w-10 text-right font-semibold">
+                  {Math.round(penStabilizer * 100)}%
+                </span>
+              </div>
+            </div>
+
+            {/* Save Favorite Preset */}
+            <div className="mt-3 border-t border-black/8 pt-3 dark:border-white/10">
+              <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Favorite Presets
+              </div>
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {settings.penPresets.map((p) => (
+                  <div
+                    key={p.id}
+                    className="inline-flex items-center gap-1 rounded-xl border border-black/10 bg-slate-50 px-2 py-1 text-[11px] font-semibold dark:border-white/10 dark:bg-[#242630]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => applyPenPreset(p)}
+                      className="flex items-center gap-1.5"
+                    >
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: p.color }} />
+                      <span>{p.name}</span>
+                    </button>
+                    {settings.penPresets.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => onDeletePenPreset(p.id)}
+                        className="ml-0.5 text-slate-400 hover:text-red-500"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={newPresetName}
+                  onChange={(e) => setNewPresetName(e.target.value)}
+                  placeholder="Preset name..."
+                  className="flex-1 rounded-xl border border-black/12 px-2.5 py-1 text-xs outline-none dark:border-white/12 dark:bg-[#242630]"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const name = newPresetName.trim() || `${penKind} ${Math.round(penSize)}px`;
+                    onSavePenPreset({
+                      id: `preset-${Date.now()}`,
+                      name,
+                      kind: penKind,
+                      color: penColor,
+                      size: penSize,
+                      opacity: penOpacity,
+                      stabilizer: penStabilizer,
+                    });
+                    setNewPresetName('');
+                    showToast(`Saved preset "${name}"`);
+                  }}
+                  className="rounded-xl bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Main Workspace Area (Pages Drawer + Canvas + Optional Split View) */}
+      {/* Main Workspace Area */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        {/* Pages Drawer */}
         {pagesOpen && (
           <aside className="z-20 flex w-52 shrink-0 flex-col border-r border-black/8 bg-white/95 p-3 dark:border-white/10 dark:bg-[#18191E]">
             <div className="mb-2 flex items-center justify-between">
@@ -2085,7 +2960,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           </aside>
         )}
 
-        {/* Canvas Container */}
+        {/* Primary Canvas Container */}
         <div ref={containerRef} className="relative min-w-0 flex-1 overflow-hidden">
           <canvas
             ref={canvasRef}
@@ -2093,12 +2968,16 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerUp}
+            onPointerLeave={() => {
+              hoverWorldRef.current = null;
+              requestDraw();
+            }}
             onWheel={handleWheel}
             className={`h-full w-full touch-none ${
               spaceDown || tool === 'PAN'
                 ? 'cursor-grab active:cursor-grabbing'
                 : tool === 'ERASER'
-                  ? 'cursor-cell'
+                  ? 'cursor-none'
                   : 'cursor-crosshair'
             }`}
           />
@@ -2132,32 +3011,67 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             </div>
           )}
 
-          {/* Floating Maths Quick-Pad */}
+          {/* Advanced Maths Quick-Pad (Multi-line variables, derivatives, fractions, steps) */}
           {mathPadOpen && (
-            <div className="absolute right-4 top-3 z-40 w-80 rounded-2xl border border-black/10 bg-white/95 p-4 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#1E2027]/95 animate-stagger-in">
+            <div className="absolute right-4 top-3 z-40 w-88 rounded-3xl border border-black/10 bg-white/95 p-4 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#1E2027]/95 animate-stagger-in">
               <div className="mb-2 flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-600 dark:text-amber-400">
-                  <Calculator className="h-4 w-4" /> Enhanced Maths Engine
+                  <Calculator className="h-4 w-4" /> Advanced Maths Engine
                 </span>
                 <button type="button" onClick={() => setMathPadOpen(false)}>
                   <X className="h-4 w-4 text-slate-400" />
                 </button>
               </div>
-              <input
-                type="text"
+              <textarea
+                rows={2}
                 value={mathInput}
                 onChange={(e) => setMathInput(e.target.value)}
-                placeholder="e.g. x^2 - 5x + 6 = 0 or 72 f to c"
-                className="w-full rounded-xl border border-black/12 bg-white px-3 py-2 font-mono-num text-sm dark:border-white/15 dark:bg-[#14151A]"
+                placeholder="e.g. x=3; y=2x+1; x^2+y  or  d/dx(3x^2 - 4x)"
+                className="w-full rounded-xl border border-black/12 bg-white px-3 py-2 font-mono-num text-xs outline-none focus:border-amber-500 dark:border-white/15 dark:bg-[#14151A]"
               />
-              <div className="mt-2 flex items-center justify-between rounded-xl bg-amber-500/10 px-3 py-2">
-                <span className="text-[11px] font-medium text-slate-500">Live Answer:</span>
-                <span className="font-mono-num text-sm font-bold text-amber-700 dark:text-amber-300">
-                  {MathSolver.solve(mathInput) || '—'}
-                </span>
+              <div className="mt-2 rounded-2xl bg-amber-500/12 px-3 py-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-500">Answer</span>
+                  {mathDetailed?.fractionHint && (
+                    <span className="font-mono-num rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-800 dark:text-amber-200">
+                      Exact: {mathDetailed.fractionHint}
+                    </span>
+                  )}
+                </div>
+                <div
+                  key={mathDetailed?.answer || 'none'}
+                  className="font-mono-num mt-0.5 text-base font-extrabold text-amber-700 dark:text-amber-300 animate-math-bloom"
+                >
+                  {mathDetailed?.answer || '—'}
+                </div>
+                {mathDetailed && mathDetailed.steps.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setMathStepsOpen((v) => !v)}
+                    className="mt-1 text-[10px] font-bold text-amber-700 underline dark:text-amber-300"
+                  >
+                    {mathStepsOpen ? 'Hide Steps' : `Show Steps (${mathDetailed.steps.length})`}
+                  </button>
+                )}
+                {mathStepsOpen && mathDetailed && (
+                  <div className="mt-2 space-y-1 border-t border-amber-500/20 pt-2 text-[11px] text-slate-700 dark:text-slate-200">
+                    {mathDetailed.steps.map((st, i) => (
+                      <div key={i} className="font-mono-num">
+                        {i + 1}. {st}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
+
               <div className="mt-2 flex flex-wrap gap-1">
-                {['2x + 3 = x + 7', 'x^2 - 5x + 6 = 0', '20% of 150', 'sqrt(144) + 5!', '72 f to c'].map((ex) => (
+                {[
+                  '2x(x + 1) - 4 = 0',
+                  '2^x = 16',
+                  'd/dx(3x^2 - 4x)',
+                  'x=4; y=2x+1; x^2+y',
+                  '72 f to c',
+                ].map((ex) => (
                   <button
                     key={ex}
                     type="button"
@@ -2168,6 +3082,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                   </button>
                 ))}
               </div>
+
               <button
                 type="button"
                 onClick={() => {
@@ -2177,24 +3092,196 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                     (containerRef.current?.clientWidth || 800) / 2,
                     (containerRef.current?.clientHeight || 600) / 2
                   );
+                  const singleLine = mathInput.replace(/\n+/g, '; ');
                   const exprItem: TextItem = {
                     id: `mexp-${Date.now()}`,
                     kind: 'text',
-                    text: mathInput,
+                    text: singleLine,
                     x: c.x - 160,
                     y: c.y - 20,
-                    size: 34,
+                    size: 32,
                     color: penColor,
                     font: 'HAND',
                   };
                   commitPageItems((items) => [...items, exprItem]);
-                  setTimeout(() => placeMathAnswer(mathInput, c.x - 160, c.y - 20, mathInput.length * 16 + 20, 44), 30);
+                  window.setTimeout(
+                    () => placeMathAnswer(mathInput, c.x - 160, c.y - 20, singleLine.length * 15 + 24, 42),
+                    30
+                  );
                   setMathPadOpen(false);
                 }}
                 className="mt-3 w-full rounded-xl bg-amber-500 py-2 text-xs font-bold text-white hover:bg-amber-600"
               >
-                Write Sum + Answer to Canvas
+                Write Equation + Answer to Canvas
               </button>
+            </div>
+          )}
+
+          {/* Contextual Floating Sticky Studio (Replaces forbidden window.prompt!) */}
+          {selectedStickyNode && selectedStickyScreen && (
+            <div
+              style={{
+                left: Math.max(175, Math.min((containerRef.current?.clientWidth || 800) - 185, selectedStickyScreen.left)),
+                top: Math.max(14, Math.min((containerRef.current?.clientHeight || 600) - 290, selectedStickyScreen.top)),
+              }}
+              className="absolute z-40 w-80 -translate-x-1/2 rounded-3xl border border-black/12 bg-white p-3.5 shadow-2xl dark:border-white/12 dark:bg-[#1E2027] animate-stagger-in"
+            >
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-bold">Sticky Studio</span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    title={selectedStickyNode.pinned ? 'Unpin' : 'Pin sticky'}
+                    onClick={() =>
+                      commitPageItems((items) =>
+                        items.map((it) =>
+                          it.id === selectedStickyNode.id && it.kind === 'sticky'
+                            ? { ...it, pinned: !it.pinned }
+                            : it
+                        )
+                      )
+                    }
+                    className={`rounded-lg p-1 ${selectedStickyNode.pinned ? 'bg-red-500/15 text-red-600' : 'text-slate-400 hover:bg-black/5'}`}
+                  >
+                    {selectedStickyNode.pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
+                  </button>
+                  <button
+                    type="button"
+                    title={selectedStickyNode.collapsed ? 'Expand sticky' : 'Fold sticky'}
+                    onClick={() =>
+                      commitPageItems((items) =>
+                        items.map((it) =>
+                          it.id === selectedStickyNode.id && it.kind === 'sticky'
+                            ? { ...it, collapsed: !it.collapsed }
+                            : it
+                        )
+                      )
+                    }
+                    className="rounded-lg p-1 text-slate-400 hover:bg-black/5"
+                  >
+                    {selectedStickyNode.collapsed ? (
+                      <Maximize2 className="h-3.5 w-3.5" />
+                    ) : (
+                      <Minimize2 className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const copy: StickyItem = {
+                        ...selectedStickyNode,
+                        id: `stk-${Date.now()}`,
+                        x: selectedStickyNode.x + 28,
+                        y: selectedStickyNode.y + 28,
+                      };
+                      commitPageItems((items) => [...items, copy]);
+                      setSelectedIds(new Set([copy.id]));
+                      setEditingStickyId(copy.id);
+                    }}
+                    title="Duplicate sticky"
+                    className="rounded-lg p-1 text-slate-400 hover:bg-black/5"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={deleteSelected}
+                    title="Delete sticky"
+                    className="rounded-lg p-1 text-red-500 hover:bg-red-500/10"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingStickyId(null)}
+                    className="rounded-lg p-1 text-slate-400 hover:bg-black/5"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <textarea
+                autoFocus
+                rows={3}
+                value={selectedStickyNode.text}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  commitPageItems(
+                    (items) =>
+                      items.map((it) =>
+                        it.id === selectedStickyNode.id && it.kind === 'sticky' ? { ...it, text: val } : it
+                      ),
+                    false
+                  );
+                }}
+                placeholder="Write sticky note text..."
+                className="w-full rounded-2xl border border-black/10 p-2.5 text-xs outline-none focus:border-blue-500 dark:border-white/12 dark:bg-[#14151A]"
+                style={{ backgroundColor: `${selectedStickyNode.color}44` }}
+              />
+
+              <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex gap-1.5">
+                  {STICKY_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() =>
+                        commitPageItems((items) =>
+                          items.map((it) =>
+                            it.id === selectedStickyNode.id && it.kind === 'sticky' ? { ...it, color: c } : it
+                          )
+                        )
+                      }
+                      className={`h-5 w-5 rounded-md border border-black/20 ${
+                        selectedStickyNode.color === c ? 'ring-2 ring-blue-500' : ''
+                      }`}
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                </div>
+                <select
+                  value={selectedStickyNode.font || 'SANS'}
+                  onChange={(e) => {
+                    const f = e.target.value as StickyFont;
+                    commitPageItems((items) =>
+                      items.map((it) =>
+                        it.id === selectedStickyNode.id && it.kind === 'sticky' ? { ...it, font: f } : it
+                      )
+                    );
+                  }}
+                  className="rounded-lg border border-black/10 bg-transparent px-2 py-0.5 text-[11px] font-semibold dark:border-white/15"
+                >
+                  <option value="SANS">Sans</option>
+                  <option value="SERIF">Serif</option>
+                  <option value="MONO">Mono</option>
+                  <option value="HAND">Hand</option>
+                </select>
+              </div>
+
+              <div className="mt-2 flex items-center gap-2 text-[11px]">
+                <span className="text-slate-500">Font</span>
+                <input
+                  type="range"
+                  min={14}
+                  max={32}
+                  value={selectedStickyNode.fontSize || 18}
+                  onChange={(e) => {
+                    const sz = Number(e.target.value);
+                    commitPageItems(
+                      (items) =>
+                        items.map((it) =>
+                          it.id === selectedStickyNode.id && it.kind === 'sticky'
+                            ? { ...it, fontSize: sz }
+                            : it
+                        ),
+                      false
+                    );
+                  }}
+                  className="flex-1 accent-blue-600"
+                />
+                <span className="font-mono-num w-9 text-right">{selectedStickyNode.fontSize || 18}px</span>
+              </div>
             </div>
           )}
 
@@ -2212,7 +3299,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                       commitPageItems((items) =>
                         items.map((it) => (it.id === editingTextId && it.kind === 'text' ? { ...it, text: finalTxt } : it))
                       );
-                      if (settings.mathAssist && (finalTxt.endsWith('=') || /[xX]/.test(finalTxt))) {
+                      if (settings.mathAssist && (finalTxt.endsWith('=') || /[xX^]/.test(finalTxt))) {
                         const ans = MathSolver.solve(finalTxt);
                         if (ans) {
                           const b = getItemBounds({ ...curItem, text: finalTxt });
@@ -2234,7 +3321,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 rows={3}
                 value={textDraft}
                 onChange={(e) => setTextDraft(e.target.value)}
-                placeholder="Write notes or math like 2x + 3 = x + 7 ="
+                placeholder="Write notes or math like 2x(x + 1) - 4 = 0"
                 className="w-full rounded-xl border border-black/12 p-2 text-sm outline-none focus:border-blue-500 dark:border-white/15 dark:bg-[#14151A]"
               />
             </div>
@@ -2373,7 +3460,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           )}
 
           {/* Floating Lasso Selection Action Bar */}
-          {selectedIds.size > 0 && !selectedMindNode && (
+          {selectedIds.size > 0 && !selectedMindNode && !selectedStickyNode && (
             <div className="absolute bottom-16 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1.5 rounded-2xl border border-black/10 bg-white/95 px-3 py-2 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#1F2128]/95 animate-stagger-in">
               <span className="font-mono-num pr-1 text-xs font-bold text-blue-600">
                 {selectedIds.size} selected
@@ -2402,18 +3489,15 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             </div>
           )}
 
-          {/* Bottom-Left Page Pill or Whiteboard HUD */}
+          {/* Bottom-Left Page / Whiteboard HUD */}
           <div className="absolute bottom-4 left-4 z-20 flex items-center gap-2 rounded-2xl border border-black/10 bg-white/90 px-3 py-1.5 text-xs font-semibold shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-[#1D1F26]/90">
             {isWhiteboard ? (
               <>
                 <Layers className="h-3.5 w-3.5 text-emerald-600" />
-                <span className="font-mono-num">
-                  Infinite Board · {Math.round(camera.zoom * 100)}%
-                </span>
+                <span className="font-mono-num">Infinite Board · {Math.round(camera.zoom * 100)}%</span>
                 <button
                   type="button"
                   onClick={() => setCamera({ panX: 80, panY: 60, zoom: 0.9 })}
-                  title="Reset origin"
                   className="rounded-md bg-black/5 px-1.5 py-0.5 text-[10px] hover:bg-black/10 dark:bg-white/10"
                 >
                   Origin
@@ -2452,7 +3536,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             )}
           </div>
 
-          {/* Bottom-Right Zoom & Fit Controls */}
+          {/* Bottom-Right Zoom Controls */}
           <div className="absolute bottom-4 right-4 z-20 flex items-center gap-1 rounded-2xl border border-black/10 bg-white/90 p-1 shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-[#1D1F26]/90">
             <button
               type="button"
@@ -2482,37 +3566,51 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           </div>
         </div>
 
-        {/* Optional Split View Side Notebook */}
+        {/* Draggable Split Resizer + Interactive Split Notebook Workspace */}
         {splitNotebook && (
-          <aside className="hidden w-80 shrink-0 flex-col border-l border-black/10 bg-white dark:border-white/10 dark:bg-[#18191E] lg:flex">
-            <div className="flex items-center justify-between border-b border-black/8 px-4 py-3 dark:border-white/10">
-              <div className="min-w-0">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Split Reference</div>
-                <div className="truncate text-sm font-bold">{splitNotebook.title}</div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSplitNoteId(null)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-black/5"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="flex-1 space-y-3 overflow-y-auto p-4 text-xs leading-relaxed">
-              {splitNotebook.pages.map((sp, i) => (
-                <div key={sp.id} className="rounded-2xl border border-black/8 bg-slate-50 p-3 dark:border-white/10 dark:bg-[#20222A]">
-                  <div className="mb-1 font-mono-num text-[10px] font-bold text-slate-400">Page {i + 1}</div>
-                  {sp.items
-                    .filter((it) => it.kind === 'text' || it.kind === 'sticky' || it.kind === 'mindnode')
-                    .map((it) => (
-                      <p key={it.id} className="mb-1.5 text-slate-700 dark:text-slate-200">
-                        {it.kind === 'text' ? it.text : it.kind === 'sticky' ? it.text : `• ${it.label}`}
-                      </p>
-                    ))}
-                </div>
-              ))}
-            </div>
-          </aside>
+          <>
+            <div
+              onMouseDown={(e) => {
+                splitResizeRef.current = { active: true, startX: e.clientX, startW: splitWidth };
+              }}
+              className="hidden w-1.5 shrink-0 cursor-col-resize bg-black/5 transition hover:bg-blue-500/40 dark:bg-white/5 md:block"
+              title="Drag to resize split workspace"
+            />
+            <SplitNotebookPane
+              splitNotebook={splitNotebook}
+              allNotebooks={allNotebooks}
+              paperTintDefault={settings.paperTint}
+              highlighterBehind={settings.highlighterBehind}
+              width={splitWidth}
+              onChangeNotebook={(id) => setSplitNoteId(id)}
+              onSwapWithPrimary={(id) => {
+                setSplitNoteId(notebook.id);
+                onSwitchNote(id);
+              }}
+              onCopyTextToPrimary={(txt) => {
+                const c = screenToWorld(
+                  (containerRef.current?.clientWidth || 800) / 2,
+                  (containerRef.current?.clientHeight || 600) / 2
+                );
+                commitPageItems((items) => [
+                  ...items,
+                  {
+                    id: `stk-clip-${Date.now()}`,
+                    kind: 'sticky',
+                    x: c.x - 140,
+                    y: c.y - 95,
+                    w: 280,
+                    h: 200,
+                    color: '#CFE2FF',
+                    text: txt.slice(0, 600),
+                    fontSize: 16,
+                  },
+                ]);
+                showToast('Copied reference sticky onto active page');
+              }}
+              onClose={() => setSplitNoteId(null)}
+            />
+          </>
         )}
 
         {/* Search Drawer */}
@@ -2615,7 +3713,9 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       )}
 
       {/* AI Thinking Animated Pill */}
-      {aiBusyLabel && <AiThinkingPill label={aiBusyLabel} modelName={activeModel?.name} />}
+      {aiBusyLabel && (
+        <AiThinkingPill label={aiBusyLabel} stage={aiStageLabel} modelName={activeModel?.name} />
+      )}
 
       {/* Toast Feedback */}
       {toast && (
@@ -2628,8 +3728,8 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       <SummaryModal
         open={summaryModal.open}
         title={summaryModal.title}
-        points={summaryModal.points}
-        engineLabel={summaryModal.engineLabel}
+        summary={summaryModal.summary}
+        loadingStage={summaryModal.loadingStage}
         explainText={summaryModal.explainText}
         onClose={() => setSummaryModal((s) => ({ ...s, open: false }))}
         onTurnIntoMindMap={() => {
@@ -2652,6 +3752,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               h: 230,
               color: '#E9D8FD',
               text,
+              fontSize: 16,
             },
           ]);
         }}
@@ -2662,6 +3763,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         notebookTitle={notebook.title}
         notebookId={notebook.id}
         cards={flashcards}
+        loadingStage={aiBusyLabel === 'Crafting flashcards' ? aiStageLabel : null}
         onClose={() => setFlashModalOpen(false)}
         onAddCard={(front, back) =>
           onAddFlashcards([
@@ -2679,6 +3781,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         onUpdateCard={onUpdateFlashcard}
         onDeleteCard={onDeleteFlashcard}
         onGenerateAi={handleAiFlashcards}
+        onStudyXp={() => onRecordPetAction('study', 4)}
       />
 
       <QuizModal
@@ -2687,8 +3790,13 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         questions={quizModal.questions}
         bestScore={bestQuizScore}
         engineLabel={quizModal.engineLabel}
+        loadingStage={quizModal.loadingStage}
         onClose={() => setQuizModal((s) => ({ ...s, open: false }))}
-        onScoreRecorded={(pct) => onRecordQuizScore(notebook.id, pct)}
+        onScoreRecorded={(pct) => {
+          onRecordQuizScore(notebook.id, pct);
+          onRecordPetAction('study', Math.max(8, Math.round(pct / 5)));
+          setCheerTrigger((c) => c + 1);
+        }}
       />
     </div>
   );

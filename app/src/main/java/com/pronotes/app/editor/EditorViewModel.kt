@@ -193,17 +193,23 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         }
         if (initTool != null) _tool = initTool
         viewModelScope.launch {
-            LocalAiManager.refresh(app)
-            val loadedPages = repo.loadPages(noteId)
+            LocalAiManager.stage.collect { st ->
+                if (st.isNotBlank()) aiStage = st
+            }
+        }
+        viewModelScope.launch {
+            val loadedPages = withContext(Dispatchers.IO) { repo.loadPages(noteId) }
             startPage = store.pref("page_$noteId", "0").toIntOrNull()?.coerceIn(0, (loadedPages.size - 1).coerceAtLeast(0)) ?: 0
             pages.clear(); pages.addAll(loadedPages)
             if (repo.pdfFile(noteId).exists()) pdf = PdfPages(repo.pdfFile(noteId))
-            withContext(Dispatchers.IO) { loadStudy() }
             loaded = true
-
-            prefetchPdf(startPage)
-            repo.markOpened(noteId)
             onPagesChanged?.invoke()
+
+            // Secondary metadata & caches load in the background without delaying the canvas.
+            launch(Dispatchers.IO) { LocalAiManager.refresh(app) }
+            launch(Dispatchers.IO) { loadStudy() }
+            launch(Dispatchers.IO) { repo.markOpened(noteId) }
+            prefetchPdf(startPage)
         }
     }
 
@@ -365,16 +371,30 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         scheduleSave(); onPagesChanged?.invoke()
     }
 
-    // ----------------------------------------------------------- pen presets
+    // ----------------------------------------------------------- pen presets & pet
     val presets = store.presets
 
-    fun savePreset() = store.addPreset(com.pronotes.app.data.PenPreset(penType.name, penStyle.color, penStyle.size))
+    fun savePreset(name: String = "") =
+        store.addPreset(com.pronotes.app.data.PenPreset(penType.name, penStyle.color, penStyle.size, name.trim()))
+    fun renamePreset(p: com.pronotes.app.data.PenPreset, newName: String) = store.renamePreset(p, newName)
     fun removePreset(p: com.pronotes.app.data.PenPreset) = store.removePreset(p)
     fun applyPreset(p: com.pronotes.app.data.PenPreset) {
         penType = runCatching { PenType.valueOf(p.type) }.getOrDefault(PenType.FOUNTAIN)
         val colors = if (p.color in penStyle.colors) penStyle.colors else (penStyle.colors + p.color).takeLast(8)
         penStyle = penStyle.copy(colors = colors, color = p.color, size = p.size)
         tool = Tool.PEN
+    }
+
+    fun setPenName(name: String) = store.update { it.copy(penName = name.trim().ifBlank { "Pro Stylus" }) }
+    fun recordPetXp(delta: Int) = store.addPetXp(delta)
+    fun switchPet(petId: String) = store.update { it.copy(petId = petId) }
+
+    fun clearPageInk() {
+        val p = currentPage ?: return
+        if (p.items.none { it is InkItem }) return
+        beginEdit(pageIndex)
+        applyItems(pageIndex, p.items.filterNot { it is InkItem })
+        say("Cleared ink on page ${pageIndex + 1}")
     }
 
     /** Places a sticker picture in the middle of the page in view and returns it for selection. */
@@ -592,13 +612,37 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         else StickyEdit(page, StickyItem(ItemIds.next(), x - 140f, y - 140f, 280f, 280f, stickyColor, ""), true)
     }
 
-    fun commitSticky(text: String, color: Int) {
+    fun commitSticky(
+        text: String,
+        color: Int,
+        fontSize: Float = 28f,
+        font: String = "SANS",
+        collapsed: Boolean = false,
+        pinned: Boolean = false,
+    ) {
         val edit = stickyEdit ?: return
         stickyEdit = null
         val p = pages.getOrNull(edit.page) ?: return
-        val item = edit.item.copy(text = text, color = color)
+        val item = edit.item.copy(
+            text = text,
+            color = color,
+            fontSize = fontSize.coerceIn(18f, 48f),
+            font = font,
+            collapsed = collapsed,
+            pinned = pinned,
+        )
         beginEdit(edit.page)
         applyItems(edit.page, if (edit.isNew) p.items + item else p.items.map { if (it.id == item.id) item else it })
+    }
+
+    fun duplicateSticky() {
+        val edit = stickyEdit ?: return
+        stickyEdit = null
+        val p = pages.getOrNull(edit.page) ?: return
+        val copy = edit.item.copy(id = ItemIds.next(), x = edit.item.x + 36f, y = edit.item.y + 36f, pinned = false)
+        beginEdit(edit.page)
+        applyItems(edit.page, p.items + copy)
+        say("Duplicated sticky note")
     }
 
     fun deleteSticky() {
@@ -851,6 +895,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val pageIdx = pageIndex
         val p = pages.getOrNull(pageIdx) ?: return
         viewModelScope.launch {
+            aiStage = "Building mind map branches…"
             aiBusy = true
             val (rootTitle, branches) = try {
                 val (text, _) = studyText(pageIdx..pageIdx)
@@ -858,6 +903,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                     ?: LocalAiManager.buildMindMap(getApplication(), title, text)
             } finally {
                 aiBusy = false
+                aiStage = ""
             }
             val nowPage = pages.getOrNull(pageIdx) ?: return@launch
             val outNodes = ArrayList<MindNodeItem>()
@@ -890,6 +936,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             val kept = nowPage.items.filterNot { it is MindNodeItem }
             applyItems(pageIdx, kept + outNodes)
             autoLayoutMindMap(radial = true)
+            recordPetXp(15)
             say("Generated mind map (${outNodes.size} nodes)")
         }
     }
@@ -1219,9 +1266,11 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     }
 
     fun saveCard(card: com.pronotes.app.data.Flashcard) {
-        cards = if (cards.any { it.id == card.id }) cards.map { if (it.id == card.id) card else it } else cards + card
+        val isNew = cards.none { it.id == card.id }
+        cards = if (!isNew) cards.map { if (it.id == card.id) card else it } else cards + card
         cardDraft = null
         saveStudy()
+        if (isNew) recordPetXp(6)
     }
 
     fun deleteCard(id: String) {
@@ -1234,6 +1283,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun gradeCard(id: String, grade: Int) {
         cards = cards.map { if (it.id == id) com.pronotes.app.data.StudyStore.review(it, grade) else it }
         saveStudy()
+        recordPetXp(4)
     }
 
     fun showCardSource(card: com.pronotes.app.data.Flashcard) {
@@ -1425,6 +1475,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     }
     var aiBusy by mutableStateOf(false)
         private set
+    var aiStage by mutableStateOf("")
+        private set
 
     private fun selectedInk(): List<InkItem> =
         pages.getOrNull(selectionPage)?.items?.filter { it.id in selection }?.filterIsInstance<InkItem>()?.filter { !it.isHighlighter } ?: emptyList()
@@ -1477,13 +1529,40 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val ink = selectedInk()
         if (ink.isEmpty()) { say("Select a sum you wrote, like 12 x 4 ="); return }
         viewModelScope.launch {
+            aiStage = "Reading handwritten maths…"
             aiBusy = true
-            val guesses = Handwriting.candidates(ink, settingsFlow.value.handwritingLang)
-            aiBusy = false
+            val guesses = try {
+                Handwriting.candidates(ink, settingsFlow.value.handwritingLang)
+            } finally {
+                aiBusy = false
+                aiStage = ""
+            }
             if (guesses.isEmpty()) { say("Couldn't read that sum"); return@launch }
             val good = MathSolver.bestCandidate(guesses) ?: guesses.first()
-            placeAnswer(page, ink, good, quiet = false)
+            if (placeAnswer(page, ink, good, quiet = false)) recordPetXp(8)
         }
+    }
+
+    /** Inserts an equation + solved result from the interactive Maths Pad onto the current page. */
+    fun insertMathPadResult(expr: String, ans: String) {
+        val p = currentPage ?: return
+        val cleanExpr = expr.trim().trimEnd('=', '?')
+        val line = if (ans.contains('=')) "$cleanExpr  →  $ans" else "$cleanExpr = $ans"
+        beginEdit(pageIndex)
+        applyItems(
+            pageIndex,
+            p.items + TextItem(
+                id = ItemIds.next(),
+                text = line,
+                x = 90f,
+                y = 140f,
+                size = 34f,
+                color = MATH_COLOR,
+                style = TextStyleSpec(font = TextFont.HAND, bold = true),
+            ),
+        )
+        recordPetXp(8)
+        say("Added maths result to page")
     }
 
     private fun placeAnswer(page: Int, ink: List<InkItem>, raw: String, quiet: Boolean): Boolean {
@@ -1740,12 +1819,17 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val s = textSel ?: return
         clearTextSel()
         viewModelScope.launch {
+            aiStage = "Analyzing selected concept…"
             aiBusy = true
             val ctx = try { indexFor(s.pdfPage)?.pageText(s.pdfPage) ?: "" } finally { }
             val ans = try {
                 runCatching { Nano.explain(s.text, ctx) }.getOrNull()
                     ?: LocalAiManager.explain(getApplication(), s.text, ctx)
-            } finally { aiBusy = false }
+            } finally {
+                aiBusy = false
+                aiStage = ""
+            }
+            recordPetXp(10)
             explanation = s.text to ans
         }
     }
@@ -1786,6 +1870,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun answerQuestion(id: String, right: Boolean) {
         quiz = quiz.map { if (it.id == id) (if (right) it.copy(right = it.right + 1) else it.copy(wrong = it.wrong + 1)) else it }
         saveStudy()
+        recordPetXp(if (right) 6 else 2)
     }
 
     /** Text to learn from: PDF text, typed text, sticky notes and (when ready) handwriting. */
@@ -1807,61 +1892,125 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     /** Makes flashcards from this page (or all pages). Returns how many were added. */
     fun generateCards(allPages: Boolean) {
         viewModelScope.launch {
+            aiStage = "Reading page notes…"
             aiBusy = true
             val (text, pid) = studyText(if (allPages) pages.indices else pageIndex..pageIndex)
-            if (text.isBlank()) { aiBusy = false; say("No text found. Write or import something first."); return@launch }
+            if (text.isBlank()) {
+                aiBusy = false; aiStage = ""
+                say("No text found. Write or import something first."); return@launch
+            }
             val max = if (allPages) 40 else 15
-            // Gemini Nano on the device when it has it; the built-in rules otherwise.
+            aiStage = "Generating flashcards with ${aiEngineLabel}…"
             val made = try {
                 runCatching { Nano.flashcards(text, max) }.getOrNull() ?: withContext(Dispatchers.Default) { StudyGen.flashcards(text, max) }
-            } finally { aiBusy = false }
+            } finally {
+                aiBusy = false
+                aiStage = ""
+            }
             val have = cards.map { it.front.lowercase() }.toHashSet()
             val add = made.filter { it.front.lowercase() !in have }.map {
                 com.pronotes.app.data.Flashcard(UUID.randomUUID().toString(), front = it.front, back = it.back, pageId = pid, created = System.currentTimeMillis())
             }
             cards = cards + add
             saveStudy()
+            if (add.isNotEmpty()) recordPetXp(15)
             say(if (add.isEmpty()) "No new cards found on ${if (allPages) "these pages" else "this page"}" else "Added ${add.size} cards")
         }
     }
 
-    /** Key points of this page, shown in a sheet; null = hidden. */
-    var summary by mutableStateOf<List<String>?>(null)
+    /** Structured AI summary of this page, shown in Summary Studio; null = hidden. */
+    var summary by mutableStateOf<RichSummaryResult?>(null)
 
     fun summarize() {
         viewModelScope.launch {
+            aiStage = "Reading page ink & notes…"
             aiBusy = true
-            val pts = try {
+            val res = try {
                 val (text, _) = studyText(pageIndex..pageIndex)
-                runCatching { Nano.summary(text) }.getOrNull() ?: withContext(Dispatchers.Default) { StudyGen.summary(text) }
-            } finally { aiBusy = false }
-            if (pts.isEmpty()) say("Not enough text on this page to summarise") else summary = pts
+                if (text.isBlank()) null
+                else {
+                    val nanoPts = runCatching { Nano.summary(text) }.getOrNull()
+                    LocalAiManager.summarizeRich(getApplication(), text, nanoPts)
+                }
+            } finally {
+                aiBusy = false
+                aiStage = ""
+            }
+            if (res == null || (res.points.isEmpty() && res.definitions.isEmpty())) {
+                say("Not enough text on this page to summarise")
+            } else {
+                recordPetXp(12)
+                summary = res
+            }
         }
     }
 
     /** Puts the key points on the page as typed text, top left. */
     fun summaryToPage() {
-        val pts = summary ?: return
+        val res = summary ?: return
         val p = pages.getOrNull(pageIndex) ?: return
         summary = null
         beginEdit(pageIndex)
-        applyItems(pageIndex, p.items + TextItem(ItemIds.next(), "Key points\n" + pts.joinToString("\n") { "• $it" }, 60f, 60f, 26f, penStyle.color))
+        val body = buildString {
+            appendLine(res.headline)
+            res.points.forEach { appendLine("• $it") }
+        }.trim()
+        applyItems(pageIndex, p.items + TextItem(ItemIds.next(), body, 60f, 60f, 26f, penStyle.color))
+    }
+
+    /** Places the summary as a colorful sticky note on the active page. */
+    fun summaryToSticky() {
+        val res = summary ?: return
+        val p = pages.getOrNull(pageIndex) ?: return
+        summary = null
+        val text = buildString {
+            appendLine(res.headline)
+            res.points.take(4).forEach { appendLine("• $it") }
+        }.trim()
+        beginEdit(pageIndex)
+        applyItems(
+            pageIndex,
+            p.items + StickyItem(ItemIds.next(), 80f, 90f, 340f, 320f, stickyColor, text, fontSize = 24f),
+        )
+        recordPetXp(10)
+        say("Added summary as sticky note")
+    }
+
+    /** Clips text (e.g. from Split Notes) directly onto the active page as a sticky note. */
+    fun clipTextAsSticky(rawText: String, sourceTitle: String = "") {
+        val p = currentPage ?: return
+        val clean = rawText.trim().take(360)
+        if (clean.isBlank()) { say("Nothing to clip on this split page"); return }
+        val body = if (sourceTitle.isNotBlank()) "[$sourceTitle]\n$clean" else clean
+        beginEdit(pageIndex)
+        applyItems(
+            pageIndex,
+            p.items + StickyItem(ItemIds.next(), (p.width - 320f).coerceAtLeast(60f) / 2f, 120f, 320f, 280f, stickyColor, body, fontSize = 24f),
+        )
+        recordPetXp(6)
+        say("Clipped to sticky note")
     }
 
     fun generateQuiz(allPages: Boolean) {
         viewModelScope.launch {
+            aiStage = "Scanning notes for quiz concepts…"
             aiBusy = true
             val (text, pid) = studyText(if (allPages) pages.indices else pageIndex..pageIndex)
             val max = if (allPages) 30 else 12
+            aiStage = "Drafting quiz questions…"
             val made = try {
                 runCatching { Nano.quiz(text, max) }.getOrNull() ?: withContext(Dispatchers.Default) { StudyGen.quiz(text, max) }
-            } finally { aiBusy = false }
+            } finally {
+                aiBusy = false
+                aiStage = ""
+            }
             val have = quiz.map { it.question }.toHashSet()
             val add = made.filter { it.question !in have }.map {
                 com.pronotes.app.data.QuizQuestion(UUID.randomUUID().toString(), it.question, it.options, it.answer, it.explanation, pid, generated = true)
             }
             quiz = quiz + add
             saveStudy()
+            if (add.isNotEmpty()) recordPetXp(15)
             say(if (add.isEmpty()) "Not enough text to make questions here" else "Added ${add.size} questions")
         }
     }

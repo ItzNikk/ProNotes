@@ -12,15 +12,15 @@ export type PaperStyle =
   | 'DOTTED'
   | 'ISOMETRIC'
   | 'HEX'
-  | 'TODO'
+  | 'CORNELL'
+  | 'TWO_COLUMN'
   | 'CHECKLIST'
-  | 'PLANNER'
+  | 'TODO'
   | 'DAILY'
+  | 'PLANNER'
   | 'MONTHLY'
   | 'MEETING'
-  | 'CORNELL'
   | 'STUDY'
-  | 'TWO_COLUMN'
   | 'STORYBOARD'
   | 'MUSIC'
   | 'TABLATURE';
@@ -32,132 +32,169 @@ export interface PaperStyleMeta {
 }
 
 export const PAPER_STYLES: PaperStyleMeta[] = [
-  { id: 'BLANK', label: 'Blank', group: 'Writing' },
   { id: 'RULED', label: 'Ruled', group: 'Writing' },
-  { id: 'NARROW', label: 'Narrow ruled', group: 'Writing' },
   { id: 'COLLEGE', label: 'College ruled', group: 'Writing' },
+  { id: 'NARROW', label: 'Narrow ruled', group: 'Writing' },
   { id: 'WIDE', label: 'Wide ruled', group: 'Writing' },
   { id: 'LEGAL', label: 'Legal pad', group: 'Writing' },
   { id: 'HANDWRITING', label: 'Handwriting', group: 'Writing' },
-  { id: 'GRID', label: 'Grid', group: 'Grids' },
-  { id: 'SMALL_GRID', label: 'Small grid', group: 'Grids' },
-  { id: 'GRAPH', label: 'Graph paper', group: 'Grids' },
+  { id: 'TWO_COLUMN', label: 'Two columns', group: 'Writing' },
+  { id: 'BLANK', label: 'Blank', group: 'Writing' },
   { id: 'DOTTED', label: 'Dotted', group: 'Grids' },
+  { id: 'GRID', label: 'Square grid', group: 'Grids' },
+  { id: 'SMALL_GRID', label: 'Small grid', group: 'Grids' },
+  { id: 'GRAPH', label: 'Graph', group: 'Grids' },
   { id: 'ISOMETRIC', label: 'Isometric', group: 'Grids' },
-  { id: 'HEX', label: 'Hexagons', group: 'Grids' },
-  { id: 'TODO', label: 'To-do', group: 'Planning' },
+  { id: 'HEX', label: 'Hexagonal', group: 'Grids' },
+  { id: 'CORNELL', label: 'Cornell notes', group: 'Study' },
+  { id: 'STUDY', label: 'Study sheet', group: 'Study' },
   { id: 'CHECKLIST', label: 'Checklist', group: 'Planning' },
-  { id: 'PLANNER', label: 'Weekly', group: 'Planning' },
-  { id: 'DAILY', label: 'Daily planner', group: 'Planning' },
+  { id: 'TODO', label: 'To do', group: 'Planning' },
+  { id: 'DAILY', label: 'Daily plan', group: 'Planning' },
+  { id: 'PLANNER', label: 'Weekly plan', group: 'Planning' },
   { id: 'MONTHLY', label: 'Monthly', group: 'Planning' },
-  { id: 'MEETING', label: 'Meeting notes', group: 'Planning' },
-  { id: 'CORNELL', label: 'Cornell', group: 'Study' },
-  { id: 'STUDY', label: 'Study notes', group: 'Study' },
-  { id: 'TWO_COLUMN', label: 'Two columns', group: 'Study' },
-  { id: 'STORYBOARD', label: 'Storyboard', group: 'Study' },
+  { id: 'MEETING', label: 'Meeting', group: 'Planning' },
+  { id: 'STORYBOARD', label: 'Storyboard', group: 'Planning' },
   { id: 'MUSIC', label: 'Music staff', group: 'Music' },
-  { id: 'TABLATURE', label: 'Guitar tab', group: 'Music' },
+  { id: 'TABLATURE', label: 'Guitar tabs', group: 'Music' },
 ];
 
 export type PagePresetId =
   | 'A4'
   | 'LETTER'
   | 'A5'
-  | 'A3'
+  | 'B5'
+  | 'LEGAL'
+  | 'WIDE_16_9'
   | 'SQUARE'
-  | 'WIDE'
-  | 'PHONE'
   | 'WHITEBOARD'
   | 'CUSTOM';
 
 export interface PagePresetMeta {
   id: PagePresetId;
   label: string;
+  subtitle: string;
   wMm: number;
   hMm: number;
   recommended?: boolean;
-  subtitle: string;
   isWhiteboard?: boolean;
 }
 
-export const UNITS_PER_MM = 1240 / 210;
+export const UNITS_PER_MM = 5.714;
 
 export const PAGE_PRESETS: PagePresetMeta[] = [
   {
     id: 'A4',
-    label: 'A4',
+    label: 'A4 Standard',
+    subtitle: '210 × 297 mm · Best all-round for study & PDF export',
     wMm: 210,
     hMm: 297,
     recommended: true,
-    subtitle: '210 × 297 mm · Recommended for notes & PDF export',
   },
-  { id: 'LETTER', label: 'Letter', wMm: 215.9, hMm: 279.4, subtitle: '216 × 279 mm · US standard' },
-  { id: 'A5', label: 'A5', wMm: 148, hMm: 210, subtitle: '148 × 210 mm · Compact journal' },
-  { id: 'A3', label: 'A3', wMm: 297, hMm: 420, subtitle: '297 × 420 mm · Large diagrams' },
-  { id: 'SQUARE', label: 'Square', wMm: 210, hMm: 210, subtitle: '210 × 210 mm · Sketchpad' },
-  { id: 'WIDE', label: '16:9', wMm: 297, hMm: 167, subtitle: '297 × 167 mm · Slides & lectures' },
-  { id: 'PHONE', label: 'Phone', wMm: 75, hMm: 160, subtitle: '75 × 160 mm · Quick pocket note' },
+  {
+    id: 'LETTER',
+    label: 'US Letter',
+    subtitle: '216 × 279 mm · Standard US binder size',
+    wMm: 216,
+    hMm: 279,
+  },
+  {
+    id: 'B5',
+    label: 'B5 Notebook',
+    subtitle: '176 × 250 mm · Classic Japanese composition feel',
+    wMm: 176,
+    hMm: 250,
+  },
+  {
+    id: 'A5',
+    label: 'A5 Compact',
+    subtitle: '148 × 210 mm · Journal & pocket notes',
+    wMm: 148,
+    hMm: 210,
+  },
+  {
+    id: 'WIDE_16_9',
+    label: 'Presentation 16:9',
+    subtitle: '297 × 167 mm · Widescreen slides & lectures',
+    wMm: 297,
+    hMm: 167,
+  },
+  {
+    id: 'SQUARE',
+    label: 'Square 1:1',
+    subtitle: '220 × 220 mm · Diagrams & visual sketches',
+    wMm: 220,
+    hMm: 220,
+  },
   {
     id: 'WHITEBOARD',
-    label: 'Infinite Board',
-    wMm: 360,
-    hMm: 240,
+    label: '∞ Infinite Whiteboard',
+    subtitle: 'Unbounded pan & zoom canvas · Great for mind maps',
+    wMm: 420,
+    hMm: 280,
     isWhiteboard: true,
-    subtitle: 'Unbounded pan & zoom canvas',
   },
-  { id: 'CUSTOM', label: 'Custom', wMm: 210, hMm: 297, subtitle: 'Set custom width & height' },
+  {
+    id: 'CUSTOM',
+    label: 'Custom size',
+    subtitle: 'Specify exact width & height in mm',
+    wMm: 210,
+    hMm: 297,
+  },
 ];
 
-export type AccentColorId = 'BLUE' | 'VIOLET' | 'GREEN' | 'ORANGE' | 'PINK' | 'GRAPHITE';
+export type ThemeMode = 'SYSTEM' | 'LIGHT' | 'DARK';
+export type AccentColorId = 'BLUE' | 'VIOLET' | 'EMERALD' | 'AMBER' | 'ROSE' | 'SLATE';
+export type ScrollDirection = 'VERTICAL' | 'HORIZONTAL';
+export type ToolbarDock = 'HEADER' | 'TOP' | 'BOTTOM';
 
 export const ACCENT_COLORS: Record<
   AccentColorId,
   { label: string; primary: string; secondary: string; softBg: string; softDarkBg: string }
 > = {
-  BLUE: { label: 'Blue', primary: '#2A78D6', secondary: '#7161E0', softBg: '#E4EEFA', softDarkBg: '#192231' },
-  VIOLET: { label: 'Violet', primary: '#6250D6', secondary: '#D55181', softBg: '#EBE8FA', softDarkBg: '#211D33' },
-  GREEN: { label: 'Green', primary: '#0F7E5C', secondary: '#3987E5', softBg: '#E1F3EC', softDarkBg: '#152822' },
-  ORANGE: { label: 'Orange', primary: '#D95926', secondary: '#E34948', softBg: '#FCEBE4', softDarkBg: '#2F1E18' },
-  PINK: { label: 'Pink', primary: '#C04873', secondary: '#8173E3', softBg: '#F8E6EE', softDarkBg: '#2B1B24' },
-  GRAPHITE: { label: 'Graphite', primary: '#4B4E56', secondary: '#7B7974', softBg: '#EAEBEE', softDarkBg: '#202226' },
+  BLUE: {
+    label: 'Sapphire',
+    primary: '#3D6CF4',
+    secondary: '#6B8EFF',
+    softBg: 'rgba(247, 249, 255, 0.94)',
+    softDarkBg: 'rgba(20, 22, 29, 0.94)',
+  },
+  VIOLET: {
+    label: 'Violet',
+    primary: '#7C3AED',
+    secondary: '#A855F7',
+    softBg: 'rgba(250, 247, 255, 0.94)',
+    softDarkBg: 'rgba(22, 20, 30, 0.94)',
+  },
+  EMERALD: {
+    label: 'Emerald',
+    primary: '#0F7E5C',
+    secondary: '#2BB673',
+    softBg: 'rgba(244, 252, 248, 0.94)',
+    softDarkBg: 'rgba(18, 26, 23, 0.94)',
+  },
+  AMBER: {
+    label: 'Amber',
+    primary: '#D97706',
+    secondary: '#F59E0B',
+    softBg: 'rgba(255, 250, 242, 0.94)',
+    softDarkBg: 'rgba(28, 24, 18, 0.94)',
+  },
+  ROSE: {
+    label: 'Rose',
+    primary: '#E11D48',
+    secondary: '#FB7185',
+    softBg: 'rgba(255, 246, 248, 0.94)',
+    softDarkBg: 'rgba(28, 19, 23, 0.94)',
+  },
+  SLATE: {
+    label: 'Graphite',
+    primary: '#334155',
+    secondary: '#64748B',
+    softBg: 'rgba(246, 247, 249, 0.94)',
+    softDarkBg: 'rgba(21, 22, 26, 0.94)',
+  },
 };
-
-export const COVER_COLORS = [
-  '#3D6CF4', '#2BB673', '#F2994A', '#EB5757', '#9B51E0', '#1B1F2A',
-  '#56CCF2', '#F2C94C', '#7BC8A4', '#F4A7C0', '#0E4C92', '#8D6E63',
-];
-
-export const FOLDER_COLORS = [
-  '#5AC8FA', '#3D6CF4', '#34C759', '#FF9500', '#FF3B30',
-  '#AF52DE', '#FF2D55', '#FFCC00', '#8E8E93', '#1B1F2A',
-];
-
-export const COVER_PATTERNS = [
-  'leather', 'kraft', 'linen', 'marble', 'terrazzo', 'plaid',
-  'geometric', 'gradient', 'spiral', 'dots', 'waves', 'grid', 'stripes', 'scales',
-] as const;
-
-export const PAPER_TINTS = [
-  { id: 'WHITE', label: 'White', color: '#FFFFFF' },
-  { id: 'CREAM', label: 'Cream', color: '#FBF7EC' },
-  { id: 'GRAY', label: 'Gray', color: '#F1F2F4' },
-  { id: 'MINT', label: 'Soft Mint', color: '#EFF8EC' },
-  { id: 'SKY', label: 'Sky Tint', color: '#EAF4FF' },
-  { id: 'DARK', label: 'Dark', color: '#22252B' },
-];
-
-export const TAPE_PATTERNS = [
-  { id: 'stripes', label: 'Stripes' },
-  { id: 'dots', label: 'Polka dots' },
-  { id: 'grid', label: 'Grid' },
-  { id: 'checks', label: 'Gingham' },
-  { id: 'zigzag', label: 'Zig-zag' },
-  { id: 'stars', label: 'Stars' },
-  { id: 'hearts', label: 'Hearts' },
-  { id: 'waves', label: 'Waves' },
-  { id: 'flowers', label: 'Florals' },
-  { id: 'plain', label: 'Solid matte' },
-] as const;
 
 export type ToolId =
   | 'PEN'
@@ -174,22 +211,61 @@ export type ToolId =
   | 'LASER'
   | 'PAN';
 
-export type PenKind = 'ballpoint' | 'fountain' | 'brush';
+export type PenKind = 'ballpoint' | 'fountain' | 'brush' | 'fineliner' | 'pencil';
+
+export type EraserMode = 'STROKE' | 'PIXEL' | 'HIGHLIGHTER';
+
+export type ScribbleSensitivity = 'gentle' | 'balanced' | 'instant';
 
 export type ShapeKind =
-  | 'AUTO' | 'LINE' | 'ARROW' | 'DOUBLE_ARROW' | 'RECT' | 'ROUNDED' | 'ELLIPSE'
-  | 'TRIANGLE' | 'RIGHT_TRIANGLE' | 'DIAMOND' | 'PENTAGON' | 'HEXAGON' | 'STAR'
-  | 'HEART' | 'CLOUD' | 'SPEECH' | 'OCTAGON' | 'SOFT_TRIANGLE' | 'SQUIRCLE'
-  | 'PILL' | 'SOFT_STAR' | 'SUNNY' | 'BURST' | 'COOKIE' | 'CLOVER' | 'FLOWER'
-  | 'GEM' | 'PILL_STAR' | 'BADGE' | 'SPARKLE';
+  | 'AUTO'
+  | 'LINE'
+  | 'ARROW'
+  | 'DOUBLE_ARROW'
+  | 'RECT'
+  | 'ROUNDED'
+  | 'SQUIRCLE'
+  | 'PILL'
+  | 'ELLIPSE'
+  | 'TRIANGLE'
+  | 'SOFT_TRIANGLE'
+  | 'RIGHT_TRIANGLE'
+  | 'DIAMOND'
+  | 'PENTAGON'
+  | 'HEXAGON'
+  | 'OCTAGON'
+  | 'STAR'
+  | 'SOFT_STAR'
+  | 'SPARKLE'
+  | 'SUNNY'
+  | 'BURST'
+  | 'FLOWER'
+  | 'CLOVER'
+  | 'HEART'
+  | 'CLOUD'
+  | 'SPEECH'
+  | 'GEM'
+  | 'BADGE'
+  | 'COOKIE'
+  | 'PILL_STAR';
+
+export type TextFont = 'SANS' | 'SERIF' | 'MONO' | 'HAND' | 'CURSIVE';
+
+export type PetId =
+  | 'pip'
+  | 'sparkchu'
+  | 'emberkit'
+  | 'aquapup'
+  | 'leafsprout'
+  | 'eevo'
+  | 'snorblob'
+  | 'genglet';
 
 export interface StrokePt {
   x: number;
   y: number;
-  p?: number; // 0..1 pressure
+  p?: number;
 }
-
-export type TextFont = 'SANS' | 'SERIF' | 'MONO' | 'ROUNDED' | 'HAND' | 'CURSIVE';
 
 export interface InkItem {
   id: string;
@@ -197,39 +273,40 @@ export interface InkItem {
   points: StrokePt[];
   color: string;
   size: number;
-  isHighlighter: boolean;
   opacity?: number;
+  isHighlighter: boolean;
+  dashed?: boolean;
   penKind?: PenKind;
-  isMathAnswer?: boolean;
-  mathSourceRect?: { x: number; y: number; w: number; h: number };
 }
 
 export interface FillItem {
   id: string;
   kind: 'fill';
-  points: { x: number; y: number }[];
+  points: StrokePt[];
   color: string;
 }
 
 export interface TextItem {
   id: string;
   kind: 'text';
-  text: string;
   x: number;
   y: number;
+  text: string;
   size: number;
   color: string;
   font: TextFont;
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
-  gradient?: string | null;
-  align?: 'left' | 'center' | 'right';
+  gradient?: string;
   rot?: number;
   isMathAnswer?: boolean;
   mathExpr?: string;
   createdAt?: number;
+  sourceInkIds?: string[];
 }
+
+export type StickyFont = 'SANS' | 'SERIF' | 'MONO' | 'HAND';
 
 export interface StickyItem {
   id: string;
@@ -241,7 +318,23 @@ export interface StickyItem {
   color: string;
   text: string;
   rot?: number;
+  fontSize?: number;
+  font?: StickyFont;
+  collapsed?: boolean;
+  pinned?: boolean;
 }
+
+export const TAPE_PATTERNS: { id: string; label: string }[] = [
+  { id: 'stripes', label: 'Stripes' },
+  { id: 'dots', label: 'Polka dots' },
+  { id: 'grid', label: 'Grid' },
+  { id: 'checks', label: 'Checks' },
+  { id: 'zigzag', label: 'Zig-zag' },
+  { id: 'waves', label: 'Waves' },
+  { id: 'stars', label: 'Stars' },
+  { id: 'hearts', label: 'Hearts' },
+  { id: 'flowers', label: 'Flowers' },
+];
 
 export interface TapeItem {
   id: string;
@@ -252,35 +345,36 @@ export interface TapeItem {
   h: number;
   color: string;
   pattern: string;
-  revealed?: boolean;
   rot?: number;
+  revealed?: boolean;
 }
 
 export interface ImageItem {
   id: string;
   kind: 'image';
-  src: string;
   x: number;
   y: number;
   w: number;
   h: number;
+  src: string;
   rot?: number;
-  label?: string;
 }
+
+export type MindNodeShape = 'pill' | 'card' | 'diamond';
 
 export interface MindNodeItem {
   id: string;
   kind: 'mindnode';
-  x: number; // top-left x
-  y: number; // top-left y
+  x: number;
+  y: number;
   w: number;
   h: number;
   label: string;
+  notes?: string;
   parentId: string | null;
   color: string;
-  shape: 'pill' | 'card' | 'diamond';
+  shape: MindNodeShape;
   collapsed?: boolean;
-  notes?: string;
 }
 
 export type PageItem =
@@ -297,18 +391,59 @@ export interface Page {
   width: number;
   height: number;
   paper: PaperStyle;
-  isWhiteboard?: boolean;
-  items: PageItem[];
-  bookmarked?: boolean;
   paperColor?: string | null;
-  cover?: string | null;
-  bgImage?: string | null;
   lineScale?: number;
   lineColor?: string | null;
-  /** Per-page infinite whiteboard camera state */
+  cover?: string | null;
+  bookmarked?: boolean;
+  isWhiteboard?: boolean;
   wbPanX?: number;
   wbPanY?: number;
   wbZoom?: number;
+  items: PageItem[];
+}
+
+export interface Flashcard {
+  id: string;
+  notebookId: string;
+  front: string;
+  back: string;
+  pageId?: string;
+  box: number;
+  due: number;
+  created: number;
+  lapses?: number;
+  lastGrade?: 0 | 1 | 2 | 3;
+}
+
+export interface QuizQuestion {
+  id: string;
+  question: string;
+  options: string[];
+  answer: number;
+  explanation: string;
+  pageId?: string;
+  generated?: boolean;
+  right?: number;
+  wrong?: number;
+}
+
+export interface NotebookMeta {
+  id: string;
+  title: string;
+  folderId: string | null;
+  cover: string;
+  coverColor: string;
+  paper: PaperStyle;
+  created: number;
+  modified: number;
+  opened: number;
+  pageCount: number;
+  favorite?: boolean;
+  deletedAt: number | null;
+  isWhiteboard?: boolean;
+  isMindMap?: boolean;
+  pages: Page[];
 }
 
 export interface Folder {
@@ -321,44 +456,51 @@ export interface Folder {
   modified: number;
 }
 
-export interface NotebookMeta {
+export interface LocalModelSpec {
   id: string;
-  title: string;
-  folderId: string | null;
-  coverColor: string;
-  paper: PaperStyle;
-  isWhiteboard?: boolean;
-  isMindMap?: boolean;
-  created: number;
-  modified: number;
-  opened: number;
-  pageCount: number;
-  favorite: boolean;
-  deletedAt: number | null;
-  cover: string;
-  pages: Page[];
+  name: string;
+  family: string;
+  sizeMb: number;
+  quantization: string;
+  ramRequired: string;
+  speedTag: string;
+  category: 'fast' | 'balanced' | 'reasoning' | 'math';
+  speedScore: number;
+  description: string;
+  capabilities: string[];
+  recommended?: boolean;
 }
 
-export interface Flashcard {
-  id: string;
-  notebookId: string;
-  front: string;
-  back: string;
-  box: number;
-  due: number;
-  created: number;
+export type ModelStatus = 'NOT_DOWNLOADED' | 'DOWNLOADING' | 'PAUSED' | 'READY' | 'ERROR';
+
+export interface LocalModelState {
+  status: ModelStatus;
+  progress: number;
+  downloadedBytes: number;
+  totalBytes: number;
+  speedMbps?: number;
+  downloadedAt?: number;
+  shaTag?: string;
+  error?: string;
 }
 
-export interface QuizQuestion {
+export interface PenPreset {
   id: string;
-  question: string;
-  options: string[];
-  answer: number;
-  explanation: string;
+  name: string;
+  kind: PenKind;
+  color: string;
+  size: number;
+  opacity: number;
+  stabilizer: number;
 }
 
-export type ThemeMode = 'SYSTEM' | 'LIGHT' | 'DARK';
-export type ToolbarDock = 'HEADER' | 'TOP' | 'BOTTOM' | 'LEFT' | 'RIGHT';
+export interface PetBondState {
+  petId: PetId;
+  xp: number;
+  level: number;
+  treatsGiven: number;
+  petsGiven: number;
+}
 
 export interface AppSettings {
   themeMode: ThemeMode;
@@ -368,21 +510,25 @@ export interface AppSettings {
   defaultPreset: PagePresetId;
   defaultLandscape: boolean;
   defaultCoverPage: boolean;
-  scroll: 'VERTICAL' | 'HORIZONTAL';
+  scroll: ScrollDirection;
   toolbarDock: ToolbarDock;
   liquidGlass: boolean;
   showTabs: boolean;
   pageNumbers: boolean;
   pet: boolean;
+  petId: PetId;
+  petBond: PetBondState;
   scribbleToErase: boolean;
   liveScribbleErase: boolean;
+  scribbleSensitivity: ScribbleSensitivity;
   holdToShape: boolean;
   circleToLasso: boolean;
   mathAssist: boolean;
   highlighterBehind: boolean;
-  highlighterMode: 'FREEHAND' | 'AUTO' | 'STRAIGHT';
+  highlighterMode: 'AUTO' | 'STRAIGHT' | 'FREE';
   highlighterOpacity: number;
-  eraserMode: 'STROKE' | 'PIXEL';
+  eraserMode: EraserMode;
+  eraseHighlighterOnly: boolean;
   lassoMode: 'FREEFORM' | 'RECT';
   lassoTouching: boolean;
   studyTimer: boolean;
@@ -391,27 +537,91 @@ export interface AppSettings {
   activeLocalModelId: string | null;
   aiAnimations: boolean;
   whiteboardGridSnap: boolean;
+  penName: string;
+  penKind: PenKind;
+  penColor: string;
+  penSize: number;
+  penOpacity: number;
+  penStabilizer: number;
+  penPresets: PenPreset[];
 }
 
-export interface LocalModelSpec {
-  id: string;
-  name: string;
-  family: string;
-  sizeMb: number;
-  quantization: string;
-  ramRequired: string;
-  speedTag: string;
-  description: string;
-  capabilities: string[];
-  recommended?: boolean;
-}
+export const DEFAULT_PEN_PRESETS: PenPreset[] = [
+  {
+    id: 'preset-fountain',
+    name: 'Classic Fountain',
+    kind: 'fountain',
+    color: '#1B1F2A',
+    size: 3.5,
+    opacity: 1,
+    stabilizer: 0.35,
+  },
+  {
+    id: 'preset-fineliner',
+    name: 'Study Fineliner',
+    kind: 'fineliner',
+    color: '#2A78D6',
+    size: 2.2,
+    opacity: 1,
+    stabilizer: 0.45,
+  },
+  {
+    id: 'preset-brush',
+    name: 'Calligraphy Brush',
+    kind: 'brush',
+    color: '#7C3AED',
+    size: 6.5,
+    opacity: 0.95,
+    stabilizer: 0.5,
+  },
+  {
+    id: 'preset-pencil',
+    name: 'Graphite Sketch',
+    kind: 'pencil',
+    color: '#4B5563',
+    size: 3.2,
+    opacity: 0.85,
+    stabilizer: 0.2,
+  },
+];
 
-export interface LocalModelState {
-  status: 'NOT_DOWNLOADED' | 'DOWNLOADING' | 'PAUSED' | 'READY' | 'ERROR';
-  progress: number; // 0..1
-  downloadedBytes: number;
-  totalBytes: number;
-  speedMbps?: number;
-  downloadedAt?: number;
-  shaTag?: string;
-}
+export const FOLDER_COLORS = [
+  '#3D6CF4',
+  '#0F7E5C',
+  '#7C3AED',
+  '#D97706',
+  '#E11D48',
+  '#0EA5E9',
+  '#475569',
+];
+
+export const COVER_COLORS = [
+  '#3D6CF4',
+  '#0F7E5C',
+  '#6250D6',
+  '#D95926',
+  '#C04873',
+  '#1E293B',
+  '#0E2A47',
+  '#6D4C41',
+];
+
+export const COVER_PATTERNS = [
+  'solid',
+  'leather',
+  'gradient',
+  'geometric',
+  'dots',
+  'grid',
+  'waves',
+  'kraft',
+  'marble',
+] as const;
+
+export const PAPER_TINTS = [
+  { id: 'white', label: 'White', color: '#FFFFFF' },
+  { id: 'cream', label: 'Cream', color: '#FBF7EC' },
+  { id: 'warm', label: 'Warm', color: '#FFF4E0' },
+  { id: 'mint', label: 'Sage', color: '#EFF8EC' },
+  { id: 'slate', label: 'Dark Slate', color: '#22252B' },
+];

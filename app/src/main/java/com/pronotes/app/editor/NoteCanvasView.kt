@@ -844,9 +844,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         if (holdFired) return
                         if (settings.scribbleToErase && settings.liveScribbleErase &&
                             (strokeTool == Tool.PEN || strokeTool == Tool.HIGHLIGHTER) &&
-                            points.size >= 12 && isLiveScribble(points)
+                            points.size >= 7 && isLiveScribble(points, settings.scribbleSensitivity)
                         ) {
-                            val recent = if (points.size > 28) points.subList(points.size - 28, points.size) else points
+                            val recent = if (points.size > 44) points.subList(points.size - 44, points.size) else points
                             cancelWet(id)
                             strokeId = null
                             removeCallbacks(holdRunnable)
@@ -1076,9 +1076,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             return
         }
         // Scribble-to-erase: a zig-zag over existing ink erases it instead of drawing.
-        if (settings.scribbleToErase && (strokeTool == Tool.PEN || strokeTool == Tool.HIGHLIGHTER) && isScribble(points)) {
+        if (settings.scribbleToErase && (strokeTool == Tool.PEN || strokeTool == Tool.HIGHLIGHTER) && isScribble(points, settings.scribbleSensitivity)) {
             val sb = RectF(points.minOf { it.first }, points.minOf { it.second }, points.maxOf { it.first }, points.maxOf { it.second })
-                .apply { inset(-10f, -10f) }
+                .apply { inset(-14f, -14f) }
             val touched = itemsUnder(activePage, points)
             val hit = p.items.filter { it ->
                 val ok = when (it) {
@@ -1245,7 +1245,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         val p = pages.getOrNull(activePage) ?: return
         if (points.size < 6 || pathLength(points) < 30f) return
         // A scribble that ends with a pause is still a scribble (erase), never a shape.
-        if (settings.scribbleToErase && (strokeTool == Tool.PEN || strokeTool == Tool.HIGHLIGHTER) && isScribble(points)) return
+        if (settings.scribbleToErase && (strokeTool == Tool.PEN || strokeTool == Tool.HIGHLIGHTER) && isScribble(points, settings.scribbleSensitivity)) return
 
         // Circle to lasso, GoodNotes style: draw a loop around content and keep the pen still at its end.
         if (settings.circleToLasso && strokeTool == Tool.PEN && tool == Tool.PEN && isLooseLoop(points)) {
@@ -1502,7 +1502,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 if (item.id in hit) continue
                 if (item is InkItem) {
                     val seg = MutableSegment(MutableVec(a.first - item.dx, a.second - item.dy), MutableVec(b.first - item.dx, b.second - item.dy))
-                    para.populateFromSegmentAndPadding(seg, 6f)
+                    para.populateFromSegmentAndPadding(seg, 10f)
                     if (item.stroke.shape.intersects(para, AffineTransform.IDENTITY)) hit += item.id
                 } else if (item.bounds.contains(b.first, b.second)) hit += item.id
             }

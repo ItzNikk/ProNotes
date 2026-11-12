@@ -126,7 +126,10 @@ sealed class ItemDoc {
 
     @Serializable
     @SerialName("sticky")
-    data class Sticky(val x: Float, val y: Float, val w: Float, val h: Float, val color: Int, val text: String, val rot: Float = 0f) : ItemDoc()
+    data class Sticky(
+        val x: Float, val y: Float, val w: Float, val h: Float, val color: Int, val text: String, val rot: Float = 0f,
+        val fontSize: Float = 28f, val font: String = "SANS", val collapsed: Boolean = false, val pinned: Boolean = false,
+    ) : ItemDoc()
 
     @Serializable
     @SerialName("mindnode")

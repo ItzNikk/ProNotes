@@ -1,15 +1,13 @@
 /**
- * Enhanced On-Device Maths Engine for Pro Notes.
+ * Advanced On-Device Maths Engine for Pro Notes.
  * Supports:
- * - Basic & chained arithmetic, powers (^, **), factorials (!), percentages (%, "20% of 150", "80 + 15%")
- * - Implicit multiplication: 2(3+4), 3pi, 2x, (x+1)(x-2)
- * - Constants: pi, e, tau, phi
- * - Scientific functions: sqrt, cbrt, abs, sin, cos, tan, sind, cosd, tand, asin, acos, atan, ln, log, log2, log10, exp, floor, ceil, round, deg, rad
- * - Combinatorics: nCr(n, r), nPr(n, r)
- * - Unit conversions: "12 km to m", "72 f to c", "5 ft to cm", "2.5 kg to lb", "60 mph to km/h", "1024 mb to gb", etc.
- * - Multi-sided Linear Equations: "2x + 3 = x + 7" -> "x = 4"
- * - Quadratic Equations: "x^2 - 5x + 6 = 0" -> "x = 2, 3"
- * - Rejects incorrect completed equalities (e.g. "2 + 2 = 5" returns null)
+ * - Multi-line variable assignments: "a = 3; b = 4; sqrt(a^2 + b^2)"
+ * - Any variable equation: linear, quadratic (real & complex roots), cubic, exponential (2^x = 16), numeric bisection/Newton fallback
+ * - Symbolic polynomials up to degree 4 & derivatives: d/dx(3x^3 - 2x + 1) -> 9x^2 - 2
+ * - Unicode superscripts (⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺), implicit multiplication (2(x+1), 2x(x+1), (x+1)(x-2))
+ * - Scientific functions: sqrt, cbrt, abs, sin, cos, tan, sind, cosd, tand, asin, acos, atan, ln, log, log2, log10, exp, floor, ceil, round, deg, rad, nCr, nPr
+ * - Exact fraction hints + unit conversions ("72 f to c", "60 mph to km/h", "1024 mb to gb")
+ * - Step-by-step explanation breakdown via `solveMathDetailed`
  */
 
 export interface MathCandidateResult {
@@ -18,8 +16,30 @@ export interface MathCandidateResult {
   prettyExpr: string;
 }
 
-const UNIT_FACTORS: Record<string, { group: string; toBase: number; label?: string }> = {
-  // Length (base: meter)
+export interface MathDetailedResult {
+  raw: string;
+  answer: string;
+  prettyExpr: string;
+  category: 'arithmetic' | 'algebra' | 'calculus' | 'units' | 'variables';
+  steps: string[];
+  fractionHint?: string;
+}
+
+const SUPERSCRIPT_MAP: Record<string, string> = {
+  '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4',
+  '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9',
+  '⁺': '+', '⁻': '-', '⁽': '(', '⁾': ')',
+};
+
+const KNOWN_FUNCS = new Set([
+  'sqrt', 'cbrt', 'abs', 'sin', 'cos', 'tan', 'sind', 'cosd', 'tand',
+  'asin', 'acos', 'atan', 'ln', 'log2', 'log10', 'log', 'floor', 'ceil',
+  'round', 'exp', 'deg', 'rad', 'ncr', 'npr',
+]);
+
+const KNOWN_CONSTS = new Set(['pi', 'e', 'tau', 'phi']);
+
+const UNIT_FACTORS: Record<string, { group: string; toBase: number }> = {
   mm: { group: 'len', toBase: 0.001 },
   cm: { group: 'len', toBase: 0.01 },
   m: { group: 'len', toBase: 1 },
@@ -32,14 +52,12 @@ const UNIT_FACTORS: Record<string, { group: string; toBase: number; label?: stri
   mi: { group: 'len', toBase: 1609.344 },
   mile: { group: 'len', toBase: 1609.344 },
   miles: { group: 'len', toBase: 1609.344 },
-  // Mass (base: kg)
   mg: { group: 'mass', toBase: 1e-6 },
   g: { group: 'mass', toBase: 0.001 },
   kg: { group: 'mass', toBase: 1 },
   oz: { group: 'mass', toBase: 0.0283495231 },
   lb: { group: 'mass', toBase: 0.45359237 },
   lbs: { group: 'mass', toBase: 0.45359237 },
-  // Time (base: sec)
   ms: { group: 'time', toBase: 0.001 },
   s: { group: 'time', toBase: 1 },
   sec: { group: 'time', toBase: 1 },
@@ -48,29 +66,30 @@ const UNIT_FACTORS: Record<string, { group: string; toBase: number; label?: stri
   h: { group: 'time', toBase: 3600 },
   day: { group: 'time', toBase: 86400 },
   days: { group: 'time', toBase: 86400 },
-  // Speed (base: m/s)
   'm/s': { group: 'speed', toBase: 1 },
   'km/h': { group: 'speed', toBase: 1 / 3.6 },
   kph: { group: 'speed', toBase: 1 / 3.6 },
   mph: { group: 'speed', toBase: 0.44704 },
-  // Data (base: byte, binary 1024)
   b: { group: 'data', toBase: 1 },
   kb: { group: 'data', toBase: 1024 },
   mb: { group: 'data', toBase: 1024 ** 2 },
   gb: { group: 'data', toBase: 1024 ** 3 },
   tb: { group: 'data', toBase: 1024 ** 4 },
-  // Angle (base: rad)
   rad: { group: 'ang', toBase: 1 },
   deg: { group: 'ang', toBase: Math.PI / 180 },
 };
 
+function expandUnicodeSuperscripts(raw: string): string {
+  return raw.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁽⁾]+/g, (seq) => {
+    const mapped = Array.from(seq).map((ch) => SUPERSCRIPT_MAP[ch] ?? ch).join('');
+    return mapped.length === 1 && /\d/.test(mapped) ? `^${mapped}` : `^(${mapped})`;
+  });
+}
+
 export function normalizeMath(raw: string): string {
-  let s = raw
-    .trim()
+  let s = expandUnicodeSuperscripts(raw.trim())
     .replace(/√/g, 'sqrt')
     .replace(/∛/g, 'cbrt')
-    .replace(/²/g, '^2')
-    .replace(/³/g, '^3')
     .replace(/\*\*/g, '^')
     .replace(/[×·⋅]/g, '*')
     .replace(/[÷]/g, '/')
@@ -79,19 +98,21 @@ export function normalizeMath(raw: string): string {
     .replace(/τ/g, 'tau')
     .replace(/φ/g, 'phi');
 
-  // Natural percentage phrases before collapsing spaces
+  // Natural percentage phrases
   s = s.replace(/(\d+(?:\.\d+)?)\s*%\s+of\s+([+-]?\d+(?:\.\d+)?)/gi, '($1/100)*($2)');
   s = s.replace(/(\d+(?:\.\d+)?)\s*%\s+off\s+([+-]?\d+(?:\.\d+)?)/gi, '($2)*(1-($1/100))');
 
-  s = s.replace(/,/g, '.').replace(/\s+/g, '');
-  // Turn 'x' between numbers/closing-parens into multiplication unless part of 'exp' or equation
-  s = s.replace(/(?<=[0-9.)])[xX](?=[0-9.(])/g, '*');
-  s = s.replace(/X/g, 'x');
-  // Conservative OCR digit confusions only between digits
+  // Only convert standalone 'x' flanked by spaces & numbers/parens ("4 x 5") — preserve variable x in "2x(x+1)"!
+  s = s.replace(/(?<=\d|\))\s+[xX]\s+(?=\d|\()/g, '*');
+  // Also preserve comma inside nCr(n, r) -> ';' before collapsing
+  s = s.replace(/(\w+\([^)]*?),([^)]*?\))/g, '$1;$2');
+  s = s.replace(/(\d),(\d)/g, '$1.$2').replace(/\s+/g, '');
+
+  // Safe OCR digit repair only inside numeric runs
   s = s
     .replace(/(?<=\d)[oO](?=\d)/g, '0')
-    .replace(/(?<=\d)[lI](?=\d)/g, '1')
-    .replace(/(?<=\d)[sS](?=\d)/g, '5');
+    .replace(/(?<=\d)[lI](?=\d)/g, '1');
+
   s = s.replace(/sqrt(\d+(?:\.\d+)?)/g, 'sqrt($1)');
   s = s.replace(/cbrt(\d+(?:\.\d+)?)/g, 'cbrt($1)');
   return s;
@@ -99,11 +120,24 @@ export function normalizeMath(raw: string): string {
 
 export function formatMathNumber(val: number): string {
   if (!Number.isFinite(val)) throw new Error('Non-finite');
-  if (Math.abs(val) < 1e-12) return '0';
+  if (Math.abs(val) < 1e-11) return '0';
   if (Math.abs(val - Math.round(val)) < 1e-9 && Math.abs(val) < 9e15) {
     return String(Math.round(val));
   }
   return Number(val.toPrecision(10)).toString();
+}
+
+function toExactFraction(val: number): string | undefined {
+  if (!Number.isFinite(val) || Math.abs(val - Math.round(val)) < 1e-9 || Math.abs(val) > 1e5) return undefined;
+  const sign = val < 0 ? '-' : '';
+  const abs = Math.abs(val);
+  for (let den = 2; den <= 64; den++) {
+    const num = Math.round(abs * den);
+    if (Math.abs(abs - num / den) < 1e-9) {
+      return `${sign}${num}/${den}`;
+    }
+  }
+  return undefined;
 }
 
 function tryUnitConversion(raw: string): string | null {
@@ -115,7 +149,6 @@ function tryUnitConversion(raw: string): string | null {
   const from = m[2].toLowerCase();
   const to = m[3].toLowerCase();
 
-  // Temperature special cases
   const temps = new Set(['c', 'f', 'k', 'celsius', 'fahrenheit', 'kelvin']);
   const normTemp = (u: string) => (u.startsWith('c') ? 'c' : u.startsWith('f') ? 'f' : 'k');
   if (temps.has(from) && temps.has(to)) {
@@ -139,38 +172,33 @@ function tryUnitConversion(raw: string): string | null {
 }
 
 function factorial(n: number): number {
-  if (n < 0 || n > 170 || Math.abs(n - Math.round(n)) > 1e-10) {
-    throw new Error('Invalid factorial');
-  }
+  if (n < 0 || n > 170 || Math.abs(n - Math.round(n)) > 1e-10) throw new Error('Invalid factorial');
   let res = 1;
   for (let k = 2; k <= Math.round(n); k++) res *= k;
   return res;
 }
 
 function nPr(n: number, r: number): number {
-  if (n < 0 || r < 0 || r > n || !Number.isInteger(n) || !Number.isInteger(r)) {
-    throw new Error('Invalid nPr');
-  }
+  if (n < 0 || r < 0 || r > n || !Number.isInteger(n) || !Number.isInteger(r)) throw new Error('Invalid nPr');
   let res = 1;
   for (let i = 0; i < r; i++) res *= n - i;
   return res;
 }
 
 function nCr(n: number, r: number): number {
-  if (n < 0 || r < 0 || r > n || !Number.isInteger(n) || !Number.isInteger(r)) {
-    throw new Error('Invalid nCr');
-  }
+  if (n < 0 || r < 0 || r > n || !Number.isInteger(n) || !Number.isInteger(r)) throw new Error('Invalid nCr');
   const k = Math.min(r, n - r);
   let res = 1;
-  for (let i = 1; i <= k; i++) {
-    res = (res * (n - k + i)) / i;
-  }
+  for (let i = 1; i <= k; i++) res = (res * (n - k + i)) / i;
   return Math.round(res);
 }
 
-class NumericParser {
+/**
+ * Evaluator supporting arbitrary variable bindings (e.g. `{ x: 4, y: 2 }`) and implicit multiplication (`2x(x+1)`, `3xy`).
+ */
+class ExprEvaluator {
   private i = 0;
-  constructor(private readonly s: string) {}
+  constructor(private readonly s: string, private readonly vars: Record<string, number> = {}) {}
 
   parse(): number {
     const res = this.expression();
@@ -184,8 +212,7 @@ class NumericParser {
 
   private startsPrimary(at: number): boolean {
     if (at < 0 || at >= this.s.length) return false;
-    const c = this.s[at];
-    return /[0-9.(a-zA-Z]/.test(c);
+    return /[0-9.(a-zA-Z]/.test(this.s[at]);
   }
 
   private expression(): number {
@@ -193,7 +220,6 @@ class NumericParser {
     while (this.peek() === '+' || this.peek() === '-') {
       const op = this.s[this.i++];
       const rhs = this.term();
-      // Support "80 + 15%" -> 80 + 80*0.15? Wait: standard math treats 80+15% as 80.15 unless explicit, keep strict math consistency!
       val = op === '+' ? val + rhs : val - rhs;
     }
     return val;
@@ -281,12 +307,41 @@ class NumericParser {
     if (/[a-zA-Z]/.test(ch)) {
       const start = this.i;
       while (this.i < this.s.length && /[a-zA-Z0-9]/.test(this.s[this.i])) this.i++;
-      const name = this.s.slice(start, this.i).toLowerCase();
-      if (name === 'pi') return Math.PI;
-      if (name === 'e') return Math.E;
-      if (name === 'tau') return Math.PI * 2;
-      if (name === 'phi') return (1 + Math.sqrt(5)) / 2;
-      return this.callFunction(name);
+      const rawName = this.s.slice(start, this.i);
+      const lower = rawName.toLowerCase();
+
+      // Exact variable match
+      if (rawName in this.vars) return this.vars[rawName];
+      if (lower in this.vars && !KNOWN_FUNCS.has(lower)) return this.vars[lower];
+
+      if (lower === 'pi') return Math.PI;
+      if (lower === 'e' && !(lower in this.vars)) return Math.E;
+      if (lower === 'tau') return Math.PI * 2;
+      if (lower === 'phi') return (1 + Math.sqrt(5)) / 2;
+      if (KNOWN_FUNCS.has(lower) && this.peek() === '(') return this.callFunction(lower);
+
+      // Handle chained single-letter variables/numbers like "xy" or "2x"
+      if (rawName.length > 1) {
+        let prod = 1;
+        let idx = 0;
+        while (idx < rawName.length) {
+          const rest = rawName.slice(idx);
+          const restLow = rest.toLowerCase();
+          if (KNOWN_FUNCS.has(restLow) && this.peek() === '(') {
+            // Leave remainder to callFunction
+            return prod * this.callFunction(restLow);
+          }
+          const ch1 = rawName[idx];
+          if (ch1 in this.vars) prod *= this.vars[ch1];
+          else if (ch1.toLowerCase() in this.vars) prod *= this.vars[ch1.toLowerCase()];
+          else if (ch1 === 'e') prod *= Math.E;
+          else throw new Error(`Unknown symbol ${rawName}`);
+          idx++;
+        }
+        return prod;
+      }
+
+      throw new Error(`Unknown symbol ${rawName}`);
     }
     throw new Error(`Unexpected char ${ch}`);
   }
@@ -329,42 +384,25 @@ class NumericParser {
     }
     if (this.peek() !== ')') throw new Error('Missing )');
     this.i++;
-    if (args.length === 0) throw new Error('Empty function args');
+    if (args.length === 0) throw new Error('Empty args');
     const x = args[0];
     const degToRad = (d: number) => (d * Math.PI) / 180;
     const radToDeg = (r: number) => (r * 180) / Math.PI;
     switch (name) {
-      case 'sqrt':
-        if (x < 0) throw new Error('Negative sqrt');
-        return Math.sqrt(x);
-      case 'cbrt':
-        return Math.cbrt(x);
-      case 'abs':
-        return Math.abs(x);
-      case 'sin':
-        return Math.sin(x);
-      case 'cos':
-        return Math.cos(x);
-      case 'tan':
-        return Math.tan(x);
-      case 'sind':
-        return Math.sin(degToRad(x));
-      case 'cosd':
-        return Math.cos(degToRad(x));
-      case 'tand':
-        return Math.tan(degToRad(x));
-      case 'asin':
-        return Math.asin(x);
-      case 'acos':
-        return Math.acos(x);
-      case 'atan':
-        return Math.atan(x);
-      case 'ln':
-        if (x <= 0) throw new Error('ln domain');
-        return Math.log(x);
-      case 'log2':
-        if (x <= 0) throw new Error('log2 domain');
-        return Math.log2(x);
+      case 'sqrt': if (x < 0) throw new Error('Negative sqrt'); return Math.sqrt(x);
+      case 'cbrt': return Math.cbrt(x);
+      case 'abs': return Math.abs(x);
+      case 'sin': return Math.sin(x);
+      case 'cos': return Math.cos(x);
+      case 'tan': return Math.tan(x);
+      case 'sind': return Math.sin(degToRad(x));
+      case 'cosd': return Math.cos(degToRad(x));
+      case 'tand': return Math.tan(degToRad(x));
+      case 'asin': return Math.asin(x);
+      case 'acos': return Math.acos(x);
+      case 'atan': return Math.atan(x);
+      case 'ln': if (x <= 0) throw new Error('ln domain'); return Math.log(x);
+      case 'log2': if (x <= 0) throw new Error('log2 domain'); return Math.log2(x);
       case 'log':
       case 'log10':
         if (x <= 0) throw new Error('log domain');
@@ -373,74 +411,61 @@ class NumericParser {
           return Math.log(x) / Math.log(args[1]);
         }
         return Math.log10(x);
-      case 'floor':
-        return Math.floor(x);
-      case 'ceil':
-        return Math.ceil(x);
-      case 'round':
-        return Math.round(x);
-      case 'exp':
-        return Math.exp(x);
-      case 'deg':
-        return radToDeg(x);
-      case 'rad':
-        return degToRad(x);
-      case 'ncr':
-        if (args.length !== 2) throw new Error('nCr needs 2 args');
-        return nCr(x, args[1]);
-      case 'npr':
-        if (args.length !== 2) throw new Error('nPr needs 2 args');
-        return nPr(x, args[1]);
-      default:
-        throw new Error(`Unknown function ${name}`);
+      case 'floor': return Math.floor(x);
+      case 'ceil': return Math.ceil(x);
+      case 'round': return Math.round(x);
+      case 'exp': return Math.exp(x);
+      case 'deg': return radToDeg(x);
+      case 'rad': return degToRad(x);
+      case 'ncr': if (args.length !== 2) throw new Error('nCr'); return nCr(x, args[1]);
+      case 'npr': if (args.length !== 2) throw new Error('nPr'); return nPr(x, args[1]);
+      default: throw new Error(`Unknown fn ${name}`);
     }
   }
 }
 
-/** Quadratic polynomial (a*x^2 + b*x + c) so both linear AND quadratic equations solve cleanly. */
-interface Poly2 {
-  a: number; // x^2
-  b: number; // x
-  c: number; // const
-}
-
-function addPoly(p: Poly2, q: Poly2): Poly2 {
-  return { a: p.a + q.a, b: p.b + q.b, c: p.c + q.c };
-}
-
-function subPoly(p: Poly2, q: Poly2): Poly2 {
-  return { a: p.a - q.a, b: p.b - q.b, c: p.c - q.c };
-}
-
-function mulPoly(p: Poly2, q: Poly2): Poly2 {
-  const a = p.a * q.c + p.b * q.b + p.c * q.a;
-  const b = p.b * q.c + p.c * q.b;
-  const c = p.c * q.c;
-  // Reject degree > 2
-  if (
-    Math.abs(p.a * q.a) > 1e-12 ||
-    Math.abs(p.a * q.b) > 1e-12 ||
-    Math.abs(p.b * q.a) > 1e-12
-  ) {
-    throw new Error('Degree > 2');
+export function evaluateNumeric(expression: string, vars: Record<string, number> = {}): number | null {
+  try {
+    const norm = normalizeMath(expression);
+    if (!norm) return null;
+    const val = new ExprEvaluator(norm, vars).parse();
+    if (!Number.isFinite(val) || Math.abs(val) > 1e100) return null;
+    return val;
+  } catch {
+    return null;
   }
-  return { a, b, c };
 }
 
-function divPoly(p: Poly2, q: Poly2): Poly2 {
-  if (Math.abs(q.a) > 1e-12 || Math.abs(q.b) > 1e-12 || Math.abs(q.c) < 1e-12) {
-    throw new Error('Non-constant divisor');
+/** Polynomial up to degree 4 for single variable `v` */
+type Poly = number[]; // index = degree [c0, c1, c2, c3, c4]
+
+function polyAdd(a: Poly, b: Poly): Poly {
+  const len = Math.max(a.length, b.length);
+  return Array.from({ length: len }, (_, i) => (a[i] || 0) + (b[i] || 0));
+}
+
+function polySub(a: Poly, b: Poly): Poly {
+  const len = Math.max(a.length, b.length);
+  return Array.from({ length: len }, (_, i) => (a[i] || 0) - (b[i] || 0));
+}
+
+function polyMul(a: Poly, b: Poly): Poly {
+  const out = new Array(a.length + b.length - 1).fill(0);
+  for (let i = 0; i < a.length; i++) {
+    for (let j = 0; j < b.length; j++) out[i + j] += a[i] * b[j];
   }
-  return { a: p.a / q.c, b: p.b / q.c, c: p.c / q.c };
+  while (out.length > 1 && Math.abs(out[out.length - 1]) < 1e-12) out.pop();
+  if (out.length > 6) throw new Error('Degree > 5');
+  return out;
 }
 
 class PolyParser {
   private i = 0;
-  constructor(private readonly s: string) {}
+  constructor(private readonly s: string, private readonly varChar: string) {}
 
-  parse(): Poly2 {
+  parse(): Poly {
     const res = this.expr();
-    if (this.i !== this.s.length) throw new Error('Trailing poly');
+    if (this.i !== this.s.length) throw new Error('Trailing');
     return res;
   }
 
@@ -450,30 +475,33 @@ class PolyParser {
 
   private startsPrimary(): boolean {
     if (this.i >= this.s.length) return false;
-    return /[0-9.(x]/.test(this.s[this.i]);
+    const c = this.s[this.i];
+    return /[0-9.(]/.test(c) || c === this.varChar;
   }
 
-  private expr(): Poly2 {
+  private expr(): Poly {
     let v = this.term();
     while (this.peek() === '+' || this.peek() === '-') {
       const op = this.s[this.i++];
       const rhs = this.term();
-      v = op === '+' ? addPoly(v, rhs) : subPoly(v, rhs);
+      v = op === '+' ? polyAdd(v, rhs) : polySub(v, rhs);
     }
     return v;
   }
 
-  private term(): Poly2 {
+  private term(): Poly {
     let v = this.unary();
     while (this.i < this.s.length) {
       if (this.peek() === '*') {
         this.i++;
-        v = mulPoly(v, this.unary());
+        v = polyMul(v, this.unary());
       } else if (this.peek() === '/') {
         this.i++;
-        v = divPoly(v, this.unary());
+        const d = this.unary();
+        if (d.slice(1).some((c) => Math.abs(c) > 1e-12) || Math.abs(d[0] || 0) < 1e-12) throw new Error('Div');
+        v = v.map((c) => c / d[0]);
       } else if (this.startsPrimary()) {
-        v = mulPoly(v, this.unary());
+        v = polyMul(v, this.unary());
       } else {
         break;
       }
@@ -481,38 +509,32 @@ class PolyParser {
     return v;
   }
 
-  private unary(): Poly2 {
-    if (this.peek() === '+') {
-      this.i++;
-      return this.unary();
-    }
-    if (this.peek() === '-') {
-      this.i++;
-      const u = this.unary();
-      return { a: -u.a, b: -u.b, c: -u.c };
-    }
+  private unary(): Poly {
+    if (this.peek() === '+') { this.i++; return this.unary(); }
+    if (this.peek() === '-') { this.i++; return this.unary().map((c) => -c); }
     return this.power();
   }
 
-  private power(): Poly2 {
+  private power(): Poly {
     const base = this.primary();
     if (this.peek() === '^') {
       this.i++;
       const exp = this.unary();
-      if (Math.abs(exp.a) > 1e-12 || Math.abs(exp.b) > 1e-12) throw new Error('Variable exponent');
-      const n = exp.c;
-      if (n === 0) return { a: 0, b: 0, c: 1 };
-      if (n === 1) return base;
-      if (n === 2) return mulPoly(base, base);
-      if (Math.abs(base.a) < 1e-12 && Math.abs(base.b) < 1e-12) {
-        return { a: 0, b: 0, c: Math.pow(base.c, n) };
+      if (exp.slice(1).some((c) => Math.abs(c) > 1e-12)) throw new Error('Var exp');
+      const n = exp[0] || 0;
+      if (!Number.isInteger(n) || n < 0 || n > 5) {
+        if (base.slice(1).every((c) => Math.abs(c) < 1e-12)) return [Math.pow(base[0] || 0, n)];
+        throw new Error('Bad exp');
       }
-      throw new Error('Power > 2');
+      if (n === 0) return [1];
+      let res: Poly = [1];
+      for (let k = 0; k < n; k++) res = polyMul(res, base);
+      return res;
     }
     return base;
   }
 
-  private primary(): Poly2 {
+  private primary(): Poly {
     const ch = this.peek();
     if (ch === '(') {
       this.i++;
@@ -521,57 +543,367 @@ class PolyParser {
       this.i++;
       return v;
     }
-    if (ch === 'x') {
+    if (ch === this.varChar) {
       this.i++;
-      return { a: 0, b: 1, c: 0 };
+      return [0, 1];
     }
     const start = this.i;
     while (this.i < this.s.length && /[0-9.]/.test(this.s[this.i])) this.i++;
-    if (this.i === start) throw new Error('Invalid poly number');
-    return { a: 0, b: 0, c: Number(this.s.slice(start, this.i)) };
+    if (this.i === start) throw new Error('NaN');
+    return [Number(this.s.slice(start, this.i))];
   }
 }
 
-export function evaluateNumeric(expression: string): number | null {
+function formatPoly(poly: Poly, varChar = 'x'): string {
+  const parts: string[] = [];
+  for (let deg = poly.length - 1; deg >= 0; deg--) {
+    const c = poly[deg];
+    if (Math.abs(c) < 1e-10) continue;
+    const sign = c < 0 ? '-' : '+';
+    const abs = Math.abs(c);
+    const numStr = deg > 0 && Math.abs(abs - 1) < 1e-10 ? '' : formatMathNumber(abs);
+    const varStr = deg === 0 ? '' : deg === 1 ? varChar : `${varChar}^${deg}`;
+    if (parts.length === 0) parts.push((c < 0 ? '-' : '') + numStr + varStr);
+    else parts.push(` ${sign} ${numStr}${varStr}`);
+  }
+  return parts.length > 0 ? parts.join('') : '0';
+}
+
+function solvePolyRoots(poly: Poly, varChar: string): { answer: string; steps: string[] } | null {
+  const p = [...poly];
+  while (p.length > 1 && Math.abs(p[p.length - 1]) < 1e-10) p.pop();
+  const deg = p.length - 1;
+  if (deg <= 0) return null;
+
+  if (deg === 1) {
+    const b = p[1], c = p[0];
+    const root = -c / b;
+    return {
+      answer: `${varChar} = ${formatMathNumber(root)}`,
+      steps: [
+        `Rearrange linear equation: ${formatPoly(p, varChar)} = 0`,
+        `${formatMathNumber(b)}${varChar} = ${formatMathNumber(-c)}`,
+        `${varChar} = ${formatMathNumber(root)}`,
+      ],
+    };
+  }
+
+  if (deg === 2) {
+    const a = p[2], b = p[1], c = p[0];
+    const disc = b * b - 4 * a * c;
+    const steps = [
+      `Standard quadratic: ${formatPoly(p, varChar)} = 0`,
+      `Discriminant Δ = (${formatMathNumber(b)})² − 4(${formatMathNumber(a)})(${formatMathNumber(c)}) = ${formatMathNumber(disc)}`,
+    ];
+    if (disc < -1e-9) {
+      const real = -b / (2 * a);
+      const imag = Math.sqrt(-disc) / Math.abs(2 * a);
+      const ans = `${varChar} = ${formatMathNumber(real)} ± ${formatMathNumber(imag)}i`;
+      return { answer: ans, steps: [...steps, `Complex roots: ${ans}`] };
+    }
+    if (Math.abs(disc) <= 1e-9) {
+      const root = -b / (2 * a);
+      const ans = `${varChar} = ${formatMathNumber(root)}`;
+      return { answer: ans, steps: [...steps, `Repeated root: ${ans}`] };
+    }
+    const sq = Math.sqrt(disc);
+    const roots = [(-b - sq) / (2 * a), (-b + sq) / (2 * a)].sort((u, v) => u - v);
+    const ans = `${varChar} = ${formatMathNumber(roots[0])}, ${formatMathNumber(roots[1])}`;
+    return { answer: ans, steps: [...steps, `Quadratic formula yields ${ans}`] };
+  }
+
+  // Numerical scan + bisection / Newton for degree >= 3
+  const evalP = (x: number) => p.reduce((acc, c, idx) => acc + c * Math.pow(x, idx), 0);
+  const roots: number[] = [];
+  const lo = -100;
+  const hi = 100;
+  const step = 0.25;
+  let prevX = lo;
+  let prevY = evalP(lo);
+  for (let x = lo + step; x <= hi; x += step) {
+    const y = evalP(x);
+    if (Math.abs(y) < 1e-10) roots.push(x);
+    else if (prevY * y < 0) {
+      let a = prevX, b = x, fa = prevY;
+      for (let it = 0; it < 55; it++) {
+        const m = (a + b) / 2;
+        const fm = evalP(m);
+        if (fa * fm <= 0) b = m;
+        else { a = m; fa = fm; }
+      }
+      roots.push((a + b) / 2);
+    }
+    prevX = x;
+    prevY = y;
+  }
+  const uniq: number[] = [];
+  for (const r of roots.sort((a, b) => a - b)) {
+    if (!uniq.some((u) => Math.abs(u - r) < 1e-5)) uniq.push(r);
+  }
+  if (uniq.length === 0) return null;
+  const ans = `${varChar} = ${uniq.map(formatMathNumber).join(', ')}`;
+  return {
+    answer: ans,
+    steps: [`Polynomial equation (${deg}°): ${formatPoly(p, varChar)} = 0`, `Real roots: ${ans}`],
+  };
+}
+
+/** Finds non-function single-letter variables inside an expression */
+function detectVariables(norm: string): string[] {
+  const tokens = norm.match(/[a-zA-Z]+/g) || [];
+  const vars = new Set<string>();
+  for (const tok of tokens) {
+    const low = tok.toLowerCase();
+    if (KNOWN_FUNCS.has(low) || KNOWN_CONSTS.has(low)) continue;
+    if (tok.length === 1) vars.add(tok);
+    else {
+      for (const ch of tok) {
+        if (/[a-zA-Z]/.test(ch)) vars.add(ch);
+      }
+    }
+  }
+  return Array.from(vars);
+}
+
+/** Fallback numerical root solver for non-polynomial equations like 2^x = 16 or sin(x) = 0.5 */
+function solveGeneralEquationNumeric(left: string, right: string, varChar: string): MathDetailedResult | null {
+  const f = (v: number): number | null => {
+    const lv = evaluateNumeric(left, { [varChar]: v });
+    const rv = evaluateNumeric(right, { [varChar]: v });
+    if (lv === null || rv === null) return null;
+    return lv - rv;
+  };
+
+  // Search positive/negative domain grids
+  const samples: number[] = [];
+  for (let x = -40; x <= 40; x += 0.25) samples.push(x);
+  const found: number[] = [];
+  let prevX = samples[0];
+  let prevY = f(prevX);
+  for (let k = 1; k < samples.length; k++) {
+    const x = samples[k];
+    const y = f(x);
+    if (y !== null && Math.abs(y) < 1e-10) {
+      found.push(x);
+    } else if (prevY !== null && y !== null && prevY * y < 0) {
+      let a = prevX, b = x, fa = prevY;
+      for (let it = 0; it < 55; it++) {
+        const m = (a + b) / 2;
+        const fm = f(m);
+        if (fm === null) break;
+        if (fa * fm <= 0) b = m;
+        else { a = m; fa = fm; }
+      }
+      const root = (a + b) / 2;
+      if (Math.abs(f(root) ?? 1) < 1e-4) found.push(root);
+    }
+    prevX = x;
+    prevY = y;
+  }
+
+  if (found.length === 0) return null;
+  const uniq: number[] = [];
+  for (const r of found.sort((a, b) => a - b)) {
+    if (!uniq.some((u) => Math.abs(u - r) < 1e-4)) uniq.push(r);
+  }
+  const shown = uniq.slice(0, 4).map(formatMathNumber).join(', ');
+  const ans = `${varChar} = ${shown}`;
+  return {
+    raw: `${left} = ${right}`,
+    answer: ans,
+    prettyExpr: `${left} = ${right}`,
+    category: 'algebra',
+    steps: [
+      `Solve ${left} = ${right} for ${varChar}`,
+      `Solved numerically over domain`,
+      ans,
+    ],
+  };
+}
+
+function tryDerivative(raw: string): MathDetailedResult | null {
+  // e.g. d/dx(3x^2 + 2x - 5) or d/dt(t^3)
+  const m = raw.trim().match(/^d\/d([a-zA-Z])\s*\((.+)\)(?:\s*at\s*\1\s*=\s*([+-]?\d+(?:\.\d+)?))?$/i);
+  if (!m) return null;
+  const v = m[1];
+  const inner = normalizeMath(m[2]);
+  const atVal = m[3] ? Number(m[3]) : null;
   try {
-    const norm = normalizeMath(expression);
-    if (!norm) return null;
-    const val = new NumericParser(norm).parse();
-    if (!Number.isFinite(val) || Math.abs(val) > 1e100) return null;
-    return val;
+    const poly = new PolyParser(inner, v).parse();
+    const deriv = poly.slice(1).map((c, idx) => c * (idx + 1));
+    const derivStr = formatPoly(deriv, v);
+    if (atVal !== null) {
+      const val = deriv.reduce((acc, c, idx) => acc + c * Math.pow(atVal, idx), 0);
+      return {
+        raw,
+        answer: formatMathNumber(val),
+        prettyExpr: `d/d${v}(${inner}) at ${v}=${atVal}`,
+        category: 'calculus',
+        steps: [
+          `Apply power rule: d/d${v}(${inner}) = ${derivStr}`,
+          `Substitute ${v} = ${atVal}: ${formatMathNumber(val)}`,
+        ],
+      };
+    }
+    return {
+      raw,
+      answer: derivStr,
+      prettyExpr: `d/d${v}(${inner})`,
+      category: 'calculus',
+      steps: [
+        `Differentiate term-by-term with respect to ${v}`,
+        `f'(${v}) = ${derivStr}`,
+      ],
+    };
   } catch {
+    if (atVal !== null) {
+      const h = 1e-6;
+      const fp = evaluateNumeric(inner, { [v]: atVal + h });
+      const fm = evaluateNumeric(inner, { [v]: atVal - h });
+      if (fp !== null && fm !== null) {
+        const res = formatMathNumber((fp - fm) / (2 * h));
+        return {
+          raw,
+          answer: res,
+          prettyExpr: `d/d${v}(${inner}) at ${v}=${atVal}`,
+          category: 'calculus',
+          steps: [`Central difference derivative at ${v} = ${atVal}`, res],
+        };
+      }
+    }
     return null;
   }
 }
 
-function solvePolynomialEquation(leftRaw: string, rightRaw: string): string | null {
+function tryMultiLineVariables(raw: string): MathDetailedResult | null {
+  const parts = raw
+    .split(/[\n;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return null;
+
+  const vars: Record<string, number> = {};
+  const steps: string[] = [];
+  for (let idx = 0; idx < parts.length; idx++) {
+    const line = parts[idx].replace(/[=?]+$/, '').trim();
+    const assignMatch = line.match(/^([a-zA-Z][a-zA-Z0-9]*)\s*=\s*(.+)$/);
+    if (assignMatch && idx < parts.length - 1) {
+      const name = assignMatch[1];
+      const val = evaluateNumeric(assignMatch[2], vars);
+      if (val === null) return null;
+      vars[name] = val;
+      steps.push(`${name} = ${formatMathNumber(val)}`);
+    } else if (idx === parts.length - 1) {
+      const val = evaluateNumeric(line, vars);
+      if (val === null) return null;
+      const ans = formatMathNumber(val);
+      steps.push(`Evaluate ${line} → ${ans}`);
+      return {
+        raw,
+        answer: ans,
+        prettyExpr: line,
+        category: 'variables',
+        steps,
+        fractionHint: toExactFraction(val),
+      };
+    } else {
+      return null;
+    }
+  }
+  return null;
+}
+
+export function solveMathDetailed(raw: string): MathDetailedResult | null {
+  const source = raw.trim().replace(/\?+$/, '').trim();
+  if (!source || source.length > 260) return null;
+
+  // 0. Symbolic/numerical derivative d/dx(...)
+  const derivAns = tryDerivative(source);
+  if (derivAns) return derivAns;
+
+  // 1. Multi-line / chained variable definitions: "x = 3; y = 2x + 1; x^2 + y"
+  const multiAns = tryMultiLineVariables(source);
+  if (multiAns) return multiAns;
+
+  // 2. Unit conversions
+  const unitAns = tryUnitConversion(source);
+  if (unitAns) {
+    return {
+      raw: source,
+      answer: unitAns,
+      prettyExpr: source,
+      category: 'units',
+      steps: [`Unit conversion: ${source}`, `Result: ${unitAns}`],
+    };
+  }
+
+  // 3. Equations (L = R)
+  const eqIdx = source.indexOf('=');
+  if (eqIdx >= 0 && eqIdx < source.length - 1 && source.slice(eqIdx + 1).trim().length > 0) {
+    if (source.indexOf('=', eqIdx + 1) >= 0) return null;
+    const leftRaw = source.slice(0, eqIdx).trim();
+    const rightRaw = source.slice(eqIdx + 1).trim();
+    if (!leftRaw || !rightRaw) return null;
+
+    const normL = normalizeMath(leftRaw);
+    const normR = normalizeMath(rightRaw);
+    const vars = Array.from(new Set([...detectVariables(normL), ...detectVariables(normR)]));
+
+    if (vars.length === 1) {
+      const v = vars[0];
+      try {
+        const pL = new PolyParser(normL, v).parse();
+        const pR = new PolyParser(normR, v).parse();
+        const polyAns = solvePolyRoots(polySub(pL, pR), v);
+        if (polyAns) {
+          return {
+            raw: source,
+            answer: polyAns.answer,
+            prettyExpr: `${leftRaw} = ${rightRaw}`,
+            category: 'algebra',
+            steps: polyAns.steps,
+          };
+        }
+      } catch {
+        // Fallback to numerical solver (exponentials like 2^x = 16, trig equations, etc.)
+        const numEq = solveGeneralEquationNumeric(normL, normR, v);
+        if (numEq) return numEq;
+      }
+    }
+
+    // Completed numeric equality check (rejects false equalities like 2+2=5)
+    const lv = evaluateNumeric(leftRaw);
+    const rv = evaluateNumeric(rightRaw);
+    if (lv === null || rv === null) return null;
+    const tol = 1e-8 * Math.max(1, Math.abs(lv), Math.abs(rv));
+    if (Math.abs(lv - rv) <= tol) {
+      const ans = formatMathNumber(rv);
+      return {
+        raw: source,
+        answer: ans,
+        prettyExpr: `${leftRaw} = ${rightRaw}`,
+        category: 'arithmetic',
+        steps: [`Both sides equal ${ans}`],
+      };
+    }
+    return null;
+  }
+
+  // 4. Bare expression or ending in '='
+  const expr = normalizeMath(source).replace(/[=?]+$/, '');
+  if (!expr) return null;
+  const val = evaluateNumeric(expr);
+  if (val === null) return null;
   try {
-    const left = new PolyParser(normalizeMath(leftRaw)).parse();
-    const right = new PolyParser(normalizeMath(rightRaw)).parse();
-    const p = subPoly(left, right); // a*x^2 + b*x + c = 0
-    if (Math.abs(p.a) < 1e-12) {
-      // Linear equation: b*x + c = 0
-      if (Math.abs(p.b) < 1e-12) return null;
-      const ans = -p.c / p.b;
-      if (!Number.isFinite(ans)) return null;
-      return `x = ${formatMathNumber(ans)}`;
-    }
-    // Quadratic equation: a*x^2 + b*x + c = 0
-    const disc = p.b * p.b - 4 * p.a * p.c;
-    if (disc < -1e-9) {
-      const real = -p.b / (2 * p.a);
-      const imag = Math.sqrt(-disc) / Math.abs(2 * p.a);
-      return `x = ${formatMathNumber(real)} ± ${formatMathNumber(imag)}i`;
-    }
-    if (Math.abs(disc) <= 1e-9) {
-      const root = -p.b / (2 * p.a);
-      return `x = ${formatMathNumber(root)}`;
-    }
-    const sq = Math.sqrt(disc);
-    const r1 = (-p.b - sq) / (2 * p.a);
-    const r2 = (-p.b + sq) / (2 * p.a);
-    const sorted = [r1, r2].sort((u, v) => u - v);
-    return `x = ${formatMathNumber(sorted[0])}, ${formatMathNumber(sorted[1])}`;
+    const ans = formatMathNumber(val);
+    return {
+      raw: source,
+      answer: ans,
+      prettyExpr: MathSolver.pretty(source),
+      category: 'arithmetic',
+      steps: [`Normalized: ${expr}`, `Result = ${ans}`],
+      fractionHint: toExactFraction(val),
+    };
   } catch {
     return null;
   }
@@ -579,48 +911,10 @@ function solvePolynomialEquation(leftRaw: string, rightRaw: string): string | nu
 
 export const MathSolver = {
   normalize: normalizeMath,
+  solveDetailed: solveMathDetailed,
 
   solve(raw: string): string | null {
-    const source = raw.trim().replace(/\?+$/, '').trim();
-    if (!source || source.length > 180) return null;
-
-    // 1. Unit conversions ("12 km to m", "72 f to c")
-    const unitAns = tryUnitConversion(source);
-    if (unitAns) return unitAns;
-
-    // 2. Equations (both sides populated)
-    const eqIdx = source.indexOf('=');
-    if (eqIdx >= 0 && eqIdx < source.length - 1 && source.slice(eqIdx + 1).trim().length > 0) {
-      if (source.indexOf('=', eqIdx + 1) >= 0) return null; // multiple '='
-      const left = source.slice(0, eqIdx);
-      const right = source.slice(eqIdx + 1);
-      if (!left.trim() || !right.trim()) return null;
-
-      // Try linear / quadratic first if 'x' is present
-      if (/[xX]/.test(source)) {
-        const eqAns = solvePolynomialEquation(left, right);
-        if (eqAns) return eqAns;
-      }
-
-      // Check completed arithmetic equality: reject wrong equalities (e.g. 2+2=5)
-      const lv = evaluateNumeric(left);
-      const rv = evaluateNumeric(right);
-      if (lv === null || rv === null) return null;
-      const tol = 1e-8 * Math.max(1, Math.abs(lv), Math.abs(rv));
-      return Math.abs(lv - rv) <= tol ? formatMathNumber(rv) : null;
-    }
-
-    // 3. Expression ending in '=' or bare expression
-    const expr = normalizeMath(source).replace(/[=?]+$/, '');
-    if (!expr || !/[0-9]/.test(expr)) return null;
-    if (!/[+\-*/^%!()a-zA-Z]/.test(expr)) return null;
-    const val = evaluateNumeric(expr);
-    if (val === null) return null;
-    try {
-      return formatMathNumber(val);
-    } catch {
-      return null;
-    }
+    return solveMathDetailed(raw)?.answer ?? null;
   },
 
   bestCandidate(candidates: string[]): MathCandidateResult | null {
@@ -637,11 +931,7 @@ export const MathSolver = {
       if (!best || score > best.score) {
         best = {
           score,
-          result: {
-            raw,
-            answer,
-            prettyExpr: this.pretty(raw),
-          },
+          result: { raw, answer, prettyExpr: this.pretty(raw) },
         };
       }
     });
@@ -653,7 +943,7 @@ export const MathSolver = {
       .replace(/\*/g, ' × ')
       .replace(/\//g, ' ÷ ')
       .replace(/\+/g, ' + ')
-      .replace(/(?<=[0-9)x])-/g, ' − ')
+      .replace(/(?<=[0-9)a-zA-Z])-/g, ' − ')
       .replace(/\^2/g, '²')
       .replace(/\^3/g, '³')
       .replace(/\s+/g, ' ')

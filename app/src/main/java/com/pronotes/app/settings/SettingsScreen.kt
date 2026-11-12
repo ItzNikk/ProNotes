@@ -1,16 +1,17 @@
 package com.pronotes.app.settings
 
 import android.content.Intent
-import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,36 +30,26 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.AutoFixHigh
-import androidx.compose.material.icons.outlined.Brush
-import androidx.compose.material.icons.outlined.Code
-import androidx.compose.material.icons.outlined.ColorLens
-import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.DragHandle
-import kotlinx.coroutines.launch
-import com.pronotes.app.data.Updater.Phase as UPhase
-import sh.calvin.reorderable.ReorderableItem
-import androidx.compose.material.icons.outlined.Draw
-import androidx.compose.material.icons.outlined.Gesture
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.LibraryBooks
-import androidx.compose.material.icons.outlined.TouchApp
-import androidx.compose.material.icons.outlined.ViewQuilt
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Slider
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -69,6 +60,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -76,44 +68,53 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush as GBrush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pronotes.app.BuildConfigInfo
 import com.pronotes.app.data.AccentColor
 import com.pronotes.app.data.AppSettings
 import com.pronotes.app.data.DeskColor
-import com.pronotes.app.data.EraserMode
 import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.data.PaperTint
+import com.pronotes.app.data.PenAction
+import com.pronotes.app.data.PenBrands
 import com.pronotes.app.data.PenClickDelay
-import com.pronotes.app.ui.ProIcon
-import com.pronotes.app.ui.ProIconView
+import com.pronotes.app.data.PenProfile
+import com.pronotes.app.data.ScribbleSensitivity
 import com.pronotes.app.data.ScrollDirection
 import com.pronotes.app.data.SettingsStore
 import com.pronotes.app.data.SideButton
 import com.pronotes.app.data.ThemeMode
 import com.pronotes.app.data.ToolbarDock
 import com.pronotes.app.data.ToolbarSize
+import com.pronotes.app.data.Updater.Phase as UPhase
+import com.pronotes.app.editor.Companions
+import com.pronotes.app.editor.LocalAiManager
+import com.pronotes.app.editor.LocalModelRuntime
+import com.pronotes.app.editor.LocalModelStatus
+import com.pronotes.app.editor.Nano
+import com.pronotes.app.editor.companionById
+import com.pronotes.app.editor.drawCompanion
 import com.pronotes.app.library.PaperPreview
 import com.pronotes.app.ui.GradientTitle
+import com.pronotes.app.ui.ProIcon
+import com.pronotes.app.ui.ProIconView
+import kotlinx.coroutines.launch
+import sh.calvin.reorderable.ReorderableItem
 
 private enum class Category(val label: String, val sub: String, val icon: ProIcon, val tint: Long) {
-    STYLUS("Stylus & input", "Pens, side button, palm rejection", ProIcon.PEN, 0xFF2A78D6),
-    AI("On-device AI", "Downloadable local models, offline features", ProIcon.STAR, 0xFF6B5CE7),
-    GESTURES("Gestures", "Scribble, circle, taps", ProIcon.LASSO, 0xFF7161E0),
+    STYLUS("Stylus & input", "Pen name, pens, side button", ProIcon.PEN, 0xFF2A78D6),
+    AI("On-device AI", "9 free local models, offline study", ProIcon.STAR, 0xFF6B5CE7),
+    GESTURES("Gestures", "Live scribble sensitivity, circle, taps", ProIcon.LASSO, 0xFF7161E0),
     PAGES("Pages & paper", "Scroll, templates, paper colour", ProIcon.DOCUMENT, 0xFF0F7E5C),
-    TOOLBAR("Toolbar & tabs", "Position, size, tool order, tabs", ProIcon.TOOLBAR, 0xFFC04873),
+    TOOLBAR("Toolbar & Buddy", "Position, size, companion picker", ProIcon.TOOLBAR, 0xFFC04873),
     LOOK("Appearance", "Theme, accent, gradients, desk", ProIcon.PALETTE, 0xFFD97706),
     LIBRARY("Library & backup", "Covers, backup and restore", ProIcon.FOLDER, 0xFF256ABF),
     ABOUT("About", "Version, updates", ProIcon.INFO, 0xFF6B7280),
 }
 
-/**
- * Two-pane settings: categories on the left, details on the right.
- * On phones the category list opens each section full screen.
- */
 @Composable
 fun SettingsScreen(onBack: () -> Unit, onTour: () -> Unit = {}, onSupport: () -> Unit = {}) {
     val context = LocalContext.current
@@ -182,6 +183,23 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
         item {
             when (c) {
                 Category.STYLUS -> {
+                    var penNameDraft by remember(s.penName) { mutableStateOf(s.penName) }
+                    Section("Active stylus identity") {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("PEN NAME", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    penNameDraft,
+                                    { penNameDraft = it; up { cur -> cur.copy(penName = it) } },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(16.dp),
+                                    placeholder = { Text("e.g. Samsung S Pen") },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            Text("Shown in Pen Studio and used as your default stylus label.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                     Section("Drawing") {
                         Toggle("Draw with stylus only", "Fingers scroll and zoom, they never draw", s.stylusOnly) { v -> up { it.copy(stylusOnly = v) } }
                         Toggle("Palm rejection", "Ignore touches right after the pen", s.palmRejection) { v -> up { it.copy(palmRejection = v) } }
@@ -194,7 +212,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                     }
                     Section("Smart ink (on device)") {
                         Toggle("Convert to text as I write", "Handwriting turns into typed text a moment after you stop", s.autoConvert) { v -> up { it.copy(autoConvert = v) } }
-                        Toggle("Solve maths when I write =", "Write 12 x 4 = and the answer appears", s.mathAssist) { v -> up { it.copy(mathAssist = v) } }
+                        Toggle("Solve maths when I write =", "Write 12 x 4 = or 2x(x+1)=0 and the answer appears", s.mathAssist) { v -> up { it.copy(mathAssist = v) } }
                         Toggle("Search handwriting", "Search also finds words you wrote by hand", s.inkSearch) { v -> up { it.copy(inkSearch = v) } }
                         val langs = listOf("en-US" to "English (US)", "en-GB" to "English (UK)", "hi-IN" to "Hindi", "es-ES" to "Spanish", "fr-FR" to "French", "de-DE" to "German")
                         Choice("Handwriting language", langs.firstOrNull { it.first == s.handwritingLang }?.second ?: s.handwritingLang, langs.map { it.second }) { i -> up { it.copy(handwritingLang = langs[i].first) } }
@@ -204,16 +222,20 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                         Choice("Button click delay", s.penClickDelay.label, PenClickDelay.entries.map { it.label }) { i -> up { it.copy(penClickDelay = PenClickDelay.entries[i]) } }
                         Toggle("Hover preview", "Show where the pen will touch", s.hoverCursor) { v -> up { it.copy(hoverCursor = v) } }
                     }
-                    PensSection(store, onTour)
+                    PensSection(store)
                 }
                 Category.AI -> {
-                    LocalAiSection(s, store)
+                    LocalAiSection(s)
                 }
                 Category.GESTURES -> {
                     Section("Pen gestures") {
                         Toggle("Scribble to erase", "Zig-zag or scrub over ink to delete it", s.scribbleToErase) { v -> up { it.copy(scribbleToErase = v) } }
                         if (s.scribbleToErase) {
-                            Toggle("Erase live while scribbling", "Deletes touched strokes immediately without lifting the pen", s.liveScribbleErase) { v -> up { it.copy(liveScribbleErase = v) } }
+                            Toggle("Erase live while writing", "Cuts scribbles immediately mid-stroke without lifting the pen", s.liveScribbleErase) { v -> up { it.copy(liveScribbleErase = v) } }
+                            Text("SCRIBBLE SENSITIVITY", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 16.dp, top = 8.dp))
+                            Segmented(ScribbleSensitivity.entries.map { it.label }, s.scribbleSensitivity.ordinal) { i ->
+                                up { it.copy(scribbleSensitivity = ScribbleSensitivity.entries[i]) }
+                            }
                         }
                         Toggle("Draw and hold for shapes", "Hold the pen still at the end of a line", s.holdToShape) { v -> up { it.copy(holdToShape = v) } }
                         Toggle("Circle and hold to select", "Loop around ink, then hold the pen still", s.circleToLasso) { v -> up { it.copy(circleToLasso = v) } }
@@ -239,18 +261,16 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                         }
                     }
                     Section("New notebooks") {
-                    val presets = com.pronotes.app.data.PagePreset.entries.filter { it != com.pronotes.app.data.PagePreset.CUSTOM }
-                    Choice(
-                        "Page size",
-                        if (s.defaultPreset.recommended) "${s.defaultPreset.label} (Recommended)" else s.defaultPreset.label,
-                        presets.map { if (it.recommended) "${it.label} (Recommended)" else it.label },
-                    ) { i ->
-                        up { it.copy(defaultPreset = presets[i]) }
+                        val presets = com.pronotes.app.data.PagePreset.entries.filter { it != com.pronotes.app.data.PagePreset.CUSTOM }
+                        Choice(
+                            "Page size",
+                            if (s.defaultPreset.recommended) "${s.defaultPreset.label} (Recommended)" else s.defaultPreset.label,
+                            presets.map { if (it.recommended) "${it.label} (Recommended)" else it.label },
+                        ) { i -> up { it.copy(defaultPreset = presets[i]) } }
+                        Toggle("Landscape", "Pages wider than tall", s.defaultLandscape) { v -> up { it.copy(defaultLandscape = v) } }
+                        Toggle("Cover as first page", "Write on the cover of new notebooks", s.defaultCoverPage) { v -> up { it.copy(defaultCoverPage = v) } }
                     }
-                    Toggle("Landscape", "Pages wider than tall", s.defaultLandscape) { v -> up { it.copy(defaultLandscape = v) } }
-                    Toggle("Cover as first page", "Write on the cover of new notebooks", s.defaultCoverPage) { v -> up { it.copy(defaultCoverPage = v) } }
-                }
-                Section("Default template") {
+                    Section("Default template") {
                         FlowRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             PaperStyle.entries.forEach { p ->
                                 val sel = s.defaultPaper == p
@@ -276,18 +296,47 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                         ToolbarEditor(s.toolbarTools) { spec -> up { it.copy(toolbarTools = spec) } }
                         Info("Long-press to reorder. Tap a selected tool for its settings.")
                     }
-                    Section("Tabs") {
+                    Section("Study Companion") {
+                        Toggle("Study buddy", "A Pokemon-style companion that reacts & levels up", s.pet) { v -> up { it.copy(pet = v) } }
+                        if (s.pet) {
+                            val activePet = companionById(s.petId)
+                            val lvl = 1 + s.petXp / 100
+                            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("${activePet.name} · Lv.$lvl", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                    Text("${s.petXp} XP", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                }
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Companions.forEach { cp ->
+                                        val on = cp.id == s.petId
+                                        Column(
+                                            Modifier.width(74.dp).clip(RoundedCornerShape(14.dp))
+                                                .background(if (on) cp.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                                                .border(if (on) 1.5.dp else 0.dp, if (on) cp.secondary else Color.Transparent, RoundedCornerShape(14.dp))
+                                                .clickable { up { it.copy(petId = cp.id) } }.padding(vertical = 8.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                        ) {
+                                            Canvas(Modifier.size(30.dp)) {
+                                                drawCompanion(cp, 0.5f, 0f, false, false, false, 0f, true)
+                                            }
+                                            Text(cp.name, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Section("Tabs & Study Timer") {
                         Toggle("Notebook tabs", "Keep several notebooks open and switch between them", s.showTabs) { v -> up { it.copy(showTabs = v) } }
-        Toggle("Liquid glass", "See-through bars with a glassy edge", s.liquidGlass) { v -> up { it.copy(liquidGlass = v) } }
-        Toggle("Study buddy", "A little pet that cheers you on", s.pet) { v -> up { it.copy(pet = v) } }
-        Toggle("Hide toolbar while recording", "When the screen is being recorded (Android 15 and newer)", s.hideToolsWhenRecording) { v -> up { it.copy(hideToolsWhenRecording = v) } }
-        Toggle("Study timer", "A stopwatch for each study session, with a total per notebook. Drag it anywhere.", s.studyTimer) { v -> up { it.copy(studyTimer = v) } }
-        if (s.studyTimer) {
-            Toggle("Start by itself", "Count from the moment a notebook opens", s.studyAutoStart) { v -> up { it.copy(studyAutoStart = v) } }
-            Toggle("Show seconds", "Off shows hours and minutes only", s.studySeconds) { v -> up { it.copy(studySeconds = v) } }
-            val idle = listOf(0, 2, 5, 10)
-            Choice("Pause when idle", if (s.studyIdleMinutes == 0) "Never" else "${s.studyIdleMinutes} min", idle.map { if (it == 0) "Never" else "$it min" }) { i -> up { it.copy(studyIdleMinutes = idle[i]) } }
-        }
+                        Toggle("Liquid glass", "See-through bars with a glassy edge", s.liquidGlass) { v -> up { it.copy(liquidGlass = v) } }
+                        Toggle("Hide toolbar while recording", "When the screen is being recorded (Android 15 and newer)", s.hideToolsWhenRecording) { v -> up { it.copy(hideToolsWhenRecording = v) } }
+                        Toggle("Study timer", "A stopwatch for each study session", s.studyTimer) { v -> up { it.copy(studyTimer = v) } }
+                        if (s.studyTimer) {
+                            Toggle("Start by itself", "Count from the moment a notebook opens", s.studyAutoStart) { v -> up { it.copy(studyAutoStart = v) } }
+                            Toggle("Show seconds", "Off shows hours and minutes only", s.studySeconds) { v -> up { it.copy(studySeconds = v) } }
+                            val idle = listOf(0, 2, 5, 10)
+                            Choice("Pause when idle", if (s.studyIdleMinutes == 0) "Never" else "${s.studyIdleMinutes} min", idle.map { if (it == 0) "Never" else "$it min" }) { i -> up { it.copy(studyIdleMinutes = idle[i]) } }
+                        }
                     }
                 }
                 Category.LOOK -> {
@@ -351,10 +400,10 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                         UpdateRow()
                         HorizontalDivider(Modifier.padding(start = 56.dp))
                         Toggle("Check for updates automatically", "When the library opens", s.autoUpdateCheck) { v -> up { it.copy(autoUpdateCheck = v) } }
-        Toggle("Update reminders", "A daily notification and a reminder when the app opens", s.updateReminders) { v ->
-            up { it.copy(updateReminders = v) }
-            com.pronotes.app.UpdateCheckReceiver.schedule(context, v)
-        }
+                        Toggle("Update reminders", "A daily notification and a reminder when the app opens", s.updateReminders) { v ->
+                            up { it.copy(updateReminders = v) }
+                            com.pronotes.app.UpdateCheckReceiver.schedule(context, v)
+                        }
                     }
                 }
             }
@@ -404,7 +453,6 @@ private fun Choice(title: String, value: String, options: List<String>, onPick: 
     }
 }
 
-/** iOS-style segmented control. */
 @Composable
 private fun Segmented(options: List<String>, selected: Int, onPick: (Int) -> Unit) {
     Row(
@@ -440,7 +488,6 @@ private fun Info(text: String) {
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
 }
 
-/** Drag to reorder toolbar tools; switches hide tools you never use. */
 @Composable
 private fun ToolbarEditor(spec: String, onChange: (String) -> Unit) {
     var list by remember(spec) { mutableStateOf(com.pronotes.app.editor.ToolbarOrder.parse(spec)) }
@@ -461,7 +508,7 @@ private fun ToolbarEditor(spec: String, onChange: (String) -> Unit) {
                 ) {
                     Icon(Icons.Outlined.DragHandle, "Drag", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.longPressDraggableHandle())
                     Spacer(Modifier.width(12.dp))
-                    com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.iconFor(tool), MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp))
+                    ProIconView(com.pronotes.app.ui.iconFor(tool), MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp))
                     Spacer(Modifier.width(12.dp))
                     Text(tool.name.lowercase().replaceFirstChar { it.uppercase() }, Modifier.weight(1f))
                     Switch(visible, onCheckedChange = { v ->
@@ -479,7 +526,7 @@ private fun ToolbarEditor(spec: String, onChange: (String) -> Unit) {
 private fun BackupRows() {
     val context = LocalContext.current
     val repo = remember { com.pronotes.app.data.Repository.get(context) }
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<String?>(null) }
     val save = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         if (uri != null) scope.launch {
@@ -510,11 +557,10 @@ private fun BackupRows() {
     status?.let { Info(it) }
 }
 
-/** Check, download and install updates without leaving the app. */
 @Composable
 private fun UpdateRow() {
     val context = LocalContext.current
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
     val u = com.pronotes.app.data.Updater
     val (title, sub) = when (u.phase) {
         UPhase.IDLE -> "Check for updates" to "Version ${u.currentVersion(context)}"
@@ -545,17 +591,20 @@ private fun UpdateRow() {
         }
         if (u.phase == UPhase.DOWNLOADING) {
             Spacer(Modifier.height(10.dp))
-            androidx.compose.material3.LinearProgressIndicator(progress = { u.progress }, modifier = Modifier.fillMaxWidth().padding(start = 40.dp))
+            LinearProgressIndicator(progress = { u.progress }, modifier = Modifier.fillMaxWidth().padding(start = 40.dp))
         }
     }
 }
 
-/** Every pen used on this device, each with its own side button and click shortcuts. */
+/** Saved pens with inline rename/alias + dedicated Setup Stylus modal (fixed off onTour!). */
 @Composable
-private fun PensSection(store: SettingsStore, onSetup: () -> Unit) {
+private fun PensSection(store: SettingsStore) {
     val pens by store.pens.collectAsState()
+    var showSetup by remember { mutableStateOf(false) }
+    var renameTarget by remember { mutableStateOf<PenProfile?>(null) }
+
     Section("Your pens") {
-        if (pens.isEmpty()) Info("Pens appear here after you write with them.")
+        if (pens.isEmpty()) Info("Tap 'Set up a pen' below or write with a stylus to register it.")
         pens.forEachIndexed { i, p ->
             if (i > 0) HorizontalDivider()
             Column(Modifier.padding(vertical = 4.dp)) {
@@ -563,40 +612,92 @@ private fun PensSection(store: SettingsStore, onSetup: () -> Unit) {
                     ProIconView(ProIcon.PEN, MaterialTheme.colorScheme.primary, Modifier.size(22.dp))
                     Spacer(Modifier.size(14.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(p.brand)
-                        Text(p.name, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        Text(p.displayName(), fontWeight = FontWeight.SemiBold)
+                        Text("${p.brand} · ${p.name}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     }
-                    androidx.compose.material3.TextButton(onClick = { store.forgetPen(p.name) }) { Text("Forget") }
+                    IconButton(onClick = { renameTarget = p }) { Icon(Icons.Outlined.Edit, "Rename pen") }
+                    TextButton(onClick = { store.forgetPen(p.name) }) { Text("Forget") }
                 }
                 Choice("Hold side button", p.sideButton.label, SideButton.entries.map { it.label }) { k -> store.updatePen(p.copy(sideButton = SideButton.entries[k])) }
-                Choice("Click button", p.click.label, com.pronotes.app.data.PenAction.entries.map { it.label }) { k -> store.updatePen(p.copy(click = com.pronotes.app.data.PenAction.entries[k])) }
-                Choice("Double-click button", p.doubleClick.label, com.pronotes.app.data.PenAction.entries.map { it.label }) { k -> store.updatePen(p.copy(doubleClick = com.pronotes.app.data.PenAction.entries[k])) }
+                Choice("Click button", p.click.label, PenAction.entries.map { it.label }) { k -> store.updatePen(p.copy(click = PenAction.entries[k])) }
+                Choice("Double-click button", p.doubleClick.label, PenAction.entries.map { it.label }) { k -> store.updatePen(p.copy(doubleClick = PenAction.entries[k])) }
             }
         }
         HorizontalDivider()
-        Row(Modifier.fillMaxWidth().clickable(onClick = onSetup).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().clickable { showSetup = true }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             ProIconView(ProIcon.ADD, MaterialTheme.colorScheme.primary, Modifier.size(22.dp)); Spacer(Modifier.size(16.dp))
             Text("Set up a pen", Modifier.weight(1f))
         }
+    }
+
+    if (showSetup) {
+        var alias by remember { mutableStateOf("") }
+        var brand by remember { mutableStateOf(PenBrands.manual.first()) }
+        AlertDialog(
+            onDismissRequest = { showSetup = false },
+            shape = RoundedCornerShape(28.dp),
+            title = { Text("Set up a pen") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        alias, { alias = it }, singleLine = true, shape = RoundedCornerShape(16.dp),
+                        label = { Text("Custom pen name") }, placeholder = { Text("e.g. Fine Lecture Stylus") }, modifier = Modifier.fillMaxWidth(),
+                    )
+                    Choice("Stylus hardware", brand, PenBrands.manual) { idx -> brand = PenBrands.manual[idx] }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val label = alias.trim().ifBlank { brand }
+                    val id = "pen-${System.currentTimeMillis()}"
+                    store.registerPen(id, brand = brand, alias = label)
+                    store.update { it.copy(penName = label) }
+                    showSetup = false
+                }, shape = CircleShape) { Text("Save Pen") }
+            },
+            dismissButton = { TextButton(onClick = { showSetup = false }) { Text("Cancel") } },
+        )
+    }
+
+    renameTarget?.let { target ->
+        var nextAlias by remember(target) { mutableStateOf(target.alias.ifBlank { target.displayName() }) }
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            shape = RoundedCornerShape(28.dp),
+            title = { Text("Rename pen") },
+            text = {
+                OutlinedTextField(nextAlias, { nextAlias = it }, singleLine = true, shape = RoundedCornerShape(16.dp), label = { Text("Pen name") }, modifier = Modifier.fillMaxWidth())
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val clean = nextAlias.trim()
+                    store.updatePen(target.copy(alias = clean))
+                    if (clean.isNotBlank()) store.update { it.copy(penName = clean) }
+                    renameTarget = null
+                }, shape = CircleShape) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancel") } },
+        )
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun LocalAiSection(s: AppSettings, store: SettingsStore) {
+private fun LocalAiSection(s: AppSettings) {
     val context = LocalContext.current
-    val states by com.pronotes.app.editor.LocalAiManager.states.collectAsState()
-    LaunchedEffect(Unit) { com.pronotes.app.editor.LocalAiManager.refresh(context) }
+    val states by LocalAiManager.states.collectAsState()
+    var cat by remember { mutableStateOf("All") }
+    LaunchedEffect(Unit) { LocalAiManager.refresh(context) }
 
     Section("Active AI Engine") {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             ProIconView(ProIcon.STAR, Color(0xFF6B5CE7), Modifier.size(24.dp))
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(com.pronotes.app.editor.LocalAiManager.activeEngineLabel(context), style = MaterialTheme.typography.titleMedium)
+                Text(LocalAiManager.activeEngineLabel(context), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    if (com.pronotes.app.editor.Nano.available) "Gemini Nano AICore is active on this device"
-                    else "Download a free lightweight model below for richer offline AI operations",
+                    if (Nano.available) "Gemini Nano AICore is active on this device"
+                    else "Download any of the 9 free lightweight models below for richer offline study AI",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -606,21 +707,30 @@ private fun LocalAiSection(s: AppSettings, store: SettingsStore) {
             HorizontalDivider(Modifier.padding(start = 54.dp))
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Use built-in fallback rules only", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                TextButton(onClick = { com.pronotes.app.editor.LocalAiManager.activateModel(context, "") }) { Text("Reset") }
+                TextButton(onClick = { LocalAiManager.activateModel(context, "") }) { Text("Reset") }
             }
         }
     }
 
-    Section("Free lightweight models (on-device)") {
-        com.pronotes.app.editor.LocalAiManager.catalog.forEachIndexed { idx, spec ->
+    Section("Free lightweight models (${LocalAiManager.catalog.size} on-device)") {
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            listOf("All", "Fast", "Maths", "Reasoning").forEach { c ->
+                FilterChip(cat == c, { cat = c }, label = { Text(c) }, shape = CircleShape)
+            }
+        }
+        val filtered = LocalAiManager.catalog.filter { cat == "All" || it.category == cat }
+        filtered.forEachIndexed { idx, spec ->
             if (idx > 0) HorizontalDivider()
-            val rt = states[spec.id] ?: com.pronotes.app.editor.LocalModelRuntime()
-            val isActive = s.activeLocalModelId == spec.id && rt.status == com.pronotes.app.editor.LocalModelStatus.READY
+            val rt = states[spec.id] ?: LocalModelRuntime()
+            val isActive = s.activeLocalModelId == spec.id && rt.status == LocalModelStatus.READY
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(spec.name, style = MaterialTheme.typography.titleMedium)
-                        Text("${spec.family} · ${spec.quantization} · ${spec.sizeLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        Text(spec.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text("${spec.family} · ${spec.quantization} · ${spec.sizeLabel} · ${"⚡".repeat(spec.speedScore.coerceIn(1, 5))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     }
                     if (isActive) {
                         Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
@@ -637,43 +747,34 @@ private fun LocalAiSection(s: AppSettings, store: SettingsStore) {
                     }
                 }
                 when (rt.status) {
-                    com.pronotes.app.editor.LocalModelStatus.DOWNLOADING -> {
+                    LocalModelStatus.DOWNLOADING -> {
                         val dlMb = rt.downloadedBytes / (1024f * 1024f)
                         val totMb = (rt.totalBytes.coerceAtLeast(1L)) / (1024f * 1024f)
                         LinearProgressIndicator(progress = { rt.progress }, modifier = Modifier.fillMaxWidth())
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Downloading ${"%.1f".format(dlMb)} / ${"%.0f".format(totMb)} MB", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                            TextButton(onClick = { com.pronotes.app.editor.LocalAiManager.cancelDownload(context, spec.id) }) { Text("Cancel") }
+                            TextButton(onClick = { LocalAiManager.cancelDownload(context, spec.id) }) { Text("Cancel") }
                         }
                     }
-                    com.pronotes.app.editor.LocalModelStatus.READY -> {
+                    LocalModelStatus.READY -> {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             if (!isActive) {
-                                Button(onClick = { com.pronotes.app.editor.LocalAiManager.activateModel(context, spec.id) }, shape = CircleShape) {
-                                    Text("Use Model")
-                                }
+                                Button(onClick = { LocalAiManager.activateModel(context, spec.id) }, shape = CircleShape) { Text("Use Model") }
                             }
-                            OutlinedButton(onClick = { com.pronotes.app.editor.LocalAiManager.deleteModel(context, spec.id) }, shape = CircleShape) {
-                                Text("Delete")
-                            }
+                            OutlinedButton(onClick = { LocalAiManager.deleteModel(context, spec.id) }, shape = CircleShape) { Text("Delete") }
                         }
                     }
-                    com.pronotes.app.editor.LocalModelStatus.ERROR -> {
+                    LocalModelStatus.ERROR -> {
                         Text(rt.error ?: "Download error", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-                        Button(onClick = { com.pronotes.app.editor.LocalAiManager.startDownload(context, spec.id) }, shape = CircleShape) {
-                            Text("Retry Download")
-                        }
+                        Button(onClick = { LocalAiManager.startDownload(context, spec.id) }, shape = CircleShape) { Text("Retry Download") }
                     }
-                    com.pronotes.app.editor.LocalModelStatus.NOT_DOWNLOADED -> {
-                        Button(onClick = { com.pronotes.app.editor.LocalAiManager.startDownload(context, spec.id) }, shape = CircleShape) {
-                            Text("Download Free (${spec.sizeLabel})")
-                        }
+                    LocalModelStatus.NOT_DOWNLOADED -> {
+                        Button(onClick = { LocalAiManager.startDownload(context, spec.id) }, shape = CircleShape) { Text("Download Free (${spec.sizeLabel})") }
                     }
                 }
             }
         }
         HorizontalDivider()
-        Info("Downloaded GGUF weights are stored privately in app storage and run offline for summaries, explanations, quizzes, and mind maps.")
+        Info("Downloaded GGUF weights are stored privately in app storage and run offline for summaries, flashcards, quizzes, mind maps, and explanations.")
     }
 }
-

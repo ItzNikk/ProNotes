@@ -11,6 +11,7 @@ enum class SideButton(val label: String) { ERASER("Eraser"), LASSO("Lasso"), NON
 /** How long the app waits after a pen-button click before acting (it waits to see if a second click follows). */
 enum class PenClickDelay(val label: String, val ms: Long) { QUICK("Quick", 450), NORMAL("Normal", 700), RELAXED("Relaxed", 1000) }
 enum class EraserMode(val label: String) { STROKE("Whole stroke"), PIXEL("Pixel") }
+enum class ScribbleSensitivity(val label: String) { GENTLE("Gentle"), BALANCED("Balanced"), INSTANT("Instant") }
 enum class HighlighterMode(val label: String) { FREEHAND("Freehand"), AUTO("Auto-straighten"), STRAIGHT("Always straight") }
 enum class LassoMode(val label: String) { FREEFORM("Freeform"), RECT("Rectangle") }
 enum class ThemeMode(val label: String) { SYSTEM("System"), LIGHT("Light"), DARK("Dark") }
@@ -48,7 +49,10 @@ data class PenProfile(
     val sideButton: SideButton = SideButton.ERASER,
     val click: PenAction = PenAction.QUICK_WHEEL,
     val doubleClick: PenAction = PenAction.UNDO,
-)
+    val alias: String = "",
+) {
+    fun displayName(): String = alias.ifBlank { brand.ifBlank { name } }
+}
 
 /** Recognises the pen maker from the Android input device name. */
 object PenBrands {
@@ -89,6 +93,7 @@ data class AppSettings(
     // gestures
     val scribbleToErase: Boolean = true,
     val liveScribbleErase: Boolean = true,
+    val scribbleSensitivity: ScribbleSensitivity = ScribbleSensitivity.BALANCED,
     val holdToShape: Boolean = true,
     val circleToLasso: Boolean = true,
     val fingerTapUndo: Boolean = true,
@@ -125,7 +130,7 @@ data class AppSettings(
     val autoUpdateCheck: Boolean = true,
     /** Remind about new versions: a notification once a day, and the update sheet on launch. */
     val updateReminders: Boolean = true,
-    // smart ink (on-device)
+    // smart ink (on device)
     /** Turn handwriting into typed text a moment after you stop writing. */
     val autoConvert: Boolean = false,
     /** Write "12 x 4 =" and the answer appears. */
@@ -142,7 +147,10 @@ data class AppSettings(
     val liquidGlass: Boolean = true,
     /** Little study buddy that reacts to what you do. */
     val pet: Boolean = true,
+    val petId: String = "sparkchu",
+    val petXp: Int = 45,
     // pens
+    val penName: String = "Pro Stylus",
     val hoverCursor: Boolean = true,
     val penClickDelay: PenClickDelay = PenClickDelay.NORMAL,
     val onboardingDone: Boolean = false,
@@ -170,8 +178,8 @@ data class AppSettings(
     val activeLocalModelId: String = "",
 )
 
-/** A saved pen: type, colour and thickness, one tap away. */
-data class PenPreset(val type: String, val color: Int, val size: Float)
+/** A saved pen: type, colour and thickness, one tap away, with an optional user label. */
+data class PenPreset(val type: String, val color: Int, val size: Float, val name: String = "")
 
 /** Small key-value store; every screen observes [settings]. */
 class SettingsStore private constructor(context: Context) {
@@ -195,6 +203,7 @@ class SettingsStore private constructor(context: Context) {
             haptics = b("haptics", d.haptics),
             scribbleToErase = b("scribble", d.scribbleToErase),
             liveScribbleErase = b("liveScribble", d.liveScribbleErase),
+            scribbleSensitivity = enumOf("scribbleSens", d.scribbleSensitivity),
             holdToShape = b("holdShape", d.holdToShape),
             circleToLasso = b("circleLasso", d.circleToLasso),
             fingerTapUndo = b("fingerTapUndo", d.fingerTapUndo),
@@ -232,6 +241,9 @@ class SettingsStore private constructor(context: Context) {
             paperVolume = prefs.getFloat("paperVol", d.paperVolume),
             liquidGlass = b("glass", d.liquidGlass),
             pet = b("pet", d.pet),
+            petId = prefs.getString("petId", d.petId) ?: d.petId,
+            petXp = prefs.getInt("petXp", d.petXp),
+            penName = prefs.getString("penName", d.penName) ?: d.penName,
             hoverCursor = b("hoverCursor", d.hoverCursor),
             penClickDelay = enumOf("penClickDelay", d.penClickDelay),
             onboardingDone = b("onboardingDone", d.onboardingDone),
@@ -268,6 +280,7 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("haptics", s.haptics)
             .putBoolean("scribble", s.scribbleToErase)
             .putBoolean("liveScribble", s.liveScribbleErase)
+            .putString("scribbleSens", s.scribbleSensitivity.name)
             .putBoolean("holdShape", s.holdToShape)
             .putBoolean("circleLasso", s.circleToLasso)
             .putBoolean("fingerTapUndo", s.fingerTapUndo)
@@ -305,6 +318,9 @@ class SettingsStore private constructor(context: Context) {
             .putFloat("paperVol", s.paperVolume)
             .putBoolean("glass", s.liquidGlass)
             .putBoolean("pet", s.pet)
+            .putString("petId", s.petId)
+            .putInt("petXp", s.petXp)
+            .putString("penName", s.penName)
             .putBoolean("hoverCursor", s.hoverCursor)
             .putString("penClickDelay", s.penClickDelay.name)
             .putBoolean("onboardingDone", s.onboardingDone)
@@ -357,34 +373,57 @@ class SettingsStore private constructor(context: Context) {
     /** Every pen used on this device, with its own settings. */
     val pens: StateFlow<List<PenProfile>> = _pens
 
+    private fun esc(s: String): String = s.replace("\\", "\\\\").replace("\t", " ").replace("\n", " ").replace("|", "/").replace(";", ",")
+
     private fun loadPens(): List<PenProfile> =
         prefs.getString("pens", "")!!.split('\n').mapNotNull { line ->
             val p = line.split('\t')
             if (p.size < 5) null else runCatching {
-                PenProfile(p[0], p[1], SideButton.valueOf(p[2]), PenAction.valueOf(p[3]), PenAction.valueOf(p[4]))
+                PenProfile(
+                    name = p[0],
+                    brand = p[1],
+                    sideButton = SideButton.valueOf(p[2]),
+                    click = PenAction.valueOf(p[3]),
+                    doubleClick = PenAction.valueOf(p[4]),
+                    alias = p.getOrNull(5) ?: "",
+                )
             }.getOrNull()
         }
 
     private fun savePens(list: List<PenProfile>) {
         _pens.value = list
-        prefs.edit().putString("pens", list.joinToString("\n") { "${it.name}\t${it.brand}\t${it.sideButton}\t${it.click}\t${it.doubleClick}" }).apply()
+        prefs.edit().putString(
+            "pens",
+            list.joinToString("\n") {
+                "${esc(it.name)}\t${esc(it.brand)}\t${it.sideButton}\t${it.click}\t${it.doubleClick}\t${esc(it.alias)}"
+            },
+        ).apply()
     }
 
     fun pen(name: String): PenProfile? = _pens.value.firstOrNull { it.name == name }
 
     /** Remembers a pen the first time it is seen. */
-    fun registerPen(name: String, brand: String? = null): PenProfile {
+    fun registerPen(name: String, brand: String? = null, alias: String? = null): PenProfile {
         pen(name)?.let { existing ->
-            if (brand != null && existing.brand != brand) updatePen(existing.copy(brand = brand))
+            val nextBrand = brand ?: existing.brand
+            val nextAlias = alias ?: existing.alias
+            if (nextBrand != existing.brand || nextAlias != existing.alias) {
+                updatePen(existing.copy(brand = nextBrand, alias = nextAlias))
+            }
             return pen(name)!!
         }
-        val p = PenProfile(name, brand ?: PenBrands.detect(name) ?: "Stylus")
+        val p = PenProfile(name, brand ?: PenBrands.detect(name) ?: "Stylus", alias = alias ?: "")
         savePens(_pens.value + p)
         return p
     }
 
     fun updatePen(p: PenProfile) = savePens(_pens.value.map { if (it.name == p.name) p else it })
     fun forgetPen(name: String) = savePens(_pens.value.filterNot { it.name == name })
+
+    fun addPetXp(delta: Int) {
+        if (delta <= 0) return
+        update { it.copy(petXp = it.petXp + delta) }
+    }
 
     // ------------------------------------------------------------ support
     /** Counts launches; true when it is a good moment for a gentle support reminder. */
@@ -406,14 +445,16 @@ class SettingsStore private constructor(context: Context) {
     private fun loadPresets(): List<PenPreset> =
         prefs.getString("penPresets", "")!!.split(';').mapNotNull { e ->
             val p = e.split('|')
-            if (p.size == 3) runCatching { PenPreset(p[0], p[1].toInt(), p[2].toFloat()) }.getOrNull() else null
+            if (p.size >= 3) runCatching { PenPreset(p[0], p[1].toInt(), p[2].toFloat(), p.getOrNull(3) ?: "") }.getOrNull() else null
         }
 
-    fun addPreset(p: PenPreset) = savePresets((_presets.value.filterNot { it == p } + p).takeLast(8))
+    fun addPreset(p: PenPreset) = savePresets((_presets.value.filterNot { it.type == p.type && it.color == p.color && it.size == p.size && it.name == p.name } + p).takeLast(10))
+    fun renamePreset(target: PenPreset, newName: String) =
+        savePresets(_presets.value.map { if (it == target) it.copy(name = newName.trim()) else it })
     fun removePreset(p: PenPreset) = savePresets(_presets.value - p)
     private fun savePresets(list: List<PenPreset>) {
         _presets.value = list
-        prefs.edit().putString("penPresets", list.joinToString(";") { "${it.type}|${it.color}|${it.size}" }).apply()
+        prefs.edit().putString("penPresets", list.joinToString(";") { "${it.type}|${it.color}|${it.size}|${esc(it.name)}" }).apply()
     }
 
     // ------------------------------------------------------------------ tabs

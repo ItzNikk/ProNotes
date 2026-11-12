@@ -30,6 +30,7 @@ import {
   NotebookMeta,
 } from '../types/models';
 import { CoverCanvas, FolderArt, NewNotebookModal, NewNotebookPayload } from './CoversAndPatterns';
+import { getCompanionSpec, PetAvatarSvg } from './PipPet';
 import { LOCAL_MODELS_CATALOG } from '../utils/localAi';
 
 type Section = 'DOCUMENTS' | 'FAVORITES' | 'RECENT' | 'TRASH';
@@ -53,6 +54,127 @@ interface LibraryScreenProps {
   onOpenSettings: () => void;
   onOpenLocalModels: () => void;
 }
+
+const formatDate = (ts: number) =>
+  new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+
+const NotebookGridCard = React.memo<{
+  note: NotebookMeta;
+  menuOpen: boolean;
+  onOpen: (id: string) => void;
+  onToggleMenu: (id: string) => void;
+  onDragStart: (id: string) => void;
+  onToggleFavorite: (id: string) => void;
+  onDuplicate: (id: string) => void;
+  onSoftDelete: (id: string) => void;
+  onRestore: (id: string) => void;
+  onDeleteForever: (id: string) => void;
+}>(({
+  note,
+  menuOpen,
+  onOpen,
+  onToggleMenu,
+  onDragStart,
+  onToggleFavorite,
+  onDuplicate,
+  onSoftDelete,
+  onRestore,
+  onDeleteForever,
+}) => (
+  <div
+    draggable={note.deletedAt === null}
+    onDragStart={() => onDragStart(note.id)}
+    className="group relative flex flex-col items-center"
+  >
+    <div
+      onClick={() => (note.deletedAt === null ? onOpen(note.id) : onToggleMenu(note.id))}
+      className="relative cursor-pointer transition-transform duration-200 group-hover:-translate-y-1"
+    >
+      <CoverCanvas spec={note.cover} title={note.title} width={154} height={206} />
+      {note.favorite && (
+        <Star className="absolute right-2.5 top-2.5 h-4 w-4 fill-amber-400 text-amber-400 drop-shadow" />
+      )}
+      {(note.isWhiteboard || note.isMindMap) && (
+        <span className="absolute bottom-2.5 left-2.5 inline-flex items-center gap-1 rounded-md bg-black/65 px-1.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">
+          {note.isMindMap ? (
+            <>
+              <Brain className="h-2.5 w-2.5" /> Mind Map
+            </>
+          ) : (
+            <>
+              <Layers className="h-2.5 w-2.5" /> Board
+            </>
+          )}
+        </span>
+      )}
+    </div>
+
+    <div className="mt-2.5 flex w-full max-w-[154px] items-start justify-between gap-1">
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-semibold">{note.title}</div>
+        <div className="font-mono-num text-[11px] text-slate-500 dark:text-slate-400">
+          {formatDate(note.modified)}
+        </div>
+      </div>
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => onToggleMenu(note.id)}
+          className="rounded-lg p-1 text-slate-400 hover:bg-black/5 hover:text-slate-700 dark:hover:bg-white/10"
+        >
+          <MoreVertical className="h-4 w-4" />
+        </button>
+        {menuOpen && (
+          <div className="absolute right-0 top-full z-40 mt-1 w-44 rounded-2xl border border-black/10 bg-white p-1.5 shadow-xl dark:border-white/10 dark:bg-[#22232A]">
+            {note.deletedAt === null ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onToggleFavorite(note.id)}
+                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  <Star className="h-3.5 w-3.5" />
+                  {note.favorite ? 'Remove favorite' : 'Add favorite'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDuplicate(note.id)}
+                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  <Copy className="h-3.5 w-3.5" /> Duplicate
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSoftDelete(note.id)}
+                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-500/10"
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Move to Trash
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onRestore(note.id)}
+                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" /> Restore
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDeleteForever(note.id)}
+                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-500/10"
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Delete Forever
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+));
 
 export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   folders,
@@ -93,6 +215,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   const accent = ACCENT_COLORS[settings.accent];
   const readyModelCount = LOCAL_MODELS_CATALOG.filter((m) => modelStates[m.id]?.status === 'READY').length;
   const activeModel = LOCAL_MODELS_CATALOG.find((m) => m.id === settings.activeLocalModelId);
+  const companion = getCompanionSpec(settings.petId);
 
   const trashCount = useMemo(() => notebooks.filter((n) => n.deletedAt !== null).length, [notebooks]);
 
@@ -141,28 +264,19 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   const handleImportImageNote = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const src = reader.result as string;
-      const now = Date.now();
-      onCreateNotebook({
-        title: file.name.replace(/\.[^.]+$/, ''),
-        cover: 'pattern:linen:#3D6CF4',
-        coverColor: '#3D6CF4',
-        paper: 'BLANK',
-        width: 1240,
-        height: 1754,
-        paperColor: '#FFFFFF',
-        coverPage: false,
-        isWhiteboard: false,
-        isMindMap: false,
-        folderId,
-      });
-      // Store reference cleanly if needed later via page bg
-      void src;
-      void now;
-    };
-    reader.readAsDataURL(file);
+    onCreateNotebook({
+      title: file.name.replace(/\.[^.]+$/, ''),
+      cover: 'pattern:linen:#3D6CF4',
+      coverColor: '#3D6CF4',
+      paper: 'BLANK',
+      width: 1200,
+      height: 1697,
+      paperColor: '#FFFFFF',
+      coverPage: false,
+      isWhiteboard: false,
+      isMindMap: false,
+      folderId,
+    });
     e.target.value = '';
   };
 
@@ -176,12 +290,8 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
     setDropHoverId(null);
   };
 
-  const formatDate = (ts: number) =>
-    new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#F7F7F5] text-[#1B1F2A] dark:bg-[#0F0F0F] dark:text-[#F3F4F6]">
-      {/* Left Sidebar */}
       {sidebarOpen && (
         <aside className="flex w-60 shrink-0 flex-col border-r border-black/8 bg-[#EFEFEF]/85 px-3.5 py-4 dark:border-white/8 dark:bg-[#171718]">
           <div className="mb-5 flex items-center justify-between px-1.5">
@@ -196,7 +306,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
               </div>
               <div>
                 <h1 className="text-base font-bold leading-tight tracking-tight">Pro Notes</h1>
-                <span className="text-[11px] text-slate-500 dark:text-slate-400">Studio v9.6</span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">Studio v9.8</span>
               </div>
             </div>
             <button
@@ -264,8 +374,27 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
             })}
           </nav>
 
-          {/* On-Device AI Status Card */}
+          {/* Companion & On-Device AI Status */}
           <div className="mt-auto space-y-2 pt-4">
+            {settings.pet && (
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="flex w-full items-center gap-2.5 rounded-2xl border border-black/8 bg-white/75 px-3 py-2 text-left transition hover:border-blue-500/35 dark:border-white/10 dark:bg-[#202126]"
+              >
+                <PetAvatarSvg petId={settings.petId} className="h-8 w-8 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between text-xs font-bold">
+                    <span className="truncate">{companion.name}</span>
+                    <span className="font-mono-num text-[10px] text-blue-600 dark:text-blue-400">
+                      Lv.{settings.petBond?.level ?? 1}
+                    </span>
+                  </div>
+                  <div className="truncate text-[10px] text-slate-500">{companion.title}</div>
+                </div>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={onOpenLocalModels}
@@ -280,7 +409,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                 </span>
               </div>
               <span className="truncate text-[11px] text-slate-500 dark:text-slate-400">
-                {activeModel ? activeModel.name : 'Download free offline models'}
+                {activeModel ? activeModel.name : '9 free offline models'}
               </span>
             </button>
 
@@ -296,9 +425,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
         </aside>
       )}
 
-      {/* Main Content */}
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        {/* Top Bar */}
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-black/8 bg-white/75 px-6 py-4 backdrop-blur-md dark:border-white/8 dark:bg-[#141415]/80">
           <div className="flex items-center gap-2">
             {!sidebarOpen && (
@@ -311,11 +438,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
               </button>
             )}
             <div className="flex items-center gap-1.5 text-lg font-bold tracking-tight">
-              <button
-                type="button"
-                onClick={() => setFolderId(null)}
-                className="hover:underline"
-              >
+              <button type="button" onClick={() => setFolderId(null)} className="hover:underline">
                 {section === 'DOCUMENTS'
                   ? 'Documents'
                   : section === 'FAVORITES'
@@ -327,11 +450,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
               {breadcrumbs.map((f) => (
                 <React.Fragment key={f.id}>
                   <ChevronRight className="h-4 w-4 text-slate-400" />
-                  <button
-                    type="button"
-                    onClick={() => setFolderId(f.id)}
-                    className="hover:underline"
-                  >
+                  <button type="button" onClick={() => setFolderId(f.id)} className="hover:underline">
                     {f.name}
                   </button>
                 </React.Fragment>
@@ -380,7 +499,6 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
           </div>
         </header>
 
-        {/* Action Strip */}
         {section !== 'TRASH' ? (
           <div className="flex flex-wrap items-center gap-2.5 px-6 pt-5 pb-2">
             <button
@@ -434,7 +552,6 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
           )
         )}
 
-        {/* Grid / List Content */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
           {visibleFolders.length === 0 && visibleNotebooks.length === 0 ? (
             <div className="flex h-72 flex-col items-center justify-center text-center">
@@ -480,7 +597,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                         type="button"
                         onClick={() => onDeleteFolder(f.id)}
                         title="Delete folder"
-                        className="opacity-0 transition group-hover:opacity-100 rounded p-1 text-slate-400 hover:text-red-500"
+                        className="rounded p-1 text-slate-400 opacity-0 transition group-hover:opacity-100 hover:text-red-500"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -490,115 +607,34 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
               })}
 
               {visibleNotebooks.map((note) => (
-                <div
+                <NotebookGridCard
                   key={note.id}
-                  draggable={note.deletedAt === null}
-                  onDragStart={() => setDragPayload(`note:${note.id}`)}
-                  className="group relative flex flex-col items-center"
-                >
-                  <div
-                    onClick={() => (note.deletedAt === null ? onOpenNote(note.id) : setMenuId(note.id))}
-                    className="relative cursor-pointer transition-transform duration-200 group-hover:-translate-y-1"
-                  >
-                    <CoverCanvas spec={note.cover} title={note.title} width={154} height={206} />
-                    {note.favorite && (
-                      <Star className="absolute right-2.5 top-2.5 h-4 w-4 fill-amber-400 text-amber-400 drop-shadow" />
-                    )}
-                    {(note.isWhiteboard || note.isMindMap) && (
-                      <span className="absolute bottom-2.5 left-2.5 inline-flex items-center gap-1 rounded-md bg-black/65 px-1.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">
-                        {note.isMindMap ? (
-                          <>
-                            <Brain className="h-2.5 w-2.5" /> Mind Map
-                          </>
-                        ) : (
-                          <>
-                            <Layers className="h-2.5 w-2.5" /> Board
-                          </>
-                        )}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="mt-2.5 flex w-full max-w-[154px] items-start justify-between gap-1">
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-semibold">{note.title}</div>
-                      <div className="font-mono-num text-[11px] text-slate-500 dark:text-slate-400">
-                        {formatDate(note.modified)}
-                      </div>
-                    </div>
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={() => setMenuId(menuId === note.id ? null : note.id)}
-                        className="rounded-lg p-1 text-slate-400 hover:bg-black/5 hover:text-slate-700 dark:hover:bg-white/10"
-                      >
-                        <MoreVertical className="h-4 w-4" />
-                      </button>
-                      {menuId === note.id && (
-                        <div className="absolute right-0 top-full z-40 mt-1 w-44 rounded-2xl border border-black/10 bg-white p-1.5 shadow-xl dark:border-white/10 dark:bg-[#22232A]">
-                          {note.deletedAt === null ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  onUpdateNotebook(note.id, (n) => ({ ...n, favorite: !n.favorite }));
-                                  setMenuId(null);
-                                }}
-                                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium hover:bg-black/5 dark:hover:bg-white/10"
-                              >
-                                <Star className="h-3.5 w-3.5" />
-                                {note.favorite ? 'Remove favorite' : 'Add favorite'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  onDuplicateNotebook(note.id);
-                                  setMenuId(null);
-                                }}
-                                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium hover:bg-black/5 dark:hover:bg-white/10"
-                              >
-                                <Copy className="h-3.5 w-3.5" /> Duplicate
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  onSoftDeleteNotebook(note.id);
-                                  setMenuId(null);
-                                }}
-                                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-500/10"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" /> Move to Trash
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  onRestoreNotebook(note.id);
-                                  setMenuId(null);
-                                }}
-                                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium hover:bg-black/5 dark:hover:bg-white/10"
-                              >
-                                <RotateCcw className="h-3.5 w-3.5" /> Restore
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  onDeleteForeverNotebook(note.id);
-                                  setMenuId(null);
-                                }}
-                                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-500/10"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" /> Delete Forever
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                  note={note}
+                  menuOpen={menuId === note.id}
+                  onOpen={onOpenNote}
+                  onToggleMenu={(id) => setMenuId((cur) => (cur === id ? null : id))}
+                  onDragStart={(id) => setDragPayload(`note:${id}`)}
+                  onToggleFavorite={(id) => {
+                    onUpdateNotebook(id, (n) => ({ ...n, favorite: !n.favorite }));
+                    setMenuId(null);
+                  }}
+                  onDuplicate={(id) => {
+                    onDuplicateNotebook(id);
+                    setMenuId(null);
+                  }}
+                  onSoftDelete={(id) => {
+                    onSoftDeleteNotebook(id);
+                    setMenuId(null);
+                  }}
+                  onRestore={(id) => {
+                    onRestoreNotebook(id);
+                    setMenuId(null);
+                  }}
+                  onDeleteForever={(id) => {
+                    onDeleteForeverNotebook(id);
+                    setMenuId(null);
+                  }}
+                />
               ))}
             </div>
           ) : (
@@ -634,7 +670,6 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
         </div>
       </main>
 
-      {/* New Notebook / Whiteboard / Mind Map Modal */}
       <NewNotebookModal
         open={newModal.open}
         defaults={settings}
@@ -646,7 +681,6 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
         }}
       />
 
-      {/* New Folder Modal */}
       {newFolderOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-3xl border border-black/10 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-[#191A1F]">

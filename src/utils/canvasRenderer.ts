@@ -802,10 +802,12 @@ export function drawInkStroke(
     return;
   }
 
-  ctx.globalAlpha = alphaOverride ?? 1;
-  ctx.lineCap = 'round';
+  const baseAlpha = (item.opacity ?? 1) * (alphaOverride ?? 1);
+  ctx.globalAlpha = item.penKind === 'pencil' ? baseAlpha * 0.84 : baseAlpha;
+  ctx.lineCap = item.penKind === 'fineliner' ? 'butt' : 'round';
   ctx.lineJoin = 'round';
   ctx.strokeStyle = item.color;
+  if (item.dashed) ctx.setLineDash([Math.max(4, item.size * 2), Math.max(4, item.size * 1.5)]);
 
   if (pts.length === 1) {
     ctx.fillStyle = item.color;
@@ -818,7 +820,7 @@ export function drawInkStroke(
 
   const hasPressure = item.penKind === 'fountain' || item.penKind === 'brush';
   if (!hasPressure) {
-    ctx.lineWidth = item.size;
+    ctx.lineWidth = item.penKind === 'fineliner' ? Math.max(1, item.size * 0.8) : item.size;
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
     for (let i = 1; i < pts.length - 1; i++) {
@@ -828,12 +830,19 @@ export function drawInkStroke(
     }
     ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
     ctx.stroke();
+    if (item.penKind === 'pencil' && pts.length > 3) {
+      // Subtle dual graphite tooth pass
+      ctx.globalAlpha = baseAlpha * 0.25;
+      ctx.lineWidth = Math.max(1, item.size * 0.5);
+      ctx.setLineDash([1.5, 2.5]);
+      ctx.stroke();
+    }
   } else {
     for (let i = 1; i < pts.length; i++) {
       const a = pts[i - 1];
       const b = pts[i];
       const p = b.p ?? 0.65;
-      const mult = item.penKind === 'brush' ? 0.55 + p * 0.9 : 0.7 + p * 0.55;
+      const mult = item.penKind === 'brush' ? 0.5 + p * 0.98 : 0.68 + p * 0.58;
       ctx.lineWidth = Math.max(1, item.size * mult);
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
@@ -940,8 +949,9 @@ export function drawTapeItem(ctx: CanvasRenderingContext2D, item: TapeItem): voi
 
 export function drawStickyItem(ctx: CanvasRenderingContext2D, item: StickyItem): void {
   ctx.save();
+  const renderH = item.collapsed ? 52 : item.h;
   const cx = item.x + item.w / 2;
-  const cy = item.y + item.h / 2;
+  const cy = item.y + renderH / 2;
   if (item.rot) {
     ctx.translate(cx, cy);
     ctx.rotate((item.rot * Math.PI) / 180);
@@ -952,26 +962,58 @@ export function drawStickyItem(ctx: CanvasRenderingContext2D, item: StickyItem):
   ctx.shadowOffsetY = 5;
   ctx.fillStyle = item.color;
   ctx.beginPath();
-  ctx.roundRect(item.x, item.y, item.w, item.h, 8);
+  ctx.roundRect(item.x, item.y, item.w, renderH, 10);
   ctx.fill();
   ctx.shadowColor = 'transparent';
 
-  // Subtle folded bottom-right corner
-  ctx.fillStyle = 'rgba(0,0,0,0.08)';
+  // Subtle top bar tint
+  ctx.fillStyle = 'rgba(0,0,0,0.045)';
   ctx.beginPath();
-  ctx.moveTo(item.x + item.w - 20, item.y + item.h);
-  ctx.lineTo(item.x + item.w, item.y + item.h - 20);
-  ctx.lineTo(item.x + item.w - 20, item.y + item.h - 20);
-  ctx.closePath();
+  ctx.roundRect(item.x, item.y, item.w, 24, [10, 10, 0, 0]);
   ctx.fill();
+
+  // Pinned indicator dot
+  if (item.pinned) {
+    ctx.fillStyle = '#E11D48';
+    ctx.beginPath();
+    ctx.arc(item.x + 14, item.y + 12, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  if (!item.collapsed) {
+    // Subtle folded bottom-right corner
+    ctx.fillStyle = 'rgba(0,0,0,0.09)';
+    ctx.beginPath();
+    ctx.moveTo(item.x + item.w - 20, item.y + renderH);
+    ctx.lineTo(item.x + item.w, item.y + renderH - 20);
+    ctx.lineTo(item.x + item.w - 20, item.y + renderH - 20);
+    ctx.closePath();
+    ctx.fill();
+  }
 
   // Text wrapping inside sticky
   ctx.fillStyle = '#1F232E';
-  const fontSize = Math.max(14, Math.min(26, item.w * 0.085));
-  ctx.font = `500 ${fontSize}px "DM Sans", sans-serif`;
+  const fontSize = item.fontSize ?? Math.max(15, Math.min(26, item.w * 0.08));
+  const fam =
+    item.font === 'SERIF'
+      ? 'Georgia, serif'
+      : item.font === 'MONO'
+        ? '"JetBrains Mono", monospace'
+        : item.font === 'HAND'
+          ? '"Caveat", cursive'
+          : '"DM Sans", sans-serif';
+  ctx.font = `500 ${fontSize}px ${fam}`;
+
+  if (item.collapsed) {
+    const firstLine = (item.text.split('\n')[0] || 'Sticky note').slice(0, 32);
+    ctx.fillText(firstLine, item.x + (item.pinned ? 26 : 12), item.y + 38);
+    ctx.restore();
+    return;
+  }
+
   const maxW = item.w - 28;
   const lineH = fontSize * 1.32;
-  let ty = item.y + 22 + fontSize;
+  let ty = item.y + 30 + fontSize;
   for (const para of item.text.split('\n')) {
     const words = para.split(' ');
     let line = '';
@@ -981,12 +1023,12 @@ export function drawStickyItem(ctx: CanvasRenderingContext2D, item: StickyItem):
         ctx.fillText(line, item.x + 14, ty);
         line = w;
         ty += lineH;
-        if (ty > item.y + item.h - 14) break;
+        if (ty > item.y + renderH - 14) break;
       } else {
         line = test;
       }
     }
-    if (line && ty <= item.y + item.h - 10) {
+    if (line && ty <= item.y + renderH - 10) {
       ctx.fillText(line, item.x + 14, ty);
       ty += lineH;
     }

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AppSettings,
+  DEFAULT_PEN_PRESETS,
   Flashcard,
   Folder,
   InkItem,
@@ -10,6 +11,8 @@ import {
   Page,
   PageItem,
   PaperStyle,
+  PenPreset,
+  PetId,
   UNITS_PER_MM,
 } from '../types/models';
 import {
@@ -45,8 +48,17 @@ const DEFAULT_SETTINGS: AppSettings = {
   showTabs: true,
   pageNumbers: true,
   pet: true,
+  petId: 'sparkchu',
+  petBond: {
+    petId: 'sparkchu',
+    xp: 45,
+    level: 2,
+    treatsGiven: 2,
+    petsGiven: 5,
+  },
   scribbleToErase: true,
   liveScribbleErase: true,
+  scribbleSensitivity: 'balanced',
   holdToShape: true,
   circleToLasso: true,
   mathAssist: true,
@@ -54,6 +66,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   highlighterMode: 'AUTO',
   highlighterOpacity: 0.58,
   eraserMode: 'STROKE',
+  eraseHighlighterOnly: false,
   lassoMode: 'FREEFORM',
   lassoTouching: false,
   studyTimer: true,
@@ -62,6 +75,13 @@ const DEFAULT_SETTINGS: AppSettings = {
   activeLocalModelId: null,
   aiAnimations: true,
   whiteboardGridSnap: false,
+  penName: 'Pro Stylus',
+  penKind: 'fountain',
+  penColor: '#1B1F2A',
+  penSize: 3.5,
+  penOpacity: 1,
+  penStabilizer: 0.35,
+  penPresets: DEFAULT_PEN_PRESETS,
 };
 
 function makeWaveInk(id: string, x0: number, y0: number, color: string): InkItem {
@@ -79,8 +99,8 @@ function makeWaveInk(id: string, x0: number, y0: number, color: string): InkItem
 
 function createStarterData(): ProNotesState {
   const now = Date.now();
-  const a4W = Math.round(210 * UNITS_PER_MM); // 1240
-  const a4H = Math.round(297 * UNITS_PER_MM); // 1754
+  const a4W = Math.round(210 * UNITS_PER_MM);
+  const a4H = Math.round(297 * UNITS_PER_MM);
 
   const folderMath: Folder = {
     id: 'fld-stem',
@@ -120,7 +140,7 @@ function createStarterData(): ProNotesState {
           {
             id: 'txt-m1',
             kind: 'text',
-            text: 'Linear, Quadratic & Unit Equations',
+            text: 'Linear, Quadratic & Calculus Equations',
             x: 155,
             y: 112,
             size: 36,
@@ -131,7 +151,7 @@ function createStarterData(): ProNotesState {
           {
             id: 'txt-m2',
             kind: 'text',
-            text: 'Tip: Select any expression below with Maths Quick-Solve or write on the canvas with Pen.\nScribble zig-zag directly across any ink stroke while drawing to erase it live!',
+            text: 'Tip: Select any expression below with Maths Quick-Solve or write on the canvas with Pen.\nScribble zig-zag directly across ink while drawing to erase it live!',
             x: 155,
             y: 192,
             size: 23,
@@ -141,7 +161,7 @@ function createStarterData(): ProNotesState {
           {
             id: 'txt-m3',
             kind: 'text',
-            text: '2x + 3 = x + 7',
+            text: '2x(x + 1) - 4 = 0',
             x: 165,
             y: 310,
             size: 34,
@@ -151,8 +171,8 @@ function createStarterData(): ProNotesState {
           {
             id: 'txt-m3-ans',
             kind: 'text',
-            text: '→ x = 4',
-            x: 410,
+            text: '→ x = -2, 1',
+            x: 440,
             y: 310,
             size: 34,
             color: '#E69A28',
@@ -162,7 +182,7 @@ function createStarterData(): ProNotesState {
           {
             id: 'txt-m4',
             kind: 'text',
-            text: 'x^2 - 5x + 6 = 0',
+            text: '2^x = 16',
             x: 165,
             y: 410,
             size: 34,
@@ -172,8 +192,8 @@ function createStarterData(): ProNotesState {
           {
             id: 'txt-m4-ans',
             kind: 'text',
-            text: '→ x = 2, 3',
-            x: 430,
+            text: '→ x = 4',
+            x: 340,
             y: 410,
             size: 34,
             color: '#E69A28',
@@ -199,8 +219,9 @@ function createStarterData(): ProNotesState {
             w: 320,
             h: 220,
             color: '#FFF3B0',
-            text: 'Exam Formulae:\n• sind(30) + cosd(60) = 1\n• 20% of 150 = 30\n• 72 f to c = 22.22 °C',
+            text: 'Exam Formulae:\n• sind(30) + cosd(60) = 1\n• d/dx(3x^2 - 4x) = 6x - 4\n• 72 f to c = 22.22 °C',
             rot: -2,
+            pinned: true,
           },
           {
             id: 'tape-m1',
@@ -291,7 +312,7 @@ function createStarterData(): ProNotesState {
             w: 250,
             h: 190,
             color: '#CFE2FF',
-            text: 'On-Device AI\n• SmolLM2 135M\n• Qwen 2.5 0.5B\n• Offline Study Gen',
+            text: 'On-Device AI\n• SmolLM2 135M & 360M\n• Qwen 2.5 & Gemma 3\n• Offline Study Gen',
             rot: 1.5,
           },
           {
@@ -324,78 +345,12 @@ function createStarterData(): ProNotesState {
   };
   const mmNodes: MindNodeItem[] = [
     rootNode,
-    {
-      id: 'mm-2',
-      kind: 'mindnode',
-      x: 140,
-      y: 180,
-      w: 170,
-      h: 44,
-      label: 'Glycolysis',
-      parentId: 'mm-1',
-      color: '#3D6CF4',
-      shape: 'card',
-    },
-    {
-      id: 'mm-2a',
-      kind: 'mindnode',
-      x: 50,
-      y: 90,
-      w: 155,
-      h: 36,
-      label: '2 ATP + 2 Pyruvate',
-      parentId: 'mm-2',
-      color: '#3D6CF4',
-      shape: 'pill',
-    },
-    {
-      id: 'mm-3',
-      kind: 'mindnode',
-      x: 820,
-      y: 180,
-      w: 170,
-      h: 44,
-      label: 'Krebs Cycle',
-      parentId: 'mm-1',
-      color: '#2BB673',
-      shape: 'card',
-    },
-    {
-      id: 'mm-3a',
-      kind: 'mindnode',
-      x: 920,
-      y: 90,
-      w: 165,
-      h: 36,
-      label: 'Mitochondrial Matrix',
-      parentId: 'mm-3',
-      color: '#2BB673',
-      shape: 'pill',
-    },
-    {
-      id: 'mm-4',
-      kind: 'mindnode',
-      x: 140,
-      y: 520,
-      w: 180,
-      h: 44,
-      label: 'Electron Transport',
-      parentId: 'mm-1',
-      color: '#9B51E0',
-      shape: 'card',
-    },
-    {
-      id: 'mm-5',
-      kind: 'mindnode',
-      x: 820,
-      y: 520,
-      w: 170,
-      h: 44,
-      label: '36–38 Total ATP',
-      parentId: 'mm-1',
-      color: '#F2994A',
-      shape: 'card',
-    },
+    { id: 'mm-2', kind: 'mindnode', x: 140, y: 180, w: 170, h: 44, label: 'Glycolysis', parentId: 'mm-1', color: '#3D6CF4', shape: 'card' },
+    { id: 'mm-2a', kind: 'mindnode', x: 50, y: 90, w: 155, h: 36, label: '2 ATP + 2 Pyruvate', parentId: 'mm-2', color: '#3D6CF4', shape: 'pill' },
+    { id: 'mm-3', kind: 'mindnode', x: 820, y: 180, w: 170, h: 44, label: 'Krebs Cycle', parentId: 'mm-1', color: '#2BB673', shape: 'card' },
+    { id: 'mm-3a', kind: 'mindnode', x: 920, y: 90, w: 165, h: 36, label: 'Mitochondrial Matrix', parentId: 'mm-3', color: '#2BB673', shape: 'pill' },
+    { id: 'mm-4', kind: 'mindnode', x: 140, y: 520, w: 180, h: 44, label: 'Electron Transport', parentId: 'mm-1', color: '#9B51E0', shape: 'card' },
+    { id: 'mm-5', kind: 'mindnode', x: 820, y: 520, w: 170, h: 44, label: '36–38 Total ATP', parentId: 'mm-1', color: '#F2994A', shape: 'card' },
   ];
 
   const nbMind: NotebookMeta = {
@@ -466,6 +421,18 @@ function loadInitialState(): ProNotesState {
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<ProNotesState>;
       if (parsed && Array.isArray(parsed.notebooks) && parsed.notebooks.length > 0) {
+        const mergedSettings: AppSettings = {
+          ...DEFAULT_SETTINGS,
+          ...(parsed.settings || {}),
+          petBond: {
+            ...DEFAULT_SETTINGS.petBond,
+            ...(parsed.settings?.petBond || {}),
+          },
+          penPresets:
+            parsed.settings?.penPresets && parsed.settings.penPresets.length > 0
+              ? parsed.settings.penPresets
+              : DEFAULT_PEN_PRESETS,
+        };
         return {
           folders: parsed.folders || [],
           notebooks: parsed.notebooks,
@@ -473,7 +440,7 @@ function loadInitialState(): ProNotesState {
           flashcards: parsed.flashcards || [],
           bestQuizScores: parsed.bestQuizScores || {},
           studyMinutes: parsed.studyMinutes || {},
-          settings: { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) },
+          settings: mergedSettings,
         };
       }
     }
@@ -486,14 +453,35 @@ function loadInitialState(): ProNotesState {
 export function useProNotesStore() {
   const [state, setState] = useState<ProNotesState>(loadInitialState);
   const [modelStates, setModelStates] = useState<Record<string, LocalModelState>>(loadModelStates);
+  const latestStateRef = useRef(state);
+  latestStateRef.current = state;
+
+  // Debounced localStorage persistence (prevents synchronous JSON.stringify stalls on every stroke/drag)
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        localStorage.setItem(STATE_KEY, JSON.stringify(latestStateRef.current));
+      } catch {
+        // ignore quota limits
+      }
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [state]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STATE_KEY, JSON.stringify(state));
-    } catch {
-      // ignore quota limits
-    }
-  }, [state]);
+    const flush = () => {
+      try {
+        localStorage.setItem(STATE_KEY, JSON.stringify(latestStateRef.current));
+      } catch {
+        // ignore
+      }
+    };
+    window.addEventListener('beforeunload', flush);
+    return () => {
+      flush();
+      window.removeEventListener('beforeunload', flush);
+    };
+  }, []);
 
   useEffect(() => {
     saveModelStates(modelStates);
@@ -503,6 +491,61 @@ export function useProNotesStore() {
     setState((prev) => ({
       ...prev,
       settings: { ...prev.settings, ...patch },
+    }));
+  }, []);
+
+  const switchPet = useCallback((petId: PetId) => {
+    setState((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        petId,
+        petBond: { ...prev.settings.petBond, petId },
+      },
+    }));
+  }, []);
+
+  const recordPetAction = useCallback((kind: 'pet' | 'treat' | 'study', xpGain = 8) => {
+    setState((prev) => {
+      const cur = prev.settings.petBond;
+      const xp = cur.xp + xpGain;
+      const level = Math.max(1, Math.floor(xp / 50) + 1);
+      return {
+        ...prev,
+        settings: {
+          ...prev.settings,
+          petBond: {
+            ...cur,
+            xp,
+            level,
+            treatsGiven: cur.treatsGiven + (kind === 'treat' ? 1 : 0),
+            petsGiven: cur.petsGiven + (kind === 'pet' ? 1 : 0),
+          },
+        },
+      };
+    });
+  }, []);
+
+  const savePenPreset = useCallback((preset: PenPreset) => {
+    setState((prev) => {
+      const exists = prev.settings.penPresets.some((p) => p.id === preset.id);
+      const next = exists
+        ? prev.settings.penPresets.map((p) => (p.id === preset.id ? preset : p))
+        : [...prev.settings.penPresets, preset];
+      return {
+        ...prev,
+        settings: { ...prev.settings, penPresets: next },
+      };
+    });
+  }, []);
+
+  const deletePenPreset = useCallback((id: string) => {
+    setState((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        penPresets: prev.settings.penPresets.filter((p) => p.id !== id),
+      },
     }));
   }, []);
 
@@ -801,6 +844,10 @@ export function useProNotesStore() {
     state,
     modelStates,
     updateSettings,
+    switchPet,
+    recordPetAction,
+    savePenPreset,
+    deletePenPreset,
     createFolder,
     updateFolder,
     deleteFolder,

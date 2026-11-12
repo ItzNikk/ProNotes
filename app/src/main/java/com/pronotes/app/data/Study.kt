@@ -21,6 +21,7 @@ data class Flashcard(
     val due: Long = 0L,
     val reviews: Int = 0,
     val created: Long = 0L,
+    val lapses: Int = 0,
 )
 
 /** An ink link: a tap on one end jumps to the other, across pages. Points are in page space. */
@@ -78,15 +79,25 @@ class StudyStore(private val dir: File) {
         /** Days until the next review for each box. */
         private val gaps = longArrayOf(0, 1, 3, 7, 16, 35)
 
-        /** Spaced repetition: "again" starts over, "good" moves up one box, "easy" two. */
+        /** Spaced repetition (4 grades): 0 = Again, 1 = Hard, 2 = Good, 3 = Easy. */
         fun review(card: Flashcard, grade: Int, now: Long = System.currentTimeMillis()): Flashcard {
             val box = when (grade) {
                 0 -> 0
-                1 -> (card.box + 1).coerceAtMost(5)
+                1 -> card.box.coerceAtLeast(1)
+                2 -> (card.box + 1).coerceAtMost(5)
                 else -> (card.box + 2).coerceAtMost(5)
             }
-            val due = if (grade == 0) now + 10 * 60 * 1000 else now + gaps[box].coerceAtLeast(1) * DAY
-            return card.copy(box = box, due = due, reviews = card.reviews + 1)
+            val due = when (grade) {
+                0 -> now + 10 * 60 * 1000
+                1 -> now + 12 * 60 * 60 * 1000
+                else -> now + gaps[box].coerceAtLeast(1) * DAY
+            }
+            return card.copy(
+                box = box,
+                due = due,
+                reviews = card.reviews + 1,
+                lapses = card.lapses + if (grade == 0) 1 else 0,
+            )
         }
     }
 }

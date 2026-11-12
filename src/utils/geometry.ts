@@ -1,4 +1,4 @@
-import { PageItem, ShapeKind, StrokePt } from '../types/models';
+import { InkItem, PageItem, ScribbleSensitivity, ShapeKind, StrokePt } from '../types/models';
 
 export interface Pt {
   x: number;
@@ -106,33 +106,10 @@ export function isClosedLoop(pts: Pt[]): boolean {
   return early.some((p) => dist(p, end) < size * 0.28) && pathLength(pts) > size * 2.1;
 }
 
-export function isLooseLoop(pts: Pt[]): boolean {
-  if (isClosedLoop(pts)) return true;
-  if (pts.length < 10) return false;
-  let cx = 0;
-  let cy = 0;
-  for (const p of pts) {
-    cx += p.x;
-    cy += p.y;
-  }
-  cx /= pts.length;
-  cy /= pts.length;
-  let turned = 0;
-  let prev = Math.atan2(pts[0].y - cy, pts[0].x - cx);
-  for (let i = 1; i < pts.length; i++) {
-    const a = Math.atan2(pts[i].y - cy, pts[i].x - cx);
-    let d = a - prev;
-    if (d > Math.PI) d -= 2 * Math.PI;
-    if (d < -Math.PI) d += 2 * Math.PI;
-    turned += d;
-    prev = a;
-  }
-  return Math.abs(turned) > (300 * Math.PI) / 180;
-}
-
 /**
- * Enhanced Scribble-to-Erase (Zig-Zag + PCA + Multi-directional).
- * Works both on finished strokes (`isScribble`) AND continuously while drawing (`isLiveScribble`).
+ * Enhanced Multi-axis & Zig-Zag Scribble Detector with sensitivity calibration.
+ * Detects rapid back-and-forth scrubbing horizontal, vertical, or diagonal,
+ * as well as tight circular cross-outs.
  */
 function axisReversals(pts: Pt[], threshFrac: number): { reversals: number; extent: number } {
   let mx = 0;
@@ -158,7 +135,6 @@ function axisReversals(pts: Pt[], threshFrac: number): { reversals: number; exte
   const ux = Math.cos(theta);
   const uy = Math.sin(theta);
 
-  // Also check orthogonal axis so diagonal/vertical zig-zags work reliably
   const proj1 = pts.map((p) => p.x * ux + p.y * uy);
   const proj2 = pts.map((p) => -p.x * uy + p.y * ux);
 
@@ -170,34 +146,21 @@ function axisReversals(pts: Pt[], threshFrac: number): { reversals: number; exte
       if (v > maxV) maxV = v;
     }
     const extent = maxV - minV;
-    if (extent < 14) return { reversals: 0, extent };
-    const thresh = Math.max(8, extent * threshFrac);
+    if (extent < 11) return { reversals: 0, extent };
+    const thresh = Math.max(6, extent * threshFrac);
     let dir = 0;
     let anchor = proj[0];
     let reversals = 0;
     for (const v of proj) {
       if (dir === 0) {
-        if (v - anchor > thresh) {
-          dir = 1;
-          anchor = v;
-        } else if (anchor - v > thresh) {
-          dir = -1;
-          anchor = v;
-        }
+        if (v - anchor > thresh) { dir = 1; anchor = v; }
+        else if (anchor - v > thresh) { dir = -1; anchor = v; }
       } else if (dir === 1) {
         if (v > anchor) anchor = v;
-        else if (anchor - v > thresh) {
-          reversals++;
-          dir = -1;
-          anchor = v;
-        }
+        else if (anchor - v > thresh) { reversals++; dir = -1; anchor = v; }
       } else {
         if (v < anchor) anchor = v;
-        else if (v - anchor > thresh) {
-          reversals++;
-          dir = 1;
-          anchor = v;
-        }
+        else if (v - anchor > thresh) { reversals++; dir = 1; anchor = v; }
       }
     }
     return { reversals, extent };
@@ -208,44 +171,47 @@ function axisReversals(pts: Pt[], threshFrac: number): { reversals: number; exte
   return r1.reversals >= r2.reversals ? r1 : r2;
 }
 
-export function isScribble(pts: Pt[]): boolean {
-  if (pts.length < 7) return false;
+export function isScribble(pts: Pt[], sensitivity: ScribbleSensitivity = 'balanced'): boolean {
+  const minPts = sensitivity === 'instant' ? 5 : sensitivity === 'balanced' ? 6 : 8;
+  if (pts.length < minPts) return false;
   const bx = getBox(pts);
-  if (bx.diag < 16) return false;
+  if (bx.diag < 13) return false;
   const len = pathLength(pts);
-  if (len < bx.diag * 2.1) return false;
+  const minLenRatio = sensitivity === 'instant' ? 1.55 : sensitivity === 'balanced' ? 1.85 : 2.3;
+  if (len < bx.diag * minLenRatio) return false;
 
-  // 1. PCA axis reversals (catches horizontal, vertical, diagonal back-and-forth)
-  const { reversals } = axisReversals(pts, 0.24);
-  if (reversals >= 3) return true;
+  const threshFrac = sensitivity === 'instant' ? 0.18 : sensitivity === 'balanced' ? 0.22 : 0.27;
+  const minRev = sensitivity === 'instant' ? 2 : 3;
+  const { reversals } = axisReversals(pts, threshFrac);
+  if (reversals >= minRev) return true;
 
-  // 2. Sharp zig-zag turns
-  const s = simplify(pts, Math.max(2.5, bx.diag * 0.035));
-  if (s.length >= 5) {
+  // Sharp zig-zag turns
+  const s = simplify(pts, Math.max(2.2, bx.diag * 0.032));
+  if (s.length >= 4) {
     let sharp = 0;
     for (let i = 1; i < s.length - 1; i++) {
-      if (turnAngleDeg(s[i - 1], s[i], s[i + 1]) > 92) sharp++;
+      if (turnAngleDeg(s[i - 1], s[i], s[i + 1]) > 82) sharp++;
     }
-    if (sharp >= 3 && len >= bx.diag * 2.6) return true;
+    if (sharp >= minRev && len >= bx.diag * (minLenRatio + 0.35)) return true;
   }
 
-  // 3. Tight overlapping circular scrub
-  if (len >= bx.diag * 4.5 && reversals >= 2) return true;
+  // Tight overlapping circular scrub
+  if (len >= bx.diag * 3.8 && reversals >= 2) return true;
 
   return false;
 }
 
 /**
- * Live Scribble Check during `pointermove` (works while actively drawing!).
- * Inspects the recent sliding window (~45 points) as well as the whole stroke so
- * users can scribble at any moment—even mid-sentence—to erase ink immediately.
+ * Multi-window Live Scribble Check during `pointermove`!
+ * Evaluates short (16 pts), medium (32 pts), and long (52 pts) trailing tails so
+ * zig-zag scrubbing mid-sentence always fires immediately and reliably.
  */
-export function isLiveScribble(pts: Pt[]): boolean {
-  if (pts.length < 8) return false;
-  const windowPts = pts.length > 48 ? pts.slice(-48) : pts;
-  if (isScribble(windowPts)) return true;
-  if (pts.length > 48 && isScribble(pts)) return true;
-  return false;
+export function isLiveScribble(pts: Pt[], sensitivity: ScribbleSensitivity = 'balanced'): boolean {
+  if (pts.length < 6) return false;
+  if (pts.length >= 10 && isScribble(pts.slice(-18), sensitivity)) return true;
+  if (pts.length >= 16 && isScribble(pts.slice(-34), sensitivity)) return true;
+  if (pts.length > 34 && isScribble(pts.slice(-56), sensitivity)) return true;
+  return isScribble(pts, sensitivity);
 }
 
 export function getItemBounds(item: PageItem): BBox {
@@ -253,14 +219,9 @@ export function getItemBounds(item: PageItem): BBox {
     const b = getBox(item.points);
     const pad = item.size / 2 + 4;
     return {
-      l: b.l - pad,
-      t: b.t - pad,
-      r: b.r + pad,
-      b: b.b + pad,
-      w: b.w + pad * 2,
-      h: b.h + pad * 2,
-      cx: b.cx,
-      cy: b.cy,
+      l: b.l - pad, t: b.t - pad, r: b.r + pad, b: b.b + pad,
+      w: b.w + pad * 2, h: b.h + pad * 2,
+      cx: b.cx, cy: b.cy,
       diag: Math.hypot(b.w + pad * 2, b.h + pad * 2),
     };
   }
@@ -271,15 +232,8 @@ export function getItemBounds(item: PageItem): BBox {
     const w = Math.max(item.size, maxLen * item.size * 0.56);
     const h = lines.length * item.size * 1.32;
     return {
-      l: item.x,
-      t: item.y,
-      r: item.x + w,
-      b: item.y + h,
-      w,
-      h,
-      cx: item.x + w / 2,
-      cy: item.y + h / 2,
-      diag: Math.hypot(w, h),
+      l: item.x, t: item.y, r: item.x + w, b: item.y + h,
+      w, h, cx: item.x + w / 2, cy: item.y + h / 2, diag: Math.hypot(w, h),
     };
   }
   const { x, y, w, h } = item;
@@ -297,18 +251,16 @@ export function scribbleHitsItem(scribblePts: Pt[], item: PageItem, strokeIsHigh
   }
 
   const sb = getBox(scribblePts);
-  const pad = 12;
+  const pad = 16;
   const ib = getItemBounds(item);
-  // Quick reject
   if (sb.r + pad < ib.l || sb.l - pad > ib.r || sb.b + pad < ib.t || sb.t - pad > ib.b) {
     return false;
   }
 
-  // Exact point/segment proximity for ink strokes (handles thin underlines & small symbols!)
   if (item.kind === 'ink') {
-    const threshold = Math.max(18, item.size * 1.4);
-    const sStep = Math.max(1, Math.floor(scribblePts.length / 36));
-    const iStep = Math.max(1, Math.floor(item.points.length / 36));
+    const threshold = Math.max(20, item.size * 1.5);
+    const sStep = Math.max(1, Math.floor(scribblePts.length / 40));
+    const iStep = Math.max(1, Math.floor(item.points.length / 40));
     for (let i = 0; i < scribblePts.length; i += sStep) {
       const sp = scribblePts[i];
       for (let j = 0; j < item.points.length; j += iStep) {
@@ -325,13 +277,41 @@ export function scribbleHitsItem(scribblePts: Pt[], item: PageItem, strokeIsHigh
     return false;
   }
 
-  // For TextItem, check overlap or scribble points inside expanded text bounds
   return scribblePts.some(
-    (p) => p.x >= ib.l - 10 && p.x <= ib.r + 10 && p.y >= ib.t - 10 && p.y <= ib.b + 10
+    (p) => p.x >= ib.l - 12 && p.x <= ib.r + 12 && p.y >= ib.t - 12 && p.y <= ib.b + 12
   );
 }
 
-/** Point-in-polygon check for Lasso selection */
+/**
+ * Precision Pixel Eraser: splits an ink stroke around the eraser circle rather than
+ * removing the entire stroke!
+ */
+export function splitStrokeByEraser(item: InkItem, center: Pt, radius: number): InkItem[] | null {
+  const hitDist = radius + item.size * 0.45;
+  const inside = item.points.map((p) => dist(p, center) <= hitDist);
+  if (!inside.some(Boolean)) return null; // untouched
+
+  const segments: StrokePt[][] = [];
+  let cur: StrokePt[] = [];
+  for (let i = 0; i < item.points.length; i++) {
+    if (!inside[i]) {
+      cur.push(item.points[i]);
+    } else if (cur.length >= 2) {
+      segments.push(cur);
+      cur = [];
+    } else {
+      cur = [];
+    }
+  }
+  if (cur.length >= 2) segments.push(cur);
+
+  return segments.map((pts, idx) => ({
+    ...item,
+    id: idx === 0 ? item.id : `${item.id}-s${Date.now()}-${idx}`,
+    points: pts,
+  }));
+}
+
 export function pointInPolygon(pt: Pt, poly: Pt[]): boolean {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -442,7 +422,6 @@ export const ShapeRecognizer = {
     const bx = getBox(raw);
     const diag = Math.max(1, bx.diag);
 
-    // Straight line
     if (dist(raw[0], raw[raw.length - 1]) / len > 0.9) {
       return densify([raw[0], raw[raw.length - 1]]);
     }
@@ -490,20 +469,13 @@ export const ShapeRecognizer = {
           let { l, t, r, b } = bx;
           if (Math.abs(bx.w - bx.h) / Math.max(bx.w, bx.h) < 0.12) {
             const s = (bx.w + bx.h) / 2;
-            l = bx.cx - s / 2;
-            r = bx.cx + s / 2;
-            t = bx.cy - s / 2;
-            b = bx.cy + s / 2;
+            l = bx.cx - s / 2; r = bx.cx + s / 2; t = bx.cy - s / 2; b = bx.cy + s / 2;
           }
           return densify([{ x: l, y: t }, { x: r, y: t }, { x: r, y: b }, { x: l, y: b }, { x: l, y: t }]);
         }
         if (diagonal) {
           return densify([
-            { x: bx.cx, y: bx.t },
-            { x: bx.r, y: bx.cy },
-            { x: bx.cx, y: bx.b },
-            { x: bx.l, y: bx.cy },
-            { x: bx.cx, y: bx.t },
+            { x: bx.cx, y: bx.t }, { x: bx.r, y: bx.cy }, { x: bx.cx, y: bx.b }, { x: bx.l, y: bx.cy }, { x: bx.cx, y: bx.t },
           ]);
         }
       }
@@ -511,12 +483,10 @@ export const ShapeRecognizer = {
     }
 
     if (ellipseErr < 0.28) {
-      let erx = rx;
-      let ery = ry;
+      let erx = rx, ery = ry;
       if (Math.abs(erx - ery) / Math.max(erx, ery) < 0.15) {
         const rad = (erx + ery) / 2;
-        erx = rad;
-        ery = rad;
+        erx = rad; ery = rad;
       }
       const out: Pt[] = [];
       for (let i = 0; i <= 96; i++) {
@@ -708,14 +678,9 @@ export const ShapeBuilder = {
         const w = r - l;
         return [
           densify([
-            { x: l, y: t },
-            { x: r, y: t },
-            { x: r, y: tailTop },
-            { x: l + w * 0.45, y: tailTop },
-            { x: l + w * 0.2, y: b },
-            { x: l + w * 0.25, y: tailTop },
-            { x: l, y: tailTop },
-            { x: l, y: t },
+            { x: l, y: t }, { x: r, y: t }, { x: r, y: tailTop },
+            { x: l + w * 0.45, y: tailTop }, { x: l + w * 0.2, y: b },
+            { x: l + w * 0.25, y: tailTop }, { x: l, y: tailTop }, { x: l, y: t },
           ]),
         ];
       }

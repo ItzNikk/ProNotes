@@ -137,10 +137,14 @@ data class StickyItem(
     val color: Int,
     val text: String,
     val rot: Float = 0f,
+    val fontSize: Float = 28f,
+    val font: String = "SANS",
+    val collapsed: Boolean = false,
+    val pinned: Boolean = false,
 ) : PageItem {
-    val raw: RectF get() = RectF(x, y, x + w, y + h)
+    val raw: RectF get() = RectF(x, y, x + w, y + (if (collapsed) 54f else h))
     override val bounds: RectF get() = rotatedBounds(raw, rot)
-    override fun translated(dx: Float, dy: Float): PageItem = copy(x = x + dx, y = y + dy)
+    override fun translated(dx: Float, dy: Float): PageItem = if (pinned) this else copy(x = x + dx, y = y + dy)
     override fun withId(newId: Long): PageItem = copy(id = newId)
 }
 

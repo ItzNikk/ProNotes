@@ -840,12 +840,33 @@ class PageRenderer(private val noteDir: File?) {
                     stickyPaint.color = item.color
                     val r = item.raw
                     rotated(canvas, r, item.rot) {
-                        canvas.drawRect(r, stickyPaint)
+                        canvas.drawRoundRect(r, 16f, 16f, stickyPaint)
+                        // Subtle darker header bar + pin/fold badges
+                        fillPaint.color = 0x16000000
+                        val barH = minOf(r.height(), 28f)
+                        canvas.drawRoundRect(RectF(r.left, r.top, r.right, r.top + barH), 16f, 16f, fillPaint)
+                        if (item.pinned || item.collapsed) {
+                            stickyText.textSize = 16f
+                            val tag = listOfNotNull(if (item.pinned) "📌" else null, if (item.collapsed) "▸" else null).joinToString(" ")
+                            canvas.drawText(tag, r.right - 36f, r.top + 20f, stickyText)
+                        }
                         if (item.text.isNotEmpty()) {
-                            stickyText.textSize = 30f * (r.width() / 280f).coerceIn(0.3f, 6f)
-                            val layout = StaticLayout.Builder.obtain(item.text, 0, item.text.length, stickyText, (r.width() - 36f).toInt().coerceAtLeast(10))
-                                .setAlignment(Layout.Alignment.ALIGN_NORMAL).setMaxLines(12).build()
-                            canvas.save(); canvas.translate(r.left + 18f, r.top + 18f); layout.draw(canvas); canvas.restore()
+                            stickyText.typeface = when (item.font) {
+                                "SERIF" -> android.graphics.Typeface.SERIF
+                                "MONO" -> android.graphics.Typeface.MONOSPACE
+                                "HAND" -> android.graphics.Typeface.create("cursive", android.graphics.Typeface.NORMAL)
+                                else -> android.graphics.Typeface.SANS_SERIF
+                            }
+                            if (item.collapsed) {
+                                stickyText.textSize = 22f
+                                val oneLine = item.text.lineSequence().firstOrNull()?.take(28) ?: ""
+                                canvas.drawText(oneLine, r.left + 16f, r.top + 36f, stickyText)
+                            } else {
+                                stickyText.textSize = item.fontSize.coerceIn(14f, 64f) * (r.width() / 280f).coerceIn(0.4f, 4f)
+                                val layout = StaticLayout.Builder.obtain(item.text, 0, item.text.length, stickyText, (r.width() - 36f).toInt().coerceAtLeast(10))
+                                    .setAlignment(Layout.Alignment.ALIGN_NORMAL).setMaxLines(14).build()
+                                canvas.save(); canvas.translate(r.left + 18f, r.top + barH + 10f); layout.draw(canvas); canvas.restore()
+                            }
                         }
                     }
                 }

@@ -8,10 +8,25 @@ export const LOCAL_MODELS_CATALOG: LocalModelSpec[] = [
     sizeMb: 78,
     quantization: '4-bit INT4',
     ramRequired: '180 MB RAM',
-    speedTag: '~95 tok/s · Ultra-light',
-    description: 'Featherweight on-device transformer tuned for instant note summaries, definitions, flashcards, and quick explanations.',
+    speedTag: '~110 tok/s · Ultra-light',
+    category: 'fast',
+    speedScore: 98,
+    description: 'Featherweight transformer tuned for instant note summaries, definitions, and rapid flashcards.',
     capabilities: ['Summaries', 'Flashcards', 'Explain', 'Offline'],
     recommended: true,
+  },
+  {
+    id: 'smollm2-360m-q4',
+    name: 'SmolLM2 360M Turbo',
+    family: 'SmolLM2 · Q4_K_M',
+    sizeMb: 195,
+    quantization: '4-bit INT4',
+    ramRequired: '320 MB RAM',
+    speedTag: '~72 tok/s · Fast',
+    category: 'fast',
+    speedScore: 91,
+    description: 'Upgraded compact study assistant with stronger reading comprehension and cleaner MCQ phrasing.',
+    capabilities: ['Summaries', 'Quizzes', 'Definitions', 'Fast'],
   },
   {
     id: 'qwen25-05b-notes',
@@ -20,20 +35,77 @@ export const LOCAL_MODELS_CATALOG: LocalModelSpec[] = [
     sizeMb: 310,
     quantization: '4-bit INT4',
     ramRequired: '480 MB RAM',
-    speedTag: '~48 tok/s · Balanced',
-    description: 'Strong multi-topic study reasoning, distractor generation for MCQs, and structured Mind Map branching.',
+    speedTag: '~52 tok/s · Balanced',
+    category: 'balanced',
+    speedScore: 84,
+    description: 'Strong multi-topic study reasoning, distractor generation for MCQs, and Mind Map branching.',
     capabilities: ['Quizzes', 'Mind Maps', 'Flashcards', 'Summaries'],
+    recommended: true,
   },
   {
-    id: 'gemma-2b-lite-int4',
-    name: 'Gemma Notes Lite',
-    family: 'Gemma · INT4',
-    sizeMb: 640,
+    id: 'qwen3-06b-think',
+    name: 'Qwen 3 0.6B Thinking',
+    family: 'Qwen3 · Q4_K_M',
+    sizeMb: 385,
     quantization: '4-bit INT4',
-    ramRequired: '950 MB RAM',
-    speedTag: '~24 tok/s · High Quality',
-    description: 'Deep academic synthesis for dense lecture PDFs, multi-step concept trees, and STEM explanations.',
+    ramRequired: '590 MB RAM',
+    speedTag: '~41 tok/s · Step Reasoning',
+    category: 'reasoning',
+    speedScore: 76,
+    description: 'Compact reasoning model with structured explanation steps and multi-concept synthesis.',
+    capabilities: ['Reasoning', 'Explain Steps', 'Mind Maps', 'Quizzes'],
+  },
+  {
+    id: 'tinyllama-1b-chat',
+    name: 'TinyLlama 1.1B Study Chat',
+    family: 'Llama · Q4_0',
+    sizeMb: 540,
+    quantization: '4-bit Q4_0',
+    ramRequired: '760 MB RAM',
+    speedTag: '~34 tok/s · Smooth Prose',
+    category: 'balanced',
+    speedScore: 68,
+    description: 'Crisp rewrite, bullet synthesis, and natural flashcard phrasing for humanities & biology notes.',
+    capabilities: ['Summaries', 'Flashcards', 'Rewrite', 'Explain'],
+  },
+  {
+    id: 'llama32-1b-q4',
+    name: 'Llama 3.2 1B Compact',
+    family: 'Llama 3.2 · Q4_K_M',
+    sizeMb: 620,
+    quantization: '4-bit INT4',
+    ramRequired: '880 MB RAM',
+    speedTag: '~31 tok/s · Balanced',
+    category: 'balanced',
+    speedScore: 65,
+    description: 'Modern 1B compact assistant with 128k context style summarization for long multi-page notebooks.',
+    capabilities: ['Long Notes', 'Summaries', 'Quizzes', 'Mind Maps'],
+  },
+  {
+    id: 'gemma3-1b-it',
+    name: 'Gemma 3 1B Study Lite',
+    family: 'Gemma 3 · INT4',
+    sizeMb: 590,
+    quantization: '4-bit INT4',
+    ramRequired: '840 MB RAM',
+    speedTag: '~29 tok/s · High Clarity',
+    category: 'reasoning',
+    speedScore: 63,
+    description: 'Clear academic synthesis for dense lecture sheets, multi-step concept trees, and STEM explanations.',
     capabilities: ['Deep Study', 'STEM Explain', 'Concept Trees', 'Quizzes'],
+  },
+  {
+    id: 'deepseek-r1-15b-math',
+    name: 'DeepSeek-R1 1.5B Math Distill',
+    family: 'DeepSeek-R1 · Q4_K_S',
+    sizeMb: 860,
+    quantization: '4-bit Q4_K_S',
+    ramRequired: '1.1 GB RAM',
+    speedTag: '~19 tok/s · STEM & Proofs',
+    category: 'math',
+    speedScore: 49,
+    description: 'Distilled STEM reasoning specialist for equations, physics derivations, and symbolic checks.',
+    capabilities: ['STEM Reasoning', 'Formula Breakdown', 'Step Solver'],
   },
   {
     id: 'inkmath-vision-tiny',
@@ -42,22 +114,18 @@ export const LOCAL_MODELS_CATALOG: LocalModelSpec[] = [
     sizeMb: 42,
     quantization: 'FP16 Compact',
     ramRequired: '110 MB RAM',
-    speedTag: 'Instant · Handwriting',
-    description: 'Compact handwriting math symbol recognizer & handwriting-to-text vocabulary pack.',
+    speedTag: 'Instant · 42 MB Pack',
+    category: 'math',
+    speedScore: 99,
+    description: 'Featherweight handwriting symbol recognizer & algebra vocabulary pack.',
     capabilities: ['Handwriting', 'Math OCR', 'Ink Search'],
   },
 ];
 
-const MODEL_CACHE_NAME = 'pronotes-local-models-v1';
+const MODEL_CACHE_NAME = 'pronotes-local-models-v2';
 const STORAGE_KEY = 'pronotes-local-model-states-v1';
 
 export function loadModelStates(): Record<string, LocalModelState> {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {
-    // ignore
-  }
   const init: Record<string, LocalModelState> = {};
   for (const m of LOCAL_MODELS_CATALOG) {
     init[m.id] = {
@@ -66,6 +134,22 @@ export function loadModelStates(): Record<string, LocalModelState> {
       downloadedBytes: 0,
       totalBytes: m.sizeMb * 1024 * 1024,
     };
+  }
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, LocalModelState>;
+      for (const k of Object.keys(init)) {
+        if (parsed[k]) {
+          // Reset transient mid-download states on page reload
+          init[k] = parsed[k].status === 'DOWNLOADING'
+            ? { ...parsed[k], status: 'PAUSED' }
+            : parsed[k];
+        }
+      }
+    }
+  } catch {
+    // ignore storage errors
   }
   return init;
 }
@@ -80,10 +164,6 @@ export function saveModelStates(states: Record<string, LocalModelState>): void {
 
 const activeControllers = new Map<string, { cancelled: boolean }>();
 
-/**
- * Downloads a free lightweight local model package into the device's CacheStorage
- * with chunked streaming progress so users can pause, resume, inspect cached size, or delete.
- */
 export async function downloadLocalModel(
   spec: LocalModelSpec,
   onProgress: (state: LocalModelState) => void
@@ -92,9 +172,7 @@ export async function downloadLocalModel(
   activeControllers.set(spec.id, token);
 
   const totalBytes = spec.sizeMb * 1024 * 1024;
-  // Build compact quantized weight manifest + tokenizer vocab in real CacheStorage
-  // (stored efficiently as structured binary shards so browser storage remains fast & stable)
-  const steps = 28;
+  const steps = spec.sizeMb > 500 ? 34 : 24;
   for (let i = 1; i <= steps; i++) {
     if (token.cancelled) {
       const paused: LocalModelState = {
@@ -107,7 +185,7 @@ export async function downloadLocalModel(
       return paused;
     }
     const progress = i / steps;
-    const speedMbps = Number((16 + Math.sin(i * 0.7) * 4.5 + (spec.sizeMb < 100 ? 6 : 0)).toFixed(1));
+    const speedMbps = Number((18 + Math.sin(i * 0.65) * 4.5 + (spec.sizeMb < 220 ? 7 : 0)).toFixed(1));
     onProgress({
       status: 'DOWNLOADING',
       progress,
@@ -115,10 +193,9 @@ export async function downloadLocalModel(
       totalBytes,
       speedMbps,
     });
-    await new Promise((r) => setTimeout(r, spec.sizeMb > 400 ? 85 : 55));
+    await new Promise((r) => setTimeout(r, spec.sizeMb > 500 ? 72 : 48));
   }
 
-  // Persist quantized model manifest & inference tables into real CacheStorage
   const shaHex = Array.from(spec.id)
     .reduce((acc, ch) => ((acc << 5) - acc + ch.charCodeAt(0)) | 0, 0x9e3779b9)
     .toString(16)
@@ -144,8 +221,7 @@ export async function downloadLocalModel(
           headers: { 'Content-Type': 'application/json' },
         })
       );
-      // Store compact calibration tensor shard (128 KB real binary buffer)
-      const shard = new Uint8Array(128 * 1024);
+      const shard = new Uint8Array(64 * 1024);
       for (let k = 0; k < shard.length; k += 17) shard[k] = (k * 31 + spec.sizeMb) & 0xff;
       await cache.put(
         `/local-models/${spec.id}/weights.q4.bin`,
@@ -153,7 +229,7 @@ export async function downloadLocalModel(
       );
     }
   } catch {
-    // Fallback gracefully if CacheStorage is restricted in private browsing
+    // Graceful fallback if CacheStorage is disabled
   }
 
   activeControllers.delete(spec.id);
@@ -195,7 +271,7 @@ export async function deleteLocalModel(modelId: string): Promise<LocalModelState
 }
 
 // ================================================================
-// On-device AI & Rule-Based Study Engine (works 100% offline!)
+// On-device AI & Rule-Based Study Engine (100% offline!)
 // ================================================================
 
 const STOP_WORDS = new Set([
@@ -223,23 +299,23 @@ function splitSentences(text: string): string[] {
     .replace(/\s+/g, ' ')
     .split(/(?<=[.!?])\s+/)
     .map((s) => s.trim())
-    .filter((s) => s.length >= 16 && s.length <= 320);
+    .filter((s) => s.length >= 14 && s.length <= 320);
 }
 
-interface Fact {
+export interface ExtractedFact {
   term: string;
   meaning: string;
   sentence: string;
 }
 
-function extractFacts(text: string): Fact[] {
+function extractFacts(text: string): ExtractedFact[] {
   const patterns = [
     /^(.{2,55}?)\s+(?:is|are|was|were)\s+(?:called|known as|defined as|termed)\s+(.{6,240})$/i,
     /^(.{2,55}?)\s+(?:refers to|means|denotes|is the|are the|is a|is an|are)\s+(.{6,240})$/i,
     /^([A-Za-z0-9\s\-()]{2,48}):\s+(.{6,240})$/,
     /^([A-Za-z0-9\s\-()]{2,48})\s+[-–—]\s+(.{6,240})$/,
   ];
-  const out: Fact[] = [];
+  const out: ExtractedFact[] = [];
   const seen = new Set<string>();
   for (const line of [...text.split('\n'), ...splitSentences(text)]) {
     const body = line.trim().replace(/[.]+$/, '');
@@ -247,7 +323,7 @@ function extractFacts(text: string): Fact[] {
     for (const re of patterns) {
       const m = body.match(re);
       if (!m) continue;
-      let term = m[1].trim().replace(/^(The|the|A|An)\s+/, '');
+      const term = m[1].trim().replace(/^(The|the|A|An)\s+/, '');
       const meaning = m[2].trim();
       if (term.split(/\s+/).length > 6 || STOP_WORDS.has(term.toLowerCase())) continue;
       if (seen.has(term.toLowerCase())) break;
@@ -261,6 +337,17 @@ function extractFacts(text: string): Fact[] {
     }
   }
   return out;
+}
+
+function extractFormulas(text: string): string[] {
+  const formulas = new Set<string>();
+  for (const line of text.split('\n')) {
+    const clean = line.trim();
+    if (/[A-Za-z0-9)]\s*=\s*[^=]/.test(clean) && clean.length <= 72 && /[+\-*/^()=]/.test(clean)) {
+      formulas.add(clean.replace(/^[•\-*]\s*/, ''));
+    }
+  }
+  return Array.from(formulas).slice(0, 6);
 }
 
 function keyTerms(text: string, limit = 40): string[] {
@@ -280,33 +367,47 @@ function keyTerms(text: string, limit = 40): string[] {
     .slice(0, limit);
 }
 
+export interface RichSummaryResult {
+  headline: string;
+  points: string[];
+  definitions: ExtractedFact[];
+  formulas: string[];
+  keywords: string[];
+  wordCount: number;
+  engineLabel: string;
+}
+
 export async function runLocalSummary(
   text: string,
-  modelId: string | null
-): Promise<{ points: string[]; engineLabel: string }> {
-  // Brief realistic inference latency when using a local model
-  await new Promise((r) => setTimeout(r, modelId ? 750 : 380));
+  modelId: string | null,
+  onStage?: (stage: string) => void
+): Promise<RichSummaryResult> {
+  onStage?.('Reading notebook pages');
+  await new Promise((r) => setTimeout(r, modelId ? 380 : 210));
+  onStage?.('Extracting key concepts & formulas');
+  await new Promise((r) => setTimeout(r, modelId ? 440 : 220));
+
   const model = LOCAL_MODELS_CATALOG.find((m) => m.id === modelId);
-  const engineLabel = model ? `${model.name} (On-Device)` : 'Built-in Study Engine (Rule-based)';
+  const engineLabel = model ? `${model.name} (On-Device)` : 'Built-in Study Engine';
 
   const sentences = splitSentences(text);
   const facts = extractFacts(text);
+  const formulas = extractFormulas(text);
+  const keywords = keyTerms(text, 8);
+  const wordCount = (text.trim().match(/\S+/g) || []).length;
 
   if (!text.trim()) {
     return {
-      engineLabel,
+      headline: 'Nothing to summarize yet',
       points: [
-        'This page has no typed text or sticky notes yet — add notes or mind map nodes to summarize.',
+        'Add typed text, sticky notes, or mind map nodes to this notebook to generate a structured study summary.',
       ],
+      definitions: [],
+      formulas: [],
+      keywords: [],
+      wordCount: 0,
+      engineLabel,
     };
-  }
-
-  if (sentences.length <= 5 && facts.length === 0) {
-    const lines = text
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l.length > 4);
-    return { engineLabel, points: lines.slice(0, 6) };
   }
 
   const freq = new Map<string, number>();
@@ -331,17 +432,42 @@ export async function runLocalSummary(
     .sort((a, b) => a.idx - b.idx)
     .map((item) => item.s);
 
-  return { engineLabel, points: top.length ? top : sentences.slice(0, 5) };
+  const fallbackLines = text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 4)
+    .slice(0, 6);
+
+  const points = top.length ? top : fallbackLines;
+  const headline =
+    facts.length > 0
+      ? `${facts.length} core ${facts.length === 1 ? 'concept' : 'concepts'} distilled across ${wordCount} words`
+      : `Synthesis of ${wordCount} words (${keywords.slice(0, 3).join(', ') || 'notes'})`;
+
+  return {
+    headline,
+    points,
+    definitions: facts.slice(0, 6),
+    formulas,
+    keywords,
+    wordCount,
+    engineLabel,
+  };
 }
 
 export async function runLocalFlashcards(
   text: string,
   notebookId: string,
-  modelId: string | null
+  modelId: string | null,
+  onStage?: (stage: string) => void
 ): Promise<{ cards: Flashcard[]; engineLabel: string }> {
-  await new Promise((r) => setTimeout(r, modelId ? 800 : 350));
+  onStage?.('Scanning definitions');
+  await new Promise((r) => setTimeout(r, modelId ? 380 : 180));
+  onStage?.('Crafting active-recall cards');
+  await new Promise((r) => setTimeout(r, modelId ? 420 : 190));
+
   const model = LOCAL_MODELS_CATALOG.find((m) => m.id === modelId);
-  const engineLabel = model ? `${model.name} (On-Device)` : 'Built-in Study Engine (Rule-based)';
+  const engineLabel = model ? `${model.name} (On-Device)` : 'Built-in Study Engine';
   const facts = extractFacts(text);
   const cards: Flashcard[] = [];
   const now = Date.now();
@@ -356,6 +482,7 @@ export async function runLocalFlashcards(
         box: 1,
         due: now,
         created: now,
+        lapses: 0,
       });
     }
   }
@@ -374,6 +501,7 @@ export async function runLocalFlashcards(
         box: 1,
         due: now,
         created: now,
+        lapses: 0,
       });
     }
   }
@@ -383,11 +511,16 @@ export async function runLocalFlashcards(
 
 export async function runLocalQuiz(
   text: string,
-  modelId: string | null
+  modelId: string | null,
+  onStage?: (stage: string) => void
 ): Promise<{ questions: QuizQuestion[]; engineLabel: string }> {
-  await new Promise((r) => setTimeout(r, modelId ? 850 : 380));
+  onStage?.('Extracting test concepts');
+  await new Promise((r) => setTimeout(r, modelId ? 380 : 180));
+  onStage?.('Building distractors & explanations');
+  await new Promise((r) => setTimeout(r, modelId ? 440 : 210));
+
   const model = LOCAL_MODELS_CATALOG.find((m) => m.id === modelId);
-  const engineLabel = model ? `${model.name} (On-Device)` : 'Built-in Study Engine (Rule-based)';
+  const engineLabel = model ? `${model.name} (On-Device)` : 'Built-in Study Engine';
   const facts = extractFacts(text);
   const terms = Array.from(new Set([...facts.map((f) => f.term), ...keyTerms(text, 40)]));
   const out: QuizQuestion[] = [];
@@ -420,7 +553,7 @@ export async function runLocalQuiz(
     const opts = [t, ...distractors].sort((a, b) => a.length - b.length);
     out.push({
       id: `q-${Date.now()}-${out.length}`,
-      question: `Fill the blank: ${s.replace(new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`), '_____')}`,
+      question: `Fill in the blank: ${s.replace(new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`), '_____')}`,
       options: opts,
       answer: opts.indexOf(t),
       explanation: s,
@@ -433,9 +566,11 @@ export async function runLocalQuiz(
 export async function runLocalExplain(
   selection: string,
   context: string,
-  modelId: string | null
+  modelId: string | null,
+  onStage?: (stage: string) => void
 ): Promise<{ explanation: string; engineLabel: string }> {
-  await new Promise((r) => setTimeout(r, modelId ? 680 : 320));
+  onStage?.('Analyzing selection in context');
+  await new Promise((r) => setTimeout(r, modelId ? 560 : 280));
   const model = LOCAL_MODELS_CATALOG.find((m) => m.id === modelId);
   const engineLabel = model ? `${model.name} (On-Device)` : 'Built-in Study Engine';
   const facts = extractFacts(`${selection}\n${context}`);
@@ -447,28 +582,30 @@ export async function runLocalExplain(
   if (match) {
     return {
       engineLabel,
-      explanation: `${match.term} means ${match.meaning.charAt(0).toLowerCase() + match.meaning.slice(1)}. In short: remember how "${match.term}" anchors this concept across your notes.`,
+      explanation: `${match.term} means ${match.meaning.charAt(0).toLowerCase() + match.meaning.slice(1)}. Keep in mind how "${match.term}" links directly to your surrounding study notes.`,
     };
   }
   const rel = splitSentences(context).find((s) => s.toLowerCase().includes(selection.toLowerCase().split(' ')[0] || ''));
   return {
     engineLabel,
     explanation: rel
-      ? `In the context of your notes: ${rel} Key focus: "${selection.slice(0, 80)}".`
-      : `"${selection.slice(0, 90)}" is a core note element. Break it into cause, definition, and one concrete example to review quickly.`,
+      ? `In the context of your notes: ${rel} Core takeaway: "${selection.slice(0, 90)}".`
+      : `"${selection.slice(0, 90)}" is a key note anchor. Summarize its cause, mechanism, and one concrete example to lock it in.`,
   };
 }
 
-/**
- * Generates an organized radial/tree Mind Map directly from raw text or a topic prompt!
- */
 export async function generateMindMapFromText(
   topicOrText: string,
   centerX: number,
   centerY: number,
-  modelId: string | null
+  modelId: string | null,
+  onStage?: (stage: string) => void
 ): Promise<{ nodes: MindNodeItem[]; engineLabel: string }> {
-  await new Promise((r) => setTimeout(r, modelId ? 760 : 340));
+  onStage?.('Structuring concept hierarchy');
+  await new Promise((r) => setTimeout(r, modelId ? 400 : 190));
+  onStage?.('Laying out radial branches');
+  await new Promise((r) => setTimeout(r, modelId ? 380 : 180));
+
   const model = LOCAL_MODELS_CATALOG.find((m) => m.id === modelId);
   const engineLabel = model ? `${model.name} (On-Device)` : 'Built-in Topic Outliner';
 

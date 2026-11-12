@@ -1,28 +1,42 @@
 import React, { useState } from 'react';
 import {
   ArrowLeft,
+  Check,
   Cpu,
   Download,
+  Eraser,
+  Heart,
   Palette,
   PenTool,
+  Plus,
   ShieldCheck,
   Sparkles,
+  Trash2,
   Upload,
 } from 'lucide-react';
 import {
   ACCENT_COLORS,
   AccentColorId,
   AppSettings,
+  EraserMode,
   PAPER_STYLES,
   PAPER_TINTS,
   PaperStyle,
+  PenKind,
+  PenPreset,
+  PetId,
+  ScribbleSensitivity,
   ThemeMode,
   ToolbarDock,
 } from '../types/models';
+import { COMPANIONS, PetAvatarSvg } from './PipPet';
 
 interface SettingsScreenProps {
   settings: AppSettings;
   onUpdate: (patch: Partial<AppSettings>) => void;
+  onSwitchPet?: (petId: PetId) => void;
+  onSavePenPreset?: (preset: PenPreset) => void;
+  onDeletePenPreset?: (id: string) => void;
   onBack: () => void;
   onOpenLocalModels: () => void;
   onExportBackup: () => string;
@@ -32,12 +46,18 @@ interface SettingsScreenProps {
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   settings,
   onUpdate,
+  onSwitchPet,
+  onSavePenPreset,
+  onDeletePenPreset,
   onBack,
   onOpenLocalModels,
   onExportBackup,
   onImportBackup,
 }) => {
   const [backupMsg, setBackupMsg] = useState<string | null>(null);
+  const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
+  const [editingPresetName, setEditingPresetName] = useState('');
+  const [savedPenToast, setSavedPenToast] = useState(false);
 
   const handleDownloadBackup = () => {
     const json = onExportBackup();
@@ -175,19 +195,196 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 checked={settings.liquidGlass}
                 onChange={(v) => onUpdate({ liquidGlass: v })}
               />
-              <ToggleRow
-                title="Pip study buddy"
-                sub="Animated companion that cheers and reacts in the editor"
-                checked={settings.pet}
-                onChange={(v) => onUpdate({ pet: v })}
-              />
             </div>
           </section>
 
-          {/* Gestures & Writing */}
+          {/* Study Companion & Bond */}
           <section className="space-y-2">
             <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
-              <PenTool className="h-3.5 w-3.5" /> Writing & Gestures
+              <Heart className="h-3.5 w-3.5" /> Study Companion
+            </h2>
+            <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
+              <ToggleRow
+                title="Show study buddy in editor"
+                sub="Animated companion that levels up as you write, solve & study"
+                checked={settings.pet}
+                onChange={(v) => onUpdate({ pet: v })}
+              />
+              {settings.pet && (
+                <div className="p-4">
+                  <div className="mb-2.5 flex items-center justify-between">
+                    <span className="text-sm font-semibold">Choose Companion</span>
+                    <span className="font-mono-num text-xs font-semibold text-violet-600 dark:text-violet-400">
+                      Level {settings.petBond?.level ?? 1} · {settings.petBond?.xp ?? 0} XP
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
+                    {COMPANIONS.map((c) => {
+                      const active = settings.petId === c.id;
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => (onSwitchPet ? onSwitchPet(c.id) : onUpdate({ petId: c.id }))}
+                          className={`flex flex-col items-center rounded-2xl border p-2 transition ${
+                            active
+                              ? 'border-blue-600 bg-blue-500/10 shadow-sm'
+                              : 'border-black/8 hover:bg-black/[0.03] dark:border-white/10'
+                          }`}
+                        >
+                          <PetAvatarSvg petId={c.id} className="h-10 w-10" />
+                          <span className="mt-1 w-full truncate text-center text-[11px] font-semibold">
+                            {c.name}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Pen & Stylus Studio */}
+          <section className="space-y-2">
+            <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+              <PenTool className="h-3.5 w-3.5" /> Pen Name & Presets
+            </h2>
+            <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
+              <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+                <div>
+                  <div className="text-sm font-semibold">Active Pen Name</div>
+                  <div className="text-xs text-slate-500">
+                    Label shown for your primary stylus profile across notebooks
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={settings.penName}
+                    onChange={(e) => onUpdate({ penName: e.target.value })}
+                    placeholder="My Stylus"
+                    className="w-44 rounded-xl border border-black/12 bg-slate-50 px-3 py-1.5 text-sm font-semibold outline-none focus:border-blue-500 dark:border-white/15 dark:bg-[#22242C]"
+                  />
+                  {savedPenToast && <Check className="h-4 w-4 text-emerald-500" />}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
+                <span className="text-sm font-semibold">Default pen nib</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {(['ballpoint', 'fountain', 'brush', 'fineliner', 'pencil'] as PenKind[]).map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => onUpdate({ penKind: k })}
+                      className={`rounded-xl px-3 py-1.5 text-xs font-semibold capitalize transition ${
+                        settings.penKind === k
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-black/5 text-slate-600 hover:bg-black/10 dark:bg-white/10 dark:text-slate-300'
+                      }`}
+                    >
+                      {k}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold">Saved Pen Presets ({settings.penPresets.length})</span>
+                  {onSavePenPreset && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSavePenPreset({
+                          id: `preset-${Date.now()}`,
+                          name: settings.penName.trim() || `Pen ${settings.penPresets.length + 1}`,
+                          kind: settings.penKind,
+                          color: settings.penColor,
+                          size: settings.penSize,
+                          opacity: settings.penOpacity,
+                          stabilizer: settings.penStabilizer,
+                        });
+                        setSavedPenToast(true);
+                        window.setTimeout(() => setSavedPenToast(false), 1400);
+                      }}
+                      className="inline-flex items-center gap-1 rounded-xl bg-blue-600/10 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-600/20 dark:text-blue-300"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Save Current as Preset
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {settings.penPresets.map((preset) => (
+                    <div
+                      key={preset.id}
+                      className="flex items-center justify-between gap-2 rounded-2xl border border-black/8 bg-slate-50/70 px-3 py-2 dark:border-white/10 dark:bg-[#22242C]"
+                    >
+                      <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                        <span
+                          className="h-5 w-5 shrink-0 rounded-full border border-black/15"
+                          style={{ backgroundColor: preset.color }}
+                        />
+                        {editingPresetId === preset.id ? (
+                          <input
+                            autoFocus
+                            value={editingPresetName}
+                            onChange={(e) => setEditingPresetName(e.target.value)}
+                            onBlur={() => {
+                              if (editingPresetName.trim()) {
+                                onSavePenPreset?.({ ...preset, name: editingPresetName.trim() });
+                              }
+                              setEditingPresetId(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                if (editingPresetName.trim()) {
+                                  onSavePenPreset?.({ ...preset, name: editingPresetName.trim() });
+                                }
+                                setEditingPresetId(null);
+                              }
+                            }}
+                            className="w-full rounded-lg border border-blue-500 bg-white px-2 py-0.5 text-xs font-semibold dark:bg-[#191A1F]"
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingPresetId(preset.id);
+                              setEditingPresetName(preset.name);
+                            }}
+                            title="Tap to rename preset"
+                            className="min-w-0 flex-1 text-left"
+                          >
+                            <div className="truncate text-xs font-bold">{preset.name}</div>
+                            <div className="text-[10px] capitalize text-slate-500">
+                              {preset.kind} · {preset.size}px
+                            </div>
+                          </button>
+                        )}
+                      </div>
+                      {settings.penPresets.length > 1 && onDeletePenPreset && (
+                        <button
+                          type="button"
+                          onClick={() => onDeletePenPreset(preset.id)}
+                          className="rounded-lg p-1 text-slate-400 hover:bg-red-500/10 hover:text-red-500"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Gestures, Eraser & Writing */}
+          <section className="space-y-2">
+            <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+              <Eraser className="h-3.5 w-3.5" /> Scribble, Eraser & Maths
             </h2>
             <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
               <ToggleRow
@@ -197,11 +394,61 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 onChange={(v) => onUpdate({ scribbleToErase: v })}
               />
               <ToggleRow
-                title="Live erase while drawing"
-                sub="Crumble and erase ink immediately during a scribble without lifting the pen"
+                title="Live erase while writing"
+                sub="Crumble and erase ink immediately mid-stroke without lifting your pen"
                 checked={settings.liveScribbleErase}
                 onChange={(v) => onUpdate({ liveScribbleErase: v })}
               />
+              <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
+                <div>
+                  <div className="text-sm font-semibold">Scribble sensitivity</div>
+                  <div className="text-xs text-slate-500">How eagerly tight zig-zags trigger erase</div>
+                </div>
+                <div className="flex gap-1.5">
+                  {(['gentle', 'balanced', 'instant'] as ScribbleSensitivity[]).map((sens) => (
+                    <button
+                      key={sens}
+                      type="button"
+                      onClick={() => onUpdate({ scribbleSensitivity: sens })}
+                      className={`rounded-xl px-3 py-1.5 text-xs font-semibold capitalize transition ${
+                        settings.scribbleSensitivity === sens
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-black/5 text-slate-600 dark:bg-white/10 dark:text-slate-300'
+                      }`}
+                    >
+                      {sens}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
+                <div>
+                  <div className="text-sm font-semibold">Default Eraser Mode</div>
+                  <div className="text-xs text-slate-500">Whole stroke, precision segment split, or highlighter only</div>
+                </div>
+                <div className="flex gap-1.5">
+                  {(
+                    [
+                      { id: 'STROKE' as EraserMode, label: 'Stroke' },
+                      { id: 'PIXEL' as EraserMode, label: 'Precision' },
+                      { id: 'HIGHLIGHTER' as EraserMode, label: 'Highlight Only' },
+                    ]
+                  ).map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => onUpdate({ eraserMode: m.id })}
+                      className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+                        settings.eraserMode === m.id
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-black/5 text-slate-600 dark:bg-white/10 dark:text-slate-300'
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <ToggleRow
                 title="Hold to snap shapes"
                 sub="Pause briefly at the end of a drawing to snap into crisp geometry"
@@ -216,7 +463,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               />
               <ToggleRow
                 title="Solve maths as you write ="
-                sub="Evaluate equations, powers, trig, units & quadratics on the page"
+                sub="Evaluate equations, variables, derivatives, powers & quadratics"
                 checked={settings.mathAssist}
                 onChange={(v) => onUpdate({ mathAssist: v })}
               />
@@ -244,7 +491,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   <div>
                     <div className="text-sm font-semibold">Manage downloadable local AI models</div>
                     <div className="text-xs text-slate-500">
-                      Download SmolLM2, Qwen 2.5, or Gemma Lite directly onto your device
+                      Download SmolLM2, Qwen 2.5/3, Llama 3.2, Gemma 3, or DeepSeek-R1 onto your device
                     </div>
                   </div>
                 </div>
@@ -254,7 +501,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </div>
               <ToggleRow
                 title="Enhanced AI & math reveal animations"
-                sub="Glowing light sweeps, blooming answers, and staggered study cards"
+                sub="Orbital shimmer sweeps, blooming answers, and staggered study cards"
                 checked={settings.aiAnimations}
                 onChange={(v) => onUpdate({ aiAnimations: v })}
               />

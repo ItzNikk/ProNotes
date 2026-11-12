@@ -10,6 +10,10 @@ export function App() {
     state,
     modelStates,
     updateSettings,
+    switchPet,
+    recordPetAction,
+    savePenPreset,
+    deletePenPreset,
     createFolder,
     updateFolder,
     deleteFolder,
@@ -85,6 +89,11 @@ export function App() {
             }
           }}
           onUpdateNotebook={updateNotebook}
+          onUpdateSettings={updateSettings}
+          onSwitchPet={switchPet}
+          onRecordPetAction={recordPetAction}
+          onSavePenPreset={savePenPreset}
+          onDeletePenPreset={deletePenPreset}
           onAddFlashcards={addFlashcards}
           onUpdateFlashcard={updateFlashcard}
           onDeleteFlashcard={deleteFlashcard}
@@ -96,6 +105,9 @@ export function App() {
         <SettingsScreen
           settings={state.settings}
           onUpdate={updateSettings}
+          onSwitchPet={switchPet}
+          onSavePenPreset={savePenPreset}
+          onDeletePenPreset={deletePenPreset}
           onBack={() => setRoute({ screen: 'LIBRARY' })}
           onOpenLocalModels={() => setModelsModalOpen(true)}
           onExportBackup={exportBackupJson}
