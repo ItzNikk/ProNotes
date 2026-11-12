@@ -129,6 +129,8 @@ fun SettingsScreen(onBack: () -> Unit, onTour: () -> Unit = {}, onSupport: () ->
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { if (!wide && selected != null) selected = null else onBack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
             GradientTitle(if (!wide && selected != null) selected!!.label else "Settings", MaterialTheme.typography.headlineLarge)
+            Spacer(Modifier.weight(1f))
+            com.pronotes.app.editor.CompanionBadge(compact = true)
         }
         if (wide) {
             Row(Modifier.fillMaxSize()) {
@@ -301,11 +303,21 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                         if (s.pet) {
                             val activePet = companionById(s.petId)
                             val lvl = 1 + s.petXp / 100
+                            var petNameDraft by remember(s.petName) { mutableStateOf(s.petName) }
                             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("${activePet.name} · Lv.$lvl", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                    Text("${s.petName.ifBlank { activePet.name }} · Lv.$lvl", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                                     Text("${s.petXp} XP", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                 }
+                                OutlinedTextField(
+                                    value = petNameDraft,
+                                    onValueChange = { petNameDraft = it; up { cur -> cur.copy(petName = it.take(24)) } },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(16.dp),
+                                    label = { Text("Companion name") },
+                                    placeholder = { Text(activePet.name) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Companions.forEach { cp ->
                                         val on = cp.id == s.petId
@@ -690,24 +702,32 @@ private fun LocalAiSection(s: AppSettings) {
     LaunchedEffect(Unit) { LocalAiManager.refresh(context) }
 
     Section("Active AI Engine") {
-        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            ProIconView(ProIcon.STAR, Color(0xFF6B5CE7), Modifier.size(24.dp))
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(LocalAiManager.activeEngineLabel(context), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(
-                    if (Nano.available) "Gemini Nano AICore is active on this device"
-                    else "Download any of the 9 free lightweight models below for richer offline study AI",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        if (s.activeLocalModelId.isNotBlank()) {
-            HorizontalDivider(Modifier.padding(start = 54.dp))
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Use built-in fallback rules only", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                TextButton(onClick = { LocalAiManager.activateModel(context, "") }) { Text("Reset") }
+        Box(Modifier.fillMaxWidth()) {
+            com.pronotes.app.editor.AiParticleBackdrop(
+                modifier = Modifier.matchParentSize(),
+                active = states.values.any { it.status == LocalModelStatus.DOWNLOADING },
+            )
+            Column(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    ProIconView(ProIcon.STAR, Color(0xFF6B5CE7), Modifier.size(24.dp))
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(LocalAiManager.activeEngineLabel(context), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (Nano.available) "Gemini Nano AICore is active on this device"
+                            else "Download any of the 9 free lightweight models below for richer offline study AI",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (s.activeLocalModelId.isNotBlank()) {
+                    HorizontalDivider(Modifier.padding(start = 54.dp))
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Use built-in fallback rules only", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                        TextButton(onClick = { LocalAiManager.activateModel(context, "") }) { Text("Reset") }
+                    }
+                }
             }
         }
     }

@@ -90,6 +90,8 @@ export function normalizeMath(raw: string): string {
   let s = expandUnicodeSuperscripts(raw.trim())
     .replace(/√/g, 'sqrt')
     .replace(/∛/g, 'cbrt')
+    .replace(/\[|\{/g, '(')
+    .replace(/\]|\}/g, ')')
     .replace(/\*\*/g, '^')
     .replace(/[×·⋅]/g, '*')
     .replace(/[÷]/g, '/')
@@ -97,6 +99,11 @@ export function normalizeMath(raw: string): string {
     .replace(/π/g, 'pi')
     .replace(/τ/g, 'tau')
     .replace(/φ/g, 'phi');
+
+  // Convert |expr| absolute value pairs cleanly into abs(expr)
+  if ((s.match(/\|/g) || []).length % 2 === 0 && s.includes('|')) {
+    s = s.replace(/\|([^|]+)\|/g, 'abs($1)');
+  }
 
   // Natural percentage phrases
   s = s.replace(/(\d+(?:\.\d+)?)\s*%\s+of\s+([+-]?\d+(?:\.\d+)?)/gi, '($1/100)*($2)');
@@ -476,7 +483,7 @@ class PolyParser {
   private startsPrimary(): boolean {
     if (this.i >= this.s.length) return false;
     const c = this.s[this.i];
-    return /[0-9.(]/.test(c) || c === this.varChar;
+    return /[0-9.(a-zA-Z]/.test(c);
   }
 
   private expr(): Poly {
@@ -543,9 +550,44 @@ class PolyParser {
       this.i++;
       return v;
     }
-    if (ch === this.varChar) {
-      this.i++;
-      return [0, 1];
+    if (/[a-zA-Z]/.test(ch)) {
+      const start = this.i;
+      while (this.i < this.s.length && /[a-zA-Z0-9]/.test(this.s[this.i])) this.i++;
+      const ident = this.s.slice(start, this.i);
+      const low = ident.toLowerCase();
+      if (low === 'pi' && this.varChar.toLowerCase() !== 'pi') return [Math.PI];
+      if (low === 'e' && this.varChar.toLowerCase() !== 'e') return [Math.E];
+      if (low === 'tau') return [Math.PI * 2];
+      if (low === 'phi') return [(1 + Math.sqrt(5)) / 2];
+      if (KNOWN_FUNCS.has(low) && this.peek() === '(') {
+        // Balance parentheses and evaluate constant function expression (throws to numeric solver if variable is inside)
+        let depth = 0;
+        const callStart = start;
+        while (this.i < this.s.length) {
+          if (this.s[this.i] === '(') depth++;
+          else if (this.s[this.i] === ')') {
+            depth--;
+            if (depth === 0) {
+              this.i++;
+              break;
+            }
+          }
+          this.i++;
+        }
+        const subExpr = this.s.slice(callStart, this.i);
+        const val = evaluateNumeric(subExpr);
+        if (val === null) throw new Error('Var in fn');
+        return [val];
+      }
+      if (ident.length === 1 && ident.toLowerCase() === this.varChar.toLowerCase()) {
+        return [0, 1];
+      }
+      // Handle e.g. 'x' inside multi-char or rewind to 1-char variable
+      if (ident[0].toLowerCase() === this.varChar.toLowerCase()) {
+        this.i = start + 1;
+        return [0, 1];
+      }
+      throw new Error('Var');
     }
     const start = this.i;
     while (this.i < this.s.length && /[0-9.]/.test(this.s[this.i])) this.i++;

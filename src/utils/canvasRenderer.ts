@@ -966,21 +966,43 @@ export function drawStickyItem(ctx: CanvasRenderingContext2D, item: StickyItem):
   ctx.fill();
   ctx.shadowColor = 'transparent';
 
-  // Subtle top bar tint
-  ctx.fillStyle = 'rgba(0,0,0,0.045)';
-  ctx.beginPath();
-  ctx.roundRect(item.x, item.y, item.w, 24, [10, 10, 0, 0]);
-  ctx.fill();
+  // Crisp subtle hairline border
+  ctx.strokeStyle = 'rgba(0,0,0,0.08)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
 
-  // Pinned indicator dot
+  // Clip all interior chrome & text strictly inside the sticky note bounds
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(item.x, item.y, item.w, renderH, 10);
+  ctx.clip();
+
+  // Subtle top bar tint
+  ctx.fillStyle = 'rgba(0,0,0,0.055)';
+  ctx.fillRect(item.x, item.y, item.w, 22);
+
+  // Pinned indicator badge
   if (item.pinned) {
     ctx.fillStyle = '#E11D48';
     ctx.beginPath();
-    ctx.arc(item.x + 14, item.y + 12, 4.5, 0, Math.PI * 2);
+    ctx.arc(item.x + 14, item.y + 11, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    ctx.beginPath();
+    ctx.arc(item.x + 12.8, item.y + 9.8, 1.4, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  if (!item.collapsed) {
+  // Collapsed pill tag on right side
+  if (item.collapsed) {
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.beginPath();
+    ctx.roundRect(item.x + item.w - 46, item.y + 5, 38, 12, 6);
+    ctx.fill();
+    ctx.fillStyle = '#334155';
+    ctx.font = '700 8px "DM Sans", sans-serif';
+    ctx.fillText('FOLDED', item.x + item.w - 42, item.y + 14);
+  } else {
     // Subtle folded bottom-right corner
     ctx.fillStyle = 'rgba(0,0,0,0.09)';
     ctx.beginPath();
@@ -991,9 +1013,9 @@ export function drawStickyItem(ctx: CanvasRenderingContext2D, item: StickyItem):
     ctx.fill();
   }
 
-  // Text wrapping inside sticky
+  // Text wrapping inside sticky (with long-word character breaking & overflow clip)
   ctx.fillStyle = '#1F232E';
-  const fontSize = item.fontSize ?? Math.max(15, Math.min(26, item.w * 0.08));
+  const fontSize = item.fontSize ?? Math.max(15, Math.min(24, item.w * 0.075));
   const fam =
     item.font === 'SERIF'
       ? 'Georgia, serif'
@@ -1005,34 +1027,56 @@ export function drawStickyItem(ctx: CanvasRenderingContext2D, item: StickyItem):
   ctx.font = `500 ${fontSize}px ${fam}`;
 
   if (item.collapsed) {
-    const firstLine = (item.text.split('\n')[0] || 'Sticky note').slice(0, 32);
-    ctx.fillText(firstLine, item.x + (item.pinned ? 26 : 12), item.y + 38);
+    const rawFirst = item.text.split('\n')[0] || 'Sticky note';
+    let shown = rawFirst;
+    const availW = item.w - (item.pinned ? 36 : 24);
+    while (shown.length > 3 && ctx.measureText(shown).width > availW) {
+      shown = shown.slice(0, -2) + '…';
+    }
+    ctx.fillText(shown, item.x + (item.pinned ? 24 : 12), item.y + 40);
+    ctx.restore();
     ctx.restore();
     return;
   }
 
-  const maxW = item.w - 28;
+  const maxW = Math.max(40, item.w - 28);
   const lineH = fontSize * 1.32;
-  let ty = item.y + 30 + fontSize;
+  let ty = item.y + 28 + fontSize;
+  const maxBaselineY = item.y + renderH - 12;
+
   for (const para of item.text.split('\n')) {
+    if (ty > maxBaselineY) break;
     const words = para.split(' ');
     let line = '';
-    for (const w of words) {
-      const test = line ? `${line} ${w}` : w;
-      if (ctx.measureText(test).width > maxW && line) {
-        ctx.fillText(line, item.x + 14, ty);
-        line = w;
-        ty += lineH;
-        if (ty > item.y + renderH - 14) break;
+    for (const word of words) {
+      if (ty > maxBaselineY) break;
+      const test = line ? `${line} ${word}` : word;
+      if (ctx.measureText(test).width > maxW) {
+        if (line) {
+          ctx.fillText(line, item.x + 14, ty);
+          ty += lineH;
+          line = '';
+        }
+        // Break extra-long unspaced tokens across lines
+        let rem = word;
+        while (rem.length > 0 && ctx.measureText(rem).width > maxW && ty <= maxBaselineY) {
+          let cut = rem.length - 1;
+          while (cut > 1 && ctx.measureText(rem.slice(0, cut)).width > maxW) cut--;
+          ctx.fillText(rem.slice(0, cut), item.x + 14, ty);
+          ty += lineH;
+          rem = rem.slice(cut);
+        }
+        line = rem;
       } else {
         line = test;
       }
     }
-    if (line && ty <= item.y + renderH - 10) {
+    if (line && ty <= maxBaselineY) {
       ctx.fillText(line, item.x + 14, ty);
       ty += lineH;
     }
   }
+  ctx.restore();
   ctx.restore();
 }
 

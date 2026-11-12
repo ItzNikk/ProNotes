@@ -175,42 +175,42 @@ export function isScribble(pts: Pt[], sensitivity: ScribbleSensitivity = 'balanc
   const minPts = sensitivity === 'instant' ? 5 : sensitivity === 'balanced' ? 6 : 8;
   if (pts.length < minPts) return false;
   const bx = getBox(pts);
-  if (bx.diag < 13) return false;
+  if (bx.diag < 12) return false;
   const len = pathLength(pts);
-  const minLenRatio = sensitivity === 'instant' ? 1.55 : sensitivity === 'balanced' ? 1.85 : 2.3;
+  const minLenRatio = sensitivity === 'instant' ? 1.48 : sensitivity === 'balanced' ? 1.72 : 2.15;
   if (len < bx.diag * minLenRatio) return false;
 
-  const threshFrac = sensitivity === 'instant' ? 0.18 : sensitivity === 'balanced' ? 0.22 : 0.27;
+  const threshFrac = sensitivity === 'instant' ? 0.16 : sensitivity === 'balanced' ? 0.2 : 0.25;
   const minRev = sensitivity === 'instant' ? 2 : 3;
   const { reversals } = axisReversals(pts, threshFrac);
   if (reversals >= minRev) return true;
 
   // Sharp zig-zag turns
-  const s = simplify(pts, Math.max(2.2, bx.diag * 0.032));
+  const s = simplify(pts, Math.max(2.0, bx.diag * 0.03));
   if (s.length >= 4) {
     let sharp = 0;
     for (let i = 1; i < s.length - 1; i++) {
-      if (turnAngleDeg(s[i - 1], s[i], s[i + 1]) > 82) sharp++;
+      if (turnAngleDeg(s[i - 1], s[i], s[i + 1]) > 78) sharp++;
     }
-    if (sharp >= minRev && len >= bx.diag * (minLenRatio + 0.35)) return true;
+    if (sharp >= minRev && len >= bx.diag * (minLenRatio + 0.25)) return true;
   }
 
-  // Tight overlapping circular scrub
-  if (len >= bx.diag * 3.8 && reversals >= 2) return true;
+  // Tight overlapping circular or cross-out scrub
+  if (len >= bx.diag * 3.4 && reversals >= 2) return true;
 
   return false;
 }
 
 /**
  * Multi-window Live Scribble Check during `pointermove`!
- * Evaluates short (16 pts), medium (32 pts), and long (52 pts) trailing tails so
+ * Evaluates short (16 pts), medium (32 pts), and long (56 pts) trailing tails so
  * zig-zag scrubbing mid-sentence always fires immediately and reliably.
  */
 export function isLiveScribble(pts: Pt[], sensitivity: ScribbleSensitivity = 'balanced'): boolean {
   if (pts.length < 6) return false;
-  if (pts.length >= 10 && isScribble(pts.slice(-18), sensitivity)) return true;
-  if (pts.length >= 16 && isScribble(pts.slice(-34), sensitivity)) return true;
-  if (pts.length > 34 && isScribble(pts.slice(-56), sensitivity)) return true;
+  if (pts.length >= 8 && isScribble(pts.slice(-16), sensitivity)) return true;
+  if (pts.length >= 14 && isScribble(pts.slice(-30), sensitivity)) return true;
+  if (pts.length > 30 && isScribble(pts.slice(-56), sensitivity)) return true;
   return isScribble(pts, sensitivity);
 }
 
@@ -236,7 +236,8 @@ export function getItemBounds(item: PageItem): BBox {
       w, h, cx: item.x + w / 2, cy: item.y + h / 2, diag: Math.hypot(w, h),
     };
   }
-  const { x, y, w, h } = item;
+  const { x, y, w } = item;
+  const h = item.kind === 'sticky' && item.collapsed ? 52 : item.h;
   return { l: x, t: y, r: x + w, b: y + h, w, h, cx: x + w / 2, cy: y + h / 2, diag: Math.hypot(w, h) };
 }
 

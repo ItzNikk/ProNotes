@@ -148,6 +148,7 @@ data class AppSettings(
     /** Little study buddy that reacts to what you do. */
     val pet: Boolean = true,
     val petId: String = "sparkchu",
+    val petName: String = "",
     val petXp: Int = 45,
     // pens
     val penName: String = "Pro Stylus",
@@ -242,6 +243,7 @@ class SettingsStore private constructor(context: Context) {
             liquidGlass = b("glass", d.liquidGlass),
             pet = b("pet", d.pet),
             petId = prefs.getString("petId", d.petId) ?: d.petId,
+            petName = prefs.getString("petName", d.petName) ?: d.petName,
             petXp = prefs.getInt("petXp", d.petXp),
             penName = prefs.getString("penName", d.penName) ?: d.penName,
             hoverCursor = b("hoverCursor", d.hoverCursor),
@@ -319,6 +321,7 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("glass", s.liquidGlass)
             .putBoolean("pet", s.pet)
             .putString("petId", s.petId)
+            .putString("petName", s.petName)
             .putInt("petXp", s.petXp)
             .putString("penName", s.penName)
             .putBoolean("hoverCursor", s.hoverCursor)

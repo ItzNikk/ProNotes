@@ -178,15 +178,20 @@ fun SummarySheet(
             color = MaterialTheme.colorScheme.surface,
             modifier = Modifier.padding(18.dp).widthIn(max = 680.dp).fillMaxWidth(),
         ) {
-            Column(Modifier.padding(20.dp)) {
-                StudyHero(
-                    "AI Note Summary",
-                    "${result.wordCount} words · ${result.points.size} core takeaways · ${result.engineLabel}",
-                    StudyColors.summary,
-                    "✨",
-                ) {
-                    TextButton(onClick = onClose) { Text("Close", color = Color.White) }
-                }
+            Box {
+                AiParticleBackdrop(Modifier.matchParentSize(), StudyColors.summary, active = true)
+                Column(Modifier.padding(20.dp)) {
+                    StudyHero(
+                        "AI Note Summary",
+                        "${result.wordCount} words · ${result.points.size} core takeaways · ${result.engineLabel}",
+                        StudyColors.summary,
+                        "✨",
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            CompanionBadge(compact = true, onDarkBackground = true)
+                            TextButton(onClick = onClose) { Text("Close", color = Color.White) }
+                        }
+                    }
                 Spacer(Modifier.height(12.dp))
                 Column(
                     Modifier.heightIn(max = 470.dp).verticalScroll(rememberScrollState()),
@@ -264,6 +269,7 @@ fun SummarySheet(
                     FilledTonalButton(onClick = onAddSticky, shape = CircleShape) { Text("Pin as sticky") }
                     FilledTonalButton(onClick = onBuildMindMap, shape = CircleShape) { Text("AI Mind Map") }
                     OutlinedButton(onClick = onCopy, shape = CircleShape) { Text("Copy") }
+                }
                 }
             }
         }

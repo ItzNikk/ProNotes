@@ -29,12 +29,13 @@ import {
   ThemeMode,
   ToolbarDock,
 } from '../types/models';
-import { COMPANIONS, PetAvatarSvg } from './PipPet';
+import { COMPANIONS, getCompanionSpec, PetAvatarSvg, PipPet } from './PipPet';
 
 interface SettingsScreenProps {
   settings: AppSettings;
   onUpdate: (patch: Partial<AppSettings>) => void;
   onSwitchPet?: (petId: PetId) => void;
+  onRecordPetAction?: (kind: 'pet' | 'treat' | 'study', xpGain?: number) => void;
   onSavePenPreset?: (preset: PenPreset) => void;
   onDeletePenPreset?: (id: string) => void;
   onBack: () => void;
@@ -47,6 +48,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   settings,
   onUpdate,
   onSwitchPet,
+  onRecordPetAction,
   onSavePenPreset,
   onDeletePenPreset,
   onBack,
@@ -122,15 +124,28 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#F7F7F5] text-[#1B1F2A] dark:bg-[#0F0F0F] dark:text-[#F3F4F6]">
-      <header className="flex items-center gap-3 border-b border-black/8 bg-white/80 px-6 py-4 backdrop-blur-md dark:border-white/8 dark:bg-[#141415]/80">
-        <button
-          type="button"
-          onClick={onBack}
-          className="rounded-xl p-2 hover:bg-black/5 dark:hover:bg-white/10"
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-        <h1 className="text-lg font-bold tracking-tight">Settings</h1>
+      <header className="flex items-center justify-between gap-3 border-b border-black/8 bg-white/80 px-6 py-4 backdrop-blur-md dark:border-white/8 dark:bg-[#141415]/80">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onBack}
+            className="rounded-xl p-2 hover:bg-black/5 dark:hover:bg-white/10"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <h1 className="text-lg font-bold tracking-tight">Settings</h1>
+        </div>
+        {settings.pet && (
+          <PipPet
+            petId={settings.petId}
+            petName={settings.petName}
+            bond={settings.petBond}
+            align="right"
+            onSwitchPet={onSwitchPet}
+            onRenamePet={(petName) => onUpdate({ petName })}
+            onPetAction={onRecordPetAction}
+          />
+        )}
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
@@ -211,36 +226,53 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 onChange={(v) => onUpdate({ pet: v })}
               />
               {settings.pet && (
-                <div className="p-4">
-                  <div className="mb-2.5 flex items-center justify-between">
-                    <span className="text-sm font-semibold">Choose Companion</span>
-                    <span className="font-mono-num text-xs font-semibold text-violet-600 dark:text-violet-400">
-                      Level {settings.petBond?.level ?? 1} · {settings.petBond?.xp ?? 0} XP
-                    </span>
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
+                    <div>
+                      <div className="text-sm font-semibold">Companion Name</div>
+                      <div className="text-xs text-slate-500">
+                        Give your companion a custom nickname across all screens
+                      </div>
+                    </div>
+                    <input
+                      type="text"
+                      value={settings.petName}
+                      onChange={(e) => onUpdate({ petName: e.target.value })}
+                      placeholder={getCompanionSpec(settings.petId).name}
+                      className="w-44 rounded-xl border border-black/12 bg-slate-50 px-3 py-1.5 text-sm font-semibold outline-none focus:border-blue-500 dark:border-white/15 dark:bg-[#22242C]"
+                    />
                   </div>
-                  <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
-                    {COMPANIONS.map((c) => {
-                      const active = settings.petId === c.id;
-                      return (
-                        <button
-                          key={c.id}
-                          type="button"
-                          onClick={() => (onSwitchPet ? onSwitchPet(c.id) : onUpdate({ petId: c.id }))}
-                          className={`flex flex-col items-center rounded-2xl border p-2 transition ${
-                            active
-                              ? 'border-blue-600 bg-blue-500/10 shadow-sm'
-                              : 'border-black/8 hover:bg-black/[0.03] dark:border-white/10'
-                          }`}
-                        >
-                          <PetAvatarSvg petId={c.id} className="h-10 w-10" />
-                          <span className="mt-1 w-full truncate text-center text-[11px] font-semibold">
-                            {c.name}
-                          </span>
-                        </button>
-                      );
-                    })}
+                  <div className="p-4">
+                    <div className="mb-2.5 flex items-center justify-between">
+                      <span className="text-sm font-semibold">Choose Companion</span>
+                      <span className="font-mono-num text-xs font-semibold text-violet-600 dark:text-violet-400">
+                        Level {settings.petBond?.level ?? 1} · {settings.petBond?.xp ?? 0} XP
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
+                      {COMPANIONS.map((c) => {
+                        const active = settings.petId === c.id;
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => (onSwitchPet ? onSwitchPet(c.id) : onUpdate({ petId: c.id }))}
+                            className={`flex flex-col items-center rounded-2xl border p-2 transition ${
+                              active
+                                ? 'border-blue-600 bg-blue-500/10 shadow-sm'
+                                : 'border-black/8 hover:bg-black/[0.03] dark:border-white/10'
+                            }`}
+                          >
+                            <PetAvatarSvg petId={c.id} className="h-10 w-10" />
+                            <span className="mt-1 w-full truncate text-center text-[11px] font-semibold">
+                              {c.name}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
+                </>
               )}
             </div>
           </section>

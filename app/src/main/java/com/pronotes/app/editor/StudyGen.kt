@@ -178,6 +178,8 @@ object MathSolver {
 
     fun normalize(raw: String): String {
         var s = replaceUnicodeSuperscripts(preserveFunctionArgCommas(raw.trim()))
+            .replace('[', '(').replace(']', ')')
+            .replace('{', '(').replace('}', ')')
             .replace("√", "sqrt")
             .replace("**", "^")
             .replace('×', '*').replace('·', '*').replace('⋅', '*')
@@ -196,6 +198,16 @@ object MathSolver {
             .replace(Regex("(?<=\\d)[lI](?=\\d)"), "1")
             .replace(Regex("(?<=\\d)[sS](?=\\d)"), "5")
             .replace(Regex("sqrt(\\d+(?:\\.\\d+)?|[a-zA-Z])"), "sqrt($1)")
+
+        // Convert |expr| absolute-value notation into abs(expr)
+        var absGuard = 0
+        val absRegex = Regex("""\|([^|]+)\|""")
+        while (s.contains('|') && absGuard < 8) {
+            val next = absRegex.replace(s, "abs($1)")
+            if (next == s) break
+            s = next
+            absGuard++
+        }
 
         // Handle powers wrapped simply like x^(2) -> x^2 when safe
         s = s.replace(Regex("""\^\((\d+)\)"""), "^$1")
@@ -242,6 +254,7 @@ object MathSolver {
 
             solvePolynomialEquationDetailed(left, right)?.let { return it }
             solveExponentialEquationDetailed(left, right)?.let { return it }
+            solveNumericEquationDetailed(left, right)?.let { return it }
 
             val lv = evaluate(normalize(left)) ?: return null
             val rv = evaluate(normalize(right)) ?: return null
@@ -321,20 +334,27 @@ object MathSolver {
                 fractionHint = toFractionHint(deriv),
             )
         }
-        // Symbolic derivative via PolyParser when body is polynomial up to degree 2 in vName
+        // Symbolic derivative via PolyParser when body is polynomial up to degree 5 in vName
         val poly = runCatching { PolyParser(body, vName[0]).parse() }.getOrNull() ?: return null
-        val c1 = 2.0 * poly.x2
-        val c0 = poly.x
-        val parts = ArrayList<String>()
-        if (abs(c1) > 1e-11) {
-            parts += if (abs(c1 - 1.0) < 1e-11) vName else if (abs(c1 + 1.0) < 1e-11) "-$vName" else "${format(c1)}$vName"
+        val terms = ArrayList<Pair<Int, Double>>()
+        for (p in poly.degree() downTo 1) {
+            val dc = poly.coeff(p) * p
+            if (abs(dc) > 1e-11) terms += (p - 1) to dc
         }
-        if (abs(c0) > 1e-11) {
-            val cStr = format(c0)
-            if (parts.isEmpty()) parts += cStr
-            else if (c0 > 0) parts += "+ $cStr" else parts += "- ${format(-c0)}"
+        val sb = StringBuilder()
+        terms.forEachIndexed { idx, (pow, coeff) ->
+            val neg = coeff < 0
+            val a = abs(coeff)
+            if (idx > 0) sb.append(if (neg) " - " else " + ")
+            else if (neg) sb.append("-")
+            val cStr = format(a)
+            when (pow) {
+                0 -> sb.append(cStr)
+                1 -> sb.append(if (abs(a - 1.0) < 1e-11) vName else "$cStr$vName")
+                else -> sb.append(if (abs(a - 1.0) < 1e-11) "$vName^$pow" else "$cStr$vName^$pow")
+            }
         }
-        val ans = if (parts.isEmpty()) "0" else parts.joinToString(" ")
+        val ans = if (sb.isEmpty()) "0" else sb.toString()
         return MathDetailedResult(
             normalized = "d/d$vName($body)",
             answer = ans,
@@ -407,11 +427,11 @@ object MathSolver {
         val v = detectVariable("$nl=$nr") ?: 'x'
         val a = PolyParser(nl, v).parse()
         val b = PolyParser(nr, v).parse()
-        val c2 = a.x2 - b.x2
-        val c1 = a.x - b.x
-        val c0 = a.c - b.c
-        if (abs(c2) <= 1e-11) {
-            require(abs(c1) > 1e-12)
+        val d = a - b
+        val deg = d.degree()
+        require(deg >= 1)
+        if (deg == 1) {
+            val c1 = d.coeff(1); val c0 = d.coeff(0)
             val ans = -c0 / c1
             require(ans.isFinite() && abs(ans) < 1.0e100)
             val f = format(ans)
@@ -425,36 +445,147 @@ object MathSolver {
                 fractionHint = toFractionHint(ans),
             )
         }
-        val disc = c1 * c1 - 4.0 * c2 * c0
-        require(disc >= -1e-9)
-        if (disc <= 1e-9) {
-            val r = -c1 / (2.0 * c2)
-            val f = format(r)
+        if (deg == 2) {
+            val c2 = d.coeff(2); val c1 = d.coeff(1); val c0 = d.coeff(0)
+            val disc = c1 * c1 - 4.0 * c2 * c0
+            if (disc < -1e-9) {
+                val real = -c1 / (2.0 * c2)
+                val imag = abs(kotlin.math.sqrt(-disc) / (2.0 * c2))
+                val rPart = if (abs(real) < 1e-10) "" else "${format(real)} ± "
+                val iPart = if (abs(imag - 1.0) < 1e-9) "i" else "${format(imag)}i"
+                val ansStr = if (abs(real) < 1e-10) "±$iPart" else "$rPart$iPart"
+                return@runCatching MathDetailedResult(
+                    normalized = "$nl = $nr",
+                    answer = "$v = $ansStr",
+                    steps = listOf(
+                        "Standard form: ${format(c2)}$v² + (${format(c1)})$v + (${format(c0)}) = 0",
+                        "Discriminant Δ = ${format(disc)} < 0 → complex conjugate roots",
+                        "$v = $ansStr",
+                    ),
+                )
+            }
+            if (disc <= 1e-9) {
+                val r = -c1 / (2.0 * c2)
+                val f = format(r)
+                return@runCatching MathDetailedResult(
+                    normalized = "$nl = $nr",
+                    answer = "$v = $f",
+                    steps = listOf(
+                        "Standard form: ${format(c2)}$v² + (${format(c1)})$v + (${format(c0)}) = 0",
+                        "Discriminant Δ = 0 → double root $v = $f",
+                    ),
+                    fractionHint = toFractionHint(r),
+                )
+            }
+            val root = kotlin.math.sqrt(disc)
+            val r1 = (-c1 - root) / (2.0 * c2)
+            val r2 = (-c1 + root) / (2.0 * c2)
+            val lo = minOf(r1, r2)
+            val hi = maxOf(r1, r2)
             return@runCatching MathDetailedResult(
                 normalized = "$nl = $nr",
-                answer = "$v = $f",
+                answer = "$v = ${format(lo)}, ${format(hi)}",
                 steps = listOf(
                     "Standard form: ${format(c2)}$v² + (${format(c1)})$v + (${format(c0)}) = 0",
-                    "Discriminant Δ = 0 → double root $v = $f",
+                    "Discriminant Δ = ${format(disc)}",
+                    "Roots: $v₁ = ${format(lo)}, $v₂ = ${format(hi)}",
                 ),
-                fractionHint = toFractionHint(r),
             )
         }
-        val root = kotlin.math.sqrt(disc)
-        val r1 = (-c1 - root) / (2.0 * c2)
-        val r2 = (-c1 + root) / (2.0 * c2)
-        val lo = minOf(r1, r2)
-        val hi = maxOf(r1, r2)
+        // Degree 3..5: numerical root scan + bisection + deduplication
+        val roots = findPolynomialRoots(d)
+        require(roots.isNotEmpty())
+        val formatted = roots.joinToString(", ") { format(it) }
         MathDetailedResult(
             normalized = "$nl = $nr",
-            answer = "$v = ${format(lo)}, ${format(hi)}",
-            steps = listOf(
-                "Standard form: ${format(c2)}$v² + (${format(c1)})$v + (${format(c0)}) = 0",
-                "Discriminant Δ = ${format(disc)}",
-                "Roots: $v₁ = ${format(lo)}, $v₂ = ${format(hi)}",
-            ),
+            answer = "$v = $formatted",
+            steps = listOf("Degree-$deg polynomial reduced to standard form = 0", "Real root(s): $v = $formatted"),
+            fractionHint = if (roots.size == 1) toFractionHint(roots[0]) else null,
         )
     }.getOrNull()
+
+    private fun findPolynomialRoots(p: Poly): List<Double> {
+        fun eval(x: Double): Double {
+            var acc = 0.0
+            for (k in Poly.MAX_DEG downTo 0) acc = acc * x + p.c[k]
+            return acc
+        }
+        val roots = ArrayList<Double>()
+        fun addRoot(r: Double) {
+            if (!r.isFinite()) return
+            if (roots.none { abs(it - r) < 1e-4 }) roots += r
+        }
+        var prevX = -150.0
+        var prevY = eval(prevX)
+        val step = 0.25
+        var x = prevX + step
+        while (x <= 150.0 + 1e-9) {
+            val y = eval(x)
+            if (abs(y) < 1e-10) addRoot(x)
+            else if (prevY * y < 0.0) {
+                var lo = prevX; var hi = x; var flo = prevY
+                repeat(55) {
+                    val mid = 0.5 * (lo + hi)
+                    val fmid = eval(mid)
+                    if (flo * fmid <= 0.0) { hi = mid } else { lo = mid; flo = fmid }
+                }
+                addRoot(0.5 * (lo + hi))
+            }
+            prevX = x; prevY = y; x += step
+        }
+        return roots.sorted()
+    }
+
+    private fun solveNumericEquationDetailed(left: String, right: String): MathDetailedResult? {
+        val nl = normalize(left)
+        val nr = normalize(right)
+        val v = detectVariable("$nl=$nr") ?: return null
+        val vs = v.toString()
+        fun diff(x: Double): Double? {
+            val l = evaluate(nl, mapOf(vs to x)) ?: return null
+            val r = evaluate(nr, mapOf(vs to x)) ?: return null
+            return l - r
+        }
+        val roots = ArrayList<Double>()
+        fun addRoot(r: Double) {
+            if (r.isFinite() && roots.none { abs(it - r) < 1e-4 }) roots += r
+        }
+        var prevX = -60.0
+        var prevY = diff(prevX)
+        val step = 0.25
+        var x = prevX + step
+        while (x <= 60.0 + 1e-9 && roots.size < 4) {
+            val y = diff(x)
+            if (y != null && prevY != null) {
+                if (abs(y) < 1e-9) addRoot(x)
+                else if (prevY * y < 0.0) {
+                    var lo = prevX; var hi = x; var flo = prevY
+                    var valid = true
+                    repeat(52) {
+                        val mid = 0.5 * (lo + hi)
+                        val fmid = diff(mid)
+                        if (fmid == null) { valid = false; return@repeat }
+                        if (flo * fmid <= 0.0) { hi = mid } else { lo = mid; flo = fmid }
+                    }
+                    val root = 0.5 * (lo + hi)
+                    val res = diff(root)
+                    if (valid && res != null && abs(res) < 1e-4) addRoot(root)
+                }
+            }
+            prevX = x; prevY = y; x += step
+        }
+        if (roots.isEmpty()) return null
+        val formatted = roots.sorted().joinToString(", ") { format(it) }
+        return MathDetailedResult(
+            normalized = "$nl = $nr",
+            answer = "$v = $formatted",
+            steps = listOf(
+                "Solve f($v) = $nl − ($nr) = 0 numerically",
+                "Solution(s): $v = $formatted",
+            ),
+            fractionHint = if (roots.size == 1) toFractionHint(roots[0]) else null,
+        )
+    }
 
     private fun solveExponentialEquationDetailed(left: String, right: String): MathDetailedResult? {
         val nl = normalize(left)
@@ -676,18 +807,30 @@ object MathSolver {
         private fun peek(): Char = if (i < s.length) s[i] else '\u0000'
     }
 
-    private data class Poly(val x2: Double, val x: Double, val c: Double) {
-        operator fun plus(other: Poly) = Poly(x2 + other.x2, x + other.x, c + other.c)
-        operator fun minus(other: Poly) = Poly(x2 - other.x2, x - other.x, c - other.c)
+    private class Poly(val c: DoubleArray = DoubleArray(MAX_DEG + 1)) {
+        companion object {
+            const val MAX_DEG = 5
+            fun const(v: Double) = Poly().also { it.c[0] = v }
+            fun linear(v: Double = 1.0) = Poly().also { it.c[1] = v }
+        }
+        fun coeff(p: Int): Double = c[p]
+        fun degree(): Int {
+            for (k in MAX_DEG downTo 1) if (abs(c[k]) > 1e-12) return k
+            return 0
+        }
+        operator fun plus(other: Poly) = Poly(DoubleArray(MAX_DEG + 1) { c[it] + other.c[it] })
+        operator fun minus(other: Poly) = Poly(DoubleArray(MAX_DEG + 1) { c[it] - other.c[it] })
+        operator fun unaryMinus() = Poly(DoubleArray(MAX_DEG + 1) { -c[it] })
         fun times(other: Poly): Poly {
-            val d1 = if (abs(x2) > 1e-12) 2 else if (abs(x) > 1e-12) 1 else 0
-            val d2 = if (abs(other.x2) > 1e-12) 2 else if (abs(other.x) > 1e-12) 1 else 0
-            require(d1 + d2 <= 2)
-            return Poly(x2 * other.c + x * other.x + c * other.x2, x * other.c + c * other.x, c * other.c)
+            val d1 = degree(); val d2 = other.degree()
+            require(d1 + d2 <= MAX_DEG)
+            val out = DoubleArray(MAX_DEG + 1)
+            for (i in 0..d1) for (j in 0..d2) out[i + j] += c[i] * other.c[j]
+            return Poly(out)
         }
         fun dividedBy(other: Poly): Poly {
-            require(abs(other.x2) < 1e-12 && abs(other.x) < 1e-12 && abs(other.c) > 1e-12)
-            return Poly(x2 / other.c, x / other.c, c / other.c)
+            require(other.degree() == 0 && abs(other.c[0]) > 1e-12)
+            return Poly(DoubleArray(MAX_DEG + 1) { c[it] / other.c[0] })
         }
     }
 
@@ -716,7 +859,7 @@ object MathSolver {
         }
         private fun unary(): Poly = when (peek()) {
             '+' -> { i++; unary() }
-            '-' -> { i++; val v = unary(); Poly(-v.x2, -v.x, -v.c) }
+            '-' -> { i++; -unary() }
             else -> power()
         }
         private fun power(): Poly {
@@ -724,16 +867,14 @@ object MathSolver {
             if (peek() == '^') {
                 i++
                 val exponent = unary()
-                require(abs(exponent.x2) < 1e-12 && abs(exponent.x) < 1e-12)
-                val n = exponent.c
-                val baseDeg = if (abs(base.x2) > 1e-12) 2 else if (abs(base.x) > 1e-12) 1 else 0
-                if (baseDeg == 0) return Poly(0.0, 0.0, base.c.pow(n))
-                require(n == 0.0 || n == 1.0 || (n == 2.0 && baseDeg == 1))
-                return when (n) {
-                    0.0 -> Poly(0.0, 0.0, 1.0)
-                    1.0 -> base
-                    else -> base.times(base)
-                }
+                require(exponent.degree() == 0)
+                val n = exponent.c[0]
+                if (base.degree() == 0) return Poly.const(base.c[0].pow(n))
+                val k = kotlin.math.round(n).toInt()
+                require(abs(n - k) < 1e-11 && k in 0..Poly.MAX_DEG && base.degree() * k <= Poly.MAX_DEG)
+                var acc = Poly.const(1.0)
+                repeat(k) { acc = acc.times(base) }
+                return acc
             }
             return base
         }
@@ -741,13 +882,41 @@ object MathSolver {
             require(i < s.length)
             val p = peek()
             if (p == '(') { i++; val v = expression(); require(peek() == ')'); i++; return v }
-            if (p.equals(variable, ignoreCase = true)) { i++; return Poly(0.0, 1.0, 0.0) }
+            if (p.isLetter()) {
+                val start = i
+                while (i < s.length && (s[i].isLetter() || s[i].isDigit())) i++
+                val raw = s.substring(start, i)
+                val low = raw.lowercase(Locale.US)
+                if (raw.length == 1 && raw[0].equals(variable, ignoreCase = true) && peek() != '(') return Poly.linear(1.0)
+                when (low) {
+                    "pi" -> return Poly.const(Math.PI)
+                    "tau" -> return Poly.const(Math.PI * 2.0)
+                    "phi" -> return Poly.const((1.0 + kotlin.math.sqrt(5.0)) / 2.0)
+                    "e" -> return Poly.const(Math.E)
+                }
+                if (peek() == '(') {
+                    val argStart = i
+                    var depth = 0
+                    while (i < s.length) {
+                        when (s[i]) {
+                            '(' -> depth++
+                            ')' -> { depth--; if (depth == 0) { i++; break } }
+                        }
+                        i++
+                    }
+                    require(depth == 0)
+                    val fullCall = raw + s.substring(argStart, i)
+                    val numVal = evaluate(fullCall) ?: error("Non-constant function")
+                    return Poly.const(numVal)
+                }
+                error("Unknown variable $raw")
+            }
             val start = i
             while (i < s.length && (s[i].isDigit() || s[i] == '.')) i++
             require(i > start)
-            return Poly(0.0, 0.0, s.substring(start, i).toDouble())
+            return Poly.const(s.substring(start, i).toDouble())
         }
-        private fun startsPrimary(): Boolean = i < s.length && (s[i].isDigit() || s[i] == '.' || s[i] == '(' || s[i].equals(variable, ignoreCase = true))
+        private fun startsPrimary(): Boolean = i < s.length && (s[i].isDigit() || s[i] == '.' || s[i] == '(' || s[i].isLetter())
         private fun peek(): Char = if (i < s.length) s[i] else '\u0000'
     }
 }

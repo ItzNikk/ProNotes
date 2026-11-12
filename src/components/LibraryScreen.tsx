@@ -28,9 +28,10 @@ import {
   Folder,
   LocalModelState,
   NotebookMeta,
+  PetId,
 } from '../types/models';
 import { CoverCanvas, FolderArt, NewNotebookModal, NewNotebookPayload } from './CoversAndPatterns';
-import { getCompanionSpec, PetAvatarSvg } from './PipPet';
+import { getCompanionSpec, PetAvatarSvg, PipPet } from './PipPet';
 import { LOCAL_MODELS_CATALOG } from '../utils/localAi';
 
 type Section = 'DOCUMENTS' | 'FAVORITES' | 'RECENT' | 'TRASH';
@@ -53,6 +54,9 @@ interface LibraryScreenProps {
   onEmptyTrash: () => void;
   onOpenSettings: () => void;
   onOpenLocalModels: () => void;
+  onSwitchPet: (id: PetId) => void;
+  onRenamePet: (name: string) => void;
+  onRecordPetAction: (kind: 'pet' | 'treat' | 'study', xpGain?: number) => void;
 }
 
 const formatDate = (ts: number) =>
@@ -193,6 +197,9 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   onEmptyTrash,
   onOpenSettings,
   onOpenLocalModels,
+  onSwitchPet,
+  onRenamePet,
+  onRecordPetAction,
 }) => {
   const [section, setSection] = useState<Section>('DOCUMENTS');
   const [folderId, setFolderId] = useState<string | null>(null);
@@ -216,6 +223,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   const readyModelCount = LOCAL_MODELS_CATALOG.filter((m) => modelStates[m.id]?.status === 'READY').length;
   const activeModel = LOCAL_MODELS_CATALOG.find((m) => m.id === settings.activeLocalModelId);
   const companion = getCompanionSpec(settings.petId);
+  const companionName = settings.petName?.trim() || companion.name;
 
   const trashCount = useMemo(() => notebooks.filter((n) => n.deletedAt !== null).length, [notebooks]);
 
@@ -385,7 +393,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                 <PetAvatarSvg petId={settings.petId} className="h-8 w-8 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between text-xs font-bold">
-                    <span className="truncate">{companion.name}</span>
+                    <span className="truncate">{companionName}</span>
                     <span className="font-mono-num text-[10px] text-blue-600 dark:text-blue-400">
                       Lv.{settings.petBond?.level ?? 1}
                     </span>
@@ -496,6 +504,18 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                 <List className="h-4 w-4" />
               </button>
             </div>
+
+            {settings.pet && (
+              <PipPet
+                petId={settings.petId}
+                petName={settings.petName}
+                bond={settings.petBond}
+                align="right"
+                onSwitchPet={onSwitchPet}
+                onRenamePet={onRenamePet}
+                onPetAction={onRecordPetAction}
+              />
+            )}
           </div>
         </header>
 

@@ -77,6 +77,7 @@ import {
 import {
   dist,
   getItemBounds,
+  isClosedLoop,
   isLiveScribble,
   isNearlyStraight,
   isScribble,
@@ -107,7 +108,7 @@ import {
   runLocalQuiz,
   runLocalSummary,
 } from '../utils/localAi';
-import { AiThinkingPill, PipPet } from './PipPet';
+import { AiParticleBackdrop, AiThinkingPill, PipPet } from './PipPet';
 import { PaperPreviewCanvas } from './CoversAndPatterns';
 import { FlashcardsModal, QuizModal, SummaryModal } from './StudyModals';
 
@@ -117,6 +118,15 @@ interface PuffParticle {
   vx: number;
   vy: number;
   r: number;
+  born: number;
+  color: string;
+  streak?: boolean;
+}
+
+interface EraseRing {
+  x: number;
+  y: number;
+  maxR: number;
   born: number;
   color: string;
 }
@@ -189,6 +199,7 @@ const SplitNotebookPane: React.FC<{
   width: number;
   onChangeNotebook: (id: string) => void;
   onSwapWithPrimary: (id: string) => void;
+  onSetRatio: (ratio: number) => void;
   onCopyTextToPrimary: (text: string) => void;
   onClose: () => void;
 }> = ({
@@ -199,6 +210,7 @@ const SplitNotebookPane: React.FC<{
   width,
   onChangeNotebook,
   onSwapWithPrimary,
+  onSetRatio,
   onCopyTextToPrimary,
   onClose,
 }) => {
@@ -332,22 +344,50 @@ const SplitNotebookPane: React.FC<{
         </div>
 
         <div className="flex items-center gap-1">
+          {[0.3, 0.5, 0.7].map((r) => (
+            <button
+              key={r}
+              type="button"
+              onClick={() => onSetRatio(r)}
+              title={`Split ratio ${Math.round(r * 100)}/${Math.round((1 - r) * 100)}`}
+              className="rounded-md bg-black/[0.04] px-1.5 py-0.5 font-mono-num text-[10px] font-semibold hover:bg-blue-500/15 hover:text-blue-600 dark:bg-white/[0.08]"
+            >
+              {Math.round(r * 100)}/{Math.round((1 - r) * 100)}
+            </button>
+          ))}
           <button
             type="button"
             onClick={() => setSplitZoom((z) => Math.max(0.2, z * 0.85))}
             className="rounded p-1 hover:bg-black/5"
+            title="Zoom out split pane"
           >
             <ZoomOut className="h-3.5 w-3.5" />
           </button>
-          <span className="font-mono-num min-w-[36px] text-center font-semibold">
+          <span className="font-mono-num min-w-[34px] text-center font-semibold">
             {Math.round(splitZoom * 100)}%
           </span>
           <button
             type="button"
             onClick={() => setSplitZoom((z) => Math.min(2.5, z * 1.15))}
             className="rounded p-1 hover:bg-black/5"
+            title="Zoom in split pane"
           >
             <ZoomIn className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const el = splitWrapRef.current;
+              if (!el || !spPage) return;
+              const fit = Math.min((el.clientWidth - 28) / spPage.width, (el.clientHeight - 28) / spPage.height, 0.95);
+              const z = Math.max(0.24, fit);
+              setSplitZoom(z);
+              setSplitPan({ x: Math.max(12, (el.clientWidth - spPage.width * z) / 2), y: 14 });
+            }}
+            className="rounded px-1.5 py-0.5 text-[10px] font-bold hover:bg-black/5 dark:hover:bg-white/10"
+            title="Fit page in split pane"
+          >
+            Fit
           </button>
         </div>
       </div>
@@ -573,8 +613,11 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   });
 
   const puffsRef = useRef<PuffParticle[]>([]);
+  const ringsRef = useRef<EraseRing[]>([]);
   const glowsRef = useRef<GlowSweep[]>([]);
   const lasersRef = useRef<LaserTrail[]>([]);
+  const circleHoldTimerRef = useRef<number | null>(null);
+  const circleChargeRef = useRef<{ x: number; y: number; born: number } | null>(null);
   const [writingActive, setWritingActive] = useState(false);
 
   const safeIdx = Math.min(pageIdx, Math.max(0, notebook.pages.length - 1));
@@ -647,7 +690,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     const onMove = (e: MouseEvent) => {
       if (!splitResizeRef.current.active) return;
       const dx = splitResizeRef.current.startX - e.clientX;
-      setSplitWidth(Math.max(280, Math.min(640, splitResizeRef.current.startW + dx)));
+      setSplitWidth(Math.max(240, Math.min(Math.round(window.innerWidth * 0.76), splitResizeRef.current.startW + dx)));
     };
     const onUp = () => {
       splitResizeRef.current.active = false;
@@ -726,15 +769,26 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     const now = performance.now();
     for (const it of items) {
       const b = getItemBounds(it);
-      for (let k = 0; k < 12; k++) {
+      const col = it.kind === 'ink' ? it.color : it.kind === 'sticky' ? '#F59E0B' : '#7C3AED';
+      ringsRef.current.push({
+        x: b.cx,
+        y: b.cy,
+        maxR: Math.max(36, Math.min(145, b.diag * 0.56)),
+        born: now,
+        color: col,
+      });
+      for (let k = 0; k < 14; k++) {
+        const ang = (Math.PI * 2 * k) / 14 + Math.random() * 0.35;
+        const speed = 1.6 + Math.random() * 2.8;
         puffsRef.current.push({
           x: b.l + Math.random() * Math.max(12, b.w),
           y: b.t + Math.random() * Math.max(12, b.h),
-          vx: (Math.random() - 0.5) * 2.2,
-          vy: -0.8 - Math.random() * 2.0,
-          r: 2.2 + Math.random() * 2.6,
+          vx: Math.cos(ang) * speed,
+          vy: Math.sin(ang) * speed - 0.6,
+          r: 2.0 + Math.random() * 2.8,
           born: now,
-          color: it.kind === 'ink' ? it.color : '#8A93A3',
+          color: col,
+          streak: k % 2 === 0,
         });
       }
     }
@@ -981,6 +1035,8 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         gestureRef.current.active ||
         glowsRef.current.length > 0 ||
         puffsRef.current.length > 0 ||
+        ringsRef.current.length > 0 ||
+        circleChargeRef.current !== null ||
         lasersRef.current.length > 0;
 
       if (!needsDrawRef.current && !hasAnims) return;
@@ -1054,11 +1110,11 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       const renderPage = workingItemsRef.current ? { ...page, items: workingItemsRef.current } : page;
       renderPageItems(ctx, renderPage, imageCacheRef.current, selectedIds, settings.highlighterBehind);
 
-      // Selected Sticky resize grip handle (bottom-right)
+      // Selected Sticky resize grip handle (bottom-right, hidden when collapsed or pinned)
       if (selectedIds.size === 1) {
         const sid = Array.from(selectedIds)[0];
         const st = renderPage.items.find((i): i is StickyItem => i.id === sid && i.kind === 'sticky');
-        if (st && !st.collapsed) {
+        if (st && !st.collapsed && !st.pinned) {
           ctx.save();
           ctx.fillStyle = '#3D6CF4';
           ctx.beginPath();
@@ -1187,16 +1243,68 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         ctx.restore();
       }
 
-      // Crumble Particles
-      puffsRef.current = puffsRef.current.filter((pf) => now - pf.born < 520);
-      for (const pf of puffsRef.current) {
-        const t = (now - pf.born) / 520;
+      // Hold-to-Lasso Radial Charging Ring (only when holding pen still on a closed loop)
+      if (circleChargeRef.current && now >= circleChargeRef.current.born) {
+        const cc = circleChargeRef.current;
+        const pct = Math.min(1, (now - cc.born) / 320);
+        const rad = 18 / camera.zoom;
         ctx.save();
-        ctx.globalAlpha = 1 - t;
-        ctx.fillStyle = pf.color;
+        ctx.strokeStyle = 'rgba(61,108,244,0.22)';
+        ctx.lineWidth = 3 / camera.zoom;
         ctx.beginPath();
-        ctx.arc(pf.x + pf.vx * t * 32, pf.y + pf.vy * t * 32, pf.r * (1 - t * 0.4), 0, Math.PI * 2);
-        ctx.fill();
+        ctx.arc(cc.x, cc.y, rad, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = '#3D6CF4';
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(cc.x, cc.y, rad, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * pct);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Erase Shockwave Dissolve Rings
+      ringsRef.current = ringsRef.current.filter((rg) => now - rg.born < 480);
+      for (const rg of ringsRef.current) {
+        const t = (now - rg.born) / 480;
+        const ease = 1 - Math.pow(1 - t, 3);
+        const rad = 8 + (rg.maxR - 8) * ease;
+        ctx.save();
+        ctx.globalAlpha = (1 - t) * 0.72;
+        ctx.strokeStyle = rg.color;
+        ctx.lineWidth = (3.4 - t * 2.2) / camera.zoom;
+        ctx.beginPath();
+        ctx.arc(rg.x, rg.y, rad, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = (1 - t) * 0.35;
+        ctx.lineWidth = 1.4 / camera.zoom;
+        ctx.beginPath();
+        ctx.arc(rg.x, rg.y, rad * 0.65, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Crumble & Spark Particles
+      puffsRef.current = puffsRef.current.filter((pf) => now - pf.born < 540);
+      for (const pf of puffsRef.current) {
+        const t = (now - pf.born) / 540;
+        const px = pf.x + pf.vx * t * 34;
+        const py = pf.y + pf.vy * t * 34;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, 1 - t);
+        if (pf.streak) {
+          ctx.strokeStyle = pf.color;
+          ctx.lineWidth = Math.max(1.2, pf.r * (1 - t * 0.5));
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(px - pf.vx * 3.5, py - pf.vy * 3.5);
+          ctx.lineTo(px, py);
+          ctx.stroke();
+        } else {
+          ctx.fillStyle = pf.color;
+          ctx.beginPath();
+          ctx.arc(px, py, pf.r * (1 - t * 0.4), 0, Math.PI * 2);
+          ctx.fill();
+        }
         ctx.restore();
       }
 
@@ -1320,11 +1428,11 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       return;
     }
 
-    // Check Sticky Resize Grip
+    // Check Sticky Resize Grip (disabled when collapsed or pinned)
     if (selectedIds.size === 1) {
       const sid = Array.from(selectedIds)[0];
       const st = page.items.find((i): i is StickyItem => i.id === sid && i.kind === 'sticky');
-      if (st && !st.collapsed && dist(world, { x: st.x + st.w, y: st.y + st.h }) <= 16 / camera.zoom) {
+      if (st && !st.collapsed && !st.pinned && dist(world, { x: st.x + st.w, y: st.y + st.h }) <= 16 / camera.zoom) {
         g.mode = 'RESIZE_STICKY';
         g.resizeStickyId = st.id;
         g.origStickySize = { w: st.w, h: st.h };
@@ -1485,6 +1593,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       const dy = world.y - g.startWorld.y;
       workingItemsRef.current = g.dragOrigItems.map((it) => {
         if (!selectedIds.has(it.id)) return it;
+        if (it.kind === 'sticky' && it.pinned) return it;
         if (it.kind === 'ink') {
           return { ...it, points: it.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })) };
         }
@@ -1499,6 +1608,12 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     }
 
     if (g.mode === 'INK') {
+      if (circleHoldTimerRef.current !== null && dist(g.lastWorld, world) > 3.5) {
+        window.clearTimeout(circleHoldTimerRef.current);
+        circleHoldTimerRef.current = null;
+        circleChargeRef.current = null;
+      }
+
       const prev = g.pts[g.pts.length - 1];
       // Apply gentle input stabilization
       const stab = tool === 'PEN' ? penStabilizer * 0.55 : 0;
@@ -1529,6 +1644,43 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           g.pts = g.pts.slice(-14);
         }
       }
+
+      // Hold-only Circle-to-Lasso (Pen tool ONLY, Laser NEVER converts)
+      if (
+        settings.circleToLasso &&
+        tool === 'PEN' &&
+        !g.scribbleConsumed &&
+        circleHoldTimerRef.current === null &&
+        isClosedLoop(g.pts)
+      ) {
+        const snapPts = [...g.pts];
+        circleChargeRef.current = { x: world.x, y: world.y, born: performance.now() + 90 };
+        circleHoldTimerRef.current = window.setTimeout(() => {
+          circleHoldTimerRef.current = null;
+          circleChargeRef.current = null;
+          if (!gestureRef.current.active || gestureRef.current.mode !== 'INK') return;
+          const picked = page.items.filter((it) => lassoSelectsItem(snapPts, it, settings.lassoTouching));
+          setSelectedIds(new Set(picked.map((i) => i.id)));
+          if (picked.length === 1 && picked[0].kind === 'sticky') {
+            setEditingStickyId(picked[0].id);
+          }
+          ringsRef.current.push({
+            x: world.x,
+            y: world.y,
+            maxR: 62,
+            born: performance.now(),
+            color: '#3D6CF4',
+          });
+          gestureRef.current.active = false;
+          gestureRef.current.mode = 'NONE';
+          gestureRef.current.pts = [];
+          workingItemsRef.current = null;
+          setWritingActive(false);
+          showToast(picked.length > 0 ? `${picked.length} selected via Hold-Lasso` : 'Loop held — nothing inside');
+          requestDraw();
+        }, 410);
+      }
+
       requestDraw();
     } else if (g.mode === 'ERASE') {
       eraseInWorkingItems(world);
@@ -1561,6 +1713,11 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   };
 
   const handlePointerUp = () => {
+    if (circleHoldTimerRef.current !== null) {
+      window.clearTimeout(circleHoldTimerRef.current);
+      circleHoldTimerRef.current = null;
+    }
+    circleChargeRef.current = null;
     const g = gestureRef.current;
     if (!g.active || !page) return;
     g.active = false;
@@ -2079,9 +2236,10 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
 
   const selectedStickyScreen = useMemo(() => {
     if (!selectedStickyNode) return null;
+    const h = selectedStickyNode.collapsed ? 52 : selectedStickyNode.h;
     return {
       left: (selectedStickyNode.x + selectedStickyNode.w / 2) * camera.zoom + camera.panX,
-      top: (selectedStickyNode.y + selectedStickyNode.h) * camera.zoom + camera.panY + 10,
+      top: (selectedStickyNode.y + h) * camera.zoom + camera.panY + 10,
     };
   }, [selectedStickyNode, camera]);
 
@@ -2178,11 +2336,13 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             <div className="ml-1 hidden sm:block">
               <PipPet
                 petId={settings.petId}
+                petName={settings.petName}
                 bond={settings.petBond}
                 writing={writingActive}
                 thinking={Boolean(aiBusyLabel)}
                 cheerTrigger={cheerTrigger}
                 onSwitchPet={onSwitchPet}
+                onRenamePet={(petName) => onUpdateSettings({ petName })}
                 onPetAction={onRecordPetAction}
               />
             </div>
@@ -2312,6 +2472,50 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               </div>
             )}
           </div>
+
+          {isWhiteboard ? (
+            <button
+              type="button"
+              onClick={() => setCamera({ panX: 80, panY: 60, zoom: 0.9 })}
+              title="Reset whiteboard to origin"
+              className="hidden items-center gap-1 rounded-xl bg-black/[0.04] px-2 py-1 text-[11px] font-semibold hover:bg-black/8 dark:bg-white/[0.08] md:inline-flex"
+            >
+              <Layers className="h-3.5 w-3.5 text-emerald-600" />
+              <span>Board</span>
+            </button>
+          ) : (
+            <div className="hidden items-center gap-0.5 rounded-xl bg-black/[0.04] px-1.5 py-0.5 text-[11px] font-semibold dark:bg-white/[0.08] md:flex">
+              <button
+                type="button"
+                disabled={safeIdx === 0}
+                onClick={() => {
+                  const ni = Math.max(0, safeIdx - 1);
+                  setPageIdx(ni);
+                  fitPageToView(notebook.pages[ni]);
+                }}
+                className="rounded p-0.5 hover:bg-black/10 disabled:opacity-30"
+                title="Previous page"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+              <span className="font-mono-num px-1">
+                {safeIdx + 1}/{notebook.pages.length}
+              </span>
+              <button
+                type="button"
+                disabled={safeIdx >= notebook.pages.length - 1}
+                onClick={() => {
+                  const ni = Math.min(notebook.pages.length - 1, safeIdx + 1);
+                  setPageIdx(ni);
+                  fitPageToView(notebook.pages[ni]);
+                }}
+                className="rounded p-0.5 hover:bg-black/10 disabled:opacity-30"
+                title="Next page"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
 
           <button
             type="button"
@@ -3013,7 +3217,9 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
 
           {/* Advanced Maths Quick-Pad (Multi-line variables, derivatives, fractions, steps) */}
           {mathPadOpen && (
-            <div className="absolute right-4 top-3 z-40 w-88 rounded-3xl border border-black/10 bg-white/95 p-4 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#1E2027]/95 animate-stagger-in">
+            <div className="absolute right-4 top-3 z-40 w-88 overflow-hidden rounded-3xl border border-black/10 bg-white/95 p-4 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#1E2027]/95 animate-stagger-in">
+              <AiParticleBackdrop accent="amber" intensity="soft" className="opacity-55" />
+              <div className="relative z-10">
               <div className="mb-2 flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-600 dark:text-amber-400">
                   <Calculator className="h-4 w-4" /> Advanced Maths Engine
@@ -3114,10 +3320,11 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               >
                 Write Equation + Answer to Canvas
               </button>
+              </div>
             </div>
           )}
 
-          {/* Contextual Floating Sticky Studio (Replaces forbidden window.prompt!) */}
+          {/* Contextual Floating Sticky Studio */}
           {selectedStickyNode && selectedStickyScreen && (
             <div
               style={{
@@ -3489,53 +3696,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             </div>
           )}
 
-          {/* Bottom-Left Page / Whiteboard HUD */}
-          <div className="absolute bottom-4 left-4 z-20 flex items-center gap-2 rounded-2xl border border-black/10 bg-white/90 px-3 py-1.5 text-xs font-semibold shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-[#1D1F26]/90">
-            {isWhiteboard ? (
-              <>
-                <Layers className="h-3.5 w-3.5 text-emerald-600" />
-                <span className="font-mono-num">Infinite Board · {Math.round(camera.zoom * 100)}%</span>
-                <button
-                  type="button"
-                  onClick={() => setCamera({ panX: 80, panY: 60, zoom: 0.9 })}
-                  className="rounded-md bg-black/5 px-1.5 py-0.5 text-[10px] hover:bg-black/10 dark:bg-white/10"
-                >
-                  Origin
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  disabled={safeIdx === 0}
-                  onClick={() => {
-                    const ni = Math.max(0, safeIdx - 1);
-                    setPageIdx(ni);
-                    fitPageToView(notebook.pages[ni]);
-                  }}
-                  className="disabled:opacity-30"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <span className="font-mono-num">
-                  {safeIdx + 1} / {notebook.pages.length}
-                </span>
-                <button
-                  type="button"
-                  disabled={safeIdx >= notebook.pages.length - 1}
-                  onClick={() => {
-                    const ni = Math.min(notebook.pages.length - 1, safeIdx + 1);
-                    setPageIdx(ni);
-                    fitPageToView(notebook.pages[ni]);
-                  }}
-                  className="disabled:opacity-30"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              </>
-            )}
-          </div>
-
           {/* Bottom-Right Zoom Controls */}
           <div className="absolute bottom-4 right-4 z-20 flex items-center gap-1 rounded-2xl border border-black/10 bg-white/90 p-1 shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-[#1D1F26]/90">
             <button
@@ -3586,6 +3746,10 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               onSwapWithPrimary={(id) => {
                 setSplitNoteId(notebook.id);
                 onSwitchNote(id);
+              }}
+              onSetRatio={(ratio) => {
+                const total = containerRef.current?.parentElement?.clientWidth || window.innerWidth;
+                setSplitWidth(Math.max(240, Math.min(Math.round(total * 0.76), Math.round(total * (1 - ratio)))));
               }}
               onCopyTextToPrimary={(txt) => {
                 const c = screenToWorld(
@@ -3712,9 +3876,14 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         </div>
       )}
 
-      {/* AI Thinking Animated Pill */}
+      {/* AI Thinking Looping Particle Overlay + Animated Pill */}
       {aiBusyLabel && (
-        <AiThinkingPill label={aiBusyLabel} stage={aiStageLabel} modelName={activeModel?.name} />
+        <>
+          <div className="pointer-events-none fixed inset-0 z-40">
+            <AiParticleBackdrop accent="violet" intensity="active" />
+          </div>
+          <AiThinkingPill label={aiBusyLabel} stage={aiStageLabel} modelName={activeModel?.name} />
+        </>
       )}
 
       {/* Toast Feedback */}
@@ -3731,6 +3900,18 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         summary={summaryModal.summary}
         loadingStage={summaryModal.loadingStage}
         explainText={summaryModal.explainText}
+        petProps={
+          settings.pet
+            ? {
+                petId: settings.petId,
+                petName: settings.petName,
+                bond: settings.petBond,
+                onSwitchPet,
+                onRenamePet: (petName) => onUpdateSettings({ petName }),
+                onPetAction: onRecordPetAction,
+              }
+            : undefined
+        }
         onClose={() => setSummaryModal((s) => ({ ...s, open: false }))}
         onTurnIntoMindMap={() => {
           setSummaryModal((s) => ({ ...s, open: false }));
@@ -3764,6 +3945,18 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         notebookId={notebook.id}
         cards={flashcards}
         loadingStage={aiBusyLabel === 'Crafting flashcards' ? aiStageLabel : null}
+        petProps={
+          settings.pet
+            ? {
+                petId: settings.petId,
+                petName: settings.petName,
+                bond: settings.petBond,
+                onSwitchPet,
+                onRenamePet: (petName) => onUpdateSettings({ petName }),
+                onPetAction: onRecordPetAction,
+              }
+            : undefined
+        }
         onClose={() => setFlashModalOpen(false)}
         onAddCard={(front, back) =>
           onAddFlashcards([
@@ -3791,6 +3984,18 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         bestScore={bestQuizScore}
         engineLabel={quizModal.engineLabel}
         loadingStage={quizModal.loadingStage}
+        petProps={
+          settings.pet
+            ? {
+                petId: settings.petId,
+                petName: settings.petName,
+                bond: settings.petBond,
+                onSwitchPet,
+                onRenamePet: (petName) => onUpdateSettings({ petName }),
+                onPetAction: onRecordPetAction,
+              }
+            : undefined
+        }
         onClose={() => setQuizModal((s) => ({ ...s, open: false }))}
         onScoreRecorded={(pct) => {
           onRecordQuizScore(notebook.id, pct);

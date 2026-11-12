@@ -388,6 +388,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun setPenName(name: String) = store.update { it.copy(penName = name.trim().ifBlank { "Pro Stylus" }) }
     fun recordPetXp(delta: Int) = store.addPetXp(delta)
     fun switchPet(petId: String) = store.update { it.copy(petId = petId) }
+    fun setPetName(name: String) = store.update { it.copy(petName = name.trim()) }
 
     fun clearPageInk() {
         val p = currentPage ?: return

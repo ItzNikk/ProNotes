@@ -517,6 +517,7 @@ export interface AppSettings {
   pageNumbers: boolean;
   pet: boolean;
   petId: PetId;
+  petName: string;
   petBond: PetBondState;
   scribbleToErase: boolean;
   liveScribbleErase: boolean;

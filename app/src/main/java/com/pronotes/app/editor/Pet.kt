@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,10 +30,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -57,14 +64,22 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import com.pronotes.app.data.SettingsStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.sin
+import kotlin.random.Random
 
 data class CompanionMeta(
     val id: String,
@@ -121,6 +136,97 @@ val Companions: List<CompanionMeta> = listOf(
 
 fun companionById(id: String): CompanionMeta = Companions.firstOrNull { it.id == id } ?: Companions.first()
 
+/** Continuous ambient particle & neural-link backdrop for all AI screens and active AI tasks. */
+@Composable
+fun AiParticleBackdrop(
+    modifier: Modifier = Modifier,
+    accentColors: List<Color> = listOf(Color(0xFF7C3AED), Color(0xFF2A78D6)),
+    active: Boolean = false,
+) {
+    val t = rememberInfiniteTransition(label = "ai-bg")
+    val phase by t.animateFloat(
+        initialValue = 0f,
+        targetValue = (2.0 * PI).toFloat(),
+        animationSpec = infiniteRepeatable(tween(if (active) 9000 else 14000, easing = LinearEasing)),
+        label = "ai-phase",
+    )
+    val seeds = remember {
+        val rnd = Random(4242)
+        List(26) {
+            FloatArray(6) { idx ->
+                when (idx) {
+                    0 -> rnd.nextFloat() // base x
+                    1 -> rnd.nextFloat() // base y
+                    2 -> 0.04f + rnd.nextFloat() * 0.08f // orbit radius x
+                    3 -> 0.04f + rnd.nextFloat() * 0.08f // orbit radius y
+                    4 -> rnd.nextFloat() * (2.0 * PI).toFloat() // phase offset
+                    else -> 1.8f + rnd.nextFloat() * 3.4f // node radius dp
+                }
+            }
+        }
+    }
+    val c0 = accentColors.firstOrNull() ?: Color(0xFF7C3AED)
+    val c1 = accentColors.lastOrNull() ?: Color(0xFF2A78D6)
+
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        if (w <= 0f || h <= 0f) return@Canvas
+
+        // Soft ambient aurora glows
+        val glowAlpha = if (active) 0.22f else 0.12f
+        val rMain = minOf(w, h) * 0.72f
+        drawCircle(
+            brush = Brush.radialGradient(listOf(c0.copy(alpha = glowAlpha), Color.Transparent)),
+            radius = rMain,
+            center = Offset(w * (0.25f + 0.08f * sin(phase)), h * (0.24f + 0.08f * cos(phase * 0.8f))),
+        )
+        drawCircle(
+            brush = Brush.radialGradient(listOf(c1.copy(alpha = glowAlpha), Color.Transparent)),
+            radius = rMain,
+            center = Offset(w * (0.78f + 0.08f * cos(phase * 0.9f)), h * (0.76f + 0.08f * sin(phase))),
+        )
+
+        val pts = ArrayList<Offset>(seeds.size)
+        for (i in seeds.indices) {
+            val s = seeds[i]
+            val ang = phase * (if (i % 2 == 0) 1f else -1f) + s[4]
+            val px = ((s[0] + s[2] * cos(ang)) * w).coerceIn(0f, w)
+            val py = ((s[1] + s[3] * sin(ang * 1.15f)) * h).coerceIn(0f, h)
+            pts += Offset(px, py)
+        }
+
+        // Subtle neural links between close nodes
+        val linkDist = minOf(w, h) * 0.24f
+        for (i in pts.indices) {
+            val a = pts[i]
+            for (j in i + 1 until pts.size) {
+                val b = pts[j]
+                val d = hypot(a.x - b.x, a.y - b.y)
+                if (d < linkDist) {
+                    val strength = (1f - d / linkDist) * (if (active) 0.26f else 0.14f)
+                    drawLine(
+                        color = (if ((i + j) % 2 == 0) c0 else c1).copy(alpha = strength),
+                        start = a,
+                        end = b,
+                        strokeWidth = 1.2.dp.toPx(),
+                    )
+                }
+            }
+        }
+
+        // Glowing drifting particle orbs
+        for (i in pts.indices) {
+            val pt = pts[i]
+            val col = if (i % 2 == 0) c0 else c1
+            val pulse = 0.65f + 0.35f * sin(phase * 2f + i)
+            val rPx = seeds[i][5].dp.toPx() * (if (active) 1.25f else 1f)
+            drawCircle(col.copy(alpha = (if (active) 0.25f else 0.14f) * pulse), radius = rPx * 2.4f, center = pt)
+            drawCircle(col.copy(alpha = (if (active) 0.62f else 0.34f) * pulse), radius = rPx, center = pt)
+        }
+    }
+}
+
 /** Animated AI status pill with orbital glow, diagonal shimmer sweep, live stage & model badge. */
 @Composable
 fun ThinkingPill(engine: String = "", stage: String = "") {
@@ -166,7 +272,7 @@ fun ThinkingPill(engine: String = "", stage: String = "") {
                         Spacer(Modifier.width(6.dp))
                         for (i in 0 until 3) {
                             val k = ((phase * 3f - i) % 3f + 3f) % 3f
-                            val up = if (k < 1f) kotlin.math.sin(k * Math.PI).toFloat() else 0f
+                            val up = if (k < 1f) sin(k * PI).toFloat() else 0f
                             Box(Modifier.padding(horizontal = 2.dp).size(5.dp).graphicsLayer { translationY = -up * 6.dp.toPx() }) {
                                 Canvas(Modifier.size(5.dp)) { drawCircle(if (i % 2 == 0) Color(0xFFE38BFF) else Color(0xFF74C0FC)) }
                             }
@@ -181,13 +287,12 @@ fun ThinkingPill(engine: String = "", stage: String = "") {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun StudyPet(vm: EditorViewModel, modifier: Modifier, compact: Boolean = false) {
     val settings by vm.settingsFlow.collectAsState()
     val pet = companionById(settings.petId)
+    val displayName = settings.petName.ifBlank { pet.name }
     val level = 1 + settings.petXp / 100
-    val levelProgress = (settings.petXp % 100) / 100f
 
     val t = rememberInfiniteTransition(label = "pet")
     val breathe by t.animateFloat(0f, 1f, infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b")
@@ -245,7 +350,7 @@ fun StudyPet(vm: EditorViewModel, modifier: Modifier, compact: Boolean = false) 
                         rotationZ = wiggle.value * 12f
                     }.clickable(remember { MutableInteractionSource() }, null) {
                         hubOpen = !hubOpen
-                        if (!hubOpen) react(pet.quotes.random(), xp = 2)
+                        if (!hubOpen) react("$displayName: ${pet.quotes.random()}", xp = 2)
                     },
                 ) {
                     drawCompanion(
@@ -262,80 +367,233 @@ fun StudyPet(vm: EditorViewModel, modifier: Modifier, compact: Boolean = false) 
                 if (!compact) {
                     Spacer(Modifier.width(4.dp))
                     Surface(shape = CircleShape, color = pet.secondary.copy(alpha = 0.18f)) {
-                        Text("Lv.$level", Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = pet.secondary, fontWeight = FontWeight.Bold)
+                        Text("$displayName · Lv.$level", Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = pet.secondary, fontWeight = FontWeight.Bold)
                     }
                 }
             }
         }
 
         if (hubOpen) {
-            Popup(
-                alignment = Alignment.TopStart,
-                offset = IntOffset(0, 110),
-                onDismissRequest = { hubOpen = false },
-                properties = PopupProperties(focusable = true),
+            CompanionHubPopup(
+                pet = pet,
+                petName = settings.petName,
+                petXp = settings.petXp,
+                breathe = breathe,
+                jump = jump.value,
+                blink = blink,
+                writing = writing,
+                thinking = thinking,
+                aiSpin = aiSpin,
+                onDismiss = { hubOpen = false },
+                onReact = { msg, xp -> react(msg, xp) },
+                onSwitchPet = { id -> vm.switchPet(id) },
+                onRenamePet = { name -> vm.setPetName(name) },
+            )
+        }
+    }
+}
+
+/** Standalone interactive Companion Pill usable on Library, Settings, Welcome, Support & Study screens. */
+@Composable
+fun CompanionBadge(
+    modifier: Modifier = Modifier,
+    compact: Boolean = true,
+    onDarkBackground: Boolean = false,
+) {
+    val context = LocalContext.current
+    val store = remember { SettingsStore.get(context) }
+    val settings by store.settings.collectAsState()
+    if (!settings.pet) return
+    val pet = companionById(settings.petId)
+    val displayName = settings.petName.ifBlank { pet.name }
+    val level = 1 + settings.petXp / 100
+
+    val t = rememberInfiniteTransition(label = "cbadge")
+    val breathe by t.animateFloat(0f, 1f, infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "cb")
+    var blink by remember { mutableStateOf(false) }
+    var hubOpen by remember { mutableStateOf(false) }
+    var bubble by remember { mutableStateOf<String?>(null) }
+    val jump = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) { while (true) { delay(2600L + (0..2400).random()); blink = true; delay(130); blink = false } }
+
+    fun react(msg: String?, xp: Int = 0) = scope.launch {
+        if (xp > 0) store.addPetXp(xp)
+        bubble = msg
+        jump.snapTo(0f); jump.animateTo(1f, tween(160)); jump.animateTo(0f, spring(dampingRatio = 0.38f, stiffness = 320f))
+        delay(2100)
+        if (bubble == msg) bubble = null
+    }
+
+    Box(modifier) {
+        Surface(
+            shape = CircleShape,
+            color = if (onDarkBackground) Color.White.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier
+                .border(1.dp, if (onDarkBackground) Color.White.copy(alpha = 0.35f) else pet.secondary.copy(alpha = 0.3f), CircleShape)
+                .clip(CircleShape)
+                .clickable { hubOpen = !hubOpen },
+        ) {
+            Row(
+                Modifier.padding(start = 6.dp, end = if (compact) 10.dp else 12.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Surface(
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    shadowElevation = 16.dp,
-                    modifier = Modifier.widthIn(min = 290.dp, max = 350.dp).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(24.dp)),
-                ) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Canvas(Modifier.size(54.dp)) {
-                                drawCompanion(pet, breathe, jump.value, blink, writing, thinking, aiSpin, false)
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(pet.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                    Spacer(Modifier.width(6.dp))
-                                    Surface(shape = CircleShape, color = pet.primary.copy(alpha = 0.25f)) {
-                                        Text("${pet.element} · Lv.$level", Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall)
-                                    }
-                                }
-                                Text("${settings.petXp} Bond XP", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Spacer(Modifier.height(4.dp))
-                                LinearProgressIndicator(
-                                    progress = { levelProgress },
-                                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
-                                    color = pet.secondary,
+                Canvas(Modifier.size(26.dp).graphicsLayer { translationY = -jump.value * 8.dp.toPx() }) {
+                    drawCompanion(pet, breathe, jump.value, blink, writing = false, thinking = false, aiSpin = 0f, compact = true)
+                }
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    if (compact) "$displayName · Lv.$level" else "$displayName · ${pet.element} Lv.$level",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (onDarkBackground) Color.White else MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        if (bubble != null && !hubOpen) {
+            Popup(alignment = Alignment.TopCenter, offset = IntOffset(0, 96)) {
+                Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface, shadowElevation = 6.dp) {
+                    Text(bubble!!, Modifier.padding(horizontal = 10.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+
+        if (hubOpen) {
+            CompanionHubPopup(
+                pet = pet,
+                petName = settings.petName,
+                petXp = settings.petXp,
+                breathe = breathe,
+                jump = jump.value,
+                blink = blink,
+                writing = false,
+                thinking = false,
+                aiSpin = 0f,
+                onDismiss = { hubOpen = false },
+                onReact = { msg, xp -> react(msg, xp) },
+                onSwitchPet = { id -> store.update { it.copy(petId = id) } },
+                onRenamePet = { name -> store.update { it.copy(petName = name.trim()) } },
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CompanionHubPopup(
+    pet: CompanionMeta,
+    petName: String,
+    petXp: Int,
+    breathe: Float,
+    jump: Float,
+    blink: Boolean,
+    writing: Boolean,
+    thinking: Boolean,
+    aiSpin: Float,
+    onDismiss: () -> Unit,
+    onReact: (String?, Int) -> Unit,
+    onSwitchPet: (String) -> Unit,
+    onRenamePet: (String) -> Unit,
+) {
+    val level = 1 + petXp / 100
+    val levelProgress = (petXp % 100) / 100f
+    val displayName = petName.ifBlank { pet.name }
+    var editingName by remember { mutableStateOf(false) }
+    var draftName by remember(petName, pet.id) { mutableStateOf(petName.ifBlank { pet.name }) }
+
+    Popup(
+        alignment = Alignment.TopStart,
+        offset = IntOffset(0, 108),
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 16.dp,
+            modifier = Modifier.widthIn(min = 296.dp, max = 356.dp).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(24.dp)),
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Canvas(Modifier.size(56.dp)) {
+                        drawCompanion(pet, breathe, jump, blink, writing, thinking, aiSpin, false)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        if (editingName) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                OutlinedTextField(
+                                    draftName,
+                                    { draftName = it.take(18) },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                    placeholder = { Text(pet.name) },
+                                    modifier = Modifier.weight(1f),
                                 )
+                                IconButton(
+                                    onClick = {
+                                        val clean = draftName.trim()
+                                        onRenamePet(if (clean == pet.name) "" else clean)
+                                        editingName = false
+                                        onReact("Nice name! ♥", 3)
+                                    },
+                                    modifier = Modifier.size(34.dp),
+                                ) { Icon(Icons.Outlined.Check, "Save name") }
                             }
-                            TextButton(onClick = { hubOpen = false }) { Text("Close") }
-                        }
-
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilledTonalButton(onClick = { react("Loves the head pats! ♥", xp = 5) }, shape = CircleShape, modifier = Modifier.weight(1f)) {
-                                Text("Pat +5", fontSize = 12.sp)
-                            }
-                            FilledTonalButton(onClick = { react("Yum! Berry boost! 🍓", xp = 15) }, shape = CircleShape, modifier = Modifier.weight(1f)) {
-                                Text("Treat +15", fontSize = 12.sp)
-                            }
-                            OutlinedButton(onClick = { react(pet.quotes.random(), xp = 8) }, shape = CircleShape, modifier = Modifier.weight(1f)) {
-                                Text("Cheer", fontSize = 12.sp)
-                            }
-                        }
-
-                        Text("SWITCH COMPANION", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Companions.forEach { c ->
-                                val active = c.id == pet.id
-                                Column(
-                                    Modifier.width(70.dp).clip(RoundedCornerShape(14.dp))
-                                        .background(if (active) c.primary.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-                                        .border(if (active) 1.5.dp else 0.dp, if (active) c.secondary else Color.Transparent, RoundedCornerShape(14.dp))
-                                        .clickable { vm.switchPet(c.id); react(c.quotes.first(), xp = 3) }
-                                        .padding(vertical = 6.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                ) {
-                                    Canvas(Modifier.size(30.dp)) {
-                                        drawCompanion(c, breathe, 0f, false, false, false, 0f, true)
-                                    }
-                                    Text(c.name, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                        } else {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                IconButton(onClick = { editingName = true; draftName = displayName }, modifier = Modifier.size(26.dp)) {
+                                    Icon(Icons.Outlined.Edit, "Rename buddy", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Surface(shape = CircleShape, color = pet.primary.copy(alpha = 0.25f)) {
+                                    Text("${pet.element} · Lv.$level", Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall)
                                 }
                             }
+                        }
+                        Text("$petXp Bond XP", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(4.dp))
+                        LinearProgressIndicator(
+                            progress = { levelProgress },
+                            modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                            color = pet.secondary,
+                        )
+                    }
+                    TextButton(onClick = onDismiss, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("Close") }
+                }
+
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledTonalButton(onClick = { onReact("Loves the head pats! ♥", 5) }, shape = CircleShape, modifier = Modifier.weight(1f)) {
+                        Text("Pat +5", fontSize = 12.sp)
+                    }
+                    FilledTonalButton(onClick = { onReact("Yum! Berry boost! 🍓", 15) }, shape = CircleShape, modifier = Modifier.weight(1f)) {
+                        Text("Treat +15", fontSize = 12.sp)
+                    }
+                    OutlinedButton(onClick = { onReact(pet.quotes.random(), 8) }, shape = CircleShape, modifier = Modifier.weight(1f)) {
+                        Text("Cheer", fontSize = 12.sp)
+                    }
+                }
+
+                Text("SWITCH COMPANION", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Companions.forEach { c ->
+                        val active = c.id == pet.id
+                        Column(
+                            Modifier.width(70.dp).clip(RoundedCornerShape(14.dp))
+                                .background(if (active) c.primary.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                                .border(if (active) 1.5.dp else 0.dp, if (active) c.secondary else Color.Transparent, RoundedCornerShape(14.dp))
+                                .clickable { onSwitchPet(c.id); onReact(c.quotes.first(), 3) }
+                                .padding(vertical = 6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Canvas(Modifier.size(30.dp)) {
+                                drawCompanion(c, breathe, 0f, false, false, false, 0f, true)
+                            }
+                            Text(c.name, style = MaterialTheme.typography.labelSmall, maxLines = 1)
                         }
                     }
                 }
@@ -368,49 +626,112 @@ fun DrawScope.drawCompanion(
     }
     val squish = 1f + 0.04f * breathe - jump * 0.08f
     val bodyH = h * 0.72f * squish
-    val bodyW = w * 0.86f / squish
+    val bodyW = w * 0.84f / squish
     val left = (w - bodyW) / 2f
     val top = h - bodyH
 
+    // Ambient companion aura
+    drawCircle(
+        brush = Brush.radialGradient(listOf(pet.primary.copy(alpha = 0.24f), Color.Transparent)),
+        radius = w * 0.52f,
+        center = Offset(w * 0.5f, top + bodyH * 0.52f),
+    )
+
     // Soft shadow
-    drawOval(Color(0x22000000), Offset(w * 0.2f, h - 5f), Size(w * 0.6f, 7f))
+    drawOval(Color(0x26000000), Offset(w * 0.2f, h - 5f), Size(w * 0.6f, 6.5f))
+
+    // Species-specific tails behind the body
+    when (pet.id) {
+        "sparkchu" -> {
+            val bolt = Path().apply {
+                moveTo(w * 0.78f, top + bodyH * 0.66f)
+                lineTo(w * 0.94f, top + bodyH * 0.44f)
+                lineTo(w * 0.86f, top + bodyH * 0.42f)
+                lineTo(w * 0.98f, top + bodyH * 0.22f)
+                lineTo(w * 0.85f, top + bodyH * 0.34f)
+                lineTo(w * 0.75f, top + bodyH * 0.52f)
+                close()
+            }
+            drawPath(bolt, pet.secondary)
+        }
+        "emberkit" -> {
+            val tail = Path().apply {
+                moveTo(w * 0.78f, top + bodyH * 0.68f)
+                quadraticTo(w * 0.98f, top + bodyH * 0.48f, w * 0.91f, top + bodyH * 0.26f)
+                quadraticTo(w * 0.80f, top + bodyH * 0.42f, w * 0.74f, top + bodyH * 0.58f)
+                close()
+            }
+            drawPath(tail, pet.accent)
+        }
+        "aquapup" -> {
+            val tailFin = Path().apply {
+                moveTo(w * 0.80f, top + bodyH * 0.65f)
+                quadraticTo(w * 0.98f, top + bodyH * 0.50f, w * 0.96f, top + bodyH * 0.75f)
+                close()
+            }
+            drawPath(tailFin, pet.secondary)
+        }
+    }
 
     // Creature-specific ears / crests behind body
     when (pet.id) {
         "sparkchu", "eevo" -> {
-            val lEar = Path().apply { moveTo(w * 0.24f, top + bodyH * 0.2f); lineTo(w * 0.14f, top - h * 0.18f); lineTo(w * 0.38f, top + bodyH * 0.08f); close() }
-            val rEar = Path().apply { moveTo(w * 0.76f, top + bodyH * 0.2f); lineTo(w * 0.86f, top - h * 0.18f); lineTo(w * 0.62f, top + bodyH * 0.08f); close() }
+            val lEar = Path().apply { moveTo(w * 0.24f, top + bodyH * 0.2f); lineTo(w * 0.13f, top - h * 0.19f); lineTo(w * 0.38f, top + bodyH * 0.08f); close() }
+            val rEar = Path().apply { moveTo(w * 0.76f, top + bodyH * 0.2f); lineTo(w * 0.87f, top - h * 0.19f); lineTo(w * 0.62f, top + bodyH * 0.08f); close() }
             drawPath(lEar, pet.primary)
             drawPath(rEar, pet.primary)
             if (pet.id == "sparkchu") {
-                val lTip = Path().apply { moveTo(w * 0.18f, top - h * 0.06f); lineTo(w * 0.14f, top - h * 0.18f); lineTo(w * 0.26f, top - h * 0.07f); close() }
-                val rTip = Path().apply { moveTo(w * 0.82f, top - h * 0.06f); lineTo(w * 0.86f, top - h * 0.18f); lineTo(w * 0.74f, top - h * 0.07f); close() }
+                val lTip = Path().apply { moveTo(w * 0.18f, top - h * 0.06f); lineTo(w * 0.13f, top - h * 0.19f); lineTo(w * 0.26f, top - h * 0.07f); close() }
+                val rTip = Path().apply { moveTo(w * 0.82f, top - h * 0.06f); lineTo(w * 0.87f, top - h * 0.19f); lineTo(w * 0.74f, top - h * 0.07f); close() }
                 drawPath(lTip, Color(0xFF2B2F3A))
                 drawPath(rTip, Color(0xFF2B2F3A))
+            } else {
+                val lIn = Path().apply { moveTo(w * 0.24f, top + bodyH * 0.16f); lineTo(w * 0.17f, top - h * 0.11f); lineTo(w * 0.33f, top + bodyH * 0.08f); close() }
+                val rIn = Path().apply { moveTo(w * 0.76f, top + bodyH * 0.16f); lineTo(w * 0.83f, top - h * 0.11f); lineTo(w * 0.67f, top + bodyH * 0.08f); close() }
+                drawPath(lIn, pet.secondary)
+                drawPath(rIn, pet.secondary)
             }
         }
         "leafsprout" -> {
-            val leaf = Path().apply {
-                moveTo(w * 0.5f, top + 2f)
-                quadraticTo(w * 0.32f, top - h * 0.22f, w * 0.55f, top - h * 0.12f)
-                quadraticTo(w * 0.74f, top - h * 0.22f, w * 0.5f, top + 2f)
+            val lLeaf = Path().apply {
+                moveTo(w * 0.5f, top + 3f)
+                quadraticTo(w * 0.28f, top - h * 0.24f, w * 0.48f, top - h * 0.04f)
+                close()
             }
-            drawPath(leaf, Color(0xFF1BAF7A))
+            val rLeaf = Path().apply {
+                moveTo(w * 0.5f, top + 3f)
+                quadraticTo(w * 0.76f, top - h * 0.22f, w * 0.52f, top - h * 0.03f)
+                close()
+            }
+            drawPath(lLeaf, Color(0xFF1BAF7A))
+            drawPath(rLeaf, Color(0xFF7AE582))
         }
         "emberkit" -> {
             val flame = Path().apply {
-                moveTo(w * 0.4f, top + 4f)
-                quadraticTo(w * 0.5f, top - h * 0.22f, w * 0.6f, top + 4f)
+                moveTo(w * 0.39f, top + 4f)
+                quadraticTo(w * 0.5f, top - h * 0.24f, w * 0.61f, top + 4f)
                 close()
             }
             drawPath(flame, Color(0xFFFFE066))
         }
+        "aquapup" -> {
+            val lFin = Path().apply { moveTo(w * 0.25f, top + bodyH * 0.24f); lineTo(w * 0.11f, top + bodyH * 0.06f); lineTo(w * 0.33f, top + bodyH * 0.12f); close() }
+            val rFin = Path().apply { moveTo(w * 0.75f, top + bodyH * 0.24f); lineTo(w * 0.89f, top + bodyH * 0.06f); lineTo(w * 0.67f, top + bodyH * 0.12f); close() }
+            drawPath(lFin, pet.accent)
+            drawPath(rFin, pet.accent)
+        }
+        "pip" -> {
+            val crest = Path().apply {
+                moveTo(w * 0.44f, top + 3f); lineTo(w * 0.5f, top - h * 0.16f); lineTo(w * 0.56f, top + 3f); close()
+            }
+            drawPath(crest, pet.accent)
+        }
         "genglet" -> {
             for (dx in listOf(-0.22f, 0f, 0.22f)) {
                 val spike = Path().apply {
-                    moveTo(w * (0.44f + dx), top + bodyH * 0.14f)
-                    lineTo(w * (0.5f + dx), top - h * 0.1f)
-                    lineTo(w * (0.56f + dx), top + bodyH * 0.14f)
+                    moveTo(w * (0.43f + dx), top + bodyH * 0.15f)
+                    lineTo(w * (0.5f + dx), top - h * 0.12f)
+                    lineTo(w * (0.57f + dx), top + bodyH * 0.15f)
                     close()
                 }
                 drawPath(spike, pet.secondary)
@@ -418,29 +739,31 @@ fun DrawScope.drawCompanion(
         }
     }
 
-    // Main body
+    // Main body + crisp outline + inner specular
     drawOval(Brush.verticalGradient(listOf(pet.primary, pet.secondary), top, h), Offset(left, top), Size(bodyW, bodyH))
-    drawOval(Color(0x48FFFFFF), Offset(w * 0.26f, top + bodyH * 0.09f), Size(bodyW * 0.28f, bodyH * 0.16f))
+    drawOval(Color(0x28000000), Offset(left, top), Size(bodyW, bodyH), style = Stroke(width = if (compact) 1.2f else 2f))
+    drawOval(Color(0x55FFFFFF), Offset(w * 0.26f, top + bodyH * 0.09f), Size(bodyW * 0.3f, bodyH * 0.16f))
 
-    // Belly patch for snorblob/eevo/aquapup
+    // Belly / fluffy ruff
     if (pet.id in setOf("snorblob", "eevo", "aquapup")) {
-        drawOval(pet.accent.copy(alpha = 0.7f), Offset(w * 0.28f, top + bodyH * 0.52f), Size(bodyW * 0.52f, bodyH * 0.42f))
+        drawOval(pet.accent.copy(alpha = 0.78f), Offset(w * 0.28f, top + bodyH * 0.52f), Size(bodyW * 0.52f, bodyH * 0.42f))
     }
 
-    // Cheeks
-    drawCircle(pet.accent.copy(alpha = 0.78f), w * 0.08f, Offset(w * 0.25f, top + bodyH * 0.6f))
-    drawCircle(pet.accent.copy(alpha = 0.78f), w * 0.08f, Offset(w * 0.75f, top + bodyH * 0.6f))
+    // Rosy cheeks
+    drawCircle(pet.accent.copy(alpha = 0.82f), w * 0.082f, Offset(w * 0.25f, top + bodyH * 0.6f))
+    drawCircle(pet.accent.copy(alpha = 0.82f), w * 0.082f, Offset(w * 0.75f, top + bodyH * 0.6f))
 
-    // Eyes
+    // Glossy eyes with dual sparkle highlights
     val ey = top + bodyH * (if (writing) 0.5f else if (thinking) 0.36f else 0.44f)
     val ex = if (thinking) w * 0.035f else 0f
-    val eyeColor = if (pet.id == "genglet") Color(0xFFFF3B6B) else Color(0xFF232734)
+    val eyeColor = if (pet.id == "genglet") Color(0xFFFF3B6B) else Color(0xFF1F2430)
     for (x in listOf(w * 0.37f, w * 0.63f)) {
         if (blink) {
-            drawLine(eyeColor, Offset(x - 4f + ex, ey), Offset(x + 4f + ex, ey), 2.8f, StrokeCap.Round)
+            drawLine(eyeColor, Offset(x - w * 0.055f + ex, ey), Offset(x + w * 0.055f + ex, ey), if (compact) 2.2f else 3f, StrokeCap.Round)
         } else {
-            drawCircle(eyeColor, w * 0.058f, Offset(x + ex, ey))
-            drawCircle(Color.White, w * 0.02f, Offset(x + ex + 1.8f, ey - 1.8f))
+            drawCircle(eyeColor, w * 0.062f, Offset(x + ex, ey))
+            drawCircle(Color.White, w * 0.023f, Offset(x + ex + w * 0.018f, ey - w * 0.018f))
+            if (!compact) drawCircle(Color.White.copy(alpha = 0.7f), w * 0.011f, Offset(x + ex - w * 0.018f, ey + w * 0.018f))
         }
     }
 
@@ -450,14 +773,14 @@ fun DrawScope.drawCompanion(
     } else if (pet.id == "genglet") {
         val grin = Path().apply {
             moveTo(w * 0.36f, top + bodyH * 0.62f)
-            quadraticTo(w / 2f, top + bodyH * 0.77f, w * 0.64f, top + bodyH * 0.62f)
+            quadraticTo(w / 2f, top + bodyH * 0.78f, w * 0.64f, top + bodyH * 0.62f)
         }
-        drawPath(grin, Color.White, style = Stroke(3.2f, cap = StrokeCap.Round))
+        drawPath(grin, Color.White, style = Stroke(if (compact) 2.6f else 3.4f, cap = StrokeCap.Round))
     } else {
         val smile = Path().apply {
             moveTo(w * 0.42f, top + bodyH * 0.62f)
             quadraticTo(w / 2f, top + bodyH * (0.72f + 0.06f * jump), w * 0.58f, top + bodyH * 0.62f)
         }
-        drawPath(smile, Color(0xFF232734), style = Stroke(2.4f, cap = StrokeCap.Round))
+        drawPath(smile, Color(0xFF232734), style = Stroke(if (compact) 2f else 2.5f, cap = StrokeCap.Round))
     }
 }

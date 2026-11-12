@@ -139,17 +139,22 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
             shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surface,
             modifier = Modifier.padding(18.dp).widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 800.dp).statusBarsPadding(),
         ) {
-            if (studying) {
-                val deck = if (studyAll) vm.cards else vm.dueCards()
-                StudyView(vm, deck, onDone = { studying = false })
-            } else {
-                val due = vm.dueCards().size
-                val mastered = vm.cards.count { it.box >= 4 }
-                val learning = vm.cards.size - mastered
-                Column(Modifier.padding(20.dp)) {
-                    StudyHero("Flashcards Studio", "${vm.cards.size} cards · powered by ${vm.aiEngineLabel}", StudyColors.cards, "🃏") {
-                        TextButton(onClick = onClose) { Text("Close", color = Color.White) }
-                    }
+            Box {
+                AiParticleBackdrop(Modifier.matchParentSize(), StudyColors.cards, active = vm.aiBusy || studying)
+                if (studying) {
+                    val deck = if (studyAll) vm.cards else vm.dueCards()
+                    StudyView(vm, deck, onDone = { studying = false })
+                } else {
+                    val due = vm.dueCards().size
+                    val mastered = vm.cards.count { it.box >= 4 }
+                    val learning = vm.cards.size - mastered
+                    Column(Modifier.padding(20.dp)) {
+                        StudyHero("Flashcards Studio", "${vm.cards.size} cards · powered by ${vm.aiEngineLabel}", StudyColors.cards, "🃏") {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                CompanionBadge(compact = true, onDarkBackground = true)
+                                TextButton(onClick = onClose) { Text("Close", color = Color.White) }
+                            }
+                        }
                     Spacer(Modifier.height(12.dp))
 
                     // Stats Strip
@@ -247,6 +252,7 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -445,15 +451,22 @@ fun QuizDialog(vm: EditorViewModel, onClose: () -> Unit) {
             modifier = Modifier.padding(18.dp).widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 820.dp).statusBarsPadding(),
         ) {
             val order = taking
-            if (order != null) TakeQuiz(vm, order, onDone = { taking = null }, onRetry = { taking = it })
-            else Column(Modifier.padding(20.dp)) {
-                val best = vm.quizBest()
-                StudyHero(
-                    "Quiz Studio",
-                    "${vm.quiz.size} questions" + (best?.let { " · best ${it.first}% in ${clock(it.second)}" } ?: " · ${vm.aiEngineLabel}"),
-                    StudyColors.quiz,
-                    "🎯",
-                ) { TextButton(onClick = onClose) { Text("Close", color = Color.White) } }
+            Box {
+                AiParticleBackdrop(Modifier.matchParentSize(), StudyColors.quiz, active = vm.aiBusy || order != null)
+                if (order != null) TakeQuiz(vm, order, onDone = { taking = null }, onRetry = { taking = it })
+                else Column(Modifier.padding(20.dp)) {
+                    val best = vm.quizBest()
+                    StudyHero(
+                        "Quiz Studio",
+                        "${vm.quiz.size} questions" + (best?.let { " · best ${it.first}% in ${clock(it.second)}" } ?: " · ${vm.aiEngineLabel}"),
+                        StudyColors.quiz,
+                        "🎯",
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            CompanionBadge(compact = true, onDarkBackground = true)
+                            TextButton(onClick = onClose) { Text("Close", color = Color.White) }
+                        }
+                    }
                 Spacer(Modifier.height(14.dp))
                 Button(
                     onClick = { taking = vm.quiz.shuffled().map { it.id } }, enabled = vm.quiz.isNotEmpty(), shape = Pill,
@@ -503,6 +516,7 @@ fun QuizDialog(vm: EditorViewModel, onClose: () -> Unit) {
                         }
                     }
                 }
+            }
             }
         }
     }

@@ -183,6 +183,11 @@ fun WelcomeScreen(onDone: () -> Unit) {
                 )
             }
         }
+        com.pronotes.app.editor.CompanionBadge(
+            compact = true,
+            onDarkBackground = onVideo,
+            modifier = Modifier.align(Alignment.TopStart).safeDrawingPadding().padding(10.dp),
+        )
         TextButton(
             onClick = { finish() }, modifier = Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(8.dp),
             colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = if (onVideo) Color.White else MaterialTheme.colorScheme.primary),

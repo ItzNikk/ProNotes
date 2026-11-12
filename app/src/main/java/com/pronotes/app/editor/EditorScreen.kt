@@ -170,6 +170,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.FileProvider
@@ -599,6 +601,12 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                     ) { Text(msg, Modifier.padding(horizontal = 18.dp, vertical = 10.dp), style = MaterialTheme.typography.labelLarge) }
                 }
                 androidx.compose.animation.AnimatedVisibility(
+                    vm.aiBusy,
+                    modifier = Modifier.fillMaxSize(),
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                ) { AiParticleBackdrop(Modifier.fillMaxSize(), active = true) }
+                androidx.compose.animation.AnimatedVisibility(
                     vm.aiBusy, modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 180.dp),
                     enter = fadeIn() + scaleIn(initialScale = 0.8f), exit = fadeOut() + scaleOut(targetScale = 0.8f),
                 ) { ThinkingPill(engine = vm.aiEngineLabel, stage = vm.aiStage) }
@@ -690,15 +698,6 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                     }
                 }
 
-                if (vm.pages.isNotEmpty()) {
-                    PagePill(
-                        index = vm.pageIndex, count = vm.pages.size, bookmarked = vm.currentPage?.bookmarked == true,
-                        onPrev = { vm.goToPage(vm.pageIndex - 1) }, onNext = { vm.goToPage(vm.pageIndex + 1) },
-                        onTap = { goTo = true },
-                        modifier = Modifier.align(when (settings.toolbarDock) { ToolbarDock.BOTTOM -> Alignment.TopEnd; ToolbarDock.HEADER -> Alignment.BottomStart; else -> Alignment.BottomEnd })
-                            .navigationBarsPadding().padding(16.dp).graphicsLayer { alpha = overlayFade },
-                    )
-                }
             }
 
             // ------------------------------------------------------ split view (right)
@@ -710,7 +709,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                             detectHorizontalDragGestures { change, dragAmount ->
                                 change.consume()
                                 val delta = -dragAmount / 480f
-                                splitWeight = (splitWeight + delta).coerceIn(0.45f, 1.45f)
+                                splitWeight = (splitWeight + delta).coerceIn(0.40f, 2.35f)
                             }
                         },
                     contentAlignment = Alignment.Center,
@@ -727,6 +726,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                         splitId = cur
                         switchTo(other)
                     },
+                    onRatioPreset = { ratio -> splitWeight = ratio },
                     onClipToSticky = { snippet, srcTitle -> vm.clipTextAsSticky(snippet, srcTitle) },
                     onClose = { splitId = null },
                     modifier = Modifier.weight(splitWeight).fillMaxHeight(),
@@ -747,19 +747,33 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     if (showCards) FlashcardsDialog(vm, onClose = { showCards = false })
     if (showQuiz) QuizDialog(vm, onClose = { showQuiz = false })
     vm.explanation?.let { (sel, ans) ->
-        AlertDialog(
-            onDismissRequest = { vm.explanation = null },
-            shape = RoundedCornerShape(28.dp),
-            title = { Text("Explained") },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("\"" + sel.take(160) + "\"", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(ans, style = MaterialTheme.typography.bodyMedium)
-                    Text("By ${vm.aiEngineLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Dialog(onDismissRequest = { vm.explanation = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Surface(
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier.padding(20.dp).widthIn(max = 560.dp).fillMaxWidth(),
+            ) {
+                Box {
+                    AiParticleBackdrop(Modifier.matchParentSize(), active = true)
+                    Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Explained", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            CompanionBadge(compact = true)
+                        }
+                        Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("\"" + sel.take(160) + "\"", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(ans, style = MaterialTheme.typography.bodyMedium)
+                            Text("By ${vm.aiEngineLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { vm.explanation = null }) { Text("Done") }
+                        }
+                    }
                 }
-            },
-            confirmButton = { TextButton(onClick = { vm.explanation = null }) { Text("Done") } },
-        )
+            }
+        }
     }
     if (showTemplates) TemplateSheet(vm, onClose = { showTemplates = false })
     if (showMath) MathPadDialog(vm, onDismiss = { showMath = false })
@@ -973,6 +987,32 @@ private fun TopBar(
                 vm.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).padding(horizontal = 10.dp).clickable(onClick = onRename),
             )
+        }
+        if (vm.pages.isNotEmpty()) {
+            Surface(shape = Pill, color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.72f)) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 2.dp)) {
+                    IconButton(onClick = { vm.goToPage(vm.pageIndex - 1) }, enabled = vm.pageIndex > 0, modifier = Modifier.size(30.dp)) {
+                        Icon(Icons.Filled.KeyboardArrowUp, "Previous page", Modifier.size(16.dp).graphicsLayer { rotationZ = -90f })
+                    }
+                    Row(
+                        Modifier.clip(Pill).clickable(onClick = onGoTo).padding(horizontal = 6.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (vm.currentPage?.bookmarked == true) {
+                            ProIconView(ProIcon.BOOKMARK, Color(0xFFE34948), Modifier.size(12.dp), ink = Color(0xFFE34948))
+                            Spacer(Modifier.width(3.dp))
+                        }
+                        Text(
+                            if (vm.currentPage?.isWhiteboard == true) "Board" else "${vm.pageIndex + 1}/${vm.pages.size}",
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                    IconButton(onClick = { vm.goToPage(vm.pageIndex + 1) }, enabled = vm.pageIndex < vm.pages.size - 1, modifier = Modifier.size(30.dp)) {
+                        Icon(Icons.Filled.KeyboardArrowUp, "Next page", Modifier.size(16.dp).graphicsLayer { rotationZ = 90f })
+                    }
+                }
+            }
+            Spacer(Modifier.width(4.dp))
         }
         var addMenu by remember { mutableStateOf(false) }
         Box {
@@ -1772,7 +1812,7 @@ private fun LaserCard() {
     val s by store.settings.collectAsState()
     Card("Laser pointer") {
         SliderRow("STAYS FOR", "%.0f s".format(s.laserSeconds), s.laserSeconds, 1f..8f) { v -> store.update { it.copy(laserSeconds = v) } }
-        Text("Keep the pen or a finger on the screen to hold the laser in place. Circle content with the laser to select it.",
+        Text("Keep the pen or a finger on the screen to hold the laser pointer active; trails fade smoothly after release.",
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -2140,22 +2180,6 @@ private fun SelectionMenu(
     }
 }
 
-@Composable
-private fun PagePill(index: Int, count: Int, bookmarked: Boolean, onPrev: () -> Unit, onNext: () -> Unit, onTap: () -> Unit, modifier: Modifier) {
-    Surface(modifier.shadow(6.dp, Pill).glassEdge(Pill), shape = Pill, color = glassColor()) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-            IconButton(onClick = onPrev, enabled = index > 0) { Icon(Icons.Filled.KeyboardArrowUp, "Previous page", Modifier.graphicsLayer { rotationZ = -90f }) }
-            Row(Modifier.clip(Pill).clickable(onClick = onTap).padding(horizontal = 6.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (bookmarked) ProIconView(ProIcon.BOOKMARK, Color(0xFFE34948), Modifier.size(14.dp), ink = Color(0xFFE34948))
-                AnimatedContent(targetState = index, label = "page") { i ->
-                    Text("${i + 1} / $count", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 2.dp))
-                }
-            }
-            IconButton(onClick = onNext, enabled = index < count - 1) { Icon(Icons.Filled.KeyboardArrowUp, "Next page", Modifier.graphicsLayer { rotationZ = 90f }) }
-        }
-    }
-}
-
 // ============================================================== study timer
 
 /**
@@ -2295,78 +2319,86 @@ private fun ToolWheel(vm: EditorViewModel, at: Offset, onDismiss: () -> Unit) {
 private fun MathPadDialog(vm: EditorViewModel, onDismiss: () -> Unit) {
     var expr by remember { mutableStateOf("x = 3; y = 2x + 1; x^2 + y") }
     val result = remember(expr) { MathSolver.solveDetailed(expr) }
-    val quickChips = listOf("^2", "^3", "√()", "d/dx()", "π", "x=", "; ")
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.Functions, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(8.dp))
-                Text("Maths Engine")
-            }
-        },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    value = expr,
-                    onValueChange = { expr = it },
-                    label = { Text("Expression, variables, equation, or d/dx") },
-                    minLines = 2,
-                    maxLines = 4,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    quickChips.forEach { tok ->
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.clip(CircleShape).clickable { expr += tok },
-                        ) {
-                            Text(tok, Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
-                        }
+    val quickChips = listOf("^2", "^3", "|x|", "√()", "d/dx()", "π", "x=", "; ")
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.padding(18.dp).widthIn(max = 580.dp).fillMaxWidth(),
+        ) {
+            Box {
+                AiParticleBackdrop(Modifier.matchParentSize(), active = true)
+                Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.Functions, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Maths Engine", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        CompanionBadge(compact = true)
                     }
-                }
-                if (result != null) {
-                    Surface(
-                        shape = RoundedCornerShape(18.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("RESULT", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                            Text(result.answer, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                            result.fractionHint?.let { f ->
-                                Text("Exact fraction: $f", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            if (result.steps.isNotEmpty()) {
-                                HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                                result.steps.forEach { st ->
-                                    Text("• $st", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(
+                            value = expr,
+                            onValueChange = { expr = it },
+                            label = { Text("Expression, variables, equation, or d/dx") },
+                            minLines = 2,
+                            maxLines = 4,
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            quickChips.forEach { tok ->
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.clip(CircleShape).clickable { expr += tok },
+                                ) {
+                                    Text(tok, Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }
+                        if (result != null) {
+                            Surface(
+                                shape = RoundedCornerShape(18.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("RESULT", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                    Text(result.answer, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                                    result.fractionHint?.let { f ->
+                                        Text("Exact fraction: $f", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    if (result.steps.isNotEmpty()) {
+                                        HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                                        result.steps.forEach { st ->
+                                            Text("• $st", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (expr.isNotBlank()) {
+                            Text(
+                                "Try e.g. \"2x(x+1) = 12\", \"sin(x) = 0.5\", \"x^2 + 2x + 5 = 0\", or \"5 km to mi\"",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
-                } else if (expr.isNotBlank()) {
-                    Text(
-                        "Try e.g. \"2x(x+1) = 12\", \"2^x = 16\", \"d/dx(x^2+3x) at x=2\", or \"5 km to mi\"",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = onDismiss) { Text("Close") }
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(
+                            enabled = result != null,
+                            onClick = { result?.let { vm.insertMathPadResult(expr, it.answer) }; onDismiss() },
+                        ) { Text("Place on page") }
+                    }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = result != null,
-                onClick = { result?.let { vm.insertMathPadResult(expr, it.answer) }; onDismiss() },
-            ) { Text("Place on page") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-    )
+        }
+    }
 }
 
-/** Upgraded Split view: a second notebook beside this one, with page jump, swap panes, and clip-to-sticky. */
+/** Upgraded Split view: a second notebook beside this one, with ratio presets, zoom/fit, page jump, swap panes, and clip-to-sticky. */
 @Composable
 private fun SplitPanel(
     noteId: String,
@@ -2374,6 +2406,7 @@ private fun SplitPanel(
     onPick: (String) -> Unit,
     onOpen: (String) -> Unit,
     onSwap: () -> Unit,
+    onRatioPreset: (Float) -> Unit,
     onClipToSticky: (String, String) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier,
@@ -2381,6 +2414,7 @@ private fun SplitPanel(
     val app = LocalContext.current.applicationContext as Application
     val vm2: EditorViewModel = viewModel(key = "split-$noteId", factory = viewModelFactory { initializer { EditorViewModel(app, noteId) } })
     var pick by remember { mutableStateOf(false) }
+    var splitZoom by remember { mutableFloatStateOf(1f) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val visiblePage by remember(listState, vm2.pages.size) {
@@ -2397,6 +2431,37 @@ private fun SplitPanel(
             IconButton(onClick = onSwap) { Icon(Icons.Outlined.SwapHoriz, "Swap panes") }
             TextButton(onClick = { onOpen(noteId) }) { Text("Open") }
             IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Close split view") }
+        }
+        // Ratio presets & zoom bar
+        Row(
+            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f))
+                .horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            listOf("30/70" to 2.33f, "50/50" to 1f, "70/30" to 0.43f).forEach { (label, w) ->
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.clip(CircleShape).clickable { onRatioPreset(w) },
+                ) {
+                    Text(label, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            Spacer(Modifier.width(4.dp))
+            TextButton(
+                onClick = { splitZoom = (splitZoom - 0.15f).coerceIn(0.6f, 2.4f) },
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+            ) { Text("-", style = MaterialTheme.typography.titleSmall) }
+            Text("${(splitZoom * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+            TextButton(
+                onClick = { splitZoom = (splitZoom + 0.15f).coerceIn(0.6f, 2.4f) },
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+            ) { Text("+", style = MaterialTheme.typography.titleSmall) }
+            TextButton(
+                onClick = { splitZoom = 1f },
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+            ) { Text("Fit", style = MaterialTheme.typography.labelSmall) }
         }
         if (vm2.pages.isNotEmpty()) {
             Row(
@@ -2437,13 +2502,25 @@ private fun SplitPanel(
             }
         }
         BoxWithConstraints(Modifier.fillMaxSize()) {
-            val w = with(LocalDensity.current) { maxWidth.toPx().toInt() }.coerceIn(200, 1600)
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(vm2.pages.size) { i ->
-                    val bmp by produceState<Bitmap?>(null, i, vm2.pages.size) { value = vm2.thumbnail(i, w) }
-                    Surface(shape = RoundedCornerShape(8.dp), shadowElevation = 2.dp, color = Color.White, modifier = Modifier.fillMaxWidth()) {
-                        bmp?.let { Image(it.asImageBitmap(), "Page ${i + 1}", Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth) }
-                            ?: Box(Modifier.fillMaxWidth().height(300.dp))
+            val baseDp = (maxWidth - 24.dp).coerceAtLeast(160.dp)
+            val pageDp = (baseDp * splitZoom).coerceAtLeast(160.dp)
+            val listWidth = (pageDp + 24.dp).coerceAtLeast(maxWidth)
+            val w = with(LocalDensity.current) { pageDp.toPx().toInt() }.coerceIn(200, 2200)
+            val hScroll = rememberScrollState()
+            Box(Modifier.fillMaxSize().then(if (splitZoom > 1.02f) Modifier.horizontalScroll(hScroll) else Modifier)) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.width(listWidth).fillMaxHeight(),
+                    contentPadding = PaddingValues(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    items(vm2.pages.size) { i ->
+                        val bmp by produceState<Bitmap?>(null, i, vm2.pages.size, w) { value = vm2.thumbnail(i, w) }
+                        Surface(shape = RoundedCornerShape(8.dp), shadowElevation = 2.dp, color = Color.White, modifier = Modifier.width(pageDp)) {
+                            bmp?.let { Image(it.asImageBitmap(), "Page ${i + 1}", Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth) }
+                                ?: Box(Modifier.fillMaxWidth().height(300.dp))
+                        }
                     }
                 }
             }

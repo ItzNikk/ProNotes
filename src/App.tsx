@@ -106,6 +106,7 @@ export function App() {
           settings={state.settings}
           onUpdate={updateSettings}
           onSwitchPet={switchPet}
+          onRecordPetAction={recordPetAction}
           onSavePenPreset={savePenPreset}
           onDeletePenPreset={deletePenPreset}
           onBack={() => setRoute({ screen: 'LIBRARY' })}
@@ -147,6 +148,9 @@ export function App() {
           onEmptyTrash={emptyTrash}
           onOpenSettings={() => setRoute({ screen: 'SETTINGS' })}
           onOpenLocalModels={() => setModelsModalOpen(true)}
+          onSwitchPet={switchPet}
+          onRenamePet={(petName) => updateSettings({ petName })}
+          onRecordPetAction={recordPetAction}
         />
       )}
 
@@ -154,6 +158,18 @@ export function App() {
         open={modelsModalOpen}
         modelStates={modelStates}
         activeModelId={state.settings.activeLocalModelId}
+        petProps={
+          state.settings.pet
+            ? {
+                petId: state.settings.petId,
+                petName: state.settings.petName,
+                bond: state.settings.petBond,
+                onSwitchPet: switchPet,
+                onRenamePet: (petName) => updateSettings({ petName }),
+                onPetAction: recordPetAction,
+              }
+            : undefined
+        }
         onClose={() => setModelsModalOpen(false)}
         onDownload={startModelDownload}
         onPause={pauseModelDownload}

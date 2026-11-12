@@ -840,17 +840,30 @@ class PageRenderer(private val noteDir: File?) {
                     stickyPaint.color = item.color
                     val r = item.raw
                     rotated(canvas, r, item.rot) {
+                        canvas.save()
+                        val clipPath = Path().apply { addRoundRect(r, 16f, 16f, Path.Direction.CW) }
+                        canvas.clipPath(clipPath)
                         canvas.drawRoundRect(r, 16f, 16f, stickyPaint)
                         // Subtle darker header bar + pin/fold badges
-                        fillPaint.color = 0x16000000
-                        val barH = minOf(r.height(), 28f)
-                        canvas.drawRoundRect(RectF(r.left, r.top, r.right, r.top + barH), 16f, 16f, fillPaint)
+                        fillPaint.color = 0x18000000
+                        val barH = minOf(r.height(), 30f)
+                        canvas.drawRect(r.left, r.top, r.right, r.top + barH, fillPaint)
                         if (item.pinned || item.collapsed) {
-                            stickyText.textSize = 16f
-                            val tag = listOfNotNull(if (item.pinned) "📌" else null, if (item.collapsed) "▸" else null).joinToString(" ")
-                            canvas.drawText(tag, r.right - 36f, r.top + 20f, stickyText)
+                            val badge = listOfNotNull(
+                                if (item.pinned) "PIN" else null,
+                                if (item.collapsed) "FOLDED" else null,
+                            ).joinToString(" · ")
+                            stickyText.textSize = 12f
+                            stickyText.isFakeBoldText = true
+                            val bw = stickyText.measureText(badge) + 14f
+                            fillPaint.color = if (item.pinned) 0x33D95926 else 0x22000000
+                            canvas.drawRoundRect(RectF(r.right - bw - 8f, r.top + 5f, r.right - 8f, r.top + 25f), 8f, 8f, fillPaint)
+                            stickyText.color = 0xFF2B2F3A.toInt()
+                            canvas.drawText(badge, r.right - bw - 1f, r.top + 19f, stickyText)
+                            stickyText.isFakeBoldText = false
                         }
                         if (item.text.isNotEmpty()) {
+                            stickyText.color = 0xFF1B1F2A.toInt()
                             stickyText.typeface = when (item.font) {
                                 "SERIF" -> android.graphics.Typeface.SERIF
                                 "MONO" -> android.graphics.Typeface.MONOSPACE
@@ -858,16 +871,25 @@ class PageRenderer(private val noteDir: File?) {
                                 else -> android.graphics.Typeface.SANS_SERIF
                             }
                             if (item.collapsed) {
-                                stickyText.textSize = 22f
-                                val oneLine = item.text.lineSequence().firstOrNull()?.take(28) ?: ""
-                                canvas.drawText(oneLine, r.left + 16f, r.top + 36f, stickyText)
+                                stickyText.textSize = 20f
+                                val oneLine = item.text.lineSequence().firstOrNull()?.take(26) ?: ""
+                                canvas.drawText(oneLine, r.left + 14f, r.top + barH + 17f, stickyText)
                             } else {
-                                stickyText.textSize = item.fontSize.coerceIn(14f, 64f) * (r.width() / 280f).coerceIn(0.4f, 4f)
-                                val layout = StaticLayout.Builder.obtain(item.text, 0, item.text.length, stickyText, (r.width() - 36f).toInt().coerceAtLeast(10))
-                                    .setAlignment(Layout.Alignment.ALIGN_NORMAL).setMaxLines(14).build()
-                                canvas.save(); canvas.translate(r.left + 18f, r.top + barH + 10f); layout.draw(canvas); canvas.restore()
+                                stickyText.textSize = item.fontSize.coerceIn(14f, 64f) * (r.width() / 280f).coerceIn(0.45f, 3.5f)
+                                val availW = (r.width() - 32f).toInt().coerceAtLeast(16)
+                                val layout = StaticLayout.Builder.obtain(item.text, 0, item.text.length, stickyText, availW)
+                                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                                    .setLineSpacing(2f, 1.08f)
+                                    .setMaxLines(16)
+                                    .build()
+                                canvas.save()
+                                canvas.clipRect(r.left + 12f, r.top + barH + 4f, r.right - 12f, r.bottom - 10f)
+                                canvas.translate(r.left + 16f, r.top + barH + 10f)
+                                layout.draw(canvas)
+                                canvas.restore()
                             }
                         }
+                        canvas.restore()
                     }
                 }
                 is MindNodeItem -> drawMindNode(canvas, item, allItems)

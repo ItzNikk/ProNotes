@@ -24,8 +24,18 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { Flashcard, LocalModelState, QuizQuestion } from '../types/models';
+import { Flashcard, LocalModelState, PetBondState, PetId, QuizQuestion } from '../types/models';
 import { LOCAL_MODELS_CATALOG, RichSummaryResult } from '../utils/localAi';
+import { AiParticleBackdrop, PipPet } from './PipPet';
+
+export interface ModalPetProps {
+  petId: PetId;
+  petName?: string;
+  bond?: PetBondState;
+  onSwitchPet?: (id: PetId) => void;
+  onRenamePet?: (name: string) => void;
+  onPetAction?: (kind: 'pet' | 'treat' | 'study', xpGain?: number) => void;
+}
 
 // ================================================================
 // Local AI Model Hub Modal (9 Free Lightweight Local Models)
@@ -35,6 +45,7 @@ interface LocalAiModalProps {
   open: boolean;
   modelStates: Record<string, LocalModelState>;
   activeModelId: string | null;
+  petProps?: ModalPetProps;
   onClose: () => void;
   onDownload: (id: string) => void;
   onPause: (id: string) => void;
@@ -46,6 +57,7 @@ export const LocalAiModal: React.FC<LocalAiModalProps> = ({
   open,
   modelStates,
   activeModelId,
+  petProps,
   onClose,
   onDownload,
   onPause,
@@ -58,14 +70,16 @@ export const LocalAiModal: React.FC<LocalAiModalProps> = ({
 
   const readyModels = LOCAL_MODELS_CATALOG.filter((m) => modelStates[m.id]?.status === 'READY');
   const usedMb = readyModels.reduce((sum, m) => sum + m.sizeMb, 0);
+  const downloadingAny = Object.values(modelStates).some((s) => s.status === 'DOWNLOADING');
   const filteredCatalog = LOCAL_MODELS_CATALOG.filter(
     (m) => catFilter === 'all' || m.category === catFilter
   );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-[#191A1F] animate-stagger-in">
-        <div className="flex items-center justify-between border-b border-black/8 px-6 py-4 dark:border-white/10">
+      <div className="relative flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-[#191A1F] animate-stagger-in">
+        <AiParticleBackdrop accent="violet" intensity={downloadingAny ? 'active' : 'soft'} />
+        <div className="relative z-10 flex items-center justify-between border-b border-black/8 px-6 py-4 dark:border-white/10">
           <div className="flex items-center gap-3">
             <div className="relative flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-tr from-violet-600 to-blue-500 text-white shadow">
               <Cpu className="h-5 w-5" />
@@ -77,16 +91,30 @@ export const LocalAiModal: React.FC<LocalAiModalProps> = ({
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full p-2 text-slate-500 hover:bg-black/5 dark:hover:bg-white/10"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {petProps && (
+              <PipPet
+                petId={petProps.petId}
+                petName={petProps.petName}
+                bond={petProps.bond}
+                thinking={downloadingAny}
+                align="right"
+                onSwitchPet={petProps.onSwitchPet}
+                onRenamePet={petProps.onRenamePet}
+                onPetAction={petProps.onPetAction}
+              />
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-full p-2 text-slate-500 hover:bg-black/5 dark:hover:bg-white/10"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50 px-6 py-3 text-xs dark:bg-[#14151A]">
+        <div className="relative z-10 flex flex-wrap items-center justify-between gap-2 bg-slate-50/85 px-6 py-3 text-xs backdrop-blur-xs dark:bg-[#14151A]/85">
           <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
             <HardDrive className="h-4 w-4 text-blue-600" />
             <span className="font-mono-num font-semibold">{usedMb} MB</span> cached on device (
@@ -102,7 +130,7 @@ export const LocalAiModal: React.FC<LocalAiModalProps> = ({
         </div>
 
         {/* Category Tabs */}
-        <div className="flex gap-1.5 overflow-x-auto border-b border-black/6 px-6 py-2.5 dark:border-white/8">
+        <div className="relative z-10 flex gap-1.5 overflow-x-auto border-b border-black/6 px-6 py-2.5 dark:border-white/8">
           {(
             [
               { id: 'all', label: `All (${LOCAL_MODELS_CATALOG.length})` },
@@ -127,7 +155,7 @@ export const LocalAiModal: React.FC<LocalAiModalProps> = ({
           ))}
         </div>
 
-        <div className="flex-1 space-y-3 overflow-y-auto p-6">
+        <div className="relative z-10 flex-1 space-y-3 overflow-y-auto p-6">
           {filteredCatalog.map((model) => {
             const st = modelStates[model.id] || {
               status: 'NOT_DOWNLOADED',
@@ -278,6 +306,7 @@ export const SummaryModal: React.FC<{
   summary: RichSummaryResult | null;
   loadingStage?: string | null;
   explainText?: string | null;
+  petProps?: ModalPetProps;
   onClose: () => void;
   onAddToPage: (text: string) => void;
   onTurnIntoMindMap: () => void;
@@ -287,6 +316,7 @@ export const SummaryModal: React.FC<{
   summary,
   loadingStage,
   explainText,
+  petProps,
   onClose,
   onAddToPage,
   onTurnIntoMindMap,
@@ -311,9 +341,10 @@ export const SummaryModal: React.FC<{
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-[#191A1F] animate-stagger-in">
+      <div className="relative flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-[#191A1F] animate-stagger-in">
+        <AiParticleBackdrop accent="violet" intensity={loadingStage ? 'active' : 'soft'} />
         {/* Header */}
-        <div className="relative overflow-hidden border-b border-black/8 bg-gradient-to-r from-violet-600/12 via-blue-600/8 to-transparent px-6 py-4 dark:border-white/10">
+        <div className="relative z-10 overflow-hidden border-b border-black/8 bg-gradient-to-r from-violet-600/12 via-blue-600/8 to-transparent px-6 py-4 dark:border-white/10">
           {loadingStage && (
             <div className="pointer-events-none absolute inset-0 w-1/2 bg-gradient-to-r from-transparent via-violet-400/20 to-transparent animate-ai-shimmer" />
           )}
@@ -329,18 +360,32 @@ export const SummaryModal: React.FC<{
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-full p-1.5 text-slate-500 hover:bg-black/5 dark:hover:bg-white/10"
-            >
-              <X className="h-5 w-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              {petProps && (
+                <PipPet
+                  petId={petProps.petId}
+                  petName={petProps.petName}
+                  bond={petProps.bond}
+                  thinking={Boolean(loadingStage)}
+                  align="right"
+                  onSwitchPet={petProps.onSwitchPet}
+                  onRenamePet={petProps.onRenamePet}
+                  onPetAction={petProps.onPetAction}
+                />
+              )}
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-full p-1.5 text-slate-500 hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Body */}
-        <div className="flex-1 space-y-4 overflow-y-auto p-6">
+        <div className="relative z-10 flex-1 space-y-4 overflow-y-auto p-6">
           {loadingStage ? (
             <div className="space-y-3 py-4">
               <div className="rounded-2xl border border-violet-500/25 bg-violet-50/50 p-4 dark:bg-violet-950/20">
@@ -461,7 +506,7 @@ export const SummaryModal: React.FC<{
         </div>
 
         {/* Footer */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-black/8 px-6 py-4 dark:border-white/10">
+        <div className="relative z-10 flex flex-wrap items-center justify-between gap-2 border-t border-black/8 px-6 py-4 dark:border-white/10">
           <button
             type="button"
             disabled={!fullCopyText}
@@ -513,6 +558,7 @@ export const FlashcardsModal: React.FC<{
   notebookId: string;
   cards: Flashcard[];
   loadingStage?: string | null;
+  petProps?: ModalPetProps;
   onClose: () => void;
   onAddCard: (front: string, back: string) => void;
   onUpdateCard: (card: Flashcard) => void;
@@ -524,6 +570,7 @@ export const FlashcardsModal: React.FC<{
   notebookTitle,
   cards,
   loadingStage,
+  petProps,
   onClose,
   onAddCard,
   onUpdateCard,
@@ -641,9 +688,10 @@ export const FlashcardsModal: React.FC<{
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-[#191A1F] animate-stagger-in">
+      <div className="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-[#191A1F] animate-stagger-in">
+        <AiParticleBackdrop accent="blue" intensity={loadingStage ? 'active' : 'soft'} />
         {/* Top Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-black/8 px-6 py-4 dark:border-white/10">
+        <div className="relative z-10 flex flex-wrap items-center justify-between gap-2 border-b border-black/8 px-6 py-4 dark:border-white/10">
           <div>
             <h2 className="text-lg font-bold tracking-tight">Flashcards · {notebookTitle}</h2>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-semibold">
@@ -660,6 +708,18 @@ export const FlashcardsModal: React.FC<{
           </div>
 
           <div className="flex items-center gap-2">
+            {petProps && (
+              <PipPet
+                petId={petProps.petId}
+                petName={petProps.petName}
+                bond={petProps.bond}
+                thinking={Boolean(loadingStage)}
+                align="right"
+                onSwitchPet={petProps.onSwitchPet}
+                onRenamePet={petProps.onRenamePet}
+                onPetAction={petProps.onPetAction}
+              />
+            )}
             <button
               type="button"
               onClick={onGenerateAi}
@@ -690,7 +750,7 @@ export const FlashcardsModal: React.FC<{
         </div>
 
         {/* Mode Tabs */}
-        <div className="flex items-center justify-between border-b border-black/6 bg-slate-50/70 px-6 py-2 dark:border-white/8 dark:bg-[#14151A]">
+        <div className="relative z-10 flex items-center justify-between border-b border-black/6 bg-slate-50/75 px-6 py-2 backdrop-blur-xs dark:border-white/8 dark:bg-[#14151A]/75">
           <div className="flex gap-1.5">
             <button
               type="button"
@@ -733,7 +793,7 @@ export const FlashcardsModal: React.FC<{
         </div>
 
         {/* Main Content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="relative z-10 flex-1 overflow-y-auto p-6">
           {loadingStage && (
             <div className="mb-4 rounded-2xl border border-violet-500/25 bg-violet-50/60 p-3.5 dark:bg-violet-950/20">
               <div className="text-xs font-bold text-violet-700 dark:text-violet-300">
@@ -973,6 +1033,7 @@ export const QuizModal: React.FC<{
   bestScore?: number;
   engineLabel: string;
   loadingStage?: string | null;
+  petProps?: ModalPetProps;
   onClose: () => void;
   onScoreRecorded: (pct: number) => void;
 }> = ({
@@ -982,6 +1043,7 @@ export const QuizModal: React.FC<{
   bestScore = 0,
   engineLabel,
   loadingStage,
+  petProps,
   onClose,
   onScoreRecorded,
 }) => {
@@ -1052,9 +1114,10 @@ export const QuizModal: React.FC<{
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-[#191A1F] animate-stagger-in">
+      <div className="relative flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-[#191A1F] animate-stagger-in">
+        <AiParticleBackdrop accent="amber" intensity={loadingStage ? 'active' : 'soft'} />
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-black/8 px-6 py-4 dark:border-white/10">
+        <div className="relative z-10 flex items-center justify-between border-b border-black/8 px-6 py-4 dark:border-white/10">
           <div>
             <h2 className="text-base font-bold">Quiz Studio · {notebookTitle}</h2>
             <p className="text-[11px] text-slate-500">
@@ -1064,7 +1127,7 @@ export const QuizModal: React.FC<{
               </span>
             </p>
           </div>
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
             {streak > 1 && (
               <span className="inline-flex items-center gap-1 rounded-lg bg-amber-500/15 px-2.5 py-1 text-xs font-bold text-amber-700 dark:text-amber-300">
                 <Flame className="h-3.5 w-3.5" /> {streak}
@@ -1073,6 +1136,18 @@ export const QuizModal: React.FC<{
             <span className="font-mono-num rounded-lg bg-black/5 px-2.5 py-1 text-xs font-semibold dark:bg-white/10">
               {Math.floor(elapsedSec / 60)}:{String(elapsedSec % 60).padStart(2, '0')}
             </span>
+            {petProps && (
+              <PipPet
+                petId={petProps.petId}
+                petName={petProps.petName}
+                bond={petProps.bond}
+                thinking={Boolean(loadingStage)}
+                align="right"
+                onSwitchPet={petProps.onSwitchPet}
+                onRenamePet={petProps.onRenamePet}
+                onPetAction={petProps.onPetAction}
+              />
+            )}
             <button
               type="button"
               onClick={onClose}
@@ -1085,7 +1160,7 @@ export const QuizModal: React.FC<{
 
         {/* Segmented Progress Bar */}
         {pool.length > 0 && !loadingStage && !finished && (
-          <div className="flex gap-1 bg-slate-50 px-6 py-2 dark:bg-[#14151A]">
+          <div className="relative z-10 flex gap-1 bg-slate-50/80 px-6 py-2 dark:bg-[#14151A]/80">
             {pool.map((_, idx) => (
               <div
                 key={idx}
@@ -1101,7 +1176,7 @@ export const QuizModal: React.FC<{
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="relative z-10 flex-1 overflow-y-auto p-6">
           {loadingStage ? (
             <div className="space-y-3 py-6">
               <div className="rounded-2xl border border-violet-500/25 bg-violet-50/50 p-4 dark:bg-violet-950/20">
@@ -1239,7 +1314,7 @@ export const QuizModal: React.FC<{
           )}
         </div>
 
-        <div className="flex justify-end border-t border-black/8 px-6 py-4 dark:border-white/10">
+        <div className="relative z-10 flex justify-end border-t border-black/8 px-6 py-4 dark:border-white/10">
           {!finished && pool.length > 0 && picked !== null ? (
             <button
               type="button"

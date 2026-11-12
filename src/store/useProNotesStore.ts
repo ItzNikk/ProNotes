@@ -49,6 +49,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   pageNumbers: true,
   pet: true,
   petId: 'sparkchu',
+  petName: '',
   petBond: {
     petId: 'sparkchu',
     xp: 45,

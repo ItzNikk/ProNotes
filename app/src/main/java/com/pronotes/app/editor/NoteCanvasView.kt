@@ -1388,19 +1388,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
     // ------------------------------------------------------------- laser
 
-    /** A finished laser loop around content turns into a lasso selection. */
+    /** Laser is strictly a pointer and never converts to a lasso selection. */
     private fun laserUp() {
-        val stroke = layer.laserEnd() ?: return
-        if (stroke.size < 8) return
-        val page = pageAt(stroke.first().first, stroke.first().second)
-        val local = stroke.map { (it.first - ox(page)) to (it.second - oy(page)) }
-        if (!isClosedLoop(local)) return
-        val lasso = Lasso(local)
-        val ids = pages[page].items.filter { lasso.selects(it) }.map { it.id }.toSet()
-        if (ids.isEmpty()) return
-        layer.laserDropLast()
-        selectItems(page, ids)
-        buzz()
+        layer.laserEnd()
     }
 
     // ----------------------------------------------------------- eraser
@@ -1409,7 +1399,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         if (pts.size < 2) return
         val p = pages.getOrNull(page) ?: return
         val sb = RectF(pts.minOf { it.first }, pts.minOf { it.second }, pts.maxOf { it.first }, pts.maxOf { it.second })
-            .apply { inset(-14f, -14f) }
+            .apply { inset(-22f, -22f) }
         val touched = itemsUnder(page, pts)
         val hit = p.items.filter { item ->
             val ok = when (item) {
@@ -1564,6 +1554,10 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     /** Starts move / resize / rotate when the pen lands on the selection or one of its handles. */
     private fun beginGrab(px: Float, py: Float): Boolean {
         val base = selectionBaseBounds() ?: return false
+        val p = pages.getOrNull(selectionPage)
+        if (p != null && selection.isNotEmpty() && p.items.filter { it.id in selection }.all { it is StickyItem && it.pinned }) {
+            return false
+        }
         val sb = RectF(base); pageMatrix(selectionPage, tmpMatrix).mapRect(sb)
         val (lx, ly) = toLocal(px, py, selectionPage)
         val corners = listOf(sb.left to sb.top, sb.right to sb.top, sb.right to sb.bottom, sb.left to sb.bottom)
@@ -2149,14 +2143,15 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         private var puffs: List<RectF> = emptyList()
         private var puffT = 0f
         private val puffPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val puffRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
         private val puffSeeds = FloatArray(48) { kotlin.random.Random(it * 7 + 3).nextFloat() }
 
-        /** Scribble-erase: erased ink crumbles into little flakes that drift up and fade. */
+        /** Scribble-erase: concentric shockwave dissolve + radial spark streaks + floating flakes. */
         fun puff(rects: List<RectF>) {
             if (rects.isEmpty()) return
             puffs = rects
             ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = 520; interpolator = DecelerateInterpolator()
+                duration = 620; interpolator = DecelerateInterpolator()
                 addUpdateListener { puffT = it.animatedValue as Float; invalidate() }
                 addListener(object : android.animation.AnimatorListenerAdapter() {
                     override fun onAnimationEnd(animation: android.animation.Animator) { puffs = emptyList(); invalidate() }
@@ -2168,15 +2163,46 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         private fun drawPuffs(canvas: Canvas) {
             if (puffs.isEmpty()) return
             val t = puffT
+            val ease = 1f - (1f - t) * (1f - t)
             puffs.forEach { r ->
+                val cx = r.centerX()
+                val cy = r.centerY()
+                val baseR = max(r.width(), r.height()).coerceAtLeast(24f * density) * 0.45f
+                // Dual concentric shockwave rings
+                puffRingPaint.color = 0xFFEF4444.toInt()
+                puffRingPaint.strokeWidth = (3.2f * (1f - t * 0.65f)) * density
+                puffRingPaint.alpha = ((1f - t) * 200).toInt().coerceIn(0, 255)
+                canvas.drawCircle(cx, cy, baseR * (0.45f + ease * 1.15f), puffRingPaint)
+
+                puffRingPaint.color = 0xFF3D6CF4.toInt()
+                puffRingPaint.strokeWidth = (2.0f * (1f - t * 0.5f)) * density
+                puffRingPaint.alpha = ((1f - t) * 165).toInt().coerceIn(0, 255)
+                canvas.drawCircle(cx, cy, baseR * (0.25f + ease * 1.55f), puffRingPaint)
+
+                // Radial spark streaks + drifting ink flakes
                 for (k in 0 until 16) {
+                    val ang = k * (2.0 * Math.PI / 16.0) + puffSeeds[k] * 0.45
+                    val cosA = kotlin.math.cos(ang).toFloat()
+                    val sinA = kotlin.math.sin(ang).toFloat()
+                    if (k % 2 == 0) {
+                        val r0 = baseR * (0.3f + ease * 0.9f)
+                        val r1 = r0 + (12f + 16f * puffSeeds[k + 8]) * density * (1f - t * 0.6f)
+                        puffRingPaint.color = if (k % 4 == 0) 0xFFFB7185.toInt() else 0xFF60A5FA.toInt()
+                        puffRingPaint.strokeWidth = (2.1f * (1f - t * 0.5f)) * density
+                        puffRingPaint.alpha = ((1f - t) * 225).toInt().coerceIn(0, 255)
+                        canvas.drawLine(cx + cosA * r0, cy + sinA * r0, cx + cosA * r1, cy + sinA * r1, puffRingPaint)
+                    }
                     val sx = r.left + r.width() * puffSeeds[k]
                     val sy = r.top + r.height() * puffSeeds[k + 16]
-                    val dx = (puffSeeds[k + 32] - 0.5f) * 60f * density * t
-                    val dy = -40f * density * t * (0.5f + puffSeeds[k])
-                    puffPaint.color = if (k % 3 == 0) 0xFFB8C0CC.toInt() else 0xFF8A93A3.toInt()
-                    puffPaint.alpha = ((1f - t) * 220).toInt()
-                    canvas.drawCircle(sx + dx, sy + dy, (2.5f + 3f * puffSeeds[k + 8]) * density * (1f - 0.5f * t), puffPaint)
+                    val dx = (puffSeeds[k + 32] - 0.5f) * 72f * density * ease
+                    val dy = -48f * density * ease * (0.5f + puffSeeds[k])
+                    puffPaint.color = when (k % 3) {
+                        0 -> 0xFFFCA5A5.toInt()
+                        1 -> 0xFF93C5FD.toInt()
+                        else -> 0xFF94A3B8.toInt()
+                    }
+                    puffPaint.alpha = ((1f - t) * 230).toInt().coerceIn(0, 255)
+                    canvas.drawCircle(sx + dx, sy + dy, (2.6f + 3.2f * puffSeeds[k + 8]) * density * (1f - 0.45f * t), puffPaint)
                 }
             }
         }
