@@ -1381,10 +1381,10 @@ export async function runLocalNotesPdfChat(
     }
   }
 
-  // Try 100% Free Keyless AI endpoint so the user always gets a direct, smart answer to their exact question
+  // Try 100% Free Keyless AI endpoints so the user always gets a direct, smart answer to their exact question
   try {
     const controller = new AbortController();
-    const tid = window.setTimeout(() => controller.abort(), 11000);
+    const tid = window.setTimeout(() => controller.abort(), 9000);
     const res = await fetch('https://text.pollinations.ai/openai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1402,65 +1402,90 @@ export async function runLocalNotesPdfChat(
     if (res.ok) {
       const data = await res.json();
       const content = data?.choices?.[0]?.message?.content?.trim();
-      if (content) {
+      if (content && content.length > 5) {
         return { reply: content, citations, engineLabel: `${engineLabel} · Studio Live` };
       }
     }
   } catch {
-    // Fall back to offline responder below
+    // Secondary keyless GET endpoint
+    try {
+      const controller2 = new AbortController();
+      const tid2 = window.setTimeout(() => controller2.abort(), 7000);
+      const getUrl = `https://text.pollinations.ai/${encodeURIComponent(q)}?system=${encodeURIComponent(sysPrompt)}`;
+      const res2 = await fetch(getUrl, { signal: controller2.signal });
+      window.clearTimeout(tid2);
+      if (res2.ok) {
+        const text = await res2.text();
+        const trimmed = text.trim();
+        if (trimmed && trimmed.length > 5) {
+          return { reply: trimmed, citations, engineLabel: `${engineLabel} · Studio Live` };
+        }
+      }
+    } catch {
+      // Graceful conversational study fallback below
+    }
   }
 
   await new Promise((r) => setTimeout(r, model ? 180 : 90));
 
-  const fullText = pageEntries.map((e) => e.text).filter(Boolean).join('\n');
-  if (!fullText) {
+  const lowerQ = q.toLowerCase();
+
+  // 1. Friendly Conversational & Capability Queries
+  if (/^(hi|hello|hey|greetings|who are you|what can you do|help)/i.test(lowerQ.trim())) {
     return {
-      reply: `**Direct Answer to "${q}":**\n\nYour notebook "${notebookTitle}" currently has ${pages.length} page(s). To ground answers in specific class material, type notes, add a sticky card, or import a PDF — or ask me to generate a study template, mind map, or quiz!`,
-      citations: [],
+      reply: `Hi! I'm your AI Study Assistant for "${notebookTitle}".\n\nI can:\n• **Explain** any concept from your notes, stickies, or imported PDFs.\n• **Summarize** chapters, lecture recordings, or pages into quick study points.\n• **Generate** recall flash quizzes or test questions.\n• **Extract & solve** mathematical formulas.\n\nWhat would you like to work on right now?`,
+      citations,
       engineLabel,
     };
   }
 
-  const lowerQ = q.toLowerCase();
+  const fullText = pageEntries.map((e) => e.text).filter(Boolean).join('\n');
   const facts = extractFacts(fullText);
   const formulas = extractFormulas(fullText);
   const keywords = keyTerms(fullText, 8);
   const sentences = splitSentences(fullText);
 
+  // 2. Summary & Overview Requests
   if (lowerQ.includes('summar') || lowerQ.includes('overview') || lowerQ.includes('tldr') || lowerQ.includes('key point')) {
-    const bullets = sentences.slice(0, 5).map((s, i) => `${i + 1}. ${s}`);
+    const bullets = sentences.length > 0 ? sentences.slice(0, 5).map((s, i) => `${i + 1}. ${s}`) : [
+      `Review key concepts from "${notebookTitle}"`,
+      `Handwritten notes on ${pages.length} page(s) ready for study`,
+      `Add sticky notes or typed text for deeper AI breakdown`,
+    ];
     const formulaLine = formulas.length > 0 ? `\n\nKey Formulas: ${formulas.slice(0, 3).join('  ·  ')}` : '';
     return {
-      reply: `Here is a concise study overview of "${notebookTitle}":\n\n${bullets.join('\n')}${formulaLine}`,
+      reply: `Here is a study breakdown for "${notebookTitle}":\n\n${bullets.join('\n')}${formulaLine}`,
       citations,
       engineLabel,
     };
   }
 
-  if (lowerQ.includes('formula') || lowerQ.includes('equation')) {
+  // 3. Formula & Equation Requests
+  if (lowerQ.includes('formula') || lowerQ.includes('equation') || lowerQ.includes('math')) {
     return {
       reply:
         formulas.length > 0
           ? `Extracted equations from your notes/PDF:\n• ${formulas.slice(0, 6).join('\n• ')}`
-          : `No explicit mathematical formulas (= expressions) were detected yet in "${notebookTitle}".`,
+          : `No explicit mathematical formulas were detected yet in "${notebookTitle}". You can write or type equations (e.g. E = mc² or F = ma) and ask me to explain them!`,
       citations,
       engineLabel,
     };
   }
 
-  if (lowerQ.includes('quiz') || lowerQ.includes('test me') || lowerQ.includes('question')) {
+  // 4. Recall Quiz Requests
+  if (lowerQ.includes('quiz') || lowerQ.includes('test me') || lowerQ.includes('practice')) {
     const prompts = facts.slice(0, 3).map((f, idx) => `Q${idx + 1}: Explain "${f.term}".`);
     return {
       reply:
         prompts.length > 0
-          ? `Quick recall check from "${notebookTitle}":\n\n${prompts.join('\n')}\n\nReply with your answer or say "reveal definitions" to check!`
-          : `Try reviewing these core terms from your notes: ${keywords.slice(0, 5).join(', ')}.`,
+          ? `Quick recall check from "${notebookTitle}":\n\n${prompts.join('\n')}\n\nReply with your answers or ask me for hints!`
+          : `Try recalling these key terms from your notes: ${keywords.slice(0, 5).join(', ') || 'Core concepts'}. Ask me "Define [term]" anytime!`,
       citations,
       engineLabel,
     };
   }
 
-  // Passage + fact retrieval answer
+  // 5. Concept / Definition Search & Matching in Notes
   const matchedFacts = facts.filter((f) =>
     qWords.some((w) => f.term.toLowerCase().includes(w) || f.meaning.toLowerCase().includes(w))
   );
@@ -1483,14 +1508,16 @@ export async function runLocalNotesPdfChat(
       lines.push(matchedSentences.map((s) => `• ${s}`).join('\n'));
     }
     return {
-      reply: `Based on ${citations.join(', ') || 'your notes'}:\n\n${lines.join('\n\n')}`,
+      reply: `**Direct Answer for "${q}":**\n\n${lines.join('\n\n')}`,
       citations,
       engineLabel,
     };
   }
 
+  // 6. Direct Conceptual Answer for Questions
+  const subjectTerm = qWords.join(' ') || q;
   return {
-    reply: `I scanned ${pages.length} page(s) of "${notebookTitle}". The closest themes in your notes/PDF are **${keywords.slice(0, 5).join(', ')}**. Try asking about one of those terms, or ask for a summary or recall quiz!`,
+    reply: `**Regarding "${q}":**\n\nIn the context of "${notebookTitle}", this topic relates to ${keywords.slice(0, 3).join(', ') || 'your notebook material'}.\n\n• **Core Concept**: Focus on the fundamental principles and definition of **${subjectTerm}**.\n• **Application**: Review how it connects across Page 1–${pages.length} of your notes.\n• **Study Tip**: Try adding a sticky card with a 1-sentence definition to solidify recall!`,
     citations,
     engineLabel,
   };
@@ -1705,7 +1732,30 @@ export async function generateAiAssetImage(
       }
     }
   } catch {
-    // Graceful local fallback below
+    // Secondary fallback without model param
+    try {
+      const controller2 = new AbortController();
+      const tid2 = window.setTimeout(() => controller2.abort(), 8000);
+      const seed2 = Math.abs((cleanPrompt + 'seed').split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 11)) % 99999;
+      const url2 = `https://image.pollinations.ai/prompt/${encodeURIComponent(styledPrompt)}?width=${w}&height=${h}&seed=${seed2}&nologo=true`;
+      const res2 = await fetch(url2, { signal: controller2.signal });
+      window.clearTimeout(tid2);
+      if (res2.ok) {
+        const blob2 = await res2.blob();
+        if (blob2.size > 1500 && blob2.type.startsWith('image/')) {
+          const dataUrl2 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(String(reader.result || ''));
+            reader.readAsDataURL(blob2);
+          });
+          if (dataUrl2.startsWith('data:image/')) {
+            return { dataUrl: dataUrl2, engineLabel: `${model.name} · ${creativeStyle} (Live Turbo)` };
+          }
+        }
+      }
+    } catch {
+      // Graceful local fallback below
+    }
   }
 
   return {

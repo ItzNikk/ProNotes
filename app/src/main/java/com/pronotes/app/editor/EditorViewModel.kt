@@ -1934,8 +1934,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             } else {
                 val nearbyText = p.items.filterIsInstance<TextItem>().map { it.text.trim() }.filter { it.isNotBlank() }.take(3)
                 val headings = pageCtx.lines().map { it.trim() }.filter { it.length >= 4 }.take(2)
-                val topicHint = (nearbyText + headings).firstOrNull()?.take(80) ?: title
-                "Study concept on Page ${pgIdx + 1} ($topicHint)"
+                (nearbyText + headings).firstOrNull()?.take(80) ?: title.ifBlank { "Study Concept" }
             }
             val ans = try {
                 runCatching { Nano.explain(selectedText, pageCtx) }.getOrNull()

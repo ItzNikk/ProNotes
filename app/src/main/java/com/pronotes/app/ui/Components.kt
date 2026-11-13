@@ -241,21 +241,21 @@ fun OptionalLiquidGlassBox(
     fallbackColor: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
     content: @Composable BoxScope.() -> Unit,
 ) {
-    if (enabled && backdrop != null) {
-        val surfaceTint = MaterialTheme.colorScheme.surface.copy(alpha = 0.42f)
+    if (enabled) {
+        val surfaceTint = MaterialTheme.colorScheme.surface.copy(alpha = 0.52f)
         val specularRim = remember {
             Brush.linearGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.65f),
-                    Color.White.copy(alpha = 0.18f),
-                    Color(0xFF93C5FD).copy(alpha = 0.35f),
+                    Color.White.copy(alpha = 0.78f),
+                    Color.White.copy(alpha = 0.22f),
+                    Color(0xFF93C5FD).copy(alpha = 0.38f),
                 )
             )
         }
         val innerSheen = remember {
             Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.22f),
+                    Color.White.copy(alpha = 0.28f),
                     Color.Transparent,
                     Color.White.copy(alpha = 0.08f),
                 )
@@ -265,7 +265,7 @@ fun OptionalLiquidGlassBox(
         val composeRenderEffect = remember {
             if (Build.VERSION.SDK_INT >= 31) {
                 runCatching {
-                    AndroidRenderEffect.createBlurEffect(22f, 22f, Shader.TileMode.CLAMP).asComposeRenderEffect()
+                    AndroidRenderEffect.createBlurEffect(24f, 24f, Shader.TileMode.CLAMP).asComposeRenderEffect()
                 }.getOrNull()
             } else null
         }
@@ -276,7 +276,7 @@ fun OptionalLiquidGlassBox(
                 .background(surfaceTint, shape)
                 .border(1.2.dp, specularRim, shape),
         ) {
-            if (composeRenderEffect != null) {
+            if (backdrop != null && composeRenderEffect != null) {
                 Spacer(
                     modifier = Modifier
                         .matchParentSize()
@@ -293,7 +293,7 @@ fun OptionalLiquidGlassBox(
                 Spacer(
                     modifier = Modifier
                         .matchParentSize()
-                        .background(surfaceTint)
+                        .background(innerSheen)
                 )
             }
             content()

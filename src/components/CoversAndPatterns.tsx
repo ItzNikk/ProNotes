@@ -575,20 +575,45 @@ export const NewNotebookModal: React.FC<NewNotebookModalProps> = ({
                     </button>
                   </div>
 
-                  {/* AI Cover Generator */}
-                  <div className="rounded-2xl border border-violet-500/25 bg-violet-500/[0.06] p-3.5 space-y-2.5">
+                  {/* Prominent AI Cover Generator & Studio */}
+                  <div className="rounded-2xl border border-violet-500/30 bg-gradient-to-br from-violet-500/[0.08] via-indigo-500/[0.05] to-fuchsia-500/[0.06] p-4 space-y-3 shadow-xs dark:border-violet-400/25 dark:bg-violet-950/20">
                     <div className="flex items-center justify-between">
-                      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-violet-700 dark:text-violet-300">
-                        <Wand2 className="h-3.5 w-3.5" /> AI Cover Studio ({IMAGE_MODELS_CATALOG.find((m) => m.id === (defaults.activeImageModelId || IMAGE_MODELS_CATALOG[0].id))?.name || 'SDXL Turbo Q4'})
+                      <div className="flex items-center gap-2">
+                        <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-tr from-violet-600 to-fuchsia-600 text-white shadow-xs">
+                          <Wand2 className="h-3.5 w-3.5" />
+                        </div>
+                        <span className="text-xs font-bold text-violet-900 dark:text-violet-200">
+                          AI Cover Studio
+                        </span>
+                      </div>
+                      <span className="rounded-full bg-violet-600/10 px-2 py-0.5 text-[10px] font-bold text-violet-700 dark:bg-violet-400/15 dark:text-violet-300">
+                        {IMAGE_MODELS_CATALOG.find((m) => m.id === (defaults.activeImageModelId || IMAGE_MODELS_CATALOG[0].id))?.name || 'SDXL Turbo'}
                       </span>
                     </div>
+
                     <div className="flex gap-2">
                       <input
                         type="text"
                         value={aiCoverPrompt}
                         onChange={(e) => setAiCoverPrompt(e.target.value)}
-                        placeholder="Describe a notebook cover (e.g. Deep Space Nebula, Botanical Gold)..."
-                        className="flex-1 rounded-xl border border-black/12 bg-white px-3 py-1.5 text-xs outline-none focus:border-violet-500 dark:border-white/15 dark:bg-[#22242C]"
+                        onKeyDown={async (e) => {
+                          if (e.key === 'Enter' && aiCoverPrompt.trim() && !aiCoverBusy) {
+                            e.preventDefault();
+                            setAiCoverBusy(true);
+                            try {
+                              const res = await generateAiAssetImage(
+                                aiCoverPrompt,
+                                'cover',
+                                defaults.activeImageModelId || IMAGE_MODELS_CATALOG[0].id
+                              );
+                              setCover(`image:${res.dataUrl}`);
+                            } finally {
+                              setAiCoverBusy(false);
+                            }
+                          }
+                        }}
+                        placeholder="Describe notebook cover (e.g. Deep Space Nebula, Vintage Leather, Minimal Bauhaus)..."
+                        className="flex-1 rounded-xl border border-black/15 bg-white px-3.5 py-2 text-xs font-medium outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 dark:border-white/18 dark:bg-[#20222B]"
                       />
                       <button
                         type="button"
@@ -606,14 +631,16 @@ export const NewNotebookModal: React.FC<NewNotebookModalProps> = ({
                             setAiCoverBusy(false);
                           }
                         }}
-                        className="ios-stretch inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm disabled:opacity-45"
+                        className="ios-stretch inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-600 via-indigo-600 to-fuchsia-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:brightness-110 disabled:opacity-40"
                       >
-                        {aiCoverBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                        {aiCoverBusy ? 'Creating' : 'AI Cover'}
+                        {aiCoverBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                        <span>{aiCoverBusy ? 'Generating…' : 'Generate Cover'}</span>
                       </button>
                     </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {['Deep Space Nebula', 'Botanical Emerald', 'Minimalist Bauhaus', 'Sunset Leather'].map((chip) => (
+
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">Suggestions:</span>
+                      {['Deep Space Nebula', 'Botanical Emerald', 'Minimalist Bauhaus', 'Sunset Leather', 'Cyberpunk Grid', 'Japanese Waves'].map((chip) => (
                         <button
                           key={chip}
                           type="button"
@@ -631,7 +658,7 @@ export const NewNotebookModal: React.FC<NewNotebookModalProps> = ({
                               setAiCoverBusy(false);
                             }
                           }}
-                          className="ios-stretch rounded-lg bg-white/80 px-2 py-0.5 text-[10px] font-semibold text-slate-600 hover:text-violet-700 dark:bg-[#22242C] dark:text-slate-300"
+                          className="ios-stretch rounded-lg bg-white/90 px-2.5 py-1 text-[10px] font-semibold text-slate-700 shadow-xs hover:bg-violet-50 hover:text-violet-700 dark:bg-[#252834] dark:text-slate-300 dark:hover:bg-violet-950/40 dark:hover:text-violet-300"
                         >
                           {chip}
                         </button>

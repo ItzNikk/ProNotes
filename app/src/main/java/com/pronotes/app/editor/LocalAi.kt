@@ -919,9 +919,15 @@ object LocalAiManager {
 
     suspend fun explain(context: Context, selection: String, pageContext: String): String = withContext(Dispatchers.Default) {
         val rawSel = selection.trim()
-        val cleanSel = if (rawSel.startsWith("Study concept from Page") || rawSel.contains("strokes")) {
-            rawSel.substringAfter("(").substringBefore(")").ifBlank { pageContext.take(120) }
-        } else rawSel
+        val cleanSel = when {
+            rawSel.contains("(") && rawSel.contains(")") && rawSel.contains("concept", ignoreCase = true) ->
+                rawSel.substringAfter("(").substringBefore(")").trim()
+            rawSel.startsWith("Study concept", ignoreCase = true) ->
+                rawSel.substringAfter(":").substringAfter("-").trim().ifBlank { pageContext.lines().firstOrNull()?.trim() ?: "Study Topic" }
+            rawSel.contains("strokes", ignoreCase = true) ->
+                pageContext.lines().firstOrNull()?.trim() ?: "Key Study Concept"
+            else -> rawSel
+        }.ifBlank { pageContext.lines().firstOrNull()?.trim() ?: "Key Study Concept" }
 
         val sys = "You are an intelligent study tutor inside Pro Notes. Directly explain the user's selected study concept or question clearly and helpfully in 2-4 sentences, including key definitions, mechanisms, or formulas if relevant."
         val usr = "Topic / Concept to Explain:\n$cleanSel\n\nSurrounding Page Context:\n${pageContext.take(3500)}"

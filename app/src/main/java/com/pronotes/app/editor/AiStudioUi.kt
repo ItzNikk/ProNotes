@@ -58,6 +58,9 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
@@ -101,6 +104,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -820,27 +824,104 @@ fun AiAssetStudioDialog(
                     }
                 }
 
-                // Preset Chips
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    presets.forEach { p ->
-                        FilterChip(
-                            selected = prompt == p,
-                            onClick = { prompt = p; generateNow() },
-                            label = { Text(p) },
-                            shape = PillShape,
-                            modifier = Modifier.elasticStretch(),
+                // Prominent Prompt & Direct Generation Card
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Prompt for ${kind.label}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            style.label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                }
 
-                OutlinedTextField(
-                    value = prompt,
-                    onValueChange = { prompt = it },
-                    label = { Text("Sketch / Prompt for ${kind.label} (${style.label})") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(18.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedTextField(
+                            value = prompt,
+                            onValueChange = { prompt = it },
+                            placeholder = {
+                                Text(
+                                    when (kind) {
+                                        AiAssetKind.STICKER -> "Describe sticker (e.g. Study Owl, Glowing Coffee)..."
+                                        AiAssetKind.COVER -> "Describe cover (e.g. Deep Space Nebula, Vintage Leather)..."
+                                        AiAssetKind.TEMPLATE -> "Describe template (e.g. Cornell Grid, Weekly Sprint)..."
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Outlined.AutoAwesome, null, tint = OneUi9Purple, modifier = Modifier.size(20.dp))
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(16.dp),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { if (prompt.isNotBlank() && !busy) generateNow() }),
+                            modifier = Modifier.weight(1f),
+                        )
+
+                        Button(
+                            onClick = { generateNow() },
+                            enabled = !busy && prompt.isNotBlank(),
+                            modifier = Modifier
+                                .height(54.dp)
+                                .elasticStretch(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = OneUi9Purple),
+                        ) {
+                            if (busy) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Icon(Icons.Outlined.AutoAwesome, null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Generate", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    // Inspiration Preset Chips right beneath the prompt input
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        presets.forEach { p ->
+                            FilterChip(
+                                selected = prompt == p,
+                                onClick = {
+                                    prompt = p
+                                    generateNow()
+                                },
+                                label = { Text(p, style = MaterialTheme.typography.labelSmall) },
+                                shape = PillShape,
+                                modifier = Modifier.elasticStretch(),
+                            )
+                        }
+                    }
+                }
 
                 // Color Palette Row
                 Row(
@@ -959,7 +1040,7 @@ fun AiAssetStudioDialog(
                     ) {
                         Icon(Icons.Outlined.Refresh, null, Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(if (busy) "Rendering…" else "Remix Style")
+                        Text(if (busy) "Rendering…" else "Regenerate")
                     }
                     Button(
                         enabled = preview != null && !busy,
