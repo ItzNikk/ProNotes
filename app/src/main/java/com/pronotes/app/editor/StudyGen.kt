@@ -556,15 +556,15 @@ object MathSolver {
         var x = prevX + step
         while (x <= 60.0 + 1e-9 && roots.size < 4) {
             val y = diff(x)
-            if (y != null && prevY != null) {
+            val py = prevY
+            if (y != null && py != null) {
                 if (abs(y) < 1e-9) addRoot(x)
-                else if (prevY * y < 0.0) {
-                    var lo = prevX; var hi = x; var flo = prevY
+                else if (py * y < 0.0) {
+                    var lo = prevX; var hi = x; var flo: Double = py
                     var valid = true
                     repeat(52) {
                         val mid = 0.5 * (lo + hi)
-                        val fmid = diff(mid)
-                        if (fmid == null) { valid = false; return@repeat }
+                        val fmid = diff(mid) ?: run { valid = false; return@repeat }
                         if (flo * fmid <= 0.0) { hi = mid } else { lo = mid; flo = fmid }
                     }
                     val root = 0.5 * (lo + hi)
