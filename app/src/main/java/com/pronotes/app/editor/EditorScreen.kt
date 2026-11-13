@@ -3083,7 +3083,7 @@ private fun SplitPanel(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Icon(Icons.Outlined.Book, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Outlined.MenuBook, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
                         Text(vm2.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                         Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(16.dp))
                     }
@@ -3143,7 +3143,7 @@ private fun SplitPanel(
 
             Box {
                 IconButton(onClick = { splitMenu = true }, modifier = Modifier.size(32.dp).elasticStretch()) {
-                    Icon(Icons.Outlined.MoreVert, "Split Options", Modifier.size(18.dp))
+                    Icon(Icons.Outlined.MoreHoriz, "Split Options", Modifier.size(18.dp))
                 }
                 DropdownMenu(splitMenu, { splitMenu = false }, shape = RoundedCornerShape(18.dp)) {
                     DropdownMenuItem(
@@ -3175,13 +3175,13 @@ private fun SplitPanel(
                     )
                     DropdownMenuItem(
                         text = { Text(if (syncPage) "Sync Page Scrolling: On" else "Sync Page Scrolling: Off") },
-                        leadingIcon = { Icon(Icons.Outlined.Sync, null, Modifier.size(18.dp)) },
+                        leadingIcon = { Icon(Icons.Outlined.SwapVert, null, Modifier.size(18.dp)) },
                         onClick = { splitMenu = false; syncPage = !syncPage },
                     )
                     HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text("Open Fullscreen") },
-                        leadingIcon = { Icon(Icons.Outlined.Fullscreen, null, Modifier.size(18.dp)) },
+                        leadingIcon = { Icon(Icons.Outlined.UnfoldMore, null, Modifier.size(18.dp)) },
                         onClick = { splitMenu = false; onOpen(noteId) },
                     )
                     DropdownMenuItem(

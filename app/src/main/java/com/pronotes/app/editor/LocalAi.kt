@@ -1467,7 +1467,6 @@ object LocalAiManager {
             _stage.value = ""
         }
 
-        val seed = (cleanPrompt + style.name).hashCode()
         val rng = Random(seed)
         val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
