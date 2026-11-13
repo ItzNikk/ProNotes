@@ -1,3 +1,4 @@
+import java.util.Base64
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -38,15 +39,18 @@ android {
         }
         getByName("debug") {
             val userKs = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            val projectKs = rootProject.file("debug.keystore")
             val b64 = rootProject.file("debug.keystore.base64")
             if (!userKs.exists() && b64.exists()) {
                 try {
                     userKs.parentFile?.mkdirs()
-                    userKs.writeBytes(java.util.Base64.getDecoder().decode(b64.readText().trim()))
+                    userKs.writeBytes(Base64.getDecoder().decode(b64.readText().trim()))
                 } catch (_: Throwable) {}
             }
             if (userKs.exists()) {
                 storeFile = userKs
+            } else if (projectKs.exists()) {
+                storeFile = projectKs
             }
         }
     }
