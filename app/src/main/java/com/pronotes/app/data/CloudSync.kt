@@ -473,7 +473,7 @@ object CloudSync {
     }
 
     /** 100% Free Cloud Sync over keyless public relay + local vault backup. */
-    private fun syncAllFreeRelay(context: Context, u: CloudUser): Result<String> {
+    private suspend fun syncAllFreeRelay(context: Context, u: CloudUser): Result<String> {
         return runCatching {
             val repo = Repository.get(context)
             val store = SettingsStore.get(context)
