@@ -420,11 +420,18 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     val blurRadius by androidx.compose.animation.core.animateDpAsState(if (overlayOpen) 14.dp else 0.dp, label = "blur")
     val blurMod = if (android.os.Build.VERSION.SDK_INT >= 31 && blurRadius > 0.dp) Modifier.blur(blurRadius) else Modifier
 
+    val backdrop = rememberLayerBackdrop()
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().then(blurMod).background(MaterialTheme.colorScheme.background)) {
         AnimatedVisibility(!focus, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-            // The fixed bar wears the accent colour (a soft tint), so it stands apart from the page.
-            Surface(color = androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.primary, 0.14f), shadowElevation = 2.dp) {
+            // Fixed Top Bar wrapped in Liquid Glass
+            OptionalLiquidGlassBox(
+                backdrop = backdrop,
+                enabled = settings.liquidGlass,
+                shape = RoundedCornerShape(0.dp),
+                fallbackColor = androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.primary, 0.14f),
+                modifier = Modifier.shadow(2.dp),
+            ) {
                 Column(Modifier.statusBarsPadding()) {
                     if (settings.showTabs) {
                         TabStrip(
@@ -492,7 +499,6 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
 
             // -------------------------------------------------------------- canvas
             var areaSize by remember { mutableStateOf(IntSize.Zero) }
-            val backdrop = rememberLayerBackdrop()
             Box(Modifier.weight(1f).fillMaxHeight().onSizeChanged { areaSize = it }) {
                 if (vm.loaded) {
                     AndroidView(
@@ -588,11 +594,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                     )
                 }
 
-                if (hideTools) Unit
-                else if (settings.toolbarDock != ToolbarDock.HEADER) {
-                    ToolDock(vm, settings, areaSize, backdrop = backdrop, onDock = { d -> store.update { it.copy(toolbarDock = d) } })
-                }
-                // With the fixed top bar the tools and the colour / size options all live inside the bar itself.
+                // Single Fixed Top Bar only — all tools, options, and the ✨ AI button live inside TopBar.
 
                 vm.zoomPercent?.let { z ->
                     Surface(shape = Pill, color = Color(0xCC1B1F2A), contentColor = Color.White, modifier = Modifier.align(Alignment.Center)) {
@@ -834,8 +836,12 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                             Text(ans, style = MaterialTheme.typography.bodyMedium)
                             Text("By ${vm.aiEngineLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            TextButton(onClick = { vm.explanation = null }) { Text("Done") }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                            TextButton(onClick = {
+                                vm.insertAiTextToPage(ans)
+                                vm.explanation = null
+                            }) { Text("Insert to Page") }
+                            Button(onClick = { vm.explanation = null }, shape = Pill) { Text("Done") }
                         }
                     }
                 }
@@ -1095,8 +1101,8 @@ private fun TopBar(
         Box(Modifier.padding(horizontal = 6.dp).width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant))
         BarIcon(ProIcon.UNDO, "Undo", enabled = vm.canUndo, onClick = vm::undo)
         BarIcon(ProIcon.REDO, "Redo", enabled = vm.canRedo, onClick = vm::redo)
-        if (settings.toolbarDock == ToolbarDock.HEADER && !hideTools) {
-            // Tools, then the colours and sizes of the selected tool, all in the fixed bar.
+        if (!hideTools) {
+            // Single Fixed Top Bar: all tools, tool options, and the dedicated ✨ AI button live right in the bar.
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                     ToolbarOrder.visible(settings.toolbarTools).forEach { t ->
@@ -1127,6 +1133,78 @@ private fun TopBar(
                 vm.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).padding(horizontal = 10.dp).clickable(onClick = onRename),
             )
+        }
+        // Dedicated ✨ AI Button directly in the Fixed Top Bar
+        var aiMenuOpen by remember { mutableStateOf(false) }
+        Box {
+            Surface(
+                shape = Pill,
+                color = Color.Transparent,
+                modifier = Modifier
+                    .padding(horizontal = 4.dp)
+                    .height(36.dp)
+                    .elasticStretch()
+                    .clip(Pill)
+                    .background(
+                        Brush.linearGradient(
+                            listOf(Color(0xFF4285F4), Color(0xFF9B72CB), Color(0xFFD96570)),
+                        ),
+                    )
+                    .clickable { aiMenuOpen = true },
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Icon(Icons.Outlined.AutoAwesome, "AI Hub", tint = Color.White, modifier = Modifier.size(17.dp))
+                    Text("AI", color = Color.White, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold)
+                }
+            }
+            DropdownMenu(aiMenuOpen, { aiMenuOpen = false }, shape = RoundedCornerShape(22.dp)) {
+                Text(
+                    "✨ GEMINI & GALAXY AI STUDIO",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                DropdownMenuItem(
+                    text = { Text("Gemini AI Chat (Notes & PDF)", fontWeight = FontWeight.SemiBold) },
+                    leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null, tint = Color(0xFF4285F4)) },
+                    onClick = { aiMenuOpen = false; onAiChat() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Galaxy Creative Studio (Stickers / Covers)") },
+                    leadingIcon = { Icon(Icons.Outlined.Palette, null, tint = Color(0xFF9B72CB)) },
+                    onClick = { aiMenuOpen = false; onAssetStudio(AiAssetKind.STICKER) },
+                )
+                DropdownMenuItem(
+                    text = { Text("Explain Current Page with AI") },
+                    leadingIcon = { Icon(Icons.Outlined.ChatBubbleOutline, null, tint = Color(0xFFD96570)) },
+                    onClick = { aiMenuOpen = false; vm.explainCurrentPage() },
+                )
+                DropdownMenuItem(
+                    text = { Text("AI Slide Show Revision") },
+                    leadingIcon = { ProIconView(ProIcon.SLIDESHOW, MaterialTheme.colorScheme.primary, Modifier.size(20.dp)) },
+                    onClick = { aiMenuOpen = false; onSlideShow() },
+                )
+                DropdownMenuItem(
+                    text = { Text("AI Lecture Recorder") },
+                    leadingIcon = { Icon(Icons.Outlined.Mic, null, tint = MaterialTheme.colorScheme.primary) },
+                    onClick = { aiMenuOpen = false; onLectureRecorder() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Summarize Page") },
+                    leadingIcon = { ProIconView(ProIcon.SUMMARY, MaterialTheme.colorScheme.primary, Modifier.size(20.dp)) },
+                    onClick = { aiMenuOpen = false; vm.summarize() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Generate Mind Map") },
+                    leadingIcon = { ProIconView(ProIcon.MINDMAP, MaterialTheme.colorScheme.primary, Modifier.size(20.dp)) },
+                    onClick = { aiMenuOpen = false; vm.generateMindMapFromNotes() },
+                )
+            }
         }
         if (vm.pages.isNotEmpty()) {
             Surface(shape = Pill, color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.72f)) {
@@ -2625,7 +2703,29 @@ private fun SelectionMenu(
     ) {
         androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides fg) {
             Row(Modifier.padding(horizontal = 6.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                // Link first and labelled, so it is easy to find.
+                // ✨ Explain with AI button right inside the Lasso selection menu!
+                Surface(
+                    shape = Pill,
+                    color = Color.Transparent,
+                    contentColor = Color.White,
+                    modifier = Modifier
+                        .padding(4.dp)
+                        .elasticStretch()
+                        .clip(Pill)
+                        .background(
+                            Brush.linearGradient(
+                                listOf(Color(0xFF4285F4), Color(0xFF9B72CB), Color(0xFFD96570)),
+                            ),
+                        )
+                        .clickable { vm.explainLassoSelection() },
+                ) {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(17.dp), tint = Color.White)
+                        Spacer(Modifier.width(5.dp))
+                        Text("Explain", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
+                // Link button
                 Surface(
                     shape = Pill, color = Color(0xFF3D6CF4), contentColor = Color.White,
                     modifier = Modifier.padding(4.dp).elasticStretch().clip(Pill).clickable { vm.startLinkFromSelection() },
@@ -2647,6 +2747,8 @@ private fun SelectionMenu(
                 Box {
                     IconButton(onClick = { more = true }, modifier = Modifier.elasticStretch()) { ProIconView(ProIcon.MORE, fg, Modifier.size(22.dp)) }
                     DropdownMenu(more, { more = false }, shape = RoundedCornerShape(18.dp)) {
+                        DropdownMenuItem(text = { Text("✨ Explain selection with AI") }, leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary) },
+                            onClick = { more = false; vm.explainLassoSelection() })
                         DropdownMenuItem(text = { Text("Flip horizontally") }, leadingIcon = { Icon(Icons.Outlined.Flip, null) },
                             onClick = { more = false; keep { vm.flipSelection() } })
                         DropdownMenuItem(text = { Text("Bring to front") }, leadingIcon = { Icon(Icons.Outlined.FlipToFront, null) },

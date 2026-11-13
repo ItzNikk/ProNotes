@@ -830,6 +830,54 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
             </div>
           )}
         </div>
+
+        {/* iOS 26 Floating Liquid Glass Bottom Navigation Bar */}
+        <div className="pointer-events-none fixed bottom-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 px-4">
+          <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-white/45 bg-white/72 px-2 py-1.5 shadow-[0_12px_36px_rgba(15,23,42,0.16)] backdrop-blur-2xl dark:border-white/18 dark:bg-[#1C1E26]/78">
+            {(
+              [
+                { id: 'DOCUMENTS', label: 'Documents', icon: FileText },
+                { id: 'RECENT', label: 'Recent', icon: Clock },
+                { id: 'FAVORITES', label: 'Favorites', icon: Star },
+                { id: 'STUDY_ROOM', label: 'Study Room', icon: Users },
+                { id: 'TRASH', label: 'Trash', icon: Trash2 },
+              ] as const
+            ).map((tab) => {
+              const IconComp = tab.icon;
+              const active = section === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => {
+                    if (tab.id === 'STUDY_ROOM') {
+                      onOpenCollab?.();
+                    } else {
+                      setSection(tab.id);
+                      setFolderId(null);
+                    }
+                  }}
+                  className={`ios-stretch flex flex-col items-center gap-0.5 rounded-full px-3.5 py-1.5 text-[11px] font-bold transition ${
+                    active
+                      ? 'border border-white/55 bg-blue-500/18 text-blue-600 shadow-xs dark:text-blue-300'
+                      : 'text-slate-600 hover:bg-black/5 dark:text-slate-300 dark:hover:bg-white/10'
+                  }`}
+                >
+                  <IconComp className="h-4 w-4" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={() => setNewModal({ open: true, mode: 'notebook' })}
+            title="New Notebook"
+            className="pointer-events-auto ios-stretch flex h-12 w-12 items-center justify-center rounded-full border border-white/45 bg-gradient-to-tr from-[#4285F4] via-[#9B72CB] to-[#D96570] text-white shadow-[0_12px_28px_rgba(66,133,244,0.38)] backdrop-blur-2xl"
+          >
+            <Plus className="h-5 w-5" />
+          </button>
+        </div>
       </main>
 
       <NewNotebookModal

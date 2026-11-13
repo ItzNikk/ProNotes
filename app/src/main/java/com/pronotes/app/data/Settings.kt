@@ -174,7 +174,8 @@ data class AppSettings(
     val thumbCovers: Boolean = false,
     // on-device local models & Custom AI API
     val activeLocalModelId: String = "",
-    val activeImageModelId: String = "vectorcraft-svg",
+    val activeImageModelId: String = "galaxy-sketch-lite",
+    val imageLiteMode: Boolean = true,
     val pomodoroMinutes: Int = 25,
     val googleUid: String = "",
     val googleEmail: String = "",
@@ -225,8 +226,8 @@ class SettingsStore private constructor(context: Context) {
             pageNumbers = b("pageNumbers", d.pageNumbers),
             keepScreenOn = b("keepScreenOn", d.keepScreenOn),
             darkPdf = b("darkPdf", d.darkPdf),
-            // The fixed top bar (tools and colours together) is the default; everyone is moved to it once.
-            toolbarDock = if (!prefs.contains("dockV60")) ToolbarDock.HEADER else enumOf("toolbarDock", d.toolbarDock),
+            // Fixed top bar only (tools, options, and AI button all inside the fixed header).
+            toolbarDock = ToolbarDock.HEADER,
             hideToolsWhenRecording = b("hideRec", d.hideToolsWhenRecording),
             studyTimer = b("studyTimer", d.studyTimer),
             studyAutoStart = b("studyAuto", d.studyAutoStart),
@@ -244,7 +245,7 @@ class SettingsStore private constructor(context: Context) {
             paperSound = b("paperSound", d.paperSound),
             paperHaptics = b("paperHaptics", d.paperHaptics),
             paperVolume = prefs.getFloat("paperVol", d.paperVolume),
-            liquidGlass = b("glass", d.liquidGlass),
+            liquidGlass = b("glassV10", true),
             penName = prefs.getString("penName", d.penName) ?: d.penName,
             hoverCursor = b("hoverCursor", d.hoverCursor),
             penClickDelay = enumOf("penClickDelay", d.penClickDelay),
@@ -273,6 +274,7 @@ class SettingsStore private constructor(context: Context) {
             thumbCovers = b("thumbCovers", d.thumbCovers),
             activeLocalModelId = prefs.getString("activeLocalModelId", d.activeLocalModelId) ?: "",
             activeImageModelId = prefs.getString("activeImageModelId", d.activeImageModelId) ?: d.activeImageModelId,
+            imageLiteMode = b("imageLiteMode", d.imageLiteMode),
             pomodoroMinutes = prefs.getInt("pomodoroMinutes", d.pomodoroMinutes),
             googleUid = prefs.getString("googleUid", "") ?: "",
             googleEmail = prefs.getString("googleEmail", "") ?: "",
@@ -328,7 +330,7 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("paperSound", s.paperSound)
             .putBoolean("paperHaptics", s.paperHaptics)
             .putFloat("paperVol", s.paperVolume)
-            .putBoolean("glass", s.liquidGlass)
+            .putBoolean("glassV10", s.liquidGlass)
             .putString("penName", s.penName)
             .putBoolean("hoverCursor", s.hoverCursor)
             .putString("penClickDelay", s.penClickDelay.name)
@@ -358,6 +360,7 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("thumbCovers", s.thumbCovers)
             .putString("activeLocalModelId", s.activeLocalModelId)
             .putString("activeImageModelId", s.activeImageModelId)
+            .putBoolean("imageLiteMode", s.imageLiteMode)
             .putInt("pomodoroMinutes", s.pomodoroMinutes)
             .putString("googleUid", s.googleUid)
             .putString("googleEmail", s.googleEmail)

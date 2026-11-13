@@ -1896,6 +1896,71 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         }
     }
 
+    /** Explains whatever items/strokes/text are currently selected by the Lasso tool using AI. */
+    fun explainLassoSelection() {
+        val pgIdx = selectionPage
+        val p = pages.getOrNull(pgIdx) ?: return
+        val selectedItems = p.items.filter { it.id in selection }
+        if (selectedItems.isEmpty()) return
+
+        val extractedParts = mutableListOf<String>()
+        selectedItems.forEach { item ->
+            when (item) {
+                is TextItem -> if (item.text.isNotBlank()) extractedParts += item.text.trim()
+                is StickyItem -> {
+                    val t = listOfNotNull(item.title.takeIf { it.isNotBlank() }, item.text.takeIf { it.isNotBlank() }).joinToString(": ")
+                    if (t.isNotBlank()) extractedParts += t
+                }
+                is WebLinkItem -> extractedParts += "${item.title}: ${item.url} ${item.summary}".trim()
+                is MindNodeItem -> if (item.text.isNotBlank()) extractedParts += item.text.trim()
+                else -> Unit
+            }
+        }
+
+        viewModelScope.launch {
+            aiStage = "Gemini is explaining your lasso selection…"
+            aiBusy = true
+            val pageCtx = extractPageSummaryText(pgIdx).ifBlank {
+                p.pdfPage?.let { pdfPg -> indexFor(pdfPg)?.pageText(pdfPg) }.orEmpty()
+            }
+            val selectedText = if (extractedParts.isNotEmpty()) {
+                extractedParts.joinToString("\n")
+            } else {
+                val strokeCount = selectedItems.count { it is InkItem }
+                val shapeCount = selectedItems.count { it is ShapeItem }
+                val baseCtx = pageCtx.take(360).ifBlank { "Topic: $title (Page ${pgIdx + 1})" }
+                "Lassoed selection ($strokeCount strokes${if (shapeCount > 0) ", $shapeCount shapes" else ""}) on Page ${pgIdx + 1} of \"$title\":\n$baseCtx"
+            }
+            val ans = try {
+                runCatching { Nano.explain(selectedText, pageCtx) }.getOrNull()
+                    ?: LocalAiManager.explain(getApplication(), selectedText, pageCtx)
+            } finally {
+                aiBusy = false
+                aiStage = ""
+            }
+            explanation = selectedText to ans
+        }
+    }
+
+    /** Explains the current page's concepts using AI. */
+    fun explainCurrentPage() {
+        val pgIdx = pageIndex
+        viewModelScope.launch {
+            aiStage = "Gemini is explaining Page ${pgIdx + 1}…"
+            aiBusy = true
+            val pageCtx = extractPageSummaryText(pgIdx).ifBlank {
+                pages.getOrNull(pgIdx)?.pdfPage?.let { pdfPg -> indexFor(pdfPg)?.pageText(pdfPg) }.orEmpty()
+            }.ifBlank { "Notebook \"$title\" · Page ${pgIdx + 1}" }
+            val ans = try {
+                LocalAiManager.explain(getApplication(), pageCtx.take(600), pageCtx)
+            } finally {
+                aiBusy = false
+                aiStage = ""
+            }
+            explanation = "Page ${pgIdx + 1} · $title" to ans
+        }
+    }
+
     /** Questions made from just the selected text. */
     fun quizFromTextSel() {
         val s = textSel ?: return

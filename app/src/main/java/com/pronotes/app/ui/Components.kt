@@ -318,3 +318,139 @@ fun OptionalLiquidGlassBox(
         )
     }
 }
+
+/** Represents a single tab in the iOS 26 Liquid Glass Bottom Navigation Bar. */
+data class LiquidNavTab(
+    val id: String,
+    val label: String,
+    val icon: ProIcon,
+    val badgeCount: Int = 0,
+)
+
+/**
+ * iOS 26 Liquid Glass Floating Bottom Navigation Bar.
+ * Combines a real-time refractive `OptionalLiquidGlassBox` pill dock with a spring-animated
+ * specular lens indicator and a detached iOS 26 circular `+` action capsule.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun Ios26LiquidBottomNavBar(
+    tabs: List<LiquidNavTab>,
+    selectedId: String,
+    backdrop: LayerBackdrop?,
+    liquidGlass: Boolean = true,
+    onSelect: (String) -> Unit,
+    onPrimaryAction: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+    ) {
+        OptionalLiquidGlassBox(
+            backdrop = backdrop,
+            enabled = liquidGlass,
+            shape = CircleShape,
+            fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                tabs.forEach { tab ->
+                    val active = tab.id == selectedId
+                    val scale by animateFloatAsState(
+                        targetValue = if (active) 1.06f else 1f,
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                        label = "ios26TabScale",
+                    )
+                    val lensAlpha by animateFloatAsState(
+                        targetValue = if (active) 1f else 0f,
+                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                        label = "ios26LensAlpha",
+                    )
+                    val tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+
+                    Box(
+                        modifier = Modifier
+                            .scale(scale)
+                            .elasticStretch()
+                            .clip(CircleShape)
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.78f * lensAlpha),
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.18f * lensAlpha),
+                                    )
+                                ),
+                                CircleShape,
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = Color.White.copy(alpha = 0.45f * lensAlpha),
+                                shape = CircleShape,
+                            )
+                            .combinedClickable(onClick = { onSelect(tab.id) })
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            ProIconView(
+                                icon = tab.icon,
+                                tint = tint,
+                                modifier = Modifier.size(20.dp),
+                                ink = if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else null,
+                            )
+                            Text(
+                                text = tab.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = tint,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (onPrimaryAction != null) {
+            OptionalLiquidGlassBox(
+                backdrop = backdrop,
+                enabled = liquidGlass,
+                shape = CircleShape,
+                fallbackColor = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier
+                    .size(54.dp)
+                    .elasticStretch()
+                    .combinedClickable(onClick = onPrimaryAction),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .background(
+                            Brush.linearGradient(
+                                listOf(
+                                    Color(0xFF4285F4).copy(alpha = 0.85f),
+                                    Color(0xFF9B72CB).copy(alpha = 0.85f),
+                                )
+                            ),
+                            CircleShape,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    ProIconView(
+                        icon = ProIcon.ADD,
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+

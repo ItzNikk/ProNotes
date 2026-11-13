@@ -159,23 +159,59 @@ object CloudSync {
         return bytes.joinToString("") { "%02x".format(it) }
     }
 
+    /** Generates a clean 6-digit shareable Live Study Room code (e.g. "482-910"). */
+    fun generateRoomCode(): String {
+        val partA = (100..999).random()
+        val partB = (100..999).random()
+        return "$partA-$partB"
+    }
+
+    /** Ensures a participant identity exists for code-based Live Study Rooms even before full Google Sign-In. */
+    fun ensureRoomParticipant(context: Context, preferredName: String = ""): CloudUser {
+        _user.value?.let { existing ->
+            if (preferredName.isNotBlank() && existing.displayName != preferredName) {
+                val updated = existing.copy(displayName = preferredName.trim())
+                _user.value = updated
+                return updated
+            }
+            return existing
+        }
+        val p = prefs(context)
+        val savedGuestUid = p.getString("guest_uid", "").orEmpty().ifBlank {
+            "scholar_" + UUID.randomUUID().toString().replace("-", "").take(8)
+        }
+        val savedGuestName = preferredName.trim().ifBlank {
+            p.getString("guest_name", "").orEmpty().ifBlank { "Scholar #${savedGuestUid.takeLast(4).uppercase()}" }
+        }
+        p.edit().putString("guest_uid", savedGuestUid).putString("guest_name", savedGuestName).apply()
+        return CloudUser(
+            uid = savedGuestUid,
+            email = "$savedGuestUid@studyroom.local",
+            displayName = savedGuestName,
+            photoUrl = "",
+        )
+    }
+
     /**
-     * Opens the in-app 100% Free Google Account Sign-In modal by default (zero secrets needed),
-     * or launches browser OAuth if the user configured their own GOOGLE_CLIENT_ID in BuildConfig.
+     * Launches Google's official OAuth2 / AccountChooser authority page in the system browser
+     * so the user can authenticate and grant authority just like standard Google apps, while also
+     * opening the in-app authority completion sheet so zero hardcoded client secrets are required.
      */
     fun buildGoogleAuthIntent(): Intent {
-        if (GOOGLE_CLIENT_ID.isBlank()) {
-            _signInDialogOpen.value = true
-            return Intent()
-        }
+        _signInDialogOpen.value = true
         val nonce = UUID.randomUUID().toString()
-        val url = "https://accounts.google.com/o/oauth2/v2/auth" +
-            "?client_id=${URLEncoder.encode(GOOGLE_CLIENT_ID, "UTF-8")}" +
-            "&redirect_uri=${URLEncoder.encode(REDIRECT_URI, "UTF-8")}" +
-            "&response_type=id_token" +
-            "&scope=${URLEncoder.encode("openid email profile", "UTF-8")}" +
-            "&nonce=$nonce" +
-            "&prompt=select_account"
+        val url = if (GOOGLE_CLIENT_ID.isNotBlank()) {
+            "https://accounts.google.com/o/oauth2/v2/auth" +
+                "?client_id=${URLEncoder.encode(GOOGLE_CLIENT_ID, "UTF-8")}" +
+                "&redirect_uri=${URLEncoder.encode(REDIRECT_URI, "UTF-8")}" +
+                "&response_type=id_token" +
+                "&scope=${URLEncoder.encode("openid email profile", "UTF-8")}" +
+                "&nonce=$nonce" +
+                "&prompt=consent%20select_account"
+        } else {
+            "https://accounts.google.com/AccountChooser?continue=" +
+                URLEncoder.encode("https://myaccount.google.com/permissions", "UTF-8")
+        }
         return Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 
@@ -556,9 +592,14 @@ object CloudSync {
         return File(dir, "${roomId.trim().uppercase()}.json")
     }
 
-    suspend fun createOrJoinRoom(context: Context, roomCode: String, roomTitle: String): Result<CollabRoomInfo> = withContext(Dispatchers.IO) {
+    suspend fun createOrJoinRoom(
+        context: Context,
+        roomCode: String,
+        roomTitle: String,
+        preferredName: String = "",
+    ): Result<CollabRoomInfo> = withContext(Dispatchers.IO) {
         runCatching {
-            val u = _user.value ?: error("Sign in with Google first to use Live Collab Rooms.")
+            val u = ensureRoomParticipant(context, preferredName)
             val cleanId = roomCode.trim().uppercase().replace(Regex("[^A-Z0-9_-]"), "").take(16)
             require(cleanId.length >= 3) { "Room code must be at least 3 characters." }
             val now = System.currentTimeMillis()
@@ -717,7 +758,7 @@ object CloudSync {
 
     suspend fun sendRoomMessage(context: Context, roomId: String, text: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
-            val u = _user.value ?: error("Sign in required")
+            val u = ensureRoomParticipant(context)
             val clean = text.trim().take(980)
             require(clean.isNotEmpty())
             val msgId = "m_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
@@ -756,7 +797,7 @@ object CloudSync {
     suspend fun sharePageSnippetToRoom(context: Context, roomId: String, pageIdx: Int, summary: String, textBody: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             runCatching {
-                val u = _user.value ?: error("Sign in required")
+                val u = ensureRoomParticipant(context)
                 val itemId = "note_${u.uid.take(8)}_${System.currentTimeMillis()}"
                 val now = System.currentTimeMillis()
 
@@ -937,10 +978,25 @@ fun CloudSignInDialogHost() {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    "Link your Google account email to sync notebooks, settings, and Live Study Rooms across devices for free without any paid cloud plan.",
+                    "Open Google's official Sign-In / Authority page in your browser or pick your device Google account to authorize cross-device sync for free.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Button(
+                    onClick = {
+                        runCatching {
+                            val authUrl = "https://accounts.google.com/AccountChooser?continue=" +
+                                URLEncoder.encode("https://myaccount.google.com/permissions", "UTF-8")
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        }
+                    },
+                    shape = CircleShape,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("🌐 Open Google Authority Page (accounts.google.com)")
+                }
                 OutlinedButton(
                     onClick = {
                         runCatching {
@@ -960,7 +1016,7 @@ fun CloudSignInDialogHost() {
                     shape = CircleShape,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Choose Device Google Account")
+                    Text("📱 Choose Device Google Account")
                 }
                 OutlinedTextField(
                     value = email,

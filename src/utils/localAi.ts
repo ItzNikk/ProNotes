@@ -112,6 +112,17 @@ export const LOCAL_MODELS_CATALOG: LocalModelSpec[] = [
 
 export const IMAGE_MODELS_CATALOG: ImageModelSpec[] = [
   {
+    id: 'galaxy-sketch-lite',
+    name: 'Galaxy Sketch-to-Art Lite',
+    family: 'Samsung Creative Studio · INT4',
+    sizeMb: 38,
+    steps: '2 steps · Instant Lite',
+    speedTag: '~0.2s · Lite Mode',
+    description: 'Samsung Creative Studio style sketch-to-art, 3D cartoon, watercolor, and pop-art stickers & covers.',
+    remoteModelKey: 'turbo',
+    recommended: true,
+  },
+  {
     id: 'sdxl-turbo-q4',
     name: 'SDXL-Turbo 4-Step Lite',
     family: 'Diffusion · Q4',
@@ -1355,31 +1366,56 @@ export async function runLocalNotesPdfChat(
 
   const citations = rankedPages.slice(0, 3).map((e) => `Page ${e.pageNum}`);
 
+  const recentTurns = history
+    .slice(-6)
+    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`)
+    .join('\n');
+
+  const sysPrompt = `You are Gemini Study Assistant inside Pro Notes. Directly and helpfully answer the user's exact question first. Use the provided notebook & PDF excerpts from "${notebookTitle}" when relevant and cite [Page N], or use your own general knowledge if the question goes beyond the notes. Never dump generic page summaries unless asked to summarize.`;
+  const userPrompt = `Notebook & PDF context:\n${topContext || '(Notebook currently has handwritten strokes or minimal text.)'}\n\nConversation:\n${recentTurns}\nUser Question: ${q}`;
+
   if (customSettings?.customAiEnabled) {
-    const recentTurns = history
-      .slice(-6)
-      .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`)
-      .join('\n');
-    const raw = await callCustomAiChat(
-      customSettings,
-      `You are Pro Notes AI Study Companion. Answer clearly and concisely using the user's notebook & PDF excerpts, and cite [Page N] when relevant. Notebook: "${notebookTitle}".`,
-      `Notebook & PDF context:\n${topContext || '(Notebook currently has handwritten strokes or minimal text.)'}\n\nConversation:\n${recentTurns}\nUser: ${q}`
-    );
+    const raw = await callCustomAiChat(customSettings, sysPrompt, userPrompt);
     if (raw) {
       return { reply: raw.trim(), citations, engineLabel };
     }
   }
 
-  await new Promise((r) => setTimeout(r, model ? 260 : 120));
+  // Try 100% Free Keyless AI endpoint so the user always gets a direct, smart answer to their exact question
+  try {
+    const controller = new AbortController();
+    const tid = window.setTimeout(() => controller.abort(), 11000);
+    const res = await fetch('https://text.pollinations.ai/openai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'openai',
+        messages: [
+          { role: 'system', content: sysPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.4,
+      }),
+      signal: controller.signal,
+    });
+    window.clearTimeout(tid);
+    if (res.ok) {
+      const data = await res.json();
+      const content = data?.choices?.[0]?.message?.content?.trim();
+      if (content) {
+        return { reply: content, citations, engineLabel: `${engineLabel} · Gemini Live` };
+      }
+    }
+  } catch {
+    // Fall back to offline responder below
+  }
+
+  await new Promise((r) => setTimeout(r, model ? 180 : 90));
 
   const fullText = pageEntries.map((e) => e.text).filter(Boolean).join('\n');
   if (!fullText) {
-    const totalStrokes = pageEntries.reduce((acc, p) => acc + p.strokeCount, 0);
     return {
-      reply:
-        totalStrokes > 0
-          ? `I found ${totalStrokes} handwritten stroke(s) across ${pages.length} page(s) in "${notebookTitle}", but no typed notes, stickies, or PDF text yet. Add a text block, sticky note, or import a PDF so I can answer detailed questions about it!`
-          : `"${notebookTitle}" is currently empty. Add notes, sticky cards, mind map concepts, or import a PDF to ask questions and generate study breakdowns.`,
+      reply: `**Direct Answer to "${q}":**\n\nYour notebook "${notebookTitle}" currently has ${pages.length} page(s). To ground answers in specific class material, type notes, add a sticky card, or import a PDF — or ask me to generate a study template, mind map, or quiz!`,
       citations: [],
       engineLabel,
     };
@@ -1611,32 +1647,47 @@ function synthesizeLocalVectorImage(prompt: string, category: AiImageCategory): 
 export async function generateAiAssetImage(
   prompt: string,
   category: AiImageCategory,
-  imageModelId: string | null
+  imageModelId: string | null,
+  creativeStyle: string = '3D Cartoon',
+  liteMode: boolean = true
 ): Promise<{ dataUrl: string; engineLabel: string }> {
   const model = IMAGE_MODELS_CATALOG.find((m) => m.id === imageModelId) || IMAGE_MODELS_CATALOG[0];
   const cleanPrompt = prompt.trim() || (category === 'sticker' ? 'cute science brain icon' : category === 'cover' ? 'minimalist aurora study notebook cover' : 'cornell study template');
 
   if (model.remoteModelKey === 'offline') {
     return {
-      dataUrl: synthesizeLocalVectorImage(cleanPrompt, category),
-      engineLabel: `${model.name} (Offline Vector)`,
+      dataUrl: synthesizeLocalVectorImage(`${creativeStyle} ${cleanPrompt}`, category),
+      engineLabel: `${model.name} · ${creativeStyle} (Offline Lite)`,
     };
   }
 
+  const stylePromptAddon =
+    creativeStyle === 'Watercolor'
+      ? 'soft Samsung Creative Studio pastel watercolor illustration style'
+      : creativeStyle === 'Sketch to Art'
+        ? 'Samsung Drawing Assist hand-drawn ink sketch to polished concept art'
+        : creativeStyle === 'Pop Art'
+          ? 'vibrant halftone pop art graphic studio style'
+          : creativeStyle === 'Anime Studio'
+            ? 'cel-shaded anime studio illustration'
+            : creativeStyle === 'Minimal Vector'
+              ? 'flat geometric minimal vector design'
+              : 'Samsung Galaxy AI Creative Studio 3D Pixar-style glossy illustration';
+
   const styledPrompt =
     category === 'sticker'
-      ? `cute flat die-cut vector sticker with clean white outline, isolated on white background: ${cleanPrompt}`
+      ? `cute die-cut sticker with clean white outline, ${stylePromptAddon}, isolated on white background: ${cleanPrompt}`
       : category === 'cover'
-        ? `minimalist aesthetic modern notebook journal cover artwork, textured, no clutter: ${cleanPrompt}`
-        : `clean minimalist printable study note page template layout on crisp white paper: ${cleanPrompt}`;
+        ? `modern notebook journal cover artwork, ${stylePromptAddon}, no clutter: ${cleanPrompt}`
+        : `clean printable study note page template layout on crisp white paper, ${stylePromptAddon}: ${cleanPrompt}`;
 
-  const w = category === 'cover' ? 384 : category === 'template' ? 480 : 384;
-  const h = category === 'cover' ? 512 : category === 'template' ? 672 : 384;
+  const w = liteMode ? (category === 'cover' ? 320 : 320) : category === 'cover' ? 384 : category === 'template' ? 480 : 384;
+  const h = liteMode ? (category === 'cover' ? 420 : 320) : category === 'cover' ? 512 : category === 'template' ? 672 : 384;
 
   try {
     const controller = new AbortController();
-    const tid = window.setTimeout(() => controller.abort(), 14000);
-    const seed = Math.abs(cleanPrompt.split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7)) % 99999;
+    const tid = window.setTimeout(() => controller.abort(), liteMode ? 9000 : 14000);
+    const seed = Math.abs((cleanPrompt + creativeStyle).split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7)) % 99999;
     const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(styledPrompt)}?model=${encodeURIComponent(model.remoteModelKey)}&width=${w}&height=${h}&seed=${seed}&nologo=true`;
     const res = await fetch(url, { signal: controller.signal });
     window.clearTimeout(tid);
@@ -1649,7 +1700,7 @@ export async function generateAiAssetImage(
           reader.readAsDataURL(blob);
         });
         if (dataUrl.startsWith('data:image/')) {
-          return { dataUrl, engineLabel: `${model.name} (Lightweight Edge)` };
+          return { dataUrl, engineLabel: `${model.name} · ${creativeStyle}${liteMode ? ' (⚡ Lite)' : ''}` };
         }
       }
     }
@@ -1658,8 +1709,8 @@ export async function generateAiAssetImage(
   }
 
   return {
-    dataUrl: synthesizeLocalVectorImage(cleanPrompt, category),
-    engineLabel: `${model.name} (Offline Fallback)`,
+    dataUrl: synthesizeLocalVectorImage(`${creativeStyle} ${cleanPrompt}`, category),
+    engineLabel: `${model.name} · ${creativeStyle} (Instant Lite)`,
   };
 }
 

@@ -129,25 +129,35 @@ export const AiNotesChatModal: React.FC<{
       <div className="relative flex h-[84vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl dark:border-white/12 dark:bg-[#191A1F] animate-stagger-in">
         <AiParticleBackdrop accent="blue" variant="ai-wave" intensity={busy ? 'active' : 'soft'} />
 
-        {/* Header */}
-        <div className="relative z-10 flex items-center justify-between border-b border-black/8 bg-white/80 px-5 py-4 backdrop-blur-md dark:border-white/10 dark:bg-[#1E2028]/85">
+        {/* Gemini Vibe Header */}
+        <div className="relative z-10 flex items-center justify-between border-b border-black/8 bg-white/85 px-5 py-4 backdrop-blur-md dark:border-white/10 dark:bg-[#1E2028]/90">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-violet-600 text-white shadow-sm">
-              <MessageSquare className="h-4.5 w-4.5" />
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-[#4285F4] via-[#9B72CB] to-[#D96570] text-white shadow-md">
+              <Sparkles className="h-5 w-5" />
             </div>
             <div className="min-w-0">
-              <h2 className="truncate text-sm font-bold">AI Chat · {notebookTitle}</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="truncate bg-gradient-to-r from-[#4285F4] via-[#9B72CB] to-[#D96570] bg-clip-text text-base font-extrabold text-transparent">
+                  Gemini Study Assistant
+                </h2>
+                <span className="rounded-full bg-[#9B72CB]/15 px-2 py-0.5 text-[10px] font-bold text-[#9B72CB]">
+                  LIVE
+                </span>
+              </div>
               <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
                 <span>
                   {settings.customAiEnabled
                     ? `Custom AI (${settings.customAiModel})`
                     : activeModel
-                      ? `${activeModel.name} (Downloaded)`
-                      : 'Local Study Engine'}
+                      ? `${activeModel.name} · Gemini Live`
+                      : 'Gemini Study Engine'}
+                </span>
+                <span className="rounded-full bg-[#4285F4]/12 px-2 py-0.5 font-semibold text-[#4285F4]">
+                  {pages.length} page{pages.length === 1 ? '' : 's'} indexed
                 </span>
                 {pdfCount > 0 && (
-                  <span className="rounded bg-blue-500/12 px-1.5 py-0.5 font-semibold text-blue-600 dark:text-blue-300">
-                    {pdfCount} PDF page{pdfCount === 1 ? '' : 's'} indexed
+                  <span className="rounded-full bg-[#D96570]/12 px-2 py-0.5 font-semibold text-[#D96570]">
+                    {pdfCount} PDF page{pdfCount === 1 ? '' : 's'}
                   </span>
                 )}
               </div>
@@ -157,7 +167,7 @@ export const AiNotesChatModal: React.FC<{
             <button
               type="button"
               onClick={onOpenLocalModels}
-              className="ios-stretch rounded-xl border border-black/10 px-2.5 py-1.5 text-[11px] font-semibold hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/10"
+              className="ios-stretch rounded-full border border-black/10 px-3 py-1.5 text-[11px] font-semibold hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/10"
             >
               Models
             </button>
@@ -173,6 +183,16 @@ export const AiNotesChatModal: React.FC<{
 
         {/* Messages */}
         <div className="relative z-10 flex-1 space-y-3 overflow-y-auto p-5">
+          {messages.length <= 1 && (
+            <div className="mb-3 rounded-2xl border border-[#9B72CB]/20 bg-gradient-to-br from-[#4285F4]/8 via-[#9B72CB]/8 to-[#D96570]/8 p-4">
+              <div className="bg-gradient-to-r from-[#4285F4] via-[#9B72CB] to-[#D96570] bg-clip-text text-xl font-extrabold text-transparent">
+                Hello, Scholar.
+              </div>
+              <div className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
+                Ask any question about &ldquo;{notebookTitle}&rdquo; or any study topic — I answer your exact question directly.
+              </div>
+            </div>
+          )}
           {messages.map((m) => (
             <div
               key={m.id}
@@ -304,6 +324,8 @@ export const AiAssetGeneratorModal: React.FC<{
   onClose,
 }) => {
   const [category, setCategory] = useState<AiImageCategory>(initialCategory);
+  const [creativeStyle, setCreativeStyle] = useState<string>('3D Cartoon');
+  const [liteMode, setLiteMode] = useState<boolean>(true);
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -319,19 +341,28 @@ export const AiAssetGeneratorModal: React.FC<{
   if (!open) return null;
 
   const activeImgModel = settings.activeImageModelId || IMAGE_MODELS_CATALOG[0].id;
+  const creativeStyles = [
+    { id: '3D Cartoon', emoji: '🧸' },
+    { id: 'Watercolor', emoji: '🎨' },
+    { id: 'Sketch to Art', emoji: '✏️' },
+    { id: 'Pop Art', emoji: '⚡' },
+    { id: 'Anime Studio', emoji: '✨' },
+    { id: 'Minimal Vector', emoji: '📐' },
+  ];
   const presetsByCategory: Record<AiImageCategory, string[]> = {
     sticker: ['Cute Brain Bulb', 'Physics Atom Spark', 'Gold Exam Star', 'Coffee Study Cat', 'DNA Helix Badge'],
     cover: ['Deep Space Nebula', 'Botanical Emerald Journal', 'Minimalist Bauhaus Grid', 'Sunset Gradient Leather'],
     template: ['Cornell Lecture Grid', 'Organic Chemistry Sheet', 'Weekly Exam Planner', 'Two-Column Comparison'],
   };
 
-  const handleGenerate = async (customPrompt?: string) => {
-    const targetPrompt = (customPrompt ?? prompt).trim();
-    if (!targetPrompt || busy) return;
+  const handleGenerate = async (customPrompt?: string, customStyle?: string) => {
+    const targetPrompt = (customPrompt ?? prompt).trim() || presetsByCategory[category][0];
+    const targetStyle = customStyle ?? creativeStyle;
+    if (busy) return;
     setPrompt(targetPrompt);
     setBusy(true);
     try {
-      const res = await generateAiAssetImage(targetPrompt, category, activeImgModel);
+      const res = await generateAiAssetImage(targetPrompt, category, activeImgModel, targetStyle, liteMode);
       setPreviewUrl(res.dataUrl);
       setEngineUsed(res.engineLabel);
     } finally {
@@ -341,31 +372,72 @@ export const AiAssetGeneratorModal: React.FC<{
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl dark:border-white/12 dark:bg-[#191A1F] animate-stagger-in">
-        <div className="flex items-center justify-between border-b border-black/8 px-6 py-4 dark:border-white/10">
+      <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-indigo-500/30 bg-white shadow-2xl dark:border-indigo-400/25 dark:bg-[#191A1F] animate-stagger-in">
+        {/* Samsung Galaxy AI Creative Studio Iridescent Header */}
+        <div className="flex items-center justify-between bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 px-6 py-4 text-white">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-fuchsia-600 to-violet-600 text-white shadow-sm">
-              <ImagePlus className="h-4.5 w-4.5" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/20 text-white shadow-sm backdrop-blur-sm">
+              <Sparkles className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold tracking-tight">AI Creative Studio</h2>
-              <p className="text-xs text-slate-500">
-                Lightweight image synthesis for Stickers, Covers &amp; Templates
+              <h2 className="text-base font-extrabold tracking-tight">Galaxy Creative Studio</h2>
+              <p className="text-[11px] text-white/90">
+                Drawing Assist · Lite Image Synthesis ({creativeStyle})
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="ios-stretch rounded-full p-1.5 text-slate-500 hover:bg-black/5 dark:hover:bg-white/10"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setLiteMode((v) => !v)}
+              className={`ios-stretch rounded-full px-3 py-1 text-[11px] font-bold transition ${
+                liteMode
+                  ? 'bg-white text-indigo-700 shadow-xs'
+                  : 'bg-white/20 text-white'
+              }`}
+            >
+              ⚡ {liteMode ? 'Lite Mode ON' : 'Lite Mode OFF'}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="ios-stretch rounded-full p-1.5 text-white/90 hover:bg-white/15"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
         <div className="grid gap-5 p-6 md:grid-cols-12">
           {/* Controls */}
           <div className="space-y-4 md:col-span-7">
+            {/* Samsung Creative Studio Style Carousel */}
+            <div>
+              <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+                Creative Style (Drawing Assist)
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {creativeStyles.map((st) => (
+                  <button
+                    key={st.id}
+                    type="button"
+                    onClick={() => {
+                      setCreativeStyle(st.id);
+                      void handleGenerate(prompt || presetsByCategory[category][0], st.id);
+                    }}
+                    className={`ios-stretch inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-bold transition ${
+                      creativeStyle === st.id
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'bg-black/5 text-slate-700 hover:bg-indigo-500/10 dark:bg-white/10 dark:text-slate-200'
+                    }`}
+                  >
+                    <span>{st.emoji}</span>
+                    <span>{st.id}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-black/5 p-1 dark:bg-white/8">
               {(
                 [
@@ -910,22 +982,7 @@ export const CollabRoomModal: React.FC<{
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-6">
-          {!isSignedIn ? (
-            <div className="flex flex-col items-center gap-3 rounded-2xl border border-black/8 bg-slate-50 p-6 text-center dark:border-white/10 dark:bg-[#20222A]">
-              <Users className="h-9 w-9 text-blue-600" />
-              <div className="text-sm font-bold">Sign in with Google to Study Together</div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Google login lets friends see your name &amp; live strokes inside shared study rooms and syncs your notebooks across devices.
-              </p>
-              <button
-                type="button"
-                onClick={() => void onSignInGoogle()}
-                className="ios-stretch rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700"
-              >
-                Continue with Google
-              </button>
-            </div>
-          ) : !activeRoom ? (
+          {!activeRoom ? (
             <div className="space-y-4">
               {err && (
                 <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3.5 py-2 text-xs text-red-600 dark:text-red-300">
@@ -933,9 +990,24 @@ export const CollabRoomModal: React.FC<{
                 </div>
               )}
 
+              {!isSignedIn && (
+                <div className="flex items-center justify-between gap-3 rounded-2xl border border-blue-500/25 bg-blue-500/8 p-3.5">
+                  <div className="text-xs text-slate-600 dark:text-slate-300">
+                    <span className="font-bold text-blue-600 dark:text-blue-400">Instant Room Codes Active:</span> Join or host with a 6-digit code below, or sign in with Google to sync your identity.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void onSignInGoogle()}
+                    className="ios-stretch shrink-0 rounded-xl bg-blue-600 px-3 py-1.5 text-[11px] font-semibold text-white"
+                  >
+                    Google Sign-In
+                  </button>
+                </div>
+              )}
+
               <div className="space-y-2.5 rounded-2xl border border-black/8 bg-slate-50/80 p-4 dark:border-white/10 dark:bg-[#20222A]">
                 <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Host a New Study Room
+                  Host a New Study Room (Generates Shareable Code)
                 </div>
                 <div className="flex gap-2">
                   <input
@@ -961,7 +1033,7 @@ export const CollabRoomModal: React.FC<{
                     }}
                     className="ios-stretch rounded-xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                   >
-                    Create Room
+                    Generate Room Code
                   </button>
                 </div>
               </div>
@@ -975,7 +1047,7 @@ export const CollabRoomModal: React.FC<{
                     type="text"
                     value={joinCode}
                     onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                    placeholder="Enter code (e.g. STUDY-A1B2C)"
+                    placeholder="Enter code (e.g. 482-910 or BIO-101)"
                     className="font-mono-num flex-1 rounded-xl border border-black/12 bg-white px-3 py-2 text-xs uppercase outline-none dark:border-white/15 dark:bg-[#191A1F]"
                   />
                   <button
@@ -996,6 +1068,18 @@ export const CollabRoomModal: React.FC<{
                   >
                     Join Room
                   </button>
+                </div>
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {['BIO-101', 'CALC-202', 'PHYS-301', 'CHEM-LAB'].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setJoinCode(preset)}
+                      className="rounded-full bg-black/5 px-2.5 py-1 text-[10px] font-bold text-slate-600 hover:bg-blue-500/15 hover:text-blue-600 dark:bg-white/10 dark:text-slate-300"
+                    >
+                      #{preset}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>

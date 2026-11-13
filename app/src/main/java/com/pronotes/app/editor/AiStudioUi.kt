@@ -38,26 +38,34 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.BookmarkAdd
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.PostAdd
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -76,15 +84,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
@@ -93,8 +104,8 @@ import com.pronotes.app.data.CollabChatMsg
 import com.pronotes.app.data.CollabMemberInfo
 import com.pronotes.app.data.CollabRoomInfo
 import com.pronotes.app.data.CollabSharedNote
-import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.data.Repository
+import com.pronotes.app.data.SettingsStore
 import com.pronotes.app.ui.Swatch
 import com.pronotes.app.ui.elasticStretch
 import kotlinx.coroutines.delay
@@ -103,7 +114,24 @@ import java.io.File
 
 private val PillShape = CircleShape
 
-// ========================================================================= 1. AI Notes & PDF Chat
+private val GeminiGradientBrush = Brush.linearGradient(
+    colors = listOf(
+        Color(0xFF4285F4),
+        Color(0xFF9B72CB),
+        Color(0xFFD96570),
+    ),
+)
+
+private val SamsungStudioGradientBrush = Brush.linearGradient(
+    colors = listOf(
+        Color(0xFF6366F1),
+        Color(0xFFA855F7),
+        Color(0xFFEC4899),
+        Color(0xFF38BDF8),
+    ),
+)
+
+// ========================================================================= 1. AI Notes & PDF Chat (Google Gemini Vibe)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -111,16 +139,12 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val clip = LocalClipboardManager.current
-    val messages = remember {
-        mutableStateListOf(
-            "assistant" to "Hi! I've indexed \"${vm.title}\" (${vm.pages.size} pages${if (vm.isPdf) " + PDF" else ""}). Ask anything or tap a quick study prompt below.",
-        )
-    }
+    val messages = remember { mutableStateListOf<Pair<String, String>>() }
     var corpus by remember { mutableStateOf<List<Pair<Int, String>>>(emptyList()) }
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
 
-    LaunchedEffect(vm.noteId, vm.pages.size) {
+    LaunchedEffect(vm.noteId, vm.pages.size, vm.pageIndex) {
         corpus = vm.extractPagesCorpus()
     }
 
@@ -131,7 +155,7 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
         messages += "user" to q
         busy = true
         scope.launch {
-            val pagesSnap = if (corpus.isNotEmpty()) corpus else vm.extractPagesCorpus().also { corpus = it }
+            val pagesSnap = vm.extractPagesCorpus().also { corpus = it }
             val reply = LocalAiManager.chatAboutNotesAndPdf(
                 context = context,
                 notebookTitle = vm.title,
@@ -146,56 +170,217 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
 
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
-            shape = RoundedCornerShape(28.dp),
+            shape = RoundedCornerShape(32.dp),
             color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.padding(16.dp).widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 800.dp).statusBarsPadding(),
+            tonalElevation = 8.dp,
+            modifier = Modifier
+                .padding(14.dp)
+                .widthIn(max = 760.dp)
+                .fillMaxWidth()
+                .heightIn(max = 820.dp)
+                .statusBarsPadding()
+                .border(1.5.dp, GeminiGradientBrush, RoundedCornerShape(32.dp)),
         ) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Gemini Header Bar
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(GeminiGradientBrush),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Outlined.AutoAwesome, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                    }
+                    Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("AI Notes & PDF Chat", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text(vm.aiEngineLabel, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                "Gemini Study Assistant",
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    brush = GeminiGradientBrush,
+                                    fontWeight = FontWeight.ExtraBold,
+                                ),
+                            )
+                            Surface(
+                                shape = PillShape,
+                                color = Color(0xFF9B72CB).copy(alpha = 0.14f),
+                            ) {
+                                Text(
+                                    "LIVE",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF9B72CB),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                )
+                            }
+                        }
+                        Text(
+                            "${vm.aiEngineLabel} · Grounded in \"${vm.title}\" (${vm.pages.size} pages${if (vm.isPdf) " + PDF" else ""})",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (messages.isNotEmpty()) {
+                        TextButton(onClick = { messages.clear() }) { Text("Clear") }
                     }
                     TextButton(onClick = onClose) { Text("Close") }
                 }
 
-                val quickPrompts = listOf(
-                    "Summarize key concepts",
-                    "Extract formulas & definitions",
-                    "Quiz me with 3 questions",
-                    "What's on Page ${vm.pageIndex + 1}?",
-                )
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    quickPrompts.forEach { qp ->
-                        FilterChip(
-                            selected = false,
-                            onClick = { send(qp) },
-                            label = { Text(qp) },
-                            shape = PillShape,
-                            modifier = Modifier.elasticStretch(),
+                // Grounding Context Pills
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Surface(shape = PillShape, color = Color(0xFF4285F4).copy(alpha = 0.12f)) {
+                        Text(
+                            "📄 Current: Page ${vm.pageIndex + 1}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF4285F4),
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        )
+                    }
+                    Surface(shape = PillShape, color = Color(0xFF9B72CB).copy(alpha = 0.12f)) {
+                        Text(
+                            "📚 ${vm.pages.size} Pages Indexed",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF9B72CB),
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        )
+                    }
+                    Surface(shape = PillShape, color = Color(0xFFD96570).copy(alpha = 0.12f)) {
+                        Text(
+                            "✨ Direct Question Answering",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFFD96570),
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                         )
                     }
                 }
 
+                val quickPrompts = listOf(
+                    "Explain Page ${vm.pageIndex + 1} simply",
+                    "Summarize key concepts",
+                    "Extract formulas & definitions",
+                    "Quiz me with 3 questions",
+                    "Create a study checklist",
+                )
+
                 LazyColumn(
                     Modifier.weight(1f).fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    if (messages.isEmpty()) {
+                        item {
+                            Column(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 18.dp, horizontal = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Text(
+                                    "Hello, Scholar.",
+                                    style = TextStyle(
+                                        brush = GeminiGradientBrush,
+                                        fontSize = 30.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                    ),
+                                )
+                                Text(
+                                    "How can I help you master \"${vm.title}\" today?",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    quickPrompts.forEach { qp ->
+                                        Surface(
+                                            shape = RoundedCornerShape(18.dp),
+                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(18.dp))
+                                                .clickable { send(qp) }
+                                                .elasticStretch(),
+                                        ) {
+                                            Row(
+                                                Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            ) {
+                                                Icon(
+                                                    Icons.Outlined.AutoAwesome,
+                                                    null,
+                                                    tint = Color(0xFF9B72CB),
+                                                    modifier = Modifier.size(16.dp),
+                                                )
+                                                Text(qp, style = MaterialTheme.typography.labelLarge)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        item {
+                            Row(
+                                Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                quickPrompts.forEach { qp ->
+                                    FilterChip(
+                                        selected = false,
+                                        onClick = { send(qp) },
+                                        label = { Text(qp) },
+                                        shape = PillShape,
+                                        modifier = Modifier.elasticStretch(),
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     items(messages) { (role, body) ->
                         val isUser = role == "user"
                         Row(
                             Modifier.fillMaxWidth(),
                             horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+                            verticalAlignment = Alignment.Top,
                         ) {
+                            if (!isUser) {
+                                Box(
+                                    Modifier
+                                        .padding(top = 4.dp, end = 8.dp)
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(GeminiGradientBrush),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(Icons.Outlined.AutoAwesome, null, tint = Color.White, modifier = Modifier.size(15.dp))
+                                }
+                            }
                             Surface(
-                                shape = RoundedCornerShape(20.dp),
-                                color = if (isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                contentColor = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.widthIn(max = 560.dp),
+                                shape = RoundedCornerShape(
+                                    topStart = if (isUser) 22.dp else 6.dp,
+                                    topEnd = if (isUser) 6.dp else 22.dp,
+                                    bottomStart = 22.dp,
+                                    bottomEnd = 22.dp,
+                                ),
+                                color = if (isUser) {
+                                    Color(0xFF4285F4)
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+                                },
+                                contentColor = if (isUser) Color.White else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.widthIn(max = 580.dp),
                             ) {
-                                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(body, style = MaterialTheme.typography.bodyMedium)
                                     if (!isUser) {
                                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -224,25 +409,50 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                 }
 
                 if (busy) {
-                    ThinkingPill(engine = vm.aiEngineLabel, stage = "Reading notes & PDF…")
+                    ThinkingPill(engine = vm.aiEngineLabel, stage = "Gemini is thinking & analyzing your notes…")
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = input,
-                        onValueChange = { input = it },
-                        placeholder = { Text("Ask a question about your notes or PDF…") },
-                        singleLine = true,
-                        shape = PillShape,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Button(
-                        enabled = input.isNotBlank() && !busy,
-                        onClick = { send(input) },
-                        shape = PillShape,
-                        modifier = Modifier.elasticStretch(),
+                // Floating Gemini Prompt Pill Composer
+                Surface(
+                    shape = PillShape,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, GeminiGradientBrush, PillShape),
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Icon(Icons.AutoMirrored.Outlined.Send, "Send")
+                        Icon(
+                            Icons.Outlined.AutoAwesome,
+                            null,
+                            tint = Color(0xFF9B72CB),
+                            modifier = Modifier.padding(start = 6.dp).size(20.dp),
+                        )
+                        OutlinedTextField(
+                            value = input,
+                            onValueChange = { input = it },
+                            placeholder = { Text("Ask Gemini anything about your notes or PDF or general topic…") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color.Transparent,
+                                unfocusedBorderColor = Color.Transparent,
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                            ),
+                            modifier = Modifier.weight(1f),
+                        )
+                        Button(
+                            enabled = input.isNotBlank() && !busy,
+                            onClick = { send(input) },
+                            shape = PillShape,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4285F4)),
+                            modifier = Modifier.elasticStretch(),
+                        ) {
+                            Icon(Icons.AutoMirrored.Outlined.Send, "Ask Gemini", tint = Color.White)
+                        }
                     }
                 }
             }
@@ -250,7 +460,7 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
     }
 }
 
-// ========================================================================= 2. AI Asset Studio (Stickers, Covers & Templates)
+// ========================================================================= 2. Samsung Creative Studio (Drawing Assist + Lite Models + Pause/Resume)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -264,7 +474,13 @@ fun AiAssetStudioDialog(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val settingsStore = remember { SettingsStore.get(context) }
+    val settings by settingsStore.flow.collectAsState()
+    val imgStates by LocalAiManager.imageModelStates.collectAsState()
+
     var kind by remember(initialKind) { mutableStateOf(initialKind) }
+    var style by remember { mutableStateOf(CreativeStyle.CARTOON_3D) }
+    var showModelDrawer by remember { mutableStateOf(false) }
     var prompt by remember(initialKind) {
         mutableStateOf(
             when (initialKind) {
@@ -274,54 +490,306 @@ fun AiAssetStudioDialog(
             },
         )
     }
-    var accent by remember { mutableIntStateOf(0xFF3D6CF4.toInt()) }
+    var accent by remember { mutableIntStateOf(0xFF6366F1.toInt()) }
     var preview by remember { mutableStateOf<Bitmap?>(null) }
     var busy by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        LocalAiManager.refreshStatus(context)
+    }
 
     fun generateNow() {
         if (busy) return
         busy = true
         scope.launch {
-            preview = LocalAiManager.generateAiAssetBitmap(context, kind, prompt, accent)
+            preview = LocalAiManager.generateAiAssetBitmap(context, kind, prompt, accent, style)
             busy = false
         }
     }
 
-    LaunchedEffect(kind) { generateNow() }
+    LaunchedEffect(kind, style, settings.imageLiteMode, settings.activeImageModelId) {
+        generateNow()
+    }
 
     val presets = when (kind) {
-        AiAssetKind.STICKER -> listOf("Gold Star Exam", "Key Formula Ribbon", "Focus Badge", "Science Atom")
-        AiAssetKind.COVER -> listOf("Cosmos Minimal", "Botanical Journal", "Physics Atlas", "Architecture Slate")
-        AiAssetKind.TEMPLATE -> listOf("Cornell Notes", "Weekly Planner", "14-Day Habit Tracker", "Storyboard Grid")
+        AiAssetKind.STICKER -> listOf("Gold Star Exam", "Key Formula Ribbon", "Focus Badge", "Science Atom", "Rocket Launch", "Brain Spark")
+        AiAssetKind.COVER -> listOf("Cosmos Minimal", "Botanical Journal", "Physics Atlas", "Architecture Slate", "Cyber Neon", "Pastel Studio")
+        AiAssetKind.TEMPLATE -> listOf("Cornell Notes", "Weekly Planner", "14-Day Habit Tracker", "Storyboard Grid", "Exam Revision Sheet")
     }
 
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
-            shape = RoundedCornerShape(28.dp),
+            shape = RoundedCornerShape(32.dp),
             color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.padding(16.dp).widthIn(max = 720.dp).fillMaxWidth().heightIn(max = 800.dp).statusBarsPadding(),
+            tonalElevation = 8.dp,
+            modifier = Modifier
+                .padding(14.dp)
+                .widthIn(max = 760.dp)
+                .fillMaxWidth()
+                .heightIn(max = 860.dp)
+                .statusBarsPadding()
+                .border(1.5.dp, SamsungStudioGradientBrush, RoundedCornerShape(32.dp)),
         ) {
-            Column(Modifier.padding(18.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(8.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("AI Creative Studio", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("Model: ${LocalAiManager.activeImageModelLabel(context)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            Column(
+                Modifier.padding(18.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                // Samsung Galaxy AI Creative Studio Iridescent Header Banner
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(SamsungStudioGradientBrush)
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier
+                                .size(42.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color.White.copy(alpha = 0.22f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Outlined.AutoAwesome, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Galaxy Creative Studio",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White,
+                            )
+                            Text(
+                                "Drawing Assist · ${LocalAiManager.activeImageModelLabel(context)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White.copy(alpha = 0.9f),
+                            )
+                        }
+                        // ⚡ Lite Mode Toggle Chip
+                        Surface(
+                            shape = PillShape,
+                            color = if (settings.imageLiteMode) Color.White else Color.White.copy(alpha = 0.22f),
+                            modifier = Modifier
+                                .clip(PillShape)
+                                .clickable {
+                                    settingsStore.update { it.copy(imageLiteMode = !it.imageLiteMode) }
+                                }
+                                .elasticStretch(),
+                        ) {
+                            Row(
+                                Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Icon(
+                                    Icons.Outlined.Bolt,
+                                    null,
+                                    tint = if (settings.imageLiteMode) Color(0xFF6366F1) else Color.White,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Text(
+                                    if (settings.imageLiteMode) "⚡ Lite Mode ON" else "Lite Mode OFF",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (settings.imageLiteMode) Color(0xFF6366F1) else Color.White,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.width(6.dp))
+                        TextButton(onClick = onClose) {
+                            Text("Close", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
                     }
-                    TextButton(onClick = onClose) { Text("Close") }
                 }
 
+                // Quick Lite Image Model Switcher & Pause/Resume Drawer Toggle
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        "CREATIVE STYLE (DRAWING ASSIST)",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    TextButton(onClick = { showModelDrawer = !showModelDrawer }) {
+                        Icon(Icons.Outlined.Download, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (showModelDrawer) "Hide Lite Models" else "Lite Image Models (Pause / Resume)")
+                    }
+                }
+
+                // Inline Lite Image Models Manager with Pause / Resume / Cancel
+                if (showModelDrawer) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "Lite Image Models · Pause & Resume Supported",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("⚡ Lite Mode", style = MaterialTheme.typography.labelSmall)
+                                    Switch(
+                                        checked = settings.imageLiteMode,
+                                        onCheckedChange = { v -> settingsStore.update { it.copy(imageLiteMode = v) } },
+                                    )
+                                }
+                            }
+                            LocalAiManager.imageModels.forEach { m ->
+                                val st = imgStates[m.id] ?: ImageModelState()
+                                val isActive = settings.activeImageModelId == m.id
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = if (isActive) {
+                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                                    } else {
+                                        MaterialTheme.colorScheme.surface
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .clickable { settingsStore.update { it.copy(activeImageModelId = m.id) } },
+                                ) {
+                                    Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Column(Modifier.weight(1f)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                    Text(m.name, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                                    Surface(shape = PillShape, color = MaterialTheme.colorScheme.secondaryContainer) {
+                                                        Text(
+                                                            "${m.sizeMb} MB · ${m.badge}",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                        )
+                                                    }
+                                                }
+                                                Text(m.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                            when (st.status) {
+                                                LocalModelStatus.READY -> {
+                                                    Button(
+                                                        onClick = { settingsStore.update { it.copy(activeImageModelId = m.id) } },
+                                                        shape = PillShape,
+                                                    ) {
+                                                        Icon(Icons.Outlined.CheckCircle, null, Modifier.size(15.dp))
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Text(if (isActive) "Active" else "Use")
+                                                    }
+                                                }
+                                                LocalModelStatus.DOWNLOADING -> {
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                        FilledTonalButton(
+                                                            onClick = { LocalAiManager.pauseImageModelDownload(m.id) },
+                                                            shape = PillShape,
+                                                        ) {
+                                                            Icon(Icons.Outlined.Pause, null, Modifier.size(15.dp))
+                                                            Spacer(Modifier.width(4.dp))
+                                                            Text("Pause")
+                                                        }
+                                                        TextButton(onClick = { LocalAiManager.cancelImageModelDownload(context, m.id) }) {
+                                                            Text("Cancel")
+                                                        }
+                                                    }
+                                                }
+                                                LocalModelStatus.PAUSED -> {
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                        Button(
+                                                            onClick = {
+                                                                scope.launch { LocalAiManager.downloadImageModel(context, m.id, resume = true) }
+                                                            },
+                                                            shape = PillShape,
+                                                        ) {
+                                                            Icon(Icons.Outlined.PlayArrow, null, Modifier.size(15.dp))
+                                                            Spacer(Modifier.width(4.dp))
+                                                            Text("Resume ${(st.progress * 100).toInt()}%")
+                                                        }
+                                                        TextButton(onClick = { LocalAiManager.cancelImageModelDownload(context, m.id) }) {
+                                                            Text("Cancel")
+                                                        }
+                                                    }
+                                                }
+                                                else -> {
+                                                    FilledTonalButton(
+                                                        onClick = {
+                                                            settingsStore.update { it.copy(activeImageModelId = m.id) }
+                                                            scope.launch { LocalAiManager.downloadImageModel(context, m.id, resume = true) }
+                                                        },
+                                                        shape = PillShape,
+                                                    ) {
+                                                        Icon(Icons.Outlined.Download, null, Modifier.size(15.dp))
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Text("Download")
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if (st.status == LocalModelStatus.DOWNLOADING || st.status == LocalModelStatus.PAUSED) {
+                                            LinearProgressIndicator(
+                                                progress = { st.progress.coerceIn(0f, 1f) },
+                                                modifier = Modifier.fillMaxWidth().height(6.dp).clip(PillShape),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Samsung Creative Studio Visual Style Cards (3D Cartoon, Watercolor, Sketch to Art, Pop Art, Anime, Minimal)
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    CreativeStyle.entries.forEach { cs ->
+                        val selected = style == cs
+                        Surface(
+                            shape = RoundedCornerShape(18.dp),
+                            color = if (selected) {
+                                Color(0xFF6366F1)
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
+                            },
+                            contentColor = if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(18.dp))
+                                .clickable { style = cs }
+                                .elasticStretch(),
+                        ) {
+                            Row(
+                                Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(cs.emoji, fontSize = 16.sp)
+                                Text(cs.label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
+                // Asset Type Tabs (Sticker / Cover / Page Template)
                 PrimaryTabRow(selectedTabIndex = kind.ordinal, containerColor = Color.Transparent) {
                     AiAssetKind.entries.forEach { k ->
                         Tab(
                             selected = kind == k,
                             onClick = { kind = k },
-                            text = { Text(k.label) },
+                            text = { Text(k.label, fontWeight = FontWeight.SemiBold) },
                         )
                     }
                 }
 
+                // Preset Chips
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     presets.forEach { p ->
                         FilterChip(
@@ -337,28 +805,58 @@ fun AiAssetStudioDialog(
                 OutlinedTextField(
                     value = prompt,
                     onValueChange = { prompt = it },
-                    label = { Text("Describe your ${kind.label.lowercase()}") },
+                    label = { Text("Sketch / Prompt for ${kind.label} (${style.label})") },
                     singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(18.dp),
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(0xFF3D6CF4, 0xFF8B5CF6, 0xFF10B981, 0xFFF59E0B, 0xFFEF4444, 0xFFEC4899, 0xFF1E293B).forEach { c ->
-                        val ci = c.toInt()
-                        Swatch(ci, accent == ci, 24) { accent = ci; generateNow() }
+                // Color Palette Row
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("Studio Palette:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(0xFF6366F1, 0xFF3D6CF4, 0xFFEC4899, 0xFF10B981, 0xFFF59E0B, 0xFFEF4444, 0xFF06B6D4, 0xFF1E293B).forEach { c ->
+                            val ci = c.toInt()
+                            Swatch(ci, accent == ci, 26) { accent = ci; generateNow() }
+                        }
                     }
                 }
 
+                // Samsung Creative Studio Canvas Preview Stage
                 Box(
-                    Modifier.fillMaxWidth().height(230.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    Modifier
+                        .fillMaxWidth()
+                        .height(240.dp)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                        .border(1.dp, SamsungStudioGradientBrush, RoundedCornerShape(24.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
                     preview?.let {
-                        Image(it.asImageBitmap(), "AI Preview", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().padding(12.dp))
-                    } ?: Text("Tap Generate to preview", style = MaterialTheme.typography.bodySmall)
+                        Image(
+                            it.asImageBitmap(),
+                            "Samsung Creative Studio Preview",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize().padding(14.dp),
+                        )
+                    } ?: Text("Tap Generate to create with Galaxy Creative Studio", style = MaterialTheme.typography.bodySmall)
+
+                    // Style & Lite Mode Badge Overlay
+                    Surface(
+                        shape = PillShape,
+                        color = Color.Black.copy(alpha = 0.62f),
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp),
+                    ) {
+                        Text(
+                            "${style.emoji} ${style.label} · ${if (settings.imageLiteMode) "⚡ Lite" else "HD"}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        )
+                    }
                 }
 
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -367,7 +865,11 @@ fun AiAssetStudioDialog(
                         onClick = { generateNow() },
                         shape = PillShape,
                         modifier = Modifier.weight(1f).elasticStretch(),
-                    ) { Text(if (busy) "Rendering…" else "Regenerate") }
+                    ) {
+                        Icon(Icons.Outlined.Refresh, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (busy) "Rendering…" else "Remix Style")
+                    }
                     Button(
                         enabled = preview != null && !busy,
                         onClick = {
@@ -385,8 +887,8 @@ fun AiAssetStudioDialog(
                         Text(
                             when (kind) {
                                 AiAssetKind.STICKER -> "Insert Sticker"
-                                AiAssetKind.TEMPLATE -> "Use as Page Template"
-                                AiAssetKind.COVER -> "Set as Notebook Cover"
+                                AiAssetKind.TEMPLATE -> "Apply Page Template"
+                                AiAssetKind.COVER -> "Set Notebook Cover"
                             },
                         )
                     }
@@ -452,7 +954,6 @@ fun AiLectureRecorderDialog(vm: EditorViewModel, onClose: () -> Unit) {
             recording = true
         } else {
             runCatching { r.release() }
-            // Fallback timer-only capture if emulator/device has no mic hardware
             elapsedSec = 0L
             recording = true
         }
@@ -646,7 +1147,7 @@ fun AiLectureRecorderDialog(vm: EditorViewModel, onClose: () -> Unit) {
     }
 }
 
-// ========================================================================= 4. Live Collab Study Room
+// ========================================================================= 4. Code-Based Live Collab Study Room
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -658,9 +1159,11 @@ fun LiveCollabRoomDialog(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val clip = LocalClipboardManager.current
     val cloudUser by CloudSync.user.collectAsState()
-    var roomCode by remember { mutableStateOf("") }
-    var roomTitle by remember { mutableStateOf("") }
+    var roomCode by remember { mutableStateOf(CloudSync.generateRoomCode()) }
+    var scholarName by remember { mutableStateOf(cloudUser?.displayName.orEmpty().ifBlank { "Scholar" }) }
+    var roomTitle by remember { mutableStateOf(vm?.title?.let { "$it Study Room" } ?: "Live Study Room") }
     var activeRoom by remember { mutableStateOf<CollabRoomInfo?>(null) }
     var members by remember { mutableStateOf<List<CollabMemberInfo>>(emptyList()) }
     var msgs by remember { mutableStateOf<List<CollabChatMsg>>(emptyList()) }
@@ -681,7 +1184,7 @@ fun LiveCollabRoomDialog(
         val rid = activeRoom?.roomId ?: return@LaunchedEffect
         while (true) {
             refreshRoom(rid)
-            delay(5000)
+            delay(4000)
         }
     }
 
@@ -689,22 +1192,33 @@ fun LiveCollabRoomDialog(
         Surface(
             shape = RoundedCornerShape(28.dp),
             color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.padding(16.dp).widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 820.dp).statusBarsPadding(),
+            modifier = Modifier.padding(16.dp).widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 840.dp).statusBarsPadding(),
         ) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Outlined.Groups, null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(activeRoom?.title ?: "Live Study Room", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text(activeRoom?.title ?: "Live Study Room (Room Code)", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         Text(
-                            activeRoom?.let { "Room Code: ${it.roomId} · ${members.size} active" }
-                                ?: "Study together live with classmates",
+                            activeRoom?.let { "Room Code: ${it.roomId} · ${members.size} scholars active" }
+                                ?: "Share a 6-digit Room Code to study & share notes live for free",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
                         )
                     }
                     if (activeRoom != null) {
+                        OutlinedButton(
+                            onClick = {
+                                clip.setText(AnnotatedString(activeRoom!!.roomId))
+                                statusMsg = "Copied Room Code ${activeRoom!!.roomId}!"
+                            },
+                            shape = PillShape,
+                        ) {
+                            Icon(Icons.Outlined.ContentCopy, null, Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Code: ${activeRoom!!.roomId}")
+                        }
                         IconButton(onClick = { refreshRoom(activeRoom!!.roomId) }) {
                             Icon(Icons.Outlined.Refresh, "Refresh")
                         }
@@ -712,67 +1226,134 @@ fun LiveCollabRoomDialog(
                     TextButton(onClick = onClose) { Text("Close") }
                 }
 
-                if (cloudUser == null) {
+                if (activeRoom == null) {
+                    // Instant 6-Digit Room Code Card
                     Surface(
-                        shape = RoundedCornerShape(20.dp),
+                        shape = RoundedCornerShape(22.dp),
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("Sign in with Google first", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            Text("Live Study Rooms sync chat messages and shared note snippets via Firebase Firestore using your Google account.",
-                                style = MaterialTheme.typography.bodySmall)
-                            Button(
-                                onClick = { runCatching { context.startActivity(CloudSync.buildGoogleAuthIntent()) } },
-                                shape = PillShape,
-                                modifier = Modifier.elasticStretch(),
-                            ) { Text("Sign in with Google") }
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Column {
+                                    Text("INSTANT STUDY ROOM CODE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                    Text(roomCode, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold)
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    FilledTonalButton(
+                                        onClick = { roomCode = CloudSync.generateRoomCode() },
+                                        shape = PillShape,
+                                    ) {
+                                        Text("🎲 New Code")
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            clip.setText(AnnotatedString(roomCode))
+                                            statusMsg = "Copied code $roomCode to clipboard!"
+                                        },
+                                        shape = PillShape,
+                                    ) {
+                                        Icon(Icons.Outlined.ContentCopy, null, Modifier.size(15.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Copy")
+                                    }
+                                }
+                            }
+                            Text(
+                                "Give this code to a classmate or enter their code below to join the same live room immediately.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
-                } else if (activeRoom == null) {
-                    OutlinedTextField(
-                        value = roomCode,
-                        onValueChange = { roomCode = it.uppercase().filter { c -> c.isLetterOrDigit() || c == '-' }.take(16) },
-                        label = { Text("Room Code (3–16 chars)") },
-                        placeholder = { Text("e.g. BIO101 or CALC2") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = roomCode,
+                            onValueChange = { roomCode = it.uppercase().filter { c -> c.isLetterOrDigit() || c == '-' }.take(16) },
+                            label = { Text("Enter or Edit Room Code") },
+                            placeholder = { Text("e.g. 482-910 or BIO-101") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.weight(1f),
+                        )
+                        OutlinedTextField(
+                            value = scholarName,
+                            onValueChange = { scholarName = it },
+                            label = { Text("Your Display Name") },
+                            placeholder = { Text("Alex") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+
                     OutlinedTextField(
                         value = roomTitle,
                         onValueChange = { roomTitle = it },
-                        label = { Text("Room Title (optional if creating)") },
+                        label = { Text("Study Topic / Room Title") },
                         placeholder = { Text("e.g. Midterm Review") },
                         singleLine = true,
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    if (statusMsg.isNotBlank()) {
-                        Text(statusMsg, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+
+                    // Quick Preset Room Codes
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("BIO-101", "CALC-202", "PHYS-301", "CHEM-LAB", "EXAM-PREP").forEach { preset ->
+                            FilterChip(
+                                selected = roomCode == preset,
+                                onClick = { roomCode = preset },
+                                label = { Text("Join #$preset") },
+                                shape = PillShape,
+                            )
+                        }
                     }
-                    Button(
-                        enabled = !busy && roomCode.length >= 3,
-                        onClick = {
-                            busy = true; statusMsg = ""
-                            scope.launch {
-                                CloudSync.createOrJoinRoom(context, roomCode, roomTitle).onSuccess {
-                                    activeRoom = it
-                                }.onFailure {
-                                    statusMsg = it.message ?: "Could not join room"
-                                }
-                                busy = false
+
+                    if (statusMsg.isNotBlank()) {
+                        Text(statusMsg, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    }
+
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (cloudUser == null) {
+                            OutlinedButton(
+                                onClick = { runCatching { context.startActivity(CloudSync.buildGoogleAuthIntent()) } },
+                                shape = PillShape,
+                                modifier = Modifier.elasticStretch(),
+                            ) {
+                                Text("Google Sign-In (Optional)")
                             }
-                        },
-                        shape = PillShape,
-                        modifier = Modifier.fillMaxWidth().elasticStretch(),
-                    ) { Text(if (busy) "Connecting…" else "Create / Join Study Room") }
+                        }
+                        Button(
+                            enabled = !busy && roomCode.length >= 3,
+                            onClick = {
+                                busy = true; statusMsg = ""
+                                scope.launch {
+                                    CloudSync.createOrJoinRoom(context, roomCode, roomTitle, scholarName).onSuccess {
+                                        activeRoom = it
+                                    }.onFailure {
+                                        statusMsg = it.message ?: "Could not join room"
+                                    }
+                                    busy = false
+                                }
+                            },
+                            shape = PillShape,
+                            modifier = Modifier.weight(1f).elasticStretch(),
+                        ) {
+                            Text(if (busy) "Joining Room $roomCode…" else "Join / Start Room ($roomCode)")
+                        }
+                    }
                 } else {
                     val rid = activeRoom!!.roomId
+                    val activeUid = CloudSync.ensureRoomParticipant(context, scholarName).uid
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         members.forEach { m ->
                             Surface(shape = PillShape, color = MaterialTheme.colorScheme.primaryContainer) {
-                                Text(m.displayName, Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
+                                Text("🟢 ${m.displayName}", Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
                             }
                         }
                     }
@@ -788,14 +1369,14 @@ fun LiveCollabRoomDialog(
                                             "${vm.title} · Page ${vm.pageIndex + 1}",
                                             body,
                                         ).onSuccess {
-                                            statusMsg = "Shared current page to room"
+                                            statusMsg = "Shared Page ${vm.pageIndex + 1} to Room $rid"
                                             refreshRoom(rid)
                                         }.onFailure { statusMsg = it.message ?: "Share failed" }
                                     }
                                 },
                                 shape = PillShape,
                                 modifier = Modifier.weight(1f).elasticStretch(),
-                            ) { Text("Share Current Page") }
+                            ) { Text("📤 Share Current Page to Room") }
                         }
                     }
 
@@ -808,7 +1389,7 @@ fun LiveCollabRoomDialog(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         if (sharedItems.isNotEmpty()) {
-                            item { Text("SHARED NOTES", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) }
+                            item { Text("SHARED NOTES IN #$rid", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) }
                             items(sharedItems, key = { it.id }) { sn ->
                                 Surface(
                                     shape = RoundedCornerShape(16.dp),
@@ -841,11 +1422,11 @@ fun LiveCollabRoomDialog(
                             item { HorizontalDivider() }
                         }
 
-                        item { Text("LIVE CHAT", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) }
+                        item { Text("LIVE STUDY CHAT (#$rid)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) }
                         items(msgs, key = { it.id }) { m ->
                             Surface(
                                 shape = RoundedCornerShape(16.dp),
-                                color = if (m.authorId == cloudUser?.uid) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                color = if (m.authorId == activeUid) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 Column(Modifier.padding(10.dp)) {
@@ -860,7 +1441,7 @@ fun LiveCollabRoomDialog(
                         OutlinedTextField(
                             value = chatDraft,
                             onValueChange = { chatDraft = it },
-                            placeholder = { Text("Message study group…") },
+                            placeholder = { Text("Message room #$rid…") },
                             singleLine = true,
                             shape = PillShape,
                             modifier = Modifier.weight(1f),

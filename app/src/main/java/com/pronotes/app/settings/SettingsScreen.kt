@@ -926,8 +926,19 @@ private fun LocalAiSection(s: AppSettings, store: SettingsStore) {
                             val dlMb = rt.downloadedBytes / (1024f * 1024f)
                             val totMb = (rt.totalBytes.coerceAtLeast(1L)) / (1024f * 1024f)
                             LinearProgressIndicator(progress = { rt.progress }, modifier = Modifier.fillMaxWidth())
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Downloading ${"%.1f".format(dlMb)} / ${"%.0f".format(totMb)} MB", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("Downloading ${"%.1f".format(dlMb)} / ${"%.0f".format(totMb)} MB (${(rt.progress * 100).toInt()}%)", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                                OutlinedButton(onClick = { LocalAiManager.pauseDownload(context, spec.id) }, shape = CircleShape) { Text("Pause") }
+                                TextButton(onClick = { LocalAiManager.cancelDownload(context, spec.id) }) { Text("Cancel") }
+                            }
+                        }
+                        LocalModelStatus.PAUSED -> {
+                            val dlMb = rt.downloadedBytes / (1024f * 1024f)
+                            val totMb = (rt.totalBytes.coerceAtLeast(1L)) / (1024f * 1024f)
+                            LinearProgressIndicator(progress = { rt.progress }, modifier = Modifier.fillMaxWidth())
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Paused at ${"%.1f".format(dlMb)} / ${"%.0f".format(totMb)} MB (${(rt.progress * 100).toInt()}%)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+                                Button(onClick = { LocalAiManager.startDownload(context, spec.id) }, shape = CircleShape) { Text("Resume") }
                                 TextButton(onClick = { LocalAiManager.cancelDownload(context, spec.id) }) { Text("Cancel") }
                             }
                         }
@@ -940,8 +951,8 @@ private fun LocalAiSection(s: AppSettings, store: SettingsStore) {
                             }
                         }
                         LocalModelStatus.ERROR -> {
-                            Text(rt.error ?: "Download error", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-                            Button(onClick = { LocalAiManager.startDownload(context, spec.id) }, shape = CircleShape) { Text("Retry Download") }
+                            Text(rt.error ?: "Download interrupted", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                            Button(onClick = { LocalAiManager.startDownload(context, spec.id) }, shape = CircleShape) { Text("Resume / Retry") }
                         }
                         LocalModelStatus.NOT_DOWNLOADED -> {
                             Button(onClick = { LocalAiManager.startDownload(context, spec.id) }, shape = CircleShape) { Text("Download Free (${spec.sizeLabel})") }
@@ -950,8 +961,14 @@ private fun LocalAiSection(s: AppSettings, store: SettingsStore) {
                 }
             }
             HorizontalDivider()
-            Info("Downloaded GGUF weights are stored privately in app storage and run offline for summaries, AI chat, flashcards, quizzes, mind maps, and lecture notes.")
+            Info("Downloaded GGUF weights support Pause & Resume and are stored privately on device for AI Chat, Lasso Explain, summaries, quizzes, and mind maps.")
         } else {
+            Toggle(
+                "⚡ Lite Image Mode",
+                "Use lightweight INT4/Q4 fast generation for Samsung Creative Studio stickers, covers & templates",
+                s.imageLiteMode,
+            ) { on -> store.update { it.copy(imageLiteMode = on) } }
+            HorizontalDivider()
             LocalAiManager.imageCatalog.forEachIndexed { idx, spec ->
                 if (idx > 0) HorizontalDivider()
                 val rt = imageStates[spec.id] ?: LocalModelRuntime(
@@ -981,15 +998,26 @@ private fun LocalAiSection(s: AppSettings, store: SettingsStore) {
                     when {
                         spec.builtInReady -> {
                             if (!isActive) {
-                                Button(onClick = { LocalAiManager.activateImageModel(context, spec.id) }, shape = CircleShape) { Text("Use VectorCraft") }
+                                Button(onClick = { LocalAiManager.activateImageModel(context, spec.id) }, shape = CircleShape) { Text("Use Lite Engine") }
                             }
                         }
                         rt.status == LocalModelStatus.DOWNLOADING -> {
                             val dlMb = rt.downloadedBytes / (1024f * 1024f)
                             val totMb = (rt.totalBytes.coerceAtLeast(1L)) / (1024f * 1024f)
                             LinearProgressIndicator(progress = { rt.progress }, modifier = Modifier.fillMaxWidth())
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Downloading ${"%.1f".format(dlMb)} / ${"%.0f".format(totMb)} MB", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("Downloading ${"%.1f".format(dlMb)} / ${"%.0f".format(totMb)} MB (${(rt.progress * 100).toInt()}%)", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                                OutlinedButton(onClick = { LocalAiManager.pauseImageModelDownload(context, spec.id) }, shape = CircleShape) { Text("Pause") }
+                                TextButton(onClick = { LocalAiManager.cancelImageModelDownload(context, spec.id) }) { Text("Cancel") }
+                            }
+                        }
+                        rt.status == LocalModelStatus.PAUSED -> {
+                            val dlMb = rt.downloadedBytes / (1024f * 1024f)
+                            val totMb = (rt.totalBytes.coerceAtLeast(1L)) / (1024f * 1024f)
+                            LinearProgressIndicator(progress = { rt.progress }, modifier = Modifier.fillMaxWidth())
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Paused at ${"%.1f".format(dlMb)} / ${"%.0f".format(totMb)} MB (${(rt.progress * 100).toInt()}%)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+                                Button(onClick = { LocalAiManager.startImageModelDownload(context, spec.id) }, shape = CircleShape) { Text("Resume") }
                                 TextButton(onClick = { LocalAiManager.cancelImageModelDownload(context, spec.id) }) { Text("Cancel") }
                             }
                         }
@@ -1002,17 +1030,17 @@ private fun LocalAiSection(s: AppSettings, store: SettingsStore) {
                             }
                         }
                         rt.status == LocalModelStatus.ERROR -> {
-                            Text(rt.error ?: "Download error", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-                            Button(onClick = { LocalAiManager.startImageModelDownload(context, spec.id) }, shape = CircleShape) { Text("Retry Download") }
+                            Text(rt.error ?: "Download interrupted", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                            Button(onClick = { LocalAiManager.startImageModelDownload(context, spec.id) }, shape = CircleShape) { Text("Resume / Retry") }
                         }
                         else -> {
-                            Button(onClick = { LocalAiManager.startImageModelDownload(context, spec.id) }, shape = CircleShape) { Text("Download Free (${spec.sizeLabel})") }
+                            Button(onClick = { LocalAiManager.startImageModelDownload(context, spec.id) }, shape = CircleShape) { Text("Download Lite (${spec.sizeLabel})") }
                         }
                     }
                 }
             }
             HorizontalDivider()
-            Info("Lightweight image models power instant AI stickers, notebook covers, and custom page templates.")
+            Info("Lite Image Models support Pause & Resume and power Samsung Creative Studio stickers, covers, and custom page templates.")
         }
     }
 }

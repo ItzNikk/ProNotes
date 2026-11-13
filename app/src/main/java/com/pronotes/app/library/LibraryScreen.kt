@@ -139,8 +139,14 @@ import com.pronotes.app.editor.AiAssetKind
 import com.pronotes.app.editor.LiveCollabRoomDialog
 import com.pronotes.app.editor.LocalAiManager
 import com.pronotes.app.ui.ColorEditorDialog
+import com.pronotes.app.ui.Ios26LiquidBottomNavBar
+import com.pronotes.app.ui.LiquidNavTab
+import com.pronotes.app.ui.OptionalLiquidGlassBox
+import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.Swatch
 import com.pronotes.app.ui.elasticStretch
+import com.pronotes.app.ui.layerBackdrop
+import com.pronotes.app.ui.rememberLayerBackdrop
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.DateFormat
@@ -255,6 +261,7 @@ fun LibraryScreen(
         deleting != null || coverFor != null || forever != null || emptyTrash
     val blur by androidx.compose.animation.core.animateDpAsState(if (dialogOpen) 14.dp else 0.dp, label = "blur")
     val drag = remember { DragController() }
+    val libraryBackdrop = rememberLayerBackdrop()
     androidx.compose.runtime.CompositionLocalProvider(LocalDragController provides drag) {
     Box(Modifier.fillMaxSize()) {
     Row(
@@ -285,35 +292,44 @@ fun LibraryScreen(
         }
 
         Column(Modifier.weight(1f).fillMaxHeight().statusBarsPadding()) {
-            // Top row
-            Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (!sidebar) IconButton(onClick = { sidebar = true }) { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SIDEBAR, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) }
-                // Open notebooks, like browser tabs.
-                val store = remember { SettingsStore.get(context) }
-                val tabs by store.tabs.collectAsState()
-                val open = tabs.mapNotNull { id -> lib.notebooks.firstOrNull { it.id == id && it.deletedAt == null } }
-                Row(
-                    Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    open.forEach { n ->
-                        Row(
-                            Modifier.widthIn(max = 200.dp).clip(CircleShape)
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
-                                .clickable { onOpen(n.id) }.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(n.title, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                            Box(Modifier.size(22.dp).clip(CircleShape).clickable { store.closeTab(n.id) }, contentAlignment = Alignment.Center) {
-                                com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.CLOSE, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.size(11.dp))
+            // Top row wrapped in Liquid Glass
+            OptionalLiquidGlassBox(
+                backdrop = libraryBackdrop,
+                enabled = settings.liquidGlass,
+                shape = RoundedCornerShape(22.dp),
+                fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (!sidebar) IconButton(onClick = { sidebar = true }) { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SIDEBAR, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) }
+                    // Open notebooks, like browser tabs.
+                    val store = remember { SettingsStore.get(context) }
+                    val tabs by store.tabs.collectAsState()
+                    val open = tabs.mapNotNull { id -> lib.notebooks.firstOrNull { it.id == id && it.deletedAt == null } }
+                    Row(
+                        Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        open.forEach { n ->
+                            Row(
+                                Modifier.widthIn(max = 200.dp).clip(CircleShape)
+                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                                    .clickable { onOpen(n.id) }.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(n.title, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                                Box(Modifier.size(22.dp).clip(CircleShape).clickable { store.closeTab(n.id) }, contentAlignment = Alignment.Center) {
+                                    com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.CLOSE, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.size(11.dp))
+                                }
                             }
                         }
                     }
+                    Spacer(Modifier.width(4.dp))
+                    UpdatePill()
+                    IconButton(onClick = { collabOpen = true }) { Icon(Icons.Outlined.Groups, "Live Study Room") }
+                    IconButton(onClick = { searching = !searching; if (!searching) query = "" }) { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SEARCH, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) }
+                    IconButton(onClick = onSettings) { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SETTINGS, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) }
                 }
-                Spacer(Modifier.width(4.dp))
-                UpdatePill()
-                IconButton(onClick = { searching = !searching; if (!searching) query = "" }) { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SEARCH, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) }
-                IconButton(onClick = onSettings) { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SETTINGS, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) }
             }
             // Title row
             Row(Modifier.fillMaxWidth().padding(start = 28.dp, end = 20.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -443,30 +459,32 @@ fun LibraryScreen(
                 onDrop = { payload, target -> dropInto(payload, target) },
             )
 
-            if (entries.isEmpty()) {
-                EmptyState(section, onNew = { newNotebook = true })
-            } else AnimatedContent(
-                targetState = Triple(section, folderId, listView),
-                transitionSpec = { (fadeIn() + slideInHorizontally { it / 12 }) togetherWith fadeOut() },
-                label = "grid",
-            ) { (_, _, asList) ->
-                if (asList) {
-                    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp)) {
-                        items(entries, key = { keyOf(it) }) { e -> Box(Modifier.animateItem()) { ListRow(e, repo, actions) } }
-                    }
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(150.dp),
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(start = 28.dp, end = 28.dp, top = 12.dp, bottom = 40.dp),
-                        horizontalArrangement = Arrangement.spacedBy(28.dp),
-                        verticalArrangement = Arrangement.spacedBy(28.dp),
-                    ) {
-                        items(entries, key = { keyOf(it) }) { e ->
-                            Box(Modifier.animateItem()) {
-                                when (e) {
-                                    is Entry.F -> FolderTile(e, actions)
-                                    is Entry.N -> NotebookTile(e.note, repo, actions)
+            Box(Modifier.weight(1f).fillMaxWidth().layerBackdrop(libraryBackdrop)) {
+                if (entries.isEmpty()) {
+                    EmptyState(section, onNew = { newNotebook = true })
+                } else AnimatedContent(
+                    targetState = Triple(section, folderId, listView),
+                    transitionSpec = { (fadeIn() + slideInHorizontally { it / 12 }) togetherWith fadeOut() },
+                    label = "grid",
+                ) { (_, _, asList) ->
+                    if (asList) {
+                        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 110.dp)) {
+                            items(entries, key = { keyOf(it) }) { e -> Box(Modifier.animateItem()) { ListRow(e, repo, actions) } }
+                        }
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(150.dp),
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(start = 28.dp, end = 28.dp, top = 12.dp, bottom = 110.dp),
+                            horizontalArrangement = Arrangement.spacedBy(28.dp),
+                            verticalArrangement = Arrangement.spacedBy(28.dp),
+                        ) {
+                            items(entries, key = { keyOf(it) }) { e ->
+                                Box(Modifier.animateItem()) {
+                                    when (e) {
+                                        is Entry.F -> FolderTile(e, actions)
+                                        is Entry.N -> NotebookTile(e.note, repo, actions)
+                                    }
                                 }
                             }
                         }
@@ -475,6 +493,30 @@ fun LibraryScreen(
             }
         }
     }
+
+    // iOS 26 Floating Liquid Glass Bottom Navigation Bar
+    Ios26LiquidBottomNavBar(
+        tabs = listOf(
+            LiquidNavTab("DOCUMENTS", "Documents", ProIcon.DOCUMENT),
+            LiquidNavTab("RECENT", "Recent", ProIcon.RESTORE),
+            LiquidNavTab("FAVORITES", "Favorites", ProIcon.STAR),
+            LiquidNavTab("STUDY_ROOM", "Study Room", ProIcon.CUSTOM_AI),
+            LiquidNavTab("TRASH", "Trash", ProIcon.TRASH),
+        ),
+        selectedId = section.name,
+        backdrop = libraryBackdrop,
+        liquidGlass = settings.liquidGlass,
+        onSelect = { tabId ->
+            if (tabId == "STUDY_ROOM") {
+                collabOpen = true
+            } else {
+                section = Section.valueOf(tabId)
+                folderId = null
+            }
+        },
+        onPrimaryAction = { newNotebook = true },
+        modifier = Modifier.align(Alignment.BottomCenter),
+    )
 
     // The tile that follows your finger or pen while dragging.
     drag.payload?.let { p ->
