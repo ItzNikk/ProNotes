@@ -22,8 +22,16 @@ android {
         // (or SUPPORT_UPI / SUPPORT_UPI_NAME in CI). Empty hides UPI payment button, while support messages remain visible.
         val upi = System.getenv("SUPPORT_UPI") ?: (project.findProperty("pronotes.upi") as String? ?: "")
         val upiName = System.getenv("SUPPORT_UPI_NAME") ?: (project.findProperty("pronotes.upiName") as String? ?: "Pro Notes")
+        val cloudProjectId = System.getenv("CLOUD_PROJECT_ID") ?: (project.findProperty("pronotes.cloudProjectId") as String? ?: "")
+        val cloudDbId = System.getenv("CLOUD_DB_ID") ?: (project.findProperty("pronotes.cloudDbId") as String? ?: "(default)")
+        val cloudApiKey = System.getenv("CLOUD_API_KEY") ?: (project.findProperty("pronotes.cloudApiKey") as String? ?: "")
+        val googleClientId = System.getenv("GOOGLE_CLIENT_ID") ?: (project.findProperty("pronotes.googleClientId") as String? ?: "")
         buildConfigField("String", "SUPPORT_UPI", "\"$upi\"")
         buildConfigField("String", "SUPPORT_UPI_NAME", "\"$upiName\"")
+        buildConfigField("String", "CLOUD_PROJECT_ID", "\"$cloudProjectId\"")
+        buildConfigField("String", "CLOUD_DB_ID", "\"$cloudDbId\"")
+        buildConfigField("String", "CLOUD_API_KEY", "\"$cloudApiKey\"")
+        buildConfigField("String", "GOOGLE_CLIENT_ID", "\"$googleClientId\"")
     }
 
     signingConfigs {
@@ -122,6 +130,4 @@ dependencies {
     implementation("com.github.skydoves:colorpicker-compose:1.1.2")
     // PDF text extraction for in-document search.
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
-    // Optional real open-source Liquid Glass refraction/vibrancy surface.
-    implementation("io.github.kyant0:backdrop:2.0.1")
 }

@@ -207,13 +207,13 @@ import com.pronotes.app.data.Repository
 import com.pronotes.app.data.ScribbleSensitivity
 import com.pronotes.app.data.ScrollDirection
 import com.pronotes.app.data.SettingsStore
-import com.kyant.backdrop.backdrops.LayerBackdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.pronotes.app.data.ToolbarDock
 import com.pronotes.app.ui.ColorEditorDialog
+import com.pronotes.app.ui.LayerBackdrop
 import com.pronotes.app.ui.LocalMotionStyle
 import com.pronotes.app.ui.OptionalLiquidGlassBox
+import com.pronotes.app.ui.layerBackdrop
+import com.pronotes.app.ui.rememberLayerBackdrop
 import com.pronotes.app.ui.PenGlyph
 import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.ProIconView

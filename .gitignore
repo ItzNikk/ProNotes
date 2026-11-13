@@ -12,4 +12,7 @@ build/
 dist/
 node_modules/
 metadata.json
-
+firebase-applet-config.json
+.env
+.env.*
+!.env.example

@@ -56,6 +56,7 @@ class MainActivity : ComponentActivity() {
               // A Surface gives every screen the right text colour in light and dark mode.
               androidx.compose.material3.Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.background) {
                 com.pronotes.app.ui.UpdateDialogHost()
+                com.pronotes.app.data.CloudSignInDialogHost()
                 val nav = rememberNavController()
                 val firstRun = remember { !SettingsStore.get(this@MainActivity).settings.value.onboardingDone }
                 NavHost(
