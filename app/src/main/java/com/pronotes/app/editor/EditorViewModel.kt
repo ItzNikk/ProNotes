@@ -1911,8 +1911,14 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                     val t = listOfNotNull(item.title.takeIf { it.isNotBlank() }, item.text.takeIf { it.isNotBlank() }).joinToString(": ")
                     if (t.isNotBlank()) extractedParts += t
                 }
-                is WebLinkItem -> extractedParts += "${item.title}: ${item.url} ${item.summary}".trim()
-                is MindNodeItem -> if (item.text.isNotBlank()) extractedParts += item.text.trim()
+                is WebLinkItem -> {
+                    val linkTxt = listOf(item.title, item.url, item.note).filter { it.isNotBlank() }.joinToString(" · ")
+                    if (linkTxt.isNotBlank()) extractedParts += linkTxt
+                }
+                is MindNodeItem -> {
+                    val mindTxt = listOf(item.tag, item.label, item.notes).filter { it.isNotBlank() }.joinToString(" — ")
+                    if (mindTxt.isNotBlank()) extractedParts += mindTxt
+                }
                 else -> Unit
             }
         }
@@ -1927,9 +1933,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 extractedParts.joinToString("\n")
             } else {
                 val strokeCount = selectedItems.count { it is InkItem }
-                val shapeCount = selectedItems.count { it is ShapeItem }
+                val fillCount = selectedItems.count { it is FillItem }
                 val baseCtx = pageCtx.take(360).ifBlank { "Topic: $title (Page ${pgIdx + 1})" }
-                "Lassoed selection ($strokeCount strokes${if (shapeCount > 0) ", $shapeCount shapes" else ""}) on Page ${pgIdx + 1} of \"$title\":\n$baseCtx"
+                "Lassoed selection ($strokeCount strokes${if (fillCount > 0) ", $fillCount fills" else ""}) on Page ${pgIdx + 1} of \"$title\":\n$baseCtx"
             }
             val ans = try {
                 runCatching { Nano.explain(selectedText, pageCtx) }.getOrNull()

@@ -475,8 +475,8 @@ fun AiAssetStudioDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val settingsStore = remember { SettingsStore.get(context) }
-    val settings by settingsStore.flow.collectAsState()
-    val imgStates by LocalAiManager.imageModelStates.collectAsState()
+    val settings by settingsStore.settings.collectAsState()
+    val imgStates by LocalAiManager.imageStates.collectAsState()
 
     var kind by remember(initialKind) { mutableStateOf(initialKind) }
     var style by remember { mutableStateOf(CreativeStyle.CARTOON_3D) }
@@ -495,7 +495,7 @@ fun AiAssetStudioDialog(
     var busy by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        LocalAiManager.refreshStatus(context)
+        LocalAiManager.refresh(context)
     }
 
     fun generateNow() {
@@ -603,7 +603,7 @@ fun AiAssetStudioDialog(
                     }
                 }
 
-                // Quick Lite Image Model Switcher & Pause/Resume Drawer Toggle
+                // Quick Lite Image Switcher & Pause/Resume Drawer Toggle
                 Row(
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -645,8 +645,8 @@ fun AiAssetStudioDialog(
                                     )
                                 }
                             }
-                            LocalAiManager.imageModels.forEach { m ->
-                                val st = imgStates[m.id] ?: ImageModelState()
+                            LocalAiManager.imageCatalog.forEach { m ->
+                                val st = imgStates[m.id] ?: LocalModelRuntime()
                                 val isActive = settings.activeImageModelId == m.id
                                 Surface(
                                     shape = RoundedCornerShape(14.dp),
@@ -667,13 +667,13 @@ fun AiAssetStudioDialog(
                                                     Text(m.name, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                                                     Surface(shape = PillShape, color = MaterialTheme.colorScheme.secondaryContainer) {
                                                         Text(
-                                                            "${m.sizeMb} MB · ${m.badge}",
+                                                            "${m.sizeLabel} · ${m.backend}",
                                                             style = MaterialTheme.typography.labelSmall,
                                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                                         )
                                                     }
                                                 }
-                                                Text(m.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Text(m.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             }
                                             when (st.status) {
                                                 LocalModelStatus.READY -> {
@@ -689,7 +689,7 @@ fun AiAssetStudioDialog(
                                                 LocalModelStatus.DOWNLOADING -> {
                                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                                         FilledTonalButton(
-                                                            onClick = { LocalAiManager.pauseImageModelDownload(m.id) },
+                                                            onClick = { LocalAiManager.pauseImageModelDownload(context, m.id) },
                                                             shape = PillShape,
                                                         ) {
                                                             Icon(Icons.Outlined.Pause, null, Modifier.size(15.dp))
@@ -705,7 +705,7 @@ fun AiAssetStudioDialog(
                                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                                         Button(
                                                             onClick = {
-                                                                scope.launch { LocalAiManager.downloadImageModel(context, m.id, resume = true) }
+                                                                LocalAiManager.startImageModelDownload(context, m.id)
                                                             },
                                                             shape = PillShape,
                                                         ) {
@@ -722,7 +722,7 @@ fun AiAssetStudioDialog(
                                                     FilledTonalButton(
                                                         onClick = {
                                                             settingsStore.update { it.copy(activeImageModelId = m.id) }
-                                                            scope.launch { LocalAiManager.downloadImageModel(context, m.id, resume = true) }
+                                                            LocalAiManager.startImageModelDownload(context, m.id)
                                                         },
                                                         shape = PillShape,
                                                     ) {
@@ -771,7 +771,7 @@ fun AiAssetStudioDialog(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
-                                Text(cs.emoji, fontSize = 16.sp)
+                                Text(cs.badge, fontSize = 16.sp)
                                 Text(cs.label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                             }
                         }
@@ -851,7 +851,7 @@ fun AiAssetStudioDialog(
                         modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp),
                     ) {
                         Text(
-                            "${style.emoji} ${style.label} · ${if (settings.imageLiteMode) "⚡ Lite" else "HD"}",
+                            "${style.badge} ${style.label} · ${if (settings.imageLiteMode) "⚡ Lite" else "HD"}",
                             style = MaterialTheme.typography.labelSmall,
                             color = Color.White,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),

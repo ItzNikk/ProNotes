@@ -841,7 +841,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                                 vm.insertAiTextToPage(ans)
                                 vm.explanation = null
                             }) { Text("Insert to Page") }
-                            Button(onClick = { vm.explanation = null }, shape = Pill) { Text("Done") }
+                            TextButton(onClick = { vm.explanation = null }) { Text("Done", fontWeight = FontWeight.Bold) }
                         }
                     }
                 }

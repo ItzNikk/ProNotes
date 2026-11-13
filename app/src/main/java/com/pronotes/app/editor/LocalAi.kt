@@ -1482,7 +1482,7 @@ object LocalAiManager {
                 val plate = RectF(width * 0.12f, height * 0.32f, width * 0.88f, height * 0.62f)
                 canvas.drawRoundRect(plate, 42f, 42f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x33FFFFFF })
                 canvas.drawRoundRect(plate, 42f, 42f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = 0x77FFFFFF; style = Paint.Style.STROKE; strokeWidth = 3f
+                    color = 0x77FFFFFF; this.style = Paint.Style.STROKE; strokeWidth = 3f
                 })
                 val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = 0xFFFFFFFF.toInt()
@@ -1531,7 +1531,7 @@ object LocalAiManager {
                             val idx = r * cols + c
                             val left = pad + c * (cw + 28f); val top = 210f + r * (ch + 28f)
                             val box = RectF(left, top, left + cw, top + ch)
-                            canvas.drawRoundRect(box, 20f, 20f, lineP.apply { style = Paint.Style.STROKE })
+                            canvas.drawRoundRect(box, 20f, 20f, lineP.apply { this.style = Paint.Style.STROKE })
                             canvas.drawText(days[idx], left + 20f, top + 38f, headTitle.apply { textSize = 26f })
                             var ly = top + 78f
                             while (ly < box.bottom - 20f) { canvas.drawLine(left + 16f, ly, box.right - 16f, ly, lineP); ly += 46f }
@@ -1545,7 +1545,7 @@ object LocalAiManager {
                             for (d in 0 until 14) {
                                 val cx = width * 0.44f + d * 42f
                                 if (r == 0) canvas.drawText("${d + 1}", cx - 8f, y - 14f, labelP.apply { textSize = 18f })
-                                else canvas.drawCircle(cx, y - 22f, 12f, lineP.apply { style = Paint.Style.STROKE })
+                                else canvas.drawCircle(cx, y - 22f, 12f, lineP.apply { this.style = Paint.Style.STROKE })
                             }
                             y += 72f
                         }
@@ -1555,7 +1555,7 @@ object LocalAiManager {
                         val ch = 410f
                         for (r in 0 until 3) for (c in 0 until 2) {
                             val left = pad + c * (cw + 36f); val top = 210f + r * (ch + 66f)
-                            canvas.drawRoundRect(RectF(left, top, left + cw, top + ch - 84f), 18f, 18f, accentP.apply { style = Paint.Style.STROKE })
+                            canvas.drawRoundRect(RectF(left, top, left + cw, top + ch - 84f), 18f, 18f, accentP.apply { this.style = Paint.Style.STROKE })
                             canvas.drawLine(left, top + ch - 42f, left + cw, top + ch - 42f, lineP)
                             canvas.drawLine(left, top + ch - 6f, left + cw, top + ch - 6f, lineP)
                         }
