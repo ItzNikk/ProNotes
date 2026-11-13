@@ -5,6 +5,7 @@ import {
   Clock,
   Copy,
   Cpu,
+  FileText,
   Folder as FolderIcon,
   FolderPlus,
   Grid,
@@ -20,6 +21,7 @@ import {
   Star,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react';
 import {
   ACCENT_COLORS,
@@ -28,11 +30,11 @@ import {
   Folder,
   LocalModelState,
   NotebookMeta,
-  PetId,
+  Page,
 } from '../types/models';
 import { CoverCanvas, FolderArt, NewNotebookModal, NewNotebookPayload } from './CoversAndPatterns';
-import { getCompanionSpec, PetAvatarSvg, PipPet } from './PipPet';
 import { LOCAL_MODELS_CATALOG } from '../utils/localAi';
+import { parseImportedFiles, parseImportedText } from '../utils/noteImporter';
 
 type Section = 'DOCUMENTS' | 'FAVORITES' | 'RECENT' | 'TRASH';
 
@@ -43,6 +45,8 @@ interface LibraryScreenProps {
   modelStates: Record<string, LocalModelState>;
   onOpenNote: (id: string) => void;
   onCreateNotebook: (payload: NewNotebookPayload & { folderId: string | null }) => void;
+  onImportParsedNotebook: (title: string, pages: Page[], folderId: string | null) => void;
+  onImportBackup: (raw: string) => number;
   onCreateFolder: (name: string, parentId: string | null, color: string, emoji: string) => void;
   onUpdateFolder: (id: string, patch: Partial<Folder>) => void;
   onDeleteFolder: (id: string) => void;
@@ -54,9 +58,6 @@ interface LibraryScreenProps {
   onEmptyTrash: () => void;
   onOpenSettings: () => void;
   onOpenLocalModels: () => void;
-  onSwitchPet: (id: PetId) => void;
-  onRenamePet: (name: string) => void;
-  onRecordPetAction: (kind: 'pet' | 'treat' | 'study', xpGain?: number) => void;
 }
 
 const formatDate = (ts: number) =>
@@ -187,6 +188,8 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   modelStates,
   onOpenNote,
   onCreateNotebook,
+  onImportParsedNotebook,
+  onImportBackup,
   onCreateFolder,
   onDeleteFolder,
   onUpdateNotebook,
@@ -197,9 +200,6 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   onEmptyTrash,
   onOpenSettings,
   onOpenLocalModels,
-  onSwitchPet,
-  onRenamePet,
-  onRecordPetAction,
 }) => {
   const [section, setSection] = useState<Section>('DOCUMENTS');
   const [folderId, setFolderId] = useState<string | null>(null);
@@ -211,6 +211,13 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
     open: false,
     mode: 'notebook',
   });
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importTab, setImportTab] = useState<'files' | 'paste'>('files');
+  const [pasteTitle, setPasteTitle] = useState('');
+  const [pasteAppPreset, setPasteAppPreset] = useState<'Notion' | 'Obsidian' | 'Apple Notes' | 'Google Keep'>('Notion');
+  const [pasteBody, setPasteBody] = useState('');
+  const [importBusy, setImportBusy] = useState(false);
+  const [importToast, setImportToast] = useState<string | null>(null);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [folderName, setFolderName] = useState('New Folder');
   const [folderColor, setFolderColor] = useState(FOLDER_COLORS[1]);
@@ -222,8 +229,6 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   const accent = ACCENT_COLORS[settings.accent];
   const readyModelCount = LOCAL_MODELS_CATALOG.filter((m) => modelStates[m.id]?.status === 'READY').length;
   const activeModel = LOCAL_MODELS_CATALOG.find((m) => m.id === settings.activeLocalModelId);
-  const companion = getCompanionSpec(settings.petId);
-  const companionName = settings.petName?.trim() || companion.name;
 
   const trashCount = useMemo(() => notebooks.filter((n) => n.deletedAt !== null).length, [notebooks]);
 
@@ -269,23 +274,69 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
     return list;
   }, [notebooks, section, folderId, query, sortBy]);
 
-  const handleImportImageNote = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    onCreateNotebook({
-      title: file.name.replace(/\.[^.]+$/, ''),
-      cover: 'pattern:linen:#3D6CF4',
-      coverColor: '#3D6CF4',
-      paper: 'BLANK',
-      width: 1200,
-      height: 1697,
-      paperColor: '#FFFFFF',
-      coverPage: false,
-      isWhiteboard: false,
-      isMindMap: false,
-      folderId,
-    });
-    e.target.value = '';
+  const showImportBanner = (msg: string) => {
+    setImportToast(msg);
+    window.setTimeout(() => setImportToast(null), 3200);
+  };
+
+  const handleImportFilesList = async (files: FileList | File[]) => {
+    const arr = Array.from(files);
+    if (arr.length === 0) return;
+    setImportBusy(true);
+    try {
+      let backupCount = 0;
+      const nonBackup: File[] = [];
+      for (const f of arr) {
+        if (f.name.toLowerCase().endsWith('.json')) {
+          const text = await f.text();
+          try {
+            const obj = JSON.parse(text);
+            if (obj && Array.isArray(obj.notebooks)) {
+              backupCount += onImportBackup(text);
+              continue;
+            }
+          } catch {
+            // treat as regular JSON note
+          }
+        }
+        nonBackup.push(f);
+      }
+      const parsed = nonBackup.length > 0 ? await parseImportedFiles(nonBackup, settings.paperTint || '#FFFFFF') : [];
+      parsed.forEach((res) => {
+        onImportParsedNotebook(res.title, res.pages, folderId);
+      });
+      setImportModalOpen(false);
+      const total = backupCount + parsed.length;
+      if (total > 0) {
+        showImportBanner(`Imported ${total} item${total === 1 ? '' : 's'} into library`);
+      }
+    } catch (err) {
+      showImportBanner(`Import failed: ${(err as Error).message}`);
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
+  const pastePreview = useMemo(
+    () =>
+      pasteBody.trim()
+        ? parseImportedText(
+            pasteTitle.trim() || `${pasteAppPreset} Import`,
+            pasteBody,
+            settings.paperTint || '#FFFFFF',
+            pasteAppPreset
+          )
+        : null,
+    [pasteBody, pasteTitle, pasteAppPreset, settings.paperTint]
+  );
+
+  const handleConfirmPasteImport = () => {
+    if (!pastePreview) return;
+    onImportParsedNotebook(pastePreview.title, pastePreview.pages, folderId);
+    setPasteTitle('');
+    setPasteBody('');
+    setImportModalOpen(false);
+    showImportBanner(`Imported "${pastePreview.title}" (${pastePreview.pages.length} page${pastePreview.pages.length === 1 ? '' : 's'})`);
   };
 
   const handleDropOnFolder = (targetFolderId: string | null) => {
@@ -382,27 +433,8 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
             })}
           </nav>
 
-          {/* Companion & On-Device AI Status */}
+          {/* On-Device AI Status */}
           <div className="mt-auto space-y-2 pt-4">
-            {settings.pet && (
-              <button
-                type="button"
-                onClick={onOpenSettings}
-                className="flex w-full items-center gap-2.5 rounded-2xl border border-black/8 bg-white/75 px-3 py-2 text-left transition hover:border-blue-500/35 dark:border-white/10 dark:bg-[#202126]"
-              >
-                <PetAvatarSvg petId={settings.petId} className="h-8 w-8 shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between text-xs font-bold">
-                    <span className="truncate">{companionName}</span>
-                    <span className="font-mono-num text-[10px] text-blue-600 dark:text-blue-400">
-                      Lv.{settings.petBond?.level ?? 1}
-                    </span>
-                  </div>
-                  <div className="truncate text-[10px] text-slate-500">{companion.title}</div>
-                </div>
-              </button>
-            )}
-
             <button
               type="button"
               onClick={onOpenLocalModels}
@@ -417,7 +449,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                 </span>
               </div>
               <span className="truncate text-[11px] text-slate-500 dark:text-slate-400">
-                {activeModel ? activeModel.name : '9 free offline models'}
+                {activeModel ? activeModel.name : `${LOCAL_MODELS_CATALOG.length} free offline models`}
               </span>
             </button>
 
@@ -504,27 +536,21 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                 <List className="h-4 w-4" />
               </button>
             </div>
-
-            {settings.pet && (
-              <PipPet
-                petId={settings.petId}
-                petName={settings.petName}
-                bond={settings.petBond}
-                align="right"
-                onSwitchPet={onSwitchPet}
-                onRenamePet={onRenamePet}
-                onPetAction={onRecordPetAction}
-              />
-            )}
           </div>
         </header>
+
+        {importToast && (
+          <div className="mx-6 mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+            {importToast}
+          </div>
+        )}
 
         {section !== 'TRASH' ? (
           <div className="flex flex-wrap items-center gap-2.5 px-6 pt-5 pb-2">
             <button
               type="button"
               onClick={() => setNewModal({ open: true, mode: 'notebook' })}
-              className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
+              className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
               style={{ backgroundColor: accent.primary }}
             >
               <Plus className="h-4 w-4" /> New Notebook
@@ -532,14 +558,14 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
             <button
               type="button"
               onClick={() => setNewModal({ open: true, mode: 'whiteboard' })}
-              className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-500/18 dark:text-emerald-300"
+              className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-500/18 dark:text-emerald-300"
             >
               <Layers className="h-4 w-4" /> Infinite Whiteboard
             </button>
             <button
               type="button"
               onClick={() => setNewModal({ open: true, mode: 'mindmap' })}
-              className="inline-flex items-center gap-2 rounded-xl border border-violet-500/30 bg-violet-500/10 px-3.5 py-2 text-sm font-semibold text-violet-700 transition hover:bg-violet-500/18 dark:text-violet-300"
+              className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-violet-500/30 bg-violet-500/10 px-3.5 py-2 text-sm font-semibold text-violet-700 transition hover:bg-violet-500/18 dark:text-violet-300"
             >
               <Brain className="h-4 w-4" /> Mind Map
             </button>
@@ -547,15 +573,18 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
               <button
                 type="button"
                 onClick={() => setNewFolderOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-black/10 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-black/5 dark:border-white/10 dark:bg-[#1E1F24] dark:text-slate-200"
+                className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-black/10 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-black/5 dark:border-white/10 dark:bg-[#1E1F24] dark:text-slate-200"
               >
                 <FolderPlus className="h-4 w-4" /> New Folder
               </button>
             )}
-            <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-black/10 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-black/5 dark:border-white/10 dark:bg-[#1E1F24] dark:text-slate-200">
-              <Upload className="h-4 w-4" /> Import Note
-              <input type="file" accept="image/*" onChange={handleImportImageNote} className="hidden" />
-            </label>
+            <button
+              type="button"
+              onClick={() => setImportModalOpen(true)}
+              className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-black/10 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-black/5 dark:border-white/10 dark:bg-[#1E1F24] dark:text-slate-200"
+            >
+              <Upload className="h-4 w-4" /> Import Notes
+            </button>
           </div>
         ) : (
           trashCount > 0 && (
@@ -757,6 +786,147 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
               >
                 Save
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {importModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[88vh] w-full max-w-xl flex-col overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-[#191A1F]">
+            <div className="flex items-center justify-between border-b border-black/8 px-6 py-4 dark:border-white/10">
+              <div>
+                <h2 className="text-base font-bold">Import Notes from Other Apps</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Markdown, Notion, Obsidian, Google Keep, Apple Notes, HTML, PDF &amp; Images
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setImportModalOpen(false)}
+                className="rounded-full p-1.5 text-slate-500 hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex gap-2 border-b border-black/8 px-6 py-2.5 dark:border-white/10">
+              <button
+                type="button"
+                onClick={() => setImportTab('files')}
+                className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-semibold transition ${
+                  importTab === 'files'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-black/5 text-slate-600 hover:bg-black/10 dark:bg-white/10 dark:text-slate-300'
+                }`}
+              >
+                <Upload className="h-3.5 w-3.5" /> Files &amp; Backups
+              </button>
+              <button
+                type="button"
+                onClick={() => setImportTab('paste')}
+                className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-semibold transition ${
+                  importTab === 'paste'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-black/5 text-slate-600 hover:bg-black/10 dark:bg-white/10 dark:text-slate-300'
+                }`}
+              >
+                <FileText className="h-3.5 w-3.5" /> Paste from App
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6">
+              {importTab === 'files' ? (
+                <div
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (e.dataTransfer.files?.length) handleImportFilesList(e.dataTransfer.files);
+                  }}
+                  className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-black/15 bg-slate-50/70 px-6 py-10 text-center dark:border-white/15 dark:bg-[#22242C]/60"
+                >
+                  <Upload className="mb-3 h-8 w-8 text-blue-600" />
+                  <p className="text-sm font-bold">
+                    {importBusy ? 'Parsing imported notes...' : 'Drop files here or browse'}
+                  </p>
+                  <p className="mt-1 max-w-sm text-xs text-slate-500 dark:text-slate-400">
+                    Supports .md, .txt, .html, .csv, Google Keep .json, Pro Notes backups, PDFs, and images. Multiple files become structured A4 notebooks.
+                  </p>
+                  <label className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700">
+                    <Upload className="h-3.5 w-3.5" /> Choose Files
+                    <input
+                      type="file"
+                      multiple
+                      accept=".md,.markdown,.txt,.html,.htm,.csv,.json,.pdf,image/*"
+                      onChange={(e) => {
+                        if (e.target.files?.length) handleImportFilesList(e.target.files);
+                        e.target.value = '';
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-1.5">
+                    {(['Notion', 'Obsidian', 'Apple Notes', 'Google Keep'] as const).map((src) => (
+                      <button
+                        key={src}
+                        type="button"
+                        onClick={() => setPasteAppPreset(src)}
+                        className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                          pasteAppPreset === src
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-black/5 text-slate-600 dark:bg-white/10 dark:text-slate-300'
+                        }`}
+                      >
+                        {src}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    value={pasteTitle}
+                    onChange={(e) => setPasteTitle(e.target.value)}
+                    placeholder={`Notebook title (e.g. ${pasteAppPreset} Lecture Notes)`}
+                    className="w-full rounded-xl border border-black/12 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-blue-500 dark:border-white/15 dark:bg-[#22242C]"
+                  />
+                  <textarea
+                    value={pasteBody}
+                    onChange={(e) => setPasteBody(e.target.value)}
+                    rows={8}
+                    placeholder="Paste Markdown headings (#, ##), Obsidian [[links]], checklists ([ ] / [x]), callouts (> quote), or plain text..."
+                    className="w-full rounded-xl border border-black/12 bg-white px-3 py-2 text-xs leading-relaxed outline-none focus:border-blue-500 dark:border-white/15 dark:bg-[#22242C]"
+                  />
+                  {pastePreview && (
+                    <div className="flex items-center justify-between rounded-xl border border-blue-500/20 bg-blue-50/70 px-3.5 py-2 text-xs dark:bg-blue-950/25">
+                      <span className="font-semibold text-blue-700 dark:text-blue-300">
+                        Preview ready
+                      </span>
+                      <span className="font-mono-num text-slate-600 dark:text-slate-300">
+                        {pastePreview.blockCount} blocks · {pastePreview.pages.length} A4 page{pastePreview.pages.length === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setImportModalOpen(false)}
+                      className="rounded-xl px-4 py-2 text-xs font-semibold text-slate-500"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!pastePreview}
+                      onClick={handleConfirmPasteImport}
+                      className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-45"
+                    >
+                      Import Notebook
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

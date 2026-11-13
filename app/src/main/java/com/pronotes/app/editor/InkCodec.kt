@@ -183,7 +183,7 @@ object InkCodec {
                     item.x, item.y, item.w, item.h, item.color, item.text, item.rot,
                     item.fontSize, item.font, item.collapsed, item.pinned,
                 )
-                is MindNodeItem -> ItemDoc.MindNode(item.id, item.x, item.y, item.w, item.h, item.label, item.parentId, item.color, item.shape, item.collapsed)
+                is MindNodeItem -> ItemDoc.MindNode(item.id, item.x, item.y, item.w, item.h, item.label, item.parentId, item.color, item.shape, item.collapsed, item.notes, item.tag)
             }
         },
     )
@@ -246,6 +246,8 @@ object InkCodec {
                             color = item.color,
                             shape = item.shape,
                             collapsed = item.collapsed,
+                            notes = item.notes,
+                            tag = item.tag,
                         )
                     }
                 }.getOrNull()

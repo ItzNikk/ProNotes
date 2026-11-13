@@ -1096,7 +1096,7 @@ export function drawTextItem(ctx: CanvasRenderingContext2D, item: TextItem): voi
         : item.font === 'HAND' || item.font === 'CURSIVE'
           ? '"Caveat", cursive'
           : '"DM Sans", sans-serif';
-  const weight = item.bold ? '700' : item.isMathAnswer ? '700' : '500';
+  const weight = item.bold ? '700' : '500';
   const style = item.italic ? 'italic' : 'normal';
   ctx.font = `${style} ${weight} ${item.size}px ${fam}`;
 
@@ -1107,16 +1107,6 @@ export function drawTextItem(ctx: CanvasRenderingContext2D, item: TextItem): voi
     ctx.fillStyle = g;
   } else {
     ctx.fillStyle = item.color;
-  }
-
-  // Apple-Notes-inspired soft golden glow for recently created math answers
-  if (item.isMathAnswer && item.createdAt) {
-    const age = Date.now() - item.createdAt;
-    if (age < 1800) {
-      const fade = 1 - age / 1800;
-      ctx.shadowColor = `rgba(242, 169, 42, ${0.55 * fade})`;
-      ctx.shadowBlur = 16 * fade;
-    }
   }
 
   const lh = item.size * 1.32;
@@ -1136,7 +1126,7 @@ export function drawTextItem(ctx: CanvasRenderingContext2D, item: TextItem): voi
   ctx.restore();
 }
 
-/** Draws Mind Map Bezier links between parent & visible child nodes */
+/** Draws elevated Mind Map cubic Bezier links with soft glow & junction dots */
 export function drawMindMapEdges(
   ctx: CanvasRenderingContext2D,
   nodes: MindNodeItem[],
@@ -1145,6 +1135,7 @@ export function drawMindMapEdges(
 ): void {
   const map = new Map(nodes.map((n) => [n.id, n]));
   ctx.save();
+  ctx.lineCap = 'round';
   for (const node of nodes) {
     if (!node.parentId || hiddenIds.has(node.id)) continue;
     const parent = map.get(node.parentId);
@@ -1155,14 +1146,39 @@ export function drawMindMapEdges(
     const cx = node.x + node.w / 2;
     const cy = node.y + node.h / 2;
     const dx = cx - px;
+    const dy = cy - py;
+    const horizontalBias = Math.abs(dx) >= Math.abs(dy) * 0.7;
 
-    ctx.strokeStyle = hexToRgba(node.color, darkBg ? 0.85 : 0.78);
-    ctx.lineWidth = parent.parentId === null ? 3.5 : 2.5;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(px, py);
-    ctx.bezierCurveTo(px + dx * 0.48, py, cx - dx * 0.48, cy, cx, cy);
+    const traceCurve = () => {
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      if (horizontalBias) {
+        ctx.bezierCurveTo(px + dx * 0.48, py, cx - dx * 0.48, cy, cx, cy);
+      } else {
+        ctx.bezierCurveTo(px, py + dy * 0.48, cx, cy - dy * 0.48, cx, cy);
+      }
+    };
+
+    // Soft outer glow halo along edge
+    ctx.strokeStyle = hexToRgba(node.color, darkBg ? 0.22 : 0.14);
+    ctx.lineWidth = parent.parentId === null ? 8.5 : 6;
+    traceCurve();
     ctx.stroke();
+
+    // Tapered core branch curve
+    ctx.strokeStyle = hexToRgba(node.color, darkBg ? 0.9 : 0.82);
+    ctx.lineWidth = parent.parentId === null ? 3.8 : 2.6;
+    traceCurve();
+    ctx.stroke();
+
+    // Subtle anchor dot near child center edge
+    const t = 0.22;
+    const dotX = px + dx * t;
+    const dotY = py + dy * t;
+    ctx.fillStyle = hexToRgba(node.color, 0.85);
+    ctx.beginPath();
+    ctx.arc(dotX, dotY, 3.2, 0, Math.PI * 2);
+    ctx.fill();
   }
   ctx.restore();
 }
@@ -1171,22 +1187,31 @@ export function drawMindMapNode(
   ctx: CanvasRenderingContext2D,
   node: MindNodeItem,
   isSelected: boolean,
-  childCount: number,
+  descendantCount: number,
   darkBg: boolean
 ): void {
   const isRoot = node.parentId === null;
   ctx.save();
 
-  ctx.shadowColor = isSelected ? hexToRgba(node.color, 0.35) : 'rgba(0,0,0,0.12)';
-  ctx.shadowBlur = isSelected ? 18 : 10;
-  ctx.shadowOffsetY = 3;
+  // Root focus halo ring
+  if (isRoot) {
+    ctx.strokeStyle = hexToRgba(node.color, darkBg ? 0.36 : 0.22);
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.roundRect(node.x - 5, node.y - 5, node.w + 10, node.h + 10, (node.h + 10) / 2);
+    ctx.stroke();
+  }
+
+  ctx.shadowColor = isSelected ? hexToRgba(node.color, 0.42) : 'rgba(15,23,42,0.14)';
+  ctx.shadowBlur = isSelected ? 22 : 12;
+  ctx.shadowOffsetY = isSelected ? 5 : 3;
 
   const fill = isRoot ? node.color : darkBg ? '#1F2229' : '#FFFFFF';
   ctx.fillStyle = fill;
   ctx.strokeStyle = isSelected ? '#3D6CF4' : node.color;
   ctx.lineWidth = isSelected ? 3 : isRoot ? 0 : 2.2;
 
-  const radius = node.shape === 'pill' ? node.h / 2 : node.shape === 'card' ? 12 : 4;
+  const radius = node.shape === 'pill' ? node.h / 2 : node.shape === 'card' ? 14 : 4;
   ctx.beginPath();
   if (node.shape === 'diamond') {
     const cx = node.x + node.w / 2;
@@ -1211,7 +1236,33 @@ export function drawMindMapNode(
     ctx.fill();
   }
 
-  // Label
+  const hasTag = Boolean(node.tag && node.tag.trim());
+  const hasNotes = Boolean(node.notes && node.notes.trim()) && node.h >= 54;
+  const cx = node.x + node.w / 2;
+  let labelY = node.y + node.h / 2 + 1;
+
+  // Optional upper tag badge
+  if (hasTag) {
+    const tagTxt = node.tag!.trim().slice(0, 18);
+    ctx.font = '700 9.5px "Plus Jakarta Sans", sans-serif';
+    const tw = Math.min(node.w - 28, ctx.measureText(tagTxt).width + 12);
+    const tx = cx - tw / 2;
+    const ty = node.y - 9;
+    ctx.fillStyle = isRoot ? '#FFFFFF' : node.color;
+    ctx.beginPath();
+    ctx.roundRect(tx, ty, tw, 17, 8.5);
+    ctx.fill();
+    ctx.fillStyle = isRoot ? node.color : '#FFFFFF';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(tagTxt, cx, ty + 9);
+  }
+
+  if (hasNotes) {
+    labelY = node.y + node.h * 0.36;
+  }
+
+  // Primary Label
   ctx.fillStyle = isRoot ? '#FFFFFF' : darkBg ? '#F3F4F6' : '#1B1F2A';
   ctx.font = `${isRoot ? '700 16px' : '600 14px'} "Plus Jakarta Sans", sans-serif`;
   ctx.textAlign = 'center';
@@ -1221,17 +1272,31 @@ export function drawMindMapNode(
   while (txt.length > 3 && ctx.measureText(txt).width > maxTextW) {
     txt = txt.slice(0, -2) + '…';
   }
-  ctx.fillText(txt, node.x + node.w / 2, node.y + node.h / 2 + 1);
+  ctx.fillText(txt, cx, labelY);
 
-  // Collapsed badge
-  if (node.collapsed && childCount > 0) {
+  // Secondary notes preview inside taller cards
+  if (hasNotes) {
+    ctx.fillStyle = isRoot ? 'rgba(255,255,255,0.82)' : darkBg ? '#9CA3AF' : '#64748B';
+    ctx.font = '500 11px "DM Sans", sans-serif';
+    let noteLine = node.notes!.replace(/\s+/g, ' ').trim();
+    while (noteLine.length > 4 && ctx.measureText(noteLine).width > maxTextW) {
+      noteLine = noteLine.slice(0, -2) + '…';
+    }
+    ctx.fillText(noteLine, cx, node.y + node.h * 0.72);
+  }
+
+  // Collapsed recursive descendant count badge
+  if (node.collapsed && descendantCount > 0) {
     ctx.fillStyle = node.color;
     ctx.beginPath();
-    ctx.arc(node.x + node.w + 4, node.y + node.h / 2, 11, 0, Math.PI * 2);
+    ctx.arc(node.x + node.w + 5, node.y + node.h / 2, 12, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = darkBg ? '#181A20' : '#FFFFFF';
+    ctx.lineWidth = 2;
+    ctx.stroke();
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = '700 11px "JetBrains Mono", monospace';
-    ctx.fillText(`+${childCount}`, node.x + node.w + 4, node.y + node.h / 2 + 0.5);
+    ctx.font = '700 10.5px "JetBrains Mono", monospace';
+    ctx.fillText(`+${descendantCount}`, node.x + node.w + 5, node.y + node.h / 2 + 0.5);
   }
 
   ctx.restore();
@@ -1334,13 +1399,23 @@ export function renderPageItems(
   // Mind Map layer (edges behind nodes)
   if (mindNodes.length > 0) {
     drawMindMapEdges(ctx, mindNodes, hiddenMind, darkBg);
-    const childCounts = new Map<string, number>();
+    const byParent = new Map<string, string[]>();
     for (const n of mindNodes) {
-      if (n.parentId) childCounts.set(n.parentId, (childCounts.get(n.parentId) || 0) + 1);
+      if (n.parentId) {
+        const list = byParent.get(n.parentId) || [];
+        list.push(n.id);
+        byParent.set(n.parentId, list);
+      }
     }
+    const countDescendants = (id: string): number => {
+      const kids = byParent.get(id) || [];
+      let total = kids.length;
+      for (const k of kids) total += countDescendants(k);
+      return total;
+    };
     for (const node of mindNodes) {
       if (hiddenMind.has(node.id)) continue;
-      drawMindMapNode(ctx, node, selectedIds.has(node.id), childCounts.get(node.id) || 0, darkBg);
+      drawMindMapNode(ctx, node, selectedIds.has(node.id), countDescendants(node.id), darkBg);
     }
   }
 }

@@ -94,32 +94,6 @@ export const LOCAL_MODELS_CATALOG: LocalModelSpec[] = [
     description: 'Clear academic synthesis for dense lecture sheets, multi-step concept trees, and STEM explanations.',
     capabilities: ['Deep Study', 'STEM Explain', 'Concept Trees', 'Quizzes'],
   },
-  {
-    id: 'deepseek-r1-15b-math',
-    name: 'DeepSeek-R1 1.5B Math Distill',
-    family: 'DeepSeek-R1 · Q4_K_S',
-    sizeMb: 860,
-    quantization: '4-bit Q4_K_S',
-    ramRequired: '1.1 GB RAM',
-    speedTag: '~19 tok/s · STEM & Proofs',
-    category: 'math',
-    speedScore: 49,
-    description: 'Distilled STEM reasoning specialist for equations, physics derivations, and symbolic checks.',
-    capabilities: ['STEM Reasoning', 'Formula Breakdown', 'Step Solver'],
-  },
-  {
-    id: 'inkmath-vision-tiny',
-    name: 'InkMath Tiny Pack',
-    family: 'OCR + Symbolic · FP16',
-    sizeMb: 42,
-    quantization: 'FP16 Compact',
-    ramRequired: '110 MB RAM',
-    speedTag: 'Instant · 42 MB Pack',
-    category: 'math',
-    speedScore: 99,
-    description: 'Featherweight handwriting symbol recognizer & algebra vocabulary pack.',
-    capabilities: ['Handwriting', 'Math OCR', 'Ink Search'],
-  },
 ];
 
 const MODEL_CACHE_NAME = 'pronotes-local-models-v2';
@@ -285,7 +259,7 @@ export function extractNotebookText(pages: Page[]): string {
   const chunks: string[] = [];
   for (const p of pages) {
     for (const item of p.items) {
-      if (item.kind === 'text' && !item.isMathAnswer) chunks.push(item.text);
+      if (item.kind === 'text') chunks.push(item.text);
       else if (item.kind === 'sticky') chunks.push(item.text);
       else if (item.kind === 'mindnode') chunks.push(item.notes ? `${item.label}: ${item.notes}` : item.label);
     }

@@ -10,8 +10,6 @@ export function App() {
     state,
     modelStates,
     updateSettings,
-    switchPet,
-    recordPetAction,
     savePenPreset,
     deletePenPreset,
     createFolder,
@@ -35,6 +33,8 @@ export function App() {
     removeLocalModel,
     exportBackupJson,
     importBackupJson,
+    importParsedNotebook,
+    appendPagesToNotebook,
   } = useProNotesStore();
 
   const [route, setRoute] = useState<{ screen: 'LIBRARY' | 'EDITOR' | 'SETTINGS'; noteId?: string }>({
@@ -89,9 +89,8 @@ export function App() {
             }
           }}
           onUpdateNotebook={updateNotebook}
+          onAppendPages={(pages) => appendPagesToNotebook(activeNotebook.id, pages)}
           onUpdateSettings={updateSettings}
-          onSwitchPet={switchPet}
-          onRecordPetAction={recordPetAction}
           onSavePenPreset={savePenPreset}
           onDeletePenPreset={deletePenPreset}
           onAddFlashcards={addFlashcards}
@@ -105,8 +104,6 @@ export function App() {
         <SettingsScreen
           settings={state.settings}
           onUpdate={updateSettings}
-          onSwitchPet={switchPet}
-          onRecordPetAction={recordPetAction}
           onSavePenPreset={savePenPreset}
           onDeletePenPreset={deletePenPreset}
           onBack={() => setRoute({ screen: 'LIBRARY' })}
@@ -137,6 +134,11 @@ export function App() {
             });
             openNote(nb.id);
           }}
+          onImportParsedNotebook={(title, pages, folderId) => {
+            const nb = importParsedNotebook(title, pages, folderId);
+            openNote(nb.id);
+          }}
+          onImportBackup={importBackupJson}
           onCreateFolder={createFolder}
           onUpdateFolder={updateFolder}
           onDeleteFolder={deleteFolder}
@@ -148,9 +150,6 @@ export function App() {
           onEmptyTrash={emptyTrash}
           onOpenSettings={() => setRoute({ screen: 'SETTINGS' })}
           onOpenLocalModels={() => setModelsModalOpen(true)}
-          onSwitchPet={switchPet}
-          onRenamePet={(petName) => updateSettings({ petName })}
-          onRecordPetAction={recordPetAction}
         />
       )}
 
@@ -158,18 +157,6 @@ export function App() {
         open={modelsModalOpen}
         modelStates={modelStates}
         activeModelId={state.settings.activeLocalModelId}
-        petProps={
-          state.settings.pet
-            ? {
-                petId: state.settings.petId,
-                petName: state.settings.petName,
-                bond: state.settings.petBond,
-                onSwitchPet: switchPet,
-                onRenamePet: (petName) => updateSettings({ petName }),
-                onPetAction: recordPetAction,
-              }
-            : undefined
-        }
         onClose={() => setModelsModalOpen(false)}
         onDownload={startModelDownload}
         onPause={pauseModelDownload}

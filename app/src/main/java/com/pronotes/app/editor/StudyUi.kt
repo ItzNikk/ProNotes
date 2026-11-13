@@ -171,10 +171,7 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                         val learning = vm.cards.size - mastered
                         Column(Modifier.padding(20.dp)) {
                             StudyHero("Flashcards Studio", "${vm.cards.size} cards · powered by ${vm.aiEngineLabel}", StudyColors.cards, "🃏") {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    CompanionBadge(compact = true, onDarkBackground = true)
-                                    TextButton(onClick = onClose) { Text("Close", color = Color.White) }
-                                }
+                                TextButton(onClick = onClose) { Text("Close", color = Color.White) }
                             }
                     Spacer(Modifier.height(12.dp))
 
@@ -355,7 +352,7 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
             Text("$emoji  Session done", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 14.dp))
             Text(line, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
             Text("$known of $total recalled · ${clock(elapsed)}", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp))
-            Button(onClick = onDone, shape = Pill) { Text("Finish & Earn Bond XP") }
+            Button(onClick = onDone, shape = Pill) { Text("Finish") }
             return@Column
         }
 
@@ -511,10 +508,7 @@ fun QuizDialog(vm: EditorViewModel, onClose: () -> Unit) {
                             StudyColors.quiz,
                             "🎯",
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                CompanionBadge(compact = true, onDarkBackground = true)
-                                TextButton(onClick = onClose) { Text("Close", color = Color.White) }
-                            }
+                            TextButton(onClick = onClose) { Text("Close", color = Color.White) }
                         }
                         Spacer(Modifier.height(14.dp))
                         Button(
@@ -659,7 +653,7 @@ private fun TakeQuiz(vm: EditorViewModel, order: List<String>, onDone: () -> Uni
 
         if (finished) {
             val pct = if (order.isEmpty()) 0 else score * 100 / order.size
-            LaunchedEffect(Unit) { newBest = vm.recordQuiz(pct, elapsed); vm.recordPetXp(10 + score * 3) }
+            LaunchedEffect(Unit) { newBest = vm.recordQuiz(pct, elapsed) }
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { ScoreRing(pct, StudyColors.quiz) }
             val (emoji, line) = feedbackFor(pct)
             Text("$emoji  $line", style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 14.dp))
@@ -749,7 +743,7 @@ fun TemplateSheet(vm: EditorViewModel, onClose: () -> Unit) {
     var scale by remember { mutableStateOf(cur?.lineScale ?: 1f) }
     var lineColor by remember { mutableStateOf(cur?.lineColor) }
     var paperColor by remember { mutableStateOf(cur?.paperColor) }
-    val groups = PaperStyle.entries.groupBy { it.group }
+    val groups = PaperStyle.pickerEntries.groupBy { it.group }
     var group by remember { mutableStateOf(style.group) }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(

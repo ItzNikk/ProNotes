@@ -63,6 +63,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.ChevronLeft
+import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
@@ -80,6 +81,7 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -143,7 +145,13 @@ private sealed interface Entry {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: Uri?, onPdfConsumed: () -> Unit, onSupport: () -> Unit = {}) {
+fun LibraryScreen(
+    onOpen: (String) -> Unit,
+    onSettings: () -> Unit,
+    pendingImport: com.pronotes.app.PendingImport?,
+    onImportConsumed: () -> Unit,
+    onSupport: () -> Unit = {},
+) {
     val context = LocalContext.current
     val repo = remember { Repository.get(context) }
     val settings by SettingsStore.get(context).settings.collectAsState()
@@ -159,6 +167,7 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
     var listView by rememberSaveable { mutableStateOf(false) }
     var sidebar by rememberSaveable { mutableStateOf(wide) }
     var newNotebook by remember { mutableStateOf(false) }
+    var pasteImportOpen by remember { mutableStateOf(false) }
     var folderEdit by remember { mutableStateOf<Folder?>(null) }
     var newFolder by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<Entry?>(null) }
@@ -173,14 +182,18 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
     }
     var emptyTrash by remember { mutableStateOf(false) }
 
-    val importPdf = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch { onOpen(repo.importPdf(uri, folderId)) }
+    val importFilesLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) scope.launch { repo.importFiles(uris, folderId)?.let(onOpen) }
     }
-    if (pendingPdf != null) {
-        LaunchedEffect(pendingPdf) {
-            val id = repo.importPdf(pendingPdf, null)
-            onPdfConsumed()
-            onOpen(id)
+    if (pendingImport != null) {
+        LaunchedEffect(pendingImport) {
+            val id = when {
+                pendingImport.uris.isNotEmpty() -> repo.importFiles(pendingImport.uris, null)
+                !pendingImport.text.isNullOrBlank() -> repo.importStructuredText(pendingImport.title ?: "", pendingImport.text, null)
+                else -> null
+            }
+            onImportConsumed()
+            if (id != null) onOpen(id)
         }
     }
 
@@ -226,7 +239,7 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
     val title = if (section == Section.DOCUMENTS && currentFolder != null) currentFolder.name else section.label
 
     // Real blur behind dialogs on Android 12+.
-    val dialogOpen = newNotebook || newFolder || folderEdit != null || renaming != null || moving != null ||
+    val dialogOpen = newNotebook || pasteImportOpen || newFolder || folderEdit != null || renaming != null || moving != null ||
         deleting != null || coverFor != null || forever != null || emptyTrash
     val blur by androidx.compose.animation.core.animateDpAsState(if (dialogOpen) 14.dp else 0.dp, label = "blur")
     val drag = remember { DragController() }
@@ -283,7 +296,6 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
                         }
                     }
                 }
-                com.pronotes.app.editor.CompanionBadge(compact = true)
                 Spacer(Modifier.width(4.dp))
                 UpdatePill()
                 IconButton(onClick = { searching = !searching; if (!searching) query = "" }) { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SEARCH, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) }
@@ -364,7 +376,19 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
                             }
                         })
                         DropdownMenuItem(text = { Text("Folder") }, leadingIcon = { Icon(Icons.Outlined.CreateNewFolder, null) }, onClick = { newMenu = false; newFolder = true })
-                        DropdownMenuItem(text = { Text("Import PDF") }, leadingIcon = { Icon(Icons.Outlined.PictureAsPdf, null) }, onClick = { newMenu = false; importPdf.launch(arrayOf("application/pdf")) })
+                        DropdownMenuItem(
+                            text = { Text("Import files (PDF, MD, TXT, Images)") },
+                            leadingIcon = { Icon(Icons.Outlined.UploadFile, null) },
+                            onClick = {
+                                newMenu = false
+                                importFilesLauncher.launch(arrayOf("application/pdf", "text/*", "image/*", "application/json", "application/octet-stream"))
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Paste notes from another app…") },
+                            leadingIcon = { Icon(Icons.Outlined.ContentPaste, null) },
+                            onClick = { newMenu = false; pasteImportOpen = true },
+                        )
                     }
                 }
                 Spacer(Modifier.width(8.dp))
@@ -497,6 +521,54 @@ fun LibraryScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, pendingPdf: 
             }
             onOpen(id)
         }
+    }
+
+    if (pasteImportOpen) {
+        var importTitle by remember { mutableStateOf("") }
+        var importBody by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { pasteImportOpen = false },
+            title = { Text("Import notes from another app") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Paste Markdown, HTML, CSV, or plain notes copied from Notion, Obsidian, Apple Notes, or Google Keep. Headings, checklists, bullets, and callouts are formatted across pages.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = importTitle,
+                        onValueChange = { importTitle = it },
+                        singleLine = true,
+                        label = { Text("Notebook title (optional)") },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = importBody,
+                        onValueChange = { importBody = it },
+                        minLines = 5,
+                        maxLines = 9,
+                        label = { Text("Note content") },
+                        placeholder = { Text("# Lecture 1\n- Key idea\n- [ ] Action item\n> Callout summary") },
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = importBody.isNotBlank(),
+                    onClick = {
+                        val t = importTitle
+                        val b = importBody
+                        pasteImportOpen = false
+                        scope.launch { onOpen(repo.importStructuredText(t, b, folderId)) }
+                    },
+                ) { Text("Import") }
+            },
+            dismissButton = { TextButton(onClick = { pasteImportOpen = false }) { Text("Cancel") } },
+        )
     }
 
     if (newFolder) FolderDialog(null, onDismiss = { newFolder = false }) { name, color, emoji ->
@@ -1061,7 +1133,7 @@ private fun NewNotebookDialog(
                                 }
                             }
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                PaperStyle.entries.forEach { p ->
+                                PaperStyle.pickerEntries.forEach { p ->
                                     val sel = p == paper
                                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { paper = p }) {
                                         PaperPreview(

@@ -1,13 +1,11 @@
 # Changelog
 
 ## v9.7.0
-- **Diamond sparkle scribble-erase animation**: Replaced cartoon puffs with refined 4-pointed diamond starbursts (`✨`), champagne gold shimmer, diamond white cores, and floating stardust specks that twinkle and dissipate smoothly.
-- **Multi-touch pinch-to-zoom in split notes**: Full two-finger pinch-to-zoom and two-finger pan support directly inside split reference notes, plus double-tap to reset/fit page width.
-- **Native 60 FPS visual study backdrops**: Atmospheric cosmic nebulae for Flashcards & Quiz launcher, dynamic glowing blue orbital ring dynamics for pen configuration, futuristic quantum data waves during on-device AI tasks, and high-energy challenge arenas for active quiz sessions—crafted with zero video-decode battery overhead and zero frame drops.
-- **Apple Notes-inspired maths animation & sweep**: Equation resolution now flows along a smooth curved Bezier path with dynamic bloom, spring-settle, letter-by-letter revelation, and quadratic/algebraic expression recognition.
-- **Clean Semantic Versioning**: Standardized release versioning to clean SemVer (`v9.7.0`) across all targets and CI artifacts.
-- **Reliable CI release pipeline**: Provisioned complete Android SDK 36 platform and build tools in automated workflows with automatic license acceptance.
-- **Enhanced Pip & companion pet animations**: Expressive motivational gestures, focus idle loops, and seamless companion reactions across study screens.
+- **Upgraded Split Notes Workspace**: Smooth 60fps two-finger pinch-to-zoom and panning without scroll jitter, zoom presets (`Fit`, `100%`, `150%`, `-`, `+`), in-split keyword search with result jump, page-jumper strip, ratio presets (`30/70`, `50/50`, `70/30`), swap panes, and Clip Sticky / Insert to Page actions.
+- **Import Notes & Files from Other Apps**: Multi-format file/backup picker & drag-and-drop plus Paste-from-App (`Notion`, `Obsidian`, `Apple Notes`, `Google Keep` JSON/Markdown/HTML/CSV/TXT/PDF/Images) in the Library and directly into any active notebook.
+- **Upgraded Mind Map Studio**: Elevated tapered Bezier connectors with soft halos and anchor dots, root halos, upper tag badges, node detail notes, recursive collapsed `+N` descendant badges, Subtree Drag toggle, 3 auto-layouts (`Radial`, `Tree`, `Org Chart`), `Outline → Page`, `→ Flashcards`, and `Tab`/`Enter` node shortcuts.
+- **Diamond sparkle scribble-erase animation**: Refined 4-pointed diamond starbursts (`✨`), champagne gold shimmer, diamond white cores, and floating stardust specks that twinkle and dissipate smoothly.
+- **Streamlined Focus**: Removed the companion pet system, maths solver/auto-solve, and handwriting conversion/recognition templates while retaining all core pen/highlighter, scribble-to-erase, hold-to-shape, lasso, and local AI study features.
 
 ## v9.6.0
 - **Live scribble-to-erase:** scribble or zig-zag directly across ink or text and watch it erase live while your pen is still down, alongside improved zig-zag and underline recognition.

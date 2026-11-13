@@ -183,11 +183,6 @@ fun WelcomeScreen(onDone: () -> Unit) {
                 )
             }
         }
-        com.pronotes.app.editor.CompanionBadge(
-            compact = true,
-            onDarkBackground = onVideo,
-            modifier = Modifier.align(Alignment.TopStart).safeDrawingPadding().padding(10.dp),
-        )
         TextButton(
             onClick = { finish() }, modifier = Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(8.dp),
             colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = if (onVideo) Color.White else MaterialTheme.colorScheme.primary),
@@ -799,7 +794,6 @@ private enum class Demo(val title: String, val body: String) {
     SNAP("Hold to snap", "Hold the pen still at the end of a stroke to turn it into a clean shape."),
     LINK("Link anything", "Select ink, tap the link button, and pick a page or a website."),
     CARDS("Flashcards", "Drag a box over a PDF to make a card, then study with spaced review."),
-    MATH("Write maths, get answers", "Write a sum ending in = and the answer bounces in. Erase the sum and it goes too."),
     QUIZ("Quiz yourself", "Make quizzes from your PDF, a picture or your own questions. Get a score and feedback."),
     UNDO("Two-finger tap", "Tap with two fingers to undo, three to redo. Double-tap to zoom."),
 }
@@ -986,29 +980,6 @@ private fun DemoArt(d: Demo, playing: Boolean, modifier: Modifier) {
                     }
                 }
             }
-            Demo.MATH -> {
-                // "5 + 6 =" is written, a glow sweeps along it, then "11" pops in.
-                val y = cy
-                val write = seg(0.05f, 0.4f)
-                val parts = listOf("5", "+", "6", "=")
-                val x0 = cx - u * 0.36f
-                parts.forEachIndexed { i, s ->
-                    if (write > i / 4f) drawContext.canvas.nativeCanvas.drawText(s, x0 + i * u * 0.13f, y, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF2B2F3A.toInt(); textSize = u * 0.14f; typeface = android.graphics.Typeface.create("casual", android.graphics.Typeface.NORMAL) })
-                }
-                val sweep = seg(0.42f, 0.6f)
-                if (sweep > 0f && p < 0.9f) {
-                    val xEnd = x0 + (u * 0.62f) * sweep
-                    drawLine(
-                        Brush.horizontalGradient(listOf(Color(0xFF7C5CFF), Color(0xFF3D6CF5), Color(0xFF1BAF7A)), x0, xEnd),
-                        Offset(x0, y + u * 0.04f), Offset(xEnd, y + u * 0.04f), u * 0.014f, cap = androidx.compose.ui.graphics.StrokeCap.Round,
-                    )
-                }
-                val pop = seg(0.6f, 0.72f)
-                if (pop > 0f) {
-                    val k = if (pop < 1f) 0.4f + 0.9f * pop else 1f
-                    drawContext.canvas.nativeCanvas.drawText("11", x0 + u * 0.55f, y, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF5.toInt(); textSize = u * 0.14f * k; isFakeBoldText = true })
-                }
-            }
             Demo.QUIZ -> {
                 val r = u * 0.26f
                 val k = seg(0.1f, 0.7f)
@@ -1071,12 +1042,9 @@ private fun SetupPage(active: Boolean, store: SettingsStore, onNext: () -> Unit)
             }
             Row2("Toolbar", com.pronotes.app.data.ToolbarDock.entries, s.toolbarDock, { it.label }) { v -> store.update { it.copy(toolbarDock = v) } }
             Row2("Scrolling", com.pronotes.app.data.ScrollDirection.entries, s.scroll, { if (it == com.pronotes.app.data.ScrollDirection.VERTICAL) "Up and down" else "Page by page" }) { v -> store.update { it.copy(scroll = v) } }
-            Row2("Default paper", com.pronotes.app.data.PaperStyle.entries, s.defaultPaper, { it.label }) { v -> store.update { it.copy(defaultPaper = v) } }
+            Row2("Default paper", com.pronotes.app.data.PaperStyle.pickerEntries, s.defaultPaper, { it.label }) { v -> store.update { it.copy(defaultPaper = v) } }
             Row2("Paper feel", listOf(0, 1, 2, 3), (if (s.paperSound) 1 else 0) + (if (s.paperHaptics) 2 else 0), { listOf("Off", "Sound", "Haptics", "Sound + haptics")[it] }) { v ->
                 store.update { it.copy(paperSound = v == 1 || v == 3, paperHaptics = v >= 2) }
-            }
-            Row2("Smart ink", listOf(0, 1, 2), (if (s.autoConvert) 2 else if (s.mathAssist) 1 else 0), { listOf("Off", "Solve maths", "Maths + convert to text")[it] }) { v ->
-                store.update { it.copy(mathAssist = v >= 1, autoConvert = v == 2) }
             }
         }
     }

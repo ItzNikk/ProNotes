@@ -24,28 +24,18 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { Flashcard, LocalModelState, PetBondState, PetId, QuizQuestion } from '../types/models';
+import { Flashcard, LocalModelState, QuizQuestion } from '../types/models';
 import { LOCAL_MODELS_CATALOG, RichSummaryResult } from '../utils/localAi';
-import { AiParticleBackdrop, PipPet } from './PipPet';
-
-export interface ModalPetProps {
-  petId: PetId;
-  petName?: string;
-  bond?: PetBondState;
-  onSwitchPet?: (id: PetId) => void;
-  onRenamePet?: (name: string) => void;
-  onPetAction?: (kind: 'pet' | 'treat' | 'study', xpGain?: number) => void;
-}
+import { AiParticleBackdrop } from './AiVisuals';
 
 // ================================================================
-// Local AI Model Hub Modal (9 Free Lightweight Local Models)
+// Local AI Model Hub Modal (Free Lightweight Local Models)
 // ================================================================
 
 interface LocalAiModalProps {
   open: boolean;
   modelStates: Record<string, LocalModelState>;
   activeModelId: string | null;
-  petProps?: ModalPetProps;
   onClose: () => void;
   onDownload: (id: string) => void;
   onPause: (id: string) => void;
@@ -57,14 +47,13 @@ export const LocalAiModal: React.FC<LocalAiModalProps> = ({
   open,
   modelStates,
   activeModelId,
-  petProps,
   onClose,
   onDownload,
   onPause,
   onDelete,
   onActivate,
 }) => {
-  const [catFilter, setCatFilter] = useState<'all' | 'fast' | 'balanced' | 'reasoning' | 'math'>('all');
+  const [catFilter, setCatFilter] = useState<'all' | 'fast' | 'balanced' | 'reasoning'>('all');
 
   if (!open) return null;
 
@@ -87,23 +76,11 @@ export const LocalAiModal: React.FC<LocalAiModalProps> = ({
             <div>
               <h2 className="text-lg font-bold tracking-tight">On-Device Local AI Models</h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                9 free lightweight quantized models cached on-device · 100% private & offline
+                {LOCAL_MODELS_CATALOG.length} free lightweight quantized models cached on-device · 100% private & offline
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {petProps && (
-              <PipPet
-                petId={petProps.petId}
-                petName={petProps.petName}
-                bond={petProps.bond}
-                thinking={downloadingAny}
-                align="right"
-                onSwitchPet={petProps.onSwitchPet}
-                onRenamePet={petProps.onRenamePet}
-                onPetAction={petProps.onPetAction}
-              />
-            )}
             <button
               type="button"
               onClick={onClose}
@@ -137,7 +114,6 @@ export const LocalAiModal: React.FC<LocalAiModalProps> = ({
               { id: 'fast', label: 'Ultra-Fast' },
               { id: 'balanced', label: 'Balanced' },
               { id: 'reasoning', label: 'Deep Reasoning' },
-              { id: 'math', label: 'STEM & Math' },
             ] as const
           ).map((tab) => (
             <button
@@ -306,7 +282,6 @@ export const SummaryModal: React.FC<{
   summary: RichSummaryResult | null;
   loadingStage?: string | null;
   explainText?: string | null;
-  petProps?: ModalPetProps;
   onClose: () => void;
   onAddToPage: (text: string) => void;
   onTurnIntoMindMap: () => void;
@@ -316,7 +291,6 @@ export const SummaryModal: React.FC<{
   summary,
   loadingStage,
   explainText,
-  petProps,
   onClose,
   onAddToPage,
   onTurnIntoMindMap,
@@ -361,18 +335,6 @@ export const SummaryModal: React.FC<{
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {petProps && (
-                <PipPet
-                  petId={petProps.petId}
-                  petName={petProps.petName}
-                  bond={petProps.bond}
-                  thinking={Boolean(loadingStage)}
-                  align="right"
-                  onSwitchPet={petProps.onSwitchPet}
-                  onRenamePet={petProps.onRenamePet}
-                  onPetAction={petProps.onPetAction}
-                />
-              )}
               <button
                 type="button"
                 onClick={onClose}
@@ -558,25 +520,21 @@ export const FlashcardsModal: React.FC<{
   notebookId: string;
   cards: Flashcard[];
   loadingStage?: string | null;
-  petProps?: ModalPetProps;
   onClose: () => void;
   onAddCard: (front: string, back: string) => void;
   onUpdateCard: (card: Flashcard) => void;
   onDeleteCard: (id: string) => void;
   onGenerateAi: () => void;
-  onStudyXp?: () => void;
 }> = ({
   open,
   notebookTitle,
   cards,
   loadingStage,
-  petProps,
   onClose,
   onAddCard,
   onUpdateCard,
   onDeleteCard,
   onGenerateAi,
-  onStudyXp,
 }) => {
   const [tab, setTab] = useState<'study' | 'manage'>('study');
   const [idx, setIdx] = useState(0);
@@ -635,7 +593,6 @@ export const FlashcardsModal: React.FC<{
       lapses: (current.lapses || 0) + (grade === 0 ? 1 : 0),
       lastGrade: grade,
     });
-    onStudyXp?.();
     setFlipped(false);
     setIdx((prev) => (deck.length > 0 ? (prev + 1) % deck.length : 0));
   };
@@ -712,18 +669,6 @@ export const FlashcardsModal: React.FC<{
           </div>
 
           <div className="flex items-center gap-2">
-            {petProps && (
-              <PipPet
-                petId={petProps.petId}
-                petName={petProps.petName}
-                bond={petProps.bond}
-                thinking={Boolean(loadingStage)}
-                align="right"
-                onSwitchPet={petProps.onSwitchPet}
-                onRenamePet={petProps.onRenamePet}
-                onPetAction={petProps.onPetAction}
-              />
-            )}
             <button
               type="button"
               onClick={onGenerateAi}
@@ -1037,7 +982,6 @@ export const QuizModal: React.FC<{
   bestScore?: number;
   engineLabel: string;
   loadingStage?: string | null;
-  petProps?: ModalPetProps;
   onClose: () => void;
   onScoreRecorded: (pct: number) => void;
 }> = ({
@@ -1047,7 +991,6 @@ export const QuizModal: React.FC<{
   bestScore = 0,
   engineLabel,
   loadingStage,
-  petProps,
   onClose,
   onScoreRecorded,
 }) => {
@@ -1159,18 +1102,6 @@ export const QuizModal: React.FC<{
                 {Math.floor(elapsedSec / 60)}:{String(elapsedSec % 60).padStart(2, '0')}
               </span>
             )}
-            {petProps && (
-              <PipPet
-                petId={petProps.petId}
-                petName={petProps.petName}
-                bond={petProps.bond}
-                thinking={Boolean(loadingStage)}
-                align="right"
-                onSwitchPet={petProps.onSwitchPet}
-                onRenamePet={petProps.onRenamePet}
-                onPetAction={petProps.onPetAction}
-              />
-            )}
             <button
               type="button"
               onClick={onClose}
@@ -1241,8 +1172,8 @@ export const QuizModal: React.FC<{
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-300">Personal Best</div>
                 </div>
                 <div className="rounded-2xl border border-white/15 bg-white/10 p-3 backdrop-blur-md">
-                  <div className="font-mono-num text-lg font-extrabold text-amber-300">+XP</div>
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-300">Pet Bond</div>
+                  <div className="font-mono-num text-lg font-extrabold text-amber-300">SM-2</div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-300">Active Recall</div>
                 </div>
               </div>
 

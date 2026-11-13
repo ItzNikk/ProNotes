@@ -129,8 +129,6 @@ fun SettingsScreen(onBack: () -> Unit, onTour: () -> Unit = {}, onSupport: () ->
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { if (!wide && selected != null) selected = null else onBack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
             GradientTitle(if (!wide && selected != null) selected!!.label else "Settings", MaterialTheme.typography.headlineLarge)
-            Spacer(Modifier.weight(1f))
-            com.pronotes.app.editor.CompanionBadge(compact = true)
         }
         if (wide) {
             Row(Modifier.fillMaxSize()) {
@@ -236,13 +234,6 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                         Toggle("Writing sound", "A soft pencil-on-paper sound that follows your speed", s.paperSound) { v -> up { it.copy(paperSound = v) } }
                         Toggle("Paper haptics", "Tiny ticks as you write, like paper grain", s.paperHaptics) { v -> up { it.copy(paperHaptics = v) } }
                     }
-                    Section("Smart ink (on device)") {
-                        Toggle("Convert to text as I write", "Handwriting turns into typed text a moment after you stop", s.autoConvert) { v -> up { it.copy(autoConvert = v) } }
-                        Toggle("Solve maths when I write =", "Write 12 x 4 = or 2x(x+1)=0 and the answer appears", s.mathAssist) { v -> up { it.copy(mathAssist = v) } }
-                        Toggle("Search handwriting", "Search also finds words you wrote by hand", s.inkSearch) { v -> up { it.copy(inkSearch = v) } }
-                        val langs = listOf("en-US" to "English (US)", "en-GB" to "English (UK)", "hi-IN" to "Hindi", "es-ES" to "Spanish", "fr-FR" to "French", "de-DE" to "German")
-                        Choice("Handwriting language", langs.firstOrNull { it.first == s.handwritingLang }?.second ?: s.handwritingLang, langs.map { it.second }) { i -> up { it.copy(handwritingLang = langs[i].first) } }
-                    }
                     Section("Pen side button") {
                         Choice("While held", s.sideButton.label, SideButton.entries.map { it.label }) { i -> up { it.copy(sideButton = SideButton.entries[i]) } }
                         Choice("Button click delay", s.penClickDelay.label, PenClickDelay.entries.map { it.label }) { i -> up { it.copy(penClickDelay = PenClickDelay.entries[i]) } }
@@ -298,7 +289,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                     }
                     Section("Default template") {
                         FlowRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            PaperStyle.entries.forEach { p ->
+                            PaperStyle.pickerEntries.forEach { p ->
                                 val sel = s.defaultPaper == p
                                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { up { it.copy(defaultPaper = p) } }) {
                                     PaperPreview(
@@ -321,46 +312,6 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                     Section("Tools in the toolbar") {
                         ToolbarEditor(s.toolbarTools) { spec -> up { it.copy(toolbarTools = spec) } }
                         Info("Long-press to reorder. Tap a selected tool for its settings.")
-                    }
-                    Section("Study Companion") {
-                        Toggle("Study buddy", "A Pokemon-style companion that reacts & levels up", s.pet) { v -> up { it.copy(pet = v) } }
-                        if (s.pet) {
-                            val activePet = companionById(s.petId)
-                            val lvl = 1 + s.petXp / 100
-                            var petNameDraft by remember(s.petName) { mutableStateOf(s.petName) }
-                            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("${s.petName.ifBlank { activePet.name }} · Lv.$lvl", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                    Text("${s.petXp} XP", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                                }
-                                OutlinedTextField(
-                                    value = petNameDraft,
-                                    onValueChange = { petNameDraft = it; up { cur -> cur.copy(petName = it.take(24)) } },
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(16.dp),
-                                    label = { Text("Companion name") },
-                                    placeholder = { Text(activePet.name) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Companions.forEach { cp ->
-                                        val on = cp.id == s.petId
-                                        Column(
-                                            Modifier.width(74.dp).clip(RoundedCornerShape(14.dp))
-                                                .background(if (on) cp.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-                                                .border(if (on) 1.5.dp else 0.dp, if (on) cp.secondary else Color.Transparent, RoundedCornerShape(14.dp))
-                                                .clickable { up { it.copy(petId = cp.id) } }.padding(vertical = 8.dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                        ) {
-                                            Canvas(Modifier.size(30.dp)) {
-                                                drawCompanion(cp, 0.5f, 0f, false, false, false, 0f, true)
-                                            }
-                                            Text(cp.name, style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                                        }
-                                    }
-                                }
-                            }
-                        }
                     }
                     Section("Tabs & Study Timer") {
                         Toggle("Notebook tabs", "Keep several notebooks open and switch between them", s.showTabs) { v -> up { it.copy(showTabs = v) } }
@@ -762,7 +713,7 @@ private fun LocalAiSection(s: AppSettings) {
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            listOf("All", "Fast", "Maths", "Reasoning").forEach { c ->
+            listOf("All", "Fast", "Writing", "Reasoning").forEach { c ->
                 FilterChip(cat == c, { cat = c }, label = { Text(c) }, shape = CircleShape)
             }
         }

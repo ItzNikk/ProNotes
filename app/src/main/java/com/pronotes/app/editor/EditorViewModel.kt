@@ -116,12 +116,14 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     data class TextEdit(val page: Int, val x: Float, val y: Float, val existing: TextItem?)
     data class StickyEdit(val page: Int, val item: StickyItem, val isNew: Boolean)
     data class MindNodeEdit(val page: Int, val item: MindNodeItem, val isNew: Boolean)
+    enum class MindLayout(val label: String) { RADIAL("Radial"), TREE("Tree"), ORG_CHART("Org") }
     var textEdit by mutableStateOf<TextEdit?>(null)
     var stickyEdit by mutableStateOf<StickyEdit?>(null)
     var mindNodeEdit by mutableStateOf<MindNodeEdit?>(null)
     var activeMindNodeId by mutableStateOf<Long?>(null)
     var mindColor by mutableStateOf(MindPalette[0])
     var mindShape by mutableStateOf("pill")
+    var moveMindSubtree by mutableStateOf(false)
 
     var canUndo by mutableStateOf(false)
         private set
@@ -371,7 +373,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         scheduleSave(); onPagesChanged?.invoke()
     }
 
-    // ----------------------------------------------------------- pen presets & pet
+    // ----------------------------------------------------------- pen presets
     val presets = store.presets
 
     fun savePreset(name: String = "") =
@@ -386,9 +388,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     }
 
     fun setPenName(name: String) = store.update { it.copy(penName = name.trim().ifBlank { "Pro Stylus" }) }
-    fun recordPetXp(delta: Int) = store.addPetXp(delta)
-    fun switchPet(petId: String) = store.update { it.copy(petId = petId) }
-    fun setPetName(name: String) = store.update { it.copy(petName = name.trim()) }
 
     fun clearPageInk() {
         val p = currentPage ?: return
@@ -467,37 +466,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun setItems(page: Int, items0: List<PageItem>) {
         touched()
         val p = pages.getOrNull(page) ?: return
-        var items = items0
-        // A maths answer goes away when the sum it belongs to is erased. Answers are found by their
-        // colour and place (left of them, same line), so this also works after reopening the notebook.
-        val newIds = items.mapTo(HashSet()) { it.id }
-        val removedInk = p.items.filter { it is InkItem && it.id !in newIds }
-        if (removedInk.isNotEmpty()) {
-            val answers = items.filter { it is TextItem && (it.color or (0xFF shl 24)).let { c -> c == MATH_COLOR || c == MATH_COLOR_OLD } }
-            if (answers.isNotEmpty()) {
-                // Erasing any part of the sum (even just one number) removes its answer.
-                val dead = answers.filter { a ->
-                    mathSrc[a.id]?.let { src -> return@filter removedInk.any { RectF.intersects(it.bounds, src) } }
-                    val ab = a.bounds
-                    val zone = RectF(ab.left - ab.height() * 12f, ab.top - ab.height() * 0.35f, ab.left + 4f, ab.bottom + ab.height() * 0.35f)
-                    removedInk.any { RectF.intersects(it.bounds, zone) }
-                }.map { it.id }.toSet()
-                if (dead.isNotEmpty()) items = items.filterNot { it.id in dead }
-            }
-        }
-        noteNewInk(page, p.items, items)
-        pages[page] = p.copy(items = items)
+        pages[page] = p.copy(items = items0)
         scheduleSave()
-        // The canvas must drop the answer right now, or its next eraser move would put it back.
-        if (items.size != items0.size) onPagesChanged?.invoke()
     }
-
-    /** Answer id -> box of the sum it answers (this session; older answers use the place rule). */
-    private val mathSrc = HashMap<Long, RectF>()
-
-    /** A maths answer being revealed: the canvas draws the sweep and the glow. */
-    data class MathAnim(val page: Int, val sum: RectF, val answer: RectF, val start: Long)
-    @Volatile var mathAnim: MathAnim? = null
 
     /** Pen is down: the toolbar fades so you can write under it. */
     var penActive by mutableStateOf(false)
@@ -662,13 +633,15 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         return currentPage?.items?.filterIsInstance<MindNodeItem>()?.firstOrNull { it.id == id }
     }
 
-    private fun mindBoxSize(label: String, shape: String): Pair<Float, Float> {
+    private fun mindBoxSize(label: String, shape: String, notes: String = ""): Pair<Float, Float> {
         val clean = label.trim().ifBlank { "Idea" }
-        val w = (clean.length * 13.5f + 72f).coerceIn(170f, 340f)
+        val baseLen = maxOf(clean.length, if (notes.isNotBlank()) 18 else 0)
+        val w = (baseLen * 13.5f + 78f).coerceIn(180f, 360f)
+        val extra = if (notes.isNotBlank()) 32f else 0f
         val h = when (shape) {
-            "circle" -> (w * 0.62f).coerceIn(110f, 180f)
-            "diamond" -> 112f
-            else -> if (clean.length > 22) 96f else 78f
+            "circle" -> (w * 0.64f + extra).coerceIn(114f, 196f)
+            "diamond" -> 116f
+            else -> (if (clean.length > 22) 96f else 78f) + extra
         }
         return w to h
     }
@@ -754,18 +727,22 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         mindNodeEdit = MindNodeEdit(pageIndex, draft, true)
     }
 
-    fun commitMindNode(label: String, color: Int, shape: String) {
+    fun commitMindNode(label: String, color: Int, shape: String, notes: String = "", tag: String = "") {
         val edit = mindNodeEdit ?: return
         mindNodeEdit = null
         val p = pages.getOrNull(edit.page) ?: return
         val clean = label.trim().ifBlank { if (edit.item.parentId == null) "Central Topic" else "Idea" }
-        val (w, h) = mindBoxSize(clean, shape)
+        val cleanNotes = notes.trim()
+        val cleanTag = tag.trim()
+        val (w, h) = mindBoxSize(clean, shape, cleanNotes)
         val updated = edit.item.copy(
             label = clean,
             color = color,
             shape = shape,
             w = w,
             h = h,
+            notes = cleanNotes,
+            tag = cleanTag,
         )
         mindColor = color
         mindShape = shape
@@ -814,7 +791,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         applyItems(pageIndex, p.items.map { if (it is MindNodeItem && it.id == id) it.copy(color = color) else it })
     }
 
-    fun autoLayoutMindMap(radial: Boolean = true) {
+    fun autoLayoutMindMap(layout: MindLayout = MindLayout.RADIAL) {
         val p = currentPage ?: return
         val nodes = p.items.filterIsInstance<MindNodeItem>()
         if (nodes.isEmpty()) return
@@ -825,61 +802,93 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val cx = p.width / 2f
         val cy = p.height / 2f
 
-        if (radial) {
-            fun countLeaves(id: Long, seen: HashSet<Long>): Int {
-                if (!seen.add(id)) return 1
-                val ch = children[id].orEmpty()
-                return if (ch.isEmpty()) 1 else ch.sumOf { countLeaves(it.id, seen) }
-            }
-            fun placeSubtree(id: Long, cxNode: Float, cyNode: Float, aStart: Double, aEnd: Double, depth: Int, seen: HashSet<Long>) {
-                if (!seen.add(id)) return
-                val n = byId[id] ?: return
-                pos[id] = (cxNode - n.w / 2f) to (cyNode - n.h / 2f)
-                val ch = children[id].orEmpty()
-                if (ch.isEmpty()) return
-                val totalLeaves = ch.sumOf { countLeaves(it.id, HashSet()) }.coerceAtLeast(1)
-                val radius = if (depth == 0) 310f else 245f
-                var cursor = aStart
-                for (c in ch) {
-                    val weight = countLeaves(c.id, HashSet()).toDouble() / totalLeaves
-                    val span = (aEnd - aStart) * weight
-                    val mid = cursor + span / 2.0
-                    val nx = cxNode + (radius * kotlin.math.cos(mid)).toFloat()
-                    val ny = cyNode + (radius * kotlin.math.sin(mid)).toFloat()
-                    placeSubtree(c.id, nx, ny, mid - span / 2.0, mid + span / 2.0, depth + 1, seen)
-                    cursor += span
+        when (layout) {
+            MindLayout.RADIAL -> {
+                fun countLeaves(id: Long, seen: HashSet<Long>): Int {
+                    if (!seen.add(id)) return 1
+                    val ch = children[id].orEmpty()
+                    return if (ch.isEmpty()) 1 else ch.sumOf { countLeaves(it.id, seen) }
+                }
+                fun placeSubtree(id: Long, cxNode: Float, cyNode: Float, aStart: Double, aEnd: Double, depth: Int, seen: HashSet<Long>) {
+                    if (!seen.add(id)) return
+                    val n = byId[id] ?: return
+                    pos[id] = (cxNode - n.w / 2f) to (cyNode - n.h / 2f)
+                    val ch = children[id].orEmpty()
+                    if (ch.isEmpty()) return
+                    val totalLeaves = ch.sumOf { countLeaves(it.id, HashSet()) }.coerceAtLeast(1)
+                    val radius = if (depth == 0) 320f else 250f
+                    var cursor = aStart
+                    for (c in ch) {
+                        val weight = countLeaves(c.id, HashSet()).toDouble() / totalLeaves
+                        val span = (aEnd - aStart) * weight
+                        val mid = cursor + span / 2.0
+                        val nx = cxNode + (radius * kotlin.math.cos(mid)).toFloat()
+                        val ny = cyNode + (radius * kotlin.math.sin(mid)).toFloat()
+                        placeSubtree(c.id, nx, ny, mid - span / 2.0, mid + span / 2.0, depth + 1, seen)
+                        cursor += span
+                    }
+                }
+                roots.forEachIndexed { idx, root ->
+                    val rx = cx + (idx - (roots.size - 1) / 2f) * 680f
+                    placeSubtree(root.id, rx, cy, -Math.PI, Math.PI, 0, HashSet())
                 }
             }
-            roots.forEachIndexed { idx, root ->
-                val rx = cx + (idx - (roots.size - 1) / 2f) * 680f
-                placeSubtree(root.id, rx, cy, -Math.PI, Math.PI, 0, HashSet())
-            }
-        } else {
-            val rowGap = 110f
-            val colGap = 290f
-            fun subtreeHeight(id: Long, seen: HashSet<Long>): Float {
-                if (!seen.add(id)) return rowGap
-                val ch = children[id].orEmpty()
-                return if (ch.isEmpty()) rowGap else ch.sumOf { subtreeHeight(it.id, seen).toDouble() }.toFloat()
-            }
-            fun placeTree(id: Long, xCenter: Float, yTop: Float, spanH: Float, seen: HashSet<Long>) {
-                if (!seen.add(id)) return
-                val n = byId[id] ?: return
-                pos[id] = (xCenter - n.w / 2f) to (yTop + spanH / 2f - n.h / 2f)
-                val ch = children[id].orEmpty()
-                var curY = yTop
-                for (c in ch) {
-                    val chH = subtreeHeight(c.id, HashSet())
-                    placeTree(c.id, xCenter + colGap, curY, chH, seen)
-                    curY += chH
+            MindLayout.TREE -> {
+                val rowGap = 118f
+                val colGap = 295f
+                fun subtreeHeight(id: Long, seen: HashSet<Long>): Float {
+                    if (!seen.add(id)) return rowGap
+                    val ch = children[id].orEmpty()
+                    return if (ch.isEmpty()) rowGap else ch.sumOf { subtreeHeight(it.id, seen).toDouble() }.toFloat()
+                }
+                fun placeTree(id: Long, xCenter: Float, yTop: Float, spanH: Float, seen: HashSet<Long>) {
+                    if (!seen.add(id)) return
+                    val n = byId[id] ?: return
+                    pos[id] = (xCenter - n.w / 2f) to (yTop + spanH / 2f - n.h / 2f)
+                    val ch = children[id].orEmpty()
+                    var curY = yTop
+                    for (c in ch) {
+                        val chH = subtreeHeight(c.id, HashSet())
+                        placeTree(c.id, xCenter + colGap, curY, chH, seen)
+                        curY += chH
+                    }
+                }
+                var curTop = cy - roots.sumOf { subtreeHeight(it.id, HashSet()).toDouble() }.toFloat() / 2f
+                val startX = (cx - 280f).coerceAtLeast(140f)
+                roots.forEach { r ->
+                    val h = subtreeHeight(r.id, HashSet())
+                    placeTree(r.id, startX, curTop, h, HashSet())
+                    curTop += h + 60f
                 }
             }
-            var curTop = cy - roots.sumOf { subtreeHeight(it.id, HashSet()).toDouble() }.toFloat() / 2f
-            val startX = (cx - 280f).coerceAtLeast(140f)
-            roots.forEach { r ->
-                val h = subtreeHeight(r.id, HashSet())
-                placeTree(r.id, startX, curTop, h, HashSet())
-                curTop += h + 60f
+            MindLayout.ORG_CHART -> {
+                val colGap = 240f
+                val rowGap = 185f
+                fun subtreeWidth(id: Long, seen: HashSet<Long>): Float {
+                    if (!seen.add(id)) return colGap
+                    val ch = children[id].orEmpty()
+                    return if (ch.isEmpty()) colGap else ch.sumOf { subtreeWidth(it.id, seen).toDouble() }.toFloat()
+                }
+                fun placeOrg(id: Long, xLeft: Float, yCenter: Float, spanW: Float, seen: HashSet<Long>) {
+                    if (!seen.add(id)) return
+                    val n = byId[id] ?: return
+                    pos[id] = (xLeft + spanW / 2f - n.w / 2f) to (yCenter - n.h / 2f)
+                    val ch = children[id].orEmpty()
+                    var curX = xLeft
+                    for (c in ch) {
+                        val cw = subtreeWidth(c.id, HashSet())
+                        placeOrg(c.id, curX, yCenter + rowGap, cw, seen)
+                        curX += cw
+                    }
+                }
+                val totalW = roots.sumOf { subtreeWidth(it.id, HashSet()).toDouble() }.toFloat()
+                var curX = (cx - totalW / 2f).coerceAtLeast(80f)
+                val startY = 180f
+                roots.forEach { r ->
+                    val w = subtreeWidth(r.id, HashSet())
+                    placeOrg(r.id, curX, startY, w, HashSet())
+                    curX += w + 40f
+                }
             }
         }
 
@@ -890,6 +899,75 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 if (item is MindNodeItem) pos[item.id]?.let { (nx, ny) -> item.copy(x = nx, y = ny) } ?: item else item
             },
         )
+    }
+
+    fun exportMindMapOutlineToPage() {
+        val p = currentPage ?: return
+        val nodes = p.items.filterIsInstance<MindNodeItem>()
+        if (nodes.isEmpty()) { say("Add mind map nodes first"); return }
+        val byId = nodes.associateBy { it.id }
+        val roots = nodes.filter { it.parentId == null || it.parentId !in byId }
+        val children = nodes.filter { it.parentId != null && it.parentId in byId }.groupBy { it.parentId!! }
+        val sb = StringBuilder()
+        fun walk(n: MindNodeItem, depth: Int, seen: HashSet<Long>) {
+            if (!seen.add(n.id)) return
+            val prefix = when (depth) {
+                0 -> ""
+                else -> "  ".repeat(depth) + "• "
+            }
+            sb.append(prefix).append(n.label)
+            if (n.tag.isNotBlank()) sb.append(" [").append(n.tag).append("]")
+            if (n.notes.isNotBlank()) sb.append(" — ").append(n.notes.trim())
+            sb.append('\n')
+            children[n.id].orEmpty().forEach { walk(it, depth + 1, seen) }
+        }
+        val seen = HashSet<Long>()
+        roots.forEach { walk(it, 0, seen) }
+        val outline = sb.toString().trim()
+        beginEdit(pageIndex)
+        applyItems(pageIndex, p.items + TextItem(ItemIds.next(), outline, 70f, 90f, 24f, penStyle.color))
+        say("Exported mind map outline onto page")
+    }
+
+    fun flashcardsFromMindMap() {
+        val p = currentPage ?: return
+        val nodes = p.items.filterIsInstance<MindNodeItem>()
+        if (nodes.isEmpty()) { say("Add mind map nodes first"); return }
+        val byId = nodes.associateBy { it.id }
+        val children = nodes.filter { it.parentId != null && it.parentId in byId }.groupBy { it.parentId!! }
+        val have = cards.map { it.front.lowercase() }.toHashSet()
+        val add = ArrayList<com.pronotes.app.data.Flashcard>()
+        for (n in nodes) {
+            val ch = children[n.id].orEmpty()
+            val front = when {
+                ch.isNotEmpty() -> "Key branches of ${n.label}?"
+                n.notes.isNotBlank() -> n.label
+                n.parentId != null -> "${byId[n.parentId]?.label ?: title}: ${n.label}"
+                else -> continue
+            }
+            val back = when {
+                n.notes.isNotBlank() -> n.notes.trim()
+                ch.isNotEmpty() -> ch.joinToString("\n• ", prefix = "• ") { it.label }
+                else -> n.label
+            }
+            if (front.lowercase() !in have) {
+                have += front.lowercase()
+                add += com.pronotes.app.data.Flashcard(
+                    id = UUID.randomUUID().toString(),
+                    front = front,
+                    back = back,
+                    pageId = p.id,
+                    created = System.currentTimeMillis(),
+                )
+            }
+        }
+        if (add.isNotEmpty()) {
+            cards = cards + add
+            saveStudy()
+            say("Created ${add.size} flashcards from mind map")
+        } else {
+            say("All mind map cards already exist")
+        }
     }
 
     fun generateMindMapFromNotes() {
@@ -936,8 +1014,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             beginEdit(pageIdx)
             val kept = nowPage.items.filterNot { it is MindNodeItem }
             applyItems(pageIdx, kept + outNodes)
-            autoLayoutMindMap(radial = true)
-            recordPetXp(15)
+            autoLayoutMindMap(MindLayout.RADIAL)
             say("Generated mind map (${outNodes.size} nodes)")
         }
     }
@@ -1271,7 +1348,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         cards = if (!isNew) cards.map { if (it.id == card.id) card else it } else cards + card
         cardDraft = null
         saveStudy()
-        if (isNew) recordPetXp(6)
     }
 
     fun deleteCard(id: String) {
@@ -1284,7 +1360,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun gradeCard(id: String, grade: Int) {
         cards = cards.map { if (it.id == id) com.pronotes.app.data.StudyStore.review(it, grade) else it }
         saveStudy()
-        recordPetXp(4)
     }
 
     fun showCardSource(card: com.pronotes.app.data.Flashcard) {
@@ -1422,13 +1497,16 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 val map = pages.withIndex().filter { it.value.pdfPage >= 0 }.associate { it.value.pdfPage to it.index }
                 if (index != null) hits += withContext(Dispatchers.Default) { index.search(query) { map[it] } }
             }
-            // Handwriting is searchable too (on-device recognition).
-            hits += runCatching { inkHits(query) }.getOrDefault(emptyList())
-            // Typed text and sticky notes are searchable too.
+            // Typed text, sticky notes, and mind map nodes are searchable.
             pages.forEachIndexed { i, p ->
                 p.items.forEach { item ->
-                    val text = (item as? TextItem)?.text ?: (item as? StickyItem)?.text ?: return@forEach
-                    if (text.contains(query, ignoreCase = true)) hits += SearchHit(i, listOf(item.bounds), text.take(60))
+                    val text = when (item) {
+                        is TextItem -> item.text
+                        is StickyItem -> item.text
+                        is MindNodeItem -> listOf(item.label, item.tag, item.notes).filter { it.isNotBlank() }.joinToString(" · ")
+                        else -> ""
+                    }
+                    if (text.isNotEmpty() && text.contains(query, ignoreCase = true)) hits += SearchHit(i, listOf(item.bounds), text.take(60))
                 }
             }
             searchHits = hits.sortedBy { it.page }
@@ -1467,7 +1545,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun highlights(page: Int): List<RectF> = if (searchHits.isEmpty()) emptyList() else searchHits.filter { it.page == page }.flatMap { it.rects }
     fun activeHighlight(): Pair<Int, RectF>? = searchHits.getOrNull(activeHit)?.let { h -> h.rects.firstOrNull()?.let { h.page to it } }
 
-    // ----------------------------------------------------------- smart ink (on device)
+    // ----------------------------------------------------------- study & selection feedback
     /** Short message shown at the bottom of the editor (null = none). */
     var toast by mutableStateOf<String?>(null)
     private fun say(msg: String) {
@@ -1479,152 +1557,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var aiStage by mutableStateOf("")
         private set
 
-    private fun selectedInk(): List<InkItem> =
-        pages.getOrNull(selectionPage)?.items?.filter { it.id in selection }?.filterIsInstance<InkItem>()?.filter { !it.isHighlighter } ?: emptyList()
-
-    private fun inkColor(items: List<InkItem>): Int = items.firstOrNull()?.stroke?.brush?.colorIntArgb?.let { Brushes.opaque(it) } ?: penStyle.color
-
-    private suspend fun recognizeOrSay(items: List<InkItem>): String? {
-        if (!Handwriting.ready) say("Getting handwriting ready… (one-time download)")
-        aiBusy = true
-        val txt = try { runCatching { Handwriting.recognize(items, settingsFlow.value.handwritingLang) }.getOrNull() } finally { aiBusy = false }
-        if (txt == null) say(if (Handwriting.ready) "Couldn't read that. Try writing a little larger." else "Handwriting needs a one-time download. Check your connection.")
-        return txt
-    }
-
-    /** Selection → typed text, one text line per handwritten line, in the ink's colour and size. */
-    fun convertSelectionToText() {
-        val page = selectionPage
-        val ink = selectedInk()
-        if (ink.isEmpty()) { say("Select some handwriting first"); return }
-        viewModelScope.launch {
-            val lines = InkLayout.lines(ink)
-            val texts = ArrayList<Pair<List<InkItem>, String>>()
-            var before = ""
-            if (!Handwriting.ready) say("Getting handwriting ready… (one-time download)")
-            aiBusy = true
-            for (l in lines) {
-                val t = Handwriting.recognize(l, settingsFlow.value.handwritingLang, before) ?: continue
-                texts += l to t; before = t
-            }
-            aiBusy = false
-            if (texts.isEmpty()) { say("Couldn't read that. Try writing a little larger."); return@launch }
-            replaceInkWithText(page, texts)
-        }
-    }
-
-    private fun replaceInkWithText(page: Int, texts: List<Pair<List<InkItem>, String>>) {
-        val p = pages.getOrNull(page) ?: return
-        val drop = texts.flatMap { it.first }.map { it.id }.toSet()
-        val add = texts.map { (l, t) ->
-            val b = InkLayout.bounds(l)
-            TextItem(ItemIds.next(), t, b.left, b.top, (b.height() * 0.62f).coerceIn(18f, 160f), inkColor(l))
-        }
-        beginEdit(page)
-        applyItems(page, p.items.filterNot { it.id in drop } + add)
-    }
-
-    /** Selection ending in "=" (or any sum): writes the answer next to it. */
-    fun solveSelection() {
-        val page = selectionPage
-        val ink = selectedInk()
-        if (ink.isEmpty()) { say("Select a sum you wrote, like 12 x 4 ="); return }
-        viewModelScope.launch {
-            aiStage = "Reading handwritten maths…"
-            aiBusy = true
-            val guesses = try {
-                Handwriting.candidates(ink, settingsFlow.value.handwritingLang)
-            } finally {
-                aiBusy = false
-                aiStage = ""
-            }
-            if (guesses.isEmpty()) { say("Couldn't read that sum"); return@launch }
-            val good = MathSolver.bestCandidate(guesses) ?: guesses.first()
-            if (placeAnswer(page, ink, good, quiet = false)) recordPetXp(8)
-        }
-    }
-
-    /** Inserts an equation + solved result from the interactive Maths Pad onto the current page. */
-    fun insertMathPadResult(expr: String, ans: String) {
-        val p = currentPage ?: return
-        val cleanExpr = expr.trim().trimEnd('=', '?')
-        val line = if (ans.contains('=')) "$cleanExpr  →  $ans" else "$cleanExpr = $ans"
-        beginEdit(pageIndex)
-        applyItems(
-            pageIndex,
-            p.items + TextItem(
-                id = ItemIds.next(),
-                text = line,
-                x = 90f,
-                y = 140f,
-                size = 34f,
-                color = MATH_COLOR,
-                style = TextStyleSpec(font = TextFont.HAND, bold = true),
-            ),
-        )
-        recordPetXp(8)
-        say("Added maths result to page")
-    }
-
-    private fun placeAnswer(page: Int, ink: List<InkItem>, raw: String, quiet: Boolean): Boolean {
-        val ans = MathSolver.solve(raw)
-        if (ans == null) { if (!quiet) say("\"$raw\" doesn't look like a sum"); return false }
-        val p = pages.getOrNull(page) ?: return false
-        val b = InkLayout.bounds(ink)
-        val size = (b.height() * 0.7f).coerceIn(20f, 160f)
-        val text = if (raw.trimEnd().endsWith("=")) ans else "= $ans"
-        val ax = b.right + size * 0.3f
-        // Like Apple Notes Math: the answer appears in a handwriting style and a warm accent colour,
-        // written in letter by letter, each letter fading in.
-        val hand = TextStyleSpec(font = TextFont.HAND)
-        val final = TextItem(ItemIds.next(), text, ax, b.top, size * 1.1f, MATH_COLOR, hand)
-        mathSrc[final.id] = RectF(b)
-        val animationStart = android.os.SystemClock.uptimeMillis()
-        val answerRect = RectF(ax, b.top - size * 1.15f, ax + text.length * size * 0.62f, b.top + size * 0.3f)
-        mathAnim = MathAnim(page, RectF(b), answerRect, animationStart)
-        viewModelScope.launch {
-            val cur = pages.getOrNull(page) ?: return@launch
-            beginEdit(page)
-            applyItems(page, cur.items + final.copy(text = "", color = MATH_COLOR and 0x00FFFFFF))
-            for (n in 1..text.length) for (a in listOf(0x55, 0xAA, 0xFF)) {
-                delay(28)
-                val now = pages.getOrNull(page) ?: return@launch
-                if (now.items.none { it.id == final.id }) return@launch
-                // Earlier letters are solid; the newest one fades in (drawn by overlaying lighter colour on the whole word).
-                val item = final.copy(text = text.take(n), color = (MATH_COLOR and 0x00FFFFFF) or (a shl 24))
-                pages[page] = now.copy(items = now.items.map { if (it.id == final.id) item else it })
-                onPagesChanged?.invoke()
-            }
-            val now = pages.getOrNull(page) ?: return@launch
-            pages[page] = now.copy(items = now.items.map { if (it.id == final.id) final else it })
-            onPagesChanged?.invoke()
-            scheduleSave()
-            delay(maxOf(SWEEP_MS + 650L, text.length * 84L + 160L))
-            if (mathAnim?.start == animationStart) {
-                mathAnim = null
-                onPagesChanged?.invoke()
-            }
-        }
-        return true
-    }
-
-    /** Lasso → handwritten sum turned into neat typed maths ("12 × (3 + 4) = 84"). */
-    fun mathToText() {
-        val page = selectionPage
-        val ink = selectedInk()
-        if (ink.isEmpty()) { say("Select a sum you wrote"); return }
-        viewModelScope.launch {
-            aiBusy = true
-            val g = try { Handwriting.candidates(ink, settingsFlow.value.handwritingLang) } finally { aiBusy = false }
-            val raw = MathSolver.bestCandidate(g) ?: g.firstOrNull() ?: run { say("Couldn't read that"); return@launch }
-            val pretty = MathSolver.normalize(raw).replace("*", " × ").replace("/", " ÷ ").replace("+", " + ")
-                .replace(Regex("(?<=[\\d)])-"), " − ").replace("^2", "²").replace("^3", "³").replace("^", "^") +
-                (if (raw.trimEnd().endsWith("=")) " =" else "")
-            replaceInkWithText(page, listOf(ink to pretty.replace(Regex("\\s+"), " ").trim()))
-        }
-    }
-
-    /** Lasso → save the selection as a picture in Photos. */
+    /** Lasso -> save the selection as a picture in Photos. */
     fun saveSelectionScreenshot() {
         viewModelScope.launch {
             val bmp = selectionImage() ?: return@launch
@@ -1642,100 +1575,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             }
             say(if (ok) "Saved to Photos" else "Couldn't save the picture")
         }
-    }
-
-    /** Straightens and lines up the selected handwriting. */
-    fun tidySelection() {
-        val p = pages.getOrNull(selectionPage) ?: return
-        val sel = p.items.filter { it.id in selection }
-        if (sel.none { it is InkItem }) { say("Select some handwriting first"); return }
-        val tidy = InkLayout.tidy(sel).associateBy { it.id }
-        beginEdit(selectionPage)
-        applyItems(selectionPage, p.items.map { tidy[it.id] ?: it })
-    }
-
-    /** Selection → flashcard with the recognised text on the front. */
-    fun cardFromSelectionText() {
-        val ink = selectedInk()
-        if (ink.isEmpty()) { cardFromSelection(); return }
-        viewModelScope.launch {
-            val t = recognizeOrSay(ink) ?: return@launch
-            cardDraft = CardDraft(com.pronotes.app.data.Flashcard(UUID.randomUUID().toString(), front = t, pageId = pages.getOrNull(selectionPage)?.id, created = System.currentTimeMillis()), true)
-        }
-    }
-
-    // Convert-as-you-write and maths-as-you-write: new strokes wait a moment, then are read together.
-    private val freshInk = LinkedHashMap<Long, Int>()
-    private var autoJob: Job? = null
-
-    internal fun noteNewInk(page: Int, before: List<PageItem>, after: List<PageItem>) {
-        val s = settingsFlow.value
-        if (!s.autoConvert && !s.mathAssist) return
-        if (after.size <= before.size) { if (after.size < before.size) freshInk.keys.retainAll(after.map { it.id }.toSet()); return }
-        val old = before.map { it.id }.toHashSet()
-        after.forEach { if (it is InkItem && it.id !in old && !it.isHighlighter) freshInk[it.id] = page }
-        if (freshInk.isEmpty()) return
-        autoJob?.cancel()
-        autoJob = viewModelScope.launch {
-            delay(if (s.autoConvert) 1400 else 900)
-            val byPage = freshInk.entries.groupBy({ it.value }, { it.key })
-            freshInk.clear()
-            for ((pg, ids) in byPage) {
-                val p = pages.getOrNull(pg) ?: continue
-                val ink = p.items.filter { it.id in ids }.filterIsInstance<InkItem>()
-                if (ink.isEmpty()) continue
-                // Only lines that look like writing: not too tall, wider than high. Drawings stay ink.
-                val lines = InkLayout.lines(ink).filter { l ->
-                    val b = InkLayout.bounds(l)
-                    b.height() in 8f..240f && (b.width() > b.height() * 0.8f || l.size >= 2)
-                }
-                if (s.mathAssist) {
-                    val lastNew = lines.lastOrNull() ?: continue
-                    // The sum may have been written in bits ("5 + 6" then a pause, then "="): read the
-                    // whole line of ink to the left, so the answer belongs to all of it.
-                    val nb = InkLayout.bounds(lastNew)
-                    val band = RectF(nb.left - 4000f, nb.top - nb.height() * 0.6f, nb.right, nb.bottom + nb.height() * 0.6f)
-                    val last = p.items.filterIsInstance<InkItem>().filter { !it.isHighlighter && RectF.intersects(it.bounds, band) }
-                        .let { all -> InkLayout.lines(all).firstOrNull { l -> l.any { it.id in ids } } ?: lastNew }
-                    val guesses = Handwriting.candidates(last, s.handwritingLang)
-                    val eqGuesses = guesses.filter { it.trimEnd().endsWith("=") }
-                    val raw = MathSolver.bestCandidate(eqGuesses)
-                    if (raw != null && placeAnswer(pg, last, raw, quiet = true)) continue
-                    if (!s.autoConvert) continue
-                }
-                val texts = ArrayList<Pair<List<InkItem>, String>>()
-                var before = ""
-                for (l in lines) { val t = Handwriting.recognize(l, s.handwritingLang, before) ?: continue; texts += l to t; before = t }
-                if (texts.isNotEmpty()) replaceInkWithText(pg, texts)
-            }
-        }
-    }
-
-    /** Handwriting index for search: recognised lines per page, kept while the page is unchanged. */
-    private val inkText = HashMap<String, Pair<Int, List<Pair<String, RectF>>>>()
-
-    private suspend fun inkLines(i: Int): List<Pair<String, RectF>> {
-        val p = pages.getOrNull(i) ?: return emptyList()
-        val ink = p.items.filterIsInstance<InkItem>().filter { !it.isHighlighter }
-        if (ink.isEmpty()) return emptyList()
-        val sig = System.identityHashCode(p.items)
-        inkText[p.id]?.takeIf { it.first == sig }?.let { return it.second }
-        val out = InkLayout.lines(ink).mapNotNull { l ->
-            Handwriting.recognize(l, settingsFlow.value.handwritingLang)?.let { it to InkLayout.bounds(l) }
-        }
-        inkText[p.id] = sig to out
-        return out
-    }
-
-    internal suspend fun inkHits(query: String): List<SearchHit> {
-        if (!settingsFlow.value.inkSearch) return emptyList()
-        if (pages.none { p -> p.items.any { it is InkItem } }) return emptyList()
-        if (!Handwriting.prepare(settingsFlow.value.handwritingLang)) return emptyList()
-        val hits = ArrayList<SearchHit>()
-        for (i in pages.indices) {
-            inkLines(i).forEach { (t, r) -> if (t.contains(query, ignoreCase = true)) hits += SearchHit(i, listOf(RectF(r).apply { inset(-6f, -6f) }), "✍ $t") }
-        }
-        return hits
     }
 
     // ---------------------------------------------------------------- PDF text selection
@@ -1838,7 +1677,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 aiBusy = false
                 aiStage = ""
             }
-            recordPetXp(10)
             explanation = s.text to ans
         }
     }
@@ -1879,10 +1717,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun answerQuestion(id: String, right: Boolean) {
         quiz = quiz.map { if (it.id == id) (if (right) it.copy(right = it.right + 1) else it.copy(wrong = it.wrong + 1)) else it }
         saveStudy()
-        recordPetXp(if (right) 6 else 2)
     }
 
-    /** Text to learn from: PDF text, typed text, sticky notes and (when ready) handwriting. */
+    /** Text to learn from: PDF text, typed text, sticky notes, and mind map nodes. */
     private suspend fun studyText(range: IntRange): Pair<String, String?> {
         val idx = textIndex()
         val sb = StringBuilder()
@@ -1891,8 +1728,14 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             val p = pages.getOrNull(i) ?: continue
             val before = sb.length
             if (p.pdfPage >= 0 && idx != null) sb.append(idx.pageText(p.pdfPage)).append('\n')
-            p.items.forEach { (it as? TextItem)?.text?.let { t -> sb.append(t).append(". ") }; (it as? StickyItem)?.text?.let { t -> sb.append(t).append(". ") } }
-            if (Handwriting.ready) inkLines(i).forEach { sb.append(it.first).append(". ") }
+            p.items.forEach {
+                (it as? TextItem)?.text?.let { t -> sb.append(t).append(". ") }
+                (it as? StickyItem)?.text?.let { t -> sb.append(t).append(". ") }
+                (it as? MindNodeItem)?.let { m ->
+                    sb.append(m.label).append(". ")
+                    if (m.notes.isNotBlank()) sb.append(m.notes).append(". ")
+                }
+            }
             if (sb.length > before && firstPage == null) firstPage = p.id
         }
         return sb.toString() to firstPage
@@ -1922,7 +1765,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             }
             cards = cards + add
             saveStudy()
-            if (add.isNotEmpty()) recordPetXp(15)
             say(if (add.isEmpty()) "No new cards found on ${if (allPages) "these pages" else "this page"}" else "Added ${add.size} cards")
         }
     }
@@ -1932,7 +1774,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     fun summarize() {
         viewModelScope.launch {
-            aiStage = "Reading page ink & notes…"
+            aiStage = "Reading page notes…"
             aiBusy = true
             val res = try {
                 val (text, _) = studyText(pageIndex..pageIndex)
@@ -1948,7 +1790,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             if (res == null || (res.points.isEmpty() && res.definitions.isEmpty())) {
                 say("Not enough text on this page to summarise")
             } else {
-                recordPetXp(12)
                 summary = res
             }
         }
@@ -1981,7 +1822,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             pageIndex,
             p.items + StickyItem(ItemIds.next(), 80f, 90f, 340f, 320f, stickyColor, text, fontSize = 24f),
         )
-        recordPetXp(10)
         say("Added summary as sticky note")
     }
 
@@ -1996,8 +1836,33 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             pageIndex,
             p.items + StickyItem(ItemIds.next(), (p.width - 320f).coerceAtLeast(60f) / 2f, 120f, 320f, 280f, stickyColor, body, fontSize = 24f),
         )
-        recordPetXp(6)
         say("Clipped to sticky note")
+    }
+
+    /** Inserts text (e.g. from Split Notes or import) onto the active page as a formatted text block. */
+    fun clipTextAsPageItem(rawText: String, sourceTitle: String = "") {
+        val p = currentPage ?: return
+        val clean = rawText.trim().take(900)
+        if (clean.isBlank()) { say("Nothing to insert on this page"); return }
+        val body = if (sourceTitle.isNotBlank()) "$sourceTitle\n$clean" else clean
+        beginEdit(pageIndex)
+        applyItems(pageIndex, p.items + TextItem(ItemIds.next(), body, 80f, 120f, 26f, penStyle.color))
+        say("Inserted onto page")
+    }
+
+    /** Imports PDFs, images, Markdown/TXT/HTML/CSV/JSON files as new pages inside this notebook. */
+    fun importFilesIntoCurrent(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            val built = repo.buildPagesFromUris(noteId, uris)
+            if (built.isEmpty()) { say("Could not read any pages from those files"); return@launch }
+            val insertAt = (pageIndex + 1).coerceIn(0, pages.size)
+            pages.addAll(insertAt, built)
+            undoStack.clear(); redoStack.clear(); refreshUndo()
+            scheduleSave(); onPagesChanged?.invoke()
+            onScrollTo?.invoke(insertAt)
+            say("Imported ${built.size} page${if (built.size == 1) "" else "s"}")
+        }
     }
 
     fun generateQuiz(allPages: Boolean) {
@@ -2019,7 +1884,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             }
             quiz = quiz + add
             saveStudy()
-            if (add.isNotEmpty()) recordPetXp(15)
             say(if (add.isEmpty()) "Not enough text to make questions here" else "Added ${add.size} questions")
         }
     }
@@ -2060,10 +1924,3 @@ data class LinkEnd(
     val url: String? = null,
 )
 
-/** Colour of maths answers; also how the app recognises them when the sum is erased. */
-val MATH_COLOR: Int = 0xFFF2A007.toInt()
-/** Answers made before v9.2 used this blue. */
-val MATH_COLOR_OLD: Int = 0xFF3D6CF5.toInt()
-
-/** How long the glow takes to travel along a sum before its answer appears. */
-const val SWEEP_MS = 480L

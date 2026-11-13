@@ -187,10 +187,7 @@ fun SummarySheet(
                         StudyColors.summary,
                         "✨",
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            CompanionBadge(compact = true, onDarkBackground = true)
-                            TextButton(onClick = onClose) { Text("Close", color = Color.White) }
-                        }
+                        TextButton(onClick = onClose) { Text("Close", color = Color.White) }
                     }
                 Spacer(Modifier.height(12.dp))
                 Column(

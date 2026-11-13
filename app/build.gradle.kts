@@ -86,8 +86,6 @@ kotlin {
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2025.08.00")
     implementation(composeBom)
-    // On-device handwriting recognition (the model downloads once, then works offline).
-    implementation("com.google.mlkit:digital-ink-recognition:18.1.0")
     // Free on-device Gemini Nano (only on devices with Android AICore; the app falls back otherwise).
     implementation("com.google.mlkit:genai-prompt:1.0.0-beta4")
     implementation("androidx.compose.ui:ui")

@@ -184,6 +184,8 @@ data class MindNodeItem(
     val color: Int = 0xFF3D6CF4.toInt(),
     val shape: String = "pill",
     val collapsed: Boolean = false,
+    val notes: String = "",
+    val tag: String = "",
 ) : PageItem {
     override val bounds: RectF get() = RectF(x, y, x + w, y + h)
     override fun translated(dx: Float, dy: Float): PageItem = copy(x = x + dx, y = y + dy)

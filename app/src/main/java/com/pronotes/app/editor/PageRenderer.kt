@@ -136,9 +136,10 @@ class PageRenderer(private val noteDir: File?) {
 
     private val coverPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val mindLinkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
-    private val mindFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; setShadowLayer(10f, 0f, 4f, 0x26000000) }
+    private val mindFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; setShadowLayer(14f, 0f, 5f, 0x24000000) }
     private val mindStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val mindTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
+    private val mindSubTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
     private val mindPath = Path()
     private val wbOriginPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -714,13 +715,30 @@ class PageRenderer(private val noteDir: File?) {
             if (transform != null && child.id in transformIds) {
                 pt[0] = cx; pt[1] = cy; transform.mapPoints(pt); cx = pt[0]; cy = pt[1]
             }
-            val dx = (cx - px) * 0.45f
+            val horiz = kotlin.math.abs(cx - px) >= kotlin.math.abs(cy - py) * 0.72f
             mindPath.reset()
             mindPath.moveTo(px, py)
-            mindPath.cubicTo(px + dx, py, cx - dx, cy, cx, cy)
-            mindLinkPaint.color = (child.color and 0x00FFFFFF) or (0xB8 shl 24)
-            mindLinkPaint.strokeWidth = 4.2f
+            if (horiz) {
+                val dx = (cx - px) * 0.5f
+                mindPath.cubicTo(px + dx, py, cx - dx, cy, cx, cy)
+            } else {
+                val dy = (cy - py) * 0.5f
+                mindPath.cubicTo(px, py + dy, cx, cy - dy, cx, cy)
+            }
+            val fromRoot = parent.parentId == null
+            val baseW = if (fromRoot) 5.6f else 3.8f
+            // Soft outer glow under connector
+            mindLinkPaint.color = (child.color and 0x00FFFFFF) or (0x26 shl 24)
+            mindLinkPaint.strokeWidth = baseW + 5f
             canvas.drawPath(mindPath, mindLinkPaint)
+            // Crisp branch curve
+            mindLinkPaint.color = (child.color and 0x00FFFFFF) or (0xD8 shl 24)
+            mindLinkPaint.strokeWidth = baseW
+            canvas.drawPath(mindPath, mindLinkPaint)
+            // Anchor junction dots
+            fillPaint.color = child.color
+            canvas.drawCircle(px, py, baseW * 0.85f, fillPaint)
+            canvas.drawCircle(cx, cy, baseW * 0.7f, fillPaint)
         }
     }
 
@@ -902,8 +920,17 @@ class PageRenderer(private val noteDir: File?) {
         val r = RectF(item.x, item.y, item.x + item.w, item.y + item.h)
         val isRoot = item.parentId == null
         val isSelected = item.id == activeMindNodeId
+
+        if (isRoot && item.shape != "diamond") {
+            val halo = RectF(r).apply { inset(-6f, -6f) }
+            mindStrokePaint.color = (item.color and 0x00FFFFFF) or (0x38 shl 24)
+            mindStrokePaint.strokeWidth = 3f
+            val hRad = if (item.shape == "circle") minOf(halo.width(), halo.height()) / 2f else if (item.shape == "rect") 22f else minOf(halo.width(), halo.height()) / 2f
+            canvas.drawRoundRect(halo, hRad, hRad, mindStrokePaint)
+        }
+
         mindFillPaint.color = item.color
-        mindStrokePaint.color = if (isSelected) 0xFFFFD60A.toInt() else (0x55FFFFFF)
+        mindStrokePaint.color = if (isSelected) 0xFFFFD60A.toInt() else (0x66FFFFFF)
         mindStrokePaint.strokeWidth = if (isSelected) 5.5f else if (isRoot) 3.5f else 2f
 
         when (item.shape) {
@@ -922,8 +949,8 @@ class PageRenderer(private val noteDir: File?) {
                 canvas.drawOval(r, mindStrokePaint)
             }
             "rect" -> {
-                canvas.drawRoundRect(r, 16f, 16f, mindFillPaint)
-                canvas.drawRoundRect(r, 16f, 16f, mindStrokePaint)
+                canvas.drawRoundRect(r, 18f, 18f, mindFillPaint)
+                canvas.drawRoundRect(r, 18f, 18f, mindStrokePaint)
             }
             else -> {
                 val rad = minOf(r.width(), r.height()) / 2f
@@ -933,32 +960,84 @@ class PageRenderer(private val noteDir: File?) {
         }
 
         val lum = Color.luminance(item.color)
-        mindTextPaint.color = if (lum > 0.56f) 0xFF1B1F2A.toInt() else Color.WHITE
-        mindTextPaint.textSize = if (isRoot) 26f else 22f
-        mindTextPaint.isFakeBoldText = isRoot
+        val fg = if (lum > 0.56f) 0xFF1B1F2A.toInt() else Color.WHITE
+        val fgMuted = if (lum > 0.56f) 0xBB2E3440.toInt() else 0xCCF1F5F9.toInt()
+
+        // Optional compact tag chip on upper edge
+        val tag = item.tag.trim()
+        if (tag.isNotEmpty() && item.shape != "diamond") {
+            mindSubTextPaint.textSize = 13f
+            mindSubTextPaint.isFakeBoldText = true
+            val labelT = tag.take(16)
+            val tw = mindSubTextPaint.measureText(labelT) + 16f
+            val chipR = RectF(r.centerX() - tw / 2f, r.top - 12f, r.centerX() + tw / 2f, r.top + 12f)
+            fillPaint.color = 0xFF151822.toInt()
+            canvas.drawRoundRect(chipR, 12f, 12f, fillPaint)
+            mindStrokePaint.color = item.color
+            mindStrokePaint.strokeWidth = 2f
+            canvas.drawRoundRect(chipR, 12f, 12f, mindStrokePaint)
+            mindSubTextPaint.color = Color.WHITE
+            mindSubTextPaint.textAlign = Paint.Align.CENTER
+            canvas.drawText(labelT, chipR.centerX(), chipR.centerY() + 4.5f, mindSubTextPaint)
+            mindSubTextPaint.textAlign = Paint.Align.LEFT
+        }
+
+        mindTextPaint.color = fg
+        mindTextPaint.textSize = if (isRoot) 26f else 21f
+        mindTextPaint.isFakeBoldText = isRoot || item.notes.isNotBlank()
         val padX = if (item.shape == "diamond") r.width() * 0.22f else 18f
         val availW = (r.width() - padX * 2f).toInt().coerceAtLeast(24)
         val txt = item.label.ifBlank { "Idea" }
+        val hasNotes = item.notes.isNotBlank() && r.height() >= 76f && item.shape != "diamond"
         val layout = StaticLayout.Builder.obtain(txt, 0, txt.length, mindTextPaint, availW)
             .setAlignment(Layout.Alignment.ALIGN_CENTER)
-            .setMaxLines(4)
+            .setMaxLines(if (hasNotes) 2 else 4)
             .build()
+
+        var noteLayout: StaticLayout? = null
+        if (hasNotes) {
+            mindSubTextPaint.color = fgMuted
+            mindSubTextPaint.textSize = 15f
+            mindSubTextPaint.isFakeBoldText = false
+            val nTxt = item.notes.trim().replace('\n', ' ')
+            noteLayout = StaticLayout.Builder.obtain(nTxt, 0, nTxt.length, mindSubTextPaint, availW)
+                .setAlignment(Layout.Alignment.ALIGN_CENTER)
+                .setMaxLines(2)
+                .build()
+        }
+        val totalH = layout.height + (noteLayout?.let { it.height + 6 } ?: 0)
         canvas.save()
-        canvas.translate(r.left + (r.width() - availW) / 2f, r.centerY() - layout.height / 2f)
+        canvas.translate(r.left + (r.width() - availW) / 2f, r.centerY() - totalH / 2f)
         layout.draw(canvas)
+        if (noteLayout != null) {
+            canvas.translate(0f, layout.height + 6f)
+            noteLayout.draw(canvas)
+        }
         canvas.restore()
 
         if (item.collapsed) {
-            val hiddenCount = allItems.count { it is MindNodeItem && it.parentId == item.id }
+            fun countDescendants(rootId: Long): Int {
+                var c = 0
+                for (it in allItems) {
+                    if (it is MindNodeItem && it.parentId == rootId) {
+                        c += 1 + countDescendants(it.id)
+                    }
+                }
+                return c
+            }
+            val hiddenCount = countDescendants(item.id)
             val badge = if (hiddenCount > 0) "+$hiddenCount" else "+"
-            val bx = r.right - 6f
+            val bx = r.right - 4f
             val by = r.centerY()
-            fillPaint.color = 0xFF1B1F2A.toInt()
-            canvas.drawCircle(bx, by, 16f, fillPaint)
+            fillPaint.color = 0xFF151822.toInt()
+            canvas.drawCircle(bx, by, 17f, fillPaint)
+            mindStrokePaint.color = Color.WHITE
+            mindStrokePaint.strokeWidth = 2f
+            canvas.drawCircle(bx, by, 17f, mindStrokePaint)
             mindTextPaint.color = Color.WHITE
-            mindTextPaint.textSize = 15f
+            mindTextPaint.textSize = 14f
             mindTextPaint.textAlign = Paint.Align.CENTER
-            canvas.drawText(badge, bx, by + 5.5f, mindTextPaint)
+            canvas.drawText(badge, bx, by + 5f, mindTextPaint)
             mindTextPaint.textAlign = Paint.Align.LEFT
         }
     }

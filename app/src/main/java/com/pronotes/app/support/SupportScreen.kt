@@ -94,7 +94,6 @@ fun SupportScreen(onBack: () -> Unit) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
                 Spacer(Modifier.weight(1f))
-                com.pronotes.app.editor.CompanionBadge(compact = true)
             }
             Spacer(Modifier.height(24.dp))
             BeatingHeart(Modifier.size(110.dp))

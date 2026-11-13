@@ -41,6 +41,12 @@ enum class PaperStyle(val label: String) {
         CORNELL, STUDY, TWO_COLUMN, STORYBOARD -> "Study"
         MUSIC, TABLATURE -> "Music"
     }
+
+    val visibleInPicker: Boolean get() = this != HANDWRITING
+
+    companion object {
+        val pickerEntries: List<PaperStyle> get() = entries.filter { it.visibleInPicker }
+    }
 }
 
 @Serializable
@@ -144,6 +150,8 @@ sealed class ItemDoc {
         val color: Int,
         val shape: String = "pill",
         val collapsed: Boolean = false,
+        val notes: String = "",
+        val tag: String = "",
     ) : ItemDoc()
 }
 

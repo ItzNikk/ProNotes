@@ -130,14 +130,6 @@ data class AppSettings(
     val autoUpdateCheck: Boolean = true,
     /** Remind about new versions: a notification once a day, and the update sheet on launch. */
     val updateReminders: Boolean = true,
-    // smart ink (on device)
-    /** Turn handwriting into typed text a moment after you stop writing. */
-    val autoConvert: Boolean = false,
-    /** Write "12 x 4 =" and the answer appears. */
-    val mathAssist: Boolean = false,
-    /** Search finds handwriting too. */
-    val inkSearch: Boolean = true,
-    val handwritingLang: String = "en-US",
     /** A light tick when the pen touches down and when shapes snap. */
     val penHaptics: Boolean = true,
     /** Paper feel while writing: soft scratch sound and grain-like haptic ticks. */
@@ -145,11 +137,6 @@ data class AppSettings(
     val paperHaptics: Boolean = true,
     val paperVolume: Float = 0.4f,
     val liquidGlass: Boolean = true,
-    /** Little study buddy that reacts to what you do. */
-    val pet: Boolean = true,
-    val petId: String = "sparkchu",
-    val petName: String = "",
-    val petXp: Int = 45,
     // pens
     val penName: String = "Pro Stylus",
     val hoverCursor: Boolean = true,
@@ -232,19 +219,11 @@ class SettingsStore private constructor(context: Context) {
             toolbarTools = prefs.getString("toolbarTools", "") ?: "",
             autoUpdateCheck = b("autoUpdate", d.autoUpdateCheck),
             updateReminders = b("updRemind", d.updateReminders),
-            autoConvert = b("autoConvert", d.autoConvert),
-            mathAssist = b("mathAssist", d.mathAssist),
-            inkSearch = b("inkSearch", d.inkSearch),
-            handwritingLang = prefs.getString("hwLang", d.handwritingLang) ?: d.handwritingLang,
             penHaptics = b("penHaptics", d.penHaptics),
             paperSound = b("paperSound", d.paperSound),
             paperHaptics = b("paperHaptics", d.paperHaptics),
             paperVolume = prefs.getFloat("paperVol", d.paperVolume),
             liquidGlass = b("glass", d.liquidGlass),
-            pet = b("pet", d.pet),
-            petId = prefs.getString("petId", d.petId) ?: d.petId,
-            petName = prefs.getString("petName", d.petName) ?: d.petName,
-            petXp = prefs.getInt("petXp", d.petXp),
             penName = prefs.getString("penName", d.penName) ?: d.penName,
             hoverCursor = b("hoverCursor", d.hoverCursor),
             penClickDelay = enumOf("penClickDelay", d.penClickDelay),
@@ -310,19 +289,11 @@ class SettingsStore private constructor(context: Context) {
             .putString("toolbarTools", s.toolbarTools)
             .putBoolean("autoUpdate", s.autoUpdateCheck)
             .putBoolean("updRemind", s.updateReminders)
-            .putBoolean("autoConvert", s.autoConvert)
-            .putBoolean("mathAssist", s.mathAssist)
-            .putBoolean("inkSearch", s.inkSearch)
-            .putString("hwLang", s.handwritingLang)
             .putBoolean("penHaptics", s.penHaptics)
             .putBoolean("paperSound", s.paperSound)
             .putBoolean("paperHaptics", s.paperHaptics)
             .putFloat("paperVol", s.paperVolume)
             .putBoolean("glass", s.liquidGlass)
-            .putBoolean("pet", s.pet)
-            .putString("petId", s.petId)
-            .putString("petName", s.petName)
-            .putInt("petXp", s.petXp)
             .putString("penName", s.penName)
             .putBoolean("hoverCursor", s.hoverCursor)
             .putString("penClickDelay", s.penClickDelay.name)
@@ -422,11 +393,6 @@ class SettingsStore private constructor(context: Context) {
 
     fun updatePen(p: PenProfile) = savePens(_pens.value.map { if (it.name == p.name) p else it })
     fun forgetPen(name: String) = savePens(_pens.value.filterNot { it.name == name })
-
-    fun addPetXp(delta: Int) {
-        if (delta <= 0) return
-        update { it.copy(petXp = it.petXp + delta) }
-    }
 
     // ------------------------------------------------------------ support
     /** Counts launches; true when it is a good moment for a gentle support reminder. */

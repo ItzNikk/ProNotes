@@ -5,7 +5,6 @@ import {
   Cpu,
   Download,
   Eraser,
-  Heart,
   Palette,
   PenTool,
   Plus,
@@ -24,18 +23,15 @@ import {
   PaperStyle,
   PenKind,
   PenPreset,
-  PetId,
   ScribbleSensitivity,
   ThemeMode,
   ToolbarDock,
 } from '../types/models';
-import { AiParticleBackdrop, COMPANIONS, getCompanionSpec, PetAvatarSvg, PipPet } from './PipPet';
+import { AiParticleBackdrop } from './AiVisuals';
 
 interface SettingsScreenProps {
   settings: AppSettings;
   onUpdate: (patch: Partial<AppSettings>) => void;
-  onSwitchPet?: (petId: PetId) => void;
-  onRecordPetAction?: (kind: 'pet' | 'treat' | 'study', xpGain?: number) => void;
   onSavePenPreset?: (preset: PenPreset) => void;
   onDeletePenPreset?: (id: string) => void;
   onBack: () => void;
@@ -47,8 +43,6 @@ interface SettingsScreenProps {
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   settings,
   onUpdate,
-  onSwitchPet,
-  onRecordPetAction,
   onSavePenPreset,
   onDeletePenPreset,
   onBack,
@@ -136,17 +130,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           </button>
           <h1 className="text-lg font-bold tracking-tight">Settings</h1>
         </div>
-        {settings.pet && (
-          <PipPet
-            petId={settings.petId}
-            petName={settings.petName}
-            bond={settings.petBond}
-            align="right"
-            onSwitchPet={onSwitchPet}
-            onRenamePet={(petName) => onUpdate({ petName })}
-            onPetAction={onRecordPetAction}
-          />
-        )}
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
@@ -211,70 +194,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 checked={settings.liquidGlass}
                 onChange={(v) => onUpdate({ liquidGlass: v })}
               />
-            </div>
-          </section>
-
-          {/* Study Companion & Bond */}
-          <section className="space-y-2">
-            <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
-              <Heart className="h-3.5 w-3.5" /> Study Companion
-            </h2>
-            <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
-              <ToggleRow
-                title="Show study buddy in editor"
-                sub="Animated companion that levels up as you write, solve & study"
-                checked={settings.pet}
-                onChange={(v) => onUpdate({ pet: v })}
-              />
-              {settings.pet && (
-                <>
-                  <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
-                    <div>
-                      <div className="text-sm font-semibold">Companion Name</div>
-                      <div className="text-xs text-slate-500">
-                        Give your companion a custom nickname across all screens
-                      </div>
-                    </div>
-                    <input
-                      type="text"
-                      value={settings.petName}
-                      onChange={(e) => onUpdate({ petName: e.target.value })}
-                      placeholder={getCompanionSpec(settings.petId).name}
-                      className="w-44 rounded-xl border border-black/12 bg-slate-50 px-3 py-1.5 text-sm font-semibold outline-none focus:border-blue-500 dark:border-white/15 dark:bg-[#22242C]"
-                    />
-                  </div>
-                  <div className="p-4">
-                    <div className="mb-2.5 flex items-center justify-between">
-                      <span className="text-sm font-semibold">Choose Companion</span>
-                      <span className="font-mono-num text-xs font-semibold text-violet-600 dark:text-violet-400">
-                        Level {settings.petBond?.level ?? 1} · {settings.petBond?.xp ?? 0} XP
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
-                      {COMPANIONS.map((c) => {
-                        const active = settings.petId === c.id;
-                        return (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() => (onSwitchPet ? onSwitchPet(c.id) : onUpdate({ petId: c.id }))}
-                            className={`flex flex-col items-center rounded-2xl border p-2 transition ${
-                              active
-                                ? 'border-blue-600 bg-blue-500/10 shadow-sm'
-                                : 'border-black/8 hover:bg-black/[0.03] dark:border-white/10'
-                            }`}
-                          >
-                            <PetAvatarSvg petId={c.id} className="h-10 w-10" />
-                            <span className="mt-1 w-full truncate text-center text-[11px] font-semibold">
-                              {c.name}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </>
-              )}
             </div>
           </section>
 
@@ -451,7 +370,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           {/* Gestures, Eraser & Writing */}
           <section className="space-y-2">
             <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
-              <Eraser className="h-3.5 w-3.5" /> Scribble, Eraser & Maths
+              <Eraser className="h-3.5 w-3.5" /> Scribble, Eraser & Shapes
             </h2>
             <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
               <ToggleRow
@@ -529,12 +448,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 onChange={(v) => onUpdate({ circleToLasso: v })}
               />
               <ToggleRow
-                title="Solve maths as you write ="
-                sub="Evaluate equations, variables, derivatives, powers & quadratics"
-                checked={settings.mathAssist}
-                onChange={(v) => onUpdate({ mathAssist: v })}
-              />
-              <ToggleRow
                 title="Highlighter behind ink"
                 sub="Keep pen ink & text crisp above highlight strokes"
                 checked={settings.highlighterBehind}
@@ -558,7 +471,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   <div>
                     <div className="text-sm font-semibold">Manage downloadable local AI models</div>
                     <div className="text-xs text-slate-500">
-                      Download SmolLM2, Qwen 2.5/3, Llama 3.2, Gemma 3, or DeepSeek-R1 onto your device
+                      Download SmolLM2, Qwen 2.5/3, Llama 3.2, or Gemma 3 onto your device
                     </div>
                   </div>
                 </div>
@@ -567,8 +480,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </span>
               </div>
               <ToggleRow
-                title="Enhanced AI & math reveal animations"
-                sub="Orbital shimmer sweeps, blooming answers, and staggered study cards"
+                title="Enhanced AI visual animations"
+                sub="Orbital shimmer sweeps, flowing particle waves, and staggered study cards"
                 checked={settings.aiAnimations}
                 onChange={(v) => onUpdate({ aiAnimations: v })}
               />

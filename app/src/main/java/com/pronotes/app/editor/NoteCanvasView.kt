@@ -79,8 +79,6 @@ interface CanvasHost {
     fun onLinkTarget(page: Int, x: Float, y: Float) {}
     fun onLinkLongPress(id: String) {}
     fun onOpenUrl(url: String) {}
-    /** Maths answer reveal in progress (sweep + glow). */
-    fun mathAnim(): EditorViewModel.MathAnim? = null
     /** Pattern for new tape ("stripes", "dots", "image:<file>", ...). */
     fun tapePattern(): String = "stripes"
     /** The pen is down (true) or lifted (false): the toolbar fades while you write under it. */
@@ -133,6 +131,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             renderer?.activeMindNodeId = value
             layer.invalidate()
         }
+
+    var moveMindSubtree: Boolean = false
 
     var renderer: PageRenderer? = null
         set(value) {
@@ -537,6 +537,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     private var dragMindId: Long = -1L
     private var dragMindOrigX = 0f
     private var dragMindOrigY = 0f
+    private var dragMindOrigPos: Map<Long, Pair<Float, Float>> = emptyMap()
     private var dragMindOrigPage = 0
     private var dragMindMoved = false
     private var dragMindDownWx = 0f
@@ -802,8 +803,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                     Tool.TAPE -> { mode = Mode.TAPE; layer.tapePreview = null }
                     Tool.MINDMAP -> {
                         val p = pages.getOrNull(activePage)
-                        val hidden = renderer?.hiddenMindNodeIds(p?.items ?: emptyList()) ?: emptySet()
-                        val hit = p?.items?.lastOrNull { it is MindNodeItem && it.id !in hidden && it.bounds.contains(wx, wy) } as MindNodeItem?
+                        val allItems = p?.items ?: emptyList()
+                        val hidden = renderer?.hiddenMindNodeIds(allItems) ?: emptySet()
+                        val hit = allItems.lastOrNull { it is MindNodeItem && it.id !in hidden && it.bounds.contains(wx, wy) } as MindNodeItem?
                         if (hit != null) {
                             dragMindId = hit.id
                             dragMindOrigX = hit.x
@@ -812,6 +814,19 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                             dragMindMoved = false
                             dragMindDownWx = wx
                             dragMindDownWy = wy
+                            dragMindOrigPos = if (moveMindSubtree) {
+                                val subIds = HashSet<Long>().apply { add(hit.id) }
+                                var added = true
+                                while (added) {
+                                    added = false
+                                    for (it in allItems) {
+                                        if (it is MindNodeItem && it.parentId in subIds && subIds.add(it.id)) added = true
+                                    }
+                                }
+                                allItems.filterIsInstance<MindNodeItem>().filter { it.id in subIds }.associate { it.id to (it.x to it.y) }
+                            } else {
+                                mapOf(hit.id to (hit.x to hit.y))
+                            }
                             mode = Mode.MIND_DRAG
                         } else {
                             mode = Mode.TAP
@@ -929,7 +944,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         if (dragMindMoved) {
                             val p = pages.getOrNull(dragMindOrigPage) ?: return
                             val updated = p.items.map { item ->
-                                if (item is MindNodeItem && item.id == dragMindId) item.copy(x = dragMindOrigX + dx, y = dragMindOrigY + dy)
+                                val orig = if (item is MindNodeItem) dragMindOrigPos[item.id] else null
+                                if (item is MindNodeItem && orig != null) item.copy(x = orig.first + dx, y = orig.second + dy)
                                 else item
                             }
                             pages = pages.toMutableList().also { it[dragMindOrigPage] = p.copy(items = updated) }
@@ -1010,6 +1026,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         }
                         dragMindId = -1L
                         dragMindMoved = false
+                        dragMindOrigPos = emptyMap()
                     }
                     Mode.TAP -> {
                         val (wx, wy) = toLocal(px, py, activePage)
@@ -2373,7 +2390,6 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             }
 
             drawLinks(canvas)
-            drawMathAnim(canvas)
             drawPuffs(canvas)
             drawPull(canvas)
             drawSelection(canvas)
@@ -2418,131 +2434,6 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
 
         private val outlinePath = Path()
-        private val sweepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeCap = Paint.Cap.ROUND; style = Paint.Style.STROKE }
-        private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val mathPath = Path()
-        private val mathSegment = Path()
-        private val mathMeasure = PathMeasure()
-
-        /**
-         * A restrained Apple Notes-inspired maths reveal: a soft colour-shifting light sweeps
-         * from the handwritten expression to the answer, then the answer receives a subtle
-         * spring-settle and a short halo. The answer text itself is revealed by the view model.
-         */
-        private fun drawMathAnim(canvas: Canvas) {
-            val anim = host.mathAnim() ?: return
-            if (anim.page !in pages.indices) return
-
-            val elapsed = (SystemClock.uptimeMillis() - anim.start).toFloat().coerceAtLeast(0f)
-            val sum = RectF(anim.sum)
-            val answer = RectF(anim.answer)
-            pageMatrix(anim.page, m).also { it.mapRect(sum); it.mapRect(answer) }
-
-            val x0 = sum.centerX()
-            val y0 = sum.centerY()
-            val x1 = answer.centerX()
-            val y1 = answer.centerY()
-            val lift = (sum.height() * 0.7f).coerceAtLeast(18f * density)
-
-            mathPath.reset()
-            mathPath.moveTo(x0, y0)
-            mathPath.quadTo((x0 + x1) * 0.5f, min(y0, y1) - lift, x1, y1)
-            mathMeasure.setPath(mathPath, false)
-            val pathLength = mathMeasure.length
-
-            val travel = (elapsed / SWEEP_MS.toFloat()).coerceIn(0f, 1f)
-            val eased = travel * travel * (3f - 2f * travel)
-            val headDistance = (pathLength * eased).coerceIn(0f, pathLength)
-
-            // A barely-there wash briefly marks the source expression before the light leaves it.
-            glowPaint.style = Paint.Style.FILL
-            glowPaint.shader = null
-            glowPaint.color = 0xFFFFC56E.toInt()
-            glowPaint.alpha = ((1f - eased) * 34f).toInt().coerceIn(0, 34)
-            canvas.drawRoundRect(sum, 12f * density, 12f * density, glowPaint)
-
-            // Draw the full travel path very faintly, then build a soft bloom under the moving edge.
-            sweepPaint.style = Paint.Style.STROKE
-            sweepPaint.strokeCap = Paint.Cap.ROUND
-            sweepPaint.strokeWidth = 1.3f * density
-            sweepPaint.shader = android.graphics.LinearGradient(
-                x0, y0, x1, y1,
-                intArrayOf(0x33F7B85B, 0x337F8BFF, 0x3366B7FF),
-                null,
-                android.graphics.Shader.TileMode.CLAMP
-            )
-            sweepPaint.alpha = 145
-            canvas.drawPath(mathPath, sweepPaint)
-            sweepPaint.shader = null
-
-            if (headDistance > 0.5f) {
-                mathSegment.reset()
-                mathMeasure.getSegment(0f, headDistance, mathSegment, true)
-
-                glowPaint.style = Paint.Style.STROKE
-                glowPaint.strokeCap = Paint.Cap.ROUND
-                glowPaint.strokeWidth = 17f * density
-                glowPaint.color = 0xFF8F9CFF.toInt()
-                glowPaint.alpha = ((1f - travel * 0.28f) * 62f).toInt()
-                canvas.drawPath(mathSegment, glowPaint)
-
-                sweepPaint.style = Paint.Style.STROKE
-                sweepPaint.strokeCap = Paint.Cap.ROUND
-                sweepPaint.strokeWidth = 3.1f * density
-                sweepPaint.shader = android.graphics.LinearGradient(
-                    x0, y0, x1, y1,
-                    intArrayOf(0xFFFFD28A.toInt(), 0xFFB9A5FF.toInt(), 0xFF83C7FF.toInt()),
-                    null,
-                    android.graphics.Shader.TileMode.CLAMP
-                )
-                sweepPaint.alpha = ((1f - travel * 0.16f) * 238f).toInt()
-                canvas.drawPath(mathSegment, sweepPaint)
-                sweepPaint.shader = null
-
-                val point = FloatArray(2)
-                if (mathMeasure.getPosTan(headDistance, point, null)) {
-                    val radius = (5.5f - travel * 1.2f) * density
-                    glowPaint.style = Paint.Style.FILL
-                    glowPaint.shader = android.graphics.RadialGradient(
-                        point[0], point[1], radius * 2.8f,
-                        intArrayOf(0xFFFFFFFF.toInt(), 0x99B8B4FF.toInt(), 0x007F8BFF),
-                        floatArrayOf(0f, 0.38f, 1f),
-                        android.graphics.Shader.TileMode.CLAMP
-                    )
-                    canvas.drawCircle(point[0], point[1], radius * 2.8f, glowPaint)
-                    glowPaint.shader = null
-                }
-            }
-
-            // A short halo and spring-settle at the answer endpoint; no persistent decoration remains.
-            if (elapsed >= SWEEP_MS) {
-                val reveal = ((elapsed - SWEEP_MS) / 620f).coerceIn(0f, 1f)
-                val fade = 1f - reveal
-                val rippleRadius = max(answer.width(), answer.height()).coerceAtLeast(18f * density) * (0.52f + 0.9f * reveal)
-                glowPaint.style = Paint.Style.FILL
-                glowPaint.shader = android.graphics.RadialGradient(
-                    answer.centerX(), answer.centerY(), rippleRadius,
-                    intArrayOf(0x44A9A0FF, 0x1C7FB9FF, 0x007FB9FF),
-                    null,
-                    android.graphics.Shader.TileMode.CLAMP
-                )
-                glowPaint.alpha = (fade * 255f).toInt()
-                canvas.drawCircle(answer.centerX(), answer.centerY(), rippleRadius, glowPaint)
-                glowPaint.shader = null
-
-                val ring = 7f * density + (1f - fade) * max(answer.width(), answer.height()) * 0.22f
-                sweepPaint.style = Paint.Style.STROKE
-                sweepPaint.strokeWidth = 1.5f * density
-                sweepPaint.color = 0xFF9AA8FF.toInt()
-                sweepPaint.alpha = (fade * 105f).toInt()
-                canvas.drawRoundRect(
-                    RectF(answer.left - ring, answer.top - ring * 0.35f, answer.right + ring, answer.bottom + ring * 0.35f),
-                    ring, ring, sweepPaint
-                )
-            }
-
-            if (elapsed < SWEEP_MS + 650f) postInvalidateOnAnimation()
-        }
         private val textSelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x553D6CF4 }
         private val linkFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt(); setShadowLayer(6f, 0f, 2f, 0x40000000) }
         private val linkGlyph = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Color.WHITE; strokeWidth = 1.8f * density; strokeCap = Paint.Cap.ROUND }

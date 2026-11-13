@@ -188,6 +188,253 @@ class Repository private constructor(private val context: Context) {
         id
     }
 
+    /** Imports PDFs, images, Markdown/TXT/HTML/CSV files, or JSON note exports into a new notebook. */
+    suspend fun importFiles(uris: List<Uri>, folderId: String?): String? = withContext(Dispatchers.IO) {
+        if (uris.isEmpty()) return@withContext null
+        val first = uris.first()
+        val firstName = displayName(first) ?: "Imported Note"
+        val firstMime = context.contentResolver.getType(first)?.lowercase().orEmpty()
+        if (uris.size == 1 && (firstMime == "application/pdf" || firstName.endsWith(".pdf", true))) {
+            return@withContext importPdf(first, folderId)
+        }
+        val id = UUID.randomUUID().toString()
+        val pageDocs = ArrayList<PageDoc>()
+        var coverColor = CoverColors[0]
+        var importedTitle = firstName.substringBeforeLast('.').ifBlank { "Imported Notes" }
+
+        val imageUris = uris.filter { u ->
+            val m = context.contentResolver.getType(u)?.lowercase().orEmpty()
+            val n = displayName(u).orEmpty().lowercase()
+            m.startsWith("image/") || n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".webp")
+        }
+        if (imageUris.size == uris.size) {
+            for (u in imageUris) {
+                val imgName = runCatching { saveImage(id, u) }.getOrNull() ?: continue
+                val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                File(noteDir(id), imgName).inputStream().use { android.graphics.BitmapFactory.decodeStream(it, null, opts) }
+                val bw = opts.outWidth.coerceAtLeast(200).toFloat()
+                val bh = opts.outHeight.coerceAtLeast(200).toFloat()
+                val maxW = PageSize.WIDTH - 120f
+                val maxH = PageSize.HEIGHT - 160f
+                val sc = minOf(maxW / bw, maxH / bh).coerceAtMost(3f)
+                val w = bw * sc
+                val h = bh * sc
+                val x = (PageSize.WIDTH - w) / 2f
+                val y = (PageSize.HEIGHT - h) / 2f
+                pageDocs += PageDoc(
+                    id = UUID.randomUUID().toString(),
+                    width = PageSize.WIDTH,
+                    height = PageSize.HEIGHT,
+                    paper = PaperStyle.BLANK,
+                    items = listOf(ItemDoc.Image(UUID.randomUUID().mostSignificantBits and Long.MAX_VALUE, imgName, x, y, w, h)),
+                )
+            }
+            if (imageUris.size > 1) importedTitle = "${firstName.substringBeforeLast('.')} (+${imageUris.size - 1})"
+        } else {
+            for (u in uris) {
+                val name = displayName(u) ?: "Imported"
+                val mime = context.contentResolver.getType(u)?.lowercase().orEmpty()
+                when {
+                    mime == "application/pdf" || name.endsWith(".pdf", true) -> {
+                        val subId = importPdf(u, folderId)
+                        if (uris.size == 1) return@withContext subId
+                        val subPages = runCatching { json.decodeFromString(NoteDoc.serializer(), File(noteDir(subId), "note.json").readText()).pages }.getOrDefault(emptyList())
+                        if (subPages.isNotEmpty()) return@withContext subId
+                    }
+                    mime.startsWith("image/") || name.endsWith(".png", true) || name.endsWith(".jpg", true) || name.endsWith(".jpeg", true) || name.endsWith(".webp", true) -> {
+                        val imgName = runCatching { saveImage(id, u) }.getOrNull() ?: continue
+                        val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        File(noteDir(id), imgName).inputStream().use { android.graphics.BitmapFactory.decodeStream(it, null, opts) }
+                        val bw = opts.outWidth.coerceAtLeast(200).toFloat()
+                        val bh = opts.outHeight.coerceAtLeast(200).toFloat()
+                        val sc = minOf((PageSize.WIDTH - 120f) / bw, (PageSize.HEIGHT - 160f) / bh).coerceAtMost(3f)
+                        pageDocs += PageDoc(
+                            id = UUID.randomUUID().toString(),
+                            width = PageSize.WIDTH,
+                            height = PageSize.HEIGHT,
+                            paper = PaperStyle.BLANK,
+                            items = listOf(ItemDoc.Image(nextImportItemId(), imgName, (PageSize.WIDTH - bw * sc) / 2f, (PageSize.HEIGHT - bh * sc) / 2f, bw * sc, bh * sc)),
+                        )
+                    }
+                    else -> {
+                        val raw = runCatching {
+                            context.contentResolver.openInputStream(u)?.bufferedReader()?.use { it.readText() }
+                        }.getOrNull().orEmpty()
+                        if (raw.isBlank()) continue
+                        if (name.endsWith(".json", true) || raw.trimStart().startsWith("{")) {
+                            val decoded = runCatching { json.decodeFromString(NoteDoc.serializer(), raw) }.getOrNull()
+                            if (decoded != null && decoded.pages.isNotEmpty()) {
+                                pageDocs += decoded.pages.map { it.copy(id = UUID.randomUUID().toString(), pdfPage = -1) }
+                                continue
+                            }
+                        }
+                        val normalized = normalizeImportedText(raw, name)
+                        pageDocs += textToPageDocs(name.substringBeforeLast('.'), normalized)
+                    }
+                }
+            }
+        }
+
+        if (pageDocs.isEmpty()) {
+            pageDocs += PageDoc(UUID.randomUUID().toString(), PageSize.WIDTH, PageSize.HEIGHT, PaperStyle.RULED)
+        }
+        File(noteDir(id), "note.json").writeText(json.encodeToString(NoteDoc.serializer(), NoteDoc(pages = pageDocs)))
+        val now = System.currentTimeMillis()
+        updateIndex {
+            it.copy(notebooks = it.notebooks + NotebookMeta(id, importedTitle, folderId, coverColor, PaperStyle.RULED, now, now, pageDocs.size))
+        }
+        runCatching { writeThumbnail(id, pageDocs.map { InkCodec.fromDoc(it) }) }
+        id
+    }
+
+    /** Creates a paginated notebook from pasted notes/Markdown/HTML/plain text copied from Notion, Obsidian, Keep, Apple Notes, etc. */
+    suspend fun importStructuredText(title: String, rawText: String, folderId: String?): String = withContext(Dispatchers.IO) {
+        val id = UUID.randomUUID().toString()
+        val cleanTitle = title.trim().ifBlank { deriveTitleFromText(rawText) }
+        val normalized = normalizeImportedText(rawText, "$cleanTitle.md")
+        val pageDocs = textToPageDocs(cleanTitle, normalized).ifEmpty {
+            listOf(PageDoc(UUID.randomUUID().toString(), PageSize.WIDTH, PageSize.HEIGHT, PaperStyle.RULED))
+        }
+        File(noteDir(id), "note.json").writeText(json.encodeToString(NoteDoc.serializer(), NoteDoc(pages = pageDocs)))
+        val now = System.currentTimeMillis()
+        updateIndex {
+            it.copy(notebooks = it.notebooks + NotebookMeta(id, cleanTitle, folderId, CoverColors[1], PaperStyle.RULED, now, now, pageDocs.size))
+        }
+        runCatching { writeThumbnail(id, pageDocs.map { InkCodec.fromDoc(it) }) }
+        id
+    }
+
+    /** Builds new pages from files/images to append into an existing notebook. */
+    suspend fun buildPagesFromUris(noteId: String, uris: List<Uri>): List<Page> = withContext(Dispatchers.IO) {
+        val out = ArrayList<PageDoc>()
+        for (u in uris) {
+            val name = displayName(u) ?: "Imported"
+            val mime = context.contentResolver.getType(u)?.lowercase().orEmpty()
+            if (mime.startsWith("image/") || name.endsWith(".png", true) || name.endsWith(".jpg", true) || name.endsWith(".jpeg", true) || name.endsWith(".webp", true)) {
+                val imgName = runCatching { saveImage(noteId, u) }.getOrNull() ?: continue
+                val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                File(noteDir(noteId), imgName).inputStream().use { android.graphics.BitmapFactory.decodeStream(it, null, opts) }
+                val bw = opts.outWidth.coerceAtLeast(200).toFloat()
+                val bh = opts.outHeight.coerceAtLeast(200).toFloat()
+                val sc = minOf((PageSize.WIDTH - 120f) / bw, (PageSize.HEIGHT - 160f) / bh).coerceAtMost(3f)
+                out += PageDoc(
+                    id = UUID.randomUUID().toString(),
+                    width = PageSize.WIDTH,
+                    height = PageSize.HEIGHT,
+                    paper = PaperStyle.BLANK,
+                    items = listOf(ItemDoc.Image(nextImportItemId(), imgName, (PageSize.WIDTH - bw * sc) / 2f, (PageSize.HEIGHT - bh * sc) / 2f, bw * sc, bh * sc)),
+                )
+            } else {
+                val raw = runCatching { context.contentResolver.openInputStream(u)?.bufferedReader()?.use { it.readText() } }.getOrNull().orEmpty()
+                if (raw.isNotBlank()) {
+                    val decoded = if (name.endsWith(".json", true) || raw.trimStart().startsWith("{")) {
+                        runCatching { json.decodeFromString(NoteDoc.serializer(), raw) }.getOrNull()
+                    } else null
+                    if (decoded != null && decoded.pages.isNotEmpty()) {
+                        out += decoded.pages.map { it.copy(id = UUID.randomUUID().toString(), pdfPage = -1) }
+                    } else {
+                        out += textToPageDocs(name.substringBeforeLast('.'), normalizeImportedText(raw, name))
+                    }
+                }
+            }
+        }
+        out.map { InkCodec.fromDoc(it) }
+    }
+
+    fun buildPagesFromText(title: String, rawText: String): List<Page> =
+        textToPageDocs(title.ifBlank { deriveTitleFromText(rawText) }, normalizeImportedText(rawText, "$title.md"))
+            .map { InkCodec.fromDoc(it) }
+
+    private fun nextImportItemId(): Long = (UUID.randomUUID().mostSignificantBits and 0x0000FFFFFFFFFFFFL).coerceAtLeast(1000L)
+
+    private fun deriveTitleFromText(raw: String): String {
+        val first = raw.lineSequence().map { it.trim().trimStart('#', '-', '*', '>', ' ') }.firstOrNull { it.isNotBlank() } ?: "Imported Note"
+        return first.take(42)
+    }
+
+    private fun normalizeImportedText(raw: String, filename: String): String {
+        val lower = filename.lowercase()
+        var txt = raw.replace("\r\n", "\n").replace("\r", "\n")
+        if (lower.endsWith(".html") || lower.endsWith(".htm") || (txt.contains("<p", true) && txt.contains("</", true))) {
+            txt = txt
+                .replace(Regex("""(?is)<style.*?</style>"""), "")
+                .replace(Regex("""(?is)<script.*?</script>"""), "")
+                .replace(Regex("""(?i)<br\s*/?>"""), "\n")
+                .replace(Regex("""(?i)</(p|div|h[1-6]|li|tr|blockquote)>"""), "\n")
+                .replace(Regex("""(?i)<li[^>]*>"""), "• ")
+                .replace(Regex("""(?i)<h[1-3][^>]*>"""), "## ")
+                .replace(Regex("""<[^>]+>"""), "")
+                .replace("&nbsp;", " ")
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+        } else if (lower.endsWith(".csv")) {
+            txt = txt.lines().filter { it.isNotBlank() }.joinToString("\n") { row ->
+                row.split(',').joinToString("  |  ") { it.trim().trim('"') }
+            }
+        }
+        // Clean markdown inline syntax cleanly while keeping visual structure
+        return txt
+            .replace(Regex("""^- \[x\]\s+""", RegexOption.MULTILINE), "☑ ")
+            .replace(Regex("""^- \[ \]\s+""", RegexOption.MULTILINE), "☐ ")
+            .replace(Regex("""^[-*]\s+""", RegexOption.MULTILINE), "• ")
+            .replace(Regex("""\*\*(.+?)\*\*"""), "$1")
+            .replace(Regex("""__(.+?)__"""), "$1")
+            .replace(Regex("""`([^`]+)`"""), "$1")
+            .trim()
+    }
+
+    private fun textToPageDocs(sectionTitle: String, body: String): List<PageDoc> {
+        val out = ArrayList<PageDoc>()
+        val marginX = 76f
+        val maxY = PageSize.HEIGHT - 110f
+        var curItems = ArrayList<ItemDoc>()
+        var y = 84f
+
+        fun flushPage() {
+            if (curItems.isNotEmpty()) {
+                out += PageDoc(UUID.randomUUID().toString(), PageSize.WIDTH, PageSize.HEIGHT, PaperStyle.RULED, items = curItems)
+                curItems = ArrayList()
+                y = 84f
+            }
+        }
+
+        if (sectionTitle.isNotBlank()) {
+            curItems += ItemDoc.Text(nextImportItemId(), sectionTitle, marginX, y, 36f, 0xFF1B1F2A.toInt(), style = TextStyleDoc(bold = true))
+            y += 66f
+        }
+
+        val paragraphs = body.split(Regex("""\n{2,}""")).map { it.trim() }.filter { it.isNotEmpty() }
+        for (para in paragraphs) {
+            val isHeading = para.startsWith("#")
+            val isCallout = para.startsWith(">")
+            val clean = if (isHeading) para.trimStart('#', ' ') else if (isCallout) para.trimStart('>', ' ') else para
+            if (isCallout && clean.length <= 360) {
+                if (y + 220f > maxY) flushPage()
+                val h = (120f + (clean.length / 36f) * 32f).coerceIn(140f, 300f)
+                curItems += ItemDoc.Sticky(nextImportItemId(), marginX, y, PageSize.WIDTH - marginX * 2, h, 0xFFFFF3A3.toInt(), clean, fontSize = 23f)
+                y += h + 28f
+                continue
+            }
+            val lines = clean.lines()
+            val estHeight = (lines.sumOf { ((it.length / 46) + 1) } * if (isHeading) 42 else 34).toFloat().coerceAtLeast(36f)
+            if (y + estHeight > maxY && curItems.isNotEmpty()) flushPage()
+            curItems += ItemDoc.Text(
+                id = nextImportItemId(),
+                text = clean,
+                x = marginX,
+                y = y,
+                size = if (isHeading) 30f else 24f,
+                color = if (isHeading) 0xFF2855C8.toInt() else 0xFF1B1F2A.toInt(),
+                style = TextStyleDoc(bold = isHeading),
+            )
+            y += estHeight + if (isHeading) 24f else 20f
+        }
+        flushPage()
+        return out
+    }
+
     private fun displayName(uri: Uri): String? = runCatching {
         context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
             if (c.moveToFirst()) c.getString(0) else null

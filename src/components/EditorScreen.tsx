@@ -4,7 +4,6 @@ import {
   BookOpen,
   BookmarkMinus,
   Brain,
-  Calculator,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -13,6 +12,7 @@ import {
   Cpu,
   Download,
   Eraser,
+  FileText,
   GitBranch,
   Hand,
   Highlighter,
@@ -20,9 +20,11 @@ import {
   Image as ImageIcon,
   Lasso as LassoIcon,
   Layers,
+  ListChecks,
   Maximize2,
   Minimize2,
   MoreHorizontal,
+  Move,
   Network,
   Palette,
   PanelLeft,
@@ -42,6 +44,7 @@ import {
   Trash2,
   Type,
   Undo2,
+  Upload,
   Wand2,
   X,
   ZoomIn,
@@ -62,7 +65,6 @@ import {
   PAPER_TINTS,
   PenKind,
   PenPreset,
-  PetId,
   QuizQuestion,
   ScribbleSensitivity,
   ShapeKind,
@@ -97,7 +99,7 @@ import {
   isColorDark,
   renderPageItems,
 } from '../utils/canvasRenderer';
-import { MathSolver } from '../utils/mathEngine';
+import { buildOutlineItemsFromMindNodes, parseImportedFiles } from '../utils/noteImporter';
 import {
   extractNotebookText,
   generateMindMapFromText,
@@ -108,7 +110,7 @@ import {
   runLocalQuiz,
   runLocalSummary,
 } from '../utils/localAi';
-import { AiParticleBackdrop, AiThinkingPill, PipPet } from './PipPet';
+import { AiParticleBackdrop, AiThinkingPill } from './AiVisuals';
 import { PaperPreviewCanvas } from './CoversAndPatterns';
 import { FlashcardsModal, QuizModal, SummaryModal } from './StudyModals';
 
@@ -130,14 +132,6 @@ interface EraseRing {
   maxR: number;
   born: number;
   color: string;
-}
-
-interface GlowSweep {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  born: number;
 }
 
 interface LaserTrail {
@@ -162,9 +156,8 @@ interface EditorScreenProps {
   onSwitchNote: (id: string) => void;
   onCloseTab: (id: string) => void;
   onUpdateNotebook: (id: string, updater: (nb: NotebookMeta) => NotebookMeta) => void;
+  onAppendPages?: (pages: Page[]) => void;
   onUpdateSettings: (patch: Partial<AppSettings>) => void;
-  onSwitchPet: (id: PetId) => void;
-  onRecordPetAction: (kind: 'pet' | 'treat' | 'study', xpGain?: number) => void;
   onSavePenPreset: (preset: PenPreset) => void;
   onDeletePenPreset: (id: string) => void;
   onAddFlashcards: (cards: Flashcard[]) => void;
@@ -202,6 +195,7 @@ const SplitNotebookPane: React.FC<{
   onSwapWithPrimary: (id: string) => void;
   onSetRatio: (ratio: number) => void;
   onCopyTextToPrimary: (text: string) => void;
+  onInsertTextToActive: (text: string) => void;
   onClose: () => void;
 }> = ({
   splitNotebook,
@@ -213,32 +207,110 @@ const SplitNotebookPane: React.FC<{
   onSwapWithPrimary,
   onSetRatio,
   onCopyTextToPrimary,
+  onInsertTextToActive,
   onClose,
 }) => {
   const [splitPageIdx, setSplitPageIdx] = useState(0);
-  const [splitZoom, setSplitZoom] = useState(0.5);
-  const [splitPan, setSplitPan] = useState({ x: 16, y: 16 });
+  const [viewport, setViewport] = useState<{ zoom: number; panX: number; panY: number }>({
+    zoom: 0.5,
+    panX: 16,
+    panY: 16,
+  });
+  const [activeRatio, setActiveRatio] = useState<number>(0.62);
+  const [splitSearchOpen, setSplitSearchOpen] = useState(false);
+  const [splitSearchQuery, setSplitSearchQuery] = useState('');
+  const [splitHitIdx, setSplitHitIdx] = useState(0);
+
+  const viewportRef = useRef(viewport);
+  viewportRef.current = viewport;
+
   const splitCanvasRef = useRef<HTMLCanvasElement>(null);
   const splitWrapRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ active: boolean; lx: number; ly: number }>({ active: false, lx: 0, ly: 0 });
   const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
-  const pinchRef = useRef<{ initialDist: number; initialZoom: number; initialPan: { x: number; y: number }; center: { x: number; y: number } } | null>(null);
+  const pinchRef = useRef<{
+    initialDist: number;
+    initialZoom: number;
+    initialPan: { x: number; y: number };
+    initialCenter: { x: number; y: number };
+  } | null>(null);
 
   const sSafeIdx = Math.min(splitPageIdx, Math.max(0, splitNotebook.pages.length - 1));
   const spPage = splitNotebook.pages[sSafeIdx];
 
+  const fitSplitPage = useCallback(
+    (targetPage: Page | undefined = spPage, maxCap = 0.88) => {
+      const el = splitWrapRef.current;
+      if (!el || !targetPage) return;
+      const fit = Math.min((el.clientWidth - 28) / targetPage.width, (el.clientHeight - 28) / targetPage.height, maxCap);
+      const z = Math.max(0.24, fit);
+      setViewport({
+        zoom: z,
+        panX: Math.max(12, (el.clientWidth - targetPage.width * z) / 2),
+        panY: 14,
+      });
+    },
+    [spPage]
+  );
+
+  const zoomAtCenter = useCallback((targetZoom: number, ox?: number, oy?: number) => {
+    const el = splitWrapRef.current;
+    const cx = ox ?? (el ? el.clientWidth / 2 : 180);
+    const cy = oy ?? (el ? el.clientHeight / 2 : 240);
+    setViewport((prev) => {
+      const nextZoom = Math.max(0.2, Math.min(3.5, targetZoom));
+      const scaleRatio = nextZoom / prev.zoom;
+      return {
+        zoom: nextZoom,
+        panX: cx - (cx - prev.panX) * scaleRatio,
+        panY: cy - (cy - prev.panY) * scaleRatio,
+      };
+    });
+  }, []);
+
   useEffect(() => {
     setSplitPageIdx(0);
+    setSplitSearchQuery('');
+    setSplitHitIdx(0);
   }, [splitNotebook.id]);
 
   useEffect(() => {
-    const el = splitWrapRef.current;
-    if (!el || !spPage) return;
-    const fit = Math.min((el.clientWidth - 28) / spPage.width, (el.clientHeight - 28) / spPage.height, 0.85);
-    const z = Math.max(0.24, fit);
-    setSplitZoom(z);
-    setSplitPan({ x: Math.max(12, (el.clientWidth - spPage.width * z) / 2), y: 14 });
-  }, [splitNotebook.id, sSafeIdx, width, spPage]);
+    fitSplitPage(spPage, 0.85);
+  }, [splitNotebook.id, sSafeIdx, width, spPage, fitSplitPage]);
+
+  // Native non-passive wheel listener for smooth zoom & pan without outer scroll leakage
+  useEffect(() => {
+    const canvas = splitCanvasRef.current;
+    if (!canvas) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const wrap = splitWrapRef.current;
+      if (e.ctrlKey || e.metaKey) {
+        const rect = wrap?.getBoundingClientRect();
+        const ox = rect ? e.clientX - rect.left : e.clientX;
+        const oy = rect ? e.clientY - rect.top : e.clientY;
+        const factor = e.deltaY < 0 ? 1.09 : 0.92;
+        setViewport((prev) => {
+          const nextZoom = Math.max(0.2, Math.min(3.5, prev.zoom * factor));
+          const ratio = nextZoom / prev.zoom;
+          return {
+            zoom: nextZoom,
+            panX: ox - (ox - prev.panX) * ratio,
+            panY: oy - (oy - prev.panY) * ratio,
+          };
+        });
+      } else {
+        setViewport((prev) => ({
+          ...prev,
+          panX: prev.panX - e.deltaX,
+          panY: prev.panY - e.deltaY,
+        }));
+      }
+    };
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', onWheel);
+  }, []);
 
   useEffect(() => {
     const canvas = splitCanvasRef.current;
@@ -247,6 +319,7 @@ const SplitNotebookPane: React.FC<{
     const dpr = window.devicePixelRatio || 1;
     const cw = wrap.clientWidth;
     const ch = wrap.clientHeight;
+    if (cw <= 0 || ch <= 0) return;
     canvas.width = Math.round(cw * dpr);
     canvas.height = Math.round(ch * dpr);
     const ctx = canvas.getContext('2d');
@@ -256,14 +329,14 @@ const SplitNotebookPane: React.FC<{
     ctx.scale(dpr, dpr);
     const paperBg = spPage.paperColor || paperTintDefault || '#FFFFFF';
     if (spPage.isWhiteboard) {
-      drawWhiteboardBackdrop(ctx, cw, ch, splitPan.x, splitPan.y, splitZoom, paperBg);
+      drawWhiteboardBackdrop(ctx, cw, ch, viewport.panX, viewport.panY, viewport.zoom, paperBg);
     } else {
       ctx.fillStyle = isColorDark(paperBg) ? '#14151A' : '#E5E7EE';
       ctx.fillRect(0, 0, cw, ch);
     }
     ctx.save();
-    ctx.translate(splitPan.x, splitPan.y);
-    ctx.scale(splitZoom, splitZoom);
+    ctx.translate(viewport.panX, viewport.panY);
+    ctx.scale(viewport.zoom, viewport.zoom);
     if (!spPage.isWhiteboard) {
       ctx.fillStyle = paperBg;
       ctx.fillRect(0, 0, spPage.width, spPage.height);
@@ -272,13 +345,41 @@ const SplitNotebookPane: React.FC<{
     renderPageItems(ctx, spPage, new Map(), new Set(), highlighterBehind);
     ctx.restore();
     ctx.restore();
-  }, [spPage, splitPan, splitZoom, width, paperTintDefault, highlighterBehind]);
+  }, [spPage, viewport, width, paperTintDefault, highlighterBehind]);
+
+  const splitSearchHits = useMemo(() => {
+    const q = splitSearchQuery.trim().toLowerCase();
+    if (!q) return [];
+    const hits: { pageIdx: number; preview: string }[] = [];
+    splitNotebook.pages.forEach((pg, idx) => {
+      for (const it of pg.items) {
+        const txt =
+          it.kind === 'text'
+            ? it.text
+            : it.kind === 'sticky'
+              ? it.text
+              : it.kind === 'mindnode'
+                ? `${it.label} ${it.notes || ''}`
+                : '';
+        if (txt.toLowerCase().includes(q)) {
+          hits.push({ pageIdx: idx, preview: txt.trim().slice(0, 64) });
+        }
+      }
+    });
+    return hits;
+  }, [splitNotebook.pages, splitSearchQuery]);
 
   const pageText = useMemo(() => {
     if (!spPage) return '';
     return spPage.items
       .map((it) =>
-        it.kind === 'text' ? it.text : it.kind === 'sticky' ? it.text : it.kind === 'mindnode' ? it.label : ''
+        it.kind === 'text'
+          ? it.text
+          : it.kind === 'sticky'
+            ? it.text
+            : it.kind === 'mindnode'
+              ? `${it.label}${it.notes ? `: ${it.notes}` : ''}`
+              : ''
       )
       .filter(Boolean)
       .join('\n');
@@ -290,7 +391,7 @@ const SplitNotebookPane: React.FC<{
       className="hidden shrink-0 flex-col border-l border-black/10 bg-white dark:border-white/10 dark:bg-[#18191E] md:flex"
     >
       {/* Top Header */}
-      <div className="flex items-center justify-between gap-2 border-b border-black/8 px-3 py-2.5 dark:border-white/10">
+      <div className="flex items-center justify-between gap-1.5 border-b border-black/8 px-3 py-2 dark:border-white/10">
         <select
           value={splitNotebook.id}
           onChange={(e) => onChangeNotebook(e.target.value)}
@@ -306,9 +407,19 @@ const SplitNotebookPane: React.FC<{
         </select>
         <button
           type="button"
+          onClick={() => setSplitSearchOpen((v) => !v)}
+          title="Search in split notebook"
+          className={`shrink-0 rounded-lg p-1.5 transition ${
+            splitSearchOpen ? 'bg-blue-600/15 text-blue-600' : 'text-slate-500 hover:bg-black/5 dark:hover:bg-white/10'
+          }`}
+        >
+          <Search className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
           onClick={() => onSwapWithPrimary(splitNotebook.id)}
           title="Swap primary & split notebooks"
-          className="rounded-lg p-1.5 text-slate-500 hover:bg-black/5 hover:text-blue-600 dark:hover:bg-white/10"
+          className="shrink-0 rounded-lg p-1.5 text-slate-500 hover:bg-black/5 hover:text-blue-600 dark:hover:bg-white/10"
         >
           <ArrowLeftRight className="h-3.5 w-3.5" />
         </button>
@@ -316,84 +427,166 @@ const SplitNotebookPane: React.FC<{
           type="button"
           onClick={onClose}
           title="Close split pane"
-          className="rounded-lg p-1.5 text-slate-400 hover:bg-black/5 dark:hover:bg-white/10"
+          className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-black/5 dark:hover:bg-white/10"
         >
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      {/* Controls Bar */}
-      <div className="flex items-center justify-between border-b border-black/6 bg-slate-50/70 px-3 py-1.5 text-[11px] dark:border-white/8 dark:bg-[#14151A]">
-        <div className="flex items-center gap-1">
+      {/* Collapsible In-Split Search Bar */}
+      {splitSearchOpen && (
+        <div className="flex items-center gap-1.5 border-b border-black/8 bg-slate-50/90 px-3 py-1.5 text-xs dark:border-white/10 dark:bg-[#14151A]">
+          <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+          <input
+            autoFocus
+            value={splitSearchQuery}
+            onChange={(e) => {
+              const val = e.target.value;
+              setSplitSearchQuery(val);
+              setSplitHitIdx(0);
+            }}
+            placeholder="Find in reference..."
+            className="min-w-0 flex-1 bg-transparent text-xs outline-none"
+          />
+          {splitSearchQuery && (
+            <span className="font-mono-num shrink-0 text-[10px] font-semibold text-slate-500">
+              {splitSearchHits.length > 0 ? `${Math.min(splitHitIdx + 1, splitSearchHits.length)}/${splitSearchHits.length}` : '0'}
+            </span>
+          )}
           <button
             type="button"
-            disabled={sSafeIdx === 0}
-            onClick={() => setSplitPageIdx((i) => Math.max(0, i - 1))}
-            className="rounded p-1 hover:bg-black/5 disabled:opacity-30"
+            disabled={splitSearchHits.length === 0}
+            onClick={() => {
+              if (splitSearchHits.length === 0) return;
+              const next = (splitHitIdx - 1 + splitSearchHits.length) % splitSearchHits.length;
+              setSplitHitIdx(next);
+              setSplitPageIdx(splitSearchHits[next].pageIdx);
+            }}
+            className="rounded p-0.5 hover:bg-black/10 disabled:opacity-30"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
           </button>
-          <span className="font-mono-num font-semibold">
-            {sSafeIdx + 1}/{splitNotebook.pages.length}
-          </span>
           <button
             type="button"
-            disabled={sSafeIdx >= splitNotebook.pages.length - 1}
-            onClick={() => setSplitPageIdx((i) => Math.min(splitNotebook.pages.length - 1, i + 1))}
-            className="rounded p-1 hover:bg-black/5 disabled:opacity-30"
+            disabled={splitSearchHits.length === 0}
+            onClick={() => {
+              if (splitSearchHits.length === 0) return;
+              const next = (splitHitIdx + 1) % splitSearchHits.length;
+              setSplitHitIdx(next);
+              setSplitPageIdx(splitSearchHits[next].pageIdx);
+            }}
+            className="rounded p-0.5 hover:bg-black/10 disabled:opacity-30"
           >
             <ChevronRight className="h-3.5 w-3.5" />
           </button>
         </div>
+      )}
 
-        <div className="flex items-center gap-1">
+      {/* Controls Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-black/6 bg-slate-50/70 px-3 py-1.5 text-[11px] dark:border-white/8 dark:bg-[#14151A]">
+        <div className="flex items-center gap-0.5">
           {[0.3, 0.5, 0.7].map((r) => (
             <button
               key={r}
               type="button"
-              onClick={() => onSetRatio(r)}
+              onClick={() => {
+                setActiveRatio(r);
+                onSetRatio(r);
+              }}
               title={`Split ratio ${Math.round(r * 100)}/${Math.round((1 - r) * 100)}`}
-              className="rounded-md bg-black/[0.04] px-1.5 py-0.5 font-mono-num text-[10px] font-semibold hover:bg-blue-500/15 hover:text-blue-600 dark:bg-white/[0.08]"
+              className={`whitespace-nowrap shrink-0 rounded-md px-1.5 py-0.5 font-mono-num text-[10px] font-semibold transition ${
+                Math.abs(activeRatio - r) < 0.05
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-black/[0.04] hover:bg-blue-500/15 hover:text-blue-600 dark:bg-white/[0.08]'
+              }`}
             >
               {Math.round(r * 100)}/{Math.round((1 - r) * 100)}
             </button>
           ))}
+        </div>
+
+        <div className="flex items-center gap-0.5">
           <button
             type="button"
-            onClick={() => setSplitZoom((z) => Math.max(0.2, z * 0.85))}
-            className="rounded p-1 hover:bg-black/5"
+            onClick={() => zoomAtCenter(viewport.zoom * 0.85)}
+            className="rounded p-1 hover:bg-black/5 dark:hover:bg-white/10"
             title="Zoom out split pane"
           >
             <ZoomOut className="h-3.5 w-3.5" />
           </button>
-          <span className="font-mono-num min-w-[34px] text-center font-semibold">
-            {Math.round(splitZoom * 100)}%
+          <span className="font-mono-num min-w-[36px] text-center font-semibold">
+            {Math.round(viewport.zoom * 100)}%
           </span>
           <button
             type="button"
-            onClick={() => setSplitZoom((z) => Math.min(2.5, z * 1.15))}
-            className="rounded p-1 hover:bg-black/5"
+            onClick={() => zoomAtCenter(viewport.zoom * 1.15)}
+            className="rounded p-1 hover:bg-black/5 dark:hover:bg-white/10"
             title="Zoom in split pane"
           >
             <ZoomIn className="h-3.5 w-3.5" />
           </button>
           <button
             type="button"
-            onClick={() => {
-              const el = splitWrapRef.current;
-              if (!el || !spPage) return;
-              const fit = Math.min((el.clientWidth - 28) / spPage.width, (el.clientHeight - 28) / spPage.height, 0.95);
-              const z = Math.max(0.24, fit);
-              setSplitZoom(z);
-              setSplitPan({ x: Math.max(12, (el.clientWidth - spPage.width * z) / 2), y: 14 });
-            }}
-            className="rounded px-1.5 py-0.5 text-[10px] font-bold hover:bg-black/5 dark:hover:bg-white/10"
+            onClick={() => fitSplitPage(spPage, 0.95)}
+            className="whitespace-nowrap shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold hover:bg-black/5 dark:hover:bg-white/10"
             title="Fit page in split pane"
           >
             Fit
           </button>
+          <button
+            type="button"
+            onClick={() => zoomAtCenter(1.0)}
+            className="whitespace-nowrap shrink-0 rounded px-1.5 py-0.5 font-mono-num text-[10px] font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+            title="100% zoom"
+          >
+            100%
+          </button>
+          <button
+            type="button"
+            onClick={() => zoomAtCenter(1.5)}
+            className="whitespace-nowrap shrink-0 rounded px-1.5 py-0.5 font-mono-num text-[10px] font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+            title="150% zoom"
+          >
+            150%
+          </button>
         </div>
       </div>
+
+      {/* Horizontal Page Jumper Strip */}
+      {splitNotebook.pages.length > 1 && (
+        <div className="flex items-center gap-1 overflow-x-auto border-b border-black/6 px-3 py-1.5 text-[11px] dark:border-white/8">
+          <button
+            type="button"
+            disabled={sSafeIdx === 0}
+            onClick={() => setSplitPageIdx((i) => Math.max(0, i - 1))}
+            className="shrink-0 rounded p-0.5 hover:bg-black/5 disabled:opacity-30"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          {splitNotebook.pages.map((pg, idx) => (
+            <button
+              key={pg.id}
+              type="button"
+              onClick={() => setSplitPageIdx(idx)}
+              className={`shrink-0 whitespace-nowrap rounded-md px-2 py-0.5 font-mono-num text-[10px] font-bold transition ${
+                idx === sSafeIdx
+                  ? 'bg-blue-600 text-white'
+                  : 'border border-black/10 text-slate-600 hover:bg-black/5 dark:border-white/10 dark:text-slate-300'
+              }`}
+            >
+              p.{idx + 1}
+            </button>
+          ))}
+          <button
+            type="button"
+            disabled={sSafeIdx >= splitNotebook.pages.length - 1}
+            onClick={() => setSplitPageIdx((i) => Math.min(splitNotebook.pages.length - 1, i + 1))}
+            className="shrink-0 rounded p-0.5 hover:bg-black/5 disabled:opacity-30"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Interactive Pan/Zoom Preview Canvas */}
       <div ref={splitWrapRef} className="relative min-h-0 flex-1 overflow-hidden">
@@ -408,14 +601,15 @@ const SplitNotebookPane: React.FC<{
             } else if (pointersRef.current.size >= 2) {
               dragRef.current.active = false;
               const pts = Array.from(pointersRef.current.values());
-              const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+              const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
               const cx = (pts[0].x + pts[1].x) / 2;
               const cy = (pts[0].y + pts[1].y) / 2;
+              const cur = viewportRef.current;
               pinchRef.current = {
-                initialDist: Math.max(10, dist),
-                initialZoom: splitZoom,
-                initialPan: { ...splitPan },
-                center: { x: cx, y: cy },
+                initialDist: Math.max(10, d),
+                initialZoom: cur.zoom,
+                initialPan: { x: cur.panX, y: cur.panY },
+                initialCenter: { x: cx, y: cy },
               };
             }
           }}
@@ -426,26 +620,27 @@ const SplitNotebookPane: React.FC<{
             if (pointersRef.current.size >= 2 && pinchRef.current) {
               const pts = Array.from(pointersRef.current.values());
               const currentDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+              const curCenterX = (pts[0].x + pts[1].x) / 2;
+              const curCenterY = (pts[0].y + pts[1].y) / 2;
               if (pinchRef.current.initialDist > 8) {
                 const factor = currentDist / pinchRef.current.initialDist;
                 const newZoom = Math.max(0.2, Math.min(3.5, pinchRef.current.initialZoom * factor));
                 const rect = splitWrapRef.current?.getBoundingClientRect();
-                const ox = rect ? pinchRef.current.center.x - rect.left : pinchRef.current.center.x;
-                const oy = rect ? pinchRef.current.center.y - rect.top : pinchRef.current.center.y;
-
+                const initOx = rect ? pinchRef.current.initialCenter.x - rect.left : pinchRef.current.initialCenter.x;
+                const initOy = rect ? pinchRef.current.initialCenter.y - rect.top : pinchRef.current.initialCenter.y;
+                const curOx = rect ? curCenterX - rect.left : curCenterX;
+                const curOy = rect ? curCenterY - rect.top : curCenterY;
                 const scaleRatio = newZoom / pinchRef.current.initialZoom;
-                const newPanX = ox - (ox - pinchRef.current.initialPan.x) * scaleRatio;
-                const newPanY = oy - (oy - pinchRef.current.initialPan.y) * scaleRatio;
-
-                setSplitZoom(newZoom);
-                setSplitPan({ x: newPanX, y: newPanY });
+                const newPanX = curOx - (initOx - pinchRef.current.initialPan.x) * scaleRatio;
+                const newPanY = curOy - (initOy - pinchRef.current.initialPan.y) * scaleRatio;
+                setViewport({ zoom: newZoom, panX: newPanX, panY: newPanY });
               }
             } else if (pointersRef.current.size === 1 && dragRef.current.active) {
               const dx = e.clientX - dragRef.current.lx;
               const dy = e.clientY - dragRef.current.ly;
               dragRef.current.lx = e.clientX;
               dragRef.current.ly = e.clientY;
-              setSplitPan((p) => ({ x: p.x + dx, y: p.y + dy }));
+              setViewport((p) => ({ ...p, panX: p.panX + dx, panY: p.panY + dy }));
             }
           }}
           onPointerUp={(e) => {
@@ -465,52 +660,36 @@ const SplitNotebookPane: React.FC<{
             if (pointersRef.current.size < 2) pinchRef.current = null;
             dragRef.current.active = false;
           }}
-          onDoubleClick={() => {
+          onDoubleClick={(e) => {
             const el = splitWrapRef.current;
             if (!el || !spPage) return;
-            if (Math.abs(splitZoom - 1) < 0.1) {
-              const fit = Math.min((el.clientWidth - 28) / spPage.width, (el.clientHeight - 28) / spPage.height, 0.85);
-              const z = Math.max(0.24, fit);
-              setSplitZoom(z);
-              setSplitPan({ x: Math.max(12, (el.clientWidth - spPage.width * z) / 2), y: 14 });
+            if (viewport.zoom > 1.1) {
+              fitSplitPage(spPage, 0.85);
             } else {
-              setSplitZoom(1);
-              setSplitPan({ x: Math.max(12, (el.clientWidth - spPage.width) / 2), y: 14 });
-            }
-          }}
-          onWheel={(e) => {
-            e.preventDefault();
-            if (e.ctrlKey || e.metaKey) {
-              const factor = e.deltaY < 0 ? 1.08 : 0.92;
-              const rect = splitWrapRef.current?.getBoundingClientRect();
-              const ox = rect ? e.clientX - rect.left : e.clientX;
-              const oy = rect ? e.clientY - rect.top : e.clientY;
-              setSplitZoom((prevZoom) => {
-                const nextZoom = Math.max(0.2, Math.min(3.5, prevZoom * factor));
-                const scaleRatio = nextZoom / prevZoom;
-                setSplitPan((p) => ({
-                  x: ox - (ox - p.x) * scaleRatio,
-                  y: oy - (oy - p.y) * scaleRatio,
-                }));
-                return nextZoom;
-              });
-            } else {
-              setSplitPan((p) => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+              const rect = el.getBoundingClientRect();
+              zoomAtCenter(1.75, e.clientX - rect.left, e.clientY - rect.top);
             }
           }}
           className="h-full w-full cursor-grab active:cursor-grabbing touch-none select-none"
         />
       </div>
 
-      {/* Quick Clip Footer */}
+      {/* Quick Clip & Insert Footer */}
       {pageText && (
-        <div className="border-t border-black/8 p-2.5 dark:border-white/10">
+        <div className="flex items-center gap-2 border-t border-black/8 p-2.5 dark:border-white/10">
           <button
             type="button"
             onClick={() => onCopyTextToPrimary(pageText)}
-            className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-blue-600/10 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-600/20 dark:text-blue-300"
+            className="flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-blue-600/10 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-600/20 dark:text-blue-300"
           >
-            <Copy className="h-3.5 w-3.5" /> Clip Reference Sticky to Active Note
+            <Copy className="h-3.5 w-3.5 shrink-0" /> Clip Sticky
+          </button>
+          <button
+            type="button"
+            onClick={() => onInsertTextToActive(pageText)}
+            className="flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-black/10 py-2 text-xs font-semibold text-slate-700 hover:bg-black/5 dark:border-white/15 dark:text-slate-200 dark:hover:bg-white/10"
+          >
+            <FileText className="h-3.5 w-3.5 shrink-0" /> To Page
           </button>
         </div>
       )}
@@ -533,9 +712,8 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   onSwitchNote,
   onCloseTab,
   onUpdateNotebook,
+  onAppendPages,
   onUpdateSettings,
-  onSwitchPet,
-  onRecordPetAction,
   onSavePenPreset,
   onDeletePenPreset,
   onAddFlashcards,
@@ -578,6 +756,11 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   const [editingStickyId, setEditingStickyId] = useState<string | null>(null);
   const [editingMindId, setEditingMindId] = useState<string | null>(null);
   const [mindDraft, setMindDraft] = useState('');
+  const [mindTagDraft, setMindTagDraft] = useState('');
+  const [mindNotesDraft, setMindNotesDraft] = useState('');
+  const [mindShapeDraft, setMindShapeDraft] = useState<'pill' | 'card' | 'diamond'>('card');
+  const [mindColorDraft, setMindColorDraft] = useState(MIND_COLORS[0]);
+  const [moveMindSubtree, setMoveMindSubtree] = useState(true);
 
   // Lightweight per-page undo/redo
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
@@ -591,9 +774,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   const [aiMenuOpen, setAiMenuOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [stickerOpen, setStickerOpen] = useState(false);
-  const [mathPadOpen, setMathPadOpen] = useState(false);
-  const [mathInput, setMathInput] = useState('2x(x + 1) - 4 = 0');
-  const [mathStepsOpen, setMathStepsOpen] = useState(false);
 
   // Resizable Split Workspace
   const [splitNoteId, setSplitNoteId] = useState<string | null>(null);
@@ -608,7 +788,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   const [aiBusyLabel, setAiBusyLabel] = useState<string | null>(null);
   const [aiStageLabel, setAiStageLabel] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [cheerTrigger, setCheerTrigger] = useState(0);
   const [summaryModal, setSummaryModal] = useState<{
     open: boolean;
     title: string;
@@ -640,6 +819,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const importFileRef = useRef<HTMLInputElement>(null);
 
   // Offscreen static paper cache & dirty-flag render loop
   const paperCacheRef = useRef<{ key: string; canvas: HTMLCanvasElement } | null>(null);
@@ -693,11 +873,9 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
 
   const puffsRef = useRef<PuffParticle[]>([]);
   const ringsRef = useRef<EraseRing[]>([]);
-  const glowsRef = useRef<GlowSweep[]>([]);
   const lasersRef = useRef<LaserTrail[]>([]);
   const circleHoldTimerRef = useRef<number | null>(null);
   const circleChargeRef = useRef<{ x: number; y: number; born: number } | null>(null);
-  const [writingActive, setWritingActive] = useState(false);
 
   const safeIdx = Math.min(pageIdx, Math.max(0, notebook.pages.length - 1));
   const page = notebook.pages[safeIdx];
@@ -968,6 +1146,15 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     return found && found.kind === 'sticky' ? found : null;
   }, [editingStickyId, selectedIds, page]);
 
+  const openMindEditor = useCallback((node: MindNodeItem) => {
+    setEditingMindId(node.id);
+    setMindDraft(node.label);
+    setMindTagDraft(node.tag || '');
+    setMindNotesDraft(node.notes || '');
+    setMindShapeDraft(node.shape);
+    setMindColorDraft(node.color);
+  }, []);
+
   const addMindNode = useCallback(
     (parent: MindNodeItem | null, worldPos?: Pt, label = 'New Idea') => {
       const siblings = mindNodesOnPage.filter((n) => n.parentId === (parent?.id ?? null));
@@ -978,16 +1165,16 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             ? MIND_COLORS[siblings.length % MIND_COLORS.length]
             : parent.color;
 
-      const x = worldPos ? worldPos.x - 75 : parent ? parent.x + parent.w + 75 : 400;
-      const y = worldPos ? worldPos.y - 21 : parent ? parent.y + (siblings.length - 0.5) * 68 : 300;
+      const x = worldPos ? worldPos.x - 75 : parent ? parent.x + parent.w + 80 : 400;
+      const y = worldPos ? worldPos.y - 21 : parent ? parent.y + (siblings.length - 0.5) * 76 : 300;
 
       const newNode: MindNodeItem = {
         id: `mm-${Date.now()}-${Math.floor(Math.random() * 999)}`,
         kind: 'mindnode',
         x,
         y,
-        w: 162,
-        h: 44,
+        w: 168,
+        h: 46,
         label,
         parentId: parent?.id ?? null,
         color,
@@ -995,14 +1182,43 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       };
       commitPageItems((items) => [...items, newNode]);
       setSelectedIds(new Set([newNode.id]));
-      setEditingMindId(newNode.id);
-      setMindDraft(label);
+      openMindEditor(newNode);
     },
-    [mindNodesOnPage, commitPageItems]
+    [mindNodesOnPage, commitPageItems, openMindEditor]
   );
 
+  const addSiblingMindNode = useCallback(
+    (node: MindNodeItem) => {
+      const parent = node.parentId ? mindNodesOnPage.find((n) => n.id === node.parentId) || null : null;
+      addMindNode(parent, undefined, parent ? 'Sibling Idea' : 'Topic');
+    },
+    [mindNodesOnPage, addMindNode]
+  );
+
+  useEffect(() => {
+    const onMindKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) {
+        return;
+      }
+      if (!selectedMindNode || editingMindId || editingTextId || editingStickyId) return;
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        addMindNode(selectedMindNode, undefined, 'Child Idea');
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (selectedMindNode.parentId) {
+          addSiblingMindNode(selectedMindNode);
+        } else {
+          openMindEditor(selectedMindNode);
+        }
+      }
+    };
+    window.addEventListener('keydown', onMindKey);
+    return () => window.removeEventListener('keydown', onMindKey);
+  }, [selectedMindNode, editingMindId, editingTextId, editingStickyId, addMindNode, addSiblingMindNode, openMindEditor]);
+
   const autoLayoutMindMap = useCallback(
-    (layoutType: 'TREE' | 'RADIAL') => {
+    (layoutType: 'TREE' | 'RADIAL' | 'ORG_CHART') => {
       if (mindNodesOnPage.length === 0) return;
       const roots = mindNodesOnPage.filter((n) => n.parentId === null);
       const root = roots[0] || mindNodesOnPage[0];
@@ -1032,24 +1248,48 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               k,
               startAng + (idx / Math.max(1, kids.length)) * (endAng - startAng),
               startAng + ((idx + 1) / Math.max(1, kids.length)) * (endAng - startAng),
-              radius + 185
+              radius + 195
             );
           });
         };
-        placeRadial(root, -Math.PI, Math.PI, 240);
+        placeRadial(root, -Math.PI, Math.PI, 250);
+      } else if (layoutType === 'ORG_CHART') {
+        const spanOf = (node: MindNodeItem): number => {
+          const kids = byParent.get(node.id) || [];
+          if (kids.length === 0) return Math.max(195, node.w + 36);
+          return kids.reduce((acc, k) => acc + spanOf(k), 0);
+        };
+        const totalSpan = spanOf(root);
+        const startX = cx - totalSpan / 2;
+        const startY = Math.max(80, cy - 140);
+        const placeOrg = (node: MindNodeItem, leftX: number, depth: number) => {
+          const kids = byParent.get(node.id) || [];
+          const mySpan = spanOf(node);
+          posMap.set(node.id, {
+            x: leftX + mySpan / 2 - node.w / 2,
+            y: startY + depth * 135,
+          });
+          let curX = leftX;
+          for (const k of kids) {
+            const ks = spanOf(k);
+            placeOrg(k, curX, depth + 1);
+            curX += ks;
+          }
+        };
+        placeOrg(root, startX, 0);
       } else {
         let nextY = cy - 180;
         const placeTree = (node: MindNodeItem, depth: number): number => {
           const kids = byParent.get(node.id) || [];
           if (kids.length === 0) {
             const y = nextY;
-            nextY += 72;
-            posMap.set(node.id, { x: cx - 100 + depth * 240, y });
+            nextY += 86;
+            posMap.set(node.id, { x: cx - 100 + depth * 250, y });
             return y;
           }
           const ys = kids.map((k) => placeTree(k, depth + 1));
           const avgY = (ys[0] + ys[ys.length - 1]) / 2;
-          posMap.set(node.id, { x: cx - 100 + depth * 240, y: avgY });
+          posMap.set(node.id, { x: cx - 100 + depth * 250, y: avgY });
           return avgY;
         };
         placeTree(root, 0);
@@ -1062,56 +1302,10 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           return p ? { ...it, x: p.x, y: p.y } : it;
         })
       );
-      showToast(`Applied ${layoutType === 'RADIAL' ? 'Radial' : 'Tree'} Mind Map layout`);
+      const labelMap = { RADIAL: 'Radial', TREE: 'Tree', ORG_CHART: 'Org Chart' };
+      showToast(`Applied ${labelMap[layoutType]} Mind Map layout`);
     },
     [mindNodesOnPage, commitPageItems, showToast]
-  );
-
-  // ================================================================
-  // Maths Solver Integration
-  // ================================================================
-
-  const placeMathAnswer = useCallback(
-    (expr: string, anchorX: number, anchorY: number, sourceWidth = 180, sourceHeight = 42) => {
-      const ans = MathSolver.solve(expr);
-      if (!ans) {
-        showToast(`Could not evaluate "${expr}"`);
-        return false;
-      }
-      const displayAns =
-        expr.trim().includes('=') && !expr.trim().endsWith('=') && !ans.includes('=')
-          ? `→ ${ans}`
-          : ans.includes('=')
-            ? `→ ${ans}`
-            : `= ${ans}`;
-      const ansItem: TextItem = {
-        id: `math-${Date.now()}`,
-        kind: 'text',
-        text: displayAns,
-        x: anchorX + sourceWidth + 16,
-        y: anchorY,
-        size: Math.max(24, Math.min(44, sourceHeight * 0.78)),
-        color: '#E69A28',
-        font: 'HAND',
-        isMathAnswer: true,
-        mathExpr: expr,
-        createdAt: Date.now(),
-      };
-      if (settings.aiAnimations) {
-        glowsRef.current.push({
-          x: anchorX,
-          y: anchorY,
-          w: sourceWidth + 130,
-          h: sourceHeight + 12,
-          born: performance.now(),
-        });
-      }
-      commitPageItems((items) => [...items, ansItem]);
-      onRecordPetAction('study', 6);
-      setCheerTrigger((c) => c + 1);
-      return true;
-    },
-    [commitPageItems, settings.aiAnimations, onRecordPetAction, showToast]
   );
 
   // ================================================================
@@ -1127,7 +1321,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       const now = performance.now();
       const hasAnims =
         gestureRef.current.active ||
-        glowsRef.current.length > 0 ||
         puffsRef.current.length > 0 ||
         ringsRef.current.length > 0 ||
         circleChargeRef.current !== null ||
@@ -1318,23 +1511,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           ctx.strokeRect(l - 6, t - 6, r - l + 12, b - t + 12);
           ctx.restore();
         }
-      }
-
-      // Animated Math Glow Sweeps
-      glowsRef.current = glowsRef.current.filter((sw) => now - sw.born < 950);
-      for (const sw of glowsRef.current) {
-        const t = (now - sw.born) / 950;
-        const headX = sw.x + sw.w * Math.min(1, t * 1.15);
-        ctx.save();
-        const grad = ctx.createLinearGradient(sw.x, sw.y, headX + 40, sw.y);
-        grad.addColorStop(0, 'rgba(139,92,246,0)');
-        grad.addColorStop(0.5, `rgba(242,169,42,${0.55 * (1 - t)})`);
-        grad.addColorStop(1, 'rgba(56,189,248,0)');
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.roundRect(sw.x - 10, sw.y - 6, Math.max(20, headX - sw.x + 20), sw.h + 12, 12);
-        ctx.fill();
-        ctx.restore();
       }
 
       // Hold-to-Lasso Radial Charging Ring (only when holding pen still on a closed loop)
@@ -1596,7 +1772,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     if (tool === 'PEN' || tool === 'HIGHLIGHTER') {
       g.mode = 'INK';
       workingItemsRef.current = [...page.items];
-      setWritingActive(true);
     } else if (tool === 'ERASER') {
       g.mode = 'ERASE';
       workingItemsRef.current = [...page.items];
@@ -1702,8 +1877,28 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       if (orig) {
         const nx = Math.round((orig.x + dx) / snap) * snap;
         const ny = Math.round((orig.y + dy) / snap) * snap;
+        const ddx = nx - orig.x;
+        const ddy = ny - orig.y;
+
+        const moveIds = new Set<string>([g.dragMindId]);
+        if (moveMindSubtree) {
+          const allMind = g.dragOrigItems.filter((i): i is MindNodeItem => i.kind === 'mindnode');
+          let added = true;
+          while (added) {
+            added = false;
+            for (const mn of allMind) {
+              if (mn.parentId && moveIds.has(mn.parentId) && !moveIds.has(mn.id)) {
+                moveIds.add(mn.id);
+                added = true;
+              }
+            }
+          }
+        }
+
         workingItemsRef.current = g.dragOrigItems.map((it) =>
-          it.id === g.dragMindId ? { ...(it as MindNodeItem), x: nx, y: ny } : it
+          it.kind === 'mindnode' && moveIds.has(it.id)
+            ? { ...it, x: it.x + ddx, y: it.y + ddy }
+            : it
         );
       }
       g.lastWorld = world;
@@ -1798,7 +1993,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           gestureRef.current.mode = 'NONE';
           gestureRef.current.pts = [];
           workingItemsRef.current = null;
-          setWritingActive(false);
           showToast(picked.length > 0 ? `${picked.length} selected via Hold-Lasso` : 'Loop held — nothing inside');
           requestDraw();
         }, 410);
@@ -1844,7 +2038,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     const g = gestureRef.current;
     if (!g.active || !page) return;
     g.active = false;
-    setWritingActive(false);
 
     if (g.mode === 'PAN') {
       if (isWhiteboard) {
@@ -2074,7 +2267,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   };
 
   // ================================================================
-  // AI Actions (Animated Stages + Companion XP)
+  // AI Actions (Animated Stages) + Mind Map & Import Exports
   // ================================================================
 
   const handleAiSummary = async () => {
@@ -2101,8 +2294,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         loadingStage: null,
         explainText: null,
       });
-      onRecordPetAction('study', 12);
-      setCheerTrigger((c) => c + 1);
     } finally {
       setAiBusyLabel(null);
       setAiStageLabel(null);
@@ -2121,8 +2312,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       if (res.cards.length > 0) {
         onAddFlashcards(res.cards);
         showToast(`Added ${res.cards.length} flashcards (${res.engineLabel})`);
-        onRecordPetAction('study', 14);
-        setCheerTrigger((c) => c + 1);
       } else {
         showToast('Add definitions like "X is..." to auto-generate cards');
       }
@@ -2155,8 +2344,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         engineLabel: res.engineLabel,
         loadingStage: null,
       });
-      onRecordPetAction('study', 12);
-      setCheerTrigger((c) => c + 1);
     } finally {
       setAiBusyLabel(null);
       setAiStageLabel(null);
@@ -2179,8 +2366,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       commitPageItems((items) => [...items, ...res.nodes]);
       setTool('MINDMAP');
       showToast(`Mind Map generated (${res.engineLabel})`);
-      onRecordPetAction('study', 15);
-      setCheerTrigger((c) => c + 1);
     } finally {
       setAiBusyLabel(null);
       setAiStageLabel(null);
@@ -2228,22 +2413,93 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         loadingStage: null,
         explainText: res.explanation,
       });
-      onRecordPetAction('study', 10);
     } finally {
       setAiBusyLabel(null);
       setAiStageLabel(null);
     }
   };
 
-  const handleSolveSelectionMath = () => {
-    if (!page) return;
-    const selItems = page.items.filter((i) => selectedIds.has(i.id));
-    const txtItem = selItems.find((i): i is TextItem => i.kind === 'text');
-    if (txtItem) {
-      const b = getItemBounds(txtItem);
-      if (placeMathAnswer(txtItem.text, b.l, b.t, b.w, b.h)) return;
+  const handleMindMapToOutline = useCallback(() => {
+    if (mindNodesOnPage.length === 0) {
+      showToast('Add Mind Map nodes first');
+      return;
     }
-    setMathPadOpen(true);
+    const outlineItems = buildOutlineItemsFromMindNodes(mindNodesOnPage);
+    if (outlineItems.length === 0) return;
+    const newPg: Page = {
+      id: `pg-outline-${Date.now()}`,
+      width: page?.width || 1200,
+      height: page?.height || 1697,
+      paper: 'RULED',
+      paperColor: page?.paperColor || settings.paperTint,
+      items: outlineItems,
+    };
+    const nextIdx = notebook.pages.length;
+    commitPages((pages) => [...pages, newPg]);
+    setPageIdx(nextIdx);
+    showToast('Created Outline page from Mind Map');
+  }, [mindNodesOnPage, page, settings.paperTint, notebook.pages.length, commitPages, showToast]);
+
+  const handleMindMapToFlashcards = useCallback(() => {
+    if (mindNodesOnPage.length === 0) {
+      showToast('Add Mind Map nodes first');
+      return;
+    }
+    const cards: Flashcard[] = [];
+    for (const n of mindNodesOnPage) {
+      const kids = mindNodesOnPage.filter((c) => c.parentId === n.id);
+      const backParts = [
+        n.notes?.trim() || '',
+        kids.length > 0 ? `Subtopics: ${kids.map((k) => k.label).join(' · ')}` : '',
+      ].filter(Boolean);
+      if (backParts.length === 0 && n.parentId) {
+        const parent = mindNodesOnPage.find((p) => p.id === n.parentId);
+        if (parent) backParts.push(`Branch of ${parent.label}`);
+      }
+      if (backParts.length > 0) {
+        cards.push({
+          id: `fc-mm-${n.id}-${Date.now()}`,
+          notebookId: notebook.id,
+          front: n.tag ? `[${n.tag}] ${n.label}` : n.label,
+          back: backParts.join('\n'),
+          box: 1,
+          due: Date.now(),
+          created: Date.now(),
+        });
+      }
+    }
+    if (cards.length > 0) {
+      onAddFlashcards(cards);
+      showToast(`Created ${cards.length} flashcards from Mind Map`);
+      setFlashModalOpen(true);
+    } else {
+      showToast('Add notes or branches to Mind Map nodes to create flashcards');
+    }
+  }, [mindNodesOnPage, notebook.id, onAddFlashcards, showToast]);
+
+  const handleImportFilesIntoNotebook = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    try {
+      const results = await parseImportedFiles(files, settings.paperTint);
+      const importedPages = results.flatMap((r) => r.pages);
+      if (importedPages.length === 0) {
+        showToast('No pages extracted from selected file(s)');
+        return;
+      }
+      const targetIdx = notebook.pages.length;
+      if (onAppendPages) {
+        onAppendPages(importedPages);
+      } else {
+        commitPages((pages) => [...pages, ...importedPages]);
+      }
+      setPageIdx(targetIdx);
+      showToast(`Imported ${importedPages.length} page(s) into notebook`);
+    } catch {
+      showToast('Could not import selected file');
+    } finally {
+      e.target.value = '';
+    }
   };
 
   const handleInsertImage = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2331,7 +2587,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   }, [notebook.pages, searchQuery]);
 
   const splitNotebook = splitNoteId ? allNotebooks.find((n) => n.id === splitNoteId && n.deletedAt === null) : null;
-  const mathDetailed = useMemo(() => MathSolver.solveDetailed(mathInput), [mathInput]);
 
   const TOOLS: { id: ToolId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'PEN', label: 'Pen', icon: Pen },
@@ -2455,21 +2710,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           >
             <Redo2 className="h-4 w-4" />
           </button>
-          {settings.pet && (
-            <div className="ml-1 hidden sm:block">
-              <PipPet
-                petId={settings.petId}
-                petName={settings.petName}
-                bond={settings.petBond}
-                writing={writingActive}
-                thinking={Boolean(aiBusyLabel)}
-                cheerTrigger={cheerTrigger}
-                onSwitchPet={onSwitchPet}
-                onRenamePet={(petName) => onUpdateSettings({ petName })}
-                onPetAction={onRecordPetAction}
-              />
-            </div>
-          )}
         </div>
 
         {/* Center Tools Strip */}
@@ -2525,17 +2765,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={() => setMathPadOpen((v) => !v)}
-            title="Maths & Equation Solver"
-            className="inline-flex items-center gap-1 rounded-xl bg-amber-500/15 px-2.5 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-500/25 dark:text-amber-300"
-          >
-            <Calculator className="h-3.5 w-3.5" />
-            <span className="hidden lg:inline">Maths</span>
-          </button>
-
-          {/* AI Study Menu */}
           <div className="relative">
             <button
               type="button"
@@ -2579,7 +2808,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                   onClick={handleAiQuiz}
                   className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
                 >
-                  <Calculator className="h-4 w-4 text-amber-500" /> Take Study Quiz
+                  <ListChecks className="h-4 w-4 text-amber-500" /> Take Study Quiz
                 </button>
                 <div className="my-1 border-t border-black/8 dark:border-white/10" />
                 <button
@@ -2711,6 +2940,16 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 <button
                   type="button"
                   onClick={() => {
+                    setMoreMenuOpen(false);
+                    importFileRef.current?.click();
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  <Upload className="h-4 w-4 text-emerald-600" /> Import Files / Notes…
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
                     handleExportPng();
                     setMoreMenuOpen(false);
                   }}
@@ -2718,6 +2957,14 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 >
                   <Download className="h-4 w-4 text-indigo-600" /> Export Current View as PNG
                 </button>
+                <input
+                  ref={importFileRef}
+                  type="file"
+                  multiple
+                  accept=".md,.markdown,.txt,.html,.htm,.csv,.json,.pdf,image/*"
+                  onChange={handleImportFilesIntoNotebook}
+                  className="hidden"
+                />
                 <div className="my-1 border-t border-black/8 dark:border-white/10" />
                 <button
                   type="button"
@@ -3008,7 +3255,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         )}
 
         {tool === 'MINDMAP' && (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
               onClick={() =>
@@ -3018,37 +3265,79 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                   mindNodesOnPage.length === 0 ? 'Central Topic' : 'Sub-topic'
                 )
               }
-              className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-[11px] font-semibold text-white"
+              className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-blue-600 px-2.5 py-1 text-[11px] font-semibold text-white"
             >
               <Plus className="h-3 w-3" /> {mindNodesOnPage.length === 0 ? 'Root Node' : 'Add Branch'}
+            </button>
+            {selectedMindNode && (
+              <button
+                type="button"
+                onClick={() => addSiblingMindNode(selectedMindNode)}
+                className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-black/5 px-2.5 py-1 text-[11px] font-semibold hover:bg-black/10 dark:bg-white/10"
+              >
+                <Plus className="h-3 w-3" /> Sibling
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setMoveMindSubtree((v) => !v)}
+              title="Move entire branch subtree when dragging a node"
+              className={`inline-flex items-center gap-1 whitespace-nowrap rounded-lg px-2.5 py-1 text-[11px] font-semibold transition ${
+                moveMindSubtree
+                  ? 'bg-emerald-600/15 text-emerald-700 dark:text-emerald-300'
+                  : 'bg-black/5 text-slate-600 dark:bg-white/10 dark:text-slate-300'
+              }`}
+            >
+              <Move className="h-3 w-3" /> Subtree Drag
             </button>
             <button
               type="button"
               onClick={() => autoLayoutMindMap('RADIAL')}
-              className="inline-flex items-center gap-1 rounded-lg bg-black/5 px-2.5 py-1 text-[11px] font-semibold hover:bg-black/10 dark:bg-white/10"
+              className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-black/5 px-2.5 py-1 text-[11px] font-semibold hover:bg-black/10 dark:bg-white/10"
             >
-              <Network className="h-3 w-3" /> Radial Layout
+              <Network className="h-3 w-3" /> Radial
             </button>
             <button
               type="button"
               onClick={() => autoLayoutMindMap('TREE')}
-              className="inline-flex items-center gap-1 rounded-lg bg-black/5 px-2.5 py-1 text-[11px] font-semibold hover:bg-black/10 dark:bg-white/10"
+              className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-black/5 px-2.5 py-1 text-[11px] font-semibold hover:bg-black/10 dark:bg-white/10"
             >
-              <GitBranch className="h-3 w-3" /> Tree Layout
+              <GitBranch className="h-3 w-3" /> Tree
+            </button>
+            <button
+              type="button"
+              onClick={() => autoLayoutMindMap('ORG_CHART')}
+              className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-black/5 px-2.5 py-1 text-[11px] font-semibold hover:bg-black/10 dark:bg-white/10"
+            >
+              <Layers className="h-3 w-3" /> Org Chart
+            </button>
+            <button
+              type="button"
+              onClick={handleMindMapToOutline}
+              className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-black/5 px-2.5 py-1 text-[11px] font-semibold hover:bg-black/10 dark:bg-white/10"
+            >
+              <FileText className="h-3 w-3" /> Outline → Page
+            </button>
+            <button
+              type="button"
+              onClick={handleMindMapToFlashcards}
+              className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-black/5 px-2.5 py-1 text-[11px] font-semibold hover:bg-black/10 dark:bg-white/10"
+            >
+              <BookOpen className="h-3 w-3" /> → Flashcards
             </button>
             <button
               type="button"
               onClick={handleAiGenerateMindMap}
-              className="inline-flex items-center gap-1 rounded-lg bg-violet-600/12 px-2.5 py-1 text-[11px] font-semibold text-violet-700 hover:bg-violet-600/20 dark:text-violet-300"
+              className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-violet-600/12 px-2.5 py-1 text-[11px] font-semibold text-violet-700 hover:bg-violet-600/20 dark:text-violet-300"
             >
-              <Sparkles className="h-3 w-3" /> AI Map from Notes
+              <Sparkles className="h-3 w-3" /> AI Map
             </button>
           </div>
         )}
 
         {tool === 'LASSO' && (
           <span className="text-[11px] text-slate-500">
-            Draw a loop around ink, text, stickies, or nodes to move, solve maths, or AI explain
+            Draw a loop around ink, text, stickies, or nodes to move, delete, or AI explain
           </span>
         )}
         {tool === 'PAN' && (
@@ -3339,115 +3628,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             </div>
           )}
 
-          {/* Advanced Maths Quick-Pad (Multi-line variables, derivatives, fractions, steps) */}
-          {mathPadOpen && (
-            <div className="absolute right-4 top-3 z-40 w-88 overflow-hidden rounded-3xl border border-black/10 bg-white/95 p-4 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#1E2027]/95 animate-stagger-in">
-              <AiParticleBackdrop accent="blue" variant="ai-wave" intensity="soft" className="opacity-65" />
-              <div className="relative z-10">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-600 dark:text-amber-400">
-                  <Calculator className="h-4 w-4" /> Advanced Maths Engine
-                </span>
-                <button type="button" onClick={() => setMathPadOpen(false)}>
-                  <X className="h-4 w-4 text-slate-400" />
-                </button>
-              </div>
-              <textarea
-                rows={2}
-                value={mathInput}
-                onChange={(e) => setMathInput(e.target.value)}
-                placeholder="e.g. x=3; y=2x+1; x^2+y  or  d/dx(3x^2 - 4x)"
-                className="w-full rounded-xl border border-black/12 bg-white px-3 py-2 font-mono-num text-xs outline-none focus:border-amber-500 dark:border-white/15 dark:bg-[#14151A]"
-              />
-              <div className="mt-2 rounded-2xl bg-amber-500/12 px-3 py-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-slate-500">Answer</span>
-                  {mathDetailed?.fractionHint && (
-                    <span className="font-mono-num rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-800 dark:text-amber-200">
-                      Exact: {mathDetailed.fractionHint}
-                    </span>
-                  )}
-                </div>
-                <div
-                  key={mathDetailed?.answer || 'none'}
-                  className="font-mono-num mt-0.5 text-base font-extrabold text-amber-700 dark:text-amber-300 animate-math-bloom"
-                >
-                  {mathDetailed?.answer || '—'}
-                </div>
-                {mathDetailed && mathDetailed.steps.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setMathStepsOpen((v) => !v)}
-                    className="mt-1 text-[10px] font-bold text-amber-700 underline dark:text-amber-300"
-                  >
-                    {mathStepsOpen ? 'Hide Steps' : `Show Steps (${mathDetailed.steps.length})`}
-                  </button>
-                )}
-                {mathStepsOpen && mathDetailed && (
-                  <div className="mt-2 space-y-1 border-t border-amber-500/20 pt-2 text-[11px] text-slate-700 dark:text-slate-200">
-                    {mathDetailed.steps.map((st, i) => (
-                      <div key={i} className="font-mono-num">
-                        {i + 1}. {st}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-2 flex flex-wrap gap-1">
-                {[
-                  '2x(x + 1) - 4 = 0',
-                  '2^x = 16',
-                  'd/dx(3x^2 - 4x)',
-                  'x=4; y=2x+1; x^2+y',
-                  '72 f to c',
-                ].map((ex) => (
-                  <button
-                    key={ex}
-                    type="button"
-                    onClick={() => setMathInput(ex)}
-                    className="rounded-md bg-black/5 px-1.5 py-0.5 font-mono-num text-[10px] hover:bg-black/10 dark:bg-white/10"
-                  >
-                    {ex}
-                  </button>
-                ))}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const ans = MathSolver.solve(mathInput);
-                  if (!ans) return;
-                  const c = screenToWorld(
-                    (containerRef.current?.clientWidth || 800) / 2,
-                    (containerRef.current?.clientHeight || 600) / 2
-                  );
-                  const singleLine = mathInput.replace(/\n+/g, '; ');
-                  const exprItem: TextItem = {
-                    id: `mexp-${Date.now()}`,
-                    kind: 'text',
-                    text: singleLine,
-                    x: c.x - 160,
-                    y: c.y - 20,
-                    size: 32,
-                    color: penColor,
-                    font: 'HAND',
-                  };
-                  commitPageItems((items) => [...items, exprItem]);
-                  window.setTimeout(
-                    () => placeMathAnswer(mathInput, c.x - 160, c.y - 20, singleLine.length * 15 + 24, 42),
-                    30
-                  );
-                  setMathPadOpen(false);
-                }}
-                className="mt-3 w-full rounded-xl bg-amber-500 py-2 text-xs font-bold text-white hover:bg-amber-600"
-              >
-                Write Equation + Answer to Canvas
-              </button>
-              </div>
-            </div>
-          )}
-
           {/* Contextual Floating Sticky Studio */}
           {selectedStickyNode && selectedStickyScreen && (
             <div
@@ -3620,7 +3800,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           {editingTextId && (
             <div className="absolute left-1/2 top-16 z-40 w-80 -translate-x-1/2 rounded-2xl border border-blue-500/30 bg-white p-3.5 shadow-2xl dark:bg-[#1E2027] animate-stagger-in">
               <div className="mb-1.5 flex items-center justify-between text-xs font-bold">
-                <span>Edit Text (ends with = to auto-solve)</span>
+                <span>Edit Text</span>
                 <button
                   type="button"
                   onClick={() => {
@@ -3630,13 +3810,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                       commitPageItems((items) =>
                         items.map((it) => (it.id === editingTextId && it.kind === 'text' ? { ...it, text: finalTxt } : it))
                       );
-                      if (settings.mathAssist && (finalTxt.endsWith('=') || /[xX^]/.test(finalTxt))) {
-                        const ans = MathSolver.solve(finalTxt);
-                        if (ans) {
-                          const b = getItemBounds({ ...curItem, text: finalTxt });
-                          placeMathAnswer(finalTxt, b.l, b.t, b.w, b.h);
-                        }
-                      }
                     } else {
                       commitPageItems((items) => items.filter((it) => it.id !== editingTextId));
                     }
@@ -3652,7 +3825,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 rows={3}
                 value={textDraft}
                 onChange={(e) => setTextDraft(e.target.value)}
-                placeholder="Write notes or math like 2x(x + 1) - 4 = 0"
+                placeholder="Write notes..."
                 className="w-full rounded-xl border border-black/12 p-2 text-sm outline-none focus:border-blue-500 dark:border-white/15 dark:bg-[#14151A]"
               />
             </div>
@@ -3662,7 +3835,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           {selectedMindNode && selectedMindScreen && (
             <div
               style={{
-                left: Math.max(140, Math.min((containerRef.current?.clientWidth || 800) - 160, selectedMindScreen.left)),
+                left: Math.max(175, Math.min((containerRef.current?.clientWidth || 800) - 185, selectedMindScreen.left)),
                 top: Math.max(12, selectedMindScreen.top - 54),
               }}
               className="absolute z-30 flex -translate-x-1/2 items-center gap-1 rounded-2xl border border-black/10 bg-white/95 px-2 py-1.5 shadow-xl backdrop-blur-md dark:border-white/10 dark:bg-[#20222A]/95 animate-stagger-in"
@@ -3670,19 +3843,23 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               <button
                 type="button"
                 onClick={() => addMindNode(selectedMindNode, undefined, 'Child Idea')}
-                className="rounded-lg bg-blue-600 px-2 py-1 text-[11px] font-semibold text-white"
+                className="whitespace-nowrap rounded-lg bg-blue-600 px-2 py-1 text-[11px] font-semibold text-white"
               >
                 + Child
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setEditingMindId(selectedMindNode.id);
-                  setMindDraft(selectedMindNode.label);
-                }}
-                className="rounded-lg px-2 py-1 text-[11px] font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                onClick={() => addSiblingMindNode(selectedMindNode)}
+                className="whitespace-nowrap rounded-lg px-2 py-1 text-[11px] font-semibold hover:bg-black/5 dark:hover:bg-white/10"
               >
-                Rename
+                + Sibling
+              </button>
+              <button
+                type="button"
+                onClick={() => openMindEditor(selectedMindNode)}
+                className="whitespace-nowrap rounded-lg px-2 py-1 text-[11px] font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                Edit
               </button>
               <button
                 type="button"
@@ -3695,7 +3872,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                     )
                   )
                 }
-                className="rounded-lg px-2 py-1 text-[11px] font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                className="whitespace-nowrap rounded-lg px-2 py-1 text-[11px] font-semibold hover:bg-black/5 dark:hover:bg-white/10"
               >
                 {selectedMindNode.collapsed ? 'Expand' : 'Collapse'}
               </button>
@@ -3710,7 +3887,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                     )
                   );
                 }}
-                className="rounded-lg px-2 py-1 text-[11px] font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                className="whitespace-nowrap rounded-lg px-2 py-1 text-[11px] font-semibold hover:bg-black/5 dark:hover:bg-white/10"
               >
                 Shape
               </button>
@@ -3725,7 +3902,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                       )
                     )
                   }
-                  className="h-4 w-4 rounded-full"
+                  className="h-4 w-4 shrink-0 rounded-full"
                   style={{ backgroundColor: c }}
                 />
               ))}
@@ -3739,50 +3916,112 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             </div>
           )}
 
-          {/* Mind Node Inline Rename Modal */}
+          {/* Mind Node Full Studio Editor Modal */}
           {editingMindId && (
-            <div className="absolute left-1/2 top-20 z-40 w-72 -translate-x-1/2 rounded-2xl border border-black/10 bg-white p-3.5 shadow-2xl dark:border-white/10 dark:bg-[#1E2027]">
-              <div className="mb-2 text-xs font-bold">Node Label</div>
-              <input
-                autoFocus
-                type="text"
-                value={mindDraft}
-                onChange={(e) => setMindDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    commitPageItems((items) =>
-                      items.map((it) =>
-                        it.id === editingMindId && it.kind === 'mindnode'
-                          ? { ...it, label: mindDraft.trim() || 'Node' }
-                          : it
-                      )
-                    );
-                    setEditingMindId(null);
-                  }
-                }}
-                className="w-full rounded-xl border border-black/15 px-3 py-1.5 text-sm dark:border-white/15 dark:bg-[#14151A]"
-              />
-              <div className="mt-2.5 flex justify-end gap-2">
+            <div className="absolute left-1/2 top-20 z-40 w-80 -translate-x-1/2 rounded-2xl border border-black/10 bg-white p-4 shadow-2xl dark:border-white/10 dark:bg-[#1E2027] animate-stagger-in">
+              <div className="mb-2.5 flex items-center justify-between">
+                <span className="text-xs font-bold">Edit Mind Node</span>
+                <button type="button" onClick={() => setEditingMindId(null)}>
+                  <X className="h-4 w-4 text-slate-400" />
+                </button>
+              </div>
+              <div className="space-y-2.5">
+                <div>
+                  <label className="mb-1 block text-[11px] font-semibold text-slate-500">Title</label>
+                  <input
+                    autoFocus
+                    type="text"
+                    value={mindDraft}
+                    onChange={(e) => setMindDraft(e.target.value)}
+                    placeholder="Node title"
+                    className="w-full rounded-xl border border-black/15 px-3 py-1.5 text-sm outline-none focus:border-blue-500 dark:border-white/15 dark:bg-[#14151A]"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[11px] font-semibold text-slate-500">Category Tag (optional)</label>
+                  <input
+                    type="text"
+                    value={mindTagDraft}
+                    onChange={(e) => setMindTagDraft(e.target.value)}
+                    placeholder="e.g. Concept, Definition, Key"
+                    className="w-full rounded-xl border border-black/15 px-3 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-white/15 dark:bg-[#14151A]"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[11px] font-semibold text-slate-500">Notes (optional)</label>
+                  <textarea
+                    rows={2}
+                    value={mindNotesDraft}
+                    onChange={(e) => setMindNotesDraft(e.target.value)}
+                    placeholder="Details or definition shown on node card..."
+                    className="w-full rounded-xl border border-black/15 px-3 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-white/15 dark:bg-[#14151A]"
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex gap-1">
+                    {(['pill', 'card', 'diamond'] as const).map((shp) => (
+                      <button
+                        key={shp}
+                        type="button"
+                        onClick={() => setMindShapeDraft(shp)}
+                        className={`rounded-lg px-2 py-1 text-[10px] font-bold capitalize ${
+                          mindShapeDraft === shp
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-black/5 text-slate-600 dark:bg-white/10 dark:text-slate-300'
+                        }`}
+                      >
+                        {shp}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex gap-1">
+                    {MIND_COLORS.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setMindColorDraft(c)}
+                        className={`h-4 w-4 rounded-full ${mindColorDraft === c ? 'ring-2 ring-blue-500 ring-offset-1' : ''}`}
+                        style={{ backgroundColor: c }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-3 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setEditingMindId(null)}
-                  className="rounded-lg px-2.5 py-1 text-xs text-slate-500"
+                  className="rounded-lg px-2.5 py-1 text-xs text-slate-500 hover:bg-black/5"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={() => {
+                    const label = mindDraft.trim() || 'Node';
+                    const tag = mindTagDraft.trim() || undefined;
+                    const notes = mindNotesDraft.trim() || undefined;
+                    const nw = Math.max(162, Math.min(268, label.length * 9 + 52));
+                    const nh = notes ? 68 : tag ? 54 : 46;
                     commitPageItems((items) =>
                       items.map((it) =>
                         it.id === editingMindId && it.kind === 'mindnode'
-                          ? { ...it, label: mindDraft.trim() || 'Node' }
+                          ? {
+                              ...it,
+                              label,
+                              tag,
+                              notes,
+                              shape: mindShapeDraft,
+                              color: mindColorDraft,
+                              w: nw,
+                              h: nh,
+                            }
                           : it
                       )
                     );
                     setEditingMindId(null);
                   }}
-                  className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-semibold text-white"
+                  className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700"
                 >
                   Save
                 </button>
@@ -3796,13 +4035,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               <span className="font-mono-num pr-1 text-xs font-bold text-blue-600">
                 {selectedIds.size} selected
               </span>
-              <button
-                type="button"
-                onClick={handleSolveSelectionMath}
-                className="inline-flex items-center gap-1 rounded-xl bg-amber-500/15 px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-500/25 dark:text-amber-300"
-              >
-                <Calculator className="h-3.5 w-3.5" /> Solve Maths
-              </button>
               <button
                 type="button"
                 onClick={handleAiExplainSelection}
@@ -3895,6 +4127,27 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                   },
                 ]);
                 showToast('Copied reference sticky onto active page');
+              }}
+              onInsertTextToActive={(txt) => {
+                const c = screenToWorld(
+                  (containerRef.current?.clientWidth || 800) / 2,
+                  (containerRef.current?.clientHeight || 600) / 2
+                );
+                commitPageItems((items) => [
+                  ...items,
+                  {
+                    id: `txt-clip-${Date.now()}`,
+                    kind: 'text',
+                    text: txt.slice(0, 900),
+                    x: Math.max(80, c.x - 220),
+                    y: Math.max(80, c.y - 80),
+                    size: 22,
+                    color: '#1B1F2A',
+                    font: 'SANS',
+                    createdAt: Date.now(),
+                  },
+                ]);
+                showToast('Inserted text onto active page');
               }}
               onClose={() => setSplitNoteId(null)}
             />
@@ -4024,18 +4277,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         summary={summaryModal.summary}
         loadingStage={summaryModal.loadingStage}
         explainText={summaryModal.explainText}
-        petProps={
-          settings.pet
-            ? {
-                petId: settings.petId,
-                petName: settings.petName,
-                bond: settings.petBond,
-                onSwitchPet,
-                onRenamePet: (petName) => onUpdateSettings({ petName }),
-                onPetAction: onRecordPetAction,
-              }
-            : undefined
-        }
         onClose={() => setSummaryModal((s) => ({ ...s, open: false }))}
         onTurnIntoMindMap={() => {
           setSummaryModal((s) => ({ ...s, open: false }));
@@ -4069,18 +4310,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         notebookId={notebook.id}
         cards={flashcards}
         loadingStage={aiBusyLabel === 'Crafting flashcards' ? aiStageLabel : null}
-        petProps={
-          settings.pet
-            ? {
-                petId: settings.petId,
-                petName: settings.petName,
-                bond: settings.petBond,
-                onSwitchPet,
-                onRenamePet: (petName) => onUpdateSettings({ petName }),
-                onPetAction: onRecordPetAction,
-              }
-            : undefined
-        }
         onClose={() => setFlashModalOpen(false)}
         onAddCard={(front, back) =>
           onAddFlashcards([
@@ -4098,7 +4327,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         onUpdateCard={onUpdateFlashcard}
         onDeleteCard={onDeleteFlashcard}
         onGenerateAi={handleAiFlashcards}
-        onStudyXp={() => onRecordPetAction('study', 4)}
       />
 
       <QuizModal
@@ -4108,23 +4336,9 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         bestScore={bestQuizScore}
         engineLabel={quizModal.engineLabel}
         loadingStage={quizModal.loadingStage}
-        petProps={
-          settings.pet
-            ? {
-                petId: settings.petId,
-                petName: settings.petName,
-                bond: settings.petBond,
-                onSwitchPet,
-                onRenamePet: (petName) => onUpdateSettings({ petName }),
-                onPetAction: onRecordPetAction,
-              }
-            : undefined
-        }
         onClose={() => setQuizModal((s) => ({ ...s, open: false }))}
         onScoreRecorded={(pct) => {
           onRecordQuizScore(notebook.id, pct);
-          onRecordPetAction('study', Math.max(8, Math.round(pct / 5)));
-          setCheerTrigger((c) => c + 1);
         }}
       />
     </div>

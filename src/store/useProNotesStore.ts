@@ -12,7 +12,6 @@ import {
   PageItem,
   PaperStyle,
   PenPreset,
-  PetId,
   UNITS_PER_MM,
 } from '../types/models';
 import {
@@ -47,22 +46,11 @@ const DEFAULT_SETTINGS: AppSettings = {
   liquidGlass: true,
   showTabs: true,
   pageNumbers: true,
-  pet: true,
-  petId: 'sparkchu',
-  petName: '',
-  petBond: {
-    petId: 'sparkchu',
-    xp: 45,
-    level: 2,
-    treatsGiven: 2,
-    petsGiven: 5,
-  },
   scribbleToErase: true,
   liveScribbleErase: true,
   scribbleSensitivity: 'balanced',
   holdToShape: true,
   circleToLasso: true,
-  mathAssist: true,
   highlighterBehind: true,
   highlighterMode: 'AUTO',
   highlighterOpacity: 0.58,
@@ -119,7 +107,7 @@ function createStarterData(): ProNotesState {
 
   const nbMath: NotebookMeta = {
     id: nbMathId,
-    title: 'Applied Maths & Physics',
+    title: 'Physics & Study Notes',
     folderId: folderMath.id,
     coverColor: '#3D6CF4',
     paper: 'RULED',
@@ -141,7 +129,7 @@ function createStarterData(): ProNotesState {
           {
             id: 'txt-m1',
             kind: 'text',
-            text: 'Linear, Quadratic & Calculus Equations',
+            text: 'Classical Mechanics & Conservation Laws',
             x: 155,
             y: 112,
             size: 36,
@@ -152,7 +140,7 @@ function createStarterData(): ProNotesState {
           {
             id: 'txt-m2',
             kind: 'text',
-            text: 'Tip: Select any expression below with Maths Quick-Solve or write on the canvas with Pen.\nScribble zig-zag directly across ink while drawing to erase it live!',
+            text: 'Tip: Sketch freely with the Pen, hold to snap clean Shapes, or scribble zig-zag directly across ink while drawing to erase it live!',
             x: 155,
             y: 192,
             size: 23,
@@ -162,44 +150,12 @@ function createStarterData(): ProNotesState {
           {
             id: 'txt-m3',
             kind: 'text',
-            text: '2x(x + 1) - 4 = 0',
+            text: 'Newton Second Law: F = m × a\nMomentum: p = m × v (conserved in closed systems)',
             x: 165,
             y: 310,
-            size: 34,
+            size: 26,
             color: '#1E293B',
-            font: 'HAND',
-          },
-          {
-            id: 'txt-m3-ans',
-            kind: 'text',
-            text: '→ x = -2, 1',
-            x: 440,
-            y: 310,
-            size: 34,
-            color: '#E69A28',
-            font: 'HAND',
-            isMathAnswer: true,
-          },
-          {
-            id: 'txt-m4',
-            kind: 'text',
-            text: '2^x = 16',
-            x: 165,
-            y: 410,
-            size: 34,
-            color: '#1E293B',
-            font: 'HAND',
-          },
-          {
-            id: 'txt-m4-ans',
-            kind: 'text',
-            text: '→ x = 4',
-            x: 340,
-            y: 410,
-            size: 34,
-            color: '#E69A28',
-            font: 'HAND',
-            isMathAnswer: true,
+            font: 'SANS',
           },
           {
             id: 'txt-m5',
@@ -425,10 +381,6 @@ function loadInitialState(): ProNotesState {
         const mergedSettings: AppSettings = {
           ...DEFAULT_SETTINGS,
           ...(parsed.settings || {}),
-          petBond: {
-            ...DEFAULT_SETTINGS.petBond,
-            ...(parsed.settings?.petBond || {}),
-          },
           penPresets:
             parsed.settings?.penPresets && parsed.settings.penPresets.length > 0
               ? parsed.settings.penPresets
@@ -493,38 +445,6 @@ export function useProNotesStore() {
       ...prev,
       settings: { ...prev.settings, ...patch },
     }));
-  }, []);
-
-  const switchPet = useCallback((petId: PetId) => {
-    setState((prev) => ({
-      ...prev,
-      settings: {
-        ...prev.settings,
-        petId,
-        petBond: { ...prev.settings.petBond, petId },
-      },
-    }));
-  }, []);
-
-  const recordPetAction = useCallback((kind: 'pet' | 'treat' | 'study', xpGain = 8) => {
-    setState((prev) => {
-      const cur = prev.settings.petBond;
-      const xp = cur.xp + xpGain;
-      const level = Math.max(1, Math.floor(xp / 50) + 1);
-      return {
-        ...prev,
-        settings: {
-          ...prev.settings,
-          petBond: {
-            ...cur,
-            xp,
-            level,
-            treatsGiven: cur.treatsGiven + (kind === 'treat' ? 1 : 0),
-            petsGiven: cur.petsGiven + (kind === 'pet' ? 1 : 0),
-          },
-        },
-      };
-    });
   }, []);
 
   const savePenPreset = useCallback((preset: PenPreset) => {
@@ -841,12 +761,60 @@ export function useProNotesStore() {
     return data.notebooks.length;
   }, []);
 
+  const importParsedNotebook = useCallback(
+    (title: string, pages: Page[], folderId: string | null = null): NotebookMeta => {
+      const now = Date.now();
+      const id = `nb-${now}-${Math.random().toString(36).slice(2, 6)}`;
+      const safePages = pages.length > 0 ? pages : [
+        {
+          id: `pg-${now}`,
+          width: Math.round(210 * UNITS_PER_MM),
+          height: Math.round(297 * UNITS_PER_MM),
+          paper: 'RULED' as PaperStyle,
+          items: [],
+        },
+      ];
+      const nb: NotebookMeta = {
+        id,
+        title: title.trim() || 'Imported Note',
+        folderId,
+        coverColor: '#3D6CF4',
+        paper: safePages[0].paper || 'RULED',
+        created: now,
+        modified: now,
+        opened: now,
+        pageCount: safePages.length,
+        favorite: false,
+        deletedAt: null,
+        cover: 'pattern:gradient:#3D6CF4',
+        pages: safePages,
+      };
+      setState((prev) => ({
+        ...prev,
+        notebooks: [nb, ...prev.notebooks],
+        tabs: Array.from(new Set([...prev.tabs, nb.id])).slice(-8),
+      }));
+      return nb;
+    },
+    []
+  );
+
+  const appendPagesToNotebook = useCallback((noteId: string, newPages: Page[]) => {
+    if (newPages.length === 0) return;
+    setState((prev) => ({
+      ...prev,
+      notebooks: prev.notebooks.map((nb) => {
+        if (nb.id !== noteId) return nb;
+        const pages = [...nb.pages, ...newPages];
+        return { ...nb, pages, pageCount: pages.length, modified: Date.now() };
+      }),
+    }));
+  }, []);
+
   return {
     state,
     modelStates,
     updateSettings,
-    switchPet,
-    recordPetAction,
     savePenPreset,
     deletePenPreset,
     createFolder,
@@ -871,5 +839,7 @@ export function useProNotesStore() {
     removeLocalModel,
     exportBackupJson,
     importBackupJson,
+    importParsedNotebook,
+    appendPagesToNotebook,
   };
 }

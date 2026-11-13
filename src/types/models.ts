@@ -37,7 +37,6 @@ export const PAPER_STYLES: PaperStyleMeta[] = [
   { id: 'NARROW', label: 'Narrow ruled', group: 'Writing' },
   { id: 'WIDE', label: 'Wide ruled', group: 'Writing' },
   { id: 'LEGAL', label: 'Legal pad', group: 'Writing' },
-  { id: 'HANDWRITING', label: 'Handwriting', group: 'Writing' },
   { id: 'TWO_COLUMN', label: 'Two columns', group: 'Writing' },
   { id: 'BLANK', label: 'Blank', group: 'Writing' },
   { id: 'DOTTED', label: 'Dotted', group: 'Grids' },
@@ -251,16 +250,6 @@ export type ShapeKind =
 
 export type TextFont = 'SANS' | 'SERIF' | 'MONO' | 'HAND' | 'CURSIVE';
 
-export type PetId =
-  | 'pip'
-  | 'sparkchu'
-  | 'emberkit'
-  | 'aquapup'
-  | 'leafsprout'
-  | 'eevo'
-  | 'snorblob'
-  | 'genglet';
-
 export interface StrokePt {
   x: number;
   y: number;
@@ -300,10 +289,7 @@ export interface TextItem {
   underline?: boolean;
   gradient?: string;
   rot?: number;
-  isMathAnswer?: boolean;
-  mathExpr?: string;
   createdAt?: number;
-  sourceInkIds?: string[];
 }
 
 export type StickyFont = 'SANS' | 'SERIF' | 'MONO' | 'HAND';
@@ -370,6 +356,7 @@ export interface MindNodeItem {
   w: number;
   h: number;
   label: string;
+  tag?: string;
   notes?: string;
   parentId: string | null;
   color: string;
@@ -464,7 +451,7 @@ export interface LocalModelSpec {
   quantization: string;
   ramRequired: string;
   speedTag: string;
-  category: 'fast' | 'balanced' | 'reasoning' | 'math';
+  category: 'fast' | 'balanced' | 'reasoning';
   speedScore: number;
   description: string;
   capabilities: string[];
@@ -494,14 +481,6 @@ export interface PenPreset {
   stabilizer: number;
 }
 
-export interface PetBondState {
-  petId: PetId;
-  xp: number;
-  level: number;
-  treatsGiven: number;
-  petsGiven: number;
-}
-
 export interface AppSettings {
   themeMode: ThemeMode;
   accent: AccentColorId;
@@ -515,16 +494,11 @@ export interface AppSettings {
   liquidGlass: boolean;
   showTabs: boolean;
   pageNumbers: boolean;
-  pet: boolean;
-  petId: PetId;
-  petName: string;
-  petBond: PetBondState;
   scribbleToErase: boolean;
   liveScribbleErase: boolean;
   scribbleSensitivity: ScribbleSensitivity;
   holdToShape: boolean;
   circleToLasso: boolean;
-  mathAssist: boolean;
   highlighterBehind: boolean;
   highlighterMode: 'AUTO' | 'STRAIGHT' | 'FREE';
   highlighterOpacity: number;

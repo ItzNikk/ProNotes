@@ -26,10 +26,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -87,7 +89,6 @@ import androidx.compose.material.icons.outlined.FormatAlignCenter
 import androidx.compose.material.icons.outlined.FormatBold
 import androidx.compose.material.icons.outlined.FormatItalic
 import androidx.compose.material.icons.outlined.FormatUnderlined
-import androidx.compose.material.icons.outlined.Functions
 import androidx.compose.material.icons.outlined.GridOn
 import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Image
@@ -97,10 +98,12 @@ import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PictureAsPdf
+import androidx.compose.material.icons.outlined.PostAdd
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Quiz
 import androidx.compose.material.icons.outlined.RotateRight
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.Style
@@ -109,6 +112,7 @@ import androidx.compose.material.icons.outlined.SwapVert
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.UnfoldLess
 import androidx.compose.material.icons.outlined.UnfoldMore
+import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material.icons.outlined.VerticalSplit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -274,6 +278,9 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     val pickBackground = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) vm.setPageBackground(uri)
     }
+    val importFilesLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) vm.importFilesIntoCurrent(uris)
+    }
 
     LaunchedEffect(noteId) { store.openTab(noteId) }
     LaunchedEffect(library) { store.retainTabs(library.notebooks.filter { it.deletedAt == null }.map { it.id }.toSet()) }
@@ -370,9 +377,11 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
         canvas?.activeMindNodeId = vm.activeMindNodeId
         canvas?.redraw()
     }
+    LaunchedEffect(vm.moveMindSubtree, canvas) {
+        canvas?.moveMindSubtree = vm.moveMindSubtree
+    }
     var showQuiz by remember { mutableStateOf(false) }
     var showTemplates by remember { mutableStateOf(false) }
-    var showMath by remember { mutableStateOf(false) }
     /** Notebook shown beside this one (split view), or null. */
     var splitId by remember { mutableStateOf<String?>(null) }
     var splitWeight by remember { mutableFloatStateOf(0.8f) }
@@ -381,7 +390,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
 
     // Real background blur (Android 12+) while a card, dialog or sheet is open.
     val overlayOpen = vm.textEdit != null || vm.stickyEdit != null || vm.mindNodeEdit != null ||
-        renaming || goTo || pageColor || showStickers || showMath || vm.cardOpen || wheelAt != null
+        renaming || goTo || pageColor || showStickers || vm.cardOpen || wheelAt != null
     val blurRadius by androidx.compose.animation.core.animateDpAsState(if (overlayOpen) 14.dp else 0.dp, label = "blur")
     val blurMod = if (android.os.Build.VERSION.SDK_INT >= 31 && blurRadius > 0.dp) Modifier.blur(blurRadius) else Modifier
 
@@ -423,7 +432,9 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                         onCards = { showCards = true },
                         onQuiz = { showQuiz = true },
                         onTemplates = { showTemplates = true },
-                        onMath = { showMath = true },
+                        onImportFiles = {
+                            importFilesLauncher.launch(arrayOf("application/pdf", "text/*", "image/*", "application/json", "application/octet-stream"))
+                        },
                         onSplit = { splitId = if (splitId != null) null else library.notebooks.firstOrNull { it.deletedAt == null && it.id != noteId }?.id ?: noteId },
                         onPageImage = { pickBackground.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                     )
@@ -473,7 +484,6 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                                 override fun pdfBitmap(page: Page, widthPx: Int, onReady: () -> Unit) = vm.pdfBitmap(page, widthPx, onReady)
                                 override fun pdfDetail(page: Int) = vm.pdfDetail(page)
                                 override fun tapePattern() = vm.tapePattern
-                                override fun mathAnim() = vm.mathAnim
                                 override fun onPenActive(active: Boolean) { vm.penActive = active }
                                 override fun requestDetail(wants: List<Triple<Int, android.graphics.RectF, Float>>, onReady: () -> Unit) = vm.requestDetail(wants, onReady)
                                 override fun highlights(page: Int) = vm.highlights(page)
@@ -653,8 +663,17 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                                 TextButton(onClick = { vm.deleteMindNode(selNode.id) }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
                                 Box(Modifier.padding(horizontal = 4.dp).width(1.dp).height(18.dp).background(MaterialTheme.colorScheme.outlineVariant))
                             }
-                            TextButton(onClick = { vm.autoLayoutMindMap(radial = true) }) { Text("Radial") }
-                            TextButton(onClick = { vm.autoLayoutMindMap(radial = false) }) { Text("Tree") }
+                            TextButton(onClick = { vm.moveMindSubtree = !vm.moveMindSubtree }) {
+                                Text(
+                                    if (vm.moveMindSubtree) "Subtree: On" else "Subtree",
+                                    color = if (vm.moveMindSubtree) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            EditorViewModel.MindLayout.entries.forEach { layout ->
+                                TextButton(onClick = { vm.autoLayoutMindMap(layout) }) { Text(layout.label) }
+                            }
+                            TextButton(onClick = { vm.exportMindMapOutlineToPage() }) { Text("Outline") }
+                            TextButton(onClick = { vm.flashcardsFromMindMap() }) { Text("Cards") }
                             TextButton(onClick = { vm.generateMindMapFromNotes() }) {
                                 Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
@@ -729,6 +748,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                     },
                     onRatioPreset = { ratio -> splitWeight = ratio },
                     onClipToSticky = { snippet, srcTitle -> vm.clipTextAsSticky(snippet, srcTitle) },
+                    onInsertToPage = { snippet, srcTitle -> vm.clipTextAsPageItem(snippet, srcTitle) },
                     onClose = { splitId = null },
                     modifier = Modifier.weight(splitWeight).fillMaxHeight(),
                 )
@@ -761,7 +781,6 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                             Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(8.dp))
                             Text("Explained", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                            CompanionBadge(compact = true)
                         }
                         Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text("\"" + sel.take(160) + "\"", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -777,7 +796,6 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
         }
     }
     if (showTemplates) TemplateSheet(vm, onClose = { showTemplates = false })
-    if (showMath) MathPadDialog(vm, onDismiss = { showMath = false })
     vm.summary?.let { res ->
         val clip = androidx.compose.ui.platform.LocalClipboardManager.current
         SummarySheet(
@@ -959,7 +977,7 @@ private fun TopBar(
     onCards: () -> Unit = {},
     onQuiz: () -> Unit = {},
     onTemplates: () -> Unit = {},
-    onMath: () -> Unit = {},
+    onImportFiles: () -> Unit = {},
     onSplit: () -> Unit = {},
 ) {
     Row(Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -970,7 +988,6 @@ private fun TopBar(
         Box(Modifier.padding(horizontal = 6.dp).width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant))
         BarIcon(ProIcon.UNDO, "Undo", enabled = vm.canUndo, onClick = vm::undo)
         BarIcon(ProIcon.REDO, "Redo", enabled = vm.canRedo, onClick = vm::redo)
-        if (settings.pet) StudyPet(vm, Modifier.padding(start = 4.dp), compact = true)
         if (settings.toolbarDock == ToolbarDock.HEADER && !hideTools) {
             // Tools, then the colours and sizes of the selected tool, all in the fixed bar.
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
@@ -1056,8 +1073,8 @@ private fun TopBar(
                     leadingIcon = { Icon(Icons.Outlined.AllInclusive, null) },
                     onClick = { more = false; vm.toggleCurrentWhiteboard() },
                 )
-                DropdownMenuItem(text = { Text("Maths pad…") }, leadingIcon = { Icon(Icons.Outlined.Functions, null) },
-                    onClick = { more = false; onMath() })
+                DropdownMenuItem(text = { Text("Import files into notebook…") }, leadingIcon = { Icon(Icons.Outlined.UploadFile, null) },
+                    onClick = { more = false; onImportFiles() })
                 DropdownMenuItem(text = { Text("Generate mind map") }, leadingIcon = { Icon(Icons.Outlined.Hub, null) },
                     onClick = { more = false; vm.generateMindMapFromNotes() })
                 DropdownMenuItem(text = { Text("Summarise page") }, leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null) },
@@ -1460,8 +1477,11 @@ private fun ToolOptions(vm: EditorViewModel, vertical: Boolean, settings: AppSet
                             vm.recolorMindNode(color = c)
                         }
                     }
-                    MiniChip("Radial") { vm.autoLayoutMindMap(radial = true) }
-                    MiniChip("Tree") { vm.autoLayoutMindMap(radial = false) }
+                    EditorViewModel.MindLayout.entries.forEach { layout ->
+                        MiniChip(layout.label) { vm.autoLayoutMindMap(layout) }
+                    }
+                    MiniChip(if (vm.moveMindSubtree) "Subtree: On" else "Subtree: Off") { vm.moveMindSubtree = !vm.moveMindSubtree }
+                    MiniChip("Cards") { vm.flashcardsFromMindMap() }
                     MiniChip("AI Map") { vm.generateMindMapFromNotes() }
                 }
                 else -> Unit
@@ -1665,9 +1685,6 @@ private fun PenCard(vm: EditorViewModel) {
                 )
             }
         }
-        Text("SMART INK (ON DEVICE)", style = MaterialTheme.typography.labelSmall)
-        ToggleLine("Convert to text as I write", s.autoConvert) { v -> store.update { it.copy(autoConvert = v) } }
-        ToggleLine("Solve maths when I write =", s.mathAssist) { v -> store.update { it.copy(mathAssist = v) } }
         Text("PAPER FEEL", style = MaterialTheme.typography.labelSmall)
         ToggleLine("Writing sound", s.paperSound) { v -> store.update { it.copy(paperSound = v) } }
         if (s.paperSound) SliderRow("VOLUME", "%.0f%%".format(s.paperVolume * 100), s.paperVolume, 0.05f..1f) { v -> store.update { it.copy(paperVolume = v) } }
@@ -1796,7 +1813,7 @@ private fun LassoCard() {
         Text("SELECT", style = MaterialTheme.typography.labelSmall)
         val f = s.lassoFilter
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilterChip(f.ink, { store.update { it.copy(lassoFilter = f.copy(ink = !f.ink)) } }, label = { Text("Handwriting") }, shape = Pill)
+            FilterChip(f.ink, { store.update { it.copy(lassoFilter = f.copy(ink = !f.ink)) } }, label = { Text("Ink") }, shape = Pill)
             FilterChip(f.highlighter, { store.update { it.copy(lassoFilter = f.copy(highlighter = !f.highlighter)) } }, label = { Text("Highlighter") }, shape = Pill)
             FilterChip(f.text, { store.update { it.copy(lassoFilter = f.copy(text = !f.text)) } }, label = { Text("Text") }, shape = Pill)
             FilterChip(f.images, { store.update { it.copy(lassoFilter = f.copy(images = !f.images)) } }, label = { Text("Images & stickers") }, shape = Pill)
@@ -1846,9 +1863,22 @@ private fun MindMapCard(vm: EditorViewModel) {
                 Swatch(c, c == vm.mindColor, 20) { vm.recolorMindNode(color = c) }
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = { vm.autoLayoutMindMap(radial = true) }, modifier = Modifier.weight(1f)) { Text("Radial layout") }
-            TextButton(onClick = { vm.autoLayoutMindMap(radial = false) }, modifier = Modifier.weight(1f)) { Text("Tree layout") }
+        ToggleLine("Move child branch with node", vm.moveMindSubtree) { vm.moveMindSubtree = it }
+        Text("LAYOUT", style = MaterialTheme.typography.labelSmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            EditorViewModel.MindLayout.entries.forEach { layout ->
+                TextButton(onClick = { vm.autoLayoutMindMap(layout) }, modifier = Modifier.weight(1f)) {
+                    Text(layout.label, maxLines = 1)
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            TextButton(onClick = { vm.exportMindMapOutlineToPage() }, modifier = Modifier.weight(1f)) {
+                Text("Outline → Page", maxLines = 1)
+            }
+            TextButton(onClick = { vm.flashcardsFromMindMap() }, modifier = Modifier.weight(1f)) {
+                Text("→ Flashcards", maxLines = 1)
+            }
         }
         TextButton(onClick = { vm.generateMindMapFromNotes() }, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp))
@@ -1864,6 +1894,8 @@ private fun MindMapCard(vm: EditorViewModel) {
 @Composable
 private fun MindNodeDialog(vm: EditorViewModel, edit: EditorViewModel.MindNodeEdit) {
     var label by remember(edit) { mutableStateOf(edit.item.label) }
+    var tag by remember(edit) { mutableStateOf(edit.item.tag) }
+    var notes by remember(edit) { mutableStateOf(edit.item.notes) }
     var color by remember(edit) { mutableStateOf(edit.item.color) }
     var shape by remember(edit) { mutableStateOf(edit.item.shape) }
     val shapes = listOf("pill" to "Pill", "rect" to "Card", "diamond" to "Diamond", "circle" to "Oval")
@@ -1871,10 +1903,27 @@ private fun MindNodeDialog(vm: EditorViewModel, edit: EditorViewModel.MindNodeEd
         onDismissRequest = { vm.mindNodeEdit = null },
         title = { Text(if (edit.isNew) "New mind map node" else "Edit node") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     label, { label = it },
+                    label = { Text("Node title") },
                     placeholder = { Text("Enter concept or branch title") },
+                    minLines = 2, maxLines = 4,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    tag, { tag = it.take(28) },
+                    label = { Text("Tag (optional)") },
+                    placeholder = { Text("e.g. Key idea, Exam, Formula") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    notes, { notes = it },
+                    label = { Text("Notes / Details") },
+                    placeholder = { Text("Summary, example, or sub-detail shown on the card") },
                     minLines = 2, maxLines = 4,
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.fillMaxWidth(),
@@ -1890,7 +1939,7 @@ private fun MindNodeDialog(vm: EditorViewModel, edit: EditorViewModel.MindNodeEd
             }
         },
         confirmButton = {
-            TextButton(onClick = { vm.commitMindNode(label, color, shape) }) { Text("Save") }
+            TextButton(onClick = { vm.commitMindNode(label, color, shape, notes, tag) }) { Text("Save") }
         },
         dismissButton = {
             if (!edit.isNew) {
@@ -2158,19 +2207,8 @@ private fun SelectionMenu(
                         onClick = { more = false; vm.cardFromSelection() })
                     DropdownMenuItem(text = { Text("Add link…") }, leadingIcon = { Icon(Icons.Outlined.Link, null) },
                         onClick = { more = false; vm.startLinkFromSelection() })
-
-                }
-            }
-            var smart by remember { mutableStateOf(false) }
-            Box {
-                IconButton(onClick = { smart = true }) { Icon(Icons.Outlined.AutoAwesome, "Smart ink") }
-                DropdownMenu(smart, { smart = false }, shape = RoundedCornerShape(18.dp)) {
-                    DropdownMenuItem(text = { Text("Convert to text") }, onClick = { smart = false; vm.convertSelectionToText() })
-                    DropdownMenuItem(text = { Text("Solve maths") }, onClick = { smart = false; vm.solveSelection() })
-                    DropdownMenuItem(text = { Text("Maths to typed text") }, onClick = { smart = false; vm.mathToText() })
-                    DropdownMenuItem(text = { Text("Save as screenshot") }, onClick = { smart = false; vm.saveSelectionScreenshot() })
-                    DropdownMenuItem(text = { Text("Tidy handwriting") }, onClick = { smart = false; keep { vm.tidySelection() } })
-                    DropdownMenuItem(text = { Text("Flashcard from writing") }, onClick = { smart = false; vm.cardFromSelectionText() })
+                    DropdownMenuItem(text = { Text("Save as screenshot") }, leadingIcon = { Icon(Icons.Outlined.Image, null) },
+                        onClick = { more = false; vm.saveSelectionScreenshot() })
                 }
             }
             IconButton(onClick = vm::deleteSelection) { Icon(Icons.Outlined.Delete, "Delete", tint = Color(0xFFFF8A80)) }
@@ -2314,92 +2352,7 @@ private fun ToolWheel(vm: EditorViewModel, at: Offset, onDismiss: () -> Unit) {
     }
 }
 
-/** Interactive Maths Pad dialog supporting variables, powers, quadratics, derivatives, and units. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun MathPadDialog(vm: EditorViewModel, onDismiss: () -> Unit) {
-    var expr by remember { mutableStateOf("x = 3; y = 2x + 1; x^2 + y") }
-    val result = remember(expr) { MathSolver.solveDetailed(expr) }
-    val quickChips = listOf("^2", "^3", "|x|", "√()", "d/dx()", "π", "x=", "; ")
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(
-            shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.padding(18.dp).widthIn(max = 580.dp).fillMaxWidth(),
-        ) {
-            Box {
-                AiParticleBackdrop(Modifier.matchParentSize(), active = true, variant = AiBackdropVariant.AI_WAVE)
-                Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.Functions, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Maths Engine", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        CompanionBadge(compact = true)
-                    }
-                    Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedTextField(
-                            value = expr,
-                            onValueChange = { expr = it },
-                            label = { Text("Expression, variables, equation, or d/dx") },
-                            minLines = 2,
-                            maxLines = 4,
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            quickChips.forEach { tok ->
-                                Surface(
-                                    shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.surfaceVariant,
-                                    modifier = Modifier.clip(CircleShape).clickable { expr += tok },
-                                ) {
-                                    Text(tok, Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
-                        }
-                        if (result != null) {
-                            Surface(
-                                shape = RoundedCornerShape(18.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text("RESULT", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                                    Text(result.answer, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                                    result.fractionHint?.let { f ->
-                                        Text("Exact fraction: $f", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                    if (result.steps.isNotEmpty()) {
-                                        HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                                        result.steps.forEach { st ->
-                                            Text("• $st", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                    }
-                                }
-                            }
-                        } else if (expr.isNotBlank()) {
-                            Text(
-                                "Try e.g. \"2x(x+1) = 12\", \"sin(x) = 0.5\", \"x^2 + 2x + 5 = 0\", or \"5 km to mi\"",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        TextButton(onClick = onDismiss) { Text("Close") }
-                        Spacer(Modifier.width(8.dp))
-                        TextButton(
-                            enabled = result != null,
-                            onClick = { result?.let { vm.insertMathPadResult(expr, it.answer) }; onDismiss() },
-                        ) { Text("Place on page") }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** Upgraded Split view: a second notebook beside this one, with ratio presets, zoom/fit, page jump, swap panes, and clip-to-sticky. */
+/** Upgraded Split view: smooth pinch/pan zoom (without re-decoding bitmaps every frame), in-split search, page jumper strip, swap panes, and clip-to-sticky / insert-to-page. */
 @Composable
 private fun SplitPanel(
     noteId: String,
@@ -2409,30 +2362,91 @@ private fun SplitPanel(
     onSwap: () -> Unit,
     onRatioPreset: (Float) -> Unit,
     onClipToSticky: (String, String) -> Unit,
+    onInsertToPage: (String, String) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier,
 ) {
     val app = LocalContext.current.applicationContext as Application
     val vm2: EditorViewModel = viewModel(key = "split-$noteId", factory = viewModelFactory { initializer { EditorViewModel(app, noteId) } })
     var pick by remember { mutableStateOf(false) }
-    var splitZoom by remember { mutableFloatStateOf(1f) }
+    var splitZoom by remember(noteId) { mutableFloatStateOf(1f) }
+    var splitPan by remember(noteId) { mutableStateOf(Offset.Zero) }
+    var showSplitSearch by remember(noteId) { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val visiblePage by remember(listState, vm2.pages.size) {
         androidx.compose.runtime.derivedStateOf { listState.firstVisibleItemIndex.coerceIn(0, (vm2.pages.size - 1).coerceAtLeast(0)) }
     }
+
+    LaunchedEffect(splitZoom) {
+        if (splitZoom <= 1.02f) splitPan = Offset.Zero
+    }
+    LaunchedEffect(vm2.activeHit, vm2.searchHits) {
+        val hit = vm2.searchHits.getOrNull(vm2.activeHit) ?: return@LaunchedEffect
+        listState.animateScrollToItem(hit.page.coerceIn(0, (vm2.pages.size - 1).coerceAtLeast(0)))
+    }
+
+    fun extractPageText(pageIdx: Int): String {
+        val page = vm2.pages.getOrNull(pageIdx) ?: return ""
+        return page.items.mapNotNull {
+            when (it) {
+                is TextItem -> it.text
+                is StickyItem -> it.text
+                is MindNodeItem -> listOfNotNull(it.tag.takeIf { t -> t.isNotBlank() }, it.label, it.notes.takeIf { n -> n.isNotBlank() }).joinToString(" — ")
+                else -> null
+            }
+        }.joinToString("\n").trim()
+    }
+
     Column(modifier.background(MaterialTheme.colorScheme.surfaceContainerLow)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) {
-                TextButton(onClick = { pick = true }) { Text(vm2.title, maxLines = 1, overflow = TextOverflow.Ellipsis); Icon(Icons.Filled.KeyboardArrowDown, null) }
+                TextButton(onClick = { pick = true }) {
+                    Text(vm2.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Icon(Icons.Filled.KeyboardArrowDown, null)
+                }
                 DropdownMenu(pick, { pick = false }, shape = RoundedCornerShape(18.dp)) {
                     others.forEach { (id, t) -> DropdownMenuItem(text = { Text(t) }, onClick = { pick = false; onPick(id) }) }
                 }
             }
+            IconButton(onClick = {
+                showSplitSearch = !showSplitSearch
+                if (!showSplitSearch) vm2.clearSearch()
+            }) { Icon(Icons.Outlined.Search, "Search split note") }
             IconButton(onClick = onSwap) { Icon(Icons.Outlined.SwapHoriz, "Swap panes") }
             TextButton(onClick = { onOpen(noteId) }) { Text("Open") }
             IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Close split view") }
         }
+
+        AnimatedVisibility(showSplitSearch) {
+            Row(
+                Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = vm2.searchQuery,
+                    onValueChange = vm2::search,
+                    singleLine = true,
+                    placeholder = { Text("Search inside ${vm2.title}…", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    shape = CircleShape,
+                    modifier = Modifier.weight(1f),
+                )
+                if (vm2.searchHits.isNotEmpty()) {
+                    Text(
+                        "${vm2.activeHit + 1}/${vm2.searchHits.size}",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 6.dp),
+                    )
+                    IconButton(onClick = { vm2.stepHit(-1) }, modifier = Modifier.size(30.dp)) {
+                        Icon(Icons.Filled.KeyboardArrowUp, "Previous match", Modifier.size(16.dp))
+                    }
+                    IconButton(onClick = { vm2.stepHit(1) }, modifier = Modifier.size(30.dp)) {
+                        Icon(Icons.Filled.KeyboardArrowDown, "Next match", Modifier.size(16.dp))
+                    }
+                }
+            }
+        }
+
         // Ratio presets & zoom bar
         Row(
             Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f))
@@ -2451,47 +2465,76 @@ private fun SplitPanel(
             }
             Spacer(Modifier.width(4.dp))
             TextButton(
-                onClick = { splitZoom = (splitZoom - 0.15f).coerceIn(0.6f, 2.4f) },
+                onClick = { splitZoom = (splitZoom - 0.2f).coerceIn(0.6f, 2.8f) },
                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
             ) { Text("-", style = MaterialTheme.typography.titleSmall) }
             Text("${(splitZoom * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
             TextButton(
-                onClick = { splitZoom = (splitZoom + 0.15f).coerceIn(0.6f, 2.4f) },
+                onClick = { splitZoom = (splitZoom + 0.2f).coerceIn(0.6f, 2.8f) },
                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
             ) { Text("+", style = MaterialTheme.typography.titleSmall) }
-            TextButton(
-                onClick = { splitZoom = 1f },
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-            ) { Text("Fit", style = MaterialTheme.typography.labelSmall) }
+            listOf("Fit" to 1f, "150%" to 1.5f).forEach { (label, z) ->
+                Surface(
+                    shape = CircleShape,
+                    color = if (kotlin.math.abs(splitZoom - z) < 0.08f) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.clip(CircleShape).clickable { splitZoom = z; if (z <= 1.02f) splitPan = Offset.Zero },
+                ) {
+                    Text(label, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
+                }
+            }
         }
+
         if (vm2.pages.isNotEmpty()) {
+            // Quick page jumper + reference actions
             Row(
-                Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 8.dp, vertical = 3.dp),
+                Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(
                     enabled = visiblePage > 0,
                     onClick = { scope.launch { listState.animateScrollToItem((visiblePage - 1).coerceAtLeast(0)) } },
-                    modifier = Modifier.size(30.dp),
+                    modifier = Modifier.size(28.dp),
                 ) { Icon(Icons.Filled.KeyboardArrowUp, "Previous", Modifier.size(16.dp).graphicsLayer { rotationZ = -90f }) }
-                Text("p.${visiblePage + 1}/${vm2.pages.size}", style = MaterialTheme.typography.labelSmall)
+                Row(
+                    Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    for (pIdx in 0 until vm2.pages.size) {
+                        val active = pIdx == visiblePage
+                        Surface(
+                            shape = CircleShape,
+                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                            contentColor = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.clip(CircleShape).clickable {
+                                scope.launch { listState.animateScrollToItem(pIdx) }
+                            },
+                        ) {
+                            Text("${pIdx + 1}", Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
                 IconButton(
                     enabled = visiblePage < vm2.pages.size - 1,
                     onClick = { scope.launch { listState.animateScrollToItem((visiblePage + 1).coerceAtMost(vm2.pages.size - 1)) } },
-                    modifier = Modifier.size(30.dp),
+                    modifier = Modifier.size(28.dp),
                 ) { Icon(Icons.Filled.KeyboardArrowUp, "Next", Modifier.size(16.dp).graphicsLayer { rotationZ = 90f }) }
-                Spacer(Modifier.weight(1f))
+            }
+
+            Row(
+                Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 8.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "p.${visiblePage + 1}/${vm2.pages.size}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
                 TextButton(
                     onClick = {
-                        val page = vm2.pages.getOrNull(visiblePage)
-                        val extracted = page?.items?.mapNotNull {
-                            when (it) {
-                                is TextItem -> it.text
-                                is StickyItem -> it.text
-                                is MindNodeItem -> it.label
-                                else -> null
-                            }
-                        }?.joinToString("\n").orEmpty()
+                        val extracted = extractPageText(visiblePage)
                         onClipToSticky(extracted.ifBlank { "Reference from ${vm2.title} (Page ${visiblePage + 1})" }, vm2.title)
                     },
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
@@ -2500,43 +2543,104 @@ private fun SplitPanel(
                     Spacer(Modifier.width(4.dp))
                     Text("Clip sticky", style = MaterialTheme.typography.labelSmall)
                 }
+                TextButton(
+                    onClick = {
+                        val extracted = extractPageText(visiblePage)
+                        onInsertToPage(extracted.ifBlank { "Notes from ${vm2.title} (Page ${visiblePage + 1})" }, vm2.title)
+                    },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                ) {
+                    Icon(Icons.Outlined.PostAdd, null, Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("To page", style = MaterialTheme.typography.labelSmall)
+                }
             }
         }
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val baseDp = (maxWidth - 24.dp).coerceAtLeast(160.dp)
-            val pageDp = (baseDp * splitZoom).coerceAtLeast(160.dp)
-            val listWidth = (pageDp + 24.dp).coerceAtLeast(maxWidth)
-            val w = with(LocalDensity.current) { pageDp.toPx().toInt() }.coerceIn(200, 2200)
-            val hScroll = rememberScrollState()
+
+        // Smooth 60fps zoom & pan canvas viewport: quantize bitmap decode to 2 tiers so pinch never triggers expensive re-renders every frame.
+        val renderW = if (splitZoom > 1.35f) 1400 else 860
+        BoxWithConstraints(Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))) {
+            val viewW = with(LocalDensity.current) { maxWidth.toPx() }.coerceAtLeast(120f)
+            val viewH = with(LocalDensity.current) { maxHeight.toPx() }.coerceAtLeast(120f)
             Box(
                 Modifier
                     .fillMaxSize()
-                    .pointerInput(Unit) {
-                        detectTransformGestures { _, _, zoom, _ ->
-                            if (zoom != 1f) {
-                                splitZoom = (splitZoom * zoom).coerceIn(0.4f, 3.2f)
+                    .pointerInput(viewW, viewH) {
+                        awaitEachGesture {
+                            var pinching = false
+                            while (true) {
+                                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                                val downCount = event.changes.count { it.pressed }
+                                if (downCount == 0) break
+                                if (downCount >= 2) {
+                                    val z = event.calculateZoom()
+                                    val p = event.calculatePan()
+                                    if (z != 1f || p != Offset.Zero) {
+                                        val nextZoom = (splitZoom * z).coerceIn(0.6f, 3.0f)
+                                        val maxPanX = ((nextZoom - 1f).coerceAtLeast(0f) * viewW * 0.52f)
+                                        val maxPanY = ((nextZoom - 1f).coerceAtLeast(0f) * viewH * 0.45f)
+                                        splitZoom = nextZoom
+                                        splitPan = if (nextZoom <= 1.02f) Offset.Zero else Offset(
+                                            (splitPan.x + p.x).coerceIn(-maxPanX, maxPanX),
+                                            (splitPan.y + p.y).coerceIn(-maxPanY, maxPanY),
+                                        )
+                                        event.changes.forEach { it.consume() }
+                                        pinching = true
+                                    }
+                                } else if (splitZoom > 1.03f) {
+                                    val p = event.calculatePan()
+                                    if (pinching || kotlin.math.abs(p.x) > kotlin.math.abs(p.y) * 1.15f) {
+                                        if (p != Offset.Zero) {
+                                            val maxPanX = (splitZoom - 1f) * viewW * 0.52f
+                                            val maxPanY = (splitZoom - 1f) * viewH * 0.45f
+                                            splitPan = Offset(
+                                                (splitPan.x + p.x).coerceIn(-maxPanX, maxPanX),
+                                                (splitPan.y + (if (pinching) p.y else 0f)).coerceIn(-maxPanY, maxPanY),
+                                            )
+                                            event.changes.forEach { it.consume() }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                     .pointerInput(Unit) {
                         detectTapGestures(
-                            onDoubleTap = { splitZoom = if (kotlin.math.abs(splitZoom - 1f) > 0.08f) 1f else 1.75f }
+                            onDoubleTap = {
+                                if (kotlin.math.abs(splitZoom - 1f) > 0.08f) {
+                                    splitZoom = 1f
+                                    splitPan = Offset.Zero
+                                } else {
+                                    splitZoom = 1.75f
+                                }
+                            }
                         )
                     }
-                    .then(if (splitZoom > 1.02f) Modifier.horizontalScroll(hScroll) else Modifier)
             ) {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.width(listWidth).fillMaxHeight(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = splitZoom
+                            scaleY = splitZoom
+                            translationX = splitPan.x
+                            translationY = splitPan.y
+                        },
                     contentPadding = PaddingValues(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     items(vm2.pages.size) { i ->
-                        val bmp by produceState<Bitmap?>(null, i, vm2.pages.size, w) { value = vm2.thumbnail(i, w) }
-                        Surface(shape = RoundedCornerShape(8.dp), shadowElevation = 2.dp, color = Color.White, modifier = Modifier.width(pageDp)) {
+                        val bmp by produceState<Bitmap?>(null, i, vm2.pages.size, renderW) { value = vm2.thumbnail(i, renderW) }
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            shadowElevation = 2.dp,
+                            color = Color.White,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
                             bmp?.let { Image(it.asImageBitmap(), "Page ${i + 1}", Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth) }
-                                ?: Box(Modifier.fillMaxWidth().height(300.dp))
+                                ?: Box(Modifier.fillMaxWidth().height(280.dp))
                         }
                     }
                 }

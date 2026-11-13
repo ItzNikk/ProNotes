@@ -31,8 +31,14 @@ object BuildConfigInfo {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?"
 }
 
+data class PendingImport(
+    val uris: List<Uri> = emptyList(),
+    val text: String? = null,
+    val title: String? = null,
+)
+
 class MainActivity : ComponentActivity() {
-    private var pendingPdf by mutableStateOf<Uri?>(null)
+    private var pendingImport by mutableStateOf<PendingImport?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,8 +72,8 @@ class MainActivity : ComponentActivity() {
                         LibraryScreen(
                             onOpen = { id -> nav.navigate("editor/$id") },
                             onSettings = { nav.navigate("settings") },
-                            pendingPdf = pendingPdf,
-                            onPdfConsumed = { pendingPdf = null },
+                            pendingImport = pendingImport,
+                            onImportConsumed = { pendingImport = null },
                             onSupport = { nav.navigate("support") },
                         )
                     }
@@ -108,8 +114,24 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
-        if (intent?.action == Intent.ACTION_VIEW && intent.type == "application/pdf") {
-            pendingPdf = intent.data
+        if (intent == null) return
+        when (intent.action) {
+            Intent.ACTION_VIEW -> intent.data?.let { pendingImport = PendingImport(uris = listOf(it)) }
+            Intent.ACTION_SEND -> {
+                @Suppress("DEPRECATION")
+                val stream = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
+                val sharedTitle = intent.getStringExtra(Intent.EXTRA_SUBJECT)
+                when {
+                    stream != null -> pendingImport = PendingImport(uris = listOf(stream), title = sharedTitle)
+                    !sharedText.isNullOrBlank() -> pendingImport = PendingImport(text = sharedText, title = sharedTitle)
+                }
+            }
+            Intent.ACTION_SEND_MULTIPLE -> {
+                @Suppress("DEPRECATION")
+                val list = intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
+                if (list.isNotEmpty()) pendingImport = PendingImport(uris = list)
+            }
         }
     }
 }
