@@ -1392,6 +1392,45 @@ object LocalAiManager {
 
     // ---------------------------------------------------------------- Creative Studio (One UI 9 Inspired) AI Stickers, Covers & Templates
 
+    /**
+     * Automatic client-side sticker transparency & die-cut contouring.
+     * Takes an AI-generated image (with white/light background), detects the solid background
+     * corner colors, replaces background pixels with alpha=0, and preserves the clean sticker.
+     */
+    private fun processStickerTransparency(src: Bitmap): Bitmap {
+        val w = src.width
+        val h = src.height
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val pixels = IntArray(w * h)
+        src.getPixels(pixels, 0, w, 0, 0, w, h)
+
+        // Sample 4 corners to establish background color reference
+        val cTL = pixels[0]
+        val cTR = pixels[w - 1]
+        val cBL = pixels[(h - 1) * w]
+        val cBR = pixels[(h - 1) * w + (w - 1)]
+
+        val rRef = (android.graphics.Color.red(cTL) + android.graphics.Color.red(cTR) + android.graphics.Color.red(cBL) + android.graphics.Color.red(cBR)) / 4
+        val gRef = (android.graphics.Color.green(cTL) + android.graphics.Color.green(cTR) + android.graphics.Color.green(cBL) + android.graphics.Color.green(cBR)) / 4
+        val bRef = (android.graphics.Color.blue(cTL) + android.graphics.Color.blue(cTR) + android.graphics.Color.blue(cBL) + android.graphics.Color.blue(cBR)) / 4
+
+        // If corners are solid white / near-white, threshold out background
+        if (rRef > 225 && gRef > 225 && bRef > 225) {
+            for (i in pixels.indices) {
+                val p = pixels[i]
+                val r = android.graphics.Color.red(p)
+                val g = android.graphics.Color.green(p)
+                val b = android.graphics.Color.blue(p)
+                val diff = Math.abs(r - rRef) + Math.abs(g - gRef) + Math.abs(b - bRef)
+                if (diff < 38) {
+                    pixels[i] = 0 // Transparent
+                }
+            }
+        }
+        out.setPixels(pixels, 0, w, 0, 0, w, h)
+        return out
+    }
+
     suspend fun generateAiAssetBitmap(
         context: Context,
         kind: AiAssetKind,
@@ -1435,13 +1474,14 @@ object LocalAiManager {
         }
 
         val fullPrompt = when (kind) {
-            AiAssetKind.STICKER -> "$cleanPrompt, cute die-cut sticker with clean white border outline, isolated on clean white backdrop, $styleKeywords, high quality"
+            AiAssetKind.STICKER -> "$cleanPrompt, cute die-cut vinyl sticker, thick clean crisp white border contour outline, sticker isolated on solid pure white background, $styleKeywords, vector art, high contrast, studio lighting"
             AiAssetKind.COVER -> "$cleanPrompt, beautiful aesthetic notebook journal book cover artwork, $styleKeywords, elegant typography balance, high quality masterpiece"
             AiAssetKind.TEMPLATE -> "$cleanPrompt, clean stationery study organizer planner page template, organized layout grid, $styleKeywords accents, crisp white paper"
         }
 
         val netBmp = withContext(Dispatchers.IO) {
             val genUrls = listOf(
+                "https://image.pollinations.ai/prompt/${URLEncoder.encode(fullPrompt, "UTF-8")}?width=$width&height=$height&nologo=true&seed=$seed&model=flux",
                 "https://image.pollinations.ai/prompt/${URLEncoder.encode(fullPrompt, "UTF-8")}?width=$width&height=$height&nologo=true&seed=$seed${if (liteMode) "&model=turbo" else ""}",
                 "https://image.pollinations.ai/prompt/${URLEncoder.encode(fullPrompt, "UTF-8")}?width=$width&height=$height&nologo=true&seed=$seed",
             )
@@ -1455,10 +1495,13 @@ object LocalAiManager {
                     if (conn.responseCode in 200..299) {
                         val b = BitmapFactory.decodeStream(conn.inputStream)
                         if (b != null && b.width > 20 && b.height > 20) {
+                            val processed = if (kind == AiAssetKind.STICKER) {
+                                processStickerTransparency(b)
+                            } else b
                             runCatching {
-                                cacheFile.outputStream().use { b.compress(Bitmap.CompressFormat.PNG, 95, it) }
+                                cacheFile.outputStream().use { processed.compress(Bitmap.CompressFormat.PNG, 95, it) }
                             }
-                            b
+                            processed
                         } else null
                     } else null
                 }.getOrNull()
