@@ -141,8 +141,10 @@ data class StickyItem(
     val font: String = "SANS",
     val collapsed: Boolean = false,
     val pinned: Boolean = false,
+    val title: String = "",
+    val style: String = "classic",
 ) : PageItem {
-    val raw: RectF get() = RectF(x, y, x + w, y + (if (collapsed) 54f else h))
+    val raw: RectF get() = RectF(x, y, x + w, y + (if (collapsed) 58f else h))
     override val bounds: RectF get() = rotatedBounds(raw, rot)
     override fun translated(dx: Float, dy: Float): PageItem = if (pinned) this else copy(x = x + dx, y = y + dy)
     override fun withId(newId: Long): PageItem = copy(id = newId)
@@ -188,6 +190,30 @@ data class MindNodeItem(
     val tag: String = "",
 ) : PageItem {
     override val bounds: RectF get() = RectF(x, y, x + w, y + h)
+    override fun translated(dx: Float, dy: Float): PageItem = copy(x = x + dx, y = y + dy)
+    override fun withId(newId: Long): PageItem = copy(id = newId)
+}
+
+data class WebLinkItem(
+    override val id: Long,
+    val url: String,
+    val title: String,
+    val note: String = "",
+    val x: Float,
+    val y: Float,
+    val w: Float = 380f,
+    val h: Float = 136f,
+    val color: Int = 0xFF2A78D6.toInt(),
+    val rot: Float = 0f,
+) : PageItem {
+    val domain: String
+        get() = runCatching {
+            val normalized = if (url.startsWith("http://", true) || url.startsWith("https://", true)) url else "https://$url"
+            android.net.Uri.parse(normalized).host?.removePrefix("www.") ?: url
+        }.getOrElse { url }
+
+    val raw: RectF get() = RectF(x, y, x + w, y + h)
+    override val bounds: RectF get() = rotatedBounds(raw, rot)
     override fun translated(dx: Float, dy: Float): PageItem = copy(x = x + dx, y = y + dy)
     override fun withId(newId: Long): PageItem = copy(id = newId)
 }
@@ -278,6 +304,7 @@ fun PageItem.transformed(m: android.graphics.Matrix, s: Float, deg: Float): Page
         is ImageItem -> { val (cx, cy) = movedCenter(raw); copy(x = cx - w * s / 2f, y = cy - h * s / 2f, w = w * s, h = h * s, rot = (rot + deg) % 360f) }
         is StickyItem -> { val (cx, cy) = movedCenter(raw); copy(x = cx - w * s / 2f, y = cy - h * s / 2f, w = w * s, h = h * s, rot = (rot + deg) % 360f) }
         is MindNodeItem -> { val (cx, cy) = movedCenter(bounds); val nw = (w * s).coerceIn(110f, 520f); val nh = (h * s).coerceIn(48f, 220f); copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh) }
+        is WebLinkItem -> { val (cx, cy) = movedCenter(raw); val nw = (w * s).coerceIn(220f, 760f); val nh = (h * s).coerceIn(96f, 340f); copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh, rot = (rot + deg) % 360f) }
         is TapeItem -> if (pts != null) {
             val abs = FloatArray(pts.size) { i -> pts[i] + if (i % 2 == 0) x else y }
             m.mapPoints(abs)

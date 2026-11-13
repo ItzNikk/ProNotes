@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AppSettings,
   DEFAULT_PEN_PRESETS,
+  DEFAULT_TOOLBAR_ORDER,
   Flashcard,
   Folder,
   InkItem,
@@ -12,6 +13,8 @@ import {
   PageItem,
   PaperStyle,
   PenPreset,
+  SlideCard,
+  ToolId,
   UNITS_PER_MM,
 } from '../types/models';
 import {
@@ -36,6 +39,8 @@ export interface ProNotesState {
 const DEFAULT_SETTINGS: AppSettings = {
   themeMode: 'SYSTEM',
   accent: 'BLUE',
+  appFont: 'MODERN_SANS',
+  motionStyle: 'ULTRA_SPRING',
   paperTint: '#FFFFFF',
   defaultPaper: 'RULED',
   defaultPreset: 'A4',
@@ -43,9 +48,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   defaultCoverPage: false,
   scroll: 'VERTICAL',
   toolbarDock: 'HEADER',
+  toolbarOrder: DEFAULT_TOOLBAR_ORDER,
   liquidGlass: true,
   showTabs: true,
   pageNumbers: true,
+  showHoverTooltips: true,
+  setupCompleted: false,
   scribbleToErase: true,
   liveScribbleErase: true,
   scribbleSensitivity: 'balanced',
@@ -63,6 +71,11 @@ const DEFAULT_SETTINGS: AppSettings = {
   studySeconds: true,
   activeLocalModelId: null,
   aiAnimations: true,
+  customAiEnabled: false,
+  customAiProvider: 'OPENAI_COMPATIBLE',
+  customAiBaseUrl: 'https://api.openai.com/v1',
+  customAiApiKey: '',
+  customAiModel: 'gpt-4o-mini',
   whiteboardGridSnap: false,
   penName: 'Pro Stylus',
   penKind: 'fountain',
@@ -378,9 +391,17 @@ function loadInitialState(): ProNotesState {
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<ProNotesState>;
       if (parsed && Array.isArray(parsed.notebooks) && parsed.notebooks.length > 0) {
+        const savedOrder = parsed.settings?.toolbarOrder;
+        const mergedOrder: ToolId[] = savedOrder && savedOrder.length > 0
+          ? [
+              ...savedOrder.filter((id) => DEFAULT_TOOLBAR_ORDER.includes(id)),
+              ...DEFAULT_TOOLBAR_ORDER.filter((id) => !savedOrder.includes(id)),
+            ]
+          : DEFAULT_TOOLBAR_ORDER;
         const mergedSettings: AppSettings = {
           ...DEFAULT_SETTINGS,
           ...(parsed.settings || {}),
+          toolbarOrder: mergedOrder,
           penPresets:
             parsed.settings?.penPresets && parsed.settings.penPresets.length > 0
               ? parsed.settings.penPresets
@@ -811,6 +832,15 @@ export function useProNotesStore() {
     }));
   }, []);
 
+  const updateNotebookSlides = useCallback((noteId: string, slides: SlideCard[]) => {
+    setState((prev) => ({
+      ...prev,
+      notebooks: prev.notebooks.map((nb) =>
+        nb.id === noteId ? { ...nb, slides, modified: Date.now() } : nb
+      ),
+    }));
+  }, []);
+
   return {
     state,
     modelStates,
@@ -822,6 +852,7 @@ export function useProNotesStore() {
     deleteFolder,
     createNotebook,
     updateNotebook,
+    updateNotebookSlides,
     openNotebookTab,
     closeTab,
     softDeleteNotebook,

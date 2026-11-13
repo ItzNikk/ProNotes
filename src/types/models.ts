@@ -204,11 +204,33 @@ export type ToolId =
   | 'MINDMAP'
   | 'TEXT'
   | 'STICKY'
+  | 'WEBLINK'
   | 'TAPE'
   | 'STICKER'
   | 'IMAGE'
   | 'LASER'
   | 'PAN';
+
+export const DEFAULT_TOOLBAR_ORDER: ToolId[] = [
+  'PEN',
+  'HIGHLIGHTER',
+  'ERASER',
+  'SHAPE',
+  'LASSO',
+  'MINDMAP',
+  'TEXT',
+  'STICKY',
+  'WEBLINK',
+  'TAPE',
+  'STICKER',
+  'IMAGE',
+  'LASER',
+  'PAN',
+];
+
+export type AppFont = 'MODERN_SANS' | 'EDITORIAL_SERIF' | 'STUDIO_MONO' | 'ROUNDED';
+export type MotionStyle = 'ULTRA_SPRING' | 'MINIMAL_CRISP' | 'REDUCED';
+export type CustomAiProvider = 'OPENAI_COMPATIBLE' | 'GEMINI' | 'OLLAMA';
 
 export type PenKind = 'ballpoint' | 'fountain' | 'brush' | 'fineliner' | 'pencil';
 
@@ -293,6 +315,7 @@ export interface TextItem {
 }
 
 export type StickyFont = 'SANS' | 'SERIF' | 'MONO' | 'HAND';
+export type StickyStyle = 'classic' | 'lined' | 'glass' | 'outline';
 
 export interface StickyItem {
   id: string;
@@ -302,13 +325,31 @@ export interface StickyItem {
   w: number;
   h: number;
   color: string;
+  title?: string;
   text: string;
+  style?: StickyStyle;
   rot?: number;
   fontSize?: number;
   font?: StickyFont;
   collapsed?: boolean;
   pinned?: boolean;
 }
+
+export interface WebLinkItem {
+  id: string;
+  kind: 'weblink';
+  url: string;
+  title: string;
+  note?: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  color: string;
+  rot?: number;
+}
+
+export const WEBLINK_COLORS = ['#3D6CF4', '#0F7E5C', '#7C3AED', '#EA580C', '#0EA5E9', '#E11D48'];
 
 export const TAPE_PATTERNS: { id: string; label: string }[] = [
   { id: 'stripes', label: 'Stripes' },
@@ -369,6 +410,7 @@ export type PageItem =
   | FillItem
   | TextItem
   | StickyItem
+  | WebLinkItem
   | TapeItem
   | ImageItem
   | MindNodeItem;
@@ -415,6 +457,40 @@ export interface QuizQuestion {
   wrong?: number;
 }
 
+export type SlideKind = 'TITLE' | 'CONCEPT' | 'FORMULA' | 'CHECK_QA' | 'SUMMARY';
+export type SlideThemeId =
+  | 'AURORA_INDIGO'
+  | 'SUNSET_CORAL'
+  | 'EMERALD_MINT'
+  | 'COSMIC_GOLD'
+  | 'MIDNIGHT_PRISM'
+  | 'ROSE_VELVET';
+
+export const SLIDE_THEMES: Record<
+  SlideThemeId,
+  { label: string; gradA: string; gradB: string; accent: string }
+> = {
+  AURORA_INDIGO: { label: 'Aurora Indigo', gradA: '#1E1B4B', gradB: '#4338CA', accent: '#818CF8' },
+  SUNSET_CORAL: { label: 'Sunset Coral', gradA: '#7C2D12', gradB: '#EA580C', accent: '#FDBA74' },
+  EMERALD_MINT: { label: 'Emerald Mint', gradA: '#064E3B', gradB: '#059669', accent: '#6EE7B7' },
+  COSMIC_GOLD: { label: 'Cosmic Gold', gradA: '#78350F', gradB: '#D97706', accent: '#FDE68A' },
+  MIDNIGHT_PRISM: { label: 'Midnight Prism', gradA: '#0F172A', gradB: '#1E40AF', accent: '#38BDF8' },
+  ROSE_VELVET: { label: 'Rose Velvet', gradA: '#881337', gradB: '#E11D48', accent: '#FDA4AF' },
+};
+
+export interface SlideCard {
+  id: string;
+  kind: SlideKind;
+  theme: SlideThemeId;
+  title: string;
+  subtitle?: string;
+  bullets: string[];
+  callout?: string;
+  question?: string;
+  answer?: string;
+  badge?: string;
+}
+
 export interface NotebookMeta {
   id: string;
   title: string;
@@ -430,6 +506,7 @@ export interface NotebookMeta {
   deletedAt: number | null;
   isWhiteboard?: boolean;
   isMindMap?: boolean;
+  slides?: SlideCard[];
   pages: Page[];
 }
 
@@ -484,6 +561,8 @@ export interface PenPreset {
 export interface AppSettings {
   themeMode: ThemeMode;
   accent: AccentColorId;
+  appFont: AppFont;
+  motionStyle: MotionStyle;
   paperTint: string;
   defaultPaper: PaperStyle;
   defaultPreset: PagePresetId;
@@ -491,9 +570,12 @@ export interface AppSettings {
   defaultCoverPage: boolean;
   scroll: ScrollDirection;
   toolbarDock: ToolbarDock;
+  toolbarOrder: ToolId[];
   liquidGlass: boolean;
   showTabs: boolean;
   pageNumbers: boolean;
+  showHoverTooltips: boolean;
+  setupCompleted: boolean;
   scribbleToErase: boolean;
   liveScribbleErase: boolean;
   scribbleSensitivity: ScribbleSensitivity;
@@ -511,6 +593,11 @@ export interface AppSettings {
   studySeconds: boolean;
   activeLocalModelId: string | null;
   aiAnimations: boolean;
+  customAiEnabled: boolean;
+  customAiProvider: CustomAiProvider;
+  customAiBaseUrl: string;
+  customAiApiKey: string;
+  customAiModel: string;
   whiteboardGridSnap: boolean;
   penName: string;
   penKind: PenKind;

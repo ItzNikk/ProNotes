@@ -7,8 +7,9 @@ import {
   StickyItem,
   TapeItem,
   TextItem,
+  WebLinkItem,
 } from '../types/models';
-import { getItemBounds } from './geometry';
+import { getItemBounds, parseStickyChecklistLine } from './geometry';
 
 function hexToRgba(hex: string, alpha: number): string {
   const clean = hex.replace('#', '');
@@ -949,7 +950,7 @@ export function drawTapeItem(ctx: CanvasRenderingContext2D, item: TapeItem): voi
 
 export function drawStickyItem(ctx: CanvasRenderingContext2D, item: StickyItem): void {
   ctx.save();
-  const renderH = item.collapsed ? 52 : item.h;
+  const renderH = item.collapsed ? 54 : item.h;
   const cx = item.x + item.w / 2;
   const cy = item.y + renderH / 2;
   if (item.rot) {
@@ -957,68 +958,109 @@ export function drawStickyItem(ctx: CanvasRenderingContext2D, item: StickyItem):
     ctx.rotate((item.rot * Math.PI) / 180);
     ctx.translate(-cx, -cy);
   }
-  ctx.shadowColor = 'rgba(0,0,0,0.16)';
-  ctx.shadowBlur = 14;
-  ctx.shadowOffsetY = 5;
-  ctx.fillStyle = item.color;
+
+  const style = item.style || 'classic';
+  ctx.shadowColor = style === 'outline' ? 'rgba(0,0,0,0.08)' : 'rgba(15,23,42,0.18)';
+  ctx.shadowBlur = style === 'glass' ? 20 : 15;
+  ctx.shadowOffsetY = 6;
+
+  // Card Surface by style
   ctx.beginPath();
-  ctx.roundRect(item.x, item.y, item.w, renderH, 10);
-  ctx.fill();
+  ctx.roundRect(item.x, item.y, item.w, renderH, 14);
+  if (style === 'glass') {
+    ctx.fillStyle = hexToRgba(item.color, 0.72);
+    ctx.fill();
+  } else if (style === 'outline') {
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fill();
+  } else {
+    ctx.fillStyle = item.color;
+    ctx.fill();
+  }
   ctx.shadowColor = 'transparent';
 
-  // Crisp subtle hairline border
-  ctx.strokeStyle = 'rgba(0,0,0,0.08)';
-  ctx.lineWidth = 1;
+  ctx.strokeStyle =
+    style === 'outline'
+      ? item.color
+      : style === 'glass'
+        ? 'rgba(255,255,255,0.65)'
+        : 'rgba(15,23,42,0.10)';
+  ctx.lineWidth = style === 'outline' ? 2.4 : 1.1;
   ctx.stroke();
 
-  // Clip all interior chrome & text strictly inside the sticky note bounds
+  // Clip interior chrome
   ctx.save();
   ctx.beginPath();
-  ctx.roundRect(item.x, item.y, item.w, renderH, 10);
+  ctx.roundRect(item.x, item.y, item.w, renderH, 14);
   ctx.clip();
 
-  // Subtle top bar tint
-  ctx.fillStyle = 'rgba(0,0,0,0.055)';
-  ctx.fillRect(item.x, item.y, item.w, 22);
+  // Header strip
+  const hasTitle = Boolean(item.title && item.title.trim().length > 0);
+  const headerH = hasTitle ? 38 : 24;
+  ctx.fillStyle = style === 'outline' ? hexToRgba(item.color, 0.16) : 'rgba(0,0,0,0.065)';
+  ctx.fillRect(item.x, item.y, item.w, headerH);
 
-  // Pinned indicator badge
+  // Lined notebook rules inside sticky when style === 'lined'
+  if (style === 'lined' && !item.collapsed) {
+    const fontSize = item.fontSize ?? Math.max(15, Math.min(24, item.w * 0.075));
+    const lineH = fontSize * 1.38;
+    ctx.strokeStyle = 'rgba(30,41,59,0.09)';
+    ctx.lineWidth = 1;
+    for (let ly = item.y + headerH + lineH; ly < item.y + renderH - 12; ly += lineH) {
+      ctx.beginPath();
+      ctx.moveTo(item.x + 12, ly);
+      ctx.lineTo(item.x + item.w - 12, ly);
+      ctx.stroke();
+    }
+  }
+
+  // Pinned badge
   if (item.pinned) {
     ctx.fillStyle = '#E11D48';
     ctx.beginPath();
-    ctx.arc(item.x + 14, item.y + 11, 4.5, 0, Math.PI * 2);
+    ctx.arc(item.x + 15, item.y + headerH / 2, 5, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
     ctx.beginPath();
-    ctx.arc(item.x + 12.8, item.y + 9.8, 1.4, 0, Math.PI * 2);
+    ctx.arc(item.x + 13.5, item.y + headerH / 2 - 1.5, 1.6, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  // Collapsed pill tag on right side
+  // Title text in header bar
+  if (hasTitle) {
+    ctx.fillStyle = '#1B1F2A';
+    ctx.font = '700 13px "Plus Jakarta Sans", sans-serif';
+    let tTitle = item.title!.trim();
+    const maxTitleW = item.w - (item.pinned ? 56 : 36);
+    while (tTitle.length > 3 && ctx.measureText(tTitle).width > maxTitleW) {
+      tTitle = tTitle.slice(0, -2) + '…';
+    }
+    ctx.fillText(tTitle, item.x + (item.pinned ? 28 : 14), item.y + 24);
+  }
+
+  // Folded badge or realistic dog-ear curl
   if (item.collapsed) {
-    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.fillStyle = 'rgba(0,0,0,0.14)';
     ctx.beginPath();
-    ctx.roundRect(item.x + item.w - 46, item.y + 5, 38, 12, 6);
+    ctx.roundRect(item.x + item.w - 50, item.y + 6, 42, 14, 7);
     ctx.fill();
-    ctx.fillStyle = '#334155';
-    ctx.font = '700 8px "DM Sans", sans-serif';
-    ctx.fillText('FOLDED', item.x + item.w - 42, item.y + 14);
+    ctx.fillStyle = '#1E293B';
+    ctx.font = '700 8.5px "Plus Jakarta Sans", sans-serif';
+    ctx.fillText('FOLDED', item.x + item.w - 45, item.y + 16);
   } else {
-    // Subtle folded bottom-right corner
     ctx.fillStyle = 'rgba(0,0,0,0.09)';
     ctx.beginPath();
-    ctx.moveTo(item.x + item.w - 20, item.y + renderH);
-    ctx.lineTo(item.x + item.w, item.y + renderH - 20);
-    ctx.lineTo(item.x + item.w - 20, item.y + renderH - 20);
+    ctx.moveTo(item.x + item.w - 22, item.y + renderH);
+    ctx.lineTo(item.x + item.w, item.y + renderH - 22);
+    ctx.lineTo(item.x + item.w - 22, item.y + renderH - 22);
     ctx.closePath();
     ctx.fill();
   }
 
-  // Text wrapping inside sticky (with long-word character breaking & overflow clip)
-  ctx.fillStyle = '#1F232E';
   const fontSize = item.fontSize ?? Math.max(15, Math.min(24, item.w * 0.075));
   const fam =
     item.font === 'SERIF'
-      ? 'Georgia, serif'
+      ? '"Fraunces", Georgia, serif'
       : item.font === 'MONO'
         ? '"JetBrains Mono", monospace'
         : item.font === 'HAND'
@@ -1027,43 +1069,95 @@ export function drawStickyItem(ctx: CanvasRenderingContext2D, item: StickyItem):
   ctx.font = `500 ${fontSize}px ${fam}`;
 
   if (item.collapsed) {
-    const rawFirst = item.text.split('\n')[0] || 'Sticky note';
-    let shown = rawFirst;
-    const availW = item.w - (item.pinned ? 36 : 24);
-    while (shown.length > 3 && ctx.measureText(shown).width > availW) {
-      shown = shown.slice(0, -2) + '…';
+    if (!hasTitle) {
+      ctx.fillStyle = '#1F232E';
+      const rawFirst = item.text.split('\n')[0] || 'Sticky note';
+      let shown = rawFirst;
+      const availW = item.w - (item.pinned ? 36 : 24);
+      while (shown.length > 3 && ctx.measureText(shown).width > availW) {
+        shown = shown.slice(0, -2) + '…';
+      }
+      ctx.fillText(shown, item.x + (item.pinned ? 26 : 14), item.y + 42);
     }
-    ctx.fillText(shown, item.x + (item.pinned ? 24 : 12), item.y + 40);
     ctx.restore();
     ctx.restore();
     return;
   }
 
   const maxW = Math.max(40, item.w - 28);
-  const lineH = fontSize * 1.32;
-  let ty = item.y + 28 + fontSize;
-  const maxBaselineY = item.y + renderH - 12;
+  const lineH = fontSize * 1.38;
+  let yCursor = item.y + (hasTitle ? 48 : 30);
+  const maxY = item.y + renderH - 14;
 
   for (const para of item.text.split('\n')) {
-    if (ty > maxBaselineY) break;
+    if (yCursor + lineH * 0.5 > maxY) break;
+    const chk = parseStickyChecklistLine(para);
+    if (chk.isCheck) {
+      const boxSz = Math.max(13, Math.min(18, fontSize * 0.85));
+      const bx = item.x + 14;
+      const by = yCursor + Math.max(2, (lineH - boxSz) * 0.35);
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(bx, by, boxSz, boxSz, 4);
+      if (chk.checked) {
+        ctx.fillStyle = '#0F7E5C';
+        ctx.fill();
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(bx + boxSz * 0.22, by + boxSz * 0.52);
+        ctx.lineTo(bx + boxSz * 0.44, by + boxSz * 0.74);
+        ctx.lineTo(bx + boxSz * 0.8, by + boxSz * 0.28);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = 'rgba(255,255,255,0.65)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(30,41,59,0.45)';
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      ctx.fillStyle = chk.checked ? 'rgba(31,35,46,0.46)' : '#1F232E';
+      let labelTxt = chk.body;
+      const textMaxW = Math.max(24, maxW - boxSz - 10);
+      while (labelTxt.length > 3 && ctx.measureText(labelTxt).width > textMaxW) {
+        labelTxt = labelTxt.slice(0, -2) + '…';
+      }
+      const baseline = yCursor + fontSize;
+      ctx.fillText(labelTxt, bx + boxSz + 8, baseline);
+      if (chk.checked && labelTxt) {
+        const lw = ctx.measureText(labelTxt).width;
+        ctx.strokeStyle = 'rgba(31,35,46,0.46)';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(bx + boxSz + 8, baseline - fontSize * 0.32);
+        ctx.lineTo(bx + boxSz + 8 + lw, baseline - fontSize * 0.32);
+        ctx.stroke();
+      }
+      yCursor += lineH;
+      continue;
+    }
+
+    ctx.fillStyle = '#1F232E';
     const words = para.split(' ');
     let line = '';
     for (const word of words) {
-      if (ty > maxBaselineY) break;
+      if (yCursor + lineH * 0.5 > maxY) break;
       const test = line ? `${line} ${word}` : word;
       if (ctx.measureText(test).width > maxW) {
         if (line) {
-          ctx.fillText(line, item.x + 14, ty);
-          ty += lineH;
+          ctx.fillText(line, item.x + 14, yCursor + fontSize);
+          yCursor += lineH;
           line = '';
         }
-        // Break extra-long unspaced tokens across lines
         let rem = word;
-        while (rem.length > 0 && ctx.measureText(rem).width > maxW && ty <= maxBaselineY) {
+        while (rem.length > 0 && ctx.measureText(rem).width > maxW && yCursor + lineH * 0.5 <= maxY) {
           let cut = rem.length - 1;
           while (cut > 1 && ctx.measureText(rem.slice(0, cut)).width > maxW) cut--;
-          ctx.fillText(rem.slice(0, cut), item.x + 14, ty);
-          ty += lineH;
+          ctx.fillText(rem.slice(0, cut), item.x + 14, yCursor + fontSize);
+          yCursor += lineH;
           rem = rem.slice(cut);
         }
         line = rem;
@@ -1071,12 +1165,119 @@ export function drawStickyItem(ctx: CanvasRenderingContext2D, item: StickyItem):
         line = test;
       }
     }
-    if (line && ty <= maxBaselineY) {
-      ctx.fillText(line, item.x + 14, ty);
-      ty += lineH;
+    if (line && yCursor + lineH * 0.5 <= maxY) {
+      ctx.fillText(line, item.x + 14, yCursor + fontSize);
+      yCursor += lineH;
     }
   }
   ctx.restore();
+  ctx.restore();
+}
+
+export function drawWebLinkItem(
+  ctx: CanvasRenderingContext2D,
+  item: WebLinkItem,
+  darkBg: boolean
+): void {
+  ctx.save();
+  const cx = item.x + item.w / 2;
+  const cy = item.y + item.h / 2;
+  if (item.rot) {
+    ctx.translate(cx, cy);
+    ctx.rotate((item.rot * Math.PI) / 180);
+    ctx.translate(-cx, -cy);
+  }
+
+  ctx.shadowColor = 'rgba(15,23,42,0.14)';
+  ctx.shadowBlur = 16;
+  ctx.shadowOffsetY = 5;
+
+  ctx.fillStyle = darkBg ? '#1D2028' : '#FFFFFF';
+  ctx.beginPath();
+  ctx.roundRect(item.x, item.y, item.w, item.h, 16);
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+
+  ctx.strokeStyle = hexToRgba(item.color, 0.45);
+  ctx.lineWidth = 1.6;
+  ctx.stroke();
+
+  // Left accent bar
+  ctx.fillStyle = item.color;
+  ctx.beginPath();
+  ctx.roundRect(item.x + 3, item.y + 8, 5, item.h - 16, 2.5);
+  ctx.fill();
+
+  // Globe badge
+  const gx = item.x + 30;
+  const gy = item.y + item.h / 2;
+  ctx.fillStyle = hexToRgba(item.color, 0.14);
+  ctx.beginPath();
+  ctx.arc(gx, gy, 15, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = item.color;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.arc(gx, gy, 8, 0, Math.PI * 2);
+  ctx.moveTo(gx - 8, gy);
+  ctx.lineTo(gx + 8, gy);
+  ctx.moveTo(gx, gy - 8);
+  ctx.quadraticCurveTo(gx + 4, gy, gx, gy + 8);
+  ctx.moveTo(gx, gy - 8);
+  ctx.quadraticCurveTo(gx - 4, gy, gx, gy + 8);
+  ctx.stroke();
+
+  // Extract domain safely
+  let domain = item.url;
+  try {
+    domain = new URL(item.url.startsWith('http') ? item.url : `https://${item.url}`).hostname.replace(/^www\./, '');
+  } catch {
+    // keep raw
+  }
+
+  const maxW = Math.max(60, item.w - 86);
+  ctx.fillStyle = darkBg ? '#F3F4F6' : '#1B1F2A';
+  ctx.font = '700 14px "Plus Jakarta Sans", sans-serif';
+  let titleTxt = item.title || domain || 'Web Link';
+  while (titleTxt.length > 3 && ctx.measureText(titleTxt).width > maxW) {
+    titleTxt = titleTxt.slice(0, -2) + '…';
+  }
+  ctx.fillText(titleTxt, item.x + 54, item.y + 28);
+
+  ctx.fillStyle = item.color;
+  ctx.font = '600 11px "JetBrains Mono", monospace';
+  let domTxt = domain;
+  while (domTxt.length > 3 && ctx.measureText(domTxt).width > maxW) {
+    domTxt = domTxt.slice(0, -2) + '…';
+  }
+  ctx.fillText(domTxt, item.x + 54, item.y + 47);
+
+  if (item.note && item.h >= 72) {
+    ctx.fillStyle = darkBg ? '#9CA3AF' : '#64748B';
+    ctx.font = '500 11.5px "DM Sans", sans-serif';
+    let noteTxt = item.note.replace(/\s+/g, ' ').trim();
+    while (noteTxt.length > 3 && ctx.measureText(noteTxt).width > maxW) {
+      noteTxt = noteTxt.slice(0, -2) + '…';
+    }
+    ctx.fillText(noteTxt, item.x + 54, item.y + 66);
+  }
+
+  // Open external chevron on right
+  ctx.fillStyle = hexToRgba(item.color, 0.14);
+  ctx.beginPath();
+  ctx.roundRect(item.x + item.w - 28, item.y + item.h / 2 - 11, 20, 22, 6);
+  ctx.fill();
+  ctx.strokeStyle = item.color;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(item.x + item.w - 21, item.y + item.h / 2 + 3);
+  ctx.lineTo(item.x + item.w - 15, item.y + item.h / 2 - 3);
+  ctx.lineTo(item.x + item.w - 20, item.y + item.h / 2 - 3);
+  ctx.moveTo(item.x + item.w - 15, item.y + item.h / 2 - 3);
+  ctx.lineTo(item.x + item.w - 15, item.y + item.h / 2 + 2);
+  ctx.stroke();
+
   ctx.restore();
 }
 
@@ -1365,6 +1566,8 @@ export function renderPageItems(
       drawTextItem(ctx, item);
     } else if (item.kind === 'sticky') {
       drawStickyItem(ctx, item);
+    } else if (item.kind === 'weblink') {
+      drawWebLinkItem(ctx, item, darkBg);
     } else if (item.kind === 'tape') {
       drawTapeItem(ctx, item);
     } else if (item.kind === 'image') {

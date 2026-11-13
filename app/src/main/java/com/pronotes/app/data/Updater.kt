@@ -9,13 +9,17 @@ import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -27,12 +31,14 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
+import java.io.RandomAccessFile
 import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * In-app updates from public GitHub releases: checks the latest release,
- * downloads its APK into cache, and commits a PackageInstaller session.
+ * Resumable background-capable in-app updates from public GitHub releases:
+ * supports HTTP Range resume (.part + metadata verification), Pause/Resume/Cancel,
+ * live throughput & ETA, ForegroundService background execution, and PackageInstaller commit.
  */
 object Updater {
     private const val API_LATEST = "https://api.github.com/repos/ItzNikk/ProNotes/releases/latest"
@@ -43,33 +49,123 @@ object Updater {
 
     data class Release(val tag: String, val apkUrl: String, val notes: String, val size: Long)
 
-    enum class Phase { IDLE, CHECKING, UP_TO_DATE, AVAILABLE, DOWNLOADING, READY, INSTALLING, FAILED }
+    enum class Phase { IDLE, CHECKING, UP_TO_DATE, AVAILABLE, DOWNLOADING, PAUSED, READY, INSTALLING, FAILED }
 
-    // Shared Compose UI state so Library, Settings, and UpdateDialog stay in sync.
     var phase by mutableStateOf(Phase.IDLE)
         private set
     var release by mutableStateOf<Release?>(null)
         private set
     var progress by mutableStateOf(0f)
         private set
+    var downloadedBytes by mutableStateOf(0L)
+        private set
+    var totalBytes by mutableStateOf(0L)
+        private set
+    var speedBytesPerSec by mutableStateOf(0L)
+        private set
+    var etaSeconds by mutableStateOf<Long?>(null)
+        private set
     var error by mutableStateOf<String?>(null)
         private set
-    /** True while the "what's new" dialog is open. */
     var showDialog by mutableStateOf(false)
     var remindedThisLaunch = false
-    /** Installer confirm screen stored until an Activity can open it directly. */
     var pendingConfirm by mutableStateOf<Intent?>(null)
 
     private var apk: File? = null
     private var waitingForPermission = false
     private var checkedThisLaunch = false
+    private var downloadJob: Job? = null
+    @Volatile private var controlSignal: ControlSignal? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    private enum class ControlSignal { PAUSE, CANCEL }
+
+    private fun updateDir(context: Context) = File(context.cacheDir, "updates").apply { mkdirs() }
+    private fun partFile(context: Context) = File(updateDir(context), "ProNotes.apk.part")
+    private fun metaFile(context: Context) = File(updateDir(context), "ProNotes.apk.meta")
+    private fun finalApkFile(context: Context) = File(updateDir(context), "ProNotes.apk")
 
     fun startDownload(context: Context) {
         if (phase == Phase.DOWNLOADING || phase == Phase.INSTALLING) return
+        val rel = release ?: return
         val app = context.applicationContext
-        scope.launch { download(app) }
+        controlSignal = null
+        prefs(app).edit()
+            .putString("pendingTag", rel.tag)
+            .putString("pendingUrl", rel.apkUrl)
+            .putString("pendingNotes", rel.notes)
+            .putLong("pendingSize", rel.size)
+            .apply()
+        runCatching {
+            ContextCompat.startForegroundService(app, UpdateDownloadService.startIntent(app))
+        }.onFailure {
+            launchWorkerDownload(app)
+        }
     }
+
+    fun launchWorkerDownload(context: Context, onFinished: (() -> Unit)? = null) {
+        val app = context.applicationContext
+        if (downloadJob?.isActive == true) return
+        if (release == null) {
+            val p = prefs(app)
+            val tag = p.getString("pendingTag", null)
+            val url = p.getString("pendingUrl", null)
+            if (!tag.isNullOrBlank() && !url.isNullOrBlank()) {
+                release = Release(
+                    tag = tag,
+                    apkUrl = url,
+                    notes = p.getString("pendingNotes", "").orEmpty(),
+                    size = p.getLong("pendingSize", 0L),
+                )
+            }
+        }
+        downloadJob = scope.launch {
+            try {
+                download(app)
+            } finally {
+                onFinished?.invoke()
+            }
+        }
+    }
+
+    fun pauseDownload(context: Context) {
+        if (phase != Phase.DOWNLOADING) return
+        controlSignal = ControlSignal.PAUSE
+        speedBytesPerSec = 0L
+        etaSeconds = null
+        phase = Phase.PAUSED
+        runCatching { context.applicationContext.startService(UpdateDownloadService.pauseIntent(context.applicationContext)) }
+    }
+
+    fun resumeDownload(context: Context) {
+        if (phase == Phase.DOWNLOADING || phase == Phase.INSTALLING) return
+        startDownload(context)
+    }
+
+    fun cancelDownload(context: Context) {
+        val app = context.applicationContext
+        controlSignal = ControlSignal.CANCEL
+        downloadJob?.cancel()
+        downloadJob = null
+        partFile(app).delete()
+        metaFile(app).delete()
+        downloadedBytes = 0L
+        totalBytes = release?.size ?: 0L
+        progress = 0f
+        speedBytesPerSec = 0L
+        etaSeconds = null
+        error = null
+        phase = if (release != null) Phase.AVAILABLE else Phase.IDLE
+        runCatching { app.startService(UpdateDownloadService.cancelIntent(app)) }
+    }
+
+    fun hasPartialDownload(context: Context): Boolean {
+        val part = partFile(context)
+        return part.exists() && part.length() > 0L
+    }
+
+    fun shouldPreserveCacheOnStart(context: Context): Boolean =
+        isWaitingForInstall(context) || hasPartialDownload(context) || phase == Phase.DOWNLOADING || phase == Phase.PAUSED
 
     private fun prefs(c: Context) = c.getSharedPreferences("updater", Context.MODE_PRIVATE)
     fun autoOpen(c: Context) = prefs(c).getBoolean("autoOpen", false)
@@ -93,7 +189,7 @@ object Updater {
     fun currentVersion(context: Context): String =
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "0"
 
-    /** "v9.7.1" > "9.7.0" -> true. */
+    /** "v9.11.0" > "9.7.1" -> true. */
     fun isNewer(tag: String, current: String): Boolean {
         fun parts(s: String): List<Int> {
             val core = s.trim().trimStart('v', 'V').substringBefore('-').substringBefore('+')
@@ -111,7 +207,7 @@ object Updater {
     }
 
     fun hasReadyApk(context: Context): Boolean {
-        val f = apk ?: File(context.cacheDir, "updates/ProNotes.apk")
+        val f = apk ?: finalApkFile(context)
         if (!f.exists() || f.length() <= 100_000L) return false
         val targetTag = release?.tag
         val cachedTag = prefs(context).getString("apkTag", null)
@@ -121,20 +217,32 @@ object Updater {
     suspend fun check(context: Context, quiet: Boolean = false) {
         if (quiet && checkedThisLaunch) return
         checkedThisLaunch = true
-        if (phase == Phase.DOWNLOADING || phase == Phase.INSTALLING) return
+        if (phase == Phase.DOWNLOADING || phase == Phase.INSTALLING || phase == Phase.PAUSED) return
         phase = Phase.CHECKING
         error = null
         val r = withContext(Dispatchers.IO) { runCatching { fetchLatest() } }
         r.onSuccess { rel ->
             release = rel
-            phase = if (rel != null && isNewer(rel.tag, currentVersion(context))) Phase.AVAILABLE else Phase.UP_TO_DATE
+            if (rel != null && isNewer(rel.tag, currentVersion(context))) {
+                val partial = partFile(context)
+                val meta = readMeta(context)
+                if (partial.exists() && partial.length() > 0L && meta?.first == rel.tag) {
+                    downloadedBytes = partial.length()
+                    totalBytes = meta.third.takeIf { it > 0L } ?: rel.size
+                    if (totalBytes > 0L) progress = (downloadedBytes.toFloat() / totalBytes).coerceIn(0f, 1f)
+                    phase = Phase.PAUSED
+                } else {
+                    phase = Phase.AVAILABLE
+                }
+            } else {
+                phase = Phase.UP_TO_DATE
+            }
         }.onFailure { err ->
             error = err.message ?: "Could not check for updates."
             phase = if (quiet) Phase.IDLE else Phase.FAILED
         }
     }
 
-    /** Blocking; for the daily background alarm reminder. */
     fun latestBlocking(): Release? = runCatching { fetchLatest() }.getOrNull()
 
     private fun openGitHubJson(urlStr: String): Pair<Int, String> {
@@ -178,7 +286,6 @@ object Updater {
         if (code in 200..299) {
             return parseRelease(Json.parseToJsonElement(body).jsonObject)
         }
-        // Fallback when latest endpoint returns 404 (e.g. only prereleases exist)
         val (listCode, listBody) = openGitHubJson(API_LIST)
         if (listCode !in 200..299) {
             throw IllegalStateException("GitHub check failed (HTTP $listCode)")
@@ -189,27 +296,56 @@ object Updater {
 
     private fun JsonObject.str(key: String): String? = this[key]?.jsonPrimitive?.content
 
+    private fun readMeta(context: Context): Triple<String, String, Long>? {
+        val mf = metaFile(context)
+        if (!mf.exists()) return null
+        val lines = runCatching { mf.readLines() }.getOrNull().orEmpty()
+        if (lines.size < 3) return null
+        return Triple(lines[0], lines[1], lines[2].toLongOrNull() ?: 0L)
+    }
+
+    private fun writeMeta(context: Context, tag: String, etag: String, total: Long) {
+        runCatching { metaFile(context).writeText("$tag\n$etag\n$total") }
+    }
+
+    private sealed class DownloadOutcome {
+        data class Completed(val file: File) : DownloadOutcome()
+        data object Paused : DownloadOutcome()
+        data object Cancelled : DownloadOutcome()
+    }
+
     suspend fun download(context: Context) {
         val rel = release ?: return
         val app = context.applicationContext
+        controlSignal = null
         phase = Phase.DOWNLOADING
-        progress = 0f
         error = null
+
         val result = withContext(Dispatchers.IO) {
-            runCatching {
-                val dir = File(app.cacheDir, "updates").apply { mkdirs() }
-                val part = File(dir, "ProNotes.apk.part")
-                val out = File(dir, "ProNotes.apk")
-                part.delete()
+            runCatching<DownloadOutcome> {
+                val part = partFile(app)
+                val out = finalApkFile(app)
+                val savedMeta = readMeta(app)
+                // Verify cached partial matches the requested release tag
+                if (savedMeta != null && savedMeta.first != rel.tag) {
+                    part.delete()
+                    metaFile(app).delete()
+                }
+                val initialOffset = if (part.exists() && part.length() > 0L) part.length() else 0L
+
                 var url = URL(rel.apkUrl)
                 var conn: HttpURLConnection
                 var hops = 0
+                var resumeOffset = initialOffset
                 while (true) {
                     conn = (url.openConnection() as HttpURLConnection).apply {
                         instanceFollowRedirects = false
                         connectTimeout = 15000
                         readTimeout = 30000
                         setRequestProperty("User-Agent", USER_AGENT)
+                        if (resumeOffset > 0L) {
+                            setRequestProperty("Range", "bytes=$resumeOffset-")
+                        }
                     }
                     val code = conn.responseCode
                     if (code in 300..399 && hops++ < 8) {
@@ -218,39 +354,103 @@ object Updater {
                         conn.disconnect()
                         continue
                     }
-                    if (code !in 200..299) {
+                    if (code == 416 && resumeOffset > 0L) {
+                        // Stale/oversized .part: restart cleanly from byte 0
+                        conn.disconnect()
+                        part.delete()
+                        metaFile(app).delete()
+                        resumeOffset = 0L
+                        url = URL(rel.apkUrl)
+                        hops = 0
+                        continue
+                    }
+                    if (code !in 200..299 && code != HttpURLConnection.HTTP_PARTIAL) {
                         conn.disconnect()
                         throw IllegalStateException("Download failed (HTTP $code)")
                     }
                     break
                 }
-                val total = conn.contentLengthLong.takeIf { it > 0 } ?: rel.size
+
+                val code = conn.responseCode
+                val isPartial = code == HttpURLConnection.HTTP_PARTIAL
+                val responseETag = conn.getHeaderField("ETag").orEmpty()
+                if (isPartial && savedMeta != null && savedMeta.second.isNotBlank() && responseETag.isNotBlank() && savedMeta.second != responseETag) {
+                    // Server asset changed while paused; restart cleanly
+                    conn.disconnect()
+                    part.delete()
+                    metaFile(app).delete()
+                    return@runCatching restartFreshDownload(app, rel)
+                }
+
+                val appendMode = isPartial && resumeOffset > 0L
+                val existingBytes = if (appendMode) resumeOffset else 0L
+                if (!appendMode) {
+                    part.delete()
+                }
+                val contentRange = conn.getHeaderField("Content-Range")
+                val rangeTotal = contentRange?.substringAfterLast('/')?.toLongOrNull()
+                val headerLen = conn.contentLengthLong.takeIf { it > 0L }
+                val total = rangeTotal ?: headerLen?.let { if (appendMode) existingBytes + it else it } ?: rel.size
+                writeMeta(app, rel.tag, responseETag, total)
+
+                withContext(Dispatchers.Main) {
+                    downloadedBytes = existingBytes
+                    totalBytes = total
+                    progress = if (total > 0L) (existingBytes.toFloat() / total).coerceIn(0f, 1f) else 0f
+                }
+
+                var done = existingBytes
+                var windowBytes = 0L
+                var windowStartMs = SystemClock.uptimeMillis()
+                var lastUiMs = 0L
+
                 try {
                     conn.inputStream.use { input ->
-                        part.outputStream().use { o ->
+                        RandomAccessFile(part, "rw").use { raf ->
+                            raf.seek(existingBytes)
                             val buf = ByteArray(64 * 1024)
-                            var done = 0L
-                            var lastUiMs = 0L
                             while (true) {
+                                when (controlSignal) {
+                                    ControlSignal.PAUSE -> return@runCatching DownloadOutcome.Paused
+                                    ControlSignal.CANCEL -> return@runCatching DownloadOutcome.Cancelled
+                                    null -> Unit
+                                }
                                 val n = input.read(buf)
                                 if (n < 0) break
-                                o.write(buf, 0, n)
+                                raf.write(buf, 0, n)
                                 done += n
-                                if (total > 0) {
-                                    val now = android.os.SystemClock.uptimeMillis()
-                                    if (now - lastUiMs >= 80L || done >= total) {
-                                        lastUiMs = now
-                                        val pct = (done.toFloat() / total).coerceIn(0f, 1f)
-                                        withContext(Dispatchers.Main) { progress = pct }
+                                windowBytes += n
+                                val now = SystemClock.uptimeMillis()
+                                if (now - lastUiMs >= 160L || (total > 0L && done >= total)) {
+                                    val elapsedMs = (now - windowStartMs).coerceAtLeast(1L)
+                                    val spd = (windowBytes * 1000L) / elapsedMs
+                                    if (elapsedMs >= 1500L) {
+                                        windowBytes = 0L
+                                        windowStartMs = now
                                     }
+                                    lastUiMs = now
+                                    val pct = if (total > 0L) (done.toFloat() / total).coerceIn(0f, 1f) else 0f
+                                    val remaining = (total - done).coerceAtLeast(0L)
+                                    val eta = if (total > 0L && spd > 2048L) remaining / spd else null
+                                    withContext(Dispatchers.Main) {
+                                        downloadedBytes = done
+                                        totalBytes = total
+                                        progress = pct
+                                        speedBytesPerSec = spd
+                                        etaSeconds = eta
+                                    }
+                                    UpdateDownloadService.notifyProgress(app, rel.tag, pct, done, total, spd, eta)
                                 }
                             }
-                            o.flush()
                         }
                     }
                 } finally {
                     conn.disconnect()
                 }
+
+                if (controlSignal == ControlSignal.PAUSE) return@runCatching DownloadOutcome.Paused
+                if (controlSignal == ControlSignal.CANCEL) return@runCatching DownloadOutcome.Cancelled
+
                 if (!part.exists() || part.length() < 100_000L) {
                     throw IllegalStateException("Downloaded update file was incomplete.")
                 }
@@ -262,19 +462,116 @@ object Updater {
                     part.copyTo(out, overwrite = true)
                     part.delete()
                 }
-                out
+                metaFile(app).delete()
+                DownloadOutcome.Completed(out)
             }
         }
-        result.onSuccess {
-            apk = it
-            prefs(app).edit().putString("apkTag", rel.tag).apply()
-            progress = 1f
-            phase = Phase.READY
-            install(context)
+
+        result.onSuccess { outcome ->
+            when (outcome) {
+                is DownloadOutcome.Completed -> {
+                    apk = outcome.file
+                    prefs(app).edit().putString("apkTag", rel.tag).apply()
+                    downloadedBytes = outcome.file.length()
+                    totalBytes = outcome.file.length()
+                    speedBytesPerSec = 0L
+                    etaSeconds = 0L
+                    progress = 1f
+                    phase = Phase.READY
+                    UpdateDownloadService.stopService(app)
+                    install(app)
+                }
+                DownloadOutcome.Paused -> {
+                    speedBytesPerSec = 0L
+                    etaSeconds = null
+                    phase = Phase.PAUSED
+                }
+                DownloadOutcome.Cancelled -> {
+                    speedBytesPerSec = 0L
+                    etaSeconds = null
+                    downloadedBytes = 0L
+                    progress = 0f
+                    phase = Phase.AVAILABLE
+                }
+            }
         }.onFailure { err ->
+            if (err is CancellationException) {
+                if (controlSignal == ControlSignal.PAUSE) phase = Phase.PAUSED
+                return
+            }
+            speedBytesPerSec = 0L
+            etaSeconds = null
             error = err.message ?: "Download failed."
-            phase = Phase.FAILED
+            phase = if (hasPartialDownload(app)) Phase.PAUSED else Phase.FAILED
         }
+    }
+
+    private suspend fun restartFreshDownload(app: Context, rel: Release): DownloadOutcome {
+        val part = partFile(app)
+        val out = finalApkFile(app)
+        var url = URL(rel.apkUrl)
+        var conn: HttpURLConnection
+        var hops = 0
+        while (true) {
+            conn = (url.openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = false
+                connectTimeout = 15000
+                readTimeout = 30000
+                setRequestProperty("User-Agent", USER_AGENT)
+            }
+            val code = conn.responseCode
+            if (code in 300..399 && hops++ < 8) {
+                val next = conn.getHeaderField("Location") ?: throw IllegalStateException("Redirect missing Location")
+                url = URL(url, next)
+                conn.disconnect()
+                continue
+            }
+            if (code !in 200..299) {
+                conn.disconnect()
+                throw IllegalStateException("Download failed (HTTP $code)")
+            }
+            break
+        }
+        val total = conn.contentLengthLong.takeIf { it > 0L } ?: rel.size
+        writeMeta(app, rel.tag, conn.getHeaderField("ETag").orEmpty(), total)
+        var done = 0L
+        var lastUiMs = 0L
+        try {
+            conn.inputStream.use { input ->
+                part.outputStream().use { o ->
+                    val buf = ByteArray(64 * 1024)
+                    while (true) {
+                        if (controlSignal == ControlSignal.PAUSE) return DownloadOutcome.Paused
+                        if (controlSignal == ControlSignal.CANCEL) return DownloadOutcome.Cancelled
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        o.write(buf, 0, n)
+                        done += n
+                        val now = SystemClock.uptimeMillis()
+                        if (now - lastUiMs >= 160L || (total > 0L && done >= total)) {
+                            lastUiMs = now
+                            val pct = if (total > 0L) (done.toFloat() / total).coerceIn(0f, 1f) else 0f
+                            withContext(Dispatchers.Main) {
+                                downloadedBytes = done
+                                totalBytes = total
+                                progress = pct
+                            }
+                            UpdateDownloadService.notifyProgress(app, rel.tag, pct, done, total, 0L, null)
+                        }
+                    }
+                    o.flush()
+                }
+            }
+        } finally {
+            conn.disconnect()
+        }
+        out.delete()
+        if (!part.renameTo(out)) {
+            part.copyTo(out, overwrite = true)
+            part.delete()
+        }
+        metaFile(app).delete()
+        return DownloadOutcome.Completed(out)
     }
 
     /** Called by MainActivity.onResume or UpdateDialogHost when the app is visible. */
@@ -332,14 +629,10 @@ object Updater {
         phase = Phase.FAILED
     }
 
-    /**
-     * Writes the downloaded APK into a PackageInstaller session off the main thread and commits it.
-     * Results arrive via [com.pronotes.app.InstallResultReceiver].
-     */
     fun install(context: Context) {
         val app = context.applicationContext
         val file = apk?.takeIf { it.exists() && it.length() > 100_000L }
-            ?: File(app.cacheDir, "updates/ProNotes.apk").takeIf { it.exists() && it.length() > 100_000L }
+            ?: finalApkFile(app).takeIf { it.exists() && it.length() > 100_000L }
         if (file == null) {
             reportInstallFailure("The update file is missing. Download it again.", deleteCachedApk = true, context = app)
             return
@@ -393,7 +686,6 @@ object Updater {
         }
     }
 
-    /** Fallback: hand the APK to the system package installer activity via FileProvider. */
     private fun openWithViewer(context: Context, file: File) {
         val app = context.applicationContext
         runCatching {

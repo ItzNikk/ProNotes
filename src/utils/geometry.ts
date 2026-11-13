@@ -1,4 +1,4 @@
-import { InkItem, PageItem, ScribbleSensitivity, ShapeKind, StrokePt } from '../types/models';
+import { InkItem, PageItem, ScribbleSensitivity, ShapeKind, StickyItem, StrokePt } from '../types/models';
 
 export interface Pt {
   x: number;
@@ -688,3 +688,87 @@ export const ShapeBuilder = {
     }
   },
 };
+
+export function clampMindNodesToPage(
+  items: PageItem[],
+  pageWidth: number,
+  pageHeight: number,
+  isWhiteboard: boolean
+): PageItem[] {
+  if (isWhiteboard) return items;
+  const margin = 56;
+  return items.map((it) => {
+    if (it.kind !== 'mindnode') return it;
+    const maxX = Math.max(margin, pageWidth - it.w - margin);
+    const maxY = Math.max(margin, pageHeight - it.h - margin);
+    const nx = Math.max(margin, Math.min(maxX, it.x));
+    const ny = Math.max(margin, Math.min(maxY, it.y));
+    return nx === it.x && ny === it.y ? it : { ...it, x: nx, y: ny };
+  });
+}
+
+export interface StickyCheckHitBox {
+  lineIndex: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  checked: boolean;
+  label: string;
+}
+
+const CHECK_RE = /^\s*(?:-?\s*\[([ xX])\]|([☐☑✓✔]))\s*(.*)$/;
+
+export function parseStickyChecklistLine(
+  line: string
+): { isCheck: boolean; checked: boolean; body: string } {
+  const m = line.match(CHECK_RE);
+  if (!m) return { isCheck: false, checked: false, body: line };
+  const checked =
+    m[1] !== undefined
+      ? m[1].toLowerCase() === 'x'
+      : m[2] === '☑' || m[2] === '✓' || m[2] === '✔';
+  return { isCheck: true, checked, body: m[3] ?? '' };
+}
+
+export function toggleStickyChecklistLine(text: string, lineIndex: number): string {
+  const lines = text.split('\n');
+  if (lineIndex < 0 || lineIndex >= lines.length) return text;
+  const raw = lines[lineIndex];
+  const parsed = parseStickyChecklistLine(raw);
+  if (!parsed.isCheck) return text;
+  const indent = raw.match(/^(\s*)/)?.[1] ?? '';
+  lines[lineIndex] = `${indent}- [${parsed.checked ? ' ' : 'x'}] ${parsed.body}`.trimEnd();
+  return lines.join('\n');
+}
+
+export function getStickyChecklistHitBoxes(item: StickyItem): StickyCheckHitBox[] {
+  if (item.collapsed) return [];
+  const fontSize = item.fontSize ?? Math.max(15, Math.min(24, item.w * 0.075));
+  const lineH = fontSize * 1.38;
+  const hasTitle = Boolean(item.title && item.title.trim().length > 0);
+  const topOffset = hasTitle ? 48 : 30;
+  let yCursor = item.y + topOffset;
+  const maxY = item.y + item.h - 14;
+  const out: StickyCheckHitBox[] = [];
+
+  item.text.split('\n').forEach((line, idx) => {
+    if (yCursor + lineH * 0.5 > maxY) return;
+    const parsed = parseStickyChecklistLine(line);
+    if (parsed.isCheck) {
+      out.push({
+        lineIndex: idx,
+        x: item.x + 12,
+        y: yCursor,
+        w: Math.max(80, item.w - 24),
+        h: lineH,
+        checked: parsed.checked,
+        label: parsed.body,
+      });
+    }
+    yCursor += lineH;
+  });
+
+  return out;
+}
+

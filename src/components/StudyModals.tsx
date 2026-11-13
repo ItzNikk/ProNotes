@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ArrowDown,
+  ArrowUp,
   BookOpen,
   Brain,
   Check,
@@ -10,10 +12,14 @@ import {
   Cpu,
   Download,
   Edit3,
+  Eye,
+  EyeOff,
   FileDown,
   Flame,
   HardDrive,
+  Layers,
   Pause,
+  Play,
   Plus,
   RotateCcw,
   Search,
@@ -24,7 +30,15 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { Flashcard, LocalModelState, QuizQuestion } from '../types/models';
+import {
+  Flashcard,
+  LocalModelState,
+  QuizQuestion,
+  SLIDE_THEMES,
+  SlideCard,
+  SlideKind,
+  SlideThemeId,
+} from '../types/models';
 import { LOCAL_MODELS_CATALOG, RichSummaryResult } from '../utils/localAi';
 import { AiParticleBackdrop } from './AiVisuals';
 
@@ -1343,3 +1357,752 @@ export const QuizModal: React.FC<{
     </div>
   );
 };
+
+// ================================================================
+// Slide Show Learning & Quick Chapter Revision Modal (AI + Manual)
+// ================================================================
+
+interface SlideShowModalProps {
+  open: boolean;
+  notebookTitle: string;
+  totalPages: number;
+  currentPageIdx: number;
+  slides: SlideCard[];
+  loadingStage?: string | null;
+  engineLabel?: string;
+  onClose: () => void;
+  onSaveSlides: (slides: SlideCard[]) => void;
+  onGenerateAi: (
+    scope: 'CURRENT' | 'RANGE' | 'ALL',
+    fromPage: number,
+    toPage: number,
+    slideCount: number
+  ) => void;
+}
+
+const SLIDE_KIND_META: Record<SlideKind, { label: string; hint: string }> = {
+  TITLE: { label: 'Title Cover', hint: 'Chapter intro & core focus' },
+  CONCEPT: { label: 'Concept Card', hint: 'Key ideas & bullets' },
+  FORMULA: { label: 'Formula Vault', hint: 'Laws, rules & equations' },
+  CHECK_QA: { label: 'Active Recall Q&A', hint: '3D flip reveal card' },
+  SUMMARY: { label: 'Quick Recap', hint: '60-second checklist' },
+};
+
+export const SlideShowModal: React.FC<SlideShowModalProps> = ({
+  open,
+  notebookTitle,
+  totalPages,
+  currentPageIdx,
+  slides,
+  loadingStage,
+  engineLabel,
+  onClose,
+  onSaveSlides,
+  onGenerateAi,
+}) => {
+  const [view, setView] = useState<'STUDIO' | 'PRESENT'>('STUDIO');
+  const [scope, setScope] = useState<'CURRENT' | 'RANGE' | 'ALL'>('ALL');
+  const [fromPage, setFromPage] = useState(1);
+  const [toPage, setToPage] = useState(Math.max(1, totalPages));
+  const [slideCount, setSlideCount] = useState(6);
+
+  // Manual Editor state
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftKind, setDraftKind] = useState<SlideKind>('CONCEPT');
+  const [draftTheme, setDraftTheme] = useState<SlideThemeId>('AURORA_INDIGO');
+  const [draftTitle, setDraftTitle] = useState('');
+  const [draftSubtitle, setDraftSubtitle] = useState('');
+  const [draftBullets, setDraftBullets] = useState('');
+  const [draftCallout, setDraftCallout] = useState('');
+  const [draftQuestion, setDraftQuestion] = useState('');
+  const [draftAnswer, setDraftAnswer] = useState('');
+  const [showManualForm, setShowManualForm] = useState(false);
+
+  // Kinetic Presenter state
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [autoPlay, setAutoPlay] = useState(false);
+  const [qaFlipped, setQaFlipped] = useState(false);
+
+  useEffect(() => {
+    setToPage((prev) => Math.max(1, Math.min(totalPages, prev || totalPages)));
+    setFromPage((prev) => Math.max(1, Math.min(totalPages, prev || 1)));
+  }, [totalPages]);
+
+  useEffect(() => {
+    if (activeIdx >= slides.length && slides.length > 0) {
+      setActiveIdx(slides.length - 1);
+    }
+    setQaFlipped(false);
+  }, [slides.length, activeIdx]);
+
+  useEffect(() => {
+    if (!open || view !== 'PRESENT' || !autoPlay || slides.length <= 1) return;
+    const timer = window.setInterval(() => {
+      setQaFlipped(false);
+      setActiveIdx((i) => (i + 1) % slides.length);
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [open, view, autoPlay, slides.length]);
+
+  useEffect(() => {
+    if (!open || view !== 'PRESENT') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight') {
+        setQaFlipped(false);
+        setActiveIdx((i) => Math.min(slides.length - 1, i + 1));
+      } else if (e.key === 'ArrowLeft') {
+        setQaFlipped(false);
+        setActiveIdx((i) => Math.max(0, i - 1));
+      } else if (e.key === ' ') {
+        e.preventDefault();
+        if (slides[activeIdx]?.kind === 'CHECK_QA') setQaFlipped((f) => !f);
+        else setAutoPlay((p) => !p);
+      } else if (e.key === 'Escape') {
+        setAutoPlay(false);
+        setView('STUDIO');
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, view, slides, activeIdx]);
+
+  if (!open) return null;
+
+  const resetForm = () => {
+    setEditingId(null);
+    setDraftKind('CONCEPT');
+    setDraftTheme('AURORA_INDIGO');
+    setDraftTitle('');
+    setDraftSubtitle('');
+    setDraftBullets('');
+    setDraftCallout('');
+    setDraftQuestion('');
+    setDraftAnswer('');
+    setShowManualForm(false);
+  };
+
+  const openEditSlide = (sl: SlideCard) => {
+    setEditingId(sl.id);
+    setDraftKind(sl.kind);
+    setDraftTheme(sl.theme);
+    setDraftTitle(sl.title);
+    setDraftSubtitle(sl.subtitle || '');
+    setDraftBullets(sl.bullets.join('\n'));
+    setDraftCallout(sl.callout || '');
+    setDraftQuestion(sl.question || '');
+    setDraftAnswer(sl.answer || '');
+    setShowManualForm(true);
+  };
+
+  const handleSaveManualSlide = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!draftTitle.trim() && !draftQuestion.trim()) return;
+    const newSlide: SlideCard = {
+      id: editingId || `sl-man-${Date.now()}`,
+      kind: draftKind,
+      theme: draftTheme,
+      title: draftTitle.trim() || draftQuestion.trim().slice(0, 60) || 'Revision Card',
+      subtitle: draftSubtitle.trim() || undefined,
+      bullets: draftBullets
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean),
+      callout: draftCallout.trim() || undefined,
+      question: draftKind === 'CHECK_QA' ? draftQuestion.trim() || draftTitle.trim() : undefined,
+      answer: draftKind === 'CHECK_QA' ? draftAnswer.trim() || draftBullets.trim() : undefined,
+      badge: SLIDE_KIND_META[draftKind].label.toUpperCase(),
+    };
+
+    if (editingId) {
+      onSaveSlides(slides.map((s) => (s.id === editingId ? newSlide : s)));
+    } else {
+      onSaveSlides([...slides, newSlide]);
+    }
+    resetForm();
+  };
+
+  const moveSlide = (idx: number, delta: -1 | 1) => {
+    const nextIdx = idx + delta;
+    if (nextIdx < 0 || nextIdx >= slides.length) return;
+    const copy = [...slides];
+    const [picked] = copy.splice(idx, 1);
+    copy.splice(nextIdx, 0, picked);
+    onSaveSlides(copy);
+  };
+
+  const currentSlide = slides[Math.max(0, Math.min(slides.length - 1, activeIdx))];
+  const themeSpec = currentSlide ? SLIDE_THEMES[currentSlide.theme] : SLIDE_THEMES.AURORA_INDIGO;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-md">
+      {view === 'PRESENT' && currentSlide ? (
+        <div
+          key={currentSlide.id}
+          className="relative flex h-[86vh] w-full max-w-4xl flex-col overflow-hidden rounded-[2rem] border border-white/20 text-white shadow-2xl"
+          style={{
+            background: `linear-gradient(135deg, ${themeSpec.gradA} 0%, ${themeSpec.gradB} 100%)`,
+          }}
+        >
+          {/* Vivid Animated Bokeh Orbs */}
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+            <div
+              className="animate-slide-orb absolute -left-24 -top-24 h-80 w-80 rounded-full opacity-35 blur-3xl"
+              style={{ backgroundColor: themeSpec.accent }}
+            />
+            <div
+              className="animate-slide-orb absolute -bottom-24 -right-20 h-96 w-96 rounded-full opacity-30 blur-3xl"
+              style={{ backgroundColor: themeSpec.accent, animationDelay: '-4s' }}
+            />
+            <div
+              className="animate-slide-orb absolute left-1/2 top-1/3 h-56 w-56 rounded-full opacity-20 blur-3xl"
+              style={{ backgroundColor: '#ffffff', animationDelay: '-8s' }}
+            />
+          </div>
+
+          {/* Presenter Top Bar */}
+          <div className="relative z-10 flex items-center justify-between border-b border-white/15 bg-black/15 px-6 py-4 backdrop-blur-md">
+            <div className="flex items-center gap-3">
+              <span
+                className="rounded-lg px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider text-slate-950"
+                style={{ backgroundColor: themeSpec.accent }}
+              >
+                {currentSlide.badge || SLIDE_KIND_META[currentSlide.kind].label}
+              </span>
+              <span className="font-mono-num text-xs font-semibold text-white/80">
+                Slide {activeIdx + 1} / {slides.length}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAutoPlay((p) => !p)}
+                className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+                  autoPlay ? 'bg-white text-slate-900' : 'bg-white/15 text-white hover:bg-white/25'
+                }`}
+              >
+                {autoPlay ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                {autoPlay ? 'Auto-Play On' : 'Auto-Play'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAutoPlay(false);
+                  setView('STUDIO');
+                }}
+                className="rounded-xl bg-white/15 px-3 py-1.5 text-xs font-semibold hover:bg-white/25"
+              >
+                Back to Deck
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAutoPlay(false);
+                  onClose();
+                }}
+                className="rounded-full p-1.5 text-white/80 hover:bg-white/15"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Segmented Progress Track */}
+          <div className="relative z-10 flex gap-1.5 px-6 pt-3">
+            {slides.map((sl, i) => (
+              <button
+                key={sl.id}
+                type="button"
+                onClick={() => {
+                  setQaFlipped(false);
+                  setActiveIdx(i);
+                }}
+                className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/20 transition-all hover:bg-white/35"
+              >
+                <div
+                  className="h-full rounded-full transition-all duration-300"
+                  style={{
+                    width: i <= activeIdx ? '100%' : '0%',
+                    backgroundColor: i === activeIdx ? themeSpec.accent : '#ffffff',
+                  }}
+                />
+              </button>
+            ))}
+          </div>
+
+          {/* Slide Body */}
+          <div className="relative z-10 flex flex-1 flex-col justify-center overflow-y-auto px-8 py-6 sm:px-12">
+            {currentSlide.kind === 'CHECK_QA' ? (
+              <div className="mx-auto flex w-full max-w-2xl flex-col items-center">
+                <div className="mb-3 text-xs font-bold uppercase tracking-widest text-white/70">
+                  {currentSlide.subtitle || 'Active Recall Challenge — Tap card to flip'}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setQaFlipped((f) => !f)}
+                  className="perspective-1000 w-full text-left"
+                >
+                  <div
+                    className={`preserve-3d relative min-h-[260px] w-full rounded-3xl transition-transform duration-500 ${
+                      qaFlipped ? 'rotate-y-180' : ''
+                    }`}
+                  >
+                    <div className="backface-hidden absolute inset-0 flex flex-col justify-between rounded-3xl border border-white/25 bg-white/12 p-8 backdrop-blur-md">
+                      <span className="inline-flex w-fit items-center gap-1.5 rounded-lg bg-white/15 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider">
+                        <Sparkles className="h-3.5 w-3.5" /> Prompt Question
+                      </span>
+                      <div className="font-display text-2xl font-bold leading-snug sm:text-3xl">
+                        {currentSlide.question || currentSlide.title}
+                      </div>
+                      <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-white/80">
+                        <Eye className="h-4 w-4" /> Tap to reveal answer (or press Space)
+                      </div>
+                    </div>
+
+                    <div className="backface-hidden rotate-y-180 absolute inset-0 flex flex-col justify-between rounded-3xl border border-emerald-300/40 bg-emerald-950/75 p-8 backdrop-blur-md">
+                      <span className="inline-flex w-fit items-center gap-1.5 rounded-lg bg-emerald-400/20 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-emerald-200">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Model Answer
+                      </span>
+                      <div className="text-lg font-medium leading-relaxed text-white sm:text-xl">
+                        {currentSlide.answer || currentSlide.bullets[0] || currentSlide.title}
+                      </div>
+                      <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-200">
+                        <EyeOff className="h-4 w-4" /> Tap to flip back
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              </div>
+            ) : (
+              <div className="mx-auto w-full max-w-3xl space-y-5">
+                <div>
+                  <h2 className="font-display text-3xl font-extrabold leading-tight tracking-tight sm:text-4xl">
+                    {currentSlide.title}
+                  </h2>
+                  {currentSlide.subtitle && (
+                    <p className="mt-1.5 text-sm font-medium text-white/80 sm:text-base">
+                      {currentSlide.subtitle}
+                    </p>
+                  )}
+                </div>
+
+                {currentSlide.bullets.length > 0 && (
+                  <div className="space-y-2.5">
+                    {currentSlide.bullets.map((b, idx) => (
+                      <div
+                        key={idx}
+                        style={{ animationDelay: `${idx * 90}ms` }}
+                        className="animate-bullet-in flex items-start gap-3 rounded-2xl border border-white/18 bg-white/12 px-4 py-3 backdrop-blur-sm"
+                      >
+                        <span
+                          className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-xs font-extrabold text-slate-950"
+                          style={{ backgroundColor: themeSpec.accent }}
+                        >
+                          {idx + 1}
+                        </span>
+                        <span className="text-sm font-medium leading-relaxed sm:text-base">{b}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {currentSlide.callout && (
+                  <div className="rounded-2xl border border-white/25 bg-black/25 px-5 py-3.5 text-sm font-semibold leading-relaxed text-white/95 backdrop-blur-md">
+                    <span className="mr-2 text-xs uppercase tracking-wider" style={{ color: themeSpec.accent }}>
+                      Takeaway:
+                    </span>
+                    {currentSlide.callout}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Presenter Footer Controls */}
+          <div className="relative z-10 flex items-center justify-between border-t border-white/15 bg-black/20 px-6 py-4 backdrop-blur-md">
+            <button
+              type="button"
+              disabled={activeIdx === 0}
+              onClick={() => {
+                setQaFlipped(false);
+                setActiveIdx((i) => Math.max(0, i - 1));
+              }}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-white/15 px-4 py-2 text-xs font-semibold hover:bg-white/25 disabled:opacity-35"
+            >
+              <ChevronLeft className="h-4 w-4" /> Previous
+            </button>
+
+            <span className="hidden text-[11px] text-white/65 sm:inline">
+              Use ← / → arrows to step · Space to flip or pause
+            </span>
+
+            {activeIdx + 1 >= slides.length ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setQaFlipped(false);
+                  setActiveIdx(0);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-white px-4 py-2 text-xs font-bold text-slate-950 hover:opacity-95"
+              >
+                <RotateCcw className="h-3.5 w-3.5" /> Replay Deck
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setQaFlipped(false);
+                  setActiveIdx((i) => Math.min(slides.length - 1, i + 1));
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-white px-5 py-2 text-xs font-bold text-slate-950 hover:opacity-95"
+              >
+                Next Slide <ChevronRight className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-[#181920]">
+          {/* Studio Header */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/8 px-6 py-4 dark:border-white/10">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 via-fuchsia-500 to-amber-500 text-white shadow-md">
+                <Layers className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold">Slide Show Revision — {notebookTitle}</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {slides.length} slide{slides.length === 1 ? '' : 's'} ready · {engineLabel || 'AI + Manual Deck Studio'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {slides.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveIdx(0);
+                    setView('PRESENT');
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2 text-xs font-bold text-white shadow hover:opacity-95"
+                >
+                  <Play className="h-3.5 w-3.5" /> Launch Slide Show
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-full p-1.5 text-slate-500 hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 space-y-5 overflow-y-auto p-6">
+            {/* AI Chapter Slide Generator Card */}
+            <div className="relative overflow-hidden rounded-3xl border border-violet-500/25 bg-gradient-to-br from-violet-500/10 via-fuchsia-500/8 to-amber-500/10 p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="inline-flex items-center gap-1.5 text-sm font-bold text-violet-700 dark:text-violet-300">
+                    <Sparkles className="h-4 w-4" /> AI Quick Chapter Generator
+                  </div>
+                  <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
+                    Synthesize Title, Concept, Formula, Active Recall Q&A, and Recap slides in seconds
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={Boolean(loadingStage)}
+                  onClick={() =>
+                    onGenerateAi(
+                      scope,
+                      Math.min(fromPage, toPage),
+                      Math.max(fromPage, toPage),
+                      slideCount
+                    )
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 px-4 py-2 text-xs font-bold text-white shadow hover:bg-violet-700 disabled:opacity-50"
+                >
+                  <Zap className="h-3.5 w-3.5" />
+                  {loadingStage || 'Generate Revision Deck'}
+                </button>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <div className="flex rounded-xl border border-black/10 bg-white/80 p-0.5 dark:border-white/10 dark:bg-[#202128]">
+                  {(
+                    [
+                      { id: 'CURRENT', label: `Page ${currentPageIdx + 1}` },
+                      { id: 'RANGE', label: 'Chapter Range' },
+                      { id: 'ALL', label: `All (${totalPages}p)` },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setScope(opt.id)}
+                      className={`rounded-lg px-3 py-1 text-xs font-semibold transition ${
+                        scope === opt.id
+                          ? 'bg-violet-600 text-white'
+                          : 'text-slate-600 hover:text-slate-900 dark:text-slate-300'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+
+                {scope === 'RANGE' && (
+                  <div className="flex items-center gap-1.5 text-xs font-semibold">
+                    <span>From</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={totalPages}
+                      value={fromPage}
+                      onChange={(e) => setFromPage(Math.max(1, Math.min(totalPages, Number(e.target.value) || 1)))}
+                      className="w-14 rounded-lg border border-black/15 bg-white px-2 py-1 text-center dark:border-white/15 dark:bg-[#22242C]"
+                    />
+                    <span>to</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={totalPages}
+                      value={toPage}
+                      onChange={(e) => setToPage(Math.max(1, Math.min(totalPages, Number(e.target.value) || 1)))}
+                      className="w-14 rounded-lg border border-black/15 bg-white px-2 py-1 text-center dark:border-white/15 dark:bg-[#22242C]"
+                    />
+                  </div>
+                )}
+
+                <div className="ml-auto flex items-center gap-2 text-xs font-semibold">
+                  <span className="text-slate-600 dark:text-slate-300">Slides: {slideCount}</span>
+                  <input
+                    type="range"
+                    min={4}
+                    max={12}
+                    value={slideCount}
+                    onChange={(e) => setSlideCount(Number(e.target.value))}
+                    className="w-24 accent-violet-600"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Manual Builder Header & Form */}
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                Deck Cards ({slides.length})
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  resetForm();
+                  setShowManualForm((v) => !v);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-black/10 bg-slate-50 px-3 py-1.5 text-xs font-semibold hover:bg-black/5 dark:border-white/10 dark:bg-[#22242C]"
+              >
+                <Plus className="h-3.5 w-3.5" /> Add Manual Slide
+              </button>
+            </div>
+
+            {showManualForm && (
+              <form
+                onSubmit={handleSaveManualSlide}
+                className="space-y-3 rounded-2xl border border-black/10 bg-slate-50/80 p-4 dark:border-white/10 dark:bg-[#20222A]"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-bold">{editingId ? 'Edit Slide' : 'New Manual Slide'}</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(Object.keys(SLIDE_THEMES) as SlideThemeId[]).map((tid) => (
+                      <button
+                        key={tid}
+                        type="button"
+                        onClick={() => setDraftTheme(tid)}
+                        title={SLIDE_THEMES[tid].label}
+                        className={`h-5 w-7 rounded-md border ${
+                          draftTheme === tid ? 'ring-2 ring-blue-600 ring-offset-1' : 'border-black/15'
+                        }`}
+                        style={{
+                          background: `linear-gradient(135deg, ${SLIDE_THEMES[tid].gradA}, ${SLIDE_THEMES[tid].gradB})`,
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid gap-2.5 sm:grid-cols-3">
+                  <select
+                    value={draftKind}
+                    onChange={(e) => setDraftKind(e.target.value as SlideKind)}
+                    className="rounded-xl border border-black/12 bg-white px-3 py-2 text-xs font-semibold dark:border-white/15 dark:bg-[#191A1F]"
+                  >
+                    {(Object.keys(SLIDE_KIND_META) as SlideKind[]).map((k) => (
+                      <option key={k} value={k}>
+                        {SLIDE_KIND_META[k].label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    value={draftTitle}
+                    onChange={(e) => setDraftTitle(e.target.value)}
+                    placeholder="Slide title / topic"
+                    className="rounded-xl border border-black/12 bg-white px-3 py-2 text-xs font-semibold sm:col-span-2 dark:border-white/15 dark:bg-[#191A1F]"
+                  />
+                </div>
+
+                {draftKind === 'CHECK_QA' ? (
+                  <div className="grid gap-2.5 sm:grid-cols-2">
+                    <input
+                      type="text"
+                      value={draftQuestion}
+                      onChange={(e) => setDraftQuestion(e.target.value)}
+                      placeholder="Question / prompt..."
+                      className="rounded-xl border border-black/12 bg-white px-3 py-2 text-xs dark:border-white/15 dark:bg-[#191A1F]"
+                    />
+                    <input
+                      type="text"
+                      value={draftAnswer}
+                      onChange={(e) => setDraftAnswer(e.target.value)}
+                      placeholder="Answer / reveal explanation..."
+                      className="rounded-xl border border-black/12 bg-white px-3 py-2 text-xs dark:border-white/15 dark:bg-[#191A1F]"
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      value={draftSubtitle}
+                      onChange={(e) => setDraftSubtitle(e.target.value)}
+                      placeholder="Subtitle (optional)"
+                      className="w-full rounded-xl border border-black/12 bg-white px-3 py-2 text-xs dark:border-white/15 dark:bg-[#191A1F]"
+                    />
+                    <textarea
+                      rows={3}
+                      value={draftBullets}
+                      onChange={(e) => setDraftBullets(e.target.value)}
+                      placeholder="Key bullets (one per line)..."
+                      className="w-full rounded-xl border border-black/12 bg-white px-3 py-2 text-xs dark:border-white/15 dark:bg-[#191A1F]"
+                    />
+                    <input
+                      type="text"
+                      value={draftCallout}
+                      onChange={(e) => setDraftCallout(e.target.value)}
+                      placeholder="Formula or Takeaway callout (optional)"
+                      className="w-full rounded-xl border border-black/12 bg-white px-3 py-2 text-xs dark:border-white/15 dark:bg-[#191A1F]"
+                    />
+                  </>
+                )}
+
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={resetForm}
+                    className="rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-500"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-1 rounded-xl bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white"
+                  >
+                    <Check className="h-3.5 w-3.5" /> {editingId ? 'Save Slide' : 'Add Slide'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Slide Deck Grid */}
+            {slides.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-black/15 py-10 text-center dark:border-white/15">
+                <p className="text-sm font-bold">No revision slides yet</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Click "Generate Revision Deck" above to build a vivid slide show from your notes, or add manual slides.
+                </p>
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {slides.map((sl, idx) => {
+                  const th = SLIDE_THEMES[sl.theme];
+                  return (
+                    <div
+                      key={sl.id}
+                      className="group relative flex flex-col justify-between overflow-hidden rounded-2xl p-4 text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                      style={{
+                        background: `linear-gradient(135deg, ${th.gradA}, ${th.gradB})`,
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span
+                          className="rounded-md px-2 py-0.5 text-[10px] font-extrabold uppercase text-slate-950"
+                          style={{ backgroundColor: th.accent }}
+                        >
+                          {idx + 1}. {SLIDE_KIND_META[sl.kind].label}
+                        </span>
+                        <div className="flex items-center gap-0.5">
+                          <button
+                            type="button"
+                            disabled={idx === 0}
+                            onClick={() => moveSlide(idx, -1)}
+                            className="rounded p-1 text-white/75 hover:bg-white/15 disabled:opacity-25"
+                            title="Move up"
+                          >
+                            <ArrowUp className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={idx === slides.length - 1}
+                            onClick={() => moveSlide(idx, 1)}
+                            className="rounded p-1 text-white/75 hover:bg-white/15 disabled:opacity-25"
+                            title="Move down"
+                          >
+                            <ArrowDown className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openEditSlide(sl)}
+                            className="rounded p-1 text-white/75 hover:bg-white/15"
+                            title="Edit slide"
+                          >
+                            <Edit3 className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onSaveSlides(slides.filter((s) => s.id !== sl.id))}
+                            className="rounded p-1 text-white/75 hover:bg-red-500/30"
+                            title="Delete slide"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div
+                        onClick={() => {
+                          setActiveIdx(idx);
+                          setView('PRESENT');
+                        }}
+                        className="mt-3 cursor-pointer"
+                      >
+                        <div className="line-clamp-1 font-display text-base font-bold">{sl.title}</div>
+                        <div className="mt-1 line-clamp-2 text-xs text-white/80">
+                          {sl.kind === 'CHECK_QA'
+                            ? sl.question || sl.answer
+                            : sl.bullets[0] || sl.callout || sl.subtitle || 'Tap to present'}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+

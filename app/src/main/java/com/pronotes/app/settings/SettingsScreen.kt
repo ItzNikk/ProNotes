@@ -74,8 +74,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pronotes.app.BuildConfigInfo
 import com.pronotes.app.data.AccentColor
+import com.pronotes.app.data.AppFont
 import com.pronotes.app.data.AppSettings
+import com.pronotes.app.data.CustomAiProvider
 import com.pronotes.app.data.DeskColor
+import com.pronotes.app.data.MotionStyle
 import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.data.PaperTint
 import com.pronotes.app.data.PenAction
@@ -103,13 +106,13 @@ import sh.calvin.reorderable.ReorderableItem
 
 private enum class Category(val label: String, val sub: String, val icon: ProIcon, val tint: Long) {
     STYLUS("Stylus & input", "Drawing, feel, side button, pens", ProIcon.PEN, 0xFF2A78D6),
-    AI("On-device AI", "9 free local models, offline study", ProIcon.STAR, 0xFF6B5CE7),
+    AI("AI & Cloud Studio", "Custom AI API & 9 offline models", ProIcon.CUSTOM_AI, 0xFF6B5CE7),
     GESTURES("Gestures", "Live scribble sensitivity, circle, taps", ProIcon.LASSO, 0xFF7161E0),
     PAGES("Pages & paper", "Scroll, templates, paper colour", ProIcon.DOCUMENT, 0xFF0F7E5C),
-    TOOLBAR("Toolbar", "Position, size, tools, timer", ProIcon.TOOLBAR, 0xFFC04873),
-    LOOK("Appearance", "Theme, accent, gradients, desk", ProIcon.PALETTE, 0xFFD97706),
+    TOOLBAR("Toolbar", "Stretchable dock, hover tooltips, timer", ProIcon.TOOLBAR, 0xFFC04873),
+    LOOK("Appearance & Ultra UI", "Theme, typography, motion, accent", ProIcon.PALETTE, 0xFFD97706),
     LIBRARY("Library & backup", "Covers, backup and restore", ProIcon.FOLDER, 0xFF256ABF),
-    ABOUT("About", "Version, updates", ProIcon.INFO, 0xFF6B7280),
+    ABOUT("About", "Version, resumable updates", ProIcon.INFO, 0xFF6B7280),
 }
 
 @Composable
@@ -198,7 +201,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                     PensSection(store)
                 }
                 Category.AI -> {
-                    LocalAiSection(s)
+                    LocalAiSection(s, store)
                 }
                 Category.GESTURES -> {
                     Section("Pen gestures") {
@@ -264,10 +267,11 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                     Section("Toolbar") {
                         Choice("Position", s.toolbarDock.label, ToolbarDock.entries.map { it.label }) { i -> up { it.copy(toolbarDock = ToolbarDock.entries[i]) } }
                         Segmented(ToolbarSize.entries.map { it.label }, s.toolbarSize.ordinal) { i -> up { it.copy(toolbarSize = ToolbarSize.entries[i]) } }
+                        Toggle("Hover tool name labels", "Show a floating tool badge when hovering with a pen or pointer", s.showHoverTooltips) { v -> up { it.copy(showHoverTooltips = v) } }
                     }
                     Section("Tools in the toolbar") {
                         ToolbarEditor(s.toolbarTools) { spec -> up { it.copy(toolbarTools = spec) } }
-                        Info("Long-press to reorder. Tap a selected tool for its settings.")
+                        Info("Long-press & drag icons right inside the editor toolbar with rubber-band feel, or reorder above.")
                     }
                     Section("Tabs & Study Timer") {
                         Toggle("Notebook tabs", "Keep several notebooks open and switch between them", s.showTabs) { v -> up { it.copy(showTabs = v) } }
@@ -285,6 +289,18 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                 Category.LOOK -> {
                     Section("Theme") {
                         Segmented(ThemeMode.entries.map { it.label }, s.themeMode.ordinal) { i -> up { it.copy(themeMode = ThemeMode.entries[i]) } }
+                    }
+                    Section("Typography") {
+                        FlowRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AppFont.entries.forEach { f ->
+                                FilterChip(s.appFont == f, { up { it.copy(appFont = f) } }, label = { Text(f.label) }, shape = CircleShape)
+                            }
+                        }
+                        Info("Applies across titles, studio panels, and interface controls.")
+                    }
+                    Section("Motion & Animations") {
+                        Segmented(MotionStyle.entries.map { it.label }, s.motionStyle.ordinal) { i -> up { it.copy(motionStyle = MotionStyle.entries[i]) } }
+                        Info("Ultra Spring enables kinetic rubber-band toolbar drag, slideshow transitions, and fluid morphing.")
                     }
                     Section("Accent colour") {
                         FlowRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -304,6 +320,16 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                     Section("Desk") {
                         FlowRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             DeskColor.entries.forEach { d -> Swatchy(Color(d.argb), d.label, s.deskColor == d) { up { it.copy(deskColor = d) } } }
+                        }
+                    }
+                    Section("Setup Studio") {
+                        Row(Modifier.fillMaxWidth().clickable(onClick = onTour).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            ProIconView(ProIcon.CUSTOM_AI, MaterialTheme.colorScheme.primary, Modifier.size(22.dp))
+                            Spacer(Modifier.size(16.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("Open Ultra Setup Studio")
+                                Text("Preview themes, typography, AI engine, and stylus calibration", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
                 }
@@ -505,23 +531,27 @@ private fun UpdateRow() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val u = com.pronotes.app.data.Updater
+    val pct = (u.progress * 100).toInt().coerceIn(0, 100)
+    val speedStr = if (u.speedBytesPerSec > 0L) " · ${"%.1f".format(u.speedBytesPerSec / (1024f * 1024f))} MB/s" else ""
+    val etaStr = u.etaSeconds?.let { sec -> if (sec > 0) " · ~${sec}s left" else "" }.orEmpty()
     val (title, sub) = when (u.phase) {
         UPhase.IDLE -> "Check for updates" to "Version ${u.currentVersion(context)}"
         UPhase.CHECKING -> "Checking for updates" to "Version ${u.currentVersion(context)}"
         UPhase.UP_TO_DATE -> "Pro Notes is up to date" to "Version ${u.currentVersion(context)}"
         UPhase.AVAILABLE -> "Update to ${u.release?.tag}" to "Tap to see what changed"
-        UPhase.DOWNLOADING -> "Downloading ${(u.progress * 100).toInt()}%" to "Keep the app open"
+        UPhase.DOWNLOADING -> "Downloading $pct%$speedStr" to "Background download active$etaStr · Tap to manage"
+        UPhase.PAUSED -> "Download paused at $pct%" to "Tap to resume anytime (progress saved)"
         UPhase.READY -> "Install update" to "Tap to open the installer"
         UPhase.INSTALLING -> "Installing update..." to "Confirm when prompted"
-        UPhase.FAILED -> "Update failed" to (u.error ?: "Tap to try again")
+        UPhase.FAILED -> "Update failed" to (u.error ?: "Tap to retry or resume")
     }
     Column(
         Modifier.fillMaxWidth().clickable {
             when (u.phase) {
-                UPhase.AVAILABLE -> u.showDialog = true
+                UPhase.AVAILABLE, UPhase.DOWNLOADING, UPhase.PAUSED -> u.showDialog = true
                 UPhase.READY -> u.install(context)
-                UPhase.FAILED -> if (u.hasReadyApk(context)) u.install(context) else scope.launch { u.check(context) }
-                UPhase.DOWNLOADING, UPhase.CHECKING, UPhase.INSTALLING -> Unit
+                UPhase.FAILED -> if (u.hasReadyApk(context)) u.install(context) else u.showDialog = true
+                UPhase.CHECKING, UPhase.INSTALLING -> Unit
                 else -> scope.launch { u.check(context) }
             }
         }.padding(16.dp),
@@ -533,8 +563,14 @@ private fun UpdateRow() {
                 Text(title)
                 Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
             }
+            if (u.phase == UPhase.PAUSED) {
+                TextButton(onClick = { u.resumeDownload(context) }) { Text("Resume") }
+                TextButton(onClick = { u.cancelDownload(context) }) { Text("Cancel") }
+            } else if (u.phase == UPhase.DOWNLOADING) {
+                TextButton(onClick = { u.pauseDownload(context) }) { Text("Pause") }
+            }
         }
-        if (u.phase == UPhase.DOWNLOADING) {
+        if (u.phase == UPhase.DOWNLOADING || u.phase == UPhase.PAUSED) {
             Spacer(Modifier.height(10.dp))
             LinearProgressIndicator(progress = { u.progress }, modifier = Modifier.fillMaxWidth().padding(start = 40.dp))
         }
@@ -628,10 +664,14 @@ private fun PensSection(store: SettingsStore) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun LocalAiSection(s: AppSettings) {
+private fun LocalAiSection(s: AppSettings, store: SettingsStore) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val states by LocalAiManager.states.collectAsState()
     var cat by remember { mutableStateOf("All") }
+    var showKey by remember { mutableStateOf(false) }
+    var testBusy by remember { mutableStateOf(false) }
+    var testResult by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
     LaunchedEffect(Unit) { LocalAiManager.refresh(context) }
 
     Section("Active AI Engine") {
@@ -643,13 +683,17 @@ private fun LocalAiSection(s: AppSettings) {
             )
             Column(Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    ProIconView(ProIcon.STAR, Color(0xFF6B5CE7), Modifier.size(24.dp))
+                    ProIconView(ProIcon.CUSTOM_AI, Color(0xFF6B5CE7), Modifier.size(24.dp))
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
                         Text(LocalAiManager.activeEngineLabel(context), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         Text(
-                            if (Nano.available) "Gemini Nano AICore is active on this device"
-                            else "Download any of the 9 free lightweight models below for richer offline study AI",
+                            when {
+                                s.customAiEnabled && s.customAiBaseUrl.isNotBlank() ->
+                                    "Custom AI API (${s.customAiProvider.label}) is primary for Slides, Summary, Search, Quizzes & Mind Maps"
+                                Nano.available -> "Gemini Nano AICore is active on this device"
+                                else -> "Connect Custom AI API or download any of the 9 free local models for richer study AI"
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -660,6 +704,87 @@ private fun LocalAiSection(s: AppSettings) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("Use built-in fallback rules only", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                         TextButton(onClick = { LocalAiManager.activateModel(context, "") }) { Text("Reset") }
+                    }
+                }
+            }
+        }
+    }
+
+    Section("Custom AI API (OpenAI · Gemini · Ollama)") {
+        Toggle(
+            "Use Custom AI API",
+            "Connect your own API endpoint or local Ollama server (stored privately on device)",
+            s.customAiEnabled,
+        ) { on -> store.update { it.copy(customAiEnabled = on) } }
+
+        if (s.customAiEnabled) {
+            HorizontalDivider()
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Choice(
+                    "Provider",
+                    s.customAiProvider.label,
+                    CustomAiProvider.entries.map { it.label },
+                ) { idx ->
+                    val nextProv = CustomAiProvider.entries[idx]
+                    store.update { cur ->
+                        val prevProv = cur.customAiProvider
+                        val nextUrl = if (cur.customAiBaseUrl.isBlank() || cur.customAiBaseUrl == prevProv.defaultBaseUrl) nextProv.defaultBaseUrl else cur.customAiBaseUrl
+                        val nextModel = if (cur.customAiModel.isBlank() || cur.customAiModel == prevProv.defaultModel) nextProv.defaultModel else cur.customAiModel
+                        cur.copy(customAiProvider = nextProv, customAiBaseUrl = nextUrl, customAiModel = nextModel)
+                    }
+                }
+                OutlinedTextField(
+                    value = s.customAiBaseUrl,
+                    onValueChange = { v -> store.update { it.copy(customAiBaseUrl = v) } },
+                    label = { Text("Base URL") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = s.customAiModel,
+                    onValueChange = { v -> store.update { it.copy(customAiModel = v) } },
+                    label = { Text("Model name") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = s.customAiApiKey,
+                    onValueChange = { v -> store.update { it.copy(customAiApiKey = v) } },
+                    label = { Text(if (s.customAiProvider == CustomAiProvider.OLLAMA) "API Key (optional for Ollama)" else "API Key") },
+                    singleLine = true,
+                    visualTransformation = if (showKey) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    trailingIcon = {
+                        TextButton(onClick = { showKey = !showKey }) { Text(if (showKey) "Hide" else "Show") }
+                    },
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        enabled = !testBusy,
+                        onClick = {
+                            testBusy = true
+                            testResult = null
+                            scope.launch {
+                                val res = LocalAiManager.testCustomApi(context)
+                                testBusy = false
+                                testResult = res.fold(
+                                    onSuccess = { true to "Connected: ${it.take(80)}" },
+                                    onFailure = { false to (it.message ?: "Connection failed") },
+                                )
+                            }
+                        },
+                        shape = CircleShape,
+                    ) { Text(if (testBusy) "Testing…" else "Test Connection") }
+                    testResult?.let { (ok, msg) ->
+                        Text(
+                            msg,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (ok) Color(0xFF10B981) else MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                 }
             }

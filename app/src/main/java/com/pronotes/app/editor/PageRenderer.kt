@@ -122,8 +122,14 @@ class PageRenderer(private val noteDir: File?) {
     private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
     private val tapePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val tapeStripe = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x22FFFFFF; strokeWidth = 10f }
-    private val stickyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { setShadowLayer(10f, 0f, 4f, 0x33000000) }
+    private val stickyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { setShadowLayer(12f, 0f, 5f, 0x2E000000) }
     private val stickyText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 30f; color = 0xFF2B2B2B.toInt() }
+    private val stickyTitleText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 18f; isFakeBoldText = true; color = 0xFF1F2430.toInt() }
+    private val stickyStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2.4f }
+    private val linkCardFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; setShadowLayer(12f, 0f, 4f, 0x22000000) }
+    private val linkCardStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2.5f }
+    private val linkTitlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { isFakeBoldText = true; textSize = 24f }
+    private val linkMetaPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 17f }
     private val highlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x66FFD60A }
     private val activeHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x99FF9F0A.toInt() }
     private val images = object : LruCache<String, Bitmap>(24 * 1024 * 1024) {
@@ -854,65 +860,276 @@ class PageRenderer(private val noteDir: File?) {
                     }
                     tapePaint.shader = null
                 }
-                is StickyItem -> {
-                    stickyPaint.color = item.color
-                    val r = item.raw
-                    rotated(canvas, r, item.rot) {
-                        canvas.save()
-                        val clipPath = Path().apply { addRoundRect(r, 16f, 16f, Path.Direction.CW) }
-                        canvas.clipPath(clipPath)
-                        canvas.drawRoundRect(r, 16f, 16f, stickyPaint)
-                        // Subtle darker header bar + pin/fold badges
-                        fillPaint.color = 0x18000000
-                        val barH = minOf(r.height(), 30f)
-                        canvas.drawRect(r.left, r.top, r.right, r.top + barH, fillPaint)
-                        if (item.pinned || item.collapsed) {
-                            val badge = listOfNotNull(
-                                if (item.pinned) "PIN" else null,
-                                if (item.collapsed) "FOLDED" else null,
-                            ).joinToString(" · ")
-                            stickyText.textSize = 12f
-                            stickyText.isFakeBoldText = true
-                            val bw = stickyText.measureText(badge) + 14f
-                            fillPaint.color = if (item.pinned) 0x33D95926 else 0x22000000
-                            canvas.drawRoundRect(RectF(r.right - bw - 8f, r.top + 5f, r.right - 8f, r.top + 25f), 8f, 8f, fillPaint)
-                            stickyText.color = 0xFF2B2F3A.toInt()
-                            canvas.drawText(badge, r.right - bw - 1f, r.top + 19f, stickyText)
-                            stickyText.isFakeBoldText = false
-                        }
-                        if (item.text.isNotEmpty()) {
-                            stickyText.color = 0xFF1B1F2A.toInt()
-                            stickyText.typeface = when (item.font) {
-                                "SERIF" -> android.graphics.Typeface.SERIF
-                                "MONO" -> android.graphics.Typeface.MONOSPACE
-                                "HAND" -> android.graphics.Typeface.create("cursive", android.graphics.Typeface.NORMAL)
-                                else -> android.graphics.Typeface.SANS_SERIF
-                            }
-                            if (item.collapsed) {
-                                stickyText.textSize = 20f
-                                val oneLine = item.text.lineSequence().firstOrNull()?.take(26) ?: ""
-                                canvas.drawText(oneLine, r.left + 14f, r.top + barH + 17f, stickyText)
-                            } else {
-                                stickyText.textSize = item.fontSize.coerceIn(14f, 64f) * (r.width() / 280f).coerceIn(0.45f, 3.5f)
-                                val availW = (r.width() - 32f).toInt().coerceAtLeast(16)
-                                val layout = StaticLayout.Builder.obtain(item.text, 0, item.text.length, stickyText, availW)
-                                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                                    .setLineSpacing(2f, 1.08f)
-                                    .setMaxLines(16)
-                                    .build()
-                                canvas.save()
-                                canvas.clipRect(r.left + 12f, r.top + barH + 4f, r.right - 12f, r.bottom - 10f)
-                                canvas.translate(r.left + 16f, r.top + barH + 10f)
-                                layout.draw(canvas)
-                                canvas.restore()
-                            }
-                        }
-                        canvas.restore()
-                    }
-                }
+                is StickyItem -> drawSticky(canvas, item)
+                is WebLinkItem -> drawWebLink(canvas, item)
                 is MindNodeItem -> drawMindNode(canvas, item, allItems)
             }
             if (moved) canvas.restore()
+        }
+    }
+
+    private fun drawSticky(canvas: Canvas, item: StickyItem) {
+        val r = item.raw
+        val style = item.style
+        val lum = Color.luminance(item.color)
+        val fg = if (style == "outline" || style == "glass") {
+            if (isDark) 0xFFF1F5F9.toInt() else 0xFF1B1F2A.toInt()
+        } else {
+            if (lum < 0.36f) Color.WHITE else 0xFF1B1F2A.toInt()
+        }
+        val fgMuted = (fg and 0x00FFFFFF) or (0x99 shl 24)
+        rotated(canvas, r, item.rot) {
+            canvas.save()
+            val clipPath = Path().apply { addRoundRect(r, 18f, 18f, Path.Direction.CW) }
+            canvas.clipPath(clipPath)
+
+            when (style) {
+                "glass" -> {
+                    stickyPaint.color = (item.color and 0x00FFFFFF) or (0x4D shl 24)
+                    canvas.drawRoundRect(r, 18f, 18f, stickyPaint)
+                    stickyStroke.color = (item.color and 0x00FFFFFF) or (0xB0 shl 24)
+                    stickyStroke.strokeWidth = 2.6f
+                    canvas.drawRoundRect(r, 18f, 18f, stickyStroke)
+                }
+                "outline" -> {
+                    stickyPaint.color = if (isDark) 0xEE181C24.toInt() else 0xF5FFFFFF.toInt()
+                    canvas.drawRoundRect(r, 18f, 18f, stickyPaint)
+                    stickyStroke.color = item.color
+                    stickyStroke.strokeWidth = 3.5f
+                    canvas.drawRoundRect(RectF(r).apply { inset(1.5f, 1.5f) }, 17f, 17f, stickyStroke)
+                }
+                else -> {
+                    stickyPaint.color = item.color
+                    canvas.drawRoundRect(r, 18f, 18f, stickyPaint)
+                }
+            }
+
+            // Top header bar
+            val barH = minOf(r.height(), if (item.title.isNotBlank()) 38f else 30f)
+            fillPaint.color = if (style == "outline") ((item.color and 0x00FFFFFF) or (0x28 shl 24)) else 0x16000000
+            canvas.drawRect(r.left, r.top, r.right, r.top + barH, fillPaint)
+
+            if (item.pinned || item.collapsed) {
+                val badge = listOfNotNull(
+                    if (item.pinned) "PIN" else null,
+                    if (item.collapsed) "FOLDED" else null,
+                ).joinToString(" · ")
+                stickyText.textSize = 12f
+                stickyText.isFakeBoldText = true
+                val bw = stickyText.measureText(badge) + 14f
+                fillPaint.color = if (item.pinned) 0x44D95926 else 0x26000000
+                canvas.drawRoundRect(RectF(r.right - bw - 8f, r.top + 6f, r.right - 8f, r.top + barH - 6f), 8f, 8f, fillPaint)
+                stickyText.color = fg
+                canvas.drawText(badge, r.right - bw - 1f, r.top + barH / 2f + 4f, stickyText)
+                stickyText.isFakeBoldText = false
+            }
+
+            if (item.title.isNotBlank()) {
+                stickyTitleText.color = fg
+                stickyTitleText.textSize = (barH * 0.46f).coerceIn(14f, 20f)
+                val maxTitleW = r.width() - (if (item.pinned || item.collapsed) 110f else 28f)
+                val tTitle = android.text.TextUtils.ellipsize(item.title.trim(), stickyTitleText, maxTitleW.coerceAtLeast(30f), android.text.TextUtils.TruncateAt.END).toString()
+                canvas.drawText(tTitle, r.left + 14f, r.top + barH / 2f + stickyTitleText.textSize * 0.35f, stickyTitleText)
+            }
+
+            // Lined paper accent lines when expanded
+            if (!item.collapsed && style == "lined") {
+                stickyStroke.color = (fg and 0x00FFFFFF) or (0x22 shl 24)
+                stickyStroke.strokeWidth = 1.4f
+                val step = (item.fontSize * 1.45f).coerceIn(22f, 44f)
+                var ly = r.top + barH + step
+                while (ly < r.bottom - 14f) {
+                    canvas.drawLine(r.left + 14f, ly, r.right - 14f, ly, stickyStroke)
+                    ly += step
+                }
+            }
+
+            // Dog-ear corner curl on bottom-right when expanded
+            if (!item.collapsed && r.width() > 60f && r.height() > 60f) {
+                val ear = 22f
+                val corner = Path().apply {
+                    moveTo(r.right - ear, r.bottom)
+                    lineTo(r.right, r.bottom - ear)
+                    lineTo(r.right - ear, r.bottom - ear)
+                    close()
+                }
+                fillPaint.color = 0x26000000
+                canvas.drawPath(corner, fillPaint)
+            }
+
+            if (item.text.isNotEmpty()) {
+                stickyText.typeface = when (item.font) {
+                    "SERIF" -> android.graphics.Typeface.SERIF
+                    "MONO" -> android.graphics.Typeface.MONOSPACE
+                    "HAND" -> android.graphics.Typeface.create("cursive", android.graphics.Typeface.NORMAL)
+                    else -> android.graphics.Typeface.SANS_SERIF
+                }
+                if (item.collapsed) {
+                    stickyText.color = fg
+                    stickyText.textSize = 19f
+                    val oneLine = item.text.lineSequence().firstOrNull()?.take(28) ?: ""
+                    canvas.drawText(oneLine, r.left + 14f, r.top + barH + 22f, stickyText)
+                } else {
+                    val fSize = item.fontSize.coerceIn(14f, 64f) * (r.width() / 280f).coerceIn(0.45f, 3.5f)
+                    stickyText.textSize = fSize
+                    val availW = (r.width() - 32f).toInt().coerceAtLeast(16)
+                    val lines = item.text.split('\n')
+                    val hasChecklist = lines.any {
+                        val tr = it.trimStart()
+                        tr.startsWith("- [ ] ") || tr.startsWith("- [x] ", ignoreCase = true) || tr.startsWith("☐ ") || tr.startsWith("☑ ")
+                    }
+                    canvas.save()
+                    canvas.clipRect(r.left + 12f, r.top + barH + 4f, r.right - 12f, r.bottom - 10f)
+                    if (!hasChecklist) {
+                        stickyText.color = fg
+                        stickyText.isStrikeThruText = false
+                        val layout = StaticLayout.Builder.obtain(item.text, 0, item.text.length, stickyText, availW)
+                            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                            .setLineSpacing(2f, 1.12f)
+                            .setMaxLines(18)
+                            .build()
+                        canvas.translate(r.left + 16f, r.top + barH + 10f)
+                        layout.draw(canvas)
+                    } else {
+                        var cy = r.top + barH + 10f
+                        val checkCol = if (style == "outline" || style == "glass") item.color else 0xFF3D6CF4.toInt()
+                        for (line in lines) {
+                            if (cy > r.bottom - 10f) break
+                            val tr = line.trimStart()
+                            val checked = tr.startsWith("- [x] ", ignoreCase = true) || tr.startsWith("☑ ")
+                            val unchecked = tr.startsWith("- [ ] ") || tr.startsWith("☐ ")
+                            if (checked || unchecked) {
+                                val label = tr.removePrefix("- [x] ").removePrefix("- [X] ").removePrefix("- [ ] ")
+                                    .removePrefix("☑ ").removePrefix("☐ ")
+                                val boxSz = (fSize * 0.85f).coerceIn(14f, 28f)
+                                val bx = r.left + 16f
+                                val by = cy + fSize * 0.14f
+                                val boxR = RectF(bx, by, bx + boxSz, by + boxSz)
+                                if (checked) {
+                                    fillPaint.color = checkCol
+                                    canvas.drawRoundRect(boxR, 5f, 5f, fillPaint)
+                                    stickyStroke.color = Color.WHITE
+                                    stickyStroke.strokeWidth = 2.2f
+                                    canvas.drawLine(bx + boxSz * 0.22f, by + boxSz * 0.52f, bx + boxSz * 0.44f, by + boxSz * 0.74f, stickyStroke)
+                                    canvas.drawLine(bx + boxSz * 0.44f, by + boxSz * 0.74f, bx + boxSz * 0.78f, by + boxSz * 0.28f, stickyStroke)
+                                } else {
+                                    stickyStroke.color = fgMuted
+                                    stickyStroke.strokeWidth = 2f
+                                    canvas.drawRoundRect(boxR, 5f, 5f, stickyStroke)
+                                }
+                                stickyText.color = if (checked) fgMuted else fg
+                                stickyText.isStrikeThruText = checked
+                                val textAvail = (availW - boxSz.toInt() - 10).coerceAtLeast(16)
+                                val lay = StaticLayout.Builder.obtain(label, 0, label.length, stickyText, textAvail)
+                                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                                    .setLineSpacing(2f, 1.08f)
+                                    .setMaxLines(4)
+                                    .build()
+                                canvas.save()
+                                canvas.translate(bx + boxSz + 10f, cy)
+                                lay.draw(canvas)
+                                canvas.restore()
+                                cy += maxOf(boxSz + 8f, lay.height + 6f)
+                            } else {
+                                stickyText.color = fg
+                                stickyText.isStrikeThruText = false
+                                val lay = StaticLayout.Builder.obtain(line, 0, line.length, stickyText, availW)
+                                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                                    .setLineSpacing(2f, 1.08f)
+                                    .setMaxLines(6)
+                                    .build()
+                                canvas.save()
+                                canvas.translate(r.left + 16f, cy)
+                                lay.draw(canvas)
+                                canvas.restore()
+                                cy += lay.height + 4f
+                            }
+                        }
+                        stickyText.isStrikeThruText = false
+                    }
+                    canvas.restore()
+                }
+            }
+            canvas.restore()
+        }
+    }
+
+    private fun drawWebLink(canvas: Canvas, item: WebLinkItem) {
+        val r = item.raw
+        rotated(canvas, r, item.rot) {
+            val cardBg = if (isDark) 0xEE181D27.toInt() else 0xF8FFFFFF.toInt()
+            val fg = if (isDark) 0xFFF1F5F9.toInt() else 0xFF151924.toInt()
+            val fgMuted = if (isDark) 0xFF94A3B8.toInt() else 0xFF64748B.toInt()
+            val accent = item.color
+
+            linkCardFill.color = cardBg
+            canvas.drawRoundRect(r, 18f, 18f, linkCardFill)
+            linkCardStroke.color = (accent and 0x00FFFFFF) or (0x66 shl 24)
+            canvas.drawRoundRect(r, 18f, 18f, linkCardStroke)
+
+            // Left vertical accent pill
+            fillPaint.color = accent
+            canvas.drawRoundRect(RectF(r.left + 8f, r.top + 12f, r.left + 14f, r.bottom - 12f), 3f, 3f, fillPaint)
+
+            // Globe icon badge on left
+            val badgeR = minOf(22f, r.height() * 0.24f)
+            val cx = r.left + 44f
+            val cy = r.top + minOf(r.height() / 2f, 44f)
+            fillPaint.color = (accent and 0x00FFFFFF) or (0x22 shl 24)
+            canvas.drawCircle(cx, cy, badgeR, fillPaint)
+            stickyStroke.color = accent
+            stickyStroke.strokeWidth = 2f
+            canvas.drawCircle(cx, cy, badgeR * 0.56f, stickyStroke)
+            canvas.drawLine(cx - badgeR * 0.56f, cy, cx + badgeR * 0.56f, cy, stickyStroke)
+            canvas.drawOval(RectF(cx - badgeR * 0.28f, cy - badgeR * 0.56f, cx + badgeR * 0.28f, cy + badgeR * 0.56f), stickyStroke)
+
+            // Top-right external launch arrow glyph (↗)
+            val ax = r.right - 28f
+            val ay = r.top + 28f
+            fillPaint.color = (accent and 0x00FFFFFF) or (0x22 shl 24)
+            canvas.drawCircle(ax, ay, 16f, fillPaint)
+            stickyStroke.color = accent
+            stickyStroke.strokeWidth = 2.2f
+            canvas.drawLine(ax - 6f, ay + 6f, ax + 6f, ay - 6f, stickyStroke)
+            canvas.drawLine(ax - 2f, ay - 6f, ax + 6f, ay - 6f, stickyStroke)
+            canvas.drawLine(ax + 6f, ay - 6f, ax + 6f, ay + 2f, stickyStroke)
+
+            // Text area
+            val textLeft = r.left + 78f
+            val textRight = r.right - 52f
+            val availW = (textRight - textLeft).toInt().coerceAtLeast(40)
+            val dom = item.domain
+            val displayTitle = item.title.ifBlank { dom }
+
+            linkTitlePaint.color = fg
+            linkTitlePaint.textSize = 23f
+            val titleLay = StaticLayout.Builder.obtain(displayTitle, 0, displayTitle.length, linkTitlePaint, availW)
+                .setMaxLines(1)
+                .setEllipsize(android.text.TextUtils.TruncateAt.END)
+                .build()
+            canvas.save()
+            canvas.clipRect(r.left + 16f, r.top + 8f, r.right - 12f, r.bottom - 8f)
+            canvas.translate(textLeft, r.top + 16f)
+            titleLay.draw(canvas)
+
+            linkMetaPaint.color = accent
+            linkMetaPaint.textSize = 16f
+            linkMetaPaint.isFakeBoldText = true
+            canvas.translate(0f, titleLay.height + 4f)
+            val domStr = android.text.TextUtils.ellipsize(dom, linkMetaPaint, availW.toFloat(), android.text.TextUtils.TruncateAt.END).toString()
+            canvas.drawText(domStr, 0f, 16f, linkMetaPaint)
+            linkMetaPaint.isFakeBoldText = false
+
+            if (item.note.isNotBlank() && r.height() > 86f) {
+                linkMetaPaint.color = fgMuted
+                canvas.translate(0f, 24f)
+                val noteLay = StaticLayout.Builder.obtain(item.note.trim(), 0, item.note.trim().length, linkMetaPaint, availW)
+                    .setMaxLines(2)
+                    .setEllipsize(android.text.TextUtils.TruncateAt.END)
+                    .build()
+                noteLay.draw(canvas)
+            }
+            canvas.restore()
         }
     }
 

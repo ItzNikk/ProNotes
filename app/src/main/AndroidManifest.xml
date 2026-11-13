@@ -11,6 +11,9 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- Lets the editor hide its toolbar while the screen is recorded (Android 15+). -->
     <uses-permission android:name="android.permission.DETECT_SCREEN_RECORDING" />
+    <!-- Background resumable APK downloads. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:allowBackup="true"
@@ -65,6 +68,11 @@
 
         <receiver android:name=".InstallResultReceiver" android:exported="false" />
         <receiver android:name=".UpdateCheckReceiver" android:exported="false" />
+
+        <service
+            android:name=".data.UpdateDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

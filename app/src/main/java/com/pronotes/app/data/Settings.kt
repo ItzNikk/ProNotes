@@ -15,6 +15,13 @@ enum class ScribbleSensitivity(val label: String) { GENTLE("Gentle"), BALANCED("
 enum class HighlighterMode(val label: String) { FREEHAND("Freehand"), AUTO("Auto-straighten"), STRAIGHT("Always straight") }
 enum class LassoMode(val label: String) { FREEFORM("Freeform"), RECT("Rectangle") }
 enum class ThemeMode(val label: String) { SYSTEM("System"), LIGHT("Light"), DARK("Dark") }
+enum class AppFont(val label: String) { MODERN_SANS("Modern Sans"), EDITORIAL_SERIF("Editorial Serif"), STUDIO_MONO("Studio Mono"), ROUNDED("Soft Rounded") }
+enum class MotionStyle(val label: String) { ULTRA_SPRING("Ultra Spring"), MINIMAL_CRISP("Crisp"), REDUCED("Reduced") }
+enum class CustomAiProvider(val label: String, val defaultBaseUrl: String, val defaultModel: String) {
+    OPENAI_COMPATIBLE("OpenAI / OpenRouter / Groq", "https://api.openai.com/v1", "gpt-4o-mini"),
+    GEMINI("Google Gemini REST", "https://generativelanguage.googleapis.com/v1beta", "gemini-2.5-flash"),
+    OLLAMA("Ollama / Local Server", "http://127.0.0.1:11434/v1", "llama3.2"),
+}
 enum class AccentColor(val label: String, val argb: Long, val argb2: Long) {
     BLUE("Blue", 0xFF2A78D6, 0xFF7161E0),
     VIOLET("Violet", 0xFF6250D6, 0xFFD55181),
@@ -156,14 +163,22 @@ data class AppSettings(
     val lassoMode: LassoMode = LassoMode.FREEFORM,
     val lassoFilter: LassoFilter = LassoFilter(),
     val lassoTouching: Boolean = false,
-    // look
+    // look & ultra customization
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val accent: AccentColor = AccentColor.BLUE,
     val gradientTitles: Boolean = true,
+    val appFont: AppFont = AppFont.MODERN_SANS,
+    val motionStyle: MotionStyle = MotionStyle.ULTRA_SPRING,
+    val showHoverTooltips: Boolean = true,
     // library
     val thumbCovers: Boolean = false,
-    // on-device local models
+    // on-device local models & Custom AI API
     val activeLocalModelId: String = "",
+    val customAiEnabled: Boolean = false,
+    val customAiProvider: CustomAiProvider = CustomAiProvider.OPENAI_COMPATIBLE,
+    val customAiBaseUrl: String = CustomAiProvider.OPENAI_COMPATIBLE.defaultBaseUrl,
+    val customAiApiKey: String = "",
+    val customAiModel: String = CustomAiProvider.OPENAI_COMPATIBLE.defaultModel,
 )
 
 /** A saved pen: type, colour and thickness, one tap away, with an optional user label. */
@@ -246,8 +261,16 @@ class SettingsStore private constructor(context: Context) {
             themeMode = enumOf("themeMode", d.themeMode),
             accent = enumOf("accent", d.accent),
             gradientTitles = b("gradientTitles", d.gradientTitles),
+            appFont = enumOf("appFont", d.appFont),
+            motionStyle = enumOf("motionStyle", d.motionStyle),
+            showHoverTooltips = b("showHoverTooltips", d.showHoverTooltips),
             thumbCovers = b("thumbCovers", d.thumbCovers),
             activeLocalModelId = prefs.getString("activeLocalModelId", d.activeLocalModelId) ?: "",
+            customAiEnabled = b("customAiEnabled", d.customAiEnabled),
+            customAiProvider = enumOf("customAiProvider", d.customAiProvider),
+            customAiBaseUrl = prefs.getString("customAiBaseUrl", d.customAiBaseUrl) ?: d.customAiBaseUrl,
+            customAiApiKey = prefs.getString("customAiApiKey", d.customAiApiKey) ?: "",
+            customAiModel = prefs.getString("customAiModel", d.customAiModel) ?: d.customAiModel,
         )
     }
 
@@ -317,8 +340,16 @@ class SettingsStore private constructor(context: Context) {
             .putString("themeMode", s.themeMode.name)
             .putString("accent", s.accent.name)
             .putBoolean("gradientTitles", s.gradientTitles)
+            .putString("appFont", s.appFont.name)
+            .putString("motionStyle", s.motionStyle.name)
+            .putBoolean("showHoverTooltips", s.showHoverTooltips)
             .putBoolean("thumbCovers", s.thumbCovers)
             .putString("activeLocalModelId", s.activeLocalModelId)
+            .putBoolean("customAiEnabled", s.customAiEnabled)
+            .putString("customAiProvider", s.customAiProvider.name)
+            .putString("customAiBaseUrl", s.customAiBaseUrl)
+            .putString("customAiApiKey", s.customAiApiKey)
+            .putString("customAiModel", s.customAiModel)
             .apply()
     }
 

@@ -43,7 +43,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-enum class Tool { PEN, HIGHLIGHTER, ERASER, SHAPE, LASSO, MINDMAP, TEXT, IMAGE, STICKY, TAPE, STICKER, LASER }
+enum class Tool { PEN, HIGHLIGHTER, ERASER, SHAPE, LASSO, MINDMAP, TEXT, IMAGE, STICKY, WEBLINK, TAPE, STICKER, LASER }
 
 /** Callbacks from the canvas to the editor state. Page indices refer to the notebook's page list. */
 interface CanvasHost {
@@ -57,6 +57,8 @@ interface CanvasHost {
     fun onSelectionChanged(page: Int, ids: Set<Long>, screenBounds: RectF?)
     fun onTextTap(page: Int, x: Float, y: Float, existing: TextItem?)
     fun onStickyTap(page: Int, x: Float, y: Float, existing: StickyItem?)
+    fun onStickyChecklistToggle(page: Int, sticky: StickyItem, lineIndex: Int) {}
+    fun onWebLinkTap(page: Int, x: Float, y: Float, existing: WebLinkItem?) {}
     fun onMindMapTap(page: Int, x: Float, y: Float, existing: MindNodeItem?) {}
     fun onCurrentPage(index: Int)
     fun onPullAddPage()
@@ -410,6 +412,39 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             scroller.startScroll(fromX.toInt(), fromY.toInt(), (toX - fromX).toInt(), (toY - fromY).toInt(), 420)
             postInvalidateOnAnimation()
         } else updateMatrix()
+    }
+
+    /** Smoothly pans & zooms the camera so [rect] (in [pageIndex]'s coordinates) fits cleanly on screen. */
+    fun fitRect(pageIndex: Int, rect: RectF, animate: Boolean = true) {
+        val p = pages.getOrNull(pageIndex) ?: return
+        if (width == 0 || height == 0 || rect.width() <= 1f || rect.height() <= 1f) return
+        zoomAnim?.cancel()
+        scroller.forceFinished(true)
+        val fromS = scale; val fromX = transX; val fromY = transY
+        val padPx = 48f * density
+        val availW = (width - padPx * 2f).coerceAtLeast(120f)
+        val availH = (height - padPx * 2f).coerceAtLeast(120f)
+        val targetScale = min(availW / rect.width(), availH / rect.height()).coerceIn(fitScale(pageIndex) * 0.6f, 3.2f)
+        val docCenterX = ox(pageIndex) + rect.centerX()
+        val docCenterY = oy(pageIndex) + rect.centerY()
+        scale = targetScale
+        transX = width / 2f - docCenterX * scale
+        transY = height / 2f - docCenterY * scale
+        if (!p.isWhiteboard) clamp()
+        val toS = scale; val toX = transX; val toY = transY
+        if (!animate) { updateMatrix(); return }
+        scale = fromS; transX = fromX; transY = fromY
+        zoomAnim = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 320; interpolator = DecelerateInterpolator()
+            addUpdateListener {
+                val t = it.animatedValue as Float
+                scale = fromS + (toS - fromS) * t
+                transX = fromX + (toX - fromX) * t
+                transY = fromY + (toY - fromY) * t
+                updateMatrix()
+            }
+            start()
+        }
     }
 
     private val isWhiteboard: Boolean
@@ -832,7 +867,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                             mode = Mode.TAP
                         }
                     }
-                    Tool.TEXT, Tool.STICKY -> mode = Mode.TAP
+                    Tool.TEXT, Tool.STICKY, Tool.WEBLINK -> mode = Mode.TAP
                     Tool.IMAGE, Tool.STICKER -> mode = Mode.IGNORE
                 }
             }
@@ -945,8 +980,17 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                             val p = pages.getOrNull(dragMindOrigPage) ?: return
                             val updated = p.items.map { item ->
                                 val orig = if (item is MindNodeItem) dragMindOrigPos[item.id] else null
-                                if (item is MindNodeItem && orig != null) item.copy(x = orig.first + dx, y = orig.second + dy)
-                                else item
+                                if (item is MindNodeItem && orig != null) {
+                                    var nx = orig.first + dx
+                                    var ny = orig.second + dy
+                                    if (!p.isWhiteboard) {
+                                        val maxX = (p.width - item.w - 56f).coerceAtLeast(56f)
+                                        val maxY = (p.height - item.h - 56f).coerceAtLeast(56f)
+                                        nx = nx.coerceIn(56f, maxX)
+                                        ny = ny.coerceIn(56f, maxY)
+                                    }
+                                    item.copy(x = nx, y = ny)
+                                } else item
                             }
                             pages = pages.toMutableList().also { it[dragMindOrigPage] = p.copy(items = updated) }
                             layer.invalidate()
@@ -1036,6 +1080,14 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                                 val hit = items.lastOrNull { it is TextItem && it.bounds.contains(wx, wy) } as TextItem?
                                 host.onTextTap(activePage, wx, wy, hit)
                             }
+                            Tool.WEBLINK -> {
+                                val hit = items.lastOrNull { it is WebLinkItem && it.bounds.contains(wx, wy) } as WebLinkItem?
+                                if (hit != null && wx >= hit.bounds.right - 56f && wy <= hit.bounds.top + 56f) {
+                                    host.onOpenUrl(hit.url)
+                                } else {
+                                    host.onWebLinkTap(activePage, wx, wy, hit)
+                                }
+                            }
                             Tool.MINDMAP -> {
                                 val hidden = renderer?.hiddenMindNodeIds(items) ?: emptySet()
                                 val hit = items.lastOrNull { it is MindNodeItem && it.id !in hidden && it.bounds.contains(wx, wy) } as MindNodeItem?
@@ -1043,7 +1095,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                             }
                             else -> {
                                 val hit = items.lastOrNull { it is StickyItem && it.bounds.contains(wx, wy) } as StickyItem?
-                                host.onStickyTap(activePage, wx, wy, hit)
+                                val lineHit = hit?.let { findStickyChecklistLine(it, wx, wy) }
+                                if (hit != null && lineHit != null) host.onStickyChecklistToggle(activePage, hit, lineHit)
+                                else host.onStickyTap(activePage, wx, wy, hit)
                             }
                         }
                     }
@@ -1637,7 +1691,16 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             val items = when (grab) {
                 Grab.MOVE -> {
                     val v = FloatArray(9); m.getValues(v)
-                    p.items.map { if (it.id in selection) it.translated(v[Matrix.MTRANS_X], v[Matrix.MTRANS_Y]) else it }
+                    p.items.map {
+                        if (it.id in selection) {
+                            val movedItem = it.translated(v[Matrix.MTRANS_X], v[Matrix.MTRANS_Y])
+                            if (movedItem is MindNodeItem && !p.isWhiteboard) {
+                                val maxX = (p.width - movedItem.w - 56f).coerceAtLeast(56f)
+                                val maxY = (p.height - movedItem.h - 56f).coerceAtLeast(56f)
+                                movedItem.copy(x = movedItem.x.coerceIn(56f, maxX), y = movedItem.y.coerceIn(56f, maxY))
+                            } else movedItem
+                        } else it
+                    }
                 }
                 Grab.SCALE -> p.items.map { if (it.id in selection) it.transformed(m, liveScale, 0f) else it }
                 Grab.ROTATE -> p.items.map { if (it.id in selection) it.transformed(m, 1f, liveDeg) else it }
@@ -1648,6 +1711,26 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
         liveScale = 1f; liveDeg = 0f
         reportSelection()
+    }
+
+    /** Returns the line index in [item.text] when (wx, wy) hits a checklist checkbox gutter, else null. */
+    private fun findStickyChecklistLine(item: StickyItem, wx: Float, wy: Float): Int? {
+        if (item.collapsed || item.text.isBlank()) return null
+        val r = item.raw
+        val barH = minOf(r.height(), if (item.title.isNotBlank()) 38f else 30f)
+        if (wx > r.left + 64f || wy < r.top + barH) return null
+        val fSize = item.fontSize.coerceIn(14f, 64f) * (r.width() / 280f).coerceIn(0.45f, 3.5f)
+        val lineStep = (fSize * 1.45f).coerceAtLeast(24f)
+        var cy = r.top + barH + 10f
+        item.text.split('\n').forEachIndexed { idx, line ->
+            val tr = line.trimStart()
+            val isTask = tr.startsWith("- [ ] ") || tr.startsWith("- [x] ", ignoreCase = true) || tr.startsWith("☐ ") || tr.startsWith("☑ ")
+            if (wy >= cy - 4f && wy <= cy + lineStep + 6f) {
+                return if (isTask) idx else null
+            }
+            cy += lineStep
+        }
+        return null
     }
 
     // ----------------------------------------------------------- fingers
@@ -1767,7 +1850,24 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                     }
                 }
                 val link = if (action == MotionEvent.ACTION_UP && maxFingers == 1 && quick && !fingerMoved) linkBoxAt(e.x, e.y) else null
+                val webCard = if (link == null && action == MotionEvent.ACTION_UP && maxFingers == 1 && quick && !fingerMoved) {
+                    val (dx, dy) = toDoc(e.x, e.y)
+                    val pi = pageAt(dx, dy)
+                    val (lx, ly) = toLocal(e.x, e.y, pi)
+                    val pItems = pages.getOrNull(pi)?.items.orEmpty()
+                    val taskSticky = if (!readOnly) pItems.lastOrNull { it is StickyItem && it.bounds.contains(lx, ly) } as StickyItem? else null
+                    val taskIdx = taskSticky?.let { findStickyChecklistLine(it, lx, ly) }
+                    if (taskSticky != null && taskIdx != null) {
+                        buzz(HapticFeedbackConstants.CLOCK_TICK)
+                        host.onStickyChecklistToggle(pi, taskSticky, taskIdx)
+                        lastTapTime = 0L
+                        null
+                    } else {
+                        pItems.lastOrNull { it is WebLinkItem && it.bounds.contains(lx, ly) } as WebLinkItem?
+                    }
+                } else null
                 if (link != null) { jumpTo(link); lastTapTime = 0L }
+                else if (webCard != null) { buzz(); host.onOpenUrl(webCard.url); lastTapTime = 0L }
                 else if (action == MotionEvent.ACTION_UP && maxFingers == 1 && quick && !fingerMoved) {
                     val now = SystemClock.uptimeMillis()
                     if (settings.doubleTapZoom && now - lastTapTime < 320 && hypot(e.x - lastTapX, e.y - lastTapY) < touchSlop * 3) {

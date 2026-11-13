@@ -34,9 +34,13 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,8 +63,10 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -94,6 +100,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -103,8 +110,18 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.pronotes.app.R
+import com.pronotes.app.data.AccentColor
+import com.pronotes.app.data.AppFont
+import com.pronotes.app.data.CustomAiProvider
+import com.pronotes.app.data.MotionStyle
+import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.data.PenBrands
+import com.pronotes.app.data.ScrollDirection
 import com.pronotes.app.data.SettingsStore
+import com.pronotes.app.data.ThemeMode
+import com.pronotes.app.data.ToolbarDock
+import com.pronotes.app.editor.LocalAiManager
+import com.pronotes.app.editor.LocalModelStatus
 import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.ProIconView
 import kotlinx.coroutines.delay
@@ -124,7 +141,7 @@ private val Brand1 = Color(0xFF7161E0)
 private val Brand2 = Color(0xFF2A78D6)
 private val Brand3 = Color(0xFFD55181)
 
-/** First-run welcome. Full screen: system bars hidden, animated background, video in a circle. */
+/** Ultra Setup Studio (v9.11): 5-step interactive onboarding for look, workspace, AI engine, and stylus check. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun WelcomeScreen(onDone: () -> Unit) {
@@ -134,9 +151,9 @@ fun WelcomeScreen(onDone: () -> Unit) {
     val pager = rememberPagerState { 5 }
     val scope = rememberCoroutineScope()
     fun next() = scope.launch { pager.animateScrollToPage((pager.currentPage + 1).coerceAtMost(4)) }
+    fun back() = scope.launch { pager.animateScrollToPage((pager.currentPage - 1).coerceAtLeast(0)) }
     fun finish() { store.update { it.copy(onboardingDone = true) }; onDone() }
 
-    // Immersive: hide the status and navigation bars while the welcome is on screen.
     DisposableEffect(Unit) {
         val window = context.findActivity()?.window
         val controller = window?.let { WindowCompat.getInsetsController(it, view) }
@@ -147,46 +164,52 @@ fun WelcomeScreen(onDone: () -> Unit) {
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         AuroraBackground(pager.currentPage)
-        HorizontalPager(pager, Modifier.fillMaxSize(), userScrollEnabled = pager.currentPage != 1 && pager.currentPage != 2) { page ->
-            // The pager reports the page being settled; only animate the visible one.
+        HorizontalPager(pager, Modifier.fillMaxSize()) { page ->
             val active = pager.currentPage == page
             Box(Modifier.fillMaxSize()) {
-                // The gradient video fills the whole first page, edge to edge.
                 if (page == 0) IntroBackdrop()
                 Column(
-                    Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 28.dp, vertical = 36.dp),
+                    Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 24.dp, vertical = 28.dp),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
                 ) {
                     when (page) {
                         0 -> IntroPage(active, onStart = { next() })
-                        1 -> PenCheckPage(active, store, onNext = { next() })
-                        2 -> TourPage(active, onNext = { next() })
-                        3 -> SetupPage(active, store, onNext = { next() })
-                        else -> ReadyPage(active, onDone = { finish() })
+                        1 -> LookStudioPage(active, store, onNext = { next() })
+                        2 -> WorkspaceStudioPage(active, store, onNext = { next() })
+                        3 -> AiStudioSetupPage(active, store, onNext = { next() })
+                        else -> PenCheckPage(active, store, onNext = { finish() }, isFinal = true)
                     }
                 }
             }
         }
         val onVideo = pager.currentPage == 0
+        if (pager.currentPage > 0) {
+            TextButton(
+                onClick = { back() },
+                modifier = Modifier.align(Alignment.TopStart).safeDrawingPadding().padding(8.dp),
+            ) { Text("← Back") }
+        }
         Row(
             Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(bottom = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             repeat(5) { i ->
-                val w by animateFloatAsState(if (pager.currentPage == i) 26f else 8f, spring(dampingRatio = 0.7f), label = "dot")
+                val w by animateFloatAsState(if (pager.currentPage == i) 28f else 8f, spring(dampingRatio = 0.7f), label = "dot")
                 Box(
                     Modifier.size(width = w.dp, height = 8.dp).clip(CircleShape)
                         .background(
                             if (pager.currentPage == i) (if (onVideo) Color.White else MaterialTheme.colorScheme.primary)
                             else (if (onVideo) Color.White else MaterialTheme.colorScheme.onSurface).copy(alpha = 0.25f),
-                        ),
+                        )
+                        .clickable { scope.launch { pager.animateScrollToPage(i) } },
                 )
             }
         }
         TextButton(
-            onClick = { finish() }, modifier = Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(8.dp),
-            colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = if (onVideo) Color.White else MaterialTheme.colorScheme.primary),
-        ) { Text("Skip") }
+            onClick = { finish() },
+            modifier = Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(8.dp),
+            colors = ButtonDefaults.textButtonColors(contentColor = if (onVideo) Color.White else MaterialTheme.colorScheme.primary),
+        ) { Text("Skip setup") }
     }
 }
 
@@ -405,37 +428,46 @@ private fun cropToFill(tv: TextureView, vw: Int, vh: Int) {
 @Composable
 private fun IntroPage(active: Boolean, onStart: () -> Unit) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val d = minOf(maxWidth * 0.62f, maxHeight * 0.42f).coerceIn(180.dp, 400.dp)
+        val d = minOf(maxWidth * 0.54f, maxHeight * 0.36f).coerceIn(160.dp, 360.dp)
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             GlowingCircle(d, active)
-            Spacer(Modifier.height(34.dp))
-            Text(
-                "WELCOME TO", style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Medium, letterSpacing = 6.sp),
-                color = Color.White.copy(alpha = 0.85f),
-            )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(26.dp))
+            Surface(shape = CircleShape, color = Color.White.copy(alpha = 0.16f)) {
+                Text(
+                    "PRO NOTES · ULTRA v9.11",
+                    style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp),
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                )
+            }
+            Spacer(Modifier.height(10.dp))
             ShimmerText(
                 "Pro Notes",
-                TextStyle(fontSize = 64.sp, fontWeight = FontWeight.Black, letterSpacing = (-2).sp),
-                listOf(Color.White, Color(0xFFB9C8FF), Color.White, Color(0xFFE5C8FF)),
+                TextStyle(fontSize = 62.sp, fontWeight = FontWeight.Black, letterSpacing = (-2).sp),
+                listOf(Color.White, Color(0xFF93C5FD), Color.White, Color(0xFFE9D5FF)),
             )
             Spacer(Modifier.height(6.dp))
             AnimatedWords(
-                "Write. Think. Create.",
+                "Write. Revise. Flow.",
                 TextStyle(fontSize = 26.sp, fontWeight = FontWeight.Light, letterSpacing = 1.sp, color = Color.White),
-                active, startDelay = 500,
+                active, startDelay = 450,
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
             Typewriter(
-                "Handwriting, PDFs and ideas in one place, built for your pen.",
-                MaterialTheme.typography.bodyMedium.copy(color = Color.White.copy(alpha = 0.85f)),
-                active, Modifier.widthIn(max = 460.dp),
+                "Slide show revision, interactive sticky checklists, elastic dock, and custom AI — shaped to your hand.",
+                MaterialTheme.typography.bodyMedium.copy(color = Color.White.copy(alpha = 0.88f)),
+                active, Modifier.widthIn(max = 480.dp),
             )
-            Spacer(Modifier.height(30.dp))
+            Spacer(Modifier.height(26.dp))
             val pulse by rememberInfiniteTransition(label = "cta")
-                .animateFloat(1f, 1.05f, infiniteRepeatable(tween(1100, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "pulse")
-            Button(onClick = onStart, shape = CircleShape, modifier = Modifier.widthIn(min = 240.dp).height(54.dp).scale(pulse)) {
-                Text("Get started", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                .animateFloat(1f, 1.045f, infiniteRepeatable(tween(1100, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "pulse")
+            Button(
+                onClick = onStart,
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF0F172A)),
+                modifier = Modifier.widthIn(min = 240.dp).height(54.dp).scale(pulse),
+            ) {
+                Text("Customize your Studio →", fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -521,7 +553,7 @@ private fun MotionEvent.penButton(): Boolean =
  */
 @OptIn(ExperimentalComposeUiApi::class, ExperimentalLayoutApi::class)
 @Composable
-private fun PenCheckPage(active: Boolean, store: SettingsStore, onNext: () -> Unit) {
+private fun PenCheckPage(active: Boolean, store: SettingsStore, onNext: () -> Unit, isFinal: Boolean = false) {
     val context = LocalContext.current
     var step by remember { mutableStateOf(PenStep.HOVER) }
     var taps by remember { mutableIntStateOf(0) }
@@ -753,8 +785,16 @@ private fun PenCheckPage(active: Boolean, store: SettingsStore, onNext: () -> Un
     }
     Spacer(Modifier.height(14.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        TextButton(onClick = { store.update { it.copy(stylusOnly = false) }; onNext() }) { Text("I don't use a pen") }
-        Button(onClick = onNext, shape = CircleShape, enabled = done || brand != null) { Text("Continue") }
+        TextButton(onClick = { store.update { it.copy(stylusOnly = false) }; onNext() }) {
+            Text(if (isFinal) "Skip pen check & launch" else "I don't use a pen")
+        }
+        Button(
+            onClick = onNext,
+            shape = CircleShape,
+            enabled = isFinal || done || brand != null,
+        ) {
+            Text(if (isFinal) "Launch Pro Notes ✓" else "Continue")
+        }
     }
 }
 
@@ -1003,84 +1043,236 @@ private fun DemoArt(d: Demo, playing: Boolean, modifier: Modifier) {
     }
 }
 
-/** "Make it yours": theme, accent, toolbar, scrolling, paper and smart ink, before the first notebook. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SetupPage(active: Boolean, store: SettingsStore, onNext: () -> Unit) {
+private fun LookStudioPage(active: Boolean, store: SettingsStore, onNext: () -> Unit) {
     val s by store.settings.collectAsState()
     AnimatedWords(
-        "Make it yours", TextStyle(fontSize = 40.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = MaterialTheme.colorScheme.onBackground),
-        active, gradient = listOf(Brand1, Brand2, Brand3),
+        "Craft your aesthetic",
+        TextStyle(fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = MaterialTheme.colorScheme.onBackground),
+        active,
+        gradient = listOf(Brand1, Brand2, Brand3),
     )
-    Text("You can change all of this later in Settings.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
-    Spacer(Modifier.height(18.dp))
+    Text("Live preview updates as you pick theme, accent gradient, typography, and motion.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+    Spacer(Modifier.height(14.dp))
+
+    // Live interactive notebook card preview
+    val accentBrush = Brush.linearGradient(listOf(Color(s.accent.argb), Color(s.accent.argb2)))
+    val previewFamily = when (s.appFont) {
+        AppFont.EDITORIAL_SERIF -> FontFamily.Serif
+        AppFont.STUDIO_MONO -> FontFamily.Monospace
+        else -> FontFamily.SansSerif
+    }
     Surface(
-        shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f), shadowElevation = 6.dp,
-        modifier = Modifier.widthIn(max = 600.dp).fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+        shadowElevation = 6.dp,
+        modifier = Modifier.widthIn(max = 620.dp).fillMaxWidth().border(1.5.dp, Color(s.accent.argb).copy(alpha = 0.4f), RoundedCornerShape(24.dp)),
     ) {
-        Column(Modifier.padding(20.dp).heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            @Composable
-            fun <T> Row2(label: String, options: List<T>, sel: T, name: (T) -> String, pick: (T) -> Unit) {
-                Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    options.forEach { o ->
-                        androidx.compose.material3.FilterChip(o == sel, { pick(o) }, label = { Text(name(o)) }, shape = CircleShape)
-                    }
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Box(Modifier.size(50.dp).clip(RoundedCornerShape(16.dp)).background(accentBrush), contentAlignment = Alignment.Center) {
+                ProIconView(ProIcon.PEN, Color.White, Modifier.size(26.dp))
+            }
+            Column(Modifier.weight(1f)) {
+                Text("Organic Chemistry · Lecture 4", fontFamily = previewFamily, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("${s.themeMode.label} · ${s.appFont.label} · ${s.motionStyle.label}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+
+    Spacer(Modifier.height(12.dp))
+    Surface(
+        shape = RoundedCornerShape(26.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        modifier = Modifier.widthIn(max = 620.dp).fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(18.dp).heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("THEME", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ThemeMode.entries.forEach { t ->
+                    FilterChip(s.themeMode == t, { store.update { it.copy(themeMode = t) } }, label = { Text(t.label) }, shape = CircleShape)
                 }
             }
-            Row2("Theme", com.pronotes.app.data.ThemeMode.entries, s.themeMode, { it.label }) { v -> store.update { it.copy(themeMode = v) } }
-            Text("Accent colour", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                com.pronotes.app.data.AccentColor.entries.forEach { a ->
+            Text("TYPOGRAPHY", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                AppFont.entries.forEach { f ->
+                    FilterChip(s.appFont == f, { store.update { it.copy(appFont = f) } }, label = { Text(f.label) }, shape = CircleShape)
+                }
+            }
+            Text("ACCENT GRADIENT", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                AccentColor.entries.forEach { a ->
                     val on = a == s.accent
                     Box(
-                        Modifier.size(36.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Color(a.argb), Color(a.argb2))))
+                        Modifier.size(36.dp).clip(CircleShape)
+                            .background(Brush.linearGradient(listOf(Color(a.argb), Color(a.argb2))))
                             .border(if (on) 3.dp else 0.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
                             .clickable { store.update { it.copy(accent = a) } },
                     )
                 }
             }
-            Row2("Toolbar", com.pronotes.app.data.ToolbarDock.entries, s.toolbarDock, { it.label }) { v -> store.update { it.copy(toolbarDock = v) } }
-            Row2("Scrolling", com.pronotes.app.data.ScrollDirection.entries, s.scroll, { if (it == com.pronotes.app.data.ScrollDirection.VERTICAL) "Up and down" else "Page by page" }) { v -> store.update { it.copy(scroll = v) } }
-            Row2("Default paper", com.pronotes.app.data.PaperStyle.pickerEntries, s.defaultPaper, { it.label }) { v -> store.update { it.copy(defaultPaper = v) } }
-            Row2("Paper feel", listOf(0, 1, 2, 3), (if (s.paperSound) 1 else 0) + (if (s.paperHaptics) 2 else 0), { listOf("Off", "Sound", "Haptics", "Sound + haptics")[it] }) { v ->
-                store.update { it.copy(paperSound = v == 1 || v == 3, paperHaptics = v >= 2) }
+            Text("MOTION ENGINE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MotionStyle.entries.forEach { m ->
+                    FilterChip(s.motionStyle == m, { store.update { it.copy(motionStyle = m) } }, label = { Text(m.label) }, shape = CircleShape)
+                }
             }
         }
     }
-    Spacer(Modifier.height(18.dp))
-    Button(onClick = onNext, shape = CircleShape, modifier = Modifier.widthIn(min = 200.dp)) { Text("Looks good") }
+    Spacer(Modifier.height(16.dp))
+    Button(onClick = onNext, shape = CircleShape, modifier = Modifier.widthIn(min = 210.dp)) { Text("Next: Workspace →") }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ReadyPage(active: Boolean, onDone: () -> Unit) {
-    val t = rememberInfiniteTransition(label = "ready")
-    val ring by t.animateFloat(0f, 1f, infiniteRepeatable(tween(2200, easing = LinearEasing)), label = "ring")
-    val grow = remember { Animatable(0.4f) }
-    LaunchedEffect(active) { if (active) { grow.snapTo(0.4f); grow.animateTo(1f, spring(dampingRatio = 0.45f, stiffness = 120f)) } }
-    Box(Modifier.size(200.dp), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize()) {
-            // Two rings expand outwards and fade, one half a cycle behind the other.
-            for (k in 0..1) {
-                val p = (ring + k * 0.5f) % 1f
-                drawCircle(Brand1.copy(alpha = (1f - p) * 0.35f), size.minDimension * (0.28f + 0.22f * p), center, style = Stroke(3.dp.toPx()))
+private fun WorkspaceStudioPage(active: Boolean, store: SettingsStore, onNext: () -> Unit) {
+    val s by store.settings.collectAsState()
+    AnimatedWords(
+        "Flow & dock",
+        TextStyle(fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = MaterialTheme.colorScheme.onBackground),
+        active,
+        gradient = listOf(Brand2, Brand1, Color(0xFF10B981)),
+    )
+    Text("Tune page scrolling, elastic draggable dock placement, default paper, and stylus hover labels.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+    Spacer(Modifier.height(14.dp))
+    Surface(
+        shape = RoundedCornerShape(26.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        modifier = Modifier.widthIn(max = 620.dp).fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(18.dp).heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("SCROLL DIRECTION (MATCHES SPLIT VIEW TOO)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ScrollDirection.entries.forEach { d ->
+                    FilterChip(
+                        s.scroll == d,
+                        { store.update { it.copy(scroll = d) } },
+                        label = { Text(if (d == ScrollDirection.VERTICAL) "Vertical Continuous" else "Horizontal Page Snap") },
+                        shape = CircleShape,
+                    )
+                }
+            }
+            Text("TOOLBAR POSITION", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                ToolbarDock.entries.forEach { d ->
+                    FilterChip(s.toolbarDock == d, { store.update { it.copy(toolbarDock = d) } }, label = { Text(d.label) }, shape = CircleShape)
+                }
+            }
+            Text("DEFAULT PAPER TEMPLATE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                PaperStyle.pickerEntries.forEach { p ->
+                    FilterChip(s.defaultPaper == p, { store.update { it.copy(defaultPaper = p) } }, label = { Text(p.label) }, shape = CircleShape)
+                }
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Liquid Glass bars")
+                    Text("Frosted translucent toolbars with specular highlight", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(s.liquidGlass, { v -> store.update { it.copy(liquidGlass = v) } })
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Hover tool name tooltips")
+                    Text("Shows a floating name pill when hovering with your stylus", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(s.showHoverTooltips, { v -> store.update { it.copy(showHoverTooltips = v) } })
             }
         }
-        Box(
-            Modifier.size(112.dp).scale(grow.value).clip(CircleShape)
-                .background(Brush.linearGradient(listOf(Brand2, Brand1, Brand3))),
-            contentAlignment = Alignment.Center,
-        ) { ProIconView(ProIcon.PEN, Color.White, Modifier.size(54.dp)) }
     }
-    Spacer(Modifier.height(24.dp))
-    AnimatedWords(
-        "You're all set", TextStyle(fontSize = 52.sp, fontWeight = FontWeight.Black, letterSpacing = (-2).sp, color = MaterialTheme.colorScheme.onBackground),
-        active, gradient = listOf(Brand2, Brand1, Brand3),
-    )
-    Spacer(Modifier.height(8.dp))
-    Typewriter("Create your first notebook or import a PDF.", MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant), active, startDelay = 600)
-    Spacer(Modifier.height(28.dp))
-    Button(onClick = onDone, shape = CircleShape, modifier = Modifier.widthIn(min = 240.dp).height(54.dp)) {
-        Text("Start writing", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-    }
+    Spacer(Modifier.height(16.dp))
+    Button(onClick = onNext, shape = CircleShape, modifier = Modifier.widthIn(min = 210.dp)) { Text("Next: AI Studio →") }
 }
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AiStudioSetupPage(active: Boolean, store: SettingsStore, onNext: () -> Unit) {
+    val context = LocalContext.current
+    val s by store.settings.collectAsState()
+    val modelStates by LocalAiManager.states.collectAsState()
+    val recSpec = LocalAiManager.catalog.firstOrNull { it.id == "smollm2-360m-q4" } ?: LocalAiManager.catalog.first()
+    val recRuntime = modelStates[recSpec.id]
+    val scope = rememberCoroutineScope()
+    var testStatus by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) { LocalAiManager.refresh(context) }
+
+    AnimatedWords(
+        "Choose your AI engine",
+        TextStyle(fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = MaterialTheme.colorScheme.onBackground),
+        active,
+        gradient = listOf(Color(0xFF38BDF8), Brand1, Brand3),
+    )
+    Text("Power slide shows, semantic search, mind maps, and summaries — offline or via your own API.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+    Spacer(Modifier.height(14.dp))
+
+    Surface(
+        shape = RoundedCornerShape(26.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+        modifier = Modifier.widthIn(max = 620.dp).fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(18.dp).heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Option 1: Lightweight On-device GGUF
+            Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)) {
+                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("On-Device Offline AI · ${recSpec.name} (${recSpec.sizeLabel})", fontWeight = FontWeight.Bold)
+                    Text(recSpec.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    when (recRuntime?.status) {
+                        LocalModelStatus.READY -> Text("✓ Downloaded & Ready for offline study", color = Color(0xFF10B981), fontWeight = FontWeight.SemiBold)
+                        LocalModelStatus.DOWNLOADING -> {
+                            LinearProgressIndicator(progress = { recRuntime.progress }, modifier = Modifier.fillMaxWidth())
+                            Text("Downloading ${(recRuntime.progress * 100).toInt()}%…", style = MaterialTheme.typography.labelSmall)
+                        }
+                        else -> OutlinedButton(
+                            onClick = { LocalAiManager.startDownload(context, recSpec.id) },
+                            shape = CircleShape,
+                        ) { Text("Download Offline Model (${recSpec.sizeLabel})") }
+                    }
+                }
+            }
+
+            // Option 2: Custom AI API
+            Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)) {
+                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Custom AI API (OpenAI · Gemini · Ollama)", fontWeight = FontWeight.Bold)
+                            Text("Optional cloud or LAN endpoint for instant study generation", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(s.customAiEnabled, { v -> store.update { it.copy(customAiEnabled = v) } })
+                    }
+                    if (s.customAiEnabled) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            CustomAiProvider.entries.forEach { p ->
+                                FilterChip(
+                                    s.customAiProvider == p,
+                                    { store.update { cur -> cur.copy(customAiProvider = p, customAiBaseUrl = p.defaultBaseUrl, customAiModel = p.defaultModel) } },
+                                    label = { Text(p.label, fontSize = 11.sp) },
+                                    shape = CircleShape,
+                                )
+                            }
+                        }
+                        OutlinedTextField(s.customAiBaseUrl, { v -> store.update { it.copy(customAiBaseUrl = v) } }, label = { Text("Base URL") }, singleLine = true, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(s.customAiModel, { v -> store.update { it.copy(customAiModel = v) } }, label = { Text("Model") }, singleLine = true, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(s.customAiApiKey, { v -> store.update { it.copy(customAiApiKey = v) } }, label = { Text("API Key") }, singleLine = true, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth())
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    testStatus = "Testing…"
+                                    scope.launch {
+                                        val res = LocalAiManager.testCustomApi(context)
+                                        testStatus = res.fold({ "✓ Connected" }, { "✕ ${it.message}" })
+                                    }
+                                },
+                                shape = CircleShape,
+                            ) { Text("Test Connection") }
+                            testStatus?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Spacer(Modifier.height(16.dp))
+    Button(onClick = onNext, shape = CircleShape, modifier = Modifier.widthIn(min = 210.dp)) { Text("Next: Stylus Check →") }
+}
+

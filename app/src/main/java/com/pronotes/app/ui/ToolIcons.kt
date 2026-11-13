@@ -86,6 +86,79 @@ enum class ProIcon(internal val parts: List<Part>) {
     RESTORE(listOf(P("M4.5 12a7.5 7.5 0 1 0 2.4-5.5"), P("M4.5 5v4h4"), P("M12 8.5V12l2.5 1.5"))),
     /** Two sliders: a calm, professional "settings" mark. */
     SETTINGS(listOf(P("M4 7.5h8.5M17.5 7.5H20"), C(15f, 7.5f, 2.3f), P("M4 16.5h2.5M11.5 16.5H20"), C(9f, 16.5f, 2.3f))),
+    // Ultra v9.11 glyphs for Web Links, Slide Show, Split, Mind Map Fit, Custom AI, and 3-dots menus
+    WEBLINK(listOf(
+        P("M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71", body = true),
+        P("M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"),
+    )),
+    SLIDESHOW(listOf(
+        Rr(3f, 4.5f, 18f, 12.5f, 2.5f, body = true),
+        P("M10.5 8.5l4.5 2.3-4.5 2.3z", filled = true),
+        P("M12 17v3.5M8 20.5h8"),
+    )),
+    SPLIT(listOf(
+        Rr(3.5f, 4.5f, 17f, 15f, 2.5f),
+        P("M12 4.5v15"),
+        P("M6.5 9h3M14.5 9h3M6.5 12.5h3M14.5 12.5h3"),
+    )),
+    FIT_MAP(listOf(
+        P("M4 8.5V5a1 1 0 0 1 1-1h3.5M15.5 4H19a1 1 0 0 1 1 1v3.5M20 15.5V19a1 1 0 0 1-1 1h-3.5M8.5 20H5a1 1 0 0 1-1-1v-3.5"),
+        Rr(8.5f, 8.5f, 7f, 7f, 2f, body = true),
+    )),
+    CUSTOM_AI(listOf(
+        P("M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z", body = true),
+        P("M18.5 16l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"),
+    )),
+    HOVER_LABEL(listOf(
+        Rr(4f, 4.5f, 16f, 8f, 4f, body = true),
+        P("M8 8.5h8"),
+        P("M12 12.5v7M9 17.5l3 2.5 3-2.5"),
+    )),
+    FLASHCARDS(listOf(
+        Rr(4f, 6.5f, 13f, 14f, 2.5f, body = true),
+        P("M8 4h10a2 2 0 0 1 2 2v11"),
+        P("M8.5 11.5h4M8.5 15h3"),
+    )),
+    QUIZ(listOf(
+        C(12f, 12f, 8.5f),
+        P("M9.4 9.5a2.8 2.8 0 0 1 5.2 1.1c0 1.9-2.6 2.3-2.6 3.9"),
+        C(12f, 17.2f, 0.8f, filled = true),
+    )),
+    SUMMARY(listOf(
+        Rr(4.5f, 3.5f, 15f, 17f, 2.5f),
+        P("M8 8.5h5M8 12h8M8 15.5h6"),
+        C(16.5f, 7.5f, 1.5f, filled = true, body = true),
+    )),
+    TEMPLATE(listOf(
+        Rr(4f, 4f, 16f, 16f, 2.5f),
+        P("M4 9.5h16M4 14.5h16M9.5 4v16"),
+    )),
+    PDF_EXPORT(listOf(
+        P("M6 3.5h8l4.5 4.5v12.5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1z"),
+        P("M14 3.5V8h4.5"),
+        P("M12 18v-6M9.5 14.5L12 12l2.5 2.5"),
+    )),
+    LOCK(listOf(
+        Rr(5.5f, 10.5f, 13f, 9.5f, 2.5f, body = true),
+        P("M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"),
+    )),
+    TIMER(listOf(
+        C(12f, 13f, 7.5f),
+        P("M12 9.5V13l2.5 1.8M9.5 3.5h5M12 3.5v2"),
+    )),
+    RENAME(listOf(
+        P("M4 19.5h4.5L19 9a2 2 0 0 0 0-2.8l-1.2-1.2a2 2 0 0 0-2.8 0L4.5 15.5z"),
+        P("M13.5 6.5l4 4"),
+    )),
+    COPY(listOf(
+        Rr(8.5f, 8.5f, 11.5f, 11.5f, 2f),
+        P("M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"),
+    )),
+    TRASH(listOf(
+        P("M4.5 6.5h15M9 6.5V4.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"),
+        P("M6.5 6.5l1 13a1.5 1.5 0 0 0 1.5 1.5h6a1.5 1.5 0 0 0 1.5-1.5l1-13"),
+        P("M10 10.5v6M14 10.5v6"),
+    )),
 }
 
 private val parsed = HashMap<String, Path>()
@@ -139,6 +212,7 @@ fun iconFor(tool: Tool): ProIcon = when (tool) {
     Tool.TEXT -> ProIcon.TEXT
     Tool.IMAGE -> ProIcon.IMAGE
     Tool.STICKY -> ProIcon.STICKY
+    Tool.WEBLINK -> ProIcon.WEBLINK
     Tool.MINDMAP -> ProIcon.MINDMAP
     Tool.TAPE -> ProIcon.TAPE
     Tool.STICKER -> ProIcon.STICKER
@@ -153,7 +227,7 @@ fun ToolGlyph(tool: Tool, tint: Color, inkColor: Color, modifier: Modifier = Mod
         return
     }
     val ink = when (tool) {
-        Tool.PEN, Tool.TAPE, Tool.STICKY, Tool.HIGHLIGHTER -> inkColor
+        Tool.PEN, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.HIGHLIGHTER -> inkColor
         Tool.LASER -> if (active) Color(0xFFFF3B30) else null
         else -> null
     }

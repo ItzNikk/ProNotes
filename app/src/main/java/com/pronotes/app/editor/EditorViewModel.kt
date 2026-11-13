@@ -37,6 +37,7 @@ val PenPalette = listOf(
 val HighlighterPalette = listOf(0xFFFFE066, 0xFF8CE99A, 0xFF74C0FC, 0xFFFFA8A8, 0xFFE599F7).map { it.toInt() }
 val TapeColors = listOf(0xFFF4A7C0, 0xFF9AD0EC, 0xFFB8E0A8, 0xFFFFD98E, 0xFFCDB4F0).map { it.toInt() }
 val StickyColors = listOf(0xFFFFF3A3, 0xFFFFD6E0, 0xFFCDEBFF, 0xFFD8F5C8, 0xFFFFE2C2).map { it.toInt() }
+val WebLinkColors = listOf(0xFF3D6CF4, 0xFF0EA5E9, 0xFF8B5CF6, 0xFF10B981, 0xFFF59E0B, 0xFFEF4444).map { it.toInt() }
 val MindPalette = listOf(0xFF3D6CF4, 0xFF9B51E0, 0xFF2BB673, 0xFFF2994A, 0xFFEB5757, 0xFF00897B, 0xFF5B6475).map { it.toInt() }
 
 class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(app) {
@@ -103,6 +104,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var tapeColor by mutableStateOf(saved.getOrNull(7)?.toIntOrNull() ?: TapeColors[0])
     var tapeFreehand by mutableStateOf(false)
     var stickyColor by mutableStateOf(saved.getOrNull(8)?.toIntOrNull() ?: StickyColors[0])
+    var webLinkColor by mutableStateOf(WebLinkColors[0])
 
     // ------------------------------------------------------------ selection
     var selection by mutableStateOf<Set<Long>>(emptySet())
@@ -115,15 +117,18 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     // --------------------------------------------------------------- dialogs
     data class TextEdit(val page: Int, val x: Float, val y: Float, val existing: TextItem?)
     data class StickyEdit(val page: Int, val item: StickyItem, val isNew: Boolean)
+    data class WebLinkEdit(val page: Int, val item: WebLinkItem, val isNew: Boolean)
     data class MindNodeEdit(val page: Int, val item: MindNodeItem, val isNew: Boolean)
     enum class MindLayout(val label: String) { RADIAL("Radial"), TREE("Tree"), ORG_CHART("Org") }
     var textEdit by mutableStateOf<TextEdit?>(null)
     var stickyEdit by mutableStateOf<StickyEdit?>(null)
+    var webLinkEdit by mutableStateOf<WebLinkEdit?>(null)
     var mindNodeEdit by mutableStateOf<MindNodeEdit?>(null)
     var activeMindNodeId by mutableStateOf<Long?>(null)
     var mindColor by mutableStateOf(MindPalette[0])
     var mindShape by mutableStateOf("pill")
     var moveMindSubtree by mutableStateOf(false)
+    var fitMindMapOnCanvas: ((Int, RectF) -> Unit)? = null
 
     var canUndo by mutableStateOf(false)
         private set
@@ -133,6 +138,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     // ---------------------------------------------------------------- search
     var searchQuery by mutableStateOf("")
     var searchHits by mutableStateOf<List<SearchHit>>(emptyList())
+        private set
+    var searchAiAnswer by mutableStateOf<SearchAiResult?>(null)
         private set
     var activeHit by mutableStateOf(-1)
         private set
@@ -555,6 +562,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 is TextItem -> item.copy(color = color)
                 is TapeItem -> item.copy(color = color)
                 is StickyItem -> item.copy(color = color)
+                is WebLinkItem -> item.copy(color = color)
                 // Fills keep their transparency when recoloured.
                 is FillItem -> item.recolored((color and 0x00FFFFFF) or (item.color and 0xFF000000.toInt()))
                 else -> item
@@ -581,7 +589,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     fun openSticky(page: Int, x: Float, y: Float, existing: StickyItem?) {
         stickyEdit = if (existing != null) StickyEdit(page, existing, false)
-        else StickyEdit(page, StickyItem(ItemIds.next(), x - 140f, y - 140f, 280f, 280f, stickyColor, ""), true)
+        else StickyEdit(page, StickyItem(ItemIds.next(), x - 150f, y - 150f, 300f, 300f, stickyColor, ""), true)
     }
 
     fun commitSticky(
@@ -591,6 +599,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         font: String = "SANS",
         collapsed: Boolean = false,
         pinned: Boolean = false,
+        title: String = "",
+        style: String = "classic",
     ) {
         val edit = stickyEdit ?: return
         stickyEdit = null
@@ -602,9 +612,29 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             font = font,
             collapsed = collapsed,
             pinned = pinned,
+            title = title.trim(),
+            style = style,
         )
         beginEdit(edit.page)
         applyItems(edit.page, if (edit.isNew) p.items + item else p.items.map { if (it.id == item.id) item else it })
+    }
+
+    fun toggleStickyCheckLine(page: Int, sticky: StickyItem, lineIndex: Int) {
+        val p = pages.getOrNull(page) ?: return
+        val lines = sticky.text.split('\n').toMutableList()
+        val raw = lines.getOrNull(lineIndex) ?: return
+        val indent = raw.takeWhile { it == ' ' || it == '\t' }
+        val tr = raw.drop(indent.length)
+        lines[lineIndex] = when {
+            tr.startsWith("- [ ] ") -> indent + "- [x] " + tr.removePrefix("- [ ] ")
+            tr.startsWith("- [x] ", ignoreCase = true) -> indent + "- [ ] " + tr.drop(6)
+            tr.startsWith("☐ ") -> indent + "☑ " + tr.removePrefix("☐ ")
+            tr.startsWith("☑ ") -> indent + "☐ " + tr.removePrefix("☑ ")
+            else -> return
+        }
+        val updated = sticky.copy(text = lines.joinToString("\n"))
+        beginEdit(page)
+        applyItems(page, p.items.map { if (it.id == sticky.id) updated else it })
     }
 
     fun duplicateSticky() {
@@ -624,6 +654,85 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val p = pages.getOrNull(edit.page) ?: return
         beginEdit(edit.page)
         applyItems(edit.page, p.items.filterNot { it.id == edit.item.id })
+    }
+
+    // ------------------------------------------------------------- web links
+
+    fun openWebLink(page: Int, x: Float, y: Float, existing: WebLinkItem?) {
+        val p = pages.getOrNull(page) ?: return
+        val cw = 420f
+        val ch = 148f
+        val sx = (x - cw / 2f).coerceIn(48f, (p.width - cw - 48f).coerceAtLeast(48f))
+        val sy = (y - ch / 2f).coerceIn(48f, (p.height - ch - 48f).coerceAtLeast(48f))
+        webLinkEdit = if (existing != null) WebLinkEdit(page, existing, false)
+        else WebLinkEdit(page, WebLinkItem(ItemIds.next(), "", "", "", sx, sy, cw, ch, webLinkColor), true)
+    }
+
+    fun addQuickWebLink(url: String, linkTitle: String = "", note: String = "") {
+        val p = currentPage ?: return
+        val normalized = normalizeUrl(url)
+        if (normalized.isBlank()) return
+        val cw = 420f
+        val ch = if (note.isBlank()) 128f else 156f
+        val count = p.items.count { it is WebLinkItem }
+        val sx = ((p.width - cw) / 2f).coerceAtLeast(48f)
+        val sy = (140f + count * 36f).coerceIn(60f, (p.height - ch - 60f).coerceAtLeast(60f))
+        val item = WebLinkItem(
+            id = ItemIds.next(),
+            url = normalized,
+            title = linkTitle.trim().ifBlank { runCatching { android.net.Uri.parse(normalized).host?.removePrefix("www.") ?: normalized }.getOrDefault(normalized) },
+            note = note.trim(),
+            x = sx,
+            y = sy,
+            w = cw,
+            h = ch,
+            color = webLinkColor,
+        )
+        beginEdit(pageIndex)
+        applyItems(pageIndex, p.items + item)
+        say("Saved web link onto page")
+    }
+
+    fun commitWebLink(url: String, linkTitle: String, note: String, color: Int) {
+        val edit = webLinkEdit ?: return
+        webLinkEdit = null
+        val p = pages.getOrNull(edit.page) ?: return
+        val normalized = normalizeUrl(url)
+        if (normalized.isBlank()) return
+        webLinkColor = color
+        val cleanTitle = linkTitle.trim().ifBlank {
+            runCatching { android.net.Uri.parse(normalized).host?.removePrefix("www.") ?: normalized }.getOrDefault(normalized)
+        }
+        val cleanNote = note.trim()
+        val ch = if (cleanNote.isBlank()) 124f else 156f
+        val item = edit.item.copy(url = normalized, title = cleanTitle, note = cleanNote, color = color, h = maxOf(edit.item.h, ch))
+        beginEdit(edit.page)
+        applyItems(edit.page, if (edit.isNew) p.items + item else p.items.map { if (it.id == item.id) item else it })
+    }
+
+    fun deleteWebLink() {
+        val edit = webLinkEdit ?: return
+        webLinkEdit = null
+        if (edit.isNew) return
+        val p = pages.getOrNull(edit.page) ?: return
+        beginEdit(edit.page)
+        applyItems(edit.page, p.items.filterNot { it.id == edit.item.id })
+    }
+
+    private fun normalizeUrl(raw: String): String {
+        val u = raw.trim()
+        if (u.isBlank()) return ""
+        return if (u.startsWith("http://") || u.startsWith("https://")) u else "https://$u"
+    }
+
+    fun openExternalUrl(rawUrl: String) {
+        val u = normalizeUrl(rawUrl)
+        if (u.isBlank()) return
+        runCatching {
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u))
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            getApplication<Application>().startActivity(intent)
+        }.onFailure { say("Couldn't open link in browser") }
     }
 
     // ------------------------------------------------------------- mind maps
@@ -646,6 +755,30 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         return w to h
     }
 
+    private fun clampMindPos(page: Page, x: Float, y: Float, w: Float, h: Float): Pair<Float, Float> {
+        if (page.isWhiteboard) return x to y
+        val pad = 56f
+        val maxX = (page.width - w - pad).coerceAtLeast(pad)
+        val maxY = (page.height - h - pad).coerceAtLeast(pad)
+        return x.coerceIn(pad, maxX) to y.coerceIn(pad, maxY)
+    }
+
+    fun fitMindMapToView() {
+        val p = currentPage ?: return
+        val nodes = p.items.filterIsInstance<MindNodeItem>()
+        if (nodes.isEmpty()) { say("No mind map on this page yet"); return }
+        val r = RectF(nodes.first().bounds)
+        nodes.drop(1).forEach { r.union(it.bounds) }
+        r.inset(-110f, -110f)
+        if (!p.isWhiteboard) {
+            r.left = r.left.coerceAtLeast(0f)
+            r.top = r.top.coerceAtLeast(0f)
+            r.right = r.right.coerceAtMost(p.width)
+            r.bottom = r.bottom.coerceAtMost(p.height)
+        }
+        fitMindMapOnCanvas?.invoke(pageIndex, r)
+    }
+
     fun onMindMapTap(page: Int, x: Float, y: Float, existing: MindNodeItem?) {
         if (existing != null) {
             if (activeMindNodeId == existing.id) {
@@ -664,10 +797,11 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             ?: existingNodes.firstOrNull { it.parentId == null }
         val (w, h) = mindBoxSize(if (parent == null) "Central Topic" else "New idea", mindShape)
         val col = if (parent == null) mindColor else MindPalette[(existingNodes.size + 1) % MindPalette.size]
+        val (cx, cy) = clampMindPos(p, x - w / 2f, y - h / 2f, w, h)
         val draft = MindNodeItem(
             id = ItemIds.next(),
-            x = x - w / 2f,
-            y = y - h / 2f,
+            x = cx,
+            y = cy,
             w = w,
             h = h,
             label = if (parent == null) "Central Topic" else "",
@@ -688,14 +822,15 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val nodes = p.items.filterIsInstance<MindNodeItem>()
         val parent = selectedMindNode() ?: nodes.firstOrNull { it.parentId == null } ?: nodes.firstOrNull()
         val siblings = if (parent != null) nodes.count { it.parentId == parent.id } else 0
-        val baseX = if (parent != null) parent.x + parent.w + 130f else p.width / 2f - 110f
-        val baseY = if (parent != null) parent.y + (siblings - 0.5f) * 115f else p.height / 2f - 44f
+        val rawX = if (parent != null) parent.x + parent.w + 110f else p.width / 2f - 110f
+        val rawY = if (parent != null) parent.y + (siblings - 0.5f) * 110f else p.height / 2f - 44f
         val col = MindPalette[(nodes.size + 1) % MindPalette.size]
         val (w, h) = mindBoxSize("New idea", mindShape)
+        val (cx, cy) = clampMindPos(p, rawX, rawY, w, h)
         val draft = MindNodeItem(
             id = ItemIds.next(),
-            x = baseX,
-            y = baseY,
+            x = cx,
+            y = cy,
             w = w,
             h = h,
             label = "",
@@ -713,10 +848,11 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val sameParent = nodes.count { it.parentId == sel.parentId }
         val col = MindPalette[(nodes.size + 1) % MindPalette.size]
         val (w, h) = mindBoxSize("New idea", sel.shape)
+        val (cx, cy) = clampMindPos(p, sel.x, sel.y + sel.h + 44f + (sameParent % 2) * 12f, w, h)
         val draft = MindNodeItem(
             id = ItemIds.next(),
-            x = sel.x,
-            y = sel.y + sel.h + 44f + (sameParent % 2) * 12f,
+            x = cx,
+            y = cy,
             w = w,
             h = h,
             label = "",
@@ -735,7 +871,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val cleanNotes = notes.trim()
         val cleanTag = tag.trim()
         val (w, h) = mindBoxSize(clean, shape, cleanNotes)
+        val (cx, cy) = clampMindPos(p, edit.item.x, edit.item.y, w, h)
         val updated = edit.item.copy(
+            x = cx,
+            y = cy,
             label = clean,
             color = color,
             shape = shape,
@@ -889,6 +1028,35 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                     placeOrg(r.id, curX, startY, w, HashSet())
                     curX += w + 40f
                 }
+            }
+        }
+
+        // Keep non-whiteboard mind maps strictly within page margins
+        if (!p.isWhiteboard && pos.isNotEmpty()) {
+            var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
+            var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+            for ((id, xy) in pos) {
+                val n = byId[id] ?: continue
+                minX = minOf(minX, xy.first)
+                minY = minOf(minY, xy.second)
+                maxX = maxOf(maxX, xy.first + n.w)
+                maxY = maxOf(maxY, xy.second + n.h)
+            }
+            val availW = (p.width - 112f).coerceAtLeast(240f)
+            val availH = (p.height - 112f).coerceAtLeast(240f)
+            val spanW = (maxX - minX).coerceAtLeast(1f)
+            val spanH = (maxY - minY).coerceAtLeast(1f)
+            val sx = if (spanW > availW) availW / spanW else 1f
+            val sy = if (spanH > availH) availH / spanH else 1f
+            val boxCx = (minX + maxX) / 2f
+            val boxCy = (minY + maxY) / 2f
+            for ((id, xy) in pos.toMap()) {
+                val n = byId[id] ?: continue
+                val ncx = xy.first + n.w / 2f
+                val ncy = xy.second + n.h / 2f
+                val scaledX = cx + (ncx - boxCx) * sx - n.w / 2f
+                val scaledY = cy + (ncy - boxCy) * sy - n.h / 2f
+                pos[id] = clampMindPos(p, scaledX, scaledY, n.w, n.h)
             }
         }
 
@@ -1232,6 +1400,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         private set
     var links by mutableStateOf<List<com.pronotes.app.data.InkLink>>(emptyList())
         private set
+    var slides by mutableStateOf<List<com.pronotes.app.data.SlideCard>>(emptyList())
+        private set
+    var showSlideShow by mutableStateOf(false)
     /** Canvas is waiting for the user to drag a box for a new flashcard. */
     var capturingCard by mutableStateOf(false)
     /** Card being created or edited (front picture already cut). */
@@ -1241,9 +1412,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var linkFrom by mutableStateOf<Triple<String, Float, Float>?>(null)
     var linkToDelete by mutableStateOf<String?>(null)
 
-    private fun loadStudy() { val d = study.load(); cards = d.cards; links = d.links; quiz = d.quiz }
+    private fun loadStudy() { val d = study.load(); cards = d.cards; links = d.links; quiz = d.quiz; slides = d.slides }
     private fun saveStudy() {
-        val d = com.pronotes.app.data.StudyData(cards, links, quiz)
+        val d = com.pronotes.app.data.StudyData(cards, links, quiz, slides)
         viewModelScope.launch(Dispatchers.IO) { runCatching { study.save(d) } }
     }
 
@@ -1487,28 +1658,64 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun search(query: String) {
         searchQuery = query
         searchJob?.cancel()
-        if (query.isBlank()) { searchHits = emptyList(); activeHit = -1; return }
+        if (query.isBlank()) { searchHits = emptyList(); searchAiAnswer = null; activeHit = -1; return }
         searchJob = viewModelScope.launch {
             delay(250)
             searching = true
             val hits = ArrayList<SearchHit>()
+            val corpusSb = StringBuilder()
             if (isPdf) {
                 val index = textIndex()
                 val map = pages.withIndex().filter { it.value.pdfPage >= 0 }.associate { it.value.pdfPage to it.index }
                 if (index != null) hits += withContext(Dispatchers.Default) { index.search(query) { map[it] } }
             }
-            // Typed text, sticky notes, and mind map nodes are searchable.
+            // Typed text, sticky notes, web links, and mind map nodes are searchable.
             pages.forEachIndexed { i, p ->
+                if (isPdf && p.pdfPage >= 0) {
+                    val pageTxt = indexFor(p.pdfPage)?.pageText(p.pdfPage).orEmpty()
+                    if (pageTxt.isNotBlank()) corpusSb.append(pageTxt.take(1200)).append('\n')
+                }
                 p.items.forEach { item ->
                     val text = when (item) {
                         is TextItem -> item.text
-                        is StickyItem -> item.text
+                        is StickyItem -> listOf(item.title, item.text).filter { it.isNotBlank() }.joinToString(" · ")
+                        is WebLinkItem -> listOf(item.title, item.url, item.note).filter { it.isNotBlank() }.joinToString(" · ")
                         is MindNodeItem -> listOf(item.label, item.tag, item.notes).filter { it.isNotBlank() }.joinToString(" · ")
                         else -> ""
                     }
-                    if (text.isNotEmpty() && text.contains(query, ignoreCase = true)) hits += SearchHit(i, listOf(item.bounds), text.take(60))
+                    if (text.isNotEmpty()) {
+                        corpusSb.append(text).append('\n')
+                        if (text.contains(query, ignoreCase = true)) hits += SearchHit(i, listOf(item.bounds), text.take(64))
+                    }
                 }
             }
+            val aiRes = if (query.trim().length >= 3) {
+                LocalAiManager.semanticSearch(getApplication(), query, corpusSb.toString())
+            } else SearchAiResult()
+            searchAiAnswer = aiRes.takeIf { it.answer.isNotBlank() || it.expandedTerms.isNotEmpty() }
+
+            // Semantic concept matches from downloaded local model / Nano / Custom AI
+            if (aiRes.expandedTerms.isNotEmpty()) {
+                val seenPages = hits.map { it.page to it.snippet }.toHashSet()
+                pages.forEachIndexed { i, p ->
+                    p.items.forEach { item ->
+                        val text = when (item) {
+                            is TextItem -> item.text
+                            is StickyItem -> listOf(item.title, item.text).filter { it.isNotBlank() }.joinToString(" · ")
+                            is WebLinkItem -> listOf(item.title, item.note).filter { it.isNotBlank() }.joinToString(" · ")
+                            is MindNodeItem -> listOf(item.label, item.tag, item.notes).filter { it.isNotBlank() }.joinToString(" · ")
+                            else -> ""
+                        }
+                        if (text.isNotEmpty() && !text.contains(query, ignoreCase = true)) {
+                            val term = aiRes.expandedTerms.firstOrNull { text.contains(it, ignoreCase = true) }
+                            if (term != null && seenPages.add(i to text.take(64))) {
+                                hits += SearchHit(i, listOf(item.bounds), "AI · $term: ${text.take(52)}")
+                            }
+                        }
+                    }
+                }
+            }
+
             searchHits = hits.sortedBy { it.page }
             activeHit = if (hits.isEmpty()) -1 else 0
             searching = false
@@ -1540,7 +1747,14 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         onPagesChanged?.invoke()
     }
 
-    fun clearSearch() { searchJob?.cancel(); searchQuery = ""; searchHits = emptyList(); activeHit = -1; onPagesChanged?.invoke() }
+    fun clearSearch() {
+        searchJob?.cancel()
+        searchQuery = ""
+        searchHits = emptyList()
+        searchAiAnswer = null
+        activeHit = -1
+        onPagesChanged?.invoke()
+    }
 
     fun highlights(page: Int): List<RectF> = if (searchHits.isEmpty()) emptyList() else searchHits.filter { it.page == page }.flatMap { it.rects }
     fun activeHighlight(): Pair<Int, RectF>? = searchHits.getOrNull(activeHit)?.let { h -> h.rects.firstOrNull()?.let { h.page to it } }
@@ -1719,7 +1933,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         saveStudy()
     }
 
-    /** Text to learn from: PDF text, typed text, sticky notes, and mind map nodes. */
+    /** Text to learn from: PDF text, typed text, sticky notes, web links, and mind map nodes. */
     private suspend fun studyText(range: IntRange): Pair<String, String?> {
         val idx = textIndex()
         val sb = StringBuilder()
@@ -1730,7 +1944,14 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             if (p.pdfPage >= 0 && idx != null) sb.append(idx.pageText(p.pdfPage)).append('\n')
             p.items.forEach {
                 (it as? TextItem)?.text?.let { t -> sb.append(t).append(". ") }
-                (it as? StickyItem)?.text?.let { t -> sb.append(t).append(". ") }
+                (it as? StickyItem)?.let { st ->
+                    if (st.title.isNotBlank()) sb.append(st.title).append(": ")
+                    sb.append(st.text).append(". ")
+                }
+                (it as? WebLinkItem)?.let { wl ->
+                    if (wl.title.isNotBlank()) sb.append(wl.title).append(". ")
+                    if (wl.note.isNotBlank()) sb.append(wl.note).append(". ")
+                }
                 (it as? MindNodeItem)?.let { m ->
                     sb.append(m.label).append(". ")
                     if (m.notes.isNotBlank()) sb.append(m.notes).append(". ")
@@ -1754,7 +1975,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             val max = if (allPages) 40 else 15
             aiStage = "Generating flashcards with ${aiEngineLabel}…"
             val made = try {
-                runCatching { Nano.flashcards(text, max) }.getOrNull() ?: withContext(Dispatchers.Default) { StudyGen.flashcards(text, max) }
+                runCatching { Nano.flashcards(text, max) }.getOrNull()
+                    ?: LocalAiManager.generateFlashcards(getApplication(), text, max)
             } finally {
                 aiBusy = false
                 aiStage = ""
@@ -1873,7 +2095,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             val max = if (allPages) 30 else 12
             aiStage = "Drafting quiz questions…"
             val made = try {
-                runCatching { Nano.quiz(text, max) }.getOrNull() ?: withContext(Dispatchers.Default) { StudyGen.quiz(text, max) }
+                runCatching { Nano.quiz(text, max) }.getOrNull()
+                    ?: LocalAiManager.generateQuiz(getApplication(), text, max)
             } finally {
                 aiBusy = false
                 aiStage = ""
@@ -1886,6 +2109,47 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             saveStudy()
             say(if (add.isEmpty()) "Not enough text to make questions here" else "Added ${add.size} questions")
         }
+    }
+
+    // ---------------------------------------------------------------- Slide Show Chapter Revision
+
+    fun generateSlideShow(startPage: Int = pageIndex, endPage: Int = pageIndex, slideCount: Int = 7) {
+        val lo = startPage.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
+        val hi = endPage.coerceIn(lo, (pages.size - 1).coerceAtLeast(0))
+        viewModelScope.launch {
+            aiStage = "Building revision slide deck…"
+            aiBusy = true
+            val (text, _) = studyText(lo..hi)
+            val chapterLabel = if (lo == 0 && hi == pages.size - 1) title else if (lo == hi) "$title · Page ${lo + 1}" else "$title · Pages ${lo + 1}-${hi + 1}"
+            val (made, engine) = try {
+                LocalAiManager.generateSlideShow(getApplication(), chapterLabel, text, slideCount)
+            } finally {
+                aiBusy = false
+                aiStage = ""
+            }
+            slides = made
+            saveStudy()
+            say("Generated ${made.size} revision slides via $engine")
+        }
+    }
+
+    fun saveSlide(card: com.pronotes.app.data.SlideCard) {
+        slides = if (slides.any { it.id == card.id }) slides.map { if (it.id == card.id) card else it } else slides + card
+        saveStudy()
+    }
+
+    fun deleteSlide(id: String) {
+        slides = slides.filterNot { it.id == id }
+        saveStudy()
+    }
+
+    fun moveSlide(from: Int, to: Int) {
+        if (from !in slides.indices || to !in slides.indices || from == to) return
+        val mutable = slides.toMutableList()
+        val item = mutable.removeAt(from)
+        mutable.add(to, item)
+        slides = mutable
+        saveStudy()
     }
 
     // --------------------------------------------------------------- save

@@ -1,4 +1,15 @@
-import { Flashcard, LocalModelSpec, LocalModelState, MindNodeItem, Page, QuizQuestion } from '../types/models';
+import {
+  AppSettings,
+  Flashcard,
+  LocalModelSpec,
+  LocalModelState,
+  MindNodeItem,
+  Page,
+  QuizQuestion,
+  SlideCard,
+  SlideKind,
+  SlideThemeId,
+} from '../types/models';
 
 export const LOCAL_MODELS_CATALOG: LocalModelSpec[] = [
   {
@@ -260,11 +271,156 @@ export function extractNotebookText(pages: Page[]): string {
   for (const p of pages) {
     for (const item of p.items) {
       if (item.kind === 'text') chunks.push(item.text);
-      else if (item.kind === 'sticky') chunks.push(item.text);
-      else if (item.kind === 'mindnode') chunks.push(item.notes ? `${item.label}: ${item.notes}` : item.label);
+      else if (item.kind === 'sticky') {
+        chunks.push(item.title ? `${item.title}\n${item.text}` : item.text);
+      } else if (item.kind === 'weblink') {
+        chunks.push([item.title, item.note || '', item.url].filter(Boolean).join(' · '));
+      } else if (item.kind === 'mindnode') {
+        chunks.push(item.notes ? `${item.label}: ${item.notes}` : item.label);
+      }
     }
   }
   return chunks.join('\n').trim();
+}
+
+export async function callCustomAiChat(
+  settings: Partial<AppSettings> | undefined,
+  systemPrompt: string,
+  userPrompt: string
+): Promise<string | null> {
+  if (!settings?.customAiEnabled) return null;
+  const provider = settings.customAiProvider || 'OPENAI_COMPATIBLE';
+  const baseUrl = (settings.customAiBaseUrl || '').trim().replace(/\/+$/, '');
+  const apiKey = (settings.customAiApiKey || '').trim();
+  const model = (settings.customAiModel || '').trim();
+  if (!model) return null;
+  if (provider !== 'OLLAMA' && !apiKey) return null;
+
+  try {
+    const controller = new AbortController();
+    const tid = window.setTimeout(() => controller.abort(), 22000);
+    let text: string | null = null;
+
+    if (provider === 'GEMINI') {
+      const root = baseUrl || 'https://generativelanguage.googleapis.com/v1beta';
+      const url = `${root}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }],
+            },
+          ],
+          generationConfig: { temperature: 0.45 },
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
+      }
+    } else if (provider === 'OLLAMA') {
+      const root = baseUrl || 'http://localhost:11434';
+      const res = await fetch(`${root}/api/chat`, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          model,
+          stream: false,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        text = data?.message?.content ?? data?.response ?? null;
+      }
+    } else {
+      const root = baseUrl || 'https://api.openai.com/v1';
+      const endpoint = root.endsWith('/chat/completions') ? root : `${root}/chat/completions`;
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.45,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        text = data?.choices?.[0]?.message?.content ?? null;
+      }
+    }
+    window.clearTimeout(tid);
+    return text ? text.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function testCustomAiConnection(
+  settings: Partial<AppSettings>
+): Promise<{ ok: boolean; latencyMs: number; message: string }> {
+  const started = performance.now();
+  const provider = settings.customAiProvider || 'OPENAI_COMPATIBLE';
+  const model = (settings.customAiModel || '').trim();
+  const apiKey = (settings.customAiApiKey || '').trim();
+  if (!model) {
+    return { ok: false, latencyMs: 0, message: 'Enter a model name first.' };
+  }
+  if (provider !== 'OLLAMA' && !apiKey) {
+    return { ok: false, latencyMs: 0, message: 'API key is required for this provider.' };
+  }
+  const reply = await callCustomAiChat(
+    { ...settings, customAiEnabled: true },
+    'Reply in 3 words or less.',
+    'Respond with: Connected to Pro Notes.'
+  );
+  const latencyMs = Math.round(performance.now() - started);
+  if (reply) {
+    return { ok: true, latencyMs, message: `Connected (${latencyMs}ms): "${reply.slice(0, 60)}"` };
+  }
+  return {
+    ok: false,
+    latencyMs,
+    message: 'Request failed or blocked by CORS. Check endpoint URL, model name, and key.',
+  };
+}
+
+function tryParseJsonBlock<T>(raw: string | null): T | null {
+  if (!raw) return null;
+  const cleaned = raw
+    .replace(/^```(?:json)?/gim, '')
+    .replace(/```$/gim, '')
+    .trim();
+  const firstArr = cleaned.indexOf('[');
+  const firstObj = cleaned.indexOf('{');
+  const start =
+    firstArr >= 0 && (firstObj < 0 || firstArr < firstObj) ? firstArr : firstObj;
+  if (start < 0) return null;
+  const sub = cleaned.slice(start);
+  try {
+    return JSON.parse(sub) as T;
+  } catch {
+    return null;
+  }
 }
 
 function splitSentences(text: string): string[] {
@@ -354,27 +510,58 @@ export interface RichSummaryResult {
 export async function runLocalSummary(
   text: string,
   modelId: string | null,
-  onStage?: (stage: string) => void
+  onStage?: (stage: string) => void,
+  customSettings?: Partial<AppSettings>
 ): Promise<RichSummaryResult> {
   onStage?.('Reading notebook pages');
-  await new Promise((r) => setTimeout(r, modelId ? 380 : 210));
-  onStage?.('Extracting key concepts & formulas');
-  await new Promise((r) => setTimeout(r, modelId ? 440 : 220));
+  await new Promise((r) => setTimeout(r, modelId ? 320 : 180));
+  onStage?.(customSettings?.customAiEnabled ? 'Querying Custom AI API' : 'Extracting key concepts & formulas');
 
   const model = LOCAL_MODELS_CATALOG.find((m) => m.id === modelId);
+  const wordCount = (text.trim().match(/\S+/g) || []).length;
+
+  if (text.trim() && customSettings?.customAiEnabled) {
+    const raw = await callCustomAiChat(
+      customSettings,
+      'You are an academic study assistant. Respond ONLY with valid JSON: {"headline":string,"points":string[],"keywords":string[],"definitions":[{"term":string,"meaning":string}]}',
+      `Summarize these study notes concisely:\n${text.slice(0, 6000)}`
+    );
+    const parsed = tryParseJsonBlock<{
+      headline?: string;
+      points?: string[];
+      keywords?: string[];
+      definitions?: { term: string; meaning: string }[];
+    }>(raw);
+    if (parsed && Array.isArray(parsed.points) && parsed.points.length > 0) {
+      return {
+        headline: parsed.headline || `Custom AI Summary (${customSettings.customAiModel})`,
+        points: parsed.points.slice(0, 8),
+        definitions: (parsed.definitions || []).map((d) => ({
+          term: d.term,
+          meaning: d.meaning,
+          sentence: `${d.term}: ${d.meaning}`,
+        })),
+        formulas: extractFormulas(text),
+        keywords: (parsed.keywords || keyTerms(text, 8)).slice(0, 8),
+        wordCount,
+        engineLabel: `Custom AI (${customSettings.customAiModel})`,
+      };
+    }
+  }
+
+  await new Promise((r) => setTimeout(r, modelId ? 360 : 180));
   const engineLabel = model ? `${model.name} (On-Device)` : 'Built-in Study Engine';
 
   const sentences = splitSentences(text);
   const facts = extractFacts(text);
   const formulas = extractFormulas(text);
   const keywords = keyTerms(text, 8);
-  const wordCount = (text.trim().match(/\S+/g) || []).length;
 
   if (!text.trim()) {
     return {
       headline: 'Nothing to summarize yet',
       points: [
-        'Add typed text, sticky notes, or mind map nodes to this notebook to generate a structured study summary.',
+        'Add typed text, sticky notes, web links, or mind map nodes to this notebook to generate a structured study summary.',
       ],
       definitions: [],
       formulas: [],
@@ -433,13 +620,42 @@ export async function runLocalFlashcards(
   text: string,
   notebookId: string,
   modelId: string | null,
-  onStage?: (stage: string) => void
+  onStage?: (stage: string) => void,
+  customSettings?: Partial<AppSettings>
 ): Promise<{ cards: Flashcard[]; engineLabel: string }> {
   onStage?.('Scanning definitions');
-  await new Promise((r) => setTimeout(r, modelId ? 380 : 180));
-  onStage?.('Crafting active-recall cards');
-  await new Promise((r) => setTimeout(r, modelId ? 420 : 190));
+  await new Promise((r) => setTimeout(r, modelId ? 280 : 140));
+  onStage?.(customSettings?.customAiEnabled ? 'Querying Custom AI API' : 'Crafting active-recall cards');
 
+  if (text.trim() && customSettings?.customAiEnabled) {
+    const raw = await callCustomAiChat(
+      customSettings,
+      'Reply ONLY with JSON array: [{"front":string,"back":string}] for 6-10 concise active-recall flashcards.',
+      text.slice(0, 5000)
+    );
+    const parsed = tryParseJsonBlock<Array<{ front?: string; back?: string }>>(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      const now = Date.now();
+      const customCards: Flashcard[] = parsed
+        .filter((c) => c.front && c.back)
+        .slice(0, 12)
+        .map((c, idx) => ({
+          id: `fc-ai-${now}-${idx}`,
+          notebookId,
+          front: String(c.front).slice(0, 180),
+          back: String(c.back).slice(0, 320),
+          box: 1,
+          due: now,
+          created: now,
+          lapses: 0,
+        }));
+      if (customCards.length > 0) {
+        return { cards: customCards, engineLabel: `Custom AI (${customSettings.customAiModel})` };
+      }
+    }
+  }
+
+  await new Promise((r) => setTimeout(r, modelId ? 300 : 140));
   const model = LOCAL_MODELS_CATALOG.find((m) => m.id === modelId);
   const engineLabel = model ? `${model.name} (On-Device)` : 'Built-in Study Engine';
   const facts = extractFacts(text);
@@ -486,13 +702,40 @@ export async function runLocalFlashcards(
 export async function runLocalQuiz(
   text: string,
   modelId: string | null,
-  onStage?: (stage: string) => void
+  onStage?: (stage: string) => void,
+  customSettings?: Partial<AppSettings>
 ): Promise<{ questions: QuizQuestion[]; engineLabel: string }> {
   onStage?.('Extracting test concepts');
-  await new Promise((r) => setTimeout(r, modelId ? 380 : 180));
-  onStage?.('Building distractors & explanations');
-  await new Promise((r) => setTimeout(r, modelId ? 440 : 210));
+  await new Promise((r) => setTimeout(r, modelId ? 280 : 140));
+  onStage?.(customSettings?.customAiEnabled ? 'Generating MCQ items via Custom AI' : 'Building distractors & explanations');
 
+  if (text.trim() && customSettings?.customAiEnabled) {
+    const raw = await callCustomAiChat(
+      customSettings,
+      'Reply ONLY with JSON array of 5-7 MCQs: [{"question":string,"options":string[4],"answer":number,"explanation":string}].',
+      text.slice(0, 5000)
+    );
+    const parsed = tryParseJsonBlock<
+      Array<{ question?: string; options?: string[]; answer?: number; explanation?: string }>
+    >(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      const customQs: QuizQuestion[] = parsed
+        .filter((q) => q.question && Array.isArray(q.options) && q.options.length >= 2)
+        .slice(0, 8)
+        .map((q, idx) => ({
+          id: `q-ai-${Date.now()}-${idx}`,
+          question: String(q.question),
+          options: q.options!.slice(0, 4).map(String),
+          answer: Math.max(0, Math.min(q.options!.length - 1, Number(q.answer ?? 0))),
+          explanation: String(q.explanation || 'Generated by Custom AI.'),
+        }));
+      if (customQs.length > 0) {
+        return { questions: customQs, engineLabel: `Custom AI (${customSettings.customAiModel})` };
+      }
+    }
+  }
+
+  await new Promise((r) => setTimeout(r, modelId ? 300 : 150));
   const model = LOCAL_MODELS_CATALOG.find((m) => m.id === modelId);
   const engineLabel = model ? `${model.name} (On-Device)` : 'Built-in Study Engine';
   const facts = extractFacts(text);
@@ -541,10 +784,21 @@ export async function runLocalExplain(
   selection: string,
   context: string,
   modelId: string | null,
-  onStage?: (stage: string) => void
+  onStage?: (stage: string) => void,
+  customSettings?: Partial<AppSettings>
 ): Promise<{ explanation: string; engineLabel: string }> {
-  onStage?.('Analyzing selection in context');
-  await new Promise((r) => setTimeout(r, modelId ? 560 : 280));
+  onStage?.(customSettings?.customAiEnabled ? 'Explaining via Custom AI' : 'Analyzing selection in context');
+  if (customSettings?.customAiEnabled) {
+    const raw = await callCustomAiChat(
+      customSettings,
+      'Explain the selected concept clearly in 2-4 concise sentences for a student.',
+      `Selection: ${selection}\n\nPage Context:\n${context.slice(0, 3000)}`
+    );
+    if (raw) {
+      return { engineLabel: `Custom AI (${customSettings.customAiModel})`, explanation: raw };
+    }
+  }
+  await new Promise((r) => setTimeout(r, modelId ? 420 : 220));
   const model = LOCAL_MODELS_CATALOG.find((m) => m.id === modelId);
   const engineLabel = model ? `${model.name} (On-Device)` : 'Built-in Study Engine';
   const facts = extractFacts(`${selection}\n${context}`);
@@ -573,13 +827,80 @@ export async function generateMindMapFromText(
   centerX: number,
   centerY: number,
   modelId: string | null,
-  onStage?: (stage: string) => void
+  onStage?: (stage: string) => void,
+  customSettings?: Partial<AppSettings>
 ): Promise<{ nodes: MindNodeItem[]; engineLabel: string }> {
   onStage?.('Structuring concept hierarchy');
-  await new Promise((r) => setTimeout(r, modelId ? 400 : 190));
-  onStage?.('Laying out radial branches');
-  await new Promise((r) => setTimeout(r, modelId ? 380 : 180));
+  await new Promise((r) => setTimeout(r, modelId ? 300 : 150));
+  onStage?.(customSettings?.customAiEnabled ? 'Generating branches via Custom AI' : 'Laying out radial branches');
 
+  if (topicOrText.trim() && customSettings?.customAiEnabled) {
+    const raw = await callCustomAiChat(
+      customSettings,
+      'Reply ONLY with JSON: {"root":string,"branches":[{"title":string,"children":string[]}]} with 4-5 branches.',
+      topicOrText.slice(0, 4500)
+    );
+    const parsed = tryParseJsonBlock<{
+      root?: string;
+      branches?: Array<{ title?: string; children?: string[] }>;
+    }>(raw);
+    if (parsed && Array.isArray(parsed.branches) && parsed.branches.length > 0) {
+      const branchColors = ['#3D6CF4', '#2BB673', '#F2994A', '#9B51E0', '#EB5757'];
+      const rootId = `mm-root-${Date.now()}`;
+      const nodes: MindNodeItem[] = [
+        {
+          id: rootId,
+          kind: 'mindnode',
+          x: centerX - 95,
+          y: centerY - 28,
+          w: 190,
+          h: 56,
+          label: (parsed.root || 'Central Topic').slice(0, 30),
+          parentId: null,
+          color: '#1B1F2A',
+          shape: 'pill',
+        },
+      ];
+      const branches = parsed.branches.slice(0, 5);
+      branches.forEach((b, idx) => {
+        const angle = (idx / branches.length) * Math.PI * 2 - Math.PI / 2;
+        const bx = centerX + Math.cos(angle) * 240 - 78;
+        const by = centerY + Math.sin(angle) * 240 - 22;
+        const bId = `mm-b-${Date.now()}-${idx}`;
+        const col = branchColors[idx % branchColors.length];
+        nodes.push({
+          id: bId,
+          kind: 'mindnode',
+          x: bx,
+          y: by,
+          w: 156,
+          h: 44,
+          label: (b.title || `Branch ${idx + 1}`).slice(0, 26),
+          parentId: rootId,
+          color: col,
+          shape: 'card',
+        });
+        (b.children || []).slice(0, 3).forEach((ch, cIdx) => {
+          const subAngle = angle + (cIdx - 0.5) * 0.42;
+          nodes.push({
+            id: `mm-c-${Date.now()}-${idx}-${cIdx}`,
+            kind: 'mindnode',
+            x: bx + 78 + Math.cos(subAngle) * 175 - 70,
+            y: by + 22 + Math.sin(subAngle) * 125 - 19,
+            w: 140,
+            h: 38,
+            label: String(ch).slice(0, 24),
+            parentId: bId,
+            color: col,
+            shape: 'pill',
+          });
+        });
+      });
+      return { nodes, engineLabel: `Custom AI (${customSettings.customAiModel})` };
+    }
+  }
+
+  await new Promise((r) => setTimeout(r, modelId ? 280 : 140));
   const model = LOCAL_MODELS_CATALOG.find((m) => m.id === modelId);
   const engineLabel = model ? `${model.name} (On-Device)` : 'Built-in Topic Outliner';
 
@@ -663,3 +984,253 @@ export async function generateMindMapFromText(
 
   return { nodes, engineLabel };
 }
+
+// ================================================================
+// Quick Chapter Slide Show Revision Generator (AI + Manual Support)
+// ================================================================
+
+const THEME_CYCLE: SlideThemeId[] = [
+  'AURORA_INDIGO',
+  'SUNSET_CORAL',
+  'EMERALD_MINT',
+  'MIDNIGHT_PRISM',
+  'COSMIC_GOLD',
+  'ROSE_VELVET',
+];
+
+export async function runLocalSlideShow(
+  chapterTitle: string,
+  text: string,
+  slideCount: number,
+  modelId: string | null,
+  customSettings?: Partial<AppSettings>,
+  onStage?: (stage: string) => void
+): Promise<{ slides: SlideCard[]; engineLabel: string }> {
+  onStage?.('Structuring chapter revision deck');
+  await new Promise((r) => setTimeout(r, modelId ? 320 : 180));
+
+  if (text.trim() && customSettings?.customAiEnabled) {
+    onStage?.(`Synthesizing slides via ${customSettings.customAiModel || 'Custom AI'}`);
+    const raw = await callCustomAiChat(
+      customSettings,
+      'You are a dynamic study deck creator. Reply ONLY with JSON array of slide objects: [{"kind":"TITLE"|"CONCEPT"|"FORMULA"|"CHECK_QA"|"SUMMARY","title":string,"subtitle":string,"bullets":string[],"callout":string,"question":string,"answer":string,"badge":string}]',
+      `Create ${slideCount} vivid quick-revision slides for chapter "${chapterTitle}" from these notes:\n${text.slice(0, 6000)}`
+    );
+    const parsed = tryParseJsonBlock<Array<Partial<SlideCard>>>(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      const now = Date.now();
+      const slides: SlideCard[] = parsed.slice(0, 14).map((s, idx) => ({
+        id: `sl-ai-${now}-${idx}`,
+        kind: (['TITLE', 'CONCEPT', 'FORMULA', 'CHECK_QA', 'SUMMARY'].includes(String(s.kind))
+          ? s.kind
+          : idx === 0
+            ? 'TITLE'
+            : idx === parsed.length - 1
+              ? 'SUMMARY'
+              : 'CONCEPT') as SlideKind,
+        theme: THEME_CYCLE[idx % THEME_CYCLE.length],
+        title: (s.title || `Slide ${idx + 1}`).slice(0, 80),
+        subtitle: s.subtitle || chapterTitle,
+        bullets: Array.isArray(s.bullets) ? s.bullets.slice(0, 5) : [],
+        callout: s.callout || undefined,
+        question: s.question || undefined,
+        answer: s.answer || undefined,
+        badge: s.badge || (idx === 0 ? 'CHAPTER RECAP' : `SLIDE ${idx + 1}`),
+      }));
+      return { slides, engineLabel: `Custom AI (${customSettings.customAiModel})` };
+    }
+  }
+
+  onStage?.('Composing vivid animated revision cards');
+  await new Promise((r) => setTimeout(r, modelId ? 300 : 160));
+  const model = LOCAL_MODELS_CATALOG.find((m) => m.id === modelId);
+  const engineLabel = model ? `${model.name} (On-Device)` : 'Built-in Slide Studio';
+
+  const facts = extractFacts(text);
+  const formulas = extractFormulas(text);
+  const sentences = splitSentences(text);
+  const keywords = keyTerms(text, 10);
+  const now = Date.now();
+  const slides: SlideCard[] = [];
+
+  // 1. Cover slide
+  slides.push({
+    id: `sl-${now}-0`,
+    kind: 'TITLE',
+    theme: THEME_CYCLE[0],
+    title: chapterTitle || 'Chapter Quick Revision',
+    subtitle: `${keywords.slice(0, 4).join(' · ') || 'Core Takeaways & Active Recall'}`,
+    bullets: keywords.slice(0, 4).map((k) => `Key focus: ${k}`),
+    callout: `${Math.max(1, (text.match(/\S+/g) || []).length)} words condensed for fast revision`,
+    badge: 'QUICK REVISION',
+  });
+
+  // 2. Formula spotlight if formulas found
+  if (formulas.length > 0 && slides.length < slideCount) {
+    slides.push({
+      id: `sl-${now}-formula`,
+      kind: 'FORMULA',
+      theme: THEME_CYCLE[1],
+      title: 'Key Equations & Laws',
+      subtitle: 'High-yield expressions to recognize on sight',
+      bullets: formulas.slice(0, 4),
+      callout: formulas[0],
+      badge: 'FORMULA VAULT',
+    });
+  }
+
+  // 3. Concept & Check Q&A slides
+  let tIdx = 2;
+  for (let i = 0; i < facts.length && slides.length < slideCount - 1; i++) {
+    const f = facts[i];
+    if (i % 3 === 2) {
+      slides.push({
+        id: `sl-${now}-qa-${i}`,
+        kind: 'CHECK_QA',
+        theme: THEME_CYCLE[tIdx % THEME_CYCLE.length],
+        title: `Recall Check: ${f.term}`,
+        subtitle: 'Tap card to reveal concise definition',
+        bullets: [f.sentence],
+        question: `What does "${f.term}" mean in this chapter?`,
+        answer: f.meaning,
+        badge: 'ACTIVE RECALL',
+      });
+    } else {
+      slides.push({
+        id: `sl-${now}-c-${i}`,
+        kind: 'CONCEPT',
+        theme: THEME_CYCLE[tIdx % THEME_CYCLE.length],
+        title: f.term,
+        subtitle: 'Core Concept Breakdown',
+        bullets: f.meaning
+          .split(/[.;,]/)
+          .map((x) => x.trim())
+          .filter((x) => x.length > 3)
+          .slice(0, 4),
+        callout: f.meaning.slice(0, 140),
+        badge: 'CONCEPT',
+      });
+    }
+    tIdx++;
+  }
+
+  // Fill remaining concept slides from top sentences if needed
+  let sIdx = 0;
+  while (slides.length < slideCount - 1 && sIdx < sentences.length) {
+    const batch = sentences.slice(sIdx, sIdx + 3);
+    sIdx += 3;
+    slides.push({
+      id: `sl-${now}-s-${sIdx}`,
+      kind: 'CONCEPT',
+      theme: THEME_CYCLE[tIdx % THEME_CYCLE.length],
+      title: keywords[tIdx % Math.max(1, keywords.length)] || `Key Section ${tIdx}`,
+      subtitle: 'Essential Note Highlights',
+      bullets: batch,
+      badge: 'HIGHLIGHT',
+    });
+    tIdx++;
+  }
+
+  // 4. Final Recap slide
+  slides.push({
+    id: `sl-${now}-recap`,
+    kind: 'SUMMARY',
+    theme: THEME_CYCLE[(tIdx + 1) % THEME_CYCLE.length],
+    title: '60-Second Chapter Recap',
+    subtitle: 'Checklist before moving on',
+    bullets: [
+      ...(facts.slice(0, 3).map((f) => `${f.term} → ${f.meaning.slice(0, 68)}`)),
+      ...(formulas.slice(0, 1).map((eq) => `Formula check: ${eq}`)),
+    ].slice(0, 4),
+    callout: 'Switch to Check Q&A or retake flashcards to lock in 100% recall.',
+    badge: 'RECAP',
+  });
+
+  return { slides: slides.slice(0, Math.max(2, slideCount)), engineLabel };
+}
+
+// ================================================================
+// AI-Powered Semantic Notebook Search
+// ================================================================
+
+const SYNONYM_CLUSTERS: string[][] = [
+  ['force', 'newton', 'acceleration', 'momentum', 'mass', 'velocity', 'kinetic', 'energy'],
+  ['cell', 'mitosis', 'meiosis', 'osmosis', 'membrane', 'nucleus', 'dna', 'rna'],
+  ['derivative', 'integral', 'calculus', 'gradient', 'slope', 'limit', 'function'],
+  ['algorithm', 'complexity', 'graph', 'tree', 'node', 'stack', 'queue', 'latency'],
+  ['formula', 'equation', 'law', 'theorem', 'proof', 'ratio', 'constant'],
+  ['summary', 'overview', 'conclusion', 'takeaway', 'key', 'important', 'exam'],
+];
+
+export async function runSemanticSearch(
+  query: string,
+  corpusText: string,
+  modelId: string | null,
+  customSettings?: Partial<AppSettings>
+): Promise<{ answer: string; expandedTerms: string[]; engineLabel: string }> {
+  const q = query.trim();
+  const qLower = q.toLowerCase();
+  const model = LOCAL_MODELS_CATALOG.find((m) => m.id === modelId);
+  let engineLabel = model ? `${model.name} (On-Device)` : 'Semantic Search Engine';
+
+  // Build local semantic terms from clusters + co-occurring words in corpus
+  const expandedSet = new Set<string>();
+  const qWords = qLower.split(/\s+/).filter((w) => w.length >= 2);
+  for (const cluster of SYNONYM_CLUSTERS) {
+    if (cluster.some((w) => qWords.some((qw) => w.includes(qw) || qw.includes(w)))) {
+      cluster.forEach((w) => {
+        if (!qWords.includes(w) && corpusText.toLowerCase().includes(w)) expandedSet.add(w);
+      });
+    }
+  }
+
+  // Find co-occurring content words from lines that match the query
+  for (const line of corpusText.split('\n')) {
+    const lLower = line.toLowerCase();
+    if (qWords.some((qw) => lLower.includes(qw))) {
+      for (const tok of line.match(/[A-Za-z][A-Za-z0-9-]{3,}/g) || []) {
+        const tl = tok.toLowerCase();
+        if (!STOP_WORDS.has(tl) && !qWords.includes(tl)) expandedSet.add(tok);
+      }
+    }
+  }
+
+  if (customSettings?.customAiEnabled && corpusText.trim()) {
+    const raw = await callCustomAiChat(
+      customSettings,
+      'You are an academic notebook search assistant. Reply ONLY with JSON: {"answer":string,"terms":string[]}',
+      `Query: "${q}"\nNotes excerpt:\n${corpusText.slice(0, 4000)}`
+    );
+    const parsed = tryParseJsonBlock<{ answer?: string; terms?: string[] }>(raw);
+    if (parsed?.answer) {
+      return {
+        answer: parsed.answer,
+        expandedTerms: (parsed.terms || Array.from(expandedSet)).slice(0, 6),
+        engineLabel: `Custom AI (${customSettings.customAiModel})`,
+      };
+    }
+  }
+
+  const facts = extractFacts(corpusText);
+  const directFact = facts.find(
+    (f) => f.term.toLowerCase().includes(qLower) || f.meaning.toLowerCase().includes(qLower)
+  );
+  const matchingSentence = splitSentences(corpusText).find((s) =>
+    qWords.some((qw) => s.toLowerCase().includes(qw))
+  );
+
+  const answer = directFact
+    ? `${directFact.term}: ${directFact.meaning}`
+    : matchingSentence
+      ? matchingSentence
+      : expandedSet.size > 0
+        ? `Related concepts found in this notebook: ${Array.from(expandedSet).slice(0, 5).join(', ')}.`
+        : `No direct notes matched "${q}". Try one of the notebook keywords below.`;
+
+  return {
+    answer,
+    expandedTerms: Array.from(expandedSet).slice(0, 6),
+    engineLabel,
+  };
+}
+

@@ -5,6 +5,7 @@ import {
   Cpu,
   Download,
   Eraser,
+  Globe,
   Palette,
   PenTool,
   Plus,
@@ -12,12 +13,17 @@ import {
   Sparkles,
   Trash2,
   Upload,
+  Wand2,
+  Zap,
 } from 'lucide-react';
 import {
   ACCENT_COLORS,
   AccentColorId,
+  AppFont,
   AppSettings,
+  CustomAiProvider,
   EraserMode,
+  MotionStyle,
   PAPER_STYLES,
   PAPER_TINTS,
   PaperStyle,
@@ -27,6 +33,7 @@ import {
   ThemeMode,
   ToolbarDock,
 } from '../types/models';
+import { testCustomAiConnection } from '../utils/localAi';
 
 interface SettingsScreenProps {
   settings: AppSettings;
@@ -35,6 +42,7 @@ interface SettingsScreenProps {
   onDeletePenPreset?: (id: string) => void;
   onBack: () => void;
   onOpenLocalModels: () => void;
+  onOpenSetupWizard?: () => void;
   onExportBackup: () => string;
   onImportBackup: (raw: string) => number;
 }
@@ -46,6 +54,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   onDeletePenPreset,
   onBack,
   onOpenLocalModels,
+  onOpenSetupWizard,
   onExportBackup,
   onImportBackup,
 }) => {
@@ -53,6 +62,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [editingPresetName, setEditingPresetName] = useState('');
   const [savedPenToast, setSavedPenToast] = useState(false);
+  const [testingApi, setTestingApi] = useState(false);
+  const [apiTestResult, setApiTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const handleDownloadBackup = () => {
     const json = onExportBackup();
@@ -80,6 +91,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     };
     reader.readAsText(file);
     e.target.value = '';
+  };
+
+  const handleTestCustomApi = async () => {
+    setTestingApi(true);
+    setApiTestResult(null);
+    const res = await testCustomAiConnection(settings);
+    setApiTestResult(res);
+    setTestingApi(false);
   };
 
   const ToggleRow: React.FC<{
@@ -126,16 +145,28 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <h1 className="text-lg font-bold tracking-tight">Settings</h1>
+          <div>
+            <h1 className="text-lg font-bold tracking-tight">Settings</h1>
+            <p className="text-[11px] text-slate-500">Pro Notes v9.11.0 (Ultra)</p>
+          </div>
         </div>
+        {onOpenSetupWizard && (
+          <button
+            type="button"
+            onClick={onOpenSetupWizard}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-95"
+          >
+            <Wand2 className="h-3.5 w-3.5" /> Open Ultra Setup Studio
+          </button>
+        )}
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
         <div className="mx-auto max-w-3xl space-y-6 pb-16">
-          {/* Appearance */}
+          {/* Ultra Look & Motion */}
           <section className="space-y-2">
             <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
-              <Palette className="h-3.5 w-3.5" /> Appearance
+              <Palette className="h-3.5 w-3.5" /> Appearance &amp; Ultra Aesthetics
             </h2>
             <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
               <div className="p-4">
@@ -186,11 +217,71 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </div>
               </div>
 
+              <div className="p-4">
+                <div className="mb-2 text-sm font-semibold">App Typography</div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {(
+                    [
+                      { id: 'MODERN_SANS', label: 'Modern Sans', sample: 'Inter UI' },
+                      { id: 'EDITORIAL_SERIF', label: 'Editorial', sample: 'Fraunces' },
+                      { id: 'STUDIO_MONO', label: 'Studio Mono', sample: 'JetBrains' },
+                      { id: 'ROUNDED', label: 'Soft Rounded', sample: 'Quicksand' },
+                    ] as { id: AppFont; label: string; sample: string }[]
+                  ).map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => onUpdate({ appFont: f.id })}
+                      className={`rounded-2xl border p-2.5 text-left transition ${
+                        settings.appFont === f.id
+                          ? 'border-blue-600 bg-blue-500/10 text-blue-700 dark:text-blue-300'
+                          : 'border-black/10 hover:bg-black/[0.02] dark:border-white/10'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">{f.label}</div>
+                      <div className="text-[10px] text-slate-500">{f.sample}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-4">
+                <div className="mb-2 text-sm font-semibold">Motion &amp; Spring Feel</div>
+                <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-black/5 p-1 dark:bg-white/6">
+                  {(
+                    [
+                      { id: 'ULTRA_SPRING', label: 'Ultra Spring' },
+                      { id: 'MINIMAL_CRISP', label: 'Minimal Crisp' },
+                      { id: 'REDUCED', label: 'Reduced' },
+                    ] as { id: MotionStyle; label: string }[]
+                  ).map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => onUpdate({ motionStyle: m.id })}
+                      className={`rounded-lg py-1.5 text-xs font-semibold transition ${
+                        settings.motionStyle === m.id
+                          ? 'bg-white text-slate-900 shadow-sm dark:bg-[#2A2C34] dark:text-white'
+                          : 'text-slate-500'
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <ToggleRow
                 title="Liquid glass toolbars"
-                sub="Translucent frost with specular edge highlights"
+                sub="Translucent frost with specular edge highlights and rubber-band toolbar icons"
                 checked={settings.liquidGlass}
                 onChange={(v) => onUpdate({ liquidGlass: v })}
+              />
+              <ToggleRow
+                title="Stylus & pointer hover labels"
+                sub="Show tool name tooltip when hovering over stretched dock icons"
+                checked={settings.showHoverTooltips}
+                onChange={(v) => onUpdate({ showHoverTooltips: v })}
               />
             </div>
           </section>
@@ -198,10 +289,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           {/* Stylus & Pen Presets */}
           <section className="space-y-2">
             <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
-              <PenTool className="h-3.5 w-3.5" /> Stylus & Pen Presets
+              <PenTool className="h-3.5 w-3.5" /> Stylus &amp; Pen Presets
             </h2>
             <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
-
               <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
                 <span className="text-sm font-semibold">Default pen nib</span>
                 <div className="flex flex-wrap gap-1.5">
@@ -222,7 +312,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </div>
               </div>
 
-              <div className="p-5 space-y-2.5">
+              <div className="space-y-2.5 p-5">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-semibold">Saved Pen Presets ({settings.penPresets.length})</span>
                   {onSavePenPreset && (
@@ -318,7 +408,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           {/* Gestures, Eraser & Writing */}
           <section className="space-y-2">
             <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
-              <Eraser className="h-3.5 w-3.5" /> Scribble, Eraser & Shapes
+              <Eraser className="h-3.5 w-3.5" /> Scribble, Eraser &amp; Shapes
             </h2>
             <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
               <ToggleRow
@@ -404,10 +494,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </div>
           </section>
 
-          {/* Local AI & Animations */}
+          {/* Local AI & Custom AI API (BYOK) */}
           <section className="space-y-2">
             <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
-              <Sparkles className="h-3.5 w-3.5" /> Local AI & Animations
+              <Sparkles className="h-3.5 w-3.5" /> Local AI &amp; Custom AI API (BYOK)
             </h2>
             <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
               <div
@@ -419,7 +509,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   <div>
                     <div className="text-sm font-semibold">Manage downloadable local AI models</div>
                     <div className="text-xs text-slate-500">
-                      Download SmolLM2, Qwen 2.5/3, Llama 3.2, or Gemma 3 onto your device
+                      Download SmolLM2, Qwen 2.5/3, Llama 3.2, or Gemma 3 for offline study &amp; semantic search
                     </div>
                   </div>
                 </div>
@@ -427,21 +517,154 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   Open Hub
                 </span>
               </div>
+
               <ToggleRow
                 title="Enhanced AI visual animations"
-                sub="Orbital shimmer sweeps, flowing particle waves, and staggered study cards"
+                sub="Orbital shimmer sweeps, flowing particle waves, and animated Slide Show cards"
                 checked={settings.aiAnimations}
                 onChange={(v) => onUpdate({ aiAnimations: v })}
               />
+
+              <ToggleRow
+                title="Enable Custom AI Endpoint"
+                sub="Route Summaries, Quizzes, Slide Show & Semantic Search via your own OpenAI-compatible, Gemini, or Ollama endpoint"
+                checked={settings.customAiEnabled}
+                onChange={(v) => onUpdate({ customAiEnabled: v })}
+              />
+
+              {settings.customAiEnabled && (
+                <div className="space-y-3 bg-slate-50/70 p-5 dark:bg-[#20222A]/60">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {(
+                      [
+                        { id: 'OPENAI_COMPATIBLE', label: 'OpenAI / Groq / Together' },
+                        { id: 'GEMINI', label: 'Google Gemini REST' },
+                        { id: 'OLLAMA', label: 'Local Ollama' },
+                      ] as { id: CustomAiProvider; label: string }[]
+                    ).map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          const defaultUrl =
+                            p.id === 'GEMINI'
+                              ? 'https://generativelanguage.googleapis.com'
+                              : p.id === 'OLLAMA'
+                                ? 'http://localhost:11434'
+                                : 'https://api.openai.com/v1';
+                          const defaultModel =
+                            p.id === 'GEMINI'
+                              ? 'gemini-2.5-flash'
+                              : p.id === 'OLLAMA'
+                                ? 'qwen2.5:3b'
+                                : 'gpt-4o-mini';
+                          onUpdate({
+                            customAiProvider: p.id,
+                            customAiBaseUrl: defaultUrl,
+                            customAiModel: defaultModel,
+                          });
+                        }}
+                        className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+                          settings.customAiProvider === p.id
+                            ? 'border-blue-600 bg-blue-600 text-white'
+                            : 'border-black/10 bg-white dark:border-white/10 dark:bg-[#191A1F]'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-[11px] font-bold uppercase text-slate-500">
+                        Base URL
+                      </label>
+                      <input
+                        type="url"
+                        value={settings.customAiBaseUrl}
+                        onChange={(e) => onUpdate({ customAiBaseUrl: e.target.value })}
+                        placeholder="https://api.openai.com/v1"
+                        className="w-full rounded-xl border border-black/12 bg-white px-3 py-2 text-xs dark:border-white/15 dark:bg-[#191A1F]"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[11px] font-bold uppercase text-slate-500">
+                        Model Name
+                      </label>
+                      <input
+                        type="text"
+                        value={settings.customAiModel}
+                        onChange={(e) => onUpdate({ customAiModel: e.target.value })}
+                        placeholder="gpt-4o-mini"
+                        className="w-full rounded-xl border border-black/12 bg-white px-3 py-2 text-xs dark:border-white/15 dark:bg-[#191A1F]"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-[11px] font-bold uppercase text-slate-500">
+                      API Key (stored locally in your browser)
+                    </label>
+                    <input
+                      type="password"
+                      value={settings.customAiApiKey}
+                      onChange={(e) => onUpdate({ customAiApiKey: e.target.value })}
+                      placeholder={settings.customAiProvider === 'OLLAMA' ? 'Optional for Ollama' : 'sk-... / AIza...'}
+                      className="w-full rounded-xl border border-black/12 bg-white px-3 py-2 text-xs dark:border-white/15 dark:bg-[#191A1F]"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                    <button
+                      type="button"
+                      disabled={testingApi}
+                      onClick={handleTestCustomApi}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      <Globe className="h-3.5 w-3.5" />
+                      {testingApi ? 'Testing Endpoint...' : 'Test Connection'}
+                    </button>
+                    {apiTestResult && (
+                      <span
+                        className={`inline-flex items-center gap-1 text-xs font-semibold ${
+                          apiTestResult.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'
+                        }`}
+                      >
+                        <Zap className="h-3.5 w-3.5" /> {apiTestResult.message}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </section>
 
           {/* Paper, Whiteboard & Workspace */}
           <section className="space-y-2">
             <h2 className="px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
-              Pages & Workspace
+              Pages &amp; Workspace
             </h2>
             <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
+              <div className="flex items-center justify-between px-5 py-3.5">
+                <span className="text-sm font-semibold">Default page direction</span>
+                <div className="flex gap-1.5">
+                  {(['VERTICAL', 'HORIZONTAL'] as const).map((dir) => (
+                    <button
+                      key={dir}
+                      type="button"
+                      onClick={() => onUpdate({ scroll: dir })}
+                      className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+                        settings.scroll === dir
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-black/5 text-slate-600 dark:bg-white/10 dark:text-slate-300'
+                      }`}
+                    >
+                      {dir === 'VERTICAL' ? 'Vertical' : 'Horizontal'}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="flex items-center justify-between px-5 py-3.5">
                 <span className="text-sm font-semibold">Default paper pattern</span>
                 <select
@@ -496,7 +719,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           {/* Library Backup */}
           <section className="space-y-2">
             <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
-              <ShieldCheck className="h-3.5 w-3.5" /> Library & Backup
+              <ShieldCheck className="h-3.5 w-3.5" /> Library &amp; Backup
             </h2>
             <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
               <button
@@ -507,7 +730,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <Download className="h-4 w-4 text-blue-600" />
                 <div>
                   <div className="text-sm font-semibold">Export full library backup (JSON)</div>
-                  <div className="text-xs text-slate-500">Save notebooks, folders, flashcards & settings</div>
+                  <div className="text-xs text-slate-500">Save notebooks, folders, flashcards &amp; settings</div>
                 </div>
               </button>
               <label className="flex w-full cursor-pointer items-center gap-3 px-5 py-3.5 text-left hover:bg-black/[0.02] dark:hover:bg-white/[0.02]">
@@ -530,3 +753,4 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     </div>
   );
 };
+

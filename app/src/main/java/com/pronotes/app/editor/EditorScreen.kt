@@ -10,7 +10,9 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -30,8 +32,10 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -56,6 +60,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -158,6 +163,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -187,6 +193,7 @@ import com.pronotes.app.data.AppSettings
 import com.pronotes.app.data.EraserMode
 import com.pronotes.app.data.HighlighterMode
 import com.pronotes.app.data.LassoMode
+import com.pronotes.app.data.MotionStyle
 import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.data.PenPreset
 import com.pronotes.app.data.Repository
@@ -195,6 +202,7 @@ import com.pronotes.app.data.ScrollDirection
 import com.pronotes.app.data.SettingsStore
 import com.pronotes.app.data.ToolbarDock
 import com.pronotes.app.ui.ColorEditorDialog
+import com.pronotes.app.ui.LocalMotionStyle
 import com.pronotes.app.ui.PenGlyph
 import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.ProIconView
@@ -318,6 +326,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
         vm.onScrollTo = { i -> c.scrollToPage(i, animate = true) }
         vm.onRedraw = { c.redraw() }
         vm.toScreen = { pg, r -> c.pageToScreen(pg, r) }
+        vm.fitMindMapOnCanvas = { pg, r -> c.fitRect(pg, r) }
         c.startPage = vm.startPage
         c.setPages(vm.pages.toList())
     }
@@ -389,8 +398,8 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     var showCards by remember { mutableStateOf(false) }
 
     // Real background blur (Android 12+) while a card, dialog or sheet is open.
-    val overlayOpen = vm.textEdit != null || vm.stickyEdit != null || vm.mindNodeEdit != null ||
-        renaming || goTo || pageColor || showStickers || vm.cardOpen || wheelAt != null
+    val overlayOpen = vm.textEdit != null || vm.stickyEdit != null || vm.webLinkEdit != null || vm.mindNodeEdit != null ||
+        vm.showSlideShow || renaming || goTo || pageColor || showStickers || vm.cardOpen || wheelAt != null
     val blurRadius by androidx.compose.animation.core.animateDpAsState(if (overlayOpen) 14.dp else 0.dp, label = "blur")
     val blurMod = if (android.os.Build.VERSION.SDK_INT >= 31 && blurRadius > 0.dp) Modifier.blur(blurRadius) else Modifier
 
@@ -431,6 +440,11 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                         onPageColor = { pageColor = true },
                         onCards = { showCards = true },
                         onQuiz = { showQuiz = true },
+                        onSlideShow = { vm.showSlideShow = true },
+                        onAddWebLink = {
+                            val p = vm.currentPage
+                            vm.openWebLink(vm.pageIndex, (p?.width ?: 1240f) / 2f, 340f, null)
+                        },
                         onTemplates = { showTemplates = true },
                         onImportFiles = {
                             importFilesLauncher.launch(arrayOf("application/pdf", "text/*", "image/*", "application/json", "application/octet-stream"))
@@ -476,6 +490,8 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                                     vm.textEdit = EditorViewModel.TextEdit(page, x, y, existing)
                                 }
                                 override fun onStickyTap(page: Int, x: Float, y: Float, existing: StickyItem?) = vm.openSticky(page, x, y, existing)
+                                override fun onStickyChecklistToggle(page: Int, sticky: StickyItem, lineIndex: Int) = vm.toggleStickyCheckLine(page, sticky, lineIndex)
+                                override fun onWebLinkTap(page: Int, x: Float, y: Float, existing: WebLinkItem?) = vm.openWebLink(page, x, y, existing)
                                 override fun onMindMapTap(page: Int, x: Float, y: Float, existing: MindNodeItem?) = vm.onMindMapTap(page, x, y, existing)
                                 override fun onCurrentPage(index: Int) = vm.onCurrentPage(index)
                                 override fun onPullAddPage() = vm.addPage(atEnd = true)
@@ -500,9 +516,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                                 override fun onTextEnd(screen: android.graphics.RectF?) = vm.textEnd(screen)
                                 override fun onTextClear() { if (vm.textSel != null) vm.clearTextSel() }
                                 override fun textSelection(page: Int) = vm.textSelection(page)
-                                override fun onOpenUrl(url: String) {
-                                    runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
-                                }
+                                override fun onOpenUrl(url: String) = vm.openExternalUrl(url)
                                 override fun onEraserLifted() = vm.onEraserLifted()
                                 override fun onZoom(percent: Int?) = vm.onZoom(percent)
                                 override fun penProfile(deviceName: String) = store.registerPen(deviceName)
@@ -672,6 +686,11 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                             EditorViewModel.MindLayout.entries.forEach { layout ->
                                 TextButton(onClick = { vm.autoLayoutMindMap(layout) }) { Text(layout.label) }
                             }
+                            TextButton(onClick = { vm.fitMindMapToView() }) {
+                                ProIconView(ProIcon.FIT_MAP, MaterialTheme.colorScheme.primary, Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Fit Map")
+                            }
                             TextButton(onClick = { vm.exportMindMapOutlineToPage() }) { Text("Outline") }
                             TextButton(onClick = { vm.flashcardsFromMindMap() }) { Text("Cards") }
                             TextButton(onClick = { vm.generateMindMapFromNotes() }) {
@@ -738,6 +757,8 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 }
                 SplitPanel(
                     noteId = other,
+                    mainPageIndex = vm.pageIndex,
+                    scrollDirection = settings.scroll,
                     others = library.notebooks.filter { it.deletedAt == null && it.id != noteId }.map { it.id to it.title },
                     onPick = { splitId = it },
                     onOpen = { switchTo(it) },
@@ -749,6 +770,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                     onRatioPreset = { ratio -> splitWeight = ratio },
                     onClipToSticky = { snippet, srcTitle -> vm.clipTextAsSticky(snippet, srcTitle) },
                     onInsertToPage = { snippet, srcTitle -> vm.clipTextAsPageItem(snippet, srcTitle) },
+                    onAddWebLink = { url, lTitle, lNote -> vm.addQuickWebLink(url, lTitle, lNote) },
                     onClose = { splitId = null },
                     modifier = Modifier.weight(splitWeight).fillMaxHeight(),
                 )
@@ -767,6 +789,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     if (vm.linkSheet != null) LinkSheet(vm)
     if (showCards) FlashcardsDialog(vm, onClose = { showCards = false })
     if (showQuiz) QuizDialog(vm, onClose = { showQuiz = false })
+    if (vm.showSlideShow) SlideShowDialog(vm, onClose = { vm.showSlideShow = false })
     vm.explanation?.let { (sel, ans) ->
         Dialog(onDismissRequest = { vm.explanation = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             Surface(
@@ -824,55 +847,89 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     }
 
     vm.stickyEdit?.let { edit ->
+        var title by remember(edit) { mutableStateOf(edit.item.title) }
         var text by remember(edit) { mutableStateOf(edit.item.text) }
         var color by remember(edit) { mutableStateOf(edit.item.color) }
         var fontSize by remember(edit) { mutableFloatStateOf(edit.item.fontSize) }
         var font by remember(edit) { mutableStateOf(edit.item.font) }
+        var style by remember(edit) { mutableStateOf(edit.item.style.ifBlank { "classic" }) }
         var collapsed by remember(edit) { mutableStateOf(edit.item.collapsed) }
         var pinned by remember(edit) { mutableStateOf(edit.item.pinned) }
         val fonts = listOf("SANS" to "Sans", "SERIF" to "Serif", "MONO" to "Mono", "HAND" to "Hand")
+        val styles = listOf("classic" to "Classic", "lined" to "Lined", "glass" to "Glass", "outline" to "Outline")
         AlertDialog(
             onDismissRequest = { vm.stickyEdit = null },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (edit.isNew) "New sticky note" else "Sticky note", Modifier.weight(1f))
+                    ProIconView(ProIcon.STICKY, MaterialTheme.colorScheme.primary, Modifier.size(22.dp), ink = Color(color))
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (edit.isNew) "New sticky note" else "Sticky studio", Modifier.weight(1f))
                     if (!edit.isNew) {
                         IconButton(onClick = { vm.duplicateSticky() }) {
-                            Icon(Icons.Outlined.ContentCopy, "Duplicate sticky")
+                            ProIconView(ProIcon.COPY, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp))
                         }
                     }
                 }
             },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        title, { title = it.take(48) }, singleLine = true, shape = RoundedCornerShape(16.dp),
+                        label = { Text("Sticky title (optional)") },
+                        placeholder = { Text("e.g. Exam Formula, Chapter Checklist…") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         StickyColors.forEach { c -> Swatch(c, c == color, 20) { color = c } }
+                    }
+                    Text("STYLE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Segments(styles.map { it.second }, styles.indexOfFirst { it.first == style }.coerceAtLeast(0)) { i ->
+                        style = styles[i].first
                     }
                     Segments(fonts.map { it.second }, fonts.indexOfFirst { it.first == font }.coerceAtLeast(0)) { i ->
                         font = fonts[i].first
                     }
                     SliderRow("TEXT SIZE", "%.0f pt".format(fontSize), fontSize, 18f..48f) { fontSize = it }
-                    ToggleLine("Pin position (lock drag)", pinned) { pinned = it }
-                    ToggleLine("Fold to compact strip", collapsed) { collapsed = it }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        FilterChip(
+                            selected = pinned,
+                            onClick = { pinned = !pinned },
+                            label = { Text(if (pinned) "Pinned" else "Pin position") },
+                            shape = Pill,
+                        )
+                        FilterChip(
+                            selected = collapsed,
+                            onClick = { collapsed = !collapsed },
+                            label = { Text(if (collapsed) "Folded" else "Fold strip") },
+                            shape = Pill,
+                        )
+                        TextButton(onClick = {
+                            text = if (text.isBlank()) "- [ ] " else text.trimEnd() + "\n- [ ] "
+                        }) { Text("+ Task") }
+                    }
                     OutlinedTextField(
                         text, { text = it }, minLines = 4, shape = RoundedCornerShape(16.dp),
-                        placeholder = { Text("Write a note, reminder, or formula…") },
-                        modifier = Modifier.fillMaxWidth().background(Color(color), RoundedCornerShape(16.dp)),
+                        placeholder = { Text("Write a note, formula, or checklist (- [ ] Item)…") },
+                        modifier = Modifier.fillMaxWidth().background(Color(color).copy(alpha = 0.55f), RoundedCornerShape(16.dp)),
                     )
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     vm.stickyColor = color
-                    vm.commitSticky(text, color, fontSize, font, collapsed, pinned)
-                }) { Text("Done") }
+                    vm.commitSticky(text, color, fontSize, font, collapsed, pinned, title, style)
+                }) { Text("Save") }
             },
             dismissButton = {
                 TextButton(onClick = { if (edit.isNew) vm.stickyEdit = null else vm.deleteSticky() }) {
-                    Text(if (edit.isNew) "Cancel" else "Delete")
+                    Text(if (edit.isNew) "Cancel" else "Delete", color = if (edit.isNew) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
                 }
             },
         )
+    }
+
+    vm.webLinkEdit?.let { edit ->
+        WebLinkDialog(vm, edit)
     }
 
     if (pageColor) {
@@ -976,10 +1033,13 @@ private fun TopBar(
     onScrollToggle: () -> Unit, onPaste: () -> Unit, onPageColor: () -> Unit, onPageImage: () -> Unit,
     onCards: () -> Unit = {},
     onQuiz: () -> Unit = {},
+    onSlideShow: () -> Unit = {},
+    onAddWebLink: () -> Unit = {},
     onTemplates: () -> Unit = {},
     onImportFiles: () -> Unit = {},
     onSplit: () -> Unit = {},
 ) {
+    val store = SettingsStore.get(LocalContext.current)
     Row(Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         BarIcon(ProIcon.HOME, "Library", onClick = onHome)
         BarIcon(ProIcon.SIDEBAR, "Pages", active = showPages, onClick = onPages)
@@ -992,8 +1052,23 @@ private fun TopBar(
             // Tools, then the colours and sizes of the selected tool, all in the fixed bar.
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                    ToolbarOrder.visible(settings.toolbarTools).forEach { t -> ToolButton(vm, t, settings) }
-                    val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.TEXT, Tool.MINDMAP)
+                    ToolbarOrder.visible(settings.toolbarTools).forEach { t ->
+                        ToolButton(
+                            vm = vm,
+                            t = t,
+                            settings = settings,
+                            isVerticalBar = false,
+                            onReorderStep = { toolToMove, step ->
+                                val visible = ToolbarOrder.visible(settings.toolbarTools)
+                                val idx = visible.indexOf(toolToMove)
+                                val targetIdx = (idx + step).coerceIn(0, visible.lastIndex)
+                                if (idx >= 0 && targetIdx != idx) {
+                                    store.update { it.copy(toolbarTools = ToolbarOrder.moveVisible(it.toolbarTools, toolToMove, visible[targetIdx])) }
+                                }
+                            },
+                        )
+                    }
+                    val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.TEXT, Tool.MINDMAP)
                     if (hasOptions) {
                         Box(Modifier.padding(horizontal = 8.dp).width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant))
                         ToolOptions(vm, false, settings)
@@ -1057,64 +1132,148 @@ private fun TopBar(
         var more by remember { mutableStateOf(false) }
         Box {
             BarIcon(ProIcon.MORE, "More") { more = true }
-            DropdownMenu(more, { more = false }, shape = RoundedCornerShape(18.dp)) {
-                DropdownMenuItem(text = { Text("Rename notebook") }, leadingIcon = { Icon(Icons.Outlined.Edit, null) },
-                    onClick = { more = false; onRename() })
-                DropdownMenuItem(text = { Text("Flashcards") }, leadingIcon = { Icon(Icons.Outlined.Style, null) },
-                    onClick = { more = false; onCards() })
-                DropdownMenuItem(text = { Text("Add link…") }, leadingIcon = { Icon(Icons.Outlined.Link, null) },
-                    onClick = { more = false; vm.beginLinkFlow() })
-                DropdownMenuItem(text = { Text("Split view") }, leadingIcon = { Icon(Icons.Outlined.VerticalSplit, null) },
-                    onClick = { more = false; onSplit() })
-                DropdownMenuItem(text = { Text("Page template…") }, leadingIcon = { Icon(Icons.Outlined.GridOn, null) },
-                    onClick = { more = false; onTemplates() })
+            DropdownMenu(more, { more = false }, shape = RoundedCornerShape(20.dp)) {
+                Text(
+                    "STUDY & AI",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                DropdownMenuItem(
+                    text = { Text("Slide show revision") },
+                    leadingIcon = { ProIconView(ProIcon.SLIDESHOW, MaterialTheme.colorScheme.primary, Modifier.size(20.dp), ink = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)) },
+                    onClick = { more = false; onSlideShow() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Summarise page") },
+                    leadingIcon = { ProIconView(ProIcon.SUMMARY, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp), ink = MaterialTheme.colorScheme.primary) },
+                    onClick = { more = false; vm.summarize() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Flashcards") },
+                    leadingIcon = { ProIconView(ProIcon.FLASHCARDS, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp), ink = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)) },
+                    onClick = { more = false; onCards() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Quiz") },
+                    leadingIcon = { ProIconView(ProIcon.QUIZ, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp)) },
+                    onClick = { more = false; onQuiz() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Generate mind map") },
+                    leadingIcon = { ProIconView(ProIcon.MINDMAP, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp), ink = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)) },
+                    onClick = { more = false; vm.generateMindMapFromNotes() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Flashcard from area") },
+                    leadingIcon = { Icon(Icons.Outlined.Crop, null, Modifier.size(20.dp)) },
+                    onClick = { more = false; vm.capturingCard = true },
+                )
+                HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                Text(
+                    "WORKSPACE & PAGE",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                DropdownMenuItem(
+                    text = { Text("Add web link card…") },
+                    leadingIcon = { ProIconView(ProIcon.WEBLINK, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp), ink = MaterialTheme.colorScheme.primary) },
+                    onClick = { more = false; onAddWebLink() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Link item to page/URL…") },
+                    leadingIcon = { Icon(Icons.Outlined.Link, null, Modifier.size(20.dp)) },
+                    onClick = { more = false; vm.beginLinkFlow() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Split view") },
+                    leadingIcon = { ProIconView(ProIcon.SPLIT, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp)) },
+                    onClick = { more = false; onSplit() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Page template…") },
+                    leadingIcon = { ProIconView(ProIcon.TEMPLATE, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp)) },
+                    onClick = { more = false; onTemplates() },
+                )
                 DropdownMenuItem(
                     text = { Text(if (vm.currentPage?.isWhiteboard == true) "Switch to standard page" else "Infinite whiteboard") },
-                    leadingIcon = { Icon(Icons.Outlined.AllInclusive, null) },
+                    leadingIcon = { Icon(Icons.Outlined.AllInclusive, null, Modifier.size(20.dp)) },
                     onClick = { more = false; vm.toggleCurrentWhiteboard() },
                 )
-                DropdownMenuItem(text = { Text("Import files into notebook…") }, leadingIcon = { Icon(Icons.Outlined.UploadFile, null) },
-                    onClick = { more = false; onImportFiles() })
-                DropdownMenuItem(text = { Text("Generate mind map") }, leadingIcon = { Icon(Icons.Outlined.Hub, null) },
-                    onClick = { more = false; vm.generateMindMapFromNotes() })
-                DropdownMenuItem(text = { Text("Summarise page") }, leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null) },
-                    onClick = { more = false; vm.summarize() })
-                DropdownMenuItem(text = { Text("Quiz") }, leadingIcon = { Icon(Icons.Outlined.Quiz, null) },
-                    onClick = { more = false; onQuiz() })
-                DropdownMenuItem(text = { Text("Flashcard from area") }, leadingIcon = { Icon(Icons.Outlined.Crop, null) },
-                    onClick = { more = false; vm.capturingCard = true })
                 DropdownMenuItem(
-                    text = { Text(if (vm.readOnly) "Turn off read only" else "Read only") },
-                    leadingIcon = { Icon(Icons.Outlined.Lock, null) },
-                    onClick = { more = false; vm.toggleReadOnly() },
+                    text = { Text("Import files into notebook…") },
+                    leadingIcon = { Icon(Icons.Outlined.UploadFile, null, Modifier.size(20.dp)) },
+                    onClick = { more = false; onImportFiles() },
                 )
-                DropdownMenuItem(text = { Text("Go to page…") }, leadingIcon = { Icon(Icons.Outlined.MenuBook, null) },
-                    onClick = { more = false; onGoTo() })
-                DropdownMenuItem(text = { Text(if (vm.currentPage?.bookmarked == true) "Remove bookmark" else "Bookmark page") },
-                    leadingIcon = { ProIconView(ProIcon.BOOKMARK, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) },
-                    onClick = { more = false; vm.toggleBookmark() })
-                if (vm.hasClipboard) DropdownMenuItem(text = { Text("Paste") }, leadingIcon = { Icon(Icons.Outlined.ContentPaste, null) },
-                    onClick = { more = false; onPaste() })
-                DropdownMenuItem(text = { Text("Page colour…") }, leadingIcon = { Icon(Icons.Outlined.ColorLens, null) },
-                    onClick = { more = false; onPageColor() })
+                DropdownMenuItem(
+                    text = { Text("Page colour…") },
+                    leadingIcon = { ProIconView(ProIcon.PALETTE, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp)) },
+                    onClick = { more = false; onPageColor() },
+                )
                 DropdownMenuItem(
                     text = { Text(if (vm.currentPage?.bgImage != null) "Remove page picture" else "Picture as page…") },
-                    leadingIcon = { Icon(Icons.Outlined.Image, null) },
+                    leadingIcon = { ProIconView(ProIcon.IMAGE, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp)) },
                     onClick = { more = false; if (vm.currentPage?.bgImage != null) vm.setPageBackground(null) else onPageImage() },
                 )
-                DropdownMenuItem(text = { Text("Duplicate page") }, leadingIcon = { Icon(Icons.Outlined.ContentCopy, null) },
-                    onClick = { more = false; vm.duplicatePage() })
-                DropdownMenuItem(text = { Text("Delete page") }, leadingIcon = { Icon(Icons.Outlined.Delete, null) },
-                    onClick = { more = false; vm.deletePage() }, enabled = vm.pages.size > 1)
-                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text(if (vm.currentPage?.bookmarked == true) "Remove bookmark" else "Bookmark page") },
+                    leadingIcon = { ProIconView(ProIcon.BOOKMARK, Color(0xFFE34948), Modifier.size(20.dp), ink = if (vm.currentPage?.bookmarked == true) Color(0xFFE34948) else null) },
+                    onClick = { more = false; vm.toggleBookmark() },
+                )
+                if (vm.hasClipboard) DropdownMenuItem(
+                    text = { Text("Paste") },
+                    leadingIcon = { Icon(Icons.Outlined.ContentPaste, null, Modifier.size(20.dp)) },
+                    onClick = { more = false; onPaste() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Duplicate page") },
+                    leadingIcon = { ProIconView(ProIcon.COPY, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp)) },
+                    onClick = { more = false; vm.duplicatePage() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Delete page") },
+                    leadingIcon = { ProIconView(ProIcon.TRASH, MaterialTheme.colorScheme.error, Modifier.size(20.dp)) },
+                    onClick = { more = false; vm.deletePage() },
+                    enabled = vm.pages.size > 1,
+                )
+                HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                Text(
+                    "NOTEBOOK",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                DropdownMenuItem(
+                    text = { Text("Rename notebook") },
+                    leadingIcon = { ProIconView(ProIcon.RENAME, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp)) },
+                    onClick = { more = false; onRename() },
+                )
+                DropdownMenuItem(
+                    text = { Text(if (vm.readOnly) "Turn off read only" else "Read only") },
+                    leadingIcon = { ProIconView(ProIcon.LOCK, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp), ink = if (vm.readOnly) MaterialTheme.colorScheme.primary else null) },
+                    onClick = { more = false; vm.toggleReadOnly() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Go to page…") },
+                    leadingIcon = { ProIconView(ProIcon.PAGES, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp)) },
+                    onClick = { more = false; onGoTo() },
+                )
                 DropdownMenuItem(
                     text = { Text(if (settings.scroll == ScrollDirection.VERTICAL) "Scroll horizontally" else "Scroll vertically") },
-                    leadingIcon = { Icon(Icons.Outlined.SwapVert, null) }, onClick = { more = false; onScrollToggle() },
+                    leadingIcon = { Icon(Icons.Outlined.SwapVert, null, Modifier.size(20.dp)) },
+                    onClick = { more = false; onScrollToggle() },
                 )
-                DropdownMenuItem(text = { Text("Focus mode") }, leadingIcon = { ProIconView(ProIcon.FOCUS, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) },
-                    onClick = { more = false; onFocus() })
-                DropdownMenuItem(text = { Text("Settings") }, leadingIcon = { ProIconView(ProIcon.SETTINGS, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) },
-                    onClick = { more = false; onSettings() })
+                DropdownMenuItem(
+                    text = { Text("Focus mode") },
+                    leadingIcon = { ProIconView(ProIcon.FOCUS, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp)) },
+                    onClick = { more = false; onFocus() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Settings") },
+                    leadingIcon = { ProIconView(ProIcon.SETTINGS, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp)) },
+                    onClick = { more = false; onSettings() },
+                )
             }
         }
     }
@@ -1122,13 +1281,14 @@ private fun TopBar(
 
 // ============================================================== search
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SearchBar(vm: EditorViewModel) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = vm.searchQuery, onValueChange = vm::search, singleLine = true,
-                placeholder = { Text(if (vm.isPdf) "Search this PDF and your text" else "Search typed text and notes") },
+                placeholder = { Text(if (vm.isPdf) "Smart AI & exact search in PDF and notes" else "Smart AI & exact search across notes") },
                 leadingIcon = { ProIconView(ProIcon.SEARCH, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.size(20.dp)) },
                 shape = Pill, modifier = Modifier.weight(1f),
             )
@@ -1145,6 +1305,37 @@ private fun SearchBar(vm: EditorViewModel) {
             IconButton(onClick = { vm.stepHit(-1) }, enabled = vm.searchHits.isNotEmpty()) { Icon(Icons.Filled.KeyboardArrowUp, "Previous") }
             IconButton(onClick = { vm.stepHit(1) }, enabled = vm.searchHits.isNotEmpty()) { Icon(Icons.Filled.KeyboardArrowDown, "Next") }
             IconButton(onClick = vm::clearSearch) { Icon(Icons.Filled.Close, "Clear") }
+        }
+        vm.searchAiAnswer?.let { ai ->
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f), RoundedCornerShape(16.dp)),
+            ) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ProIconView(ProIcon.CUSTOM_AI, MaterialTheme.colorScheme.primary, Modifier.size(16.dp), ink = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+                        Spacer(Modifier.width(6.dp))
+                        Text("AI Search Insight · ${vm.aiEngineLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                    }
+                    if (ai.answer.isNotBlank()) {
+                        Text(ai.answer, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                    if (ai.expandedTerms.isNotEmpty()) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            ai.expandedTerms.forEach { term ->
+                                Surface(
+                                    shape = Pill,
+                                    color = MaterialTheme.colorScheme.surface,
+                                    modifier = Modifier.clip(Pill).clickable { vm.search(term) },
+                                ) {
+                                    Text(term, Modifier.padding(horizontal = 9.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         if (vm.searchHits.isNotEmpty()) {
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 160.dp)) {
@@ -1277,12 +1468,27 @@ private fun BoxScope.ToolDock(vm: EditorViewModel, settings: AppSettings, area: 
             ) { Icon(Icons.Filled.DragIndicator, "Move toolbar", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) }
         }
         val narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600
+        val store = SettingsStore.get(LocalContext.current)
         val tools = @Composable {
             // Phones: undo and redo live in the bar itself, to save room.
-
-            ToolbarOrder.visible(settings.toolbarTools).forEach { t -> ToolButton(vm, t, settings) }
+            ToolbarOrder.visible(settings.toolbarTools).forEach { t ->
+                ToolButton(
+                    vm = vm,
+                    t = t,
+                    settings = settings,
+                    isVerticalBar = isVertical,
+                    onReorderStep = { toolToMove, step ->
+                        val visible = ToolbarOrder.visible(settings.toolbarTools)
+                        val idx = visible.indexOf(toolToMove)
+                        val targetIdx = (idx + step).coerceIn(0, visible.lastIndex)
+                        if (idx >= 0 && targetIdx != idx) {
+                            store.update { it.copy(toolbarTools = ToolbarOrder.moveVisible(it.toolbarTools, toolToMove, visible[targetIdx])) }
+                        }
+                    },
+                )
+            }
         }
-        val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.TEXT, Tool.MINDMAP)
+        val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.TEXT, Tool.MINDMAP)
         // One bar: tools, then the active tool's colours and sizes after a thin divider.
         val divider = @Composable {
             if (isVertical) Box(Modifier.padding(vertical = 6.dp).height(1.dp).width(22.dp).background(MaterialTheme.colorScheme.outlineVariant))
@@ -1317,7 +1523,7 @@ private fun BoxScope.ToolDock(vm: EditorViewModel, settings: AppSettings, area: 
 /** Right-edge panel (top bar layout): pen types for the pen, then sizes and colours, top to bottom. */
 @Composable
 private fun SidePanel(vm: EditorViewModel, settings: AppSettings, modifier: Modifier) {
-    val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.TEXT, Tool.MINDMAP)
+    val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.TEXT, Tool.MINDMAP)
     val shape = RoundedCornerShape(26.dp)
     AnimatedVisibility(
         hasOptions, modifier = modifier,
@@ -1369,10 +1575,26 @@ private fun PenTypeGlyph(type: PenType, tint: Color) {
     }
 }
 
+private fun toolDisplayName(t: Tool): String = when (t) {
+    Tool.PEN -> "Pen"
+    Tool.HIGHLIGHTER -> "Highlighter"
+    Tool.ERASER -> "Eraser"
+    Tool.SHAPE -> "Shapes"
+    Tool.LASSO -> "Lasso Select"
+    Tool.MINDMAP -> "Mind Map"
+    Tool.IMAGE -> "Insert Image"
+    Tool.TEXT -> "Text Box"
+    Tool.STICKY -> "Sticky Note"
+    Tool.WEBLINK -> "Web Link"
+    Tool.TAPE -> "Washi Tape"
+    Tool.STICKER -> "Stickers"
+    Tool.LASER -> "Laser Pointer"
+}
+
 /** Compact pill with the active tool's colours and sizes. Hidden when the tool has none. */
 @Composable
 private fun OptionsBar(vm: EditorViewModel, vertical: Boolean, settings: AppSettings) {
-    val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.TEXT, Tool.MINDMAP)
+    val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.TEXT, Tool.MINDMAP)
     AnimatedVisibility(hasOptions, enter = fadeIn() + scaleIn(initialScale = 0.9f), exit = fadeOut() + scaleOut(targetScale = 0.9f)) {
         Surface(shape = Pill, color = glassColor(), shadowElevation = 4.dp, modifier = Modifier.glassEdge(Pill)) {
             if (vertical) Column(Modifier.padding(vertical = 6.dp, horizontal = 3.dp), horizontalAlignment = Alignment.CenterHorizontally) { ToolOptions(vm, true, settings) }
@@ -1390,35 +1612,170 @@ private fun cardPlacement(dock: ToolbarDock, density: Float): Pair<Alignment, In
 }
 
 @Composable
-private fun ToolButton(vm: EditorViewModel, t: Tool, settings: AppSettings) {
+private fun ToolButton(
+    vm: EditorViewModel,
+    t: Tool,
+    settings: AppSettings,
+    isVerticalBar: Boolean = false,
+    onReorderStep: ((Tool, Int) -> Unit)? = null,
+) {
     val selected = vm.tool == t
+    val motion = LocalMotionStyle.current
     val ink = Color(vm.styleFor(t)?.color ?: when (t) {
         Tool.TAPE -> vm.tapeColor
         Tool.STICKY -> vm.stickyColor
+        Tool.WEBLINK -> vm.webLinkColor
         else -> vm.penStyle.color
     })
     val bg by animateFloatAsState(if (selected) 1f else 0f, label = "bg")
     val sz = (40 * settings.toolbarSize.scale).dp
     val density = LocalDensity.current.density
     var card by remember { mutableStateOf(false) }
+    var hovered by remember { mutableStateOf(false) }
+    var dragging by remember { mutableStateOf(false) }
+    var dragAccum by remember { mutableFloatStateOf(0f) }
+    var stretchDx by remember { mutableFloatStateOf(0f) }
+    var stretchDy by remember { mutableFloatStateOf(0f) }
+
     LaunchedEffect(card) { vm.cardOpen = card }
+
+    val springDamping = when (motion) {
+        MotionStyle.ULTRA_SPRING -> 0.56f
+        MotionStyle.MINIMAL_CRISP -> Spring.DampingRatioNoBouncy
+        MotionStyle.REDUCED -> 1f
+    }
+    val stretchX by animateFloatAsState(
+        targetValue = if (dragging) {
+            1.14f + (kotlin.math.abs(stretchDx) / (75f * density)).coerceIn(0f, 0.24f) - (kotlin.math.abs(stretchDy) / (150f * density)).coerceIn(0f, 0.12f)
+        } else if (selected) 1.05f else 1f,
+        animationSpec = spring(dampingRatio = springDamping, stiffness = Spring.StiffnessMediumLow),
+        label = "sx",
+    )
+    val stretchY by animateFloatAsState(
+        targetValue = if (dragging) {
+            1.14f + (kotlin.math.abs(stretchDy) / (75f * density)).coerceIn(0f, 0.24f) - (kotlin.math.abs(stretchDx) / (150f * density)).coerceIn(0f, 0.12f)
+        } else if (selected) 1.05f else 1f,
+        animationSpec = spring(dampingRatio = springDamping, stiffness = Spring.StiffnessMediumLow),
+        label = "sy",
+    )
+    val offsetX by animateFloatAsState(
+        targetValue = if (dragging) stretchDx.coerceIn(-22f * density, 22f * density) else 0f,
+        animationSpec = spring(dampingRatio = springDamping, stiffness = Spring.StiffnessMedium),
+        label = "ox",
+    )
+    val offsetY by animateFloatAsState(
+        targetValue = if (dragging) stretchDy.coerceIn(-22f * density, 22f * density) else 0f,
+        animationSpec = spring(dampingRatio = springDamping, stiffness = Spring.StiffnessMedium),
+        label = "oy",
+    )
+
+    val dragReorderMod = if (onReorderStep != null) {
+        Modifier.pointerInput(t, isVerticalBar) {
+            val stepPx = 38f * density
+            detectDragGesturesAfterLongPress(
+                onDragStart = {
+                    dragging = true
+                    hovered = false
+                    dragAccum = 0f
+                    stretchDx = 0f
+                    stretchDy = 0f
+                },
+                onDragEnd = {
+                    dragging = false
+                    dragAccum = 0f
+                    stretchDx = 0f
+                    stretchDy = 0f
+                },
+                onDragCancel = {
+                    dragging = false
+                    dragAccum = 0f
+                    stretchDx = 0f
+                    stretchDy = 0f
+                },
+                onDrag = { change, amount ->
+                    change.consume()
+                    stretchDx = (stretchDx + amount.x).coerceIn(-26f * density, 26f * density)
+                    stretchDy = (stretchDy + amount.y).coerceIn(-26f * density, 26f * density)
+                    val axisDelta = if (isVerticalBar) amount.y else amount.x
+                    dragAccum += axisDelta
+                    if (kotlin.math.abs(dragAccum) >= stepPx) {
+                        val dir = if (dragAccum > 0f) 1 else -1
+                        onReorderStep(t, dir)
+                        dragAccum -= dir * stepPx
+                    }
+                },
+            )
+        }
+    } else Modifier
+
     Box {
         Box(
-            Modifier.padding(1.dp).size(sz).clip(Pill)
-                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = bg))
+            Modifier.padding(1.dp).size(sz)
+                .graphicsLayer {
+                    scaleX = stretchX
+                    scaleY = stretchY
+                    translationX = offsetX
+                    translationY = offsetY
+                }
+                .clip(Pill)
+                .background(
+                    if (dragging) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f)
+                    else MaterialTheme.colorScheme.primaryContainer.copy(alpha = bg)
+                )
+                .border(
+                    width = if (dragging) 1.5.dp else 0.dp,
+                    color = if (dragging) MaterialTheme.colorScheme.primary else Color.Transparent,
+                    shape = Pill,
+                )
+                .pointerInput(t) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            when (event.type) {
+                                PointerEventType.Enter -> hovered = true
+                                PointerEventType.Exit -> hovered = false
+                            }
+                        }
+                    }
+                }
+                .then(dragReorderMod)
                 .clickable {
-                    // Tapping the tool that is already selected opens all of its settings.
                     when {
                         !selected -> vm.tool = t
-                        t == Tool.IMAGE || t == Tool.STICKER -> vm.reopenTool++   // pick another photo / sticker
+                        t == Tool.IMAGE || t == Tool.STICKER -> vm.reopenTool++
                         else -> card = true
                     }
                 },
             contentAlignment = Alignment.Center,
         ) {
-            val tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-            ToolGlyph(t, tint, ink, Modifier.size((23 * settings.toolbarSize.scale).dp), active = selected)
+            val tint = if (selected || dragging) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            ToolGlyph(t, tint, ink, Modifier.size((23 * settings.toolbarSize.scale).dp), active = selected || dragging)
         }
+
+        if (hovered && !dragging && !card && settings.showHoverTooltips && settings.hoverCursor) {
+            val (align, off) = when (settings.toolbarDock) {
+                ToolbarDock.BOTTOM -> Alignment.TopCenter to IntOffset(0, (-38 * density).toInt())
+                ToolbarDock.LEFT -> Alignment.CenterEnd to IntOffset((48 * density).toInt(), 0)
+                ToolbarDock.RIGHT -> Alignment.CenterStart to IntOffset((-48 * density).toInt(), 0)
+                else -> Alignment.BottomCenter to IntOffset(0, (38 * density).toInt())
+            }
+            Popup(alignment = align, offset = off, properties = PopupProperties(focusable = false)) {
+                Surface(
+                    shape = Pill,
+                    color = Color(0xEC161B28),
+                    contentColor = Color.White,
+                    shadowElevation = 6.dp,
+                ) {
+                    Text(
+                        toolDisplayName(t),
+                        Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+        }
+
         if (card) {
             val (align, offset) = cardPlacement(settings.toolbarDock, density)
             Popup(alignment = align, offset = offset, onDismissRequest = { card = false }, properties = PopupProperties(focusable = true)) {
@@ -1437,6 +1794,7 @@ private fun ToolButton(vm: EditorViewModel, t: Tool, settings: AppSettings) {
                         TapePatternPicker(vm) { pickTape.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
                     }
                     Tool.STICKY -> ColorCard("Sticky note", StickyColors, vm.stickyColor, vm) { vm.stickyColor = it }
+                    Tool.WEBLINK -> ColorCard("Web link card", WebLinkColors, vm.webLinkColor, vm) { vm.webLinkColor = it }
                     Tool.MINDMAP -> MindMapCard(vm)
                     Tool.STICKER, Tool.IMAGE -> Unit
                 }
@@ -1471,6 +1829,7 @@ private fun ToolOptions(vm: EditorViewModel, vertical: Boolean, settings: AppSet
                     MiniChip(if (vm.tapeFreehand) "Freehand" else "Straight") { vm.tapeFreehand = !vm.tapeFreehand }
                 }
                 t == Tool.STICKY -> CustomSwatches(StickyColors, vm.stickyColor, vm) { vm.stickyColor = it }
+                t == Tool.WEBLINK -> CustomSwatches(WebLinkColors, vm.webLinkColor, vm) { vm.webLinkColor = it }
                 t == Tool.MINDMAP -> {
                     MindPalette.take(5).forEach { c ->
                         Swatch(c, c == vm.mindColor, 18) {
@@ -1480,6 +1839,7 @@ private fun ToolOptions(vm: EditorViewModel, vertical: Boolean, settings: AppSet
                     EditorViewModel.MindLayout.entries.forEach { layout ->
                         MiniChip(layout.label) { vm.autoLayoutMindMap(layout) }
                     }
+                    MiniChip("Fit Map") { vm.fitMindMapToView() }
                     MiniChip(if (vm.moveMindSubtree) "Subtree: On" else "Subtree: Off") { vm.moveMindSubtree = !vm.moveMindSubtree }
                     MiniChip("Cards") { vm.flashcardsFromMindMap() }
                     MiniChip("AI Map") { vm.generateMindMapFromNotes() }
@@ -2352,10 +2712,89 @@ private fun ToolWheel(vm: EditorViewModel, at: Offset, onDismiss: () -> Unit) {
     }
 }
 
-/** Upgraded Split view: smooth pinch/pan zoom (without re-decoding bitmaps every frame), in-split search, page jumper strip, swap panes, and clip-to-sticky / insert-to-page. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun WebLinkDialog(vm: EditorViewModel, edit: EditorViewModel.WebLinkEdit) {
+    var url by remember(edit) { mutableStateOf(edit.item.url) }
+    var linkTitle by remember(edit) { mutableStateOf(edit.item.title) }
+    var note by remember(edit) { mutableStateOf(edit.item.note) }
+    var color by remember(edit) { mutableStateOf(edit.item.color) }
+    AlertDialog(
+        onDismissRequest = { vm.webLinkEdit = null },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ProIconView(ProIcon.WEBLINK, Color(color), Modifier.size(22.dp), ink = Color(color).copy(alpha = 0.25f))
+                Spacer(Modifier.width(8.dp))
+                Text(if (edit.isNew) "Add web link" else "Web link card", Modifier.weight(1f))
+                if (!edit.isNew && url.isNotBlank()) {
+                    TextButton(onClick = { vm.openExternalUrl(url) }) {
+                        Text("Open URL")
+                    }
+                }
+            }
+        },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    label = { Text("Website URL") },
+                    placeholder = { Text("https://en.wikipedia.org/wiki/...") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = linkTitle,
+                    onValueChange = { linkTitle = it },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    label = { Text("Title (optional)") },
+                    placeholder = { Text("Auto-uses domain if empty") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    minLines = 2,
+                    maxLines = 4,
+                    shape = RoundedCornerShape(16.dp),
+                    label = { Text("Reference note (optional)") },
+                    placeholder = { Text("Why this link matters for this chapter…") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text("ACCENT COLOUR", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    WebLinkColors.forEach { c -> Swatch(c, c == color, 20) { color = c } }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = url.trim().isNotBlank(),
+                onClick = { vm.commitWebLink(url, linkTitle, note, color) },
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = { if (edit.isNew) vm.webLinkEdit = null else vm.deleteWebLink() }) {
+                Text(if (edit.isNew) "Cancel" else "Delete", color = if (edit.isNew) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
+            }
+        },
+    )
+}
+
+/**
+ * Rewritten Ultra Split View:
+ * - Honors scrollDirection setting (VERTICAL multi-page stream vs HORIZONTAL snap pager)
+ * - Sync Page lock to follow main notebook page index
+ * - Smooth pinch-zoom + pan + double-tap zoom + presets
+ * - In-split search, swap panes, and 1-tap Clip Sticky / To Page / + Link
+ */
 @Composable
 private fun SplitPanel(
     noteId: String,
+    mainPageIndex: Int,
+    scrollDirection: ScrollDirection,
     others: List<Pair<String, String>>,
     onPick: (String) -> Unit,
     onOpen: (String) -> Unit,
@@ -2363,6 +2802,7 @@ private fun SplitPanel(
     onRatioPreset: (Float) -> Unit,
     onClipToSticky: (String, String) -> Unit,
     onInsertToPage: (String, String) -> Unit,
+    onAddWebLink: (String, String, String) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier,
 ) {
@@ -2372,7 +2812,9 @@ private fun SplitPanel(
     var splitZoom by remember(noteId) { mutableFloatStateOf(1f) }
     var splitPan by remember(noteId) { mutableStateOf(Offset.Zero) }
     var showSplitSearch by remember(noteId) { mutableStateOf(false) }
+    var syncPage by remember(noteId) { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    val snapBehavior = rememberSnapFlingBehavior(lazyListState = listState)
     val scope = rememberCoroutineScope()
     val visiblePage by remember(listState, vm2.pages.size) {
         androidx.compose.runtime.derivedStateOf { listState.firstVisibleItemIndex.coerceIn(0, (vm2.pages.size - 1).coerceAtLeast(0)) }
@@ -2380,6 +2822,12 @@ private fun SplitPanel(
 
     LaunchedEffect(splitZoom) {
         if (splitZoom <= 1.02f) splitPan = Offset.Zero
+    }
+    LaunchedEffect(mainPageIndex, syncPage, vm2.pages.size) {
+        if (syncPage && vm2.pages.isNotEmpty()) {
+            val target = mainPageIndex.coerceIn(0, vm2.pages.lastIndex)
+            listState.animateScrollToItem(target)
+        }
     }
     LaunchedEffect(vm2.activeHit, vm2.searchHits) {
         val hit = vm2.searchHits.getOrNull(vm2.activeHit) ?: return@LaunchedEffect
@@ -2391,7 +2839,8 @@ private fun SplitPanel(
         return page.items.mapNotNull {
             when (it) {
                 is TextItem -> it.text
-                is StickyItem -> it.text
+                is StickyItem -> listOf(it.title, it.text).filter { s -> s.isNotBlank() }.joinToString(": ")
+                is WebLinkItem -> "${it.title} (${it.url})"
                 is MindNodeItem -> listOfNotNull(it.tag.takeIf { t -> t.isNotBlank() }, it.label, it.notes.takeIf { n -> n.isNotBlank() }).joinToString(" — ")
                 else -> null
             }
@@ -2408,6 +2857,18 @@ private fun SplitPanel(
                 DropdownMenu(pick, { pick = false }, shape = RoundedCornerShape(18.dp)) {
                     others.forEach { (id, t) -> DropdownMenuItem(text = { Text(t) }, onClick = { pick = false; onPick(id) }) }
                 }
+            }
+            Surface(
+                shape = CircleShape,
+                color = if (syncPage) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.clip(CircleShape).clickable { syncPage = !syncPage },
+            ) {
+                Text(
+                    if (syncPage) "Sync On" else "Sync",
+                    Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (syncPage) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             IconButton(onClick = {
                 showSplitSearch = !showSplitSearch
@@ -2447,13 +2908,21 @@ private fun SplitPanel(
             }
         }
 
-        // Ratio presets & zoom bar
+        // Ratio presets, scroll indicator & zoom bar
         Row(
             Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f))
                 .horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surface) {
+                Text(
+                    if (scrollDirection == ScrollDirection.HORIZONTAL) "⇄ Page" else "⇅ Scroll",
+                    Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
             listOf("30/70" to 2.33f, "50/50" to 1f, "70/30" to 0.43f).forEach { (label, w) ->
                 Surface(
                     shape = CircleShape,
@@ -2537,27 +3006,43 @@ private fun SplitPanel(
                         val extracted = extractPageText(visiblePage)
                         onClipToSticky(extracted.ifBlank { "Reference from ${vm2.title} (Page ${visiblePage + 1})" }, vm2.title)
                     },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                 ) {
                     Icon(Icons.Outlined.PushPin, null, Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Clip sticky", style = MaterialTheme.typography.labelSmall)
+                    Spacer(Modifier.width(3.dp))
+                    Text("Sticky", style = MaterialTheme.typography.labelSmall)
                 }
                 TextButton(
                     onClick = {
                         val extracted = extractPageText(visiblePage)
                         onInsertToPage(extracted.ifBlank { "Notes from ${vm2.title} (Page ${visiblePage + 1})" }, vm2.title)
                     },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                 ) {
                     Icon(Icons.Outlined.PostAdd, null, Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(3.dp))
                     Text("To page", style = MaterialTheme.typography.labelSmall)
+                }
+                TextButton(
+                    onClick = {
+                        val firstLink = vm2.pages.getOrNull(visiblePage)?.items?.filterIsInstance<WebLinkItem>()?.firstOrNull()
+                        if (firstLink != null) {
+                            onAddWebLink(firstLink.url, firstLink.title, firstLink.note)
+                        } else {
+                            val snippet = extractPageText(visiblePage).take(90)
+                            onAddWebLink("https://pronotes.app/ref/${vm2.title.replace(" ", "-")}", "${vm2.title} · p.${visiblePage + 1}", snippet)
+                        }
+                    },
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                ) {
+                    ProIconView(ProIcon.WEBLINK, MaterialTheme.colorScheme.primary, Modifier.size(14.dp))
+                    Spacer(Modifier.width(3.dp))
+                    Text("+ Link", style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
 
-        // Smooth 60fps zoom & pan canvas viewport: quantize bitmap decode to 2 tiers so pinch never triggers expensive re-renders every frame.
+        // Smooth 60fps zoom & pan canvas viewport honoring ScrollDirection (VERTICAL stream vs HORIZONTAL pager)
         val renderW = if (splitZoom > 1.35f) 1400 else 860
         BoxWithConstraints(Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))) {
             val viewW = with(LocalDensity.current) { maxWidth.toPx() }.coerceAtLeast(120f)
@@ -2565,7 +3050,7 @@ private fun SplitPanel(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .pointerInput(viewW, viewH) {
+                    .pointerInput(viewW, viewH, scrollDirection) {
                         awaitEachGesture {
                             var pinching = false
                             while (true) {
@@ -2589,16 +3074,19 @@ private fun SplitPanel(
                                     }
                                 } else if (splitZoom > 1.03f) {
                                     val p = event.calculatePan()
-                                    if (pinching || kotlin.math.abs(p.x) > kotlin.math.abs(p.y) * 1.15f) {
-                                        if (p != Offset.Zero) {
-                                            val maxPanX = (splitZoom - 1f) * viewW * 0.52f
-                                            val maxPanY = (splitZoom - 1f) * viewH * 0.45f
-                                            splitPan = Offset(
-                                                (splitPan.x + p.x).coerceIn(-maxPanX, maxPanX),
-                                                (splitPan.y + (if (pinching) p.y else 0f)).coerceIn(-maxPanY, maxPanY),
-                                            )
-                                            event.changes.forEach { it.consume() }
-                                        }
+                                    val allowSinglePan = if (scrollDirection == ScrollDirection.HORIZONTAL) {
+                                        pinching || kotlin.math.abs(p.y) > kotlin.math.abs(p.x) * 1.15f
+                                    } else {
+                                        pinching || kotlin.math.abs(p.x) > kotlin.math.abs(p.y) * 1.15f
+                                    }
+                                    if (allowSinglePan && p != Offset.Zero) {
+                                        val maxPanX = (splitZoom - 1f) * viewW * 0.52f
+                                        val maxPanY = (splitZoom - 1f) * viewH * 0.45f
+                                        splitPan = Offset(
+                                            (splitPan.x + p.x).coerceIn(-maxPanX, maxPanX),
+                                            (splitPan.y + p.y).coerceIn(-maxPanY, maxPanY),
+                                        )
+                                        event.changes.forEach { it.consume() }
                                     }
                                 }
                             }
@@ -2617,30 +3105,55 @@ private fun SplitPanel(
                         )
                     }
             ) {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            scaleX = splitZoom
-                            scaleY = splitZoom
-                            translationX = splitPan.x
-                            translationY = splitPan.y
-                        },
-                    contentPadding = PaddingValues(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    items(vm2.pages.size) { i ->
-                        val bmp by produceState<Bitmap?>(null, i, vm2.pages.size, renderW) { value = vm2.thumbnail(i, renderW) }
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            shadowElevation = 2.dp,
-                            color = Color.White,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            bmp?.let { Image(it.asImageBitmap(), "Page ${i + 1}", Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth) }
-                                ?: Box(Modifier.fillMaxWidth().height(280.dp))
+                val transformMod = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = splitZoom
+                        scaleY = splitZoom
+                        translationX = splitPan.x
+                        translationY = splitPan.y
+                    }
+                if (scrollDirection == ScrollDirection.HORIZONTAL) {
+                    LazyRow(
+                        state = listState,
+                        flingBehavior = snapBehavior,
+                        modifier = transformMod,
+                        contentPadding = PaddingValues(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        items(vm2.pages.size) { i ->
+                            val bmp by produceState<Bitmap?>(null, i, vm2.pages.size, renderW) { value = vm2.thumbnail(i, renderW) }
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                shadowElevation = 2.dp,
+                                color = Color.White,
+                                modifier = Modifier.fillParentMaxWidth(0.95f),
+                            ) {
+                                bmp?.let { Image(it.asImageBitmap(), "Page ${i + 1}", Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth) }
+                                    ?: Box(Modifier.fillMaxWidth().height(280.dp))
+                            }
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = transformMod,
+                        contentPadding = PaddingValues(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        items(vm2.pages.size) { i ->
+                            val bmp by produceState<Bitmap?>(null, i, vm2.pages.size, renderW) { value = vm2.thumbnail(i, renderW) }
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                shadowElevation = 2.dp,
+                                color = Color.White,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                bmp?.let { Image(it.asImageBitmap(), "Page ${i + 1}", Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth) }
+                                    ?: Box(Modifier.fillMaxWidth().height(280.dp))
+                            }
                         }
                     }
                 }

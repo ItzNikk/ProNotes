@@ -181,9 +181,10 @@ object InkCodec {
                 is TapeItem -> ItemDoc.Tape(item.x, item.y, item.w, item.h, item.color, item.rot, item.pts?.toList() ?: emptyList(), item.thick, item.pattern)
                 is StickyItem -> ItemDoc.Sticky(
                     item.x, item.y, item.w, item.h, item.color, item.text, item.rot,
-                    item.fontSize, item.font, item.collapsed, item.pinned,
+                    item.fontSize, item.font, item.collapsed, item.pinned, item.title, item.style,
                 )
                 is MindNodeItem -> ItemDoc.MindNode(item.id, item.x, item.y, item.w, item.h, item.label, item.parentId, item.color, item.shape, item.collapsed, item.notes, item.tag)
+                is WebLinkItem -> ItemDoc.WebLink(item.url, item.title, item.note, item.x, item.y, item.w, item.h, item.color, item.rot)
             }
         },
     )
@@ -233,7 +234,7 @@ object InkCodec {
                         )
                         is ItemDoc.Sticky -> StickyItem(
                             ItemIds.next(), item.x, item.y, item.w, item.h, item.color, item.text, item.rot,
-                            item.fontSize, item.font, item.collapsed, item.pinned,
+                            item.fontSize, item.font, item.collapsed, item.pinned, item.title, item.style,
                         )
                         is ItemDoc.MindNode -> MindNodeItem(
                             id = nodeIds[item.nodeId] ?: ItemIds.next(),
@@ -248,6 +249,18 @@ object InkCodec {
                             collapsed = item.collapsed,
                             notes = item.notes,
                             tag = item.tag,
+                        )
+                        is ItemDoc.WebLink -> WebLinkItem(
+                            id = ItemIds.next(),
+                            url = item.url,
+                            title = item.title,
+                            note = item.note,
+                            x = item.x,
+                            y = item.y,
+                            w = item.w,
+                            h = item.h,
+                            color = item.color,
+                            rot = item.rot,
                         )
                     }
                 }.getOrNull()

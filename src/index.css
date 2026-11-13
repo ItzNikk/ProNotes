@@ -7,6 +7,38 @@
     --font-sans: 'DM Sans', system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
     --font-hand: 'Caveat', cursive;
+    --motion-ease: cubic-bezier(0.22, 1.32, 0.36, 1);
+    --motion-dur: 280ms;
+  }
+
+  :root[data-font='MODERN_SANS'] {
+    --font-display: 'Plus Jakarta Sans', 'DM Sans', system-ui, sans-serif;
+    --font-sans: 'DM Sans', system-ui, sans-serif;
+  }
+
+  :root[data-font='EDITORIAL_SERIF'] {
+    --font-display: 'Fraunces', Georgia, serif;
+    --font-sans: 'Fraunces', Georgia, serif;
+  }
+
+  :root[data-font='STUDIO_MONO'] {
+    --font-display: 'JetBrains Mono', monospace;
+    --font-sans: 'JetBrains Mono', monospace;
+  }
+
+  :root[data-font='ROUNDED'] {
+    --font-display: 'Quicksand', 'Plus Jakarta Sans', sans-serif;
+    --font-sans: 'Quicksand', 'DM Sans', sans-serif;
+  }
+
+  :root[data-motion='MINIMAL_CRISP'] {
+    --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+    --motion-dur: 160ms;
+  }
+
+  :root[data-motion='REDUCED'] {
+    --motion-ease: linear;
+    --motion-dur: 1ms;
   }
 
   body {
@@ -87,6 +119,16 @@
   100% { transform: rotate(360deg) translateX(18px) rotate(-360deg); }
 }
 
+@keyframes slide-orb-float {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(24px, -18px, 0) scale(1.09); }
+}
+
+@keyframes bullet-reveal {
+  0% { opacity: 0; transform: translateX(-14px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
 .animate-ai-shimmer {
   animation: ai-shimmer 1.65s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
@@ -104,11 +146,50 @@
 }
 
 .animate-stagger-in {
-  animation: stagger-pop 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: stagger-pop var(--motion-dur) var(--motion-ease) both;
 }
 
 .animate-spark-orbit {
   animation: spark-orbit 2.4s linear infinite;
+}
+
+.animate-slide-orb {
+  animation: slide-orb-float 7s ease-in-out infinite;
+}
+
+.animate-bullet-in {
+  animation: bullet-reveal 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* iOS-style elastic stretchable toolbar button */
+.ios-stretch-tool {
+  transition:
+    transform var(--motion-dur) var(--motion-ease),
+    background-color 180ms ease,
+    box-shadow 220ms ease;
+  will-change: transform;
+}
+
+.ios-stretch-tool:hover {
+  transform: scale(1.11, 0.96);
+}
+
+.ios-stretch-tool:active {
+  transform: scale(0.92, 1.09);
+}
+
+.ios-stretch-tool[data-dragging='true'] {
+  transform: scale(1.18, 1.12) rotate(-2deg);
+  box-shadow: 0 14px 30px -8px rgba(15, 23, 42, 0.35);
+  z-index: 40;
+}
+
+:root[data-motion='REDUCED'] *,
+:root[data-motion='REDUCED'] *::before,
+:root[data-motion='REDUCED'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
 }
 
 .perspective-1000 {

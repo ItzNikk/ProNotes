@@ -8,10 +8,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Columns2,
+  Compass,
   Copy,
   Cpu,
   Download,
   Eraser,
+  ExternalLink,
   FileText,
   GitBranch,
   Hand,
@@ -20,7 +22,9 @@ import {
   Image as ImageIcon,
   Lasso as LassoIcon,
   Layers,
+  Link2,
   ListChecks,
+  Lock,
   Maximize2,
   Minimize2,
   MoreHorizontal,
@@ -31,6 +35,7 @@ import {
   Pen,
   Pin,
   PinOff,
+  Play,
   Plus,
   Redo2,
   Search,
@@ -44,6 +49,7 @@ import {
   Trash2,
   Type,
   Undo2,
+  Unlock,
   Upload,
   Wand2,
   X,
@@ -53,6 +59,7 @@ import {
 import {
   ACCENT_COLORS,
   AppSettings,
+  DEFAULT_TOOLBAR_ORDER,
   EraserMode,
   Flashcard,
   InkItem,
@@ -67,18 +74,25 @@ import {
   PenPreset,
   QuizQuestion,
   ScribbleSensitivity,
+  ScrollDirection,
   ShapeKind,
+  SlideCard,
   StickyFont,
   StickyItem,
+  StickyStyle,
   StrokePt,
   TAPE_PATTERNS,
   TextFont,
   TextItem,
   ToolId,
+  WEBLINK_COLORS,
+  WebLinkItem,
 } from '../types/models';
 import {
+  clampMindNodesToPage,
   dist,
   getItemBounds,
+  getStickyChecklistHitBoxes,
   isClosedLoop,
   isLiveScribble,
   isNearlyStraight,
@@ -91,6 +105,7 @@ import {
   ShapeBuilder,
   ShapeRecognizer,
   splitStrokeByEraser,
+  toggleStickyChecklistLine,
 } from '../utils/geometry';
 import {
   drawPaperTemplate,
@@ -108,11 +123,13 @@ import {
   runLocalExplain,
   runLocalFlashcards,
   runLocalQuiz,
+  runLocalSlideShow,
   runLocalSummary,
+  runSemanticSearch,
 } from '../utils/localAi';
 import { AiParticleBackdrop, AiThinkingPill } from './AiVisuals';
 import { PaperPreviewCanvas } from './CoversAndPatterns';
-import { FlashcardsModal, QuizModal, SummaryModal } from './StudyModals';
+import { FlashcardsModal, QuizModal, SlideShowModal, SummaryModal } from './StudyModals';
 
 interface PuffParticle {
   x: number;
@@ -154,6 +171,7 @@ interface EditorScreenProps {
   onSwitchNote: (id: string) => void;
   onCloseTab: (id: string) => void;
   onUpdateNotebook: (id: string, updater: (nb: NotebookMeta) => NotebookMeta) => void;
+  onUpdateSlides?: (slides: SlideCard[]) => void;
   onAppendPages?: (pages: Page[]) => void;
   onUpdateSettings: (patch: Partial<AppSettings>) => void;
   onSavePenPreset: (preset: PenPreset) => void;
@@ -181,34 +199,41 @@ const PEN_NIBS: { id: PenKind; label: string; desc: string }[] = [
 ];
 
 // ================================================================
-// Interactive Secondary Canvas for Split Notes Workspace
+// Rewritten Scroll-Aware Split Notes Workspace (Ultra v9.11)
 // ================================================================
 const SplitNotebookPane: React.FC<{
   splitNotebook: NotebookMeta;
   allNotebooks: NotebookMeta[];
   paperTintDefault: string;
   highlighterBehind: boolean;
+  scrollDirection: ScrollDirection;
+  primaryPageIdx: number;
   width: number;
   onChangeNotebook: (id: string) => void;
   onSwapWithPrimary: (id: string) => void;
   onSetRatio: (ratio: number) => void;
   onCopyTextToPrimary: (text: string) => void;
   onInsertTextToActive: (text: string) => void;
+  onInsertWebLink: (url: string, title: string) => void;
   onClose: () => void;
 }> = ({
   splitNotebook,
   allNotebooks,
   paperTintDefault,
   highlighterBehind,
+  scrollDirection,
+  primaryPageIdx,
   width,
   onChangeNotebook,
   onSwapWithPrimary,
   onSetRatio,
   onCopyTextToPrimary,
   onInsertTextToActive,
+  onInsertWebLink,
   onClose,
 }) => {
   const [splitPageIdx, setSplitPageIdx] = useState(0);
+  const [syncPage, setSyncPage] = useState(false);
   const [viewport, setViewport] = useState<{ zoom: number; panX: number; panY: number }>({
     zoom: 0.5,
     panX: 16,
@@ -233,22 +258,52 @@ const SplitNotebookPane: React.FC<{
     initialCenter: { x: number; y: number };
   } | null>(null);
 
+  const PAGE_GAP = 32;
+  const isVerticalMode = scrollDirection === 'VERTICAL';
+
+  // Precompute continuous flow offsets for all pages so Vertical or Horizontal scrolling matches settings.scroll
+  const pageLayout = useMemo(() => {
+    const rects: { page: Page; x: number; y: number; w: number; h: number }[] = [];
+    let cursor = 0;
+    for (const pg of splitNotebook.pages) {
+      if (isVerticalMode) {
+        rects.push({ page: pg, x: 0, y: cursor, w: pg.width, h: pg.height });
+        cursor += pg.height + PAGE_GAP;
+      } else {
+        rects.push({ page: pg, x: cursor, y: 0, w: pg.width, h: pg.height });
+        cursor += pg.width + PAGE_GAP;
+      }
+    }
+    return rects;
+  }, [splitNotebook.pages, isVerticalMode]);
+
   const sSafeIdx = Math.min(splitPageIdx, Math.max(0, splitNotebook.pages.length - 1));
   const spPage = splitNotebook.pages[sSafeIdx];
 
-  const fitSplitPage = useCallback(
-    (targetPage: Page | undefined = spPage, maxCap = 0.88) => {
-      const el = splitWrapRef.current;
-      if (!el || !targetPage) return;
-      const fit = Math.min((el.clientWidth - 28) / targetPage.width, (el.clientHeight - 28) / targetPage.height, maxCap);
-      const z = Math.max(0.24, fit);
+  const jumpToSplitPage = useCallback(
+    (idx: number, customZoom?: number) => {
+      const clamped = Math.max(0, Math.min(splitNotebook.pages.length - 1, idx));
+      setSplitPageIdx(clamped);
+      const wrap = splitWrapRef.current;
+      const entry = pageLayout[clamped];
+      if (!wrap || !entry) return;
+      const z =
+        customZoom ??
+        Math.max(
+          0.24,
+          Math.min(
+            (wrap.clientWidth - 28) / entry.w,
+            (wrap.clientHeight - 28) / entry.h,
+            0.88
+          )
+        );
       setViewport({
         zoom: z,
-        panX: Math.max(12, (el.clientWidth - targetPage.width * z) / 2),
-        panY: 14,
+        panX: Math.max(12, (wrap.clientWidth - entry.w * z) / 2) - entry.x * z,
+        panY: 16 - entry.y * z,
       });
     },
-    [spPage]
+    [splitNotebook.pages.length, pageLayout]
   );
 
   const zoomAtCenter = useCallback((targetZoom: number, ox?: number, oy?: number) => {
@@ -272,11 +327,38 @@ const SplitNotebookPane: React.FC<{
     setSplitHitIdx(0);
   }, [splitNotebook.id]);
 
+  // Sync with primary notebook page when Sync Lock is active
   useEffect(() => {
-    fitSplitPage(spPage, 0.85);
-  }, [splitNotebook.id, sSafeIdx, width, spPage, fitSplitPage]);
+    if (!syncPage) return;
+    const target = Math.min(primaryPageIdx, Math.max(0, splitNotebook.pages.length - 1));
+    jumpToSplitPage(target, viewportRef.current.zoom);
+  }, [syncPage, primaryPageIdx, splitNotebook.pages.length, jumpToSplitPage]);
 
-  // Native non-passive wheel listener for smooth zoom & pan without outer scroll leakage
+  useEffect(() => {
+    jumpToSplitPage(sSafeIdx);
+  }, [splitNotebook.id, width, scrollDirection]);
+
+  // Track active page index automatically as user pans/scrolls along pageLayout
+  useEffect(() => {
+    const wrap = splitWrapRef.current;
+    if (!wrap || pageLayout.length <= 1) return;
+    const cxWorld = (wrap.clientWidth / 2 - viewport.panX) / viewport.zoom;
+    const cyWorld = (wrap.clientHeight / 2 - viewport.panY) / viewport.zoom;
+    let bestIdx = sSafeIdx;
+    let bestDist = Infinity;
+    pageLayout.forEach((r, idx) => {
+      const rx = r.x + r.w / 2;
+      const ry = r.y + r.h / 2;
+      const d = isVerticalMode ? Math.abs(cyWorld - ry) : Math.abs(cxWorld - rx);
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = idx;
+      }
+    });
+    if (bestIdx !== sSafeIdx) setSplitPageIdx(bestIdx);
+  }, [viewport.panX, viewport.panY, viewport.zoom, pageLayout, isVerticalMode, sSafeIdx]);
+
+  // Native non-passive wheel listener: wheel scrolls vertically OR horizontally matching settings.scroll
   useEffect(() => {
     const canvas = splitCanvasRef.current;
     if (!canvas) return;
@@ -301,19 +383,19 @@ const SplitNotebookPane: React.FC<{
       } else {
         setViewport((prev) => ({
           ...prev,
-          panX: prev.panX - e.deltaX,
-          panY: prev.panY - e.deltaY,
+          panX: isVerticalMode ? prev.panX - e.deltaX : prev.panX - (e.deltaX || e.deltaY),
+          panY: isVerticalMode ? prev.panY - e.deltaY : prev.panY - (e.deltaX ? e.deltaY : 0),
         }));
       }
     };
     canvas.addEventListener('wheel', onWheel, { passive: false });
     return () => canvas.removeEventListener('wheel', onWheel);
-  }, []);
+  }, [isVerticalMode]);
 
   useEffect(() => {
     const canvas = splitCanvasRef.current;
     const wrap = splitWrapRef.current;
-    if (!canvas || !wrap || !spPage) return;
+    if (!canvas || !wrap || pageLayout.length === 0) return;
     const dpr = window.devicePixelRatio || 1;
     const cw = wrap.clientWidth;
     const ch = wrap.clientHeight;
@@ -325,25 +407,53 @@ const SplitNotebookPane: React.FC<{
 
     ctx.save();
     ctx.scale(dpr, dpr);
-    const paperBg = spPage.paperColor || paperTintDefault || '#FFFFFF';
-    if (spPage.isWhiteboard) {
-      drawWhiteboardBackdrop(ctx, cw, ch, viewport.panX, viewport.panY, viewport.zoom, paperBg);
+    const baseBg = spPage?.paperColor || paperTintDefault || '#FFFFFF';
+    if (spPage?.isWhiteboard) {
+      drawWhiteboardBackdrop(ctx, cw, ch, viewport.panX, viewport.panY, viewport.zoom, baseBg);
     } else {
-      ctx.fillStyle = isColorDark(paperBg) ? '#14151A' : '#E5E7EE';
+      ctx.fillStyle = isColorDark(baseBg) ? '#14151A' : '#E5E7EE';
       ctx.fillRect(0, 0, cw, ch);
     }
+
     ctx.save();
     ctx.translate(viewport.panX, viewport.panY);
     ctx.scale(viewport.zoom, viewport.zoom);
-    if (!spPage.isWhiteboard) {
-      ctx.fillStyle = paperBg;
-      ctx.fillRect(0, 0, spPage.width, spPage.height);
-      drawPaperTemplate(ctx, spPage.width, spPage.height, spPage.paper, paperBg, spPage.lineScale ?? 1, spPage.lineColor);
-    }
-    renderPageItems(ctx, spPage, new Map(), new Set(), highlighterBehind);
+
+    const viewMinX = -viewport.panX / viewport.zoom - 40;
+    const viewMaxX = (cw - viewport.panX) / viewport.zoom + 40;
+    const viewMinY = -viewport.panY / viewport.zoom - 40;
+    const viewMaxY = (ch - viewport.panY) / viewport.zoom + 40;
+
+    pageLayout.forEach((slot) => {
+      if (
+        slot.x + slot.w < viewMinX ||
+        slot.x > viewMaxX ||
+        slot.y + slot.h < viewMinY ||
+        slot.y > viewMaxY
+      ) {
+        return;
+      }
+      ctx.save();
+      ctx.translate(slot.x, slot.y);
+      const pg = slot.page;
+      const pBg = pg.paperColor || paperTintDefault || '#FFFFFF';
+      if (!pg.isWhiteboard) {
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,0.12)';
+        ctx.shadowBlur = 16;
+        ctx.shadowOffsetY = 4;
+        ctx.fillStyle = pBg;
+        ctx.fillRect(0, 0, pg.width, pg.height);
+        ctx.restore();
+        drawPaperTemplate(ctx, pg.width, pg.height, pg.paper, pBg, pg.lineScale ?? 1, pg.lineColor);
+      }
+      renderPageItems(ctx, pg, new Map(), new Set(), highlighterBehind);
+      ctx.restore();
+    });
+
     ctx.restore();
     ctx.restore();
-  }, [spPage, viewport, width, paperTintDefault, highlighterBehind]);
+  }, [pageLayout, spPage, viewport, width, paperTintDefault, highlighterBehind]);
 
   const splitSearchHits = useMemo(() => {
     const q = splitSearchQuery.trim().toLowerCase();
@@ -355,10 +465,12 @@ const SplitNotebookPane: React.FC<{
           it.kind === 'text'
             ? it.text
             : it.kind === 'sticky'
-              ? it.text
-              : it.kind === 'mindnode'
-                ? `${it.label} ${it.notes || ''}`
-                : '';
+              ? `${it.title || ''} ${it.text}`
+              : it.kind === 'weblink'
+                ? `${it.title} ${it.url}`
+                : it.kind === 'mindnode'
+                  ? `${it.label} ${it.notes || ''}`
+                  : '';
         if (txt.toLowerCase().includes(q)) {
           hits.push({ pageIdx: idx, preview: txt.trim().slice(0, 64) });
         }
@@ -374,10 +486,12 @@ const SplitNotebookPane: React.FC<{
         it.kind === 'text'
           ? it.text
           : it.kind === 'sticky'
-            ? it.text
-            : it.kind === 'mindnode'
-              ? `${it.label}${it.notes ? `: ${it.notes}` : ''}`
-              : ''
+            ? `${it.title ? `${it.title}\n` : ''}${it.text}`
+            : it.kind === 'weblink'
+              ? `${it.title} (${it.url})`
+              : it.kind === 'mindnode'
+                ? `${it.label}${it.notes ? `: ${it.notes}` : ''}`
+                : ''
       )
       .filter(Boolean)
       .join('\n');
@@ -403,6 +517,16 @@ const SplitNotebookPane: React.FC<{
               </option>
             ))}
         </select>
+        <button
+          type="button"
+          onClick={() => setSyncPage((s) => !s)}
+          title={syncPage ? 'Page sync locked to primary notebook' : 'Lock page sync with primary notebook'}
+          className={`shrink-0 rounded-lg p-1.5 transition ${
+            syncPage ? 'bg-emerald-600/15 text-emerald-600' : 'text-slate-500 hover:bg-black/5 dark:hover:bg-white/10'
+          }`}
+        >
+          {syncPage ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
+        </button>
         <button
           type="button"
           onClick={() => setSplitSearchOpen((v) => !v)}
@@ -439,8 +563,7 @@ const SplitNotebookPane: React.FC<{
             autoFocus
             value={splitSearchQuery}
             onChange={(e) => {
-              const val = e.target.value;
-              setSplitSearchQuery(val);
+              setSplitSearchQuery(e.target.value);
               setSplitHitIdx(0);
             }}
             placeholder="Find in reference..."
@@ -458,7 +581,7 @@ const SplitNotebookPane: React.FC<{
               if (splitSearchHits.length === 0) return;
               const next = (splitHitIdx - 1 + splitSearchHits.length) % splitSearchHits.length;
               setSplitHitIdx(next);
-              setSplitPageIdx(splitSearchHits[next].pageIdx);
+              jumpToSplitPage(splitSearchHits[next].pageIdx, viewport.zoom);
             }}
             className="rounded p-0.5 hover:bg-black/10 disabled:opacity-30"
           >
@@ -471,7 +594,7 @@ const SplitNotebookPane: React.FC<{
               if (splitSearchHits.length === 0) return;
               const next = (splitHitIdx + 1) % splitSearchHits.length;
               setSplitHitIdx(next);
-              setSplitPageIdx(splitSearchHits[next].pageIdx);
+              jumpToSplitPage(splitSearchHits[next].pageIdx, viewport.zoom);
             }}
             className="rounded p-0.5 hover:bg-black/10 disabled:opacity-30"
           >
@@ -501,6 +624,9 @@ const SplitNotebookPane: React.FC<{
               {Math.round(r * 100)}/{Math.round((1 - r) * 100)}
             </button>
           ))}
+          <span className="ml-1 rounded bg-black/5 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-500 dark:bg-white/10">
+            {isVerticalMode ? '↕ Vert' : '↔ Horiz'}
+          </span>
         </div>
 
         <div className="flex items-center gap-0.5">
@@ -525,7 +651,7 @@ const SplitNotebookPane: React.FC<{
           </button>
           <button
             type="button"
-            onClick={() => fitSplitPage(spPage, 0.95)}
+            onClick={() => jumpToSplitPage(sSafeIdx)}
             className="whitespace-nowrap shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold hover:bg-black/5 dark:hover:bg-white/10"
             title="Fit page in split pane"
           >
@@ -550,13 +676,13 @@ const SplitNotebookPane: React.FC<{
         </div>
       </div>
 
-      {/* Horizontal Page Jumper Strip */}
+      {/* Flow Page Jumper Strip */}
       {splitNotebook.pages.length > 1 && (
         <div className="flex items-center gap-1 overflow-x-auto border-b border-black/6 px-3 py-1.5 text-[11px] dark:border-white/8">
           <button
             type="button"
             disabled={sSafeIdx === 0}
-            onClick={() => setSplitPageIdx((i) => Math.max(0, i - 1))}
+            onClick={() => jumpToSplitPage(sSafeIdx - 1, viewport.zoom)}
             className="shrink-0 rounded p-0.5 hover:bg-black/5 disabled:opacity-30"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
@@ -565,7 +691,7 @@ const SplitNotebookPane: React.FC<{
             <button
               key={pg.id}
               type="button"
-              onClick={() => setSplitPageIdx(idx)}
+              onClick={() => jumpToSplitPage(idx, viewport.zoom)}
               className={`shrink-0 whitespace-nowrap rounded-md px-2 py-0.5 font-mono-num text-[10px] font-bold transition ${
                 idx === sSafeIdx
                   ? 'bg-blue-600 text-white'
@@ -578,7 +704,7 @@ const SplitNotebookPane: React.FC<{
           <button
             type="button"
             disabled={sSafeIdx >= splitNotebook.pages.length - 1}
-            onClick={() => setSplitPageIdx((i) => Math.min(splitNotebook.pages.length - 1, i + 1))}
+            onClick={() => jumpToSplitPage(sSafeIdx + 1, viewport.zoom)}
             className="shrink-0 rounded p-0.5 hover:bg-black/5 disabled:opacity-30"
           >
             <ChevronRight className="h-3.5 w-3.5" />
@@ -586,7 +712,7 @@ const SplitNotebookPane: React.FC<{
         </div>
       )}
 
-      {/* Interactive Pan/Zoom Preview Canvas */}
+      {/* Interactive Multi-Page Pan/Pinch-Zoom Preview Canvas */}
       <div ref={splitWrapRef} className="relative min-h-0 flex-1 overflow-hidden">
         <canvas
           ref={splitCanvasRef}
@@ -662,7 +788,7 @@ const SplitNotebookPane: React.FC<{
             const el = splitWrapRef.current;
             if (!el || !spPage) return;
             if (viewport.zoom > 1.1) {
-              fitSplitPage(spPage, 0.85);
+              jumpToSplitPage(sSafeIdx);
             } else {
               const rect = el.getBoundingClientRect();
               zoomAtCenter(1.75, e.clientX - rect.left, e.clientY - rect.top);
@@ -672,25 +798,39 @@ const SplitNotebookPane: React.FC<{
         />
       </div>
 
-      {/* Quick Clip & Insert Footer */}
-      {pageText && (
-        <div className="flex items-center gap-2 border-t border-black/8 p-2.5 dark:border-white/10">
-          <button
-            type="button"
-            onClick={() => onCopyTextToPrimary(pageText)}
-            className="flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-blue-600/10 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-600/20 dark:text-blue-300"
-          >
-            <Copy className="h-3.5 w-3.5 shrink-0" /> Clip Sticky
-          </button>
-          <button
-            type="button"
-            onClick={() => onInsertTextToActive(pageText)}
-            className="flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-black/10 py-2 text-xs font-semibold text-slate-700 hover:bg-black/5 dark:border-white/15 dark:text-slate-200 dark:hover:bg-white/10"
-          >
-            <FileText className="h-3.5 w-3.5 shrink-0" /> To Page
-          </button>
-        </div>
-      )}
+      {/* Quick Clip, Insert & Web Link Footer */}
+      <div className="flex items-center gap-1.5 border-t border-black/8 p-2.5 dark:border-white/10">
+        {pageText && (
+          <>
+            <button
+              type="button"
+              onClick={() => onCopyTextToPrimary(pageText)}
+              className="flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-xl bg-blue-600/10 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-600/20 dark:text-blue-300"
+            >
+              <Copy className="h-3.5 w-3.5 shrink-0" /> Clip Sticky
+            </button>
+            <button
+              type="button"
+              onClick={() => onInsertTextToActive(pageText)}
+              className="flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-xl border border-black/10 py-2 text-xs font-semibold text-slate-700 hover:bg-black/5 dark:border-white/15 dark:text-slate-200 dark:hover:bg-white/10"
+            >
+              <FileText className="h-3.5 w-3.5 shrink-0" /> To Page
+            </button>
+          </>
+        )}
+        <button
+          type="button"
+          onClick={() =>
+            onInsertWebLink(
+              `https://pronotes.app/notebook/${splitNotebook.id}?p=${sSafeIdx + 1}`,
+              `${splitNotebook.title} (p.${sSafeIdx + 1})`
+            )
+          }
+          className="flex items-center justify-center gap-1 whitespace-nowrap rounded-xl border border-blue-500/25 bg-blue-500/8 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-500/15 dark:text-blue-300"
+        >
+          <Link2 className="h-3.5 w-3.5 shrink-0" /> + Link
+        </button>
+      </div>
     </aside>
   );
 };
@@ -710,6 +850,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   onSwitchNote,
   onCloseTab,
   onUpdateNotebook,
+  onUpdateSlides,
   onAppendPages,
   onUpdateSettings,
   onSavePenPreset,
@@ -772,6 +913,42 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   const [aiMenuOpen, setAiMenuOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [stickerOpen, setStickerOpen] = useState(false);
+  const [hoveredToolId, setHoveredToolId] = useState<ToolId | null>(null);
+  const [dragToolId, setDragToolId] = useState<ToolId | null>(null);
+
+  // WebLink Studio modal state
+  const [webLinkModal, setWebLinkModal] = useState<{
+    open: boolean;
+    editId: string | null;
+    x: number;
+    y: number;
+    url: string;
+    title: string;
+    note: string;
+    color: string;
+  }>({
+    open: false,
+    editId: null,
+    x: 240,
+    y: 220,
+    url: 'https://',
+    title: '',
+    note: '',
+    color: WEBLINK_COLORS[0],
+  });
+
+  // Slide Show Revision modal state
+  const [slideModalOpen, setSlideModalOpen] = useState(false);
+  const [slideEngineLabel, setSlideEngineLabel] = useState('AI + Manual Deck Studio');
+  const [slideLoadingStage, setSlideLoadingStage] = useState<string | null>(null);
+
+  // AI Semantic Search state
+  const [semanticResult, setSemanticResult] = useState<{
+    answer: string;
+    expandedTerms: string[];
+    engineLabel: string;
+  } | null>(null);
+  const [semanticBusy, setSemanticBusy] = useState(false);
 
   // Resizable Split Workspace
   const [splitNoteId, setSplitNoteId] = useState<string | null>(null);
@@ -1128,6 +1305,13 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     return found && found.kind === 'sticky' ? found : null;
   }, [editingStickyId, selectedIds, page]);
 
+  const selectedWebLinkNode = useMemo(() => {
+    if (selectedIds.size !== 1 || !page) return null;
+    const id = Array.from(selectedIds)[0];
+    const found = page.items.find((i) => i.id === id && i.kind === 'weblink');
+    return found && found.kind === 'weblink' ? found : null;
+  }, [selectedIds, page]);
+
   const openMindEditor = useCallback((node: MindNodeItem) => {
     setEditingMindId(node.id);
     setMindDraft(node.label);
@@ -1136,6 +1320,31 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     setMindShapeDraft(node.shape);
     setMindColorDraft(node.color);
   }, []);
+
+  const fitMindMapToView = useCallback(() => {
+    const el = containerRef.current;
+    if (!el || mindNodesOnPage.length === 0) {
+      fitPageToView(page);
+      return;
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of mindNodesOnPage) {
+      minX = Math.min(minX, n.x);
+      minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + n.w);
+      maxY = Math.max(maxY, n.y + n.h);
+    }
+    const bw = Math.max(220, maxX - minX + 120);
+    const bh = Math.max(160, maxY - minY + 120);
+    const zoom = Math.max(0.28, Math.min(1.4, Math.min(el.clientWidth / bw, el.clientHeight / bh)));
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    setCamera({
+      zoom,
+      panX: el.clientWidth / 2 - cx * zoom,
+      panY: el.clientHeight / 2 - cy * zoom,
+    });
+  }, [mindNodesOnPage, fitPageToView, page]);
 
   const addMindNode = useCallback(
     (parent: MindNodeItem | null, worldPos?: Pt, label = 'New Idea') => {
@@ -1162,11 +1371,13 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         color,
         shape: parent ? 'card' : 'pill',
       };
-      commitPageItems((items) => [...items, newNode]);
+      commitPageItems((items) =>
+        clampMindNodesToPage([...items, newNode], page?.width || 1200, page?.height || 1697, isWhiteboard)
+      );
       setSelectedIds(new Set([newNode.id]));
       openMindEditor(newNode);
     },
-    [mindNodesOnPage, commitPageItems, openMindEditor]
+    [mindNodesOnPage, commitPageItems, openMindEditor, page?.width, page?.height, isWhiteboard]
   );
 
   const addSiblingMindNode = useCallback(
@@ -1278,16 +1489,21 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       }
 
       commitPageItems((items) =>
-        items.map((it) => {
-          if (it.kind !== 'mindnode') return it;
-          const p = posMap.get(it.id);
-          return p ? { ...it, x: p.x, y: p.y } : it;
-        })
+        clampMindNodesToPage(
+          items.map((it) => {
+            if (it.kind !== 'mindnode') return it;
+            const p = posMap.get(it.id);
+            return p ? { ...it, x: p.x, y: p.y } : it;
+          }),
+          page?.width || 1200,
+          page?.height || 1697,
+          isWhiteboard
+        )
       );
       const labelMap = { RADIAL: 'Radial', TREE: 'Tree', ORG_CHART: 'Org Chart' };
       showToast(`Applied ${labelMap[layoutType]} Mind Map layout`);
     },
-    [mindNodesOnPage, commitPageItems, showToast]
+    [mindNodesOnPage, commitPageItems, showToast, page?.width, page?.height, isWhiteboard]
   );
 
   // ================================================================
@@ -1666,6 +1882,25 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       return;
     }
 
+    // Interactive Sticky Note Checkbox Tap (no modal popup required!)
+    if (tool !== 'ERASER' && tool !== 'LASSO') {
+      const stickies = [...page.items].reverse().filter((i): i is StickyItem => i.kind === 'sticky');
+      for (const st of stickies) {
+        const hitBox = getStickyChecklistHitBoxes(st).find(
+          (hb) => world.x >= hb.x && world.x <= hb.x + 36 && world.y >= hb.y && world.y <= hb.y + hb.h
+        );
+        if (hitBox) {
+          const nextText = toggleStickyChecklistLine(st.text, hitBox.lineIndex);
+          commitPageItems((items) =>
+            items.map((it) => (it.id === st.id && it.kind === 'sticky' ? { ...it, text: nextText } : it))
+          );
+          g.active = false;
+          requestDraw();
+          return;
+        }
+      }
+    }
+
     // Check Sticky Resize Grip (disabled when collapsed or pinned)
     if (selectedIds.size === 1) {
       const sid = Array.from(selectedIds)[0];
@@ -1708,6 +1943,18 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       setEditingStickyId(null);
     }
 
+    // Clicking a WebLink card with any non-drawing tool selects it cleanly
+    if (tool !== 'ERASER' && tool !== 'PEN' && tool !== 'HIGHLIGHTER' && tool !== 'LASSO') {
+      const hitAny = hitTestAnyItem(world);
+      if (hitAny && hitAny.kind === 'weblink' && tool !== 'WEBLINK') {
+        setSelectedIds(new Set([hitAny.id]));
+        g.mode = 'DRAG_ITEMS';
+        g.dragOrigItems = [...page.items];
+        workingItemsRef.current = [...page.items];
+        return;
+      }
+    }
+
     if (tool === 'PEN' || tool === 'HIGHLIGHTER') {
       g.mode = 'INK';
       workingItemsRef.current = [...page.items];
@@ -1725,6 +1972,33 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     } else if (tool === 'LASER') {
       g.mode = 'LASER';
       lasersRef.current.push({ pts: [world], born: performance.now() });
+    } else if (tool === 'WEBLINK') {
+      const hit = hitTestAnyItem(world);
+      if (hit && hit.kind === 'weblink') {
+        setSelectedIds(new Set([hit.id]));
+        setWebLinkModal({
+          open: true,
+          editId: hit.id,
+          x: hit.x,
+          y: hit.y,
+          url: hit.url,
+          title: hit.title,
+          note: hit.note || '',
+          color: hit.color,
+        });
+      } else {
+        setWebLinkModal({
+          open: true,
+          editId: null,
+          x: world.x - 160,
+          y: world.y - 48,
+          url: 'https://',
+          title: '',
+          note: '',
+          color: WEBLINK_COLORS[0],
+        });
+      }
+      g.active = false;
     } else if (tool === 'STICKY') {
       const hit = hitTestAnyItem(world);
       if (hit && hit.kind === 'sticky') {
@@ -1739,7 +2013,9 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           w: 260,
           h: 195,
           color: stickyColor,
-          text: 'New sticky note…',
+          title: 'Quick Note',
+          text: '- [ ] First study task\nKey takeaway...',
+          style: 'classic',
           fontSize: 18,
           font: 'SANS',
         };
@@ -2005,7 +2281,10 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
 
     if (g.mode === 'DRAG_MIND' || g.mode === 'DRAG_ITEMS') {
       if (workingItemsRef.current && (dist(g.startWorld, g.lastWorld) > 1.5)) {
-        const finalItems = workingItemsRef.current;
+        const finalItems =
+          g.mode === 'DRAG_MIND'
+            ? clampMindNodesToPage(workingItemsRef.current, page.width, page.height, isWhiteboard)
+            : workingItemsRef.current;
         workingItemsRef.current = null;
         commitPageItems(() => finalItems, true);
       } else {
@@ -2222,10 +2501,15 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     });
     try {
       const txt = extractNotebookText(notebook.pages);
-      const res = await runLocalSummary(txt, settings.activeLocalModelId, (stage) => {
-        setAiStageLabel(stage);
-        setSummaryModal((s) => ({ ...s, loadingStage: stage }));
-      });
+      const res = await runLocalSummary(
+        txt,
+        settings.activeLocalModelId,
+        (stage) => {
+          setAiStageLabel(stage);
+          setSummaryModal((s) => ({ ...s, loadingStage: stage }));
+        },
+        settings
+      );
       setSummaryModal({
         open: true,
         title: `Key Points · ${notebook.title}`,
@@ -2245,8 +2529,12 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     setAiStageLabel('Scanning definitions');
     try {
       const txt = extractNotebookText(notebook.pages);
-      const res = await runLocalFlashcards(txt, notebook.id, settings.activeLocalModelId, (stage) =>
-        setAiStageLabel(stage)
+      const res = await runLocalFlashcards(
+        txt,
+        notebook.id,
+        settings.activeLocalModelId,
+        (stage) => setAiStageLabel(stage),
+        settings
       );
       if (res.cards.length > 0) {
         onAddFlashcards(res.cards);
@@ -2273,10 +2561,15 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     });
     try {
       const txt = extractNotebookText(notebook.pages);
-      const res = await runLocalQuiz(txt, settings.activeLocalModelId, (stage) => {
-        setAiStageLabel(stage);
-        setQuizModal((q) => ({ ...q, loadingStage: stage }));
-      });
+      const res = await runLocalQuiz(
+        txt,
+        settings.activeLocalModelId,
+        (stage) => {
+          setAiStageLabel(stage);
+          setQuizModal((q) => ({ ...q, loadingStage: stage }));
+        },
+        settings
+      );
       setQuizModal({
         open: true,
         questions: res.questions,
@@ -2299,13 +2592,62 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         (containerRef.current?.clientWidth || 800) / 2,
         (containerRef.current?.clientHeight || 600) / 2
       );
-      const res = await generateMindMapFromText(txt, center.x, center.y, settings.activeLocalModelId, (stage) =>
-        setAiStageLabel(stage)
+      const res = await generateMindMapFromText(
+        txt,
+        center.x,
+        center.y,
+        settings.activeLocalModelId,
+        (stage) => setAiStageLabel(stage),
+        settings
       );
-      commitPageItems((items) => [...items, ...res.nodes]);
+      commitPageItems((items) =>
+        clampMindNodesToPage([...items, ...res.nodes], page?.width || 1200, page?.height || 1697, isWhiteboard)
+      );
       setTool('MINDMAP');
       showToast(`Mind Map generated (${res.engineLabel})`);
     } finally {
+      setAiBusyLabel(null);
+      setAiStageLabel(null);
+    }
+  };
+
+  const handleGenerateSlides = async (
+    scope: 'CURRENT' | 'RANGE' | 'ALL',
+    fromPage: number,
+    toPage: number,
+    slideCount: number
+  ) => {
+    const pickedPages =
+      scope === 'CURRENT'
+        ? [notebook.pages[safeIdx]].filter(Boolean)
+        : scope === 'RANGE'
+          ? notebook.pages.slice(Math.max(0, fromPage - 1), toPage)
+          : notebook.pages;
+    const text = extractNotebookText(pickedPages) || notebook.title;
+    setSlideLoadingStage('Synthesizing revision slides...');
+    setAiBusyLabel('Building Slide Show');
+    setAiStageLabel('Structuring chapter cards');
+    try {
+      const res = await runLocalSlideShow(
+        notebook.title,
+        text,
+        slideCount,
+        settings.activeLocalModelId,
+        settings,
+        (stage) => {
+          setSlideLoadingStage(stage);
+          setAiStageLabel(stage);
+        }
+      );
+      if (onUpdateSlides) {
+        onUpdateSlides(res.slides);
+      } else {
+        onUpdateNotebook(notebook.id, (nb) => ({ ...nb, slides: res.slides }));
+      }
+      setSlideEngineLabel(res.engineLabel);
+      showToast(`Created ${res.slides.length} revision slides (${res.engineLabel})`);
+    } finally {
+      setSlideLoadingStage(null);
       setAiBusyLabel(null);
       setAiStageLabel(null);
     }
@@ -2315,7 +2657,17 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     if (!page) return;
     const selItems = page.items.filter((i) => selectedIds.has(i.id));
     const selTxt = selItems
-      .map((i) => (i.kind === 'text' ? i.text : i.kind === 'sticky' ? i.text : i.kind === 'mindnode' ? i.label : ''))
+      .map((i) =>
+        i.kind === 'text'
+          ? i.text
+          : i.kind === 'sticky'
+            ? i.text
+            : i.kind === 'weblink'
+              ? `${i.title} ${i.url}`
+              : i.kind === 'mindnode'
+                ? i.label
+                : ''
+      )
       .filter(Boolean)
       .join(' ');
     if (!selTxt.trim()) {
@@ -2333,10 +2685,16 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     });
     try {
       const ctxTxt = extractNotebookText([page]);
-      const res = await runLocalExplain(selTxt, ctxTxt, settings.activeLocalModelId, (stage) => {
-        setAiStageLabel(stage);
-        setSummaryModal((s) => ({ ...s, loadingStage: stage }));
-      });
+      const res = await runLocalExplain(
+        selTxt,
+        ctxTxt,
+        settings.activeLocalModelId,
+        (stage) => {
+          setAiStageLabel(stage);
+          setSummaryModal((s) => ({ ...s, loadingStage: stage }));
+        },
+        settings
+      );
       setSummaryModal({
         open: true,
         title: 'Simple Explanation',
@@ -2509,39 +2867,94 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     showToast(`Switched to "${preset.name}"`);
   };
 
+  // Debounced Semantic Search using Downloaded Model / Custom AI
+  useEffect(() => {
+    if (!searchOpen) {
+      setSemanticResult(null);
+      return;
+    }
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setSemanticResult(null);
+      return;
+    }
+    let cancelled = false;
+    setSemanticBusy(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await runSemanticSearch(
+          q,
+          extractNotebookText(notebook.pages),
+          settings.activeLocalModelId,
+          settings
+        );
+        if (!cancelled) setSemanticResult(res);
+      } finally {
+        if (!cancelled) setSemanticBusy(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [searchOpen, searchQuery, notebook.pages, settings]);
+
   const searchHits = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return [];
-    const hits: { pageIdx: number; preview: string }[] = [];
+    const expanded = (semanticResult?.expandedTerms || []).map((t) => t.toLowerCase());
+    const hits: { pageIdx: number; preview: string; matchTag?: string }[] = [];
     notebook.pages.forEach((pg, idx) => {
       for (const it of pg.items) {
         const txt =
-          it.kind === 'text' ? it.text : it.kind === 'sticky' ? it.text : it.kind === 'mindnode' ? it.label : '';
-        if (txt.toLowerCase().includes(q)) {
-          hits.push({ pageIdx: idx, preview: txt.slice(0, 72) });
+          it.kind === 'text'
+            ? it.text
+            : it.kind === 'sticky'
+              ? `${it.title || ''} ${it.text}`
+              : it.kind === 'weblink'
+                ? `${it.title} ${it.url}`
+                : it.kind === 'mindnode'
+                  ? `${it.label} ${it.notes || ''}`
+                  : '';
+        if (!txt) continue;
+        const lower = txt.toLowerCase();
+        if (lower.includes(q)) {
+          hits.push({ pageIdx: idx, preview: txt.trim().slice(0, 72) });
+        } else {
+          const semHit = expanded.find((t) => lower.includes(t));
+          if (semHit) {
+            hits.push({ pageIdx: idx, preview: txt.trim().slice(0, 72), matchTag: `AI · ${semHit}` });
+          }
         }
       }
     });
     return hits;
-  }, [notebook.pages, searchQuery]);
+  }, [notebook.pages, searchQuery, semanticResult]);
 
   const splitNotebook = splitNoteId ? allNotebooks.find((n) => n.id === splitNoteId && n.deletedAt === null) : null;
 
-  const TOOLS: { id: ToolId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-    { id: 'PEN', label: 'Pen', icon: Pen },
-    { id: 'HIGHLIGHTER', label: 'Highlight', icon: Highlighter },
-    { id: 'ERASER', label: 'Eraser', icon: Eraser },
-    { id: 'SHAPE', label: 'Shape', icon: Shapes },
-    { id: 'LASSO', label: 'Lasso', icon: LassoIcon },
-    { id: 'MINDMAP', label: 'Mind Map', icon: Network },
-    { id: 'TEXT', label: 'Text', icon: Type },
-    { id: 'STICKY', label: 'Sticky', icon: StickyNote },
-    { id: 'TAPE', label: 'Tape', icon: BookmarkMinus },
-    { id: 'STICKER', label: 'Sticker', icon: Sticker },
-    { id: 'IMAGE', label: 'Image', icon: ImageIcon },
-    { id: 'LASER', label: 'Laser', icon: Wand2 },
-    { id: 'PAN', label: 'Pan', icon: Hand },
-  ];
+  const TOOL_META: Record<ToolId, { label: string; icon: React.ComponentType<{ className?: string }> }> = {
+    PEN: { label: 'Pen', icon: Pen },
+    HIGHLIGHTER: { label: 'Highlight', icon: Highlighter },
+    ERASER: { label: 'Eraser', icon: Eraser },
+    SHAPE: { label: 'Shape', icon: Shapes },
+    LASSO: { label: 'Lasso', icon: LassoIcon },
+    MINDMAP: { label: 'Mind Map', icon: Network },
+    TEXT: { label: 'Text', icon: Type },
+    STICKY: { label: 'Sticky', icon: StickyNote },
+    WEBLINK: { label: 'Web Link', icon: Link2 },
+    TAPE: { label: 'Tape', icon: BookmarkMinus },
+    STICKER: { label: 'Sticker', icon: Sticker },
+    IMAGE: { label: 'Image', icon: ImageIcon },
+    LASER: { label: 'Laser', icon: Wand2 },
+    PAN: { label: 'Pan', icon: Hand },
+  };
+
+  const orderedTools = useMemo(() => {
+    const saved = settings.toolbarOrder && settings.toolbarOrder.length > 0 ? settings.toolbarOrder : DEFAULT_TOOLBAR_ORDER;
+    const merged = Array.from(new Set<ToolId>([...saved, ...DEFAULT_TOOLBAR_ORDER]));
+    return merged.map((id) => ({ id, ...TOOL_META[id] }));
+  }, [settings.toolbarOrder]);
 
   const selectedMindScreen = useMemo(() => {
     if (!selectedMindNode) return null;
@@ -2559,6 +2972,14 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       top: (selectedStickyNode.y + h) * camera.zoom + camera.panY + 10,
     };
   }, [selectedStickyNode, camera]);
+
+  const selectedWebLinkScreen = useMemo(() => {
+    if (!selectedWebLinkNode) return null;
+    return {
+      left: (selectedWebLinkNode.x + selectedWebLinkNode.w / 2) * camera.zoom + camera.panX,
+      top: selectedWebLinkNode.y * camera.zoom + camera.panY - 12,
+    };
+  }, [selectedWebLinkNode, camera]);
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#E7E9EF] text-[#1B1F2A] dark:bg-[#0F1013] dark:text-[#F3F4F6]">
@@ -2651,37 +3072,68 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           </button>
         </div>
 
-        {/* Center Tools Strip */}
-        <div className="flex items-center gap-0.5 overflow-x-auto rounded-2xl border border-black/8 bg-white/85 px-1.5 py-1 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-[#1B1D23]/90">
-          {TOOLS.map((t) => {
+        {/* iOS-Style Stretchable Draggable Tools Dock */}
+        <div className="relative flex items-center gap-0.5 overflow-x-auto rounded-2xl border border-black/8 bg-white/85 px-1.5 py-1 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-[#1B1D23]/90">
+          {orderedTools.map((t) => {
             const Icon = t.icon;
             const active = tool === t.id;
+            const isHovered = hoveredToolId === t.id && settings.showHoverTooltips;
             return (
-              <button
+              <div
                 key={t.id}
-                type="button"
-                title={t.label}
-                onClick={() => {
-                  if (t.id === 'IMAGE') {
-                    fileInputRef.current?.click();
-                  } else if (t.id === 'STICKER') {
-                    setStickerOpen((v) => !v);
-                  } else {
-                    setTool(t.id);
-                    setStickerOpen(false);
-                    setPenStudioOpen(false);
+                className="relative flex shrink-0 flex-col items-center"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => {
+                  if (!dragToolId || dragToolId === t.id) return;
+                  const cur = orderedTools.map((x) => x.id);
+                  const fromIdx = cur.indexOf(dragToolId);
+                  const toIdx = cur.indexOf(t.id);
+                  if (fromIdx !== -1 && toIdx !== -1) {
+                    cur.splice(fromIdx, 1);
+                    cur.splice(toIdx, 0, dragToolId);
+                    onUpdateSettings({ toolbarOrder: cur });
                   }
+                  setDragToolId(null);
                 }}
-                className={`flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-semibold transition ${
-                  active
-                    ? 'text-white shadow-sm'
-                    : 'text-slate-600 hover:bg-black/5 dark:text-slate-300 dark:hover:bg-white/10'
-                }`}
-                style={active ? { backgroundColor: accent.primary } : undefined}
               >
-                <Icon className="h-4 w-4 shrink-0" />
-                <span className="hidden xl:inline">{t.label}</span>
-              </button>
+                <button
+                  type="button"
+                  draggable
+                  data-dragging={dragToolId === t.id ? 'true' : undefined}
+                  onDragStart={() => setDragToolId(t.id)}
+                  onDragEnd={() => setDragToolId(null)}
+                  onMouseEnter={() => setHoveredToolId(t.id)}
+                  onMouseLeave={() => setHoveredToolId((cur) => (cur === t.id ? null : cur))}
+                  onPointerEnter={() => setHoveredToolId(t.id)}
+                  onPointerLeave={() => setHoveredToolId((cur) => (cur === t.id ? null : cur))}
+                  title={`${t.label} (drag to reorder)`}
+                  onClick={() => {
+                    if (t.id === 'IMAGE') {
+                      fileInputRef.current?.click();
+                    } else if (t.id === 'STICKER') {
+                      setStickerOpen((v) => !v);
+                    } else {
+                      setTool(t.id);
+                      setStickerOpen(false);
+                      setPenStudioOpen(false);
+                    }
+                  }}
+                  className={`ios-stretch-tool flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-semibold ${
+                    active
+                      ? 'text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-black/5 dark:text-slate-300 dark:hover:bg-white/10'
+                  }`}
+                  style={active ? { backgroundColor: accent.primary } : undefined}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="hidden xl:inline">{t.label}</span>
+                </button>
+                {isHovered && (
+                  <div className="pointer-events-none fixed top-14 z-50 rounded-xl border border-black/10 bg-[#181920]/92 px-2.5 py-1 text-[11px] font-bold text-white shadow-lg backdrop-blur-md">
+                    {t.label}
+                  </div>
+                )}
+              </div>
             );
           })}
           <input ref={fileInputRef} type="file" accept="image/*" onChange={handleInsertImage} className="hidden" />
@@ -2748,6 +3200,16 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                   className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
                 >
                   <ListChecks className="h-4 w-4 text-amber-500" /> Take Study Quiz
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAiMenuOpen(false);
+                    setSlideModalOpen(true);
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  <Play className="h-4 w-4 text-fuchsia-600" /> Slide Show Revision Deck
                 </button>
                 <div className="my-1 border-t border-black/8 dark:border-white/10" />
                 <button
@@ -2830,7 +3292,10 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               <MoreHorizontal className="h-4 w-4" />
             </button>
             {moreMenuOpen && (
-              <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-2xl border border-black/10 bg-white p-1.5 shadow-2xl dark:border-white/10 dark:bg-[#1E2027] animate-stagger-in">
+              <div className="absolute right-0 top-full z-50 mt-2 w-68 rounded-2xl border border-black/10 bg-white/95 p-1.5 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#1E2027]/95 animate-stagger-in">
+                <div className="px-3 pb-1 pt-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Canvas &amp; Layout
+                </div>
                 <button
                   type="button"
                   onClick={() => {
@@ -2853,17 +3318,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                   }}
                   className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
                 >
-                  <Palette className="h-4 w-4 text-blue-600" /> Paper Template & Tint…
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFlashModalOpen(true);
-                    setMoreMenuOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-                >
-                  <BookOpen className="h-4 w-4 text-amber-500" /> Open Flashcards ({flashcards.length})
+                  <Palette className="h-4 w-4 text-blue-600" /> Paper Template &amp; Tint…
                 </button>
                 <button
                   type="button"
@@ -2876,6 +3331,59 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 >
                   <Columns2 className="h-4 w-4 text-cyan-600" /> {splitNoteId ? 'Close Split View' : 'Open Split Notes'}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMoreMenuOpen(false);
+                    const c = screenToWorld(
+                      (containerRef.current?.clientWidth || 800) / 2,
+                      (containerRef.current?.clientHeight || 600) / 2
+                    );
+                    setWebLinkModal({
+                      open: true,
+                      editId: null,
+                      x: c.x - 160,
+                      y: c.y - 48,
+                      url: 'https://',
+                      title: '',
+                      note: '',
+                      color: WEBLINK_COLORS[0],
+                    });
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  <Link2 className="h-4 w-4 text-sky-600" /> Add Web Link Card…
+                </button>
+
+                <div className="my-1 border-t border-black/8 dark:border-white/10" />
+                <div className="px-3 pb-1 pt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Study &amp; Revision
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSlideModalOpen(true);
+                    setMoreMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  <Play className="h-4 w-4 text-fuchsia-600" /> Slide Show Revision ({notebook.slides?.length || 0})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFlashModalOpen(true);
+                    setMoreMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  <BookOpen className="h-4 w-4 text-amber-500" /> Open Flashcards ({flashcards.length})
+                </button>
+
+                <div className="my-1 border-t border-black/8 dark:border-white/10" />
+                <div className="px-3 pb-1 pt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Import &amp; Export
+                </div>
                 <button
                   type="button"
                   onClick={() => {
@@ -2904,7 +3412,11 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                   onChange={handleImportFilesIntoNotebook}
                   className="hidden"
                 />
+
                 <div className="my-1 border-t border-black/8 dark:border-white/10" />
+                <div className="px-3 pb-1 pt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  System
+                </div>
                 <button
                   type="button"
                   onClick={() => {
@@ -3271,12 +3783,27 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             >
               <Sparkles className="h-3 w-3" /> AI Map
             </button>
+            <button
+              type="button"
+              onClick={fitMindMapToView}
+              className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-blue-600/12 px-2.5 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-600/20 dark:text-blue-300"
+            >
+              <Compass className="h-3 w-3" /> Fit Map
+            </button>
+          </div>
+        )}
+
+        {tool === 'WEBLINK' && (
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-slate-500">
+              Tap anywhere on the page to embed a Web Link Card, or tap an existing link card to open or edit it
+            </span>
           </div>
         )}
 
         {tool === 'LASSO' && (
           <span className="text-[11px] text-slate-500">
-            Draw a loop around ink, text, stickies, or nodes to move, delete, or AI explain
+            Draw a loop around ink, text, stickies, links, or nodes to move, delete, or AI explain
           </span>
         )}
         {tool === 'PAN' && (
@@ -3567,18 +4094,35 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             </div>
           )}
 
-          {/* Contextual Floating Sticky Studio */}
+          {/* Redesigned Contextual Floating Sticky Studio (Title, Style Pills, Interactive Checklist Tasks) */}
           {selectedStickyNode && selectedStickyScreen && (
             <div
               style={{
-                left: Math.max(175, Math.min((containerRef.current?.clientWidth || 800) - 185, selectedStickyScreen.left)),
-                top: Math.max(14, Math.min((containerRef.current?.clientHeight || 600) - 290, selectedStickyScreen.top)),
+                left: Math.max(185, Math.min((containerRef.current?.clientWidth || 800) - 185, selectedStickyScreen.left)),
+                top: Math.max(14, Math.min((containerRef.current?.clientHeight || 600) - 350, selectedStickyScreen.top)),
               }}
-              className="absolute z-40 w-80 -translate-x-1/2 rounded-3xl border border-black/12 bg-white p-3.5 shadow-2xl dark:border-white/12 dark:bg-[#1E2027] animate-stagger-in"
+              className="absolute z-40 w-84 -translate-x-1/2 rounded-3xl border border-black/12 bg-white/95 p-3.5 shadow-2xl backdrop-blur-md dark:border-white/12 dark:bg-[#1E2027]/95 animate-stagger-in"
             >
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-xs font-bold">Sticky Studio</span>
                 <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextTxt = selectedStickyNode.text
+                        ? `${selectedStickyNode.text.replace(/\s+$/, '')}\n- [ ] New task`
+                        : '- [ ] New task';
+                      commitPageItems((items) =>
+                        items.map((it) =>
+                          it.id === selectedStickyNode.id && it.kind === 'sticky' ? { ...it, text: nextTxt } : it
+                        )
+                      );
+                    }}
+                    title="Append interactive checklist task"
+                    className="inline-flex items-center gap-0.5 rounded-lg bg-emerald-500/12 px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                  >
+                    <Plus className="h-3 w-3" /> Task
+                  </button>
                   <button
                     type="button"
                     title={selectedStickyNode.pinned ? 'Unpin' : 'Pin sticky'}
@@ -3651,6 +4195,23 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 </div>
               </div>
 
+              <input
+                type="text"
+                value={selectedStickyNode.title || ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  commitPageItems(
+                    (items) =>
+                      items.map((it) =>
+                        it.id === selectedStickyNode.id && it.kind === 'sticky' ? { ...it, title: val } : it
+                      ),
+                    false
+                  );
+                }}
+                placeholder="Sticky title (optional)..."
+                className="mb-2 w-full rounded-xl border border-black/10 bg-slate-50 px-2.5 py-1.5 text-xs font-bold outline-none focus:border-blue-500 dark:border-white/12 dark:bg-[#14151A]"
+              />
+
               <textarea
                 autoFocus
                 rows={3}
@@ -3665,10 +4226,33 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                     false
                   );
                 }}
-                placeholder="Write sticky note text..."
+                placeholder="Write notes or `- [ ]` interactive checklists..."
                 className="w-full rounded-2xl border border-black/10 p-2.5 text-xs outline-none focus:border-blue-500 dark:border-white/12 dark:bg-[#14151A]"
                 style={{ backgroundColor: `${selectedStickyNode.color}44` }}
               />
+
+              <div className="mt-2 flex gap-1">
+                {(['classic', 'lined', 'glass', 'outline'] as StickyStyle[]).map((st) => (
+                  <button
+                    key={st}
+                    type="button"
+                    onClick={() =>
+                      commitPageItems((items) =>
+                        items.map((it) =>
+                          it.id === selectedStickyNode.id && it.kind === 'sticky' ? { ...it, style: st } : it
+                        )
+                      )
+                    }
+                    className={`flex-1 rounded-lg py-1 text-[10px] font-bold capitalize transition ${
+                      (selectedStickyNode.style || 'classic') === st
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-black/5 text-slate-600 dark:bg-white/10 dark:text-slate-300'
+                    }`}
+                  >
+                    {st}
+                  </button>
+                ))}
+              </div>
 
               <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex gap-1.5">
@@ -3732,6 +4316,51 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 />
                 <span className="font-mono-num w-9 text-right">{selectedStickyNode.fontSize || 18}px</span>
               </div>
+            </div>
+          )}
+
+          {/* Contextual Floating WebLink Card Bar */}
+          {selectedWebLinkNode && selectedWebLinkScreen && (
+            <div
+              style={{
+                left: Math.max(175, Math.min((containerRef.current?.clientWidth || 800) - 185, selectedWebLinkScreen.left)),
+                top: Math.max(12, selectedWebLinkScreen.top - 48),
+              }}
+              className="absolute z-40 flex -translate-x-1/2 items-center gap-1.5 rounded-2xl border border-black/10 bg-white/95 px-2.5 py-1.5 shadow-xl backdrop-blur-md dark:border-white/10 dark:bg-[#20222A]/95 animate-stagger-in"
+            >
+              <a
+                href={/^https?:\/\//i.test(selectedWebLinkNode.url) ? selectedWebLinkNode.url : `https://${selectedWebLinkNode.url}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 rounded-xl bg-blue-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-blue-700"
+              >
+                <ExternalLink className="h-3 w-3" /> Open Link
+              </a>
+              <button
+                type="button"
+                onClick={() =>
+                  setWebLinkModal({
+                    open: true,
+                    editId: selectedWebLinkNode.id,
+                    x: selectedWebLinkNode.x,
+                    y: selectedWebLinkNode.y,
+                    url: selectedWebLinkNode.url,
+                    title: selectedWebLinkNode.title,
+                    note: selectedWebLinkNode.note || '',
+                    color: selectedWebLinkNode.color,
+                  })
+                }
+                className="rounded-xl px-2.5 py-1 text-[11px] font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={deleteSelected}
+                className="rounded-xl p-1 text-red-500 hover:bg-red-500/10"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
             </div>
           )}
 
@@ -3969,7 +4598,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           )}
 
           {/* Floating Lasso Selection Action Bar */}
-          {selectedIds.size > 0 && !selectedMindNode && !selectedStickyNode && (
+          {selectedIds.size > 0 && !selectedMindNode && !selectedStickyNode && !selectedWebLinkNode && (
             <div className="absolute bottom-16 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1.5 rounded-2xl border border-black/10 bg-white/95 px-3 py-2 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#1F2128]/95 animate-stagger-in">
               <span className="font-mono-num pr-1 text-xs font-bold text-blue-600">
                 {selectedIds.size} selected
@@ -4021,7 +4650,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           </div>
         </div>
 
-        {/* Draggable Split Resizer + Interactive Split Notebook Workspace */}
+        {/* Draggable Split Resizer + Rewritten Scroll-Aware Split Notebook Workspace */}
         {splitNotebook && (
           <>
             <div
@@ -4036,6 +4665,8 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               allNotebooks={allNotebooks}
               paperTintDefault={settings.paperTint}
               highlighterBehind={settings.highlighterBehind}
+              scrollDirection={settings.scroll}
+              primaryPageIdx={safeIdx}
               width={splitWidth}
               onChangeNotebook={(id) => setSplitNoteId(id)}
               onSwapWithPrimary={(id) => {
@@ -4061,7 +4692,9 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                     w: 280,
                     h: 200,
                     color: '#CFE2FF',
+                    title: 'Split Note Clip',
                     text: txt.slice(0, 600),
+                    style: 'classic',
                     fontSize: 16,
                   },
                 ]);
@@ -4088,27 +4721,80 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 ]);
                 showToast('Inserted text onto active page');
               }}
+              onInsertWebLink={(url, title) => {
+                const c = screenToWorld(
+                  (containerRef.current?.clientWidth || 800) / 2,
+                  (containerRef.current?.clientHeight || 600) / 2
+                );
+                commitPageItems((items) => [
+                  ...items,
+                  {
+                    id: `link-${Date.now()}`,
+                    kind: 'weblink',
+                    url,
+                    title,
+                    note: 'Cross-referenced from Split View',
+                    x: c.x - 165,
+                    y: c.y - 44,
+                    w: 330,
+                    h: 88,
+                    color: WEBLINK_COLORS[0],
+                  },
+                ]);
+                showToast('Inserted Web Link card onto page');
+              }}
               onClose={() => setSplitNoteId(null)}
             />
           </>
         )}
 
-        {/* Search Drawer */}
+        {/* AI-Enhanced Semantic Search Drawer */}
         {searchOpen && (
-          <aside className="absolute right-4 top-4 z-40 w-72 rounded-2xl border border-black/10 bg-white p-3.5 shadow-2xl dark:border-white/10 dark:bg-[#1E2027]">
+          <aside className="absolute right-4 top-4 z-40 w-80 rounded-2xl border border-black/10 bg-white/95 p-3.5 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#1E2027]/95 animate-stagger-in">
             <div className="mb-2 flex items-center gap-2">
               <Search className="h-4 w-4 text-slate-400" />
               <input
                 autoFocus
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Find text, stickies, nodes..."
+                placeholder="Search or ask concept..."
                 className="flex-1 bg-transparent text-sm outline-none"
               />
               <button type="button" onClick={() => setSearchOpen(false)}>
                 <X className="h-4 w-4 text-slate-400" />
               </button>
             </div>
+
+            {searchQuery.trim().length >= 2 && (semanticBusy || semanticResult) && (
+              <div className="mb-2.5 rounded-xl border border-violet-500/25 bg-violet-500/8 p-2.5 text-xs">
+                <div className="mb-1 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300">
+                  <span className="inline-flex items-center gap-1">
+                    <Sparkles className="h-3 w-3" /> {semanticResult?.engineLabel || 'AI Search Insight'}
+                  </span>
+                  {semanticBusy && <span>Thinking…</span>}
+                </div>
+                {semanticResult && (
+                  <>
+                    <p className="leading-relaxed text-slate-700 dark:text-slate-200">{semanticResult.answer}</p>
+                    {semanticResult.expandedTerms.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {semanticResult.expandedTerms.map((term) => (
+                          <button
+                            key={term}
+                            type="button"
+                            onClick={() => setSearchQuery(term)}
+                            className="rounded-md bg-violet-600/15 px-1.5 py-0.5 text-[10px] font-bold text-violet-700 hover:bg-violet-600/25 dark:text-violet-300"
+                          >
+                            AI · {term}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
             <div className="max-h-60 space-y-1.5 overflow-y-auto">
               {searchHits.map((h, i) => (
                 <button
@@ -4120,14 +4806,21 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                   }}
                   className="flex w-full flex-col rounded-xl bg-black/[0.03] px-2.5 py-2 text-left text-xs hover:bg-blue-500/10 dark:bg-white/[0.04]"
                 >
-                  <span className="font-mono-num text-[10px] font-bold text-blue-600">
-                    Page {h.pageIdx + 1}
-                  </span>
+                  <div className="flex w-full items-center justify-between gap-2">
+                    <span className="font-mono-num text-[10px] font-bold text-blue-600">
+                      Page {h.pageIdx + 1}
+                    </span>
+                    {h.matchTag && (
+                      <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[9px] font-bold text-violet-600 dark:text-violet-300">
+                        {h.matchTag}
+                      </span>
+                    )}
+                  </div>
                   <span className="truncate">{h.preview}</span>
                 </button>
               ))}
               {searchQuery && searchHits.length === 0 && (
-                <div className="py-3 text-center text-xs text-slate-400">No matches found</div>
+                <div className="py-3 text-center text-xs text-slate-400">No direct text hits — check AI concepts above</div>
               )}
             </div>
           </aside>
@@ -4280,6 +4973,144 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           onRecordQuizScore(notebook.id, pct);
         }}
       />
+
+      <SlideShowModal
+        open={slideModalOpen}
+        notebookTitle={notebook.title}
+        totalPages={notebook.pages.length}
+        currentPageIdx={safeIdx}
+        slides={notebook.slides || []}
+        loadingStage={slideLoadingStage}
+        engineLabel={slideEngineLabel}
+        onClose={() => setSlideModalOpen(false)}
+        onSaveSlides={(nextSlides) => {
+          if (onUpdateSlides) onUpdateSlides(nextSlides);
+          else onUpdateNotebook(notebook.id, (nb) => ({ ...nb, slides: nextSlides }));
+        }}
+        onGenerateAi={handleGenerateSlides}
+      />
+
+      {/* Web Link Card Modal */}
+      {webLinkModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const cleanUrl = webLinkModal.url.trim();
+              if (!cleanUrl || cleanUrl === 'https://') return;
+              const normalizedUrl = /^https?:\/\//i.test(cleanUrl) ? cleanUrl : `https://${cleanUrl}`;
+              const linkTitle = webLinkModal.title.trim() || normalizedUrl.replace(/^https?:\/\//i, '').split('/')[0];
+              if (webLinkModal.editId) {
+                commitPageItems((items) =>
+                  items.map((it) =>
+                    it.id === webLinkModal.editId && it.kind === 'weblink'
+                      ? {
+                          ...it,
+                          url: normalizedUrl,
+                          title: linkTitle,
+                          note: webLinkModal.note.trim() || undefined,
+                          color: webLinkModal.color,
+                        }
+                      : it
+                  )
+                );
+              } else {
+                const newCard: WebLinkItem = {
+                  id: `link-${Date.now()}`,
+                  kind: 'weblink',
+                  url: normalizedUrl,
+                  title: linkTitle,
+                  note: webLinkModal.note.trim() || undefined,
+                  x: webLinkModal.x,
+                  y: webLinkModal.y,
+                  w: 330,
+                  h: 88,
+                  color: webLinkModal.color,
+                };
+                commitPageItems((items) => [...items, newCard]);
+                setSelectedIds(new Set([newCard.id]));
+              }
+              setWebLinkModal((m) => ({ ...m, open: false }));
+            }}
+            className="w-full max-w-md space-y-3 rounded-3xl border border-black/10 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-[#191A1F] animate-stagger-in"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="inline-flex items-center gap-2 text-sm font-bold">
+                <Link2 className="h-4 w-4 text-blue-600" />
+                {webLinkModal.editId ? 'Edit Web Link Card' : 'Add Web Link Card'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setWebLinkModal((m) => ({ ...m, open: false }))}
+                className="rounded-full p-1 text-slate-400 hover:bg-black/5"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-bold uppercase text-slate-500">URL</label>
+              <input
+                autoFocus
+                type="text"
+                value={webLinkModal.url}
+                onChange={(e) => setWebLinkModal((m) => ({ ...m, url: e.target.value }))}
+                placeholder="https://en.wikipedia.org/wiki/..."
+                className="w-full rounded-xl border border-black/12 bg-slate-50 px-3 py-2 text-xs outline-none focus:border-blue-500 dark:border-white/15 dark:bg-[#22242C]"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-bold uppercase text-slate-500">Display Title</label>
+              <input
+                type="text"
+                value={webLinkModal.title}
+                onChange={(e) => setWebLinkModal((m) => ({ ...m, title: e.target.value }))}
+                placeholder="e.g. Lecture Video / Research Paper"
+                className="w-full rounded-xl border border-black/12 bg-slate-50 px-3 py-2 text-xs outline-none focus:border-blue-500 dark:border-white/15 dark:bg-[#22242C]"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-bold uppercase text-slate-500">Quick Annotation</label>
+              <input
+                type="text"
+                value={webLinkModal.note}
+                onChange={(e) => setWebLinkModal((m) => ({ ...m, note: e.target.value }))}
+                placeholder="Why this link matters..."
+                className="w-full rounded-xl border border-black/12 bg-slate-50 px-3 py-2 text-xs outline-none focus:border-blue-500 dark:border-white/15 dark:bg-[#22242C]"
+              />
+            </div>
+            <div className="flex items-center justify-between pt-1">
+              <div className="flex gap-1.5">
+                {WEBLINK_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setWebLinkModal((m) => ({ ...m, color: c }))}
+                    className={`h-6 w-6 rounded-full border ${
+                      webLinkModal.color === c ? 'ring-2 ring-blue-600 ring-offset-1' : 'border-black/15'
+                    }`}
+                    style={{ backgroundColor: c }}
+                  />
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setWebLinkModal((m) => ({ ...m, open: false }))}
+                  className="rounded-xl px-3.5 py-2 text-xs font-semibold text-slate-500"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+                >
+                  Save Link
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 };

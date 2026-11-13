@@ -699,7 +699,18 @@ private fun Sidebar(
                     Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(Color.White),
                 )
                 Spacer(Modifier.width(10.dp))
-                Text("Pro Notes", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                Column {
+                    Text("Pro Notes", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                        Text(
+                            "Ultra v9.11",
+                            Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
             }
             Section.entries.forEach { s ->
                 val sel = s == section
@@ -811,11 +822,27 @@ private fun FolderTile(e: Entry.F, a: TileActions) {
         }
         Caption(e.folder.name, "${e.count} items", onMenu = { menu = true })
         Box {
-            DropdownMenu(menu, { menu = false }) {
-                DropdownMenuItem(text = { Text("Colour & icon") }, leadingIcon = { Icon(Icons.Outlined.Palette, null) }, onClick = { menu = false; a.onEditFolder(e.folder) })
-                DropdownMenuItem(text = { Text("Rename") }, leadingIcon = { Icon(Icons.Outlined.Edit, null) }, onClick = { menu = false; a.onRename(e) })
-                DropdownMenuItem(text = { Text("Move") }, leadingIcon = { Icon(Icons.Outlined.DriveFileMove, null) }, onClick = { menu = false; a.onMove(e) })
-                DropdownMenuItem(text = { Text("Delete") }, leadingIcon = { Icon(Icons.Outlined.Delete, null) }, onClick = { menu = false; a.onDelete(e) })
+            DropdownMenu(menu, { menu = false }, shape = RoundedCornerShape(18.dp)) {
+                DropdownMenuItem(
+                    text = { Text("Colour & icon") },
+                    leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.PALETTE, MaterialTheme.colorScheme.primary, Modifier.size(19.dp)) },
+                    onClick = { menu = false; a.onEditFolder(e.folder) },
+                )
+                DropdownMenuItem(
+                    text = { Text("Rename") },
+                    leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.RENAME, MaterialTheme.colorScheme.onSurface, Modifier.size(19.dp)) },
+                    onClick = { menu = false; a.onRename(e) },
+                )
+                DropdownMenuItem(
+                    text = { Text("Move") },
+                    leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.FOLDER, MaterialTheme.colorScheme.onSurface, Modifier.size(19.dp)) },
+                    onClick = { menu = false; a.onMove(e) },
+                )
+                DropdownMenuItem(
+                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                    leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.TRASH, MaterialTheme.colorScheme.error, Modifier.size(19.dp)) },
+                    onClick = { menu = false; a.onDelete(e) },
+                )
             }
         }
     }
@@ -848,21 +875,57 @@ private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
 private fun NoteMenu(open: Boolean, onClose: () -> Unit, note: NotebookMeta, a: TileActions) {
     if (note.deletedAt != null) {
         DropdownMenu(open, onClose, shape = RoundedCornerShape(18.dp)) {
-            DropdownMenuItem(text = { Text("Restore") }, leadingIcon = { Icon(Icons.Outlined.DriveFileMove, null) }, onClick = { onClose(); a.onRestore(note) })
-            DropdownMenuItem(text = { Text("Delete forever", color = MaterialTheme.colorScheme.error) }, leadingIcon = { Icon(Icons.Outlined.Delete, null) },
-                onClick = { onClose(); a.onDeleteForever(note) })
+            DropdownMenuItem(
+                text = { Text("Restore") },
+                leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.RESTORE, MaterialTheme.colorScheme.primary, Modifier.size(19.dp)) },
+                onClick = { onClose(); a.onRestore(note) },
+            )
+            DropdownMenuItem(
+                text = { Text("Delete forever", color = MaterialTheme.colorScheme.error) },
+                leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.TRASH, MaterialTheme.colorScheme.error, Modifier.size(19.dp)) },
+                onClick = { onClose(); a.onDeleteForever(note) },
+            )
         }
         return
     }
     DropdownMenu(open, onClose, shape = RoundedCornerShape(18.dp)) {
-        DropdownMenuItem(text = { Text("Duplicate") }, leadingIcon = { Icon(Icons.Outlined.Description, null) }, onClick = { onClose(); a.onDuplicate(note) })
-        DropdownMenuItem(text = { Text(if (note.favorite) "Remove from favorites" else "Add to favorites") },
-            leadingIcon = { Icon(if (note.favorite) Icons.Outlined.StarBorder else Icons.Outlined.Star, null) },
-            onClick = { onClose(); a.onFavorite(note) })
-        DropdownMenuItem(text = { Text("Change cover") }, leadingIcon = { Icon(Icons.Outlined.Image, null) }, onClick = { onClose(); a.onCover(note) })
-        DropdownMenuItem(text = { Text("Rename") }, leadingIcon = { Icon(Icons.Outlined.Edit, null) }, onClick = { onClose(); a.onRename(Entry.N(note)) })
-        DropdownMenuItem(text = { Text("Move") }, leadingIcon = { Icon(Icons.Outlined.DriveFileMove, null) }, onClick = { onClose(); a.onMove(Entry.N(note)) })
-        DropdownMenuItem(text = { Text("Delete") }, leadingIcon = { Icon(Icons.Outlined.Delete, null) }, onClick = { onClose(); a.onDelete(Entry.N(note)) })
+        DropdownMenuItem(
+            text = { Text("Duplicate") },
+            leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.COPY, MaterialTheme.colorScheme.onSurface, Modifier.size(19.dp)) },
+            onClick = { onClose(); a.onDuplicate(note) },
+        )
+        DropdownMenuItem(
+            text = { Text(if (note.favorite) "Remove from favorites" else "Add to favorites") },
+            leadingIcon = {
+                com.pronotes.app.ui.ProIconView(
+                    com.pronotes.app.ui.ProIcon.STAR,
+                    if (note.favorite) Color(0xFFF59E0B) else MaterialTheme.colorScheme.onSurface,
+                    Modifier.size(19.dp),
+                    ink = if (note.favorite) Color(0xFFF59E0B) else null,
+                )
+            },
+            onClick = { onClose(); a.onFavorite(note) },
+        )
+        DropdownMenuItem(
+            text = { Text("Change cover") },
+            leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.PALETTE, MaterialTheme.colorScheme.primary, Modifier.size(19.dp)) },
+            onClick = { onClose(); a.onCover(note) },
+        )
+        DropdownMenuItem(
+            text = { Text("Rename") },
+            leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.RENAME, MaterialTheme.colorScheme.onSurface, Modifier.size(19.dp)) },
+            onClick = { onClose(); a.onRename(Entry.N(note)) },
+        )
+        DropdownMenuItem(
+            text = { Text("Move") },
+            leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.FOLDER, MaterialTheme.colorScheme.onSurface, Modifier.size(19.dp)) },
+            onClick = { onClose(); a.onMove(Entry.N(note)) },
+        )
+        DropdownMenuItem(
+            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+            leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.TRASH, MaterialTheme.colorScheme.error, Modifier.size(19.dp)) },
+            onClick = { onClose(); a.onDelete(Entry.N(note)) },
+        )
     }
 }
 
@@ -1231,9 +1294,11 @@ private fun UpdatePill() {
         }
     }
     val u = com.pronotes.app.data.Updater
+    val pct = (u.progress * 100).toInt().coerceIn(0, 100)
     val label = when (u.phase) {
         com.pronotes.app.data.Updater.Phase.AVAILABLE -> "Update to ${u.release?.tag}"
-        com.pronotes.app.data.Updater.Phase.DOWNLOADING -> "Downloading ${(u.progress * 100).toInt()}%"
+        com.pronotes.app.data.Updater.Phase.DOWNLOADING -> "Downloading $pct%"
+        com.pronotes.app.data.Updater.Phase.PAUSED -> "Resume update ($pct%)"
         com.pronotes.app.data.Updater.Phase.READY -> "Install update"
         com.pronotes.app.data.Updater.Phase.INSTALLING -> "Installing..."
         com.pronotes.app.data.Updater.Phase.FAILED -> if (u.release != null) "Update failed · Retry" else null
@@ -1241,11 +1306,21 @@ private fun UpdatePill() {
     } ?: return
     Surface(
         shape = CircleShape,
-        color = if (u.phase == com.pronotes.app.data.Updater.Phase.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-        contentColor = if (u.phase == com.pronotes.app.data.Updater.Phase.FAILED) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary,
+        color = when (u.phase) {
+            com.pronotes.app.data.Updater.Phase.FAILED -> MaterialTheme.colorScheme.error
+            com.pronotes.app.data.Updater.Phase.PAUSED -> MaterialTheme.colorScheme.secondaryContainer
+            else -> MaterialTheme.colorScheme.primary
+        },
+        contentColor = when (u.phase) {
+            com.pronotes.app.data.Updater.Phase.FAILED -> MaterialTheme.colorScheme.onError
+            com.pronotes.app.data.Updater.Phase.PAUSED -> MaterialTheme.colorScheme.onSecondaryContainer
+            else -> MaterialTheme.colorScheme.onPrimary
+        },
         modifier = Modifier.padding(horizontal = 6.dp).clickable {
             when (u.phase) {
-                com.pronotes.app.data.Updater.Phase.AVAILABLE -> u.showDialog = true
+                com.pronotes.app.data.Updater.Phase.AVAILABLE,
+                com.pronotes.app.data.Updater.Phase.DOWNLOADING,
+                com.pronotes.app.data.Updater.Phase.PAUSED -> u.showDialog = true
                 com.pronotes.app.data.Updater.Phase.READY -> u.install(context)
                 com.pronotes.app.data.Updater.Phase.FAILED -> if (u.hasReadyApk(context)) u.install(context) else u.showDialog = true
                 else -> Unit

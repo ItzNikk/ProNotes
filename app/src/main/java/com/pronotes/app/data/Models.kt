@@ -135,6 +135,7 @@ sealed class ItemDoc {
     data class Sticky(
         val x: Float, val y: Float, val w: Float, val h: Float, val color: Int, val text: String, val rot: Float = 0f,
         val fontSize: Float = 28f, val font: String = "SANS", val collapsed: Boolean = false, val pinned: Boolean = false,
+        val title: String = "", val style: String = "classic",
     ) : ItemDoc()
 
     @Serializable
@@ -152,6 +153,20 @@ sealed class ItemDoc {
         val collapsed: Boolean = false,
         val notes: String = "",
         val tag: String = "",
+    ) : ItemDoc()
+
+    @Serializable
+    @SerialName("weblink")
+    data class WebLink(
+        val url: String,
+        val title: String,
+        val note: String = "",
+        val x: Float,
+        val y: Float,
+        val w: Float = 380f,
+        val h: Float = 136f,
+        val color: Int = 0xFF2A78D6.toInt(),
+        val rot: Float = 0f,
     ) : ItemDoc()
 }
 

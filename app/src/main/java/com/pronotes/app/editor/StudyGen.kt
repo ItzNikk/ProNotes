@@ -116,4 +116,119 @@ object StudyGen {
         }
         return out
     }
+
+    fun slideDeck(title: String, text: String, maxSlides: Int = 8): List<com.pronotes.app.data.SlideCard> {
+        val clean = text.trim()
+        val themes = com.pronotes.app.data.SlideTheme.entries
+        val deck = ArrayList<com.pronotes.app.data.SlideCard>()
+        val terms = keyTerms(clean, 14)
+        val facts = facts(clean)
+        val pts = summary(clean, 8)
+        val formulas = Regex("""(?:[A-Za-z_][\w]*\s*=[^.\n;]{1,36}|\d+\s*[+\-*/^×÷]\s*[\w\d()+\-*/^×÷.\s]{1,30}=?[^.\n]{0,20})""")
+            .findAll(clean).map { it.value.trim() }.filter { it.length >= 4 }.distinct().take(4).toList()
+
+        deck += com.pronotes.app.data.SlideCard(
+            id = "sl-${System.nanoTime()}",
+            kind = com.pronotes.app.data.SlideKind.TITLE,
+            theme = themes[0],
+            title = title.ifBlank { "Chapter Quick Revision" },
+            subtitle = if (terms.isNotEmpty()) "Key themes: ${terms.take(4).joinToString(" · ")}" else "Interactive Chapter Deck",
+            bullets = pts.take(3).map { it.take(96) },
+            callout = "${maxOf(pts.size, facts.size, 1)} takeaways ready",
+            badge = "CHAPTER DECK",
+        )
+
+        var themeIdx = 1
+        for (f in facts.take(4)) {
+            if (deck.size >= maxSlides - 2) break
+            val detailBullets = f.meaning.split(Regex("[,;]")).map { it.trim() }.filter { it.length >= 5 }.take(4)
+                .ifEmpty { listOf(f.meaning.take(140)) }
+            deck += com.pronotes.app.data.SlideCard(
+                id = "sl-${System.nanoTime()}-${deck.size}",
+                kind = com.pronotes.app.data.SlideKind.CONCEPT,
+                theme = themes[themeIdx++ % themes.size],
+                title = f.term,
+                subtitle = "Core Definition & Concept",
+                bullets = detailBullets,
+                callout = f.sentence.take(150),
+                badge = "CONCEPT ${deck.size}",
+            )
+        }
+
+        if (deck.size < maxSlides - 2 && pts.isNotEmpty()) {
+            pts.chunked(3).forEachIndexed { idx, chunk ->
+                if (deck.size >= maxSlides - 2) return@forEachIndexed
+                deck += com.pronotes.app.data.SlideCard(
+                    id = "sl-${System.nanoTime()}-p$idx",
+                    kind = com.pronotes.app.data.SlideKind.CONCEPT,
+                    theme = themes[themeIdx++ % themes.size],
+                    title = terms.getOrNull(idx * 2) ?: "Key Takeaways #${idx + 1}",
+                    subtitle = "Essential Notes",
+                    bullets = chunk.map { it.take(130) },
+                    badge = "HIGHLIGHT",
+                )
+            }
+        }
+
+        if (formulas.isNotEmpty() && deck.size < maxSlides - 1) {
+            deck += com.pronotes.app.data.SlideCard(
+                id = "sl-${System.nanoTime()}-fm",
+                kind = com.pronotes.app.data.SlideKind.FORMULA,
+                theme = themes[themeIdx++ % themes.size],
+                title = "Formulas & Equations",
+                subtitle = "High-yield relationships to memorize",
+                bullets = formulas,
+                callout = formulas.first(),
+                badge = "FORMULA",
+            )
+        }
+
+        val qaFact = facts.firstOrNull()
+        val qaCard = flashcards(clean, 2).firstOrNull()
+        if (qaFact != null || qaCard != null) {
+            deck += com.pronotes.app.data.SlideCard(
+                id = "sl-${System.nanoTime()}-qa",
+                kind = com.pronotes.app.data.SlideKind.CHECK_QA,
+                theme = com.pronotes.app.data.SlideTheme.ROSE_VELVET,
+                title = "Quick Active Recall",
+                subtitle = "Tap reveal to test yourself before moving on",
+                question = qaCard?.front ?: "Define ${qaFact?.term.orEmpty()}",
+                answer = qaCard?.back ?: qaFact?.meaning.orEmpty(),
+                badge = "SELF CHECK",
+            )
+        }
+
+        deck += com.pronotes.app.data.SlideCard(
+            id = "sl-${System.nanoTime()}-sum",
+            kind = com.pronotes.app.data.SlideKind.SUMMARY,
+            theme = com.pronotes.app.data.SlideTheme.EMERALD_MINT,
+            title = "Chapter Recap",
+            subtitle = "Everything distilled into bite-size anchors",
+            bullets = (pts.take(4).ifEmpty { terms.take(5) }).map { it.take(120) },
+            callout = if (terms.isNotEmpty()) "Must-know terms: ${terms.take(5).joinToString(", ")}" else "",
+            badge = "SUMMARY",
+        )
+
+        return deck.take(maxSlides)
+    }
+
+    /** Local semantic query expansion: finds related words co-occurring with [query] inside [corpus]. */
+    fun expandQueryTerms(query: String, corpus: String): List<String> {
+        val tokens = query.lowercase().split(Regex("\\s+")).map { it.trim(',', '.', '?', '!') }.filter { it.length >= 2 }
+        if (tokens.isEmpty() || corpus.isBlank()) return emptyList()
+        val related = LinkedHashMap<String, Int>()
+        for (s in sentences(corpus)) {
+            val low = s.lowercase()
+            if (tokens.any { low.contains(it) }) {
+                Regex("[A-Za-z][A-Za-z\\-]{3,}").findAll(s).forEach { m ->
+                    val w = m.value
+                    val wl = w.lowercase()
+                    if (wl !in stop && tokens.none { wl.contains(it) }) {
+                        related[w] = (related[w] ?: 0) + 1
+                    }
+                }
+            }
+        }
+        return related.entries.sortedByDescending { it.value }.map { it.key }.take(5)
+    }
 }

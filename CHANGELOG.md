@@ -1,5 +1,16 @@
 # Changelog
 
+## v9.11.0 (Ultra)
+- **Resumable Background In-App Updater**: HTTP `Range` resume support with partial-file `.part` persistence, ETag/content-length validation, background notification progress with pause/resume/cancel controls, and automatic verification before installation.
+- **Rewritten Split View Experience**: Continuous page-direction-aware flow (`Vertical` stacked pages or `Horizontal` side-by-side layout matching workspace scroll direction), `Sync Page` lock/unlock toggle, `Swap Panes`, pinch/wheel/preset zoom (`Fit`, `100%`, `150%`), in-split keyword search with page jump, and quick `Clip Sticky`, `To Page`, and `+ Link` actions.
+- **Mind Map Viewport Bounds & Fit Map**: Clamps non-whiteboard Mind Map nodes cleanly within page margins to prevent drifting off-screen, paired with a one-tap `Fit Map` camera reset and framing action.
+- **Slide Show Learning (AI & Manual)**: Vibrant animated Kinetic Slide Presenter with 5 color themes, 5 structured slide types (`Title`, `Concept`, `Formula`, `Check Q&A`, `Summary`), interactive 3D flip recall Q&A cards, auto-play timer, AI chapter deck synthesis, and manual slide composer/editor.
+- **Rewritten Sticky Notes Logic**: Added dedicated title headers, 4 visual card styles (`Classic`, `Lined`, `Glass`, `Outline`), direct canvas tap-to-toggle checklists (`- [ ]` / `- [x]` / `☐` / `☑`), and a richer Sticky Studio (`+ Task`, pin, fold, duplicate, font/color controls).
+- **Ultra Design Language & Customisation**: Selectable app typography (`Modern Sans`, `Editorial Serif`, `Studio Mono`, `Rounded`), motion physics (`Ultra Spring`, `Minimal Crisp`, `Reduced`), refreshed categorized 3-dots menus with semantic icons, and a new 5-step **Ultra Setup Studio** (Welcome, Look Studio, Workspace, AI Studio, and interactive Pen Check pad).
+- **iOS-Style Stretchable Draggable Dock & Hover Tooltips**: Rubber-band spring toolbar icons with drag-to-reorder persistence and live stylus/pointer hover name pills (`Show Tool Hover Names` toggle).
+- **AI Semantic Search & Interactive Web Links**: Debounced AI Search Insights with clickable expanded keyword chips and semantic page hits, plus native `WebLink` cards (`WEBLINK` tool, `WebLinkModal`, safe external open, edit, delete, and Split View `+ Link`).
+- **Custom AI API (BYOK) Support**: Connect OpenAI-compatible endpoints, Gemini REST, or local Ollama servers with connection testing across summaries, flashcards, quizzes, explain, mind map generation, slide show decks, and semantic search.
+
 ## v9.7.1
 - **Upgraded Split Notes Workspace**: Smooth 60fps two-finger pinch-to-zoom and panning without scroll jitter, zoom presets (`Fit`, `100%`, `150%`, `-`, `+`), in-split keyword search with result jump, page-jumper strip, ratio presets (`30/70`, `50/50`, `70/30`), swap panes, and Clip Sticky / Insert to Page actions.
 - **Import Notes & Files from Other Apps**: Multi-format file/backup picker & drag-and-drop plus Paste-from-App (`Notion`, `Obsidian`, `Apple Notes`, `Google Keep` JSON/Markdown/HTML/CSV/TXT/PDF/Images) in the Library and directly into any active notebook.

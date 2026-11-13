@@ -4,6 +4,7 @@ import { LibraryScreen } from './components/LibraryScreen';
 import { EditorScreen } from './components/EditorScreen';
 import { SettingsScreen } from './components/SettingsScreen';
 import { LocalAiModal } from './components/StudyModals';
+import { SetupWizardModal } from './components/SetupWizardModal';
 
 export function App() {
   const {
@@ -17,6 +18,7 @@ export function App() {
     deleteFolder,
     createNotebook,
     updateNotebook,
+    updateNotebookSlides,
     openNotebookTab,
     closeTab,
     softDeleteNotebook,
@@ -41,8 +43,9 @@ export function App() {
     screen: 'LIBRARY',
   });
   const [modelsModalOpen, setModelsModalOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
 
-  // Sync light/dark theme class on <html>
+  // Sync light/dark theme class + Ultra typography & motion style on <html>
   useEffect(() => {
     const applyTheme = () => {
       const m = state.settings.themeMode;
@@ -52,10 +55,12 @@ export function App() {
       document.documentElement.classList.toggle('dark', dark);
     };
     applyTheme();
+    document.documentElement.dataset.font = state.settings.appFont;
+    document.documentElement.dataset.motion = state.settings.motionStyle;
     const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
     mq?.addEventListener?.('change', applyTheme);
     return () => mq?.removeEventListener?.('change', applyTheme);
-  }, [state.settings.themeMode]);
+  }, [state.settings.themeMode, state.settings.appFont, state.settings.motionStyle]);
 
   const openNote = (id: string) => {
     openNotebookTab(id);
@@ -89,6 +94,7 @@ export function App() {
             }
           }}
           onUpdateNotebook={updateNotebook}
+          onUpdateSlides={(slides) => updateNotebookSlides(activeNotebook.id, slides)}
           onAppendPages={(pages) => appendPagesToNotebook(activeNotebook.id, pages)}
           onUpdateSettings={updateSettings}
           onSavePenPreset={savePenPreset}
@@ -108,6 +114,7 @@ export function App() {
           onDeletePenPreset={deletePenPreset}
           onBack={() => setRoute({ screen: 'LIBRARY' })}
           onOpenLocalModels={() => setModelsModalOpen(true)}
+          onOpenSetupWizard={() => setSetupOpen(true)}
           onExportBackup={exportBackupJson}
           onImportBackup={importBackupJson}
         />
@@ -150,6 +157,7 @@ export function App() {
           onEmptyTrash={emptyTrash}
           onOpenSettings={() => setRoute({ screen: 'SETTINGS' })}
           onOpenLocalModels={() => setModelsModalOpen(true)}
+          onOpenSetupWizard={() => setSetupOpen(true)}
         />
       )}
 
@@ -163,8 +171,21 @@ export function App() {
         onDelete={removeLocalModel}
         onActivate={(id) => updateSettings({ activeLocalModelId: id })}
       />
+
+      <SetupWizardModal
+        open={!state.settings.setupCompleted || setupOpen}
+        settings={state.settings}
+        modelStates={modelStates}
+        onUpdateSettings={updateSettings}
+        onDownloadModel={startModelDownload}
+        onFinish={() => {
+          updateSettings({ setupCompleted: true });
+          setSetupOpen(false);
+        }}
+      />
     </>
   );
 }
 
 export default App;
+

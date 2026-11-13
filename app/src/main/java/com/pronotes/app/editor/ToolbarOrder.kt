@@ -4,7 +4,7 @@ package com.pronotes.app.editor
 object ToolbarOrder {
     val defaults = listOf(
         Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.SHAPE, Tool.LASSO, Tool.MINDMAP,
-        Tool.IMAGE, Tool.TEXT, Tool.STICKY, Tool.TAPE, Tool.STICKER, Tool.LASER,
+        Tool.IMAGE, Tool.TEXT, Tool.STICKY, Tool.WEBLINK, Tool.TAPE, Tool.STICKER, Tool.LASER,
     )
 
     fun parse(spec: String): List<Pair<Tool, Boolean>> {
@@ -19,4 +19,16 @@ object ToolbarOrder {
     fun encode(list: List<Pair<Tool, Boolean>>) = list.joinToString(",") { (t, v) -> (if (v) "" else "-") + t.name }
 
     fun visible(spec: String) = parse(spec).filter { it.second }.map { it.first }
+
+    /** Reorders visible tool [fromTool] to match [toTool]'s slot in the full persisted list. */
+    fun moveVisible(spec: String, fromTool: Tool, toTool: Tool): String {
+        if (fromTool == toTool) return spec
+        val all = parse(spec).toMutableList()
+        val fromIdx = all.indexOfFirst { it.first == fromTool }
+        val toIdx = all.indexOfFirst { it.first == toTool }
+        if (fromIdx < 0 || toIdx < 0) return spec
+        val item = all.removeAt(fromIdx)
+        all.add(toIdx, item)
+        return encode(all)
+    }
 }
