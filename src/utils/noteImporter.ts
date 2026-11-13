@@ -348,7 +348,11 @@ export async function parseImportedFiles(
           paperTint,
           'PDF'
         );
-        allPages.push(...res.pages);
+        const withPdfMeta = res.pages.map((pg, subIdx) => ({
+          ...pg,
+          pdfText: subIdx === 0 ? txt : pg.pdfText,
+        }));
+        allPages.push(...withPdfMeta);
         totalBlocks += res.blockCount;
       });
       results.push({

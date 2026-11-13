@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,11 +37,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.github.skydoves.colorpicker.compose.BrightnessSlider
 import com.github.skydoves.colorpicker.compose.HsvColorPicker
 import com.github.skydoves.colorpicker.compose.rememberColorPickerController
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
 
 /** A colour dot that grows when selected. */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -124,3 +132,72 @@ val StickerSet = listOf(
     "📚", "✏️", "🧠", "💬", "🏆", "🎉", "😊", "😂", "😎", "🤔", "😴", "🙌", "🌟", "☀️", "🌙", "⚡",
     "🍎", "☕", "🎵", "🧪", "🔬", "📈", "📉", "💰", "🏠", "✈️", "🐱", "🐶", "🌸", "🍀", "➡️", "⬅️",
 )
+
+/** Universal elastic iOS-like press & hover spring feedback for cards, pills, tiles, and buttons. */
+@Composable
+fun Modifier.elasticStretch(enabled: Boolean = true, pressScale: Float = 0.94f): Modifier {
+    if (!enabled) return this
+    var pressed by remember { mutableStateOf(false) }
+    val sx by animateFloatAsState(
+        targetValue = if (pressed) pressScale else 1f,
+        animationSpec = spring(dampingRatio = 0.48f, stiffness = 460f),
+        label = "elasticX",
+    )
+    val sy by animateFloatAsState(
+        targetValue = if (pressed) (2f - pressScale).coerceAtMost(1.06f) else 1f,
+        animationSpec = spring(dampingRatio = 0.48f, stiffness = 460f),
+        label = "elasticY",
+    )
+    return this
+        .pointerInput(enabled) {
+            awaitPointerEventScope {
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    pressed = event.changes.any { it.pressed }
+                }
+            }
+        }
+        .graphicsLayer { scaleX = sx; scaleY = sy }
+}
+
+/**
+ * Optional real open-source Liquid Glass surface powered by io.github.kyant0:backdrop (AndroidLiquidGlass).
+ * Falls back cleanly to a crisp elevated frosted Material surface when [enabled] is false.
+ */
+@Composable
+fun OptionalLiquidGlassBox(
+    backdrop: com.kyant.backdrop.backdrops.LayerBackdrop?,
+    enabled: Boolean,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(24.dp),
+    modifier: Modifier = Modifier,
+    fallbackColor: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+    content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit,
+) {
+    if (enabled && backdrop != null) {
+        val surfaceTint = MaterialTheme.colorScheme.surface.copy(alpha = 0.34f)
+        Box(
+            modifier = modifier
+                .clip(shape)
+                .drawBackdrop(
+                    backdrop = backdrop,
+                    shape = { shape },
+                    effects = {
+                        vibrancy()
+                        blur(14f.dp.toPx())
+                        lens(12f.dp.toPx(), 24f.dp.toPx())
+                    },
+                    onDrawSurface = { drawRect(surfaceTint) },
+                )
+                .border(1.dp, Color.White.copy(alpha = 0.42f), shape),
+            content = content,
+        )
+    } else {
+        Box(
+            modifier = modifier
+                .clip(shape)
+                .background(fallbackColor, shape)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape),
+            content = content,
+        )
+    }
+}

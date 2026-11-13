@@ -76,6 +76,7 @@ import com.pronotes.app.BuildConfigInfo
 import com.pronotes.app.data.AccentColor
 import com.pronotes.app.data.AppFont
 import com.pronotes.app.data.AppSettings
+import com.pronotes.app.data.CloudSync
 import com.pronotes.app.data.CustomAiProvider
 import com.pronotes.app.data.DeskColor
 import com.pronotes.app.data.MotionStyle
@@ -101,6 +102,7 @@ import com.pronotes.app.library.PaperPreview
 import com.pronotes.app.ui.GradientTitle
 import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.ProIconView
+import com.pronotes.app.ui.elasticStretch
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 
@@ -283,6 +285,8 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                             Toggle("Show seconds", "Off shows hours and minutes only", s.studySeconds) { v -> up { it.copy(studySeconds = v) } }
                             val idle = listOf(0, 2, 5, 10)
                             Choice("Pause when idle", if (s.studyIdleMinutes == 0) "Never" else "${s.studyIdleMinutes} min", idle.map { if (it == 0) "Never" else "$it min" }) { i -> up { it.copy(studyIdleMinutes = idle[i]) } }
+                            val pomos = listOf(15, 25, 45)
+                            Choice("Focus Pomodoro length", "${s.pomodoroMinutes} min", pomos.map { "$it min" }) { i -> up { it.copy(pomodoroMinutes = pomos[i]) } }
                         }
                     }
                 }
@@ -334,6 +338,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                     }
                 }
                 Category.LIBRARY -> {
+                    CloudAccountSection(s)
                     Section("Covers") {
                         Toggle("First page as cover", "New notebooks show page 1 on the cover", s.thumbCovers) { v -> up { it.copy(thumbCovers = v) } }
                     }
@@ -662,12 +667,97 @@ private fun PensSection(store: SettingsStore) {
     }
 }
 
+@Composable
+private fun CloudAccountSection(s: AppSettings) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val cloudUser by CloudSync.user.collectAsState()
+    val syncing by CloudSync.syncing.collectAsState()
+    val status by CloudSync.status.collectAsState()
+    var pasteTokenOpen by remember { mutableStateOf(false) }
+    var rawToken by remember { mutableStateOf("") }
+
+    Section("Google Account & Cloud Sync") {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (cloudUser == null) {
+                Text("Sign in with Google to sync your notebooks, folders, and v10 settings across devices and join Live Study Rooms.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { runCatching { context.startActivity(CloudSync.buildGoogleAuthIntent()) } },
+                        shape = CircleShape,
+                        modifier = Modifier.elasticStretch(),
+                    ) { Text("Sign in with Google") }
+                    OutlinedButton(
+                        onClick = { pasteTokenOpen = true },
+                        shape = CircleShape,
+                    ) { Text("Paste ID Token") }
+                }
+            } else {
+                Text(cloudUser!!.displayName.ifBlank { cloudUser!!.email }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                if (cloudUser!!.email.isNotBlank()) {
+                    Text(cloudUser!!.email, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (s.lastCloudSyncMs > 0L) {
+                    Text("Last synced ${java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(s.lastCloudSyncMs))}",
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        enabled = !syncing,
+                        onClick = { scope.launch { CloudSync.syncAll(context) } },
+                        shape = CircleShape,
+                        modifier = Modifier.elasticStretch(),
+                    ) { Text(if (syncing) "Syncing…" else "Sync Now") }
+                    OutlinedButton(
+                        onClick = { CloudSync.signOut(context) },
+                        shape = CircleShape,
+                    ) { Text("Sign Out") }
+                }
+            }
+            if (status.isNotBlank()) {
+                Text(status, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+
+    if (pasteTokenOpen) {
+        AlertDialog(
+            onDismissRequest = { pasteTokenOpen = false },
+            title = { Text("Sign in with Google ID Token") },
+            text = {
+                OutlinedTextField(
+                    value = rawToken,
+                    onValueChange = { rawToken = it },
+                    label = { Text("Google OAuth id_token (JWT)") },
+                    minLines = 3,
+                    maxLines = 5,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                Button(
+                    enabled = rawToken.trim().length > 20,
+                    onClick = {
+                        val tok = rawToken.trim()
+                        pasteTokenOpen = false
+                        scope.launch { CloudSync.signInWithGoogleIdToken(context, tok) }
+                    },
+                ) { Text("Sign In") }
+            },
+            dismissButton = { TextButton(onClick = { pasteTokenOpen = false }) { Text("Cancel") } },
+        )
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun LocalAiSection(s: AppSettings, store: SettingsStore) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val states by LocalAiManager.states.collectAsState()
+    val imageStates by LocalAiManager.imageStates.collectAsState()
+    var modelTab by remember { mutableStateOf(0) } // 0 = Text Models, 1 = Image Models
     var cat by remember { mutableStateOf("All") }
     var showKey by remember { mutableStateOf(false) }
     var testBusy by remember { mutableStateOf(false) }
@@ -791,69 +881,138 @@ private fun LocalAiSection(s: AppSettings, store: SettingsStore) {
         }
     }
 
-    Section("Free lightweight models (${LocalAiManager.catalog.size} on-device)") {
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            listOf("All", "Fast", "Writing", "Reasoning").forEach { c ->
-                FilterChip(cat == c, { cat = c }, label = { Text(c) }, shape = CircleShape)
+    Section("On-Device Models (${LocalAiManager.catalog.size} Text · ${LocalAiManager.imageCatalog.size} Image)") {
+        Segmented(
+            listOf("Text Models (${LocalAiManager.catalog.size})", "Image Models (${LocalAiManager.imageCatalog.size})"),
+            modelTab,
+        ) { modelTab = it }
+
+        if (modelTab == 0) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                listOf("All", "Fast", "Writing", "Reasoning").forEach { c ->
+                    FilterChip(cat == c, { cat = c }, label = { Text(c) }, shape = CircleShape)
+                }
             }
-        }
-        val filtered = LocalAiManager.catalog.filter { cat == "All" || it.category == cat }
-        filtered.forEachIndexed { idx, spec ->
-            if (idx > 0) HorizontalDivider()
-            val rt = states[spec.id] ?: LocalModelRuntime()
-            val isActive = s.activeLocalModelId == spec.id && rt.status == LocalModelStatus.READY
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(spec.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        Text("${spec.family} · ${spec.quantization} · ${spec.sizeLabel} · ${"⚡".repeat(spec.speedScore.coerceIn(1, 5))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                    }
-                    if (isActive) {
-                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
-                            Text("Active", Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            val filtered = LocalAiManager.catalog.filter { cat == "All" || it.category == cat }
+            filtered.forEachIndexed { idx, spec ->
+                if (idx > 0) HorizontalDivider()
+                val rt = states[spec.id] ?: LocalModelRuntime()
+                val isActive = s.activeLocalModelId == spec.id && rt.status == LocalModelStatus.READY
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(spec.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text("${spec.family} · ${spec.quantization} · ${spec.sizeLabel} · ${"⚡".repeat(spec.speedScore.coerceIn(1, 5))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                         }
-                    }
-                }
-                Text(spec.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    spec.tags.forEach { tag ->
-                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
-                            Text(tag, Modifier.padding(horizontal = 10.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
-                }
-                when (rt.status) {
-                    LocalModelStatus.DOWNLOADING -> {
-                        val dlMb = rt.downloadedBytes / (1024f * 1024f)
-                        val totMb = (rt.totalBytes.coerceAtLeast(1L)) / (1024f * 1024f)
-                        LinearProgressIndicator(progress = { rt.progress }, modifier = Modifier.fillMaxWidth())
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Downloading ${"%.1f".format(dlMb)} / ${"%.0f".format(totMb)} MB", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                            TextButton(onClick = { LocalAiManager.cancelDownload(context, spec.id) }) { Text("Cancel") }
-                        }
-                    }
-                    LocalModelStatus.READY -> {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            if (!isActive) {
-                                Button(onClick = { LocalAiManager.activateModel(context, spec.id) }, shape = CircleShape) { Text("Use Model") }
+                        if (isActive) {
+                            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                                Text("Active", Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                             }
-                            OutlinedButton(onClick = { LocalAiManager.deleteModel(context, spec.id) }, shape = CircleShape) { Text("Delete") }
                         }
                     }
-                    LocalModelStatus.ERROR -> {
-                        Text(rt.error ?: "Download error", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-                        Button(onClick = { LocalAiManager.startDownload(context, spec.id) }, shape = CircleShape) { Text("Retry Download") }
+                    Text(spec.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        spec.tags.forEach { tag ->
+                            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
+                                Text(tag, Modifier.padding(horizontal = 10.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
                     }
-                    LocalModelStatus.NOT_DOWNLOADED -> {
-                        Button(onClick = { LocalAiManager.startDownload(context, spec.id) }, shape = CircleShape) { Text("Download Free (${spec.sizeLabel})") }
+                    when (rt.status) {
+                        LocalModelStatus.DOWNLOADING -> {
+                            val dlMb = rt.downloadedBytes / (1024f * 1024f)
+                            val totMb = (rt.totalBytes.coerceAtLeast(1L)) / (1024f * 1024f)
+                            LinearProgressIndicator(progress = { rt.progress }, modifier = Modifier.fillMaxWidth())
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Downloading ${"%.1f".format(dlMb)} / ${"%.0f".format(totMb)} MB", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                                TextButton(onClick = { LocalAiManager.cancelDownload(context, spec.id) }) { Text("Cancel") }
+                            }
+                        }
+                        LocalModelStatus.READY -> {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                if (!isActive) {
+                                    Button(onClick = { LocalAiManager.activateModel(context, spec.id) }, shape = CircleShape) { Text("Use Model") }
+                                }
+                                OutlinedButton(onClick = { LocalAiManager.deleteModel(context, spec.id) }, shape = CircleShape) { Text("Delete") }
+                            }
+                        }
+                        LocalModelStatus.ERROR -> {
+                            Text(rt.error ?: "Download error", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                            Button(onClick = { LocalAiManager.startDownload(context, spec.id) }, shape = CircleShape) { Text("Retry Download") }
+                        }
+                        LocalModelStatus.NOT_DOWNLOADED -> {
+                            Button(onClick = { LocalAiManager.startDownload(context, spec.id) }, shape = CircleShape) { Text("Download Free (${spec.sizeLabel})") }
+                        }
                     }
                 }
             }
+            HorizontalDivider()
+            Info("Downloaded GGUF weights are stored privately in app storage and run offline for summaries, AI chat, flashcards, quizzes, mind maps, and lecture notes.")
+        } else {
+            LocalAiManager.imageCatalog.forEachIndexed { idx, spec ->
+                if (idx > 0) HorizontalDivider()
+                val rt = imageStates[spec.id] ?: LocalModelRuntime(
+                    status = if (spec.builtInReady) LocalModelStatus.READY else LocalModelStatus.NOT_DOWNLOADED,
+                )
+                val isActive = s.activeImageModelId == spec.id
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(spec.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text("${spec.backend} · ${spec.sizeLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        }
+                        if (isActive) {
+                            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                                Text("Active", Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+                    Text(spec.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        spec.tags.forEach { tag ->
+                            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
+                                Text(tag, Modifier.padding(horizontal = 10.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                    when {
+                        spec.builtInReady -> {
+                            if (!isActive) {
+                                Button(onClick = { LocalAiManager.activateImageModel(context, spec.id) }, shape = CircleShape) { Text("Use VectorCraft") }
+                            }
+                        }
+                        rt.status == LocalModelStatus.DOWNLOADING -> {
+                            val dlMb = rt.downloadedBytes / (1024f * 1024f)
+                            val totMb = (rt.totalBytes.coerceAtLeast(1L)) / (1024f * 1024f)
+                            LinearProgressIndicator(progress = { rt.progress }, modifier = Modifier.fillMaxWidth())
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Downloading ${"%.1f".format(dlMb)} / ${"%.0f".format(totMb)} MB", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                                TextButton(onClick = { LocalAiManager.cancelImageModelDownload(context, spec.id) }) { Text("Cancel") }
+                            }
+                        }
+                        rt.status == LocalModelStatus.READY -> {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (!isActive) {
+                                    Button(onClick = { LocalAiManager.activateImageModel(context, spec.id) }, shape = CircleShape) { Text("Use Model") }
+                                }
+                                OutlinedButton(onClick = { LocalAiManager.deleteImageModel(context, spec.id) }, shape = CircleShape) { Text("Delete") }
+                            }
+                        }
+                        rt.status == LocalModelStatus.ERROR -> {
+                            Text(rt.error ?: "Download error", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                            Button(onClick = { LocalAiManager.startImageModelDownload(context, spec.id) }, shape = CircleShape) { Text("Retry Download") }
+                        }
+                        else -> {
+                            Button(onClick = { LocalAiManager.startImageModelDownload(context, spec.id) }, shape = CircleShape) { Text("Download Free (${spec.sizeLabel})") }
+                        }
+                    }
+                }
+            }
+            HorizontalDivider()
+            Info("Lightweight image models power instant AI stickers, notebook covers, and custom page templates.")
         }
-        HorizontalDivider()
-        Info("Downloaded GGUF weights are stored privately in app storage and run offline for summaries, flashcards, quizzes, mind maps, and explanations.")
     }
 }

@@ -1,11 +1,23 @@
 package com.pronotes.app.editor
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
+import android.graphics.Shader
+import android.graphics.Typeface
 import com.pronotes.app.data.CustomAiProvider
 import com.pronotes.app.data.SettingsStore
 import com.pronotes.app.data.SlideCard
 import com.pronotes.app.data.SlideKind
 import com.pronotes.app.data.SlideTheme
+import kotlin.math.cos
+import kotlin.math.min
+import kotlin.math.sin
+import kotlin.random.Random
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -69,6 +81,25 @@ data class SearchAiResult(
     val expandedTerms: List<String> = emptyList(),
     val answer: String = "",
     val engineLabel: String = "",
+)
+
+enum class AiAssetKind(val label: String) {
+    STICKER("Sticker"),
+    COVER("Cover"),
+    TEMPLATE("Template"),
+}
+
+data class ImageModelSpec(
+    val id: String,
+    val name: String,
+    val backend: String,
+    val sizeLabel: String,
+    val approxBytes: Long,
+    val description: String,
+    val tags: List<String>,
+    val downloadUrl: String,
+    val fileName: String,
+    val builtInReady: Boolean = false,
 )
 
 /**
@@ -177,11 +208,62 @@ object LocalAiManager {
         ),
     )
 
+    val imageCatalog: List<ImageModelSpec> = listOf(
+        ImageModelSpec(
+            id = "vectorcraft-svg",
+            name = "VectorCraft SVG Nano",
+            backend = "Built-in Vector",
+            sizeLabel = "0 MB · Built-in",
+            approxBytes = 0L,
+            description = "Instant vector stickers, minimalist notebook covers, and ruled/Cornell templates with zero download.",
+            tags = listOf("Instant", "Crisp Ink", "Zero Download"),
+            downloadUrl = "",
+            fileName = "",
+            builtInReady = true,
+        ),
+        ImageModelSpec(
+            id = "sdxs-512-edge",
+            name = "SDXS 512 Edge (1-Step)",
+            backend = "ONNX INT8",
+            sizeLabel = "~185 MB",
+            approxBytes = 185L * 1024 * 1024,
+            description = "Ultra-lightweight single-step generative diffusion weights for fast stickers and abstract covers.",
+            tags = listOf("Fastest Diffusion", "512px", "Low RAM"),
+            downloadUrl = "https://huggingface.co/IDKiro/sdxs-512-0.9/resolve/main/unet/diffusion_pytorch_model.fp16.safetensors",
+            fileName = "sdxs-512-edge.safetensors",
+        ),
+        ImageModelSpec(
+            id = "sdxl-turbo-q4",
+            name = "SDXL-Turbo Lite Q4",
+            backend = "Core Diffusion Q4",
+            sizeLabel = "~340 MB",
+            approxBytes = 340L * 1024 * 1024,
+            description = "Rich stylized book covers, study badges, and aesthetic planner headers offline.",
+            tags = listOf("Stylized Covers", "Q4", "Recommended"),
+            downloadUrl = "https://huggingface.co/stabilityai/sdxl-turbo/resolve/main/sd_xl_turbo_1.0_fp16.safetensors",
+            fileName = "sdxl-turbo-lite-q4.safetensors",
+        ),
+        ImageModelSpec(
+            id = "flux-schnell-nano",
+            name = "FLUX.1-Schnell Nano",
+            backend = "Distilled 4-Step",
+            sizeLabel = "~420 MB",
+            approxBytes = 420L * 1024 * 1024,
+            description = "Crisp typographic posters, diagram illustrations, and pastel stickers.",
+            tags = listOf("Typography", "Illustrations"),
+            downloadUrl = "https://huggingface.co/black-forest-labs/FLUX.1-schnell/resolve/main/ae.safetensors",
+            fileName = "flux-schnell-nano.safetensors",
+        ),
+    )
+
     private val json = Json { ignoreUnknownKeys = true }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = HashMap<String, Job>()
     private val _states = MutableStateFlow<Map<String, LocalModelRuntime>>(emptyMap())
     val states: StateFlow<Map<String, LocalModelRuntime>> = _states
+
+    private val _imageStates = MutableStateFlow<Map<String, LocalModelRuntime>>(emptyMap())
+    val imageStates: StateFlow<Map<String, LocalModelRuntime>> = _imageStates
 
     private val _stage = MutableStateFlow("")
     val stage: StateFlow<String> = _stage
@@ -192,6 +274,7 @@ object LocalAiManager {
 
     private fun dir(context: Context) = File(context.filesDir, "local_models").apply { mkdirs() }
     private fun modelFile(context: Context, spec: LocalModelSpec) = File(dir(context), spec.fileName)
+    private fun imageModelFile(context: Context, spec: ImageModelSpec) = File(dir(context), spec.fileName)
 
     fun refresh(context: Context) {
         val next = HashMap<String, LocalModelRuntime>(_states.value)
@@ -211,6 +294,23 @@ object LocalAiManager {
             }
         }
         _states.value = next
+
+        val nextImg = HashMap<String, LocalModelRuntime>(_imageStates.value)
+        for (spec in imageCatalog) {
+            val cur = nextImg[spec.id]
+            if (cur?.status == LocalModelStatus.DOWNLOADING) continue
+            if (spec.builtInReady) {
+                nextImg[spec.id] = LocalModelRuntime(status = LocalModelStatus.READY, progress = 1f)
+                continue
+            }
+            val f = imageModelFile(context, spec)
+            nextImg[spec.id] = if (f.exists() && f.length() > 512L * 1024L) {
+                LocalModelRuntime(LocalModelStatus.READY, 1f, f.length(), f.length())
+            } else {
+                LocalModelRuntime(LocalModelStatus.NOT_DOWNLOADED, totalBytes = spec.approxBytes)
+            }
+        }
+        _imageStates.value = nextImg
     }
 
     fun isDownloaded(context: Context, modelId: String): Boolean {
@@ -344,6 +444,106 @@ object LocalAiManager {
         if (modelId.isBlank() || isDownloaded(context, modelId)) {
             SettingsStore.get(context).update { it.copy(activeLocalModelId = modelId) }
         }
+    }
+
+    fun isImageModelReady(context: Context, modelId: String): Boolean {
+        val spec = imageCatalog.firstOrNull { it.id == modelId } ?: return false
+        if (spec.builtInReady) return true
+        val f = imageModelFile(context, spec)
+        return f.exists() && f.length() > 512L * 1024L
+    }
+
+    fun activeImageModelLabel(context: Context): String {
+        val id = SettingsStore.get(context).settings.value.activeImageModelId
+        val spec = imageCatalog.firstOrNull { it.id == id } ?: imageCatalog.first()
+        return spec.name
+    }
+
+    fun activateImageModel(context: Context, modelId: String) {
+        if (isImageModelReady(context, modelId)) {
+            SettingsStore.get(context).update { it.copy(activeImageModelId = modelId) }
+        }
+    }
+
+    fun startImageModelDownload(context: Context, modelId: String) {
+        val app = context.applicationContext
+        val spec = imageCatalog.firstOrNull { it.id == modelId } ?: return
+        if (spec.builtInReady) { activateImageModel(app, modelId); return }
+        if (jobs["img:$modelId"]?.isActive == true) return
+        val dest = imageModelFile(app, spec)
+        val tmp = File(dest.path + ".part")
+
+        fun upd(rt: LocalModelRuntime) {
+            _imageStates.value = _imageStates.value.toMutableMap().apply { put(modelId, rt) }
+        }
+        upd(LocalModelRuntime(LocalModelStatus.DOWNLOADING, 0f, 0L, spec.approxBytes))
+        jobs["img:$modelId"] = scope.launch {
+            var conn: HttpURLConnection? = null
+            try {
+                var currentUrl = spec.downloadUrl
+                var redirects = 0
+                while (redirects < 6) {
+                    conn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 20_000; readTimeout = 30_000; instanceFollowRedirects = false
+                        setRequestProperty("User-Agent", "ProNotes-Android/10.0")
+                    }
+                    val code = conn.responseCode
+                    if (code in 301..308) {
+                        val nextLoc = conn.getHeaderField("Location") ?: break
+                        conn.disconnect()
+                        currentUrl = URL(URL(currentUrl), nextLoc).toString()
+                        redirects++
+                    } else break
+                }
+                val activeConn = conn ?: error("Connection failed")
+                if (activeConn.responseCode !in 200..299) error("HTTP ${activeConn.responseCode}")
+                val total = activeConn.contentLengthLong.takeIf { it > 0 } ?: spec.approxBytes
+                var dl = 0L
+                val buf = ByteArray(64 * 1024)
+                activeConn.inputStream.use { input ->
+                    tmp.outputStream().use { out ->
+                        var lastUi = 0L
+                        while (true) {
+                            val n = input.read(buf)
+                            if (n < 0) break
+                            out.write(buf, 0, n)
+                            dl += n
+                            val now = System.currentTimeMillis()
+                            if (now - lastUi >= 180L) {
+                                lastUi = now
+                                upd(LocalModelRuntime(LocalModelStatus.DOWNLOADING, (dl.toFloat() / total.coerceAtLeast(1L)).coerceIn(0f, 0.99f), dl, total))
+                            }
+                        }
+                    }
+                }
+                if (dest.exists()) dest.delete()
+                check(tmp.renameTo(dest)) { "Could not save image model" }
+                upd(LocalModelRuntime(LocalModelStatus.READY, 1f, dl, dl))
+                SettingsStore.get(app).update { it.copy(activeImageModelId = modelId) }
+            } catch (e: CancellationException) {
+                tmp.delete(); upd(LocalModelRuntime(LocalModelStatus.NOT_DOWNLOADED, 0f, 0L, spec.approxBytes)); throw e
+            } catch (e: Throwable) {
+                tmp.delete(); upd(LocalModelRuntime(LocalModelStatus.ERROR, 0f, 0L, spec.approxBytes, e.message ?: "Download failed"))
+            } finally {
+                conn?.disconnect(); jobs.remove("img:$modelId")
+            }
+        }
+    }
+
+    fun cancelImageModelDownload(context: Context, modelId: String) {
+        jobs["img:$modelId"]?.cancel(); jobs.remove("img:$modelId")
+        val spec = imageCatalog.firstOrNull { it.id == modelId } ?: return
+        if (!spec.builtInReady) File(imageModelFile(context, spec).path + ".part").delete()
+        refresh(context)
+    }
+
+    fun deleteImageModel(context: Context, modelId: String) {
+        cancelImageModelDownload(context, modelId)
+        val spec = imageCatalog.firstOrNull { it.id == modelId } ?: return
+        if (!spec.builtInReady) imageModelFile(context, spec).delete()
+        val store = SettingsStore.get(context)
+        if (store.settings.value.activeImageModelId == modelId) store.update { it.copy(activeImageModelId = "vectorcraft-svg") }
+        refresh(context)
     }
 
     // ---------------------------------------------------------------- Custom AI REST Client
@@ -760,5 +960,335 @@ object LocalAiManager {
             answer = matchingSentence,
             engineLabel = engine,
         )
+    }
+
+    // ---------------------------------------------------------------- v10 AI Chat over Notes & PDFs
+
+    suspend fun chatAboutNotesAndPdf(
+        context: Context,
+        notebookTitle: String,
+        pagesText: List<Pair<Int, String>>,
+        history: List<Pair<String, String>>,
+        question: String,
+    ): String = withContext(Dispatchers.Default) {
+        val q = question.trim()
+        if (q.isBlank()) return@withContext "Ask a question about your notes or imported PDF."
+        val qTokens = q.lowercase().split(Regex("[^a-z0-9]+")).filter { it.length >= 2 }.toSet()
+        val ranked = pagesText.map { (pNum, body) ->
+            val low = body.lowercase()
+            val hits = qTokens.count { low.contains(it) }
+            val boost = if (low.contains(q.lowercase())) 4 else 0
+            Triple(pNum, body.trim(), hits + boost)
+        }.sortedByDescending { it.third }
+
+        val topPages = ranked.filter { it.third > 0 }.ifEmpty { ranked.filter { it.second.isNotBlank() } }.take(4)
+        val contextBlock = topPages.joinToString("\n\n") { (p, txt, _) -> "[Page ${p + 1}]\n${txt.take(1500)}" }
+
+        if (hasCustomApi(context)) {
+            _stage.value = "Chatting with ${activeEngineLabel(context)}…"
+            val histTxt = history.takeLast(6).joinToString("\n") { (r, m) -> "$r: ${m.take(400)}" }
+            val resp = callCustomApi(
+                context,
+                "You are an insightful study tutor embedded in Pro Notes. Answer concisely using the provided notebook & PDF excerpts. Cite page numbers as [Page N].",
+                "Notebook: $notebookTitle\n\nRelevant pages:\n${contextBlock.ifBlank { "(No extractable text yet)" }}\n\nHistory:\n$histTxt\n\nQuestion: $q",
+            ).getOrNull()
+            _stage.value = ""
+            if (!resp.isNullOrBlank()) return@withContext resp
+        }
+
+        _stage.value = "Searching notebook & PDF index…"
+        delay(120)
+        _stage.value = ""
+        if (topPages.isEmpty()) {
+            return@withContext "I couldn't find typed text or PDF text in \"$notebookTitle\" yet. Try adding typed notes, sticky notes, or importing a searchable PDF."
+        }
+        val combined = topPages.joinToString("\n") { it.second }
+        val sentences = StudyGen.sentences(combined)
+        val matched = sentences.filter { s ->
+            val low = s.lowercase()
+            qTokens.any { low.contains(it) }
+        }.take(4)
+        val summaryPts = if (matched.isNotEmpty()) matched else StudyGen.summary(combined, 4).ifEmpty { sentences.take(3) }
+        val citations = topPages.joinToString(", ") { "[Page ${it.first + 1}]" }
+        buildString {
+            appendLine("From $citations (${activeEngineLabel(context)}):")
+            summaryPts.forEach { appendLine("• $it") }
+            val terms = StudyGen.keyTerms(combined, 5)
+            if (terms.isNotEmpty()) append("\nRelated key concepts: ${terms.joinToString(", ")}")
+        }.trim()
+    }
+
+    // ---------------------------------------------------------------- v10 AI Stickers, Covers & Templates
+
+    suspend fun generateAiAssetBitmap(
+        context: Context,
+        kind: AiAssetKind,
+        prompt: String,
+        accentArgb: Int,
+        width: Int = when (kind) {
+            AiAssetKind.STICKER -> 512
+            AiAssetKind.COVER -> 900
+            AiAssetKind.TEMPLATE -> 1240
+        },
+        height: Int = when (kind) {
+            AiAssetKind.STICKER -> 512
+            AiAssetKind.COVER -> 1200
+            AiAssetKind.TEMPLATE -> 1754
+        },
+    ): Bitmap = withContext(Dispatchers.Default) {
+        val cleanPrompt = prompt.trim().ifBlank {
+            when (kind) {
+                AiAssetKind.STICKER -> "Study Star Badge"
+                AiAssetKind.COVER -> "Modern Science Notebook"
+                AiAssetKind.TEMPLATE -> "Cornell Study Planner"
+            }
+        }
+        var aiBadge = ""
+        var aiAccent = accentArgb
+        var layoutMode = ""
+        if (hasCustomApi(context)) {
+            _stage.value = "Generating ${kind.label.lowercase()} concept…"
+            val resp = callCustomApi(
+                context,
+                "Return JSON only: {\"badge\":\"2-3 word label\",\"hex\":\"#3D6CF4\",\"layout\":\"cornell|weekly|habit|storyboard|grid|star|ribbon|crest|cosmos|botanical\"}.",
+                "Kind: ${kind.name}, Prompt: $cleanPrompt",
+            ).getOrNull()
+            extractJsonObject(resp.orEmpty())?.let { o ->
+                aiBadge = o["badge"]?.jsonPrimitive?.content?.trim().orEmpty().take(24)
+                layoutMode = o["layout"]?.jsonPrimitive?.content?.trim()?.lowercase().orEmpty()
+                o["hex"]?.jsonPrimitive?.content?.trim()?.removePrefix("#")?.toLongOrNull(16)?.let {
+                    aiAccent = (0xFF000000L or it).toInt()
+                }
+            }
+            _stage.value = ""
+        }
+
+        val seed = cleanPrompt.hashCode()
+        val rng = Random(seed)
+        val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val low = (cleanPrompt + " " + layoutMode).lowercase()
+
+        when (kind) {
+            AiAssetKind.STICKER -> {
+                val cx = width / 2f; val cy = height / 2f; val r = width * 0.42f
+                val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    shader = LinearGradient(0f, 0f, width.toFloat(), height.toFloat(), aiAccent, lightenColor(aiAccent, 0.32f), Shader.TileMode.CLAMP)
+                }
+                val whiteBorder = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
+                val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x28000000 }
+                when {
+                    "star" in low || "spark" in low || "award" in low -> {
+                        val outer = starPath(cx, cy, r * 1.08f, r * 0.56f, 5)
+                        val inner = starPath(cx, cy, r * 0.94f, r * 0.48f, 5)
+                        canvas.drawPath(outer, whiteBorder)
+                        canvas.drawPath(inner, bgPaint)
+                    }
+                    "ribbon" in low || "banner" in low || "note" in low || "tag" in low -> {
+                        val card = RectF(width * 0.1f, height * 0.24f, width * 0.9f, height * 0.76f)
+                        canvas.drawRoundRect(RectF(card).apply { offset(0f, 10f) }, 46f, 46f, shadow)
+                        canvas.drawRoundRect(RectF(card).apply { inset(-12f, -12f) }, 54f, 54f, whiteBorder)
+                        canvas.drawRoundRect(card, 44f, 44f, bgPaint)
+                    }
+                    else -> {
+                        canvas.drawCircle(cx, cy + 10f, r * 1.02f, shadow)
+                        canvas.drawCircle(cx, cy, r * 1.04f, whiteBorder)
+                        canvas.drawCircle(cx, cy, r * 0.94f, bgPaint)
+                        val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            color = 0x44FFFFFF; style = Paint.Style.STROKE; strokeWidth = 4f
+                        }
+                        canvas.drawCircle(cx, cy, r * 0.80f, ring)
+                    }
+                }
+                val label = aiBadge.ifBlank { cleanPrompt.take(18) }
+                val tp = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = 0xFFFFFFFF.toInt()
+                    textSize = (width * 0.105f).coerceIn(32f, 54f)
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    textAlign = Paint.Align.CENTER
+                }
+                canvas.drawText(label, cx, cy + tp.textSize * 0.34f, tp)
+            }
+            AiAssetKind.COVER -> {
+                val base = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    shader = LinearGradient(0f, 0f, width.toFloat(), height.toFloat(), aiAccent, darkenColor(aiAccent, 0.35f), Shader.TileMode.CLAMP)
+                }
+                canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), base)
+                val blobPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+                for (i in 0 until 7) {
+                    blobPaint.color = (if (i % 2 == 0) 0x26FFFFFF else 0x1A000000)
+                    val bx = rng.nextFloat() * width; val by = rng.nextFloat() * height
+                    val br = width * (0.14f + rng.nextFloat() * 0.24f)
+                    canvas.drawCircle(bx, by, br, blobPaint)
+                }
+                if ("cosmos" in low || "space" in low || "star" in low) {
+                    val starP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCCFFFFFF.toInt() }
+                    for (i in 0 until 40) {
+                        canvas.drawCircle(rng.nextFloat() * width, rng.nextFloat() * height, 2f + rng.nextFloat() * 4f, starP)
+                    }
+                }
+                // Crisp minimal spine & glass card title plate
+                canvas.drawRect(0f, 0f, width * 0.06f, height.toFloat(), Paint().apply { color = 0x28000000 })
+                val plate = RectF(width * 0.14f, height * 0.33f, width * 0.88f, height * 0.62f)
+                canvas.drawRoundRect(plate, 38f, 38f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x2EFFFFFF })
+                canvas.drawRoundRect(plate, 38f, 38f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = 0x66FFFFFF; style = Paint.Style.STROKE; strokeWidth = 3f
+                })
+                val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = 0xFFFFFFFF.toInt()
+                    textSize = 66f
+                    typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+                }
+                val words = cleanPrompt.split(' ').take(4).joinToString(" ").uppercase()
+                canvas.drawText(words.take(18), plate.left + 44f, plate.centerY() - 10f, titlePaint)
+                val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = 0xDDFFFFFF.toInt(); textSize = 30f
+                }
+                canvas.drawText(aiBadge.ifBlank { activeImageModelLabel(context) }, plate.left + 44f, plate.centerY() + 48f, subPaint)
+            }
+            AiAssetKind.TEMPLATE -> {
+                canvas.drawColor(0xFFFDFCF9.toInt())
+                val lineP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFD9E1EC.toInt(); strokeWidth = 2f }
+                val accentP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = aiAccent; strokeWidth = 3.5f }
+                val hdrFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = (aiAccent and 0x00FFFFFF) or 0x1E000000 }
+                val headTitle = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = aiAccent; textSize = 44f; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                }
+                val labelP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF5A6577.toInt(); textSize = 26f }
+                val pad = 76f
+                // Header banner
+                canvas.drawRoundRect(RectF(pad, 68f, width - pad, 174f), 22f, 22f, hdrFill)
+                canvas.drawText(cleanPrompt.take(30), pad + 26f, 136f, headTitle)
+                when {
+                    "cornell" in low -> {
+                        val cueX = width * 0.31f
+                        val sumY = height * 0.80f
+                        canvas.drawLine(cueX, 200f, cueX, sumY, accentP)
+                        canvas.drawLine(pad, sumY, width - pad, sumY, accentP)
+                        canvas.drawText("CUES & QUESTIONS", pad, 232f, labelP)
+                        canvas.drawText("NOTES", cueX + 24f, 232f, labelP)
+                        canvas.drawText("SUMMARY", pad, sumY + 38f, labelP)
+                        var y = 265f
+                        while (y < sumY - 24f) { canvas.drawLine(pad, y, width - pad, y, lineP); y += 48f }
+                        var sy = sumY + 66f
+                        while (sy < height - 70f) { canvas.drawLine(pad, sy, width - pad, sy, lineP); sy += 48f }
+                    }
+                    "weekly" in low || "planner" in low || "schedule" in low -> {
+                        val days = listOf("MON", "TUE", "WED", "THU", "FRI", "WKND")
+                        val cols = 2; val rows = 3
+                        val cw = (width - pad * 2 - 28f) / cols
+                        val ch = (height - 260f - 56f) / rows
+                        for (r in 0 until rows) for (c in 0 until cols) {
+                            val idx = r * cols + c
+                            val left = pad + c * (cw + 28f); val top = 210f + r * (ch + 28f)
+                            val box = RectF(left, top, left + cw, top + ch)
+                            canvas.drawRoundRect(box, 20f, 20f, lineP.apply { style = Paint.Style.STROKE })
+                            canvas.drawText(days[idx], left + 20f, top + 38f, headTitle.apply { textSize = 26f })
+                            var ly = top + 78f
+                            while (ly < box.bottom - 20f) { canvas.drawLine(left + 16f, ly, box.right - 16f, ly, lineP); ly += 46f }
+                        }
+                    }
+                    "habit" in low || "track" in low -> {
+                        var y = 240f
+                        for (r in 0 until 18) {
+                            canvas.drawLine(pad, y, width - pad, y, lineP)
+                            if (r == 0) canvas.drawText("HABIT / GOAL", pad, y - 14f, labelP)
+                            for (d in 0 until 14) {
+                                val cx = width * 0.44f + d * 42f
+                                if (r == 0) canvas.drawText("${d + 1}", cx - 8f, y - 14f, labelP.apply { textSize = 18f })
+                                else canvas.drawCircle(cx, y - 22f, 12f, lineP.apply { style = Paint.Style.STROKE })
+                            }
+                            y += 72f
+                        }
+                    }
+                    "story" in low || "grid" in low -> {
+                        val cw = (width - pad * 2 - 36f) / 2f
+                        val ch = 410f
+                        for (r in 0 until 3) for (c in 0 until 2) {
+                            val left = pad + c * (cw + 36f); val top = 210f + r * (ch + 66f)
+                            canvas.drawRoundRect(RectF(left, top, left + cw, top + ch - 84f), 18f, 18f, accentP.apply { style = Paint.Style.STROKE })
+                            canvas.drawLine(left, top + ch - 42f, left + cw, top + ch - 42f, lineP)
+                            canvas.drawLine(left, top + ch - 6f, left + cw, top + ch - 6f, lineP)
+                        }
+                    }
+                    else -> {
+                        var y = 230f
+                        while (y < height - 70f) {
+                            canvas.drawLine(pad, y, width - pad, y, lineP)
+                            y += 50f
+                        }
+                        canvas.drawLine(pad + 54f, 195f, pad + 54f, height - 60f, accentP)
+                    }
+                }
+            }
+        }
+        bmp
+    }
+
+    private fun starPath(cx: Float, cy: Float, outerR: Float, innerR: Float, points: Int): Path = Path().apply {
+        val step = Math.PI / points
+        var angle = -Math.PI / 2.0
+        for (i in 0 until points * 2) {
+            val r = if (i % 2 == 0) outerR else innerR
+            val x = cx + (cos(angle) * r).toFloat()
+            val y = cy + (sin(angle) * r).toFloat()
+            if (i == 0) moveTo(x, y) else lineTo(x, y)
+            angle += step
+        }
+        close()
+    }
+
+    private fun lightenColor(argb: Int, amount: Float): Int {
+        val r = ((argb shr 16 and 0xFF) + (255 - (argb shr 16 and 0xFF)) * amount).toInt().coerceIn(0, 255)
+        val g = ((argb shr 8 and 0xFF) + (255 - (argb shr 8 and 0xFF)) * amount).toInt().coerceIn(0, 255)
+        val b = ((argb and 0xFF) + (255 - (argb and 0xFF)) * amount).toInt().coerceIn(0, 255)
+        return (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+    }
+
+    private fun darkenColor(argb: Int, amount: Float): Int {
+        val r = ((argb shr 16 and 0xFF) * (1f - amount)).toInt().coerceIn(0, 255)
+        val g = ((argb shr 8 and 0xFF) * (1f - amount)).toInt().coerceIn(0, 255)
+        val b = ((argb and 0xFF) * (1f - amount)).toInt().coerceIn(0, 255)
+        return (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+    }
+
+    // ---------------------------------------------------------------- v10 AI Lecture Recording Structuring
+
+    suspend fun structureLectureRecording(
+        context: Context,
+        title: String,
+        transcriptOrNotes: String,
+        bookmarks: List<String>,
+        durationSec: Long,
+    ): String = withContext(Dispatchers.Default) {
+        val clean = transcriptOrNotes.trim()
+        val bmBlock = if (bookmarks.isNotEmpty()) bookmarks.joinToString("\n") { "- $it" } else ""
+        if (hasCustomApi(context) && (clean.isNotBlank() || bmBlock.isNotBlank())) {
+            _stage.value = "Structuring lecture recording with AI…"
+            val resp = callCustomApi(
+                context,
+                "Format raw lecture notes and timestamp bookmarks into crisp study notes with sections: Summary, Key Takeaways, Bookmarked Moments, and Action Items.",
+                "Title: $title (${durationSec}s)\nBookmarks:\n$bmBlock\n\nNotes:\n${clean.take(5000)}",
+            ).getOrNull()
+            _stage.value = ""
+            if (!resp.isNullOrBlank()) return@withContext resp
+        }
+        val pts = StudyGen.summary(clean, 5).ifEmpty { StudyGen.sentences(clean).take(4) }
+        val terms = StudyGen.keyTerms(clean, 6)
+        buildString {
+            appendLine("🎙 ${title.ifBlank { "Lecture Recording" }} (${durationSec / 60}m ${durationSec % 60}s)")
+            if (pts.isNotEmpty()) {
+                appendLine("\nKey Takeaways:")
+                pts.forEach { appendLine("• $it") }
+            }
+            if (terms.isNotEmpty()) appendLine("\nKey Concepts: ${terms.joinToString(", ")}")
+            if (bookmarks.isNotEmpty()) {
+                appendLine("\nBookmarks:")
+                bookmarks.forEach { appendLine("• $it") }
+            }
+            if (pts.isEmpty() && bookmarks.isEmpty() && clean.isNotBlank()) {
+                appendLine("\nNotes:\n$clean")
+            }
+        }.trim()
     }
 }

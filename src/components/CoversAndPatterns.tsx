@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, Layers, Sparkles, X } from 'lucide-react';
+import { Check, Layers, Loader2, Sparkles, Wand2, X } from 'lucide-react';
 import {
   AppSettings,
   COVER_COLORS,
@@ -12,6 +12,7 @@ import {
   UNITS_PER_MM,
 } from '../types/models';
 import { drawCoverOnCanvas, drawPaperTemplate, drawWhiteboardBackdrop } from '../utils/canvasRenderer';
+import { generateAiAssetImage, IMAGE_MODELS_CATALOG } from '../utils/localAi';
 
 export const CoverCanvas: React.FC<{
   spec: string;
@@ -152,6 +153,8 @@ export const NewNotebookModal: React.FC<NewNotebookModalProps> = ({
   const [wMm, setWMm] = useState<string>('210');
   const [hMm, setHMm] = useState<string>('297');
   const [paperGroup, setPaperGroup] = useState<string>('All');
+  const [aiCoverPrompt, setAiCoverPrompt] = useState<string>('');
+  const [aiCoverBusy, setAiCoverBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -560,7 +563,7 @@ export const NewNotebookModal: React.FC<NewNotebookModalProps> = ({
                     <button
                       type="button"
                       onClick={() => setCoverPage((v) => !v)}
-                      className={`relative h-6 w-11 rounded-full transition ${
+                      className={`ios-stretch relative h-6 w-11 rounded-full transition ${
                         coverPage ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-700'
                       }`}
                     >
@@ -572,13 +575,77 @@ export const NewNotebookModal: React.FC<NewNotebookModalProps> = ({
                     </button>
                   </div>
 
+                  {/* AI Cover Generator */}
+                  <div className="rounded-2xl border border-violet-500/25 bg-violet-500/[0.06] p-3.5 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-violet-700 dark:text-violet-300">
+                        <Wand2 className="h-3.5 w-3.5" /> AI Cover Studio ({IMAGE_MODELS_CATALOG.find((m) => m.id === (defaults.activeImageModelId || IMAGE_MODELS_CATALOG[0].id))?.name || 'SDXL Turbo Q4'})
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={aiCoverPrompt}
+                        onChange={(e) => setAiCoverPrompt(e.target.value)}
+                        placeholder="Describe a notebook cover (e.g. Deep Space Nebula, Botanical Gold)..."
+                        className="flex-1 rounded-xl border border-black/12 bg-white px-3 py-1.5 text-xs outline-none focus:border-violet-500 dark:border-white/15 dark:bg-[#22242C]"
+                      />
+                      <button
+                        type="button"
+                        disabled={aiCoverBusy || !aiCoverPrompt.trim()}
+                        onClick={async () => {
+                          setAiCoverBusy(true);
+                          try {
+                            const res = await generateAiAssetImage(
+                              aiCoverPrompt,
+                              'cover',
+                              defaults.activeImageModelId || IMAGE_MODELS_CATALOG[0].id
+                            );
+                            setCover(`image:${res.dataUrl}`);
+                          } finally {
+                            setAiCoverBusy(false);
+                          }
+                        }}
+                        className="ios-stretch inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm disabled:opacity-45"
+                      >
+                        {aiCoverBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                        {aiCoverBusy ? 'Creating' : 'AI Cover'}
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {['Deep Space Nebula', 'Botanical Emerald', 'Minimalist Bauhaus', 'Sunset Leather'].map((chip) => (
+                        <button
+                          key={chip}
+                          type="button"
+                          onClick={async () => {
+                            setAiCoverPrompt(chip);
+                            setAiCoverBusy(true);
+                            try {
+                              const res = await generateAiAssetImage(
+                                chip,
+                                'cover',
+                                defaults.activeImageModelId || IMAGE_MODELS_CATALOG[0].id
+                              );
+                              setCover(`image:${res.dataUrl}`);
+                            } finally {
+                              setAiCoverBusy(false);
+                            }
+                          }}
+                          className="ios-stretch rounded-lg bg-white/80 px-2 py-0.5 text-[10px] font-semibold text-slate-600 hover:text-violet-700 dark:bg-[#22242C] dark:text-slate-300"
+                        >
+                          {chip}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-4 gap-3 sm:grid-cols-6">
                     {coverOptions.map((spec) => (
                       <button
                         key={spec}
                         type="button"
                         onClick={() => setCover(spec)}
-                        className={`relative flex items-center justify-center rounded-xl p-1 transition ${
+                        className={`ios-stretch relative flex items-center justify-center rounded-xl p-1 transition ${
                           cover === spec
                             ? 'ring-2 ring-blue-600 ring-offset-2 dark:ring-offset-[#191A1F]'
                             : 'hover:scale-105'

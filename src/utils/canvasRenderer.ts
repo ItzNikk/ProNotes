@@ -41,6 +41,8 @@ function mulberry32(seed: number) {
   };
 }
 
+const coverImageCache = new Map<string, HTMLImageElement>();
+
 export function drawCoverOnCanvas(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -48,6 +50,8 @@ export function drawCoverOnCanvas(
   spec: string,
   title = ''
 ): void {
+  const isCustomImg = spec.startsWith('data:image/') || spec.startsWith('image:') || spec.startsWith('https://');
+  const imgSrc = spec.startsWith('image:') ? spec.slice(6) : spec;
   const parts = spec.split(':');
   const kind = parts[0];
   const color = parts[parts.length - 1]?.startsWith('#') ? parts[parts.length - 1] : '#3D6CF4';
@@ -56,6 +60,19 @@ export function drawCoverOnCanvas(
   ctx.save();
   ctx.fillStyle = color;
   ctx.fillRect(0, 0, w, h);
+
+  if (isCustomImg) {
+    let img = coverImageCache.get(imgSrc);
+    if (!img) {
+      img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = imgSrc;
+      coverImageCache.set(imgSrc, img);
+    }
+    if (img.complete && img.naturalWidth > 0) {
+      ctx.drawImage(img, 0, 0, w, h);
+    }
+  }
 
   const seed = (pattern || 'solid').split('').reduce((s, c) => s * 31 + c.charCodeAt(0), 7);
   const rnd = mulberry32(seed);
@@ -297,7 +314,8 @@ export function drawPaperTemplate(
   bgColor: string,
   lineScale = 1,
   customLineColor?: string | null,
-  isPreview = false
+  isPreview = false,
+  customTemplateSpec?: string | null
 ): void {
   const dark = isColorDark(bgColor);
   const lineCol = customLineColor || (dark ? '#3A3F48' : '#D5DEEA');
@@ -309,6 +327,31 @@ export function drawPaperTemplate(
   ctx.save();
   ctx.fillStyle = bgColor;
   ctx.fillRect(0, 0, w, h);
+
+  if (
+    customTemplateSpec &&
+    (customTemplateSpec.startsWith('data:image/') ||
+      customTemplateSpec.startsWith('image:') ||
+      customTemplateSpec.startsWith('https://'))
+  ) {
+    const imgSrc = customTemplateSpec.startsWith('image:')
+      ? customTemplateSpec.slice(6)
+      : customTemplateSpec;
+    let img = coverImageCache.get(imgSrc);
+    if (!img) {
+      img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = imgSrc;
+      coverImageCache.set(imgSrc, img);
+    }
+    if (img.complete && img.naturalWidth > 0) {
+      ctx.globalAlpha = 0.85;
+      ctx.drawImage(img, 0, 0, w, h);
+      ctx.globalAlpha = 1;
+      ctx.restore();
+      return;
+    }
+  }
 
   ctx.strokeStyle = lineCol;
   ctx.fillStyle = dotCol;
@@ -1311,7 +1354,28 @@ export function drawTextItem(ctx: CanvasRenderingContext2D, item: TextItem): voi
   }
 
   const lh = item.size * 1.32;
-  item.text.split('\n').forEach((line, i) => {
+  const rawLines = item.text.split('\n');
+  const lines: string[] = [];
+  if (item.w && item.w > 40) {
+    for (const para of rawLines) {
+      const words = para.split(' ');
+      let cur = '';
+      for (const word of words) {
+        const test = cur ? `${cur} ${word}` : word;
+        if (ctx.measureText(test).width > item.w && cur) {
+          lines.push(cur);
+          cur = word;
+        } else {
+          cur = test;
+        }
+      }
+      lines.push(cur);
+    }
+  } else {
+    lines.push(...rawLines);
+  }
+
+  lines.forEach((line, i) => {
     const yPos = item.y + item.size + i * lh;
     ctx.fillText(line, item.x, yPos);
     if (item.underline) {

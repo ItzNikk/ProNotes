@@ -1,0 +1,143 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Google-authenticated user profile for Pro Notes cross-device sync.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "displayName": { "type": "string", "description": "Display name from Google" },
+        "photoURL": { "type": "string", "description": "Avatar photo URL" },
+        "email": { "type": "string", "description": "Google account email" },
+        "updatedAt": { "type": "integer", "description": "Epoch milliseconds" }
+      },
+      "required": ["uid", "updatedAt"]
+    },
+    "UserPreferences": {
+      "title": "UserPreferences",
+      "description": "Synced Pro Notes AppSettings payload.",
+      "type": "object",
+      "properties": {
+        "updatedAt": { "type": "integer" },
+        "data": { "type": "object" }
+      },
+      "required": ["updatedAt", "data"]
+    },
+    "SyncedLibraryList": {
+      "title": "SyncedLibraryList",
+      "description": "Synced folders or flashcards array for a user.",
+      "type": "object",
+      "properties": {
+        "updatedAt": { "type": "integer" },
+        "items": { "type": "array" }
+      },
+      "required": ["updatedAt", "items"]
+    },
+    "SyncedNotebook": {
+      "title": "SyncedNotebook",
+      "description": "A synced Pro Notes notebook document.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "folderId": { "type": "string" },
+        "modified": { "type": "integer" },
+        "updatedAt": { "type": "integer" },
+        "deleted": { "type": "boolean" },
+        "payload": { "type": "object" }
+      },
+      "required": ["id", "title", "modified", "updatedAt", "payload"]
+    },
+    "CollabRoom": {
+      "title": "CollabRoom",
+      "description": "Real-time collaborative study whiteboard/notebook room.",
+      "type": "object",
+      "properties": {
+        "roomId": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "title": { "type": "string" },
+        "paperStyle": { "type": "string" },
+        "paperColor": { "type": "string" },
+        "createdAt": { "type": "integer" },
+        "updatedAt": { "type": "integer" }
+      },
+      "required": ["roomId", "ownerId", "title", "createdAt", "updatedAt"]
+    },
+    "CollabMember": {
+      "title": "CollabMember",
+      "description": "Live collaborator presence & cursor coordinates in a study room.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "color": { "type": "string" },
+        "cursorX": { "type": "number" },
+        "cursorY": { "type": "number" },
+        "activePageIdx": { "type": "integer" },
+        "lastSeen": { "type": "integer" }
+      },
+      "required": ["uid", "displayName", "color", "lastSeen"]
+    },
+    "CollabItem": {
+      "title": "CollabItem",
+      "description": "Shared ink stroke, sticky, text, web link, or mind node on a collaborative canvas.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string", "enum": ["stroke", "text", "sticky", "image", "weblink", "mindnode", "tape"] },
+        "authorId": { "type": "string" },
+        "pageIdx": { "type": "integer" },
+        "updatedAt": { "type": "integer" },
+        "data": { "type": "object" }
+      },
+      "required": ["id", "kind", "authorId", "updatedAt", "data"]
+    },
+    "CollabMessage": {
+      "title": "CollabMessage",
+      "description": "Study chat message inside a collaborative room.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "integer" }
+      },
+      "required": ["id", "authorId", "authorName", "text", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Owner user profile."
+    },
+    "/users/{userId}/preferences/{prefId}": {
+      "schema": "UserPreferences",
+      "description": "Synced settings preferences."
+    },
+    "/users/{userId}/library/{docId}": {
+      "schema": "SyncedLibraryList",
+      "description": "Synced folders and flashcards."
+    },
+    "/users/{userId}/notebooks/{notebookId}": {
+      "schema": "SyncedNotebook",
+      "description": "Synced notebooks belonging to the user."
+    },
+    "/collabRooms/{roomId}": {
+      "schema": "CollabRoom",
+      "description": "Live collaborative study rooms."
+    },
+    "/collabRooms/{roomId}/members/{memberId}": {
+      "schema": "CollabMember",
+      "description": "Active study room participants and live cursor presence."
+    },
+    "/collabRooms/{roomId}/items/{itemId}": {
+      "schema": "CollabItem",
+      "description": "Shared real-time canvas elements in a collaborative study room."
+    },
+    "/collabRooms/{roomId}/messages/{msgId}": {
+      "schema": "CollabMessage",
+      "description": "Real-time study chat messages inside a collaborative room."
+    }
+  }
+}

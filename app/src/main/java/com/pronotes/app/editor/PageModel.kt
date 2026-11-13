@@ -313,6 +313,83 @@ fun PageItem.transformed(m: android.graphics.Matrix, s: Float, deg: Float): Page
     }
 }
 
+/**
+ * Applies free horizontal/vertical stretching from [oldBox] to [newBox] for EVERY PageItem subtype.
+ */
+fun PageItem.stretched(oldBox: RectF, newBox: RectF): PageItem {
+    val sx = (newBox.width() / oldBox.width().coerceAtLeast(1f)).coerceIn(0.15f, 12f)
+    val sy = (newBox.height() / oldBox.height().coerceAtLeast(1f)).coerceIn(0.15f, 12f)
+    val m = android.graphics.Matrix().apply { setRectToRect(oldBox, newBox, android.graphics.Matrix.ScaleToFit.FILL) }
+    fun mapPt(px: Float, py: Float): Pair<Float, Float> {
+        val a = floatArrayOf(px, py)
+        m.mapPoints(a)
+        return a[0] to a[1]
+    }
+    return when (this) {
+        is InkItem -> {
+            val avgS = ((sx + sy) / 2f).coerceIn(0.25f, 8f)
+            val pts = stroke.inputs
+            val newPts = List(pts.size) { i ->
+                val p = pts.get(i)
+                mapPt(p.x + dx, p.y + dy)
+            }
+            val b = Brushes.create(Brushes.nameOf(stroke.brush), stroke.brush.colorIntArgb, (stroke.brush.size * avgS).coerceIn(1f, 80f))
+            InkItem(id, InkCodec.strokeFromPoints(newPts, b))
+        }
+        is FillItem -> {
+            val pts = FloatArray(points.size)
+            for (i in points.indices step 2) {
+                pts[i] = points[i] + dx
+                pts[i + 1] = points[i + 1] + dy
+            }
+            m.mapPoints(pts)
+            FillItem(id, pts, color)
+        }
+        is TextItem -> {
+            val (cx, cy) = mapPt(raw.centerX(), raw.centerY())
+            val nw = raw.width() * sx
+            val nh = raw.height() * sy
+            val avgS = ((sx + sy) / 2f).coerceIn(0.25f, 6f)
+            copy(x = cx - nw / 2f, y = cy - nh / 2f, size = (size * avgS).coerceIn(12f, 220f))
+        }
+        is ImageItem -> {
+            val (cx, cy) = mapPt(raw.centerX(), raw.centerY())
+            val nw = (w * sx).coerceIn(32f, 4000f)
+            val nh = (h * sy).coerceIn(32f, 4000f)
+            copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh)
+        }
+        is StickyItem -> {
+            val (cx, cy) = mapPt(raw.centerX(), raw.centerY())
+            val nw = (w * sx).coerceIn(140f, 1400f)
+            val nh = (h * sy).coerceIn(120f, 1400f)
+            copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh)
+        }
+        is MindNodeItem -> {
+            val (cx, cy) = mapPt(bounds.centerX(), bounds.centerY())
+            val nw = (w * sx).coerceIn(110f, 900f)
+            val nh = (h * sy).coerceIn(48f, 520f)
+            copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh)
+        }
+        is WebLinkItem -> {
+            val (cx, cy) = mapPt(raw.centerX(), raw.centerY())
+            val nw = (w * sx).coerceIn(200f, 1200f)
+            val nh = (h * sy).coerceIn(90f, 600f)
+            copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh)
+        }
+        is TapeItem -> if (pts != null) {
+            val abs = FloatArray(pts.size) { i -> pts[i] + if (i % 2 == 0) x else y }
+            m.mapPoints(abs)
+            val avgS = ((sx + sy) / 2f).coerceIn(0.3f, 4f)
+            freehandTape(id, abs, color, thick * avgS, pattern)
+        } else {
+            val (cx, cy) = mapPt(raw.centerX(), raw.centerY())
+            val nw = (w * sx).coerceIn(40f, 2000f)
+            val nh = (h * sy).coerceIn(18f, 800f)
+            copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh)
+        }
+    }
+}
+
 val textPaint = TextPaint(TextPaint.ANTI_ALIAS_FLAG)
 
 fun applyTextStyle(paint: TextPaint, size: Float, style: TextStyleSpec) {

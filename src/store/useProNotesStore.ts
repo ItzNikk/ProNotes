@@ -21,6 +21,7 @@ import {
   cancelModelDownload,
   deleteLocalModel,
   downloadLocalModel,
+  IMAGE_MODELS_CATALOG,
   loadModelStates,
   LOCAL_MODELS_CATALOG,
   saveModelStates,
@@ -69,7 +70,11 @@ const DEFAULT_SETTINGS: AppSettings = {
   studyTimer: true,
   studyAutoStart: true,
   studySeconds: true,
+  pomodoroMinutes: 25,
+  supportReminders: true,
+  lastSupportShownAt: 0,
   activeLocalModelId: null,
+  activeImageModelId: 'sdxl-turbo-q4',
   aiAnimations: true,
   customAiEnabled: false,
   customAiProvider: 'OPENAI_COMPATIBLE',
@@ -728,7 +733,9 @@ export function useProNotesStore() {
   }, []);
 
   const startModelDownload = useCallback(async (modelId: string) => {
-    const spec = LOCAL_MODELS_CATALOG.find((m) => m.id === modelId);
+    const textSpec = LOCAL_MODELS_CATALOG.find((m) => m.id === modelId);
+    const imgSpec = IMAGE_MODELS_CATALOG.find((m) => m.id === modelId);
+    const spec = textSpec || imgSpec;
     if (!spec) return;
     const finalState = await downloadLocalModel(spec, (st) => {
       setModelStates((prev) => ({ ...prev, [modelId]: st }));
@@ -738,7 +745,9 @@ export function useProNotesStore() {
         ...prev,
         settings: {
           ...prev.settings,
-          activeLocalModelId: prev.settings.activeLocalModelId || modelId,
+          ...(textSpec
+            ? { activeLocalModelId: prev.settings.activeLocalModelId || modelId }
+            : { activeImageModelId: modelId }),
         },
       }));
     }
@@ -757,6 +766,8 @@ export function useProNotesStore() {
         ...prev.settings,
         activeLocalModelId:
           prev.settings.activeLocalModelId === modelId ? null : prev.settings.activeLocalModelId,
+        activeImageModelId:
+          prev.settings.activeImageModelId === modelId ? 'vectorcraft-svg' : prev.settings.activeImageModelId,
       },
     }));
   }, []);
@@ -841,6 +852,55 @@ export function useProNotesStore() {
     }));
   }, []);
 
+  const mergeCloudLibrary = useCallback(
+    (cloud: {
+      settingsPatch: Partial<AppSettings> | null;
+      folders: Folder[];
+      flashcards: Flashcard[];
+      notebooks: NotebookMeta[];
+    }) => {
+      setState((prev) => {
+        const folderMap = new Map<string, Folder>();
+        prev.folders.forEach((f) => folderMap.set(f.id, f));
+        cloud.folders.forEach((cf) => {
+          const ex = folderMap.get(cf.id);
+          if (!ex || cf.modified > ex.modified) folderMap.set(cf.id, cf);
+        });
+
+        const nbMap = new Map<string, NotebookMeta>();
+        prev.notebooks.forEach((n) => nbMap.set(n.id, n));
+        cloud.notebooks.forEach((cn) => {
+          const ex = nbMap.get(cn.id);
+          if (!ex || cn.modified > ex.modified) nbMap.set(cn.id, cn);
+        });
+
+        const fcMap = new Map<string, Flashcard>();
+        prev.flashcards.forEach((c) => fcMap.set(c.id, c));
+        cloud.flashcards.forEach((cc) => {
+          if (!fcMap.has(cc.id)) fcMap.set(cc.id, cc);
+        });
+
+        const mergedSettings = cloud.settingsPatch
+          ? {
+              ...prev.settings,
+              ...cloud.settingsPatch,
+              // Preserve local custom API key if user only stored it locally
+              customAiApiKey: prev.settings.customAiApiKey || cloud.settingsPatch.customAiApiKey || '',
+            }
+          : prev.settings;
+
+        return {
+          ...prev,
+          folders: Array.from(folderMap.values()),
+          notebooks: Array.from(nbMap.values()).sort((a, b) => b.modified - a.modified),
+          flashcards: Array.from(fcMap.values()),
+          settings: mergedSettings,
+        };
+      });
+    },
+    []
+  );
+
   return {
     state,
     modelStates,
@@ -872,5 +932,6 @@ export function useProNotesStore() {
     importBackupJson,
     importParsedNotebook,
     appendPagesToNotebook,
+    mergeCloudLibrary,
   };
 }

@@ -16,10 +16,10 @@ android {
         applicationId = "com.pronotes.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = (System.getenv("VERSION_CODE") ?: "2").toInt()
-        versionName = System.getenv("VERSION_NAME") ?: "9.11.0"
+        versionCode = (System.getenv("VERSION_CODE") ?: "3").toInt()
+        versionName = System.getenv("VERSION_NAME") ?: "10.0.0"
         // Developer support: set pronotes.upi / pronotes.upiName in gradle.properties
-        // (or SUPPORT_UPI / SUPPORT_UPI_NAME in CI). Empty hides the support screen.
+        // (or SUPPORT_UPI / SUPPORT_UPI_NAME in CI). Empty hides UPI payment button, while support messages remain visible.
         val upi = System.getenv("SUPPORT_UPI") ?: (project.findProperty("pronotes.upi") as String? ?: "")
         val upiName = System.getenv("SUPPORT_UPI_NAME") ?: (project.findProperty("pronotes.upiName") as String? ?: "Pro Notes")
         buildConfigField("String", "SUPPORT_UPI", "\"$upi\"")
@@ -122,4 +122,6 @@ dependencies {
     implementation("com.github.skydoves:colorpicker-compose:1.1.2")
     // PDF text extraction for in-document search.
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    // Optional real open-source Liquid Glass refraction/vibrancy surface.
+    implementation("io.github.kyant0:backdrop:2.0.1")
 }

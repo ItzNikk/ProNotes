@@ -229,8 +229,10 @@ export function getItemBounds(item: PageItem): BBox {
   if (item.kind === 'text') {
     const lines = item.text.split('\n');
     const maxLen = Math.max(1, ...lines.map((l) => l.length));
-    const w = Math.max(item.size, maxLen * item.size * 0.56);
-    const h = lines.length * item.size * 1.32;
+    const autoW = Math.max(item.size, maxLen * item.size * 0.56);
+    const autoH = lines.length * item.size * 1.32;
+    const w = item.w && item.w > 12 ? item.w : autoW;
+    const h = item.h && item.h > 12 ? item.h : autoH;
     return {
       l: item.x, t: item.y, r: item.x + w, b: item.y + h,
       w, h, cx: item.x + w / 2, cy: item.y + h / 2, diag: Math.hypot(w, h),
@@ -239,6 +241,74 @@ export function getItemBounds(item: PageItem): BBox {
   const { x, y, w } = item;
   const h = item.kind === 'sticky' && item.collapsed ? 52 : item.h;
   return { l: x, t: y, r: x + w, b: y + h, w, h, cx: x + w / 2, cy: y + h / 2, diag: Math.hypot(w, h) };
+}
+
+export interface StretchBox {
+  l: number;
+  t: number;
+  r: number;
+  b: number;
+  w?: number;
+  h?: number;
+}
+
+/** Uniform or independent X/Y stretch of any PageItem from oldBox -> nextBox */
+export function stretchPageItem(
+  item: PageItem,
+  oldBox: StretchBox,
+  nextBox: StretchBox
+): PageItem {
+  const safeOldW = Math.max(8, oldBox.w ?? oldBox.r - oldBox.l);
+  const safeOldH = Math.max(8, oldBox.h ?? oldBox.b - oldBox.t);
+  const nextW = nextBox.w ?? nextBox.r - nextBox.l;
+  const nextH = nextBox.h ?? nextBox.b - nextBox.t;
+  const sx = Math.max(0.15, nextW / safeOldW);
+  const sy = Math.max(0.15, nextH / safeOldH);
+
+  if (item.kind === 'ink' || item.kind === 'fill') {
+    const pts = item.points.map((p) => ({
+      ...p,
+      x: nextBox.l + (p.x - oldBox.l) * sx,
+      y: nextBox.t + (p.y - oldBox.t) * sy,
+    }));
+    if (item.kind === 'ink') {
+      const avgScale = (sx + sy) * 0.5;
+      return {
+        ...item,
+        points: pts,
+        size: Math.max(1.2, Math.min(80, item.size * avgScale)),
+      };
+    }
+    return { ...item, points: pts };
+  }
+
+  if (item.kind === 'text') {
+    const b = getItemBounds(item);
+    const relX = (item.x - oldBox.l) / safeOldW;
+    const relY = (item.y - oldBox.t) / safeOldH;
+    const newW = Math.max(40, b.w * sx);
+    const newH = Math.max(24, b.h * sy);
+    const nextSize = Math.max(12, Math.min(180, item.size * ((sx + sy) * 0.5)));
+    return {
+      ...item,
+      x: nextBox.l + relX * nextW,
+      y: nextBox.t + relY * nextH,
+      w: newW,
+      h: newH,
+      size: nextSize,
+    };
+  }
+
+  const curH = item.kind === 'sticky' && item.collapsed ? item.h : item.h;
+  const relX = (item.x - oldBox.l) / safeOldW;
+  const relY = (item.y - oldBox.t) / safeOldH;
+  return {
+    ...item,
+    x: nextBox.l + relX * nextW,
+    y: nextBox.t + relY * nextH,
+    w: Math.max(36, item.w * sx),
+    h: Math.max(28, curH * sy),
+  };
 }
 
 /** Checks if a scribble stroke touches or scrubs over an ink/text item. */

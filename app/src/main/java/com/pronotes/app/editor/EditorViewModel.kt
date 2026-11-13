@@ -23,6 +23,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.io.OutputStream
 import java.util.UUID
 
@@ -2150,6 +2151,112 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         mutable.add(to, item)
         slides = mutable
         saveStudy()
+    }
+
+    // --------------------------------------------------------------- v10 AI & collab helpers
+
+    fun noteDirFile(): File = repo.noteDir(noteId)
+
+    suspend fun extractPagesCorpus(): List<Pair<Int, String>> {
+        val idx = textIndex()
+        val out = ArrayList<Pair<Int, String>>()
+        pages.forEachIndexed { i, p ->
+            val sb = StringBuilder()
+            if (p.pdfPage >= 0 && idx != null) {
+                val pdfTxt = idx.pageText(p.pdfPage)
+                if (pdfTxt.isNotBlank()) sb.append(pdfTxt).append('\n')
+            }
+            p.items.forEach { item ->
+                when (item) {
+                    is TextItem -> if (item.text.isNotBlank()) sb.append(item.text).append('\n')
+                    is StickyItem -> {
+                        val txt = listOf(item.title, item.text).filter { it.isNotBlank() }.joinToString(": ")
+                        if (txt.isNotBlank()) sb.append(txt).append('\n')
+                    }
+                    is WebLinkItem -> {
+                        val txt = listOf(item.title, item.url, item.note).filter { it.isNotBlank() }.joinToString(" · ")
+                        if (txt.isNotBlank()) sb.append(txt).append('\n')
+                    }
+                    is MindNodeItem -> {
+                        val txt = listOf(item.tag, item.label, item.notes).filter { it.isNotBlank() }.joinToString(" — ")
+                        if (txt.isNotBlank()) sb.append(txt).append('\n')
+                    }
+                    else -> Unit
+                }
+            }
+            val clean = sb.toString().trim()
+            if (clean.isNotEmpty()) out += i to clean
+        }
+        return out
+    }
+
+    fun extractPageSummaryText(pageIdx: Int): String {
+        val p = pages.getOrNull(pageIdx) ?: return ""
+        return p.items.mapNotNull { item ->
+            when (item) {
+                is TextItem -> item.text
+                is StickyItem -> listOf(item.title, item.text).filter { it.isNotBlank() }.joinToString(": ")
+                is WebLinkItem -> listOf(item.title, item.url, item.note).filter { it.isNotBlank() }.joinToString(" · ")
+                is MindNodeItem -> listOf(item.tag, item.label, item.notes).filter { it.isNotBlank() }.joinToString(" — ")
+                else -> null
+            }
+        }.joinToString("\n").trim()
+    }
+
+    fun insertAiTextToPage(text: String) {
+        val clean = text.trim().take(2400)
+        if (clean.isBlank()) return
+        val idx = pageIndex
+        val p = pages.getOrNull(idx) ?: return
+        beginEdit(idx)
+        applyItems(idx, p.items + TextItem(ItemIds.next(), clean, 72f, 96f, 26f, penStyle.color))
+        say("Inserted onto page ${idx + 1}")
+    }
+
+    fun applyGeneratedTemplateBitmap(bmp: Bitmap) {
+        val idx = pageIndex
+        viewModelScope.launch {
+            val name = withContext(Dispatchers.IO) {
+                val n = "bg_ai_${System.currentTimeMillis()}.png"
+                File(repo.noteDir(noteId), n).outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 96, it) }
+                n
+            }
+            val p = pages.getOrNull(idx) ?: return@launch
+            pages[idx] = p.copy(bgImage = name)
+            thumbs.evictAll()
+            scheduleSave()
+            onPagesChanged?.invoke()
+            say("Applied AI template")
+        }
+    }
+
+    fun applyGeneratedCoverBitmap(bmp: Bitmap) {
+        viewModelScope.launch {
+            val name = withContext(Dispatchers.IO) {
+                val n = "cover_ai_${System.currentTimeMillis()}.png"
+                File(repo.noteDir(noteId), n).outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 96, it) }
+                n
+            }
+            val spec = "image:$name"
+            val hasCoverPage = repo.setCoverPage(noteId, spec)
+            if (hasCoverPage && pages.isNotEmpty() && pages[0].cover != null) {
+                pages[0] = pages[0].copy(cover = spec)
+                scheduleSave()
+            } else if (!hasCoverPage) {
+                repo.setCover(noteId, spec)
+            }
+            thumbs.evictAll()
+            onPagesChanged?.invoke()
+            say("Updated notebook cover")
+        }
+    }
+
+    fun applySplitItems(page: Int, items: List<PageItem>) {
+        val p = pages.getOrNull(page) ?: return
+        pages[page] = p.copy(items = items)
+        thumbs.evictAll()
+        scheduleSave()
+        onPagesChanged?.invoke()
     }
 
     // --------------------------------------------------------------- save

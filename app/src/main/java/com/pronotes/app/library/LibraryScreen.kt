@@ -62,7 +62,9 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.AccessTime
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ChevronLeft
+import androidx.compose.material.icons.outlined.CloudSync
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
@@ -72,6 +74,7 @@ import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Menu
@@ -86,9 +89,11 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
@@ -121,6 +126,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pronotes.app.R
+import com.pronotes.app.data.CloudSync
 import com.pronotes.app.data.CoverColors
 import com.pronotes.app.data.CoverPatterns
 import com.pronotes.app.data.Folder
@@ -129,9 +135,14 @@ import com.pronotes.app.data.NotebookMeta
 import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.data.Repository
 import com.pronotes.app.data.SettingsStore
+import com.pronotes.app.editor.AiAssetKind
+import com.pronotes.app.editor.LiveCollabRoomDialog
+import com.pronotes.app.editor.LocalAiManager
 import com.pronotes.app.ui.ColorEditorDialog
 import com.pronotes.app.ui.Swatch
+import com.pronotes.app.ui.elasticStretch
 import kotlinx.coroutines.launch
+import java.io.File
 import java.text.DateFormat
 import java.util.Date
 
@@ -175,6 +186,7 @@ fun LibraryScreen(
     var deleting by remember { mutableStateOf<Entry?>(null) }
     var coverFor by remember { mutableStateOf<NotebookMeta?>(null) }
     var forever by remember { mutableStateOf<NotebookMeta?>(null) }
+    var collabOpen by remember { mutableStateOf(false) }
     var supportCard by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         val st = SettingsStore.get(context)
@@ -255,6 +267,8 @@ fun LibraryScreen(
                 section, trashCount = lib.notebooks.count { it.deletedAt != null },
                 onSelect = { section = it; folderId = null; if (!wide) sidebar = false },
                 onCollapse = { sidebar = false }, onSettings = onSettings,
+                onSupport = onSupport,
+                onOpenCollab = { collabOpen = true },
                 onDropTo = { s, payload ->
                     when (s) {
                         Section.DOCUMENTS -> dropInto(payload, null)
@@ -324,7 +338,7 @@ fun LibraryScreen(
                 if (section == Section.TRASH) {
                     TextButton(onClick = { emptyTrash = true }, enabled = entries.isNotEmpty()) { Text("Empty trash", color = MaterialTheme.colorScheme.error) }
                 } else Box {
-                    Button(onClick = { newMenu = true }, shape = CircleShape, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)) {
+                    Button(onClick = { newMenu = true }, shape = CircleShape, modifier = Modifier.elasticStretch(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)) {
                         Icon(Icons.Filled.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("New")
                         Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(18.dp))
                     }
@@ -660,6 +674,15 @@ fun LibraryScreen(
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
     }
+
+    if (collabOpen) {
+        LiveCollabRoomDialog(
+            vm = null,
+            repo = repo,
+            onOpenNotebook = { id -> collabOpen = false; onOpen(id) },
+            onClose = { collabOpen = false },
+        )
+    }
 }
 
 private fun keyOf(e: Entry) = if (e is Entry.F) "f" + e.folder.id else "n" + (e as Entry.N).note.id
@@ -684,9 +707,20 @@ private class TileActions(
 
 @Composable
 private fun Sidebar(
-    section: Section, trashCount: Int, onSelect: (Section) -> Unit, onCollapse: () -> Unit, onSettings: () -> Unit,
+    section: Section,
+    trashCount: Int,
+    onSelect: (Section) -> Unit,
+    onCollapse: () -> Unit,
+    onSettings: () -> Unit,
+    onSupport: () -> Unit,
+    onOpenCollab: () -> Unit,
     onDropTo: (Section, String) -> Boolean,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val cloudUser by CloudSync.user.collectAsState()
+    val syncing by CloudSync.syncing.collectAsState()
+    val syncStatus by CloudSync.status.collectAsState()
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxHeight().width(232.dp)) {
         Column(Modifier.statusBarsPadding().padding(horizontal = 14.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -703,7 +737,7 @@ private fun Sidebar(
                     Text("Pro Notes", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
                     Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
                         Text(
-                            "Ultra v9.11",
+                            "v10.0",
                             Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
@@ -716,7 +750,7 @@ private fun Sidebar(
                 val sel = s == section
                 var hot by remember { mutableStateOf(false) }
                 Row(
-                    Modifier.fillMaxWidth().clip(CircleShape)
+                    Modifier.fillMaxWidth().elasticStretch().clip(CircleShape)
                         .libraryDropTarget(onHover = { hot = it }) { payload -> onDropTo(s, payload) }
                         .background(
                             when {
@@ -741,9 +775,65 @@ private fun Sidebar(
                 }
                 Spacer(Modifier.height(2.dp))
             }
+            Spacer(Modifier.height(10.dp))
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.72f),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.CloudSync, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            cloudUser?.let { it.displayName.ifBlank { it.email } } ?: "Google Cloud Sync",
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    if (syncStatus.isNotBlank()) {
+                        Text(syncStatus, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+                    }
+                    if (cloudUser == null) {
+                        FilledTonalButton(
+                            onClick = { runCatching { context.startActivity(CloudSync.buildGoogleAuthIntent()) } },
+                            shape = CircleShape,
+                            modifier = Modifier.fillMaxWidth().elasticStretch(),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        ) { Text("Sign in with Google", style = MaterialTheme.typography.labelSmall) }
+                    } else {
+                        FilledTonalButton(
+                            enabled = !syncing,
+                            onClick = { scope.launch { CloudSync.syncAll(context) } },
+                            shape = CircleShape,
+                            modifier = Modifier.fillMaxWidth().elasticStretch(),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        ) { Text(if (syncing) "Syncing…" else "Sync Now", style = MaterialTheme.typography.labelSmall) }
+                    }
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Row(
+                Modifier.fillMaxWidth().elasticStretch().clip(CircleShape).clickable(onClick = onOpenCollab).padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Outlined.Groups, null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(12.dp))
+                Text("Live Study Room", color = MaterialTheme.colorScheme.onSurface)
+            }
             Spacer(Modifier.weight(1f))
             Row(
-                Modifier.fillMaxWidth().clip(CircleShape).clickable(onClick = onSettings).padding(horizontal = 12.dp, vertical = 10.dp),
+                Modifier.fillMaxWidth().elasticStretch().clip(CircleShape).clickable(onClick = onSupport).padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.HEART, Color(0xFFE5484D), Modifier.size(20.dp), ink = Color(0xFFE5484D))
+                Spacer(Modifier.width(12.dp))
+                Text("Support Pro Notes")
+            }
+            Row(
+                Modifier.fillMaxWidth().elasticStretch().clip(CircleShape).clickable(onClick = onSettings).padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.Outlined.Settings, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -810,7 +900,7 @@ private fun FolderTile(e: Entry.F, a: TileActions) {
     val src = remember { MutableInteractionSource() }
     var dropHover by remember { mutableStateOf(false) }
     val grow by animateFloatAsState(if (dropHover) 1.08f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "drop")
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.scale(pressScale(src) * grow)) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.elasticStretch().scale(pressScale(src) * grow)) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(0.75f)
                 .libraryDragSource("folder:${e.folder.id}", e.folder.name)
@@ -853,7 +943,7 @@ private fun FolderTile(e: Entry.F, a: TileActions) {
 private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
     var menu by remember { mutableStateOf(false) }
     val src = remember { MutableInteractionSource() }
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.scale(pressScale(src))) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.elasticStretch().scale(pressScale(src))) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(0.75f)
                 .then(if (note.deletedAt == null) Modifier.libraryDragSource("note:${note.id}", note.title) else Modifier)
@@ -1152,7 +1242,48 @@ private fun NewNotebookDialog(
                 Box(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
                     when (tab) {
                         0 -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            val ctx = LocalContext.current
+                            val genScope = rememberCoroutineScope()
+                            var aiCoverBusy by remember { mutableStateOf(false) }
+                            var aiCoverPrompt by remember { mutableStateOf("") }
                             CoverGallery(cover, { cover = it; photo = null }) { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedTextField(
+                                    aiCoverPrompt,
+                                    { aiCoverPrompt = it },
+                                    singleLine = true,
+                                    placeholder = { Text("AI cover theme (e.g. Cosmos, Bio)…") },
+                                    shape = CircleShape,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                FilledTonalButton(
+                                    enabled = !aiCoverBusy,
+                                    shape = CircleShape,
+                                    modifier = Modifier.elasticStretch(),
+                                    onClick = {
+                                        aiCoverBusy = true
+                                        genScope.launch {
+                                            runCatching {
+                                                val bmp = LocalAiManager.generateAiAssetBitmap(
+                                                    ctx,
+                                                    AiAssetKind.COVER,
+                                                    aiCoverPrompt.ifBlank { name },
+                                                    startColor,
+                                                )
+                                                val file = File(ctx.cacheDir, "ai_cover_${System.currentTimeMillis()}.png")
+                                                file.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 96, it) }
+                                                photo = Uri.fromFile(file)
+                                                cover = "photo"
+                                            }
+                                            aiCoverBusy = false
+                                        }
+                                    },
+                                ) {
+                                    Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(if (aiCoverBusy) "…" else "AI Cover")
+                                }
+                            }
                             if (cover != "thumb" && !preset.isWhiteboard) Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text("Cover as first page")

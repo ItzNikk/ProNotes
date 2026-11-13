@@ -1,5 +1,15 @@
 # Changelog
 
+## v10.0.0
+- **Universal Stretchability**: Added elastic spring stretchability across buttons, cards, and chips plus 8-handle free X/Y stretch and rotation on all canvas items (ink strokes, shapes, text, sticky notes, images/stickers, washi tape, mind nodes, and web link cards).
+- **AI Notes & PDF Chat**: Added multi-turn Study Chat grounded in notebook pages and imported PDF content, with one-tap Copy and Insert to Page.
+- **AI Creative Studio & Lightweight Image Models**: Generate custom stickers, notebook covers, and page templates offline or with your active engine using selectable lightweight image models (`vectorcraft-svg`, `sdxs-512-edge`, `sdxl-turbo-q4`, `flux-schnell-nano`).
+- **AI Lecture Recorder**: Record `.m4a` lecture audio with live amplitude waveform, timestamped bookmarks, playback, and AI structured takeaways inserted straight onto the page.
+- **Optional Open-Source Liquid Glass**: Integrated `io.github.kyant0:backdrop` refraction overlays behind floating editor dock, selection menu, and study timer when Liquid Glass is enabled.
+- **Writable Split View & Zoom Fix**: Added Read/Write mode with compact Pen/Highlighter/Eraser ink controls inside Split View, expanded zoom-out floor to `35%` (`50%`, `Fit`, `100%`, `150%`) with centered framing, and a clean single header menu.
+- **Google Account Sync & Live Study Rooms**: Sign in with Google (Firebase Auth + Cloud Firestore) to sync notebooks and settings across devices and collaborate live with classmates via Room Codes.
+- **Pomodoro Timer & Support Restored**: Added Pomodoro focus countdown mode to the Study Timer and restored Support Pro Notes messages & feedback composer.
+
 ## v9.11.0 (Ultra)
 - **Resumable Background In-App Updater**: HTTP `Range` resume support with partial-file `.part` persistence, ETag/content-length validation, background notification progress with pause/resume/cancel controls, and automatic verification before installation.
 - **Rewritten Split View Experience**: Continuous page-direction-aware flow (`Vertical` stacked pages or `Horizontal` side-by-side layout matching workspace scroll direction), `Sync Page` lock/unlock toggle, `Swap Panes`, pinch/wheel/preset zoom (`Fit`, `100%`, `150%`), in-split keyword search with page jump, and quick `Clip Sticky`, `To Page`, and `+ Link` actions.

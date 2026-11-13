@@ -737,7 +737,7 @@ private fun Stat(value: String, label: String) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun TemplateSheet(vm: EditorViewModel, onClose: () -> Unit) {
+fun TemplateSheet(vm: EditorViewModel, onAiTemplate: () -> Unit = {}, onClose: () -> Unit) {
     val cur = vm.currentPage
     var style by remember { mutableStateOf(cur?.paper ?: PaperStyle.RULED) }
     var scale by remember { mutableStateOf(cur?.lineScale ?: 1f) }
@@ -753,6 +753,8 @@ fun TemplateSheet(vm: EditorViewModel, onClose: () -> Unit) {
             Column(Modifier.padding(20.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Templates", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+                    FilledTonalButton(onClick = { onClose(); onAiTemplate() }, shape = Pill) { Text("✦ AI Template") }
+                    Spacer(Modifier.width(6.dp))
                     TextButton(onClick = onClose) { Text("Close") }
                 }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -20,12 +20,15 @@ import {
   Highlighter,
   Home,
   Image as ImageIcon,
+  ImagePlus,
   Lasso as LassoIcon,
   Layers,
   Link2,
   ListChecks,
   Lock,
   Maximize2,
+  MessageSquare,
+  Mic,
   Minimize2,
   MoreHorizontal,
   Move,
@@ -51,6 +54,7 @@ import {
   Undo2,
   Unlock,
   Upload,
+  Users,
   Wand2,
   X,
   ZoomIn,
@@ -58,7 +62,12 @@ import {
 } from 'lucide-react';
 import {
   ACCENT_COLORS,
+  AiImageCategory,
   AppSettings,
+  CollabChatMessage,
+  CollabItemDoc,
+  CollabMember,
+  CollabRoom,
   DEFAULT_TOOLBAR_ORDER,
   EraserMode,
   Flashcard,
@@ -105,6 +114,8 @@ import {
   ShapeBuilder,
   ShapeRecognizer,
   splitStrokeByEraser,
+  StretchBox,
+  stretchPageItem,
   toggleStickyChecklistLine,
 } from '../utils/geometry';
 import {
@@ -130,6 +141,15 @@ import {
 import { AiParticleBackdrop, AiThinkingPill } from './AiVisuals';
 import { PaperPreviewCanvas } from './CoversAndPatterns';
 import { FlashcardsModal, QuizModal, SlideShowModal, SummaryModal } from './StudyModals';
+import { LiquidGlassSurface } from './LiquidGlassSurface';
+import {
+  AiAssetGeneratorModal,
+  AiNotesChatModal,
+  AiRecordingModal,
+  CollabRoomModal,
+  CommandPaletteAction,
+  CommandPaletteModal,
+} from './CollabAndAiModals';
 
 interface PuffParticle {
   x: number;
@@ -167,6 +187,18 @@ interface EditorScreenProps {
   flashcards: Flashcard[];
   bestQuizScore: number;
   modelStates: Record<string, LocalModelState>;
+  isSignedIn?: boolean;
+  activeCollabRoom?: CollabRoom | null;
+  collabMembers?: CollabMember[];
+  collabItems?: CollabItemDoc[];
+  collabMessages?: CollabChatMessage[];
+  onSignInGoogle?: () => Promise<void>;
+  onCreateCollabRoom?: (title: string) => Promise<void>;
+  onJoinCollabRoom?: (code: string) => Promise<void>;
+  onLeaveCollabRoom?: () => void;
+  onSendCollabMessage?: (text: string) => Promise<void>;
+  onBroadcastCollabItem?: (item: PageItem, pageIdx: number) => void;
+  onBroadcastCollabCursor?: (x: number, y: number, pageIdx: number) => void;
   onBackHome: () => void;
   onSwitchNote: (id: string) => void;
   onCloseTab: (id: string) => void;
@@ -199,7 +231,7 @@ const PEN_NIBS: { id: PenKind; label: string; desc: string }[] = [
 ];
 
 // ================================================================
-// Rewritten Scroll-Aware Split Notes Workspace (Ultra v9.11)
+// Rewritten Writable, Zoom-Fixed & Clean Split Notes Workspace (v10)
 // ================================================================
 const SplitNotebookPane: React.FC<{
   splitNotebook: NotebookMeta;
@@ -209,7 +241,12 @@ const SplitNotebookPane: React.FC<{
   scrollDirection: ScrollDirection;
   primaryPageIdx: number;
   width: number;
+  penColor: string;
+  penSize: number;
+  hlColor: string;
+  hlSize: number;
   onChangeNotebook: (id: string) => void;
+  onUpdateSplitNotebook: (id: string, updater: (nb: NotebookMeta) => NotebookMeta) => void;
   onSwapWithPrimary: (id: string) => void;
   onSetRatio: (ratio: number) => void;
   onCopyTextToPrimary: (text: string) => void;
@@ -224,7 +261,12 @@ const SplitNotebookPane: React.FC<{
   scrollDirection,
   primaryPageIdx,
   width,
+  penColor,
+  penSize,
+  hlColor,
+  hlSize,
   onChangeNotebook,
+  onUpdateSplitNotebook,
   onSwapWithPrimary,
   onSetRatio,
   onCopyTextToPrimary,
@@ -234,6 +276,9 @@ const SplitNotebookPane: React.FC<{
 }) => {
   const [splitPageIdx, setSplitPageIdx] = useState(0);
   const [syncPage, setSyncPage] = useState(false);
+  const [splitTool, setSplitTool] = useState<'pan' | 'pen' | 'highlighter' | 'eraser'>('pan');
+  const [splitInkColor, setSplitInkColor] = useState(penColor || '#2A78D6');
+  const [splitMoreOpen, setSplitMoreOpen] = useState(false);
   const [viewport, setViewport] = useState<{ zoom: number; panX: number; panY: number }>({
     zoom: 0.5,
     panX: 16,
@@ -250,6 +295,12 @@ const SplitNotebookPane: React.FC<{
   const splitCanvasRef = useRef<HTMLCanvasElement>(null);
   const splitWrapRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ active: boolean; lx: number; ly: number }>({ active: false, lx: 0, ly: 0 });
+  const writeStrokeRef = useRef<{ active: boolean; pageIdx: number; pts: StrokePt[] }>({
+    active: false,
+    pageIdx: 0,
+    pts: [],
+  });
+  const [, setLiveStrokeTick] = useState(0);
   const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchRef = useRef<{
     initialDist: number;
@@ -261,7 +312,6 @@ const SplitNotebookPane: React.FC<{
   const PAGE_GAP = 32;
   const isVerticalMode = scrollDirection === 'VERTICAL';
 
-  // Precompute continuous flow offsets for all pages so Vertical or Horizontal scrolling matches settings.scroll
   const pageLayout = useMemo(() => {
     const rects: { page: Page; x: number; y: number; w: number; h: number }[] = [];
     let cursor = 0;
@@ -290,17 +340,17 @@ const SplitNotebookPane: React.FC<{
       const z =
         customZoom ??
         Math.max(
-          0.24,
+          0.25,
           Math.min(
             (wrap.clientWidth - 28) / entry.w,
             (wrap.clientHeight - 28) / entry.h,
-            0.88
+            0.95
           )
         );
       setViewport({
         zoom: z,
-        panX: Math.max(12, (wrap.clientWidth - entry.w * z) / 2) - entry.x * z,
-        panY: 16 - entry.y * z,
+        panX: (wrap.clientWidth - entry.w * z) / 2 - entry.x * z,
+        panY: Math.max(12, (wrap.clientHeight - entry.h * z) / 2) - entry.y * z,
       });
     },
     [splitNotebook.pages.length, pageLayout]
@@ -311,7 +361,7 @@ const SplitNotebookPane: React.FC<{
     const cx = ox ?? (el ? el.clientWidth / 2 : 180);
     const cy = oy ?? (el ? el.clientHeight / 2 : 240);
     setViewport((prev) => {
-      const nextZoom = Math.max(0.2, Math.min(3.5, targetZoom));
+      const nextZoom = Math.max(0.25, Math.min(3.5, targetZoom));
       const scaleRatio = nextZoom / prev.zoom;
       return {
         zoom: nextZoom,
@@ -327,7 +377,6 @@ const SplitNotebookPane: React.FC<{
     setSplitHitIdx(0);
   }, [splitNotebook.id]);
 
-  // Sync with primary notebook page when Sync Lock is active
   useEffect(() => {
     if (!syncPage) return;
     const target = Math.min(primaryPageIdx, Math.max(0, splitNotebook.pages.length - 1));
@@ -338,7 +387,6 @@ const SplitNotebookPane: React.FC<{
     jumpToSplitPage(sSafeIdx);
   }, [splitNotebook.id, width, scrollDirection]);
 
-  // Track active page index automatically as user pans/scrolls along pageLayout
   useEffect(() => {
     const wrap = splitWrapRef.current;
     if (!wrap || pageLayout.length <= 1) return;
@@ -358,7 +406,6 @@ const SplitNotebookPane: React.FC<{
     if (bestIdx !== sSafeIdx) setSplitPageIdx(bestIdx);
   }, [viewport.panX, viewport.panY, viewport.zoom, pageLayout, isVerticalMode, sSafeIdx]);
 
-  // Native non-passive wheel listener: wheel scrolls vertically OR horizontally matching settings.scroll
   useEffect(() => {
     const canvas = splitCanvasRef.current;
     if (!canvas) return;
@@ -370,9 +417,9 @@ const SplitNotebookPane: React.FC<{
         const rect = wrap?.getBoundingClientRect();
         const ox = rect ? e.clientX - rect.left : e.clientX;
         const oy = rect ? e.clientY - rect.top : e.clientY;
-        const factor = e.deltaY < 0 ? 1.09 : 0.92;
+        const factor = e.deltaY < 0 ? 1.09 : 0.91;
         setViewport((prev) => {
-          const nextZoom = Math.max(0.2, Math.min(3.5, prev.zoom * factor));
+          const nextZoom = Math.max(0.25, Math.min(3.5, prev.zoom * factor));
           const ratio = nextZoom / prev.zoom;
           return {
             zoom: nextZoom,
@@ -419,12 +466,12 @@ const SplitNotebookPane: React.FC<{
     ctx.translate(viewport.panX, viewport.panY);
     ctx.scale(viewport.zoom, viewport.zoom);
 
-    const viewMinX = -viewport.panX / viewport.zoom - 40;
-    const viewMaxX = (cw - viewport.panX) / viewport.zoom + 40;
-    const viewMinY = -viewport.panY / viewport.zoom - 40;
-    const viewMaxY = (ch - viewport.panY) / viewport.zoom + 40;
+    const viewMinX = -viewport.panX / viewport.zoom - 60;
+    const viewMaxX = (cw - viewport.panX) / viewport.zoom + 60;
+    const viewMinY = -viewport.panY / viewport.zoom - 60;
+    const viewMaxY = (ch - viewport.panY) / viewport.zoom + 60;
 
-    pageLayout.forEach((slot) => {
+    pageLayout.forEach((slot, idx) => {
       if (
         slot.x + slot.w < viewMinX ||
         slot.x > viewMaxX ||
@@ -445,15 +492,28 @@ const SplitNotebookPane: React.FC<{
         ctx.fillStyle = pBg;
         ctx.fillRect(0, 0, pg.width, pg.height);
         ctx.restore();
-        drawPaperTemplate(ctx, pg.width, pg.height, pg.paper, pBg, pg.lineScale ?? 1, pg.lineColor);
+        drawPaperTemplate(ctx, pg.width, pg.height, pg.paper, pBg, pg.lineScale ?? 1, pg.lineColor, false, pg.cover);
       }
       renderPageItems(ctx, pg, new Map(), new Set(), highlighterBehind);
+      if (writeStrokeRef.current.active && writeStrokeRef.current.pageIdx === idx && writeStrokeRef.current.pts.length > 0) {
+        const liveInk: InkItem = {
+          id: 'split-live',
+          kind: 'ink',
+          points: writeStrokeRef.current.pts,
+          color: splitTool === 'highlighter' ? hlColor : splitInkColor,
+          size: splitTool === 'highlighter' ? hlSize : penSize,
+          isHighlighter: splitTool === 'highlighter',
+          opacity: splitTool === 'highlighter' ? 0.55 : 1,
+          penKind: 'fountain',
+        };
+        renderPageItems(ctx, { ...pg, items: [liveInk] }, new Map(), new Set(), highlighterBehind);
+      }
       ctx.restore();
     });
 
     ctx.restore();
     ctx.restore();
-  }, [pageLayout, spPage, viewport, width, paperTintDefault, highlighterBehind]);
+  });
 
   const splitSearchHits = useMemo(() => {
     const q = splitSearchQuery.trim().toLowerCase();
@@ -475,14 +535,18 @@ const SplitNotebookPane: React.FC<{
           hits.push({ pageIdx: idx, preview: txt.trim().slice(0, 64) });
         }
       }
+      if (pg.pdfText && pg.pdfText.toLowerCase().includes(q)) {
+        hits.push({ pageIdx: idx, preview: pg.pdfText.slice(0, 64) });
+      }
     });
     return hits;
   }, [splitNotebook.pages, splitSearchQuery]);
 
   const pageText = useMemo(() => {
     if (!spPage) return '';
-    return spPage.items
-      .map((it) =>
+    return [
+      spPage.pdfText || '',
+      ...spPage.items.map((it) =>
         it.kind === 'text'
           ? it.text
           : it.kind === 'sticky'
@@ -492,18 +556,51 @@ const SplitNotebookPane: React.FC<{
               : it.kind === 'mindnode'
                 ? `${it.label}${it.notes ? `: ${it.notes}` : ''}`
                 : ''
-      )
+      ),
+    ]
       .filter(Boolean)
       .join('\n');
   }, [spPage]);
+
+  const eraseInSplit = (sx: number, sy: number) => {
+    const rect = splitCanvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const wx = (sx - rect.left - viewport.panX) / viewport.zoom;
+    const wy = (sy - rect.top - viewport.panY) / viewport.zoom;
+    const slotIdx = pageLayout.findIndex(
+      (r) => wx >= r.x && wx <= r.x + r.w && wy >= r.y && wy <= r.y + r.h
+    );
+    const targetIdx = slotIdx >= 0 ? slotIdx : sSafeIdx;
+    const slot = pageLayout[targetIdx];
+    if (!slot) return;
+    const localPt = { x: wx - slot.x, y: wy - slot.y };
+    const r = 18;
+    const hit = slot.page.items.some(
+      (it) => it.kind === 'ink' && it.points.some((p) => dist(p, localPt) <= r + it.size / 2)
+    );
+    if (!hit) return;
+    onUpdateSplitNotebook(splitNotebook.id, (nb) => ({
+      ...nb,
+      pages: nb.pages.map((pg, i) =>
+        i === targetIdx
+          ? {
+              ...pg,
+              items: pg.items.filter(
+                (it) => !(it.kind === 'ink' && it.points.some((p) => dist(p, localPt) <= r + it.size / 2))
+              ),
+            }
+          : pg
+      ),
+    }));
+  };
 
   return (
     <aside
       style={{ width }}
       className="hidden shrink-0 flex-col border-l border-black/10 bg-white dark:border-white/10 dark:bg-[#18191E] md:flex"
     >
-      {/* Top Header */}
-      <div className="flex items-center justify-between gap-1.5 border-b border-black/8 px-3 py-2 dark:border-white/10">
+      {/* Clean Single Top Header + Overflow Popover */}
+      <div className="relative flex items-center justify-between gap-1.5 border-b border-black/8 px-3 py-2 dark:border-white/10">
         <select
           value={splitNotebook.id}
           onChange={(e) => onChangeNotebook(e.target.value)}
@@ -517,43 +614,195 @@ const SplitNotebookPane: React.FC<{
               </option>
             ))}
         </select>
+
         <button
           type="button"
-          onClick={() => setSyncPage((s) => !s)}
-          title={syncPage ? 'Page sync locked to primary notebook' : 'Lock page sync with primary notebook'}
-          className={`shrink-0 rounded-lg p-1.5 transition ${
-            syncPage ? 'bg-emerald-600/15 text-emerald-600' : 'text-slate-500 hover:bg-black/5 dark:hover:bg-white/10'
+          onClick={() => setSplitTool((t) => (t === 'pan' ? 'pen' : 'pan'))}
+          title={splitTool === 'pan' ? 'Switch to Write Ink in Split' : 'Switch to Read/Pan'}
+          className={`ios-stretch shrink-0 rounded-lg px-2 py-1 text-[11px] font-bold transition ${
+            splitTool !== 'pan'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'bg-black/5 text-slate-600 hover:bg-black/10 dark:bg-white/10 dark:text-slate-300'
           }`}
         >
-          {syncPage ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
+          {splitTool === 'pan' ? 'Read' : 'Write'}
         </button>
+
         <button
           type="button"
           onClick={() => setSplitSearchOpen((v) => !v)}
           title="Search in split notebook"
-          className={`shrink-0 rounded-lg p-1.5 transition ${
+          className={`ios-stretch shrink-0 rounded-lg p-1.5 transition ${
             splitSearchOpen ? 'bg-blue-600/15 text-blue-600' : 'text-slate-500 hover:bg-black/5 dark:hover:bg-white/10'
           }`}
         >
           <Search className="h-3.5 w-3.5" />
         </button>
-        <button
-          type="button"
-          onClick={() => onSwapWithPrimary(splitNotebook.id)}
-          title="Swap primary & split notebooks"
-          className="shrink-0 rounded-lg p-1.5 text-slate-500 hover:bg-black/5 hover:text-blue-600 dark:hover:bg-white/10"
-        >
-          <ArrowLeftRight className="h-3.5 w-3.5" />
-        </button>
+
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setSplitMoreOpen((v) => !v)}
+            title="Split options"
+            className="ios-stretch shrink-0 rounded-lg p-1.5 text-slate-500 hover:bg-black/5 dark:hover:bg-white/10"
+          >
+            <MoreHorizontal className="h-3.5 w-3.5" />
+          </button>
+          {splitMoreOpen && (
+            <div className="absolute right-0 top-full z-50 mt-1.5 w-52 rounded-2xl border border-black/10 bg-white/95 p-1.5 text-xs shadow-2xl backdrop-blur-xl dark:border-white/12 dark:bg-[#1F2128]/95">
+              <div className="px-2.5 pb-1 pt-0.5 text-[10px] font-bold uppercase text-slate-400">
+                Pane Width
+              </div>
+              <div className="mb-1.5 flex gap-1 px-1.5">
+                {[0.3, 0.5, 0.7].map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => {
+                      setActiveRatio(r);
+                      onSetRatio(r);
+                      setSplitMoreOpen(false);
+                    }}
+                    className={`flex-1 rounded-lg py-1 font-mono-num text-[10px] font-bold ${
+                      Math.abs(activeRatio - r) < 0.05
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-black/5 text-slate-600 dark:bg-white/10 dark:text-slate-300'
+                    }`}
+                  >
+                    {Math.round(r * 100)}/{Math.round((1 - r) * 100)}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSyncPage((s) => !s);
+                  setSplitMoreOpen(false);
+                }}
+                className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                {syncPage ? <Lock className="h-3.5 w-3.5 text-emerald-600" /> : <Unlock className="h-3.5 w-3.5 text-slate-500" />}
+                {syncPage ? 'Unlock Page Sync' : 'Lock Page Sync'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onSwapWithPrimary(splitNotebook.id);
+                  setSplitMoreOpen(false);
+                }}
+                className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                <ArrowLeftRight className="h-3.5 w-3.5 text-blue-600" /> Swap Primary &amp; Split
+              </button>
+              {pageText && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onCopyTextToPrimary(pageText);
+                      setSplitMoreOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                  >
+                    <Copy className="h-3.5 w-3.5 text-violet-600" /> Clip Text as Sticky
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onInsertTextToActive(pageText);
+                      setSplitMoreOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                  >
+                    <FileText className="h-3.5 w-3.5 text-emerald-600" /> Insert Text to Active
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  onInsertWebLink(
+                    `https://pronotes.app/notebook/${splitNotebook.id}?p=${sSafeIdx + 1}`,
+                    `${splitNotebook.title} (p.${sSafeIdx + 1})`
+                  );
+                  setSplitMoreOpen(false);
+                }}
+                className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                <Link2 className="h-3.5 w-3.5 text-sky-600" /> Insert Cross-Link Card
+              </button>
+            </div>
+          )}
+        </div>
+
         <button
           type="button"
           onClick={onClose}
           title="Close split pane"
-          className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-black/5 dark:hover:bg-white/10"
+          className="ios-stretch shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-black/5 dark:hover:bg-white/10"
         >
           <X className="h-4 w-4" />
         </button>
       </div>
+
+      {/* Collapsible Write Tools Bar (Only when writing inside split pane) */}
+      {splitTool !== 'pan' && (
+        <div className="flex items-center justify-between gap-2 border-b border-black/8 bg-blue-50/75 px-3 py-1.5 text-[11px] dark:border-white/10 dark:bg-blue-950/25">
+          <div className="flex items-center gap-1">
+            {(
+              [
+                { id: 'pen', label: 'Pen' },
+                { id: 'highlighter', label: 'Hi-lite' },
+                { id: 'eraser', label: 'Erase' },
+              ] as const
+            ).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setSplitTool(t.id)}
+                className={`ios-stretch rounded-lg px-2 py-1 font-bold ${
+                  splitTool === t.id
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white/80 text-slate-600 dark:bg-white/10 dark:text-slate-300'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1">
+            {['#1B1F2A', '#2A78D6', '#E5484D', '#0F7E5C'].map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => {
+                  setSplitInkColor(c);
+                  if (splitTool === 'eraser') setSplitTool('pen');
+                }}
+                className={`h-4 w-4 rounded-full border border-black/20 ${
+                  splitInkColor === c ? 'ring-2 ring-blue-500' : ''
+                }`}
+                style={{ backgroundColor: c }}
+              />
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                onUpdateSplitNotebook(splitNotebook.id, (nb) => ({
+                  ...nb,
+                  pages: nb.pages.map((pg, i) =>
+                    i === sSafeIdx ? { ...pg, items: pg.items.slice(0, -1) } : pg
+                  ),
+                }));
+              }}
+              title="Undo last split stroke"
+              className="ml-1 rounded-lg bg-white/80 p-1 text-slate-600 hover:bg-black/10 dark:bg-white/10 dark:text-slate-200"
+            >
+              <Undo2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Collapsible In-Split Search Bar */}
       {splitSearchOpen && (
@@ -603,116 +852,75 @@ const SplitNotebookPane: React.FC<{
         </div>
       )}
 
-      {/* Controls Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-black/6 bg-slate-50/70 px-3 py-1.5 text-[11px] dark:border-white/8 dark:bg-[#14151A]">
-        <div className="flex items-center gap-0.5">
-          {[0.3, 0.5, 0.7].map((r) => (
-            <button
-              key={r}
-              type="button"
-              onClick={() => {
-                setActiveRatio(r);
-                onSetRatio(r);
-              }}
-              title={`Split ratio ${Math.round(r * 100)}/${Math.round((1 - r) * 100)}`}
-              className={`whitespace-nowrap shrink-0 rounded-md px-1.5 py-0.5 font-mono-num text-[10px] font-semibold transition ${
-                Math.abs(activeRatio - r) < 0.05
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-black/[0.04] hover:bg-blue-500/15 hover:text-blue-600 dark:bg-white/[0.08]'
-              }`}
-            >
-              {Math.round(r * 100)}/{Math.round((1 - r) * 100)}
-            </button>
-          ))}
-          <span className="ml-1 rounded bg-black/5 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-500 dark:bg-white/10">
-            {isVerticalMode ? '↕ Vert' : '↔ Horiz'}
+      {/* Compact Page & Zoom Strip (with fixed 25% min zoom & 50%/Fit/100%/150% presets) */}
+      <div className="flex items-center justify-between gap-1 border-b border-black/6 bg-slate-50/70 px-3 py-1 text-[11px] dark:border-white/8 dark:bg-[#14151A]">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            disabled={sSafeIdx === 0}
+            onClick={() => jumpToSplitPage(sSafeIdx - 1, viewport.zoom)}
+            className="rounded p-0.5 hover:bg-black/5 disabled:opacity-30"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          <span className="font-mono-num text-[10px] font-bold text-slate-600 dark:text-slate-300">
+            p.{sSafeIdx + 1}/{splitNotebook.pages.length}
           </span>
+          <button
+            type="button"
+            disabled={sSafeIdx >= splitNotebook.pages.length - 1}
+            onClick={() => jumpToSplitPage(sSafeIdx + 1, viewport.zoom)}
+            className="rounded p-0.5 hover:bg-black/5 disabled:opacity-30"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
         </div>
 
         <div className="flex items-center gap-0.5">
           <button
             type="button"
-            onClick={() => zoomAtCenter(viewport.zoom * 0.85)}
+            onClick={() => zoomAtCenter(viewport.zoom * 0.8)}
             className="rounded p-1 hover:bg-black/5 dark:hover:bg-white/10"
-            title="Zoom out split pane"
+            title="Zoom out"
           >
             <ZoomOut className="h-3.5 w-3.5" />
           </button>
-          <span className="font-mono-num min-w-[36px] text-center font-semibold">
+          <span className="font-mono-num min-w-[34px] text-center text-[10px] font-semibold">
             {Math.round(viewport.zoom * 100)}%
           </span>
           <button
             type="button"
-            onClick={() => zoomAtCenter(viewport.zoom * 1.15)}
+            onClick={() => zoomAtCenter(viewport.zoom * 1.2)}
             className="rounded p-1 hover:bg-black/5 dark:hover:bg-white/10"
-            title="Zoom in split pane"
+            title="Zoom in"
           >
             <ZoomIn className="h-3.5 w-3.5" />
           </button>
           <button
             type="button"
+            onClick={() => zoomAtCenter(0.5)}
+            className="rounded px-1.5 py-0.5 font-mono-num text-[10px] font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+          >
+            50%
+          </button>
+          <button
+            type="button"
             onClick={() => jumpToSplitPage(sSafeIdx)}
-            className="whitespace-nowrap shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold hover:bg-black/5 dark:hover:bg-white/10"
-            title="Fit page in split pane"
+            className="rounded px-1.5 py-0.5 text-[10px] font-bold text-blue-600 hover:bg-blue-500/10 dark:text-blue-400"
           >
             Fit
           </button>
           <button
             type="button"
             onClick={() => zoomAtCenter(1.0)}
-            className="whitespace-nowrap shrink-0 rounded px-1.5 py-0.5 font-mono-num text-[10px] font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-            title="100% zoom"
+            className="rounded px-1.5 py-0.5 font-mono-num text-[10px] font-semibold hover:bg-black/5 dark:hover:bg-white/10"
           >
             100%
-          </button>
-          <button
-            type="button"
-            onClick={() => zoomAtCenter(1.5)}
-            className="whitespace-nowrap shrink-0 rounded px-1.5 py-0.5 font-mono-num text-[10px] font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-            title="150% zoom"
-          >
-            150%
           </button>
         </div>
       </div>
 
-      {/* Flow Page Jumper Strip */}
-      {splitNotebook.pages.length > 1 && (
-        <div className="flex items-center gap-1 overflow-x-auto border-b border-black/6 px-3 py-1.5 text-[11px] dark:border-white/8">
-          <button
-            type="button"
-            disabled={sSafeIdx === 0}
-            onClick={() => jumpToSplitPage(sSafeIdx - 1, viewport.zoom)}
-            className="shrink-0 rounded p-0.5 hover:bg-black/5 disabled:opacity-30"
-          >
-            <ChevronLeft className="h-3.5 w-3.5" />
-          </button>
-          {splitNotebook.pages.map((pg, idx) => (
-            <button
-              key={pg.id}
-              type="button"
-              onClick={() => jumpToSplitPage(idx, viewport.zoom)}
-              className={`shrink-0 whitespace-nowrap rounded-md px-2 py-0.5 font-mono-num text-[10px] font-bold transition ${
-                idx === sSafeIdx
-                  ? 'bg-blue-600 text-white'
-                  : 'border border-black/10 text-slate-600 hover:bg-black/5 dark:border-white/10 dark:text-slate-300'
-              }`}
-            >
-              p.{idx + 1}
-            </button>
-          ))}
-          <button
-            type="button"
-            disabled={sSafeIdx >= splitNotebook.pages.length - 1}
-            onClick={() => jumpToSplitPage(sSafeIdx + 1, viewport.zoom)}
-            className="shrink-0 rounded p-0.5 hover:bg-black/5 disabled:opacity-30"
-          >
-            <ChevronRight className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
-
-      {/* Interactive Multi-Page Pan/Pinch-Zoom Preview Canvas */}
+      {/* Interactive Pan/Pinch-Zoom + Ink Writable Canvas */}
       <div ref={splitWrapRef} className="relative min-h-0 flex-1 overflow-hidden">
         <canvas
           ref={splitCanvasRef}
@@ -720,9 +928,36 @@ const SplitNotebookPane: React.FC<{
           onPointerDown={(e) => {
             e.currentTarget.setPointerCapture(e.pointerId);
             pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+            if (pointersRef.current.size === 1 && splitTool !== 'pan') {
+              if (splitTool === 'eraser') {
+                eraseInSplit(e.clientX, e.clientY);
+                dragRef.current = { active: true, lx: e.clientX, ly: e.clientY };
+                return;
+              }
+              const rect = e.currentTarget.getBoundingClientRect();
+              const wx = (e.clientX - rect.left - viewport.panX) / viewport.zoom;
+              const wy = (e.clientY - rect.top - viewport.panY) / viewport.zoom;
+              const slotIdx = pageLayout.findIndex(
+                (r) => wx >= r.x && wx <= r.x + r.w && wy >= r.y && wy <= r.y + r.h
+              );
+              const targetIdx = slotIdx >= 0 ? slotIdx : sSafeIdx;
+              const slot = pageLayout[targetIdx];
+              if (slot) {
+                writeStrokeRef.current = {
+                  active: true,
+                  pageIdx: targetIdx,
+                  pts: [{ x: wx - slot.x, y: wy - slot.y, p: e.pressure || 0.65 }],
+                };
+                setLiveStrokeTick((t) => t + 1);
+                return;
+              }
+            }
+
             if (pointersRef.current.size === 1) {
               dragRef.current = { active: true, lx: e.clientX, ly: e.clientY };
             } else if (pointersRef.current.size >= 2) {
+              writeStrokeRef.current.active = false;
               dragRef.current.active = false;
               const pts = Array.from(pointersRef.current.values());
               const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
@@ -741,6 +976,27 @@ const SplitNotebookPane: React.FC<{
             if (!pointersRef.current.has(e.pointerId)) return;
             pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
+            if (pointersRef.current.size === 1 && writeStrokeRef.current.active) {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const wx = (e.clientX - rect.left - viewport.panX) / viewport.zoom;
+              const wy = (e.clientY - rect.top - viewport.panY) / viewport.zoom;
+              const slot = pageLayout[writeStrokeRef.current.pageIdx];
+              if (slot) {
+                writeStrokeRef.current.pts.push({
+                  x: wx - slot.x,
+                  y: wy - slot.y,
+                  p: e.pressure || 0.65,
+                });
+                setLiveStrokeTick((t) => t + 1);
+              }
+              return;
+            }
+
+            if (pointersRef.current.size === 1 && splitTool === 'eraser' && dragRef.current.active) {
+              eraseInSplit(e.clientX, e.clientY);
+              return;
+            }
+
             if (pointersRef.current.size >= 2 && pinchRef.current) {
               const pts = Array.from(pointersRef.current.values());
               const currentDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
@@ -748,7 +1004,7 @@ const SplitNotebookPane: React.FC<{
               const curCenterY = (pts[0].y + pts[1].y) / 2;
               if (pinchRef.current.initialDist > 8) {
                 const factor = currentDist / pinchRef.current.initialDist;
-                const newZoom = Math.max(0.2, Math.min(3.5, pinchRef.current.initialZoom * factor));
+                const newZoom = Math.max(0.25, Math.min(3.5, pinchRef.current.initialZoom * factor));
                 const rect = splitWrapRef.current?.getBoundingClientRect();
                 const initOx = rect ? pinchRef.current.initialCenter.x - rect.left : pinchRef.current.initialCenter.x;
                 const initOy = rect ? pinchRef.current.initialCenter.y - rect.top : pinchRef.current.initialCenter.y;
@@ -769,9 +1025,28 @@ const SplitNotebookPane: React.FC<{
           }}
           onPointerUp={(e) => {
             pointersRef.current.delete(e.pointerId);
-            if (pointersRef.current.size < 2) {
-              pinchRef.current = null;
+            if (writeStrokeRef.current.active) {
+              const { pageIdx: pIdx, pts } = writeStrokeRef.current;
+              writeStrokeRef.current = { active: false, pageIdx: pIdx, pts: [] };
+              if (pts.length > 0) {
+                const ink: InkItem = {
+                  id: `spink-${Date.now()}-${Math.floor(Math.random() * 999)}`,
+                  kind: 'ink',
+                  points: pts,
+                  color: splitTool === 'highlighter' ? hlColor : splitInkColor,
+                  size: splitTool === 'highlighter' ? hlSize : penSize,
+                  isHighlighter: splitTool === 'highlighter',
+                  opacity: splitTool === 'highlighter' ? 0.55 : 1,
+                  penKind: 'fountain',
+                };
+                onUpdateSplitNotebook(splitNotebook.id, (nb) => ({
+                  ...nb,
+                  pages: nb.pages.map((pg, i) => (i === pIdx ? { ...pg, items: [...pg.items, ink] } : pg)),
+                }));
+              }
+              setLiveStrokeTick((t) => t + 1);
             }
+            if (pointersRef.current.size < 2) pinchRef.current = null;
             if (pointersRef.current.size === 1) {
               const remaining = Array.from(pointersRef.current.values())[0];
               dragRef.current = { active: true, lx: remaining.x, ly: remaining.y };
@@ -781,55 +1056,25 @@ const SplitNotebookPane: React.FC<{
           }}
           onPointerCancel={(e) => {
             pointersRef.current.delete(e.pointerId);
+            writeStrokeRef.current.active = false;
             if (pointersRef.current.size < 2) pinchRef.current = null;
             dragRef.current.active = false;
           }}
           onDoubleClick={(e) => {
+            if (splitTool !== 'pan') return;
             const el = splitWrapRef.current;
             if (!el || !spPage) return;
             if (viewport.zoom > 1.1) {
               jumpToSplitPage(sSafeIdx);
             } else {
               const rect = el.getBoundingClientRect();
-              zoomAtCenter(1.75, e.clientX - rect.left, e.clientY - rect.top);
+              zoomAtCenter(1.6, e.clientX - rect.left, e.clientY - rect.top);
             }
           }}
-          className="h-full w-full cursor-grab active:cursor-grabbing touch-none select-none"
+          className={`h-full w-full touch-none select-none ${
+            splitTool === 'pan' ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'
+          }`}
         />
-      </div>
-
-      {/* Quick Clip, Insert & Web Link Footer */}
-      <div className="flex items-center gap-1.5 border-t border-black/8 p-2.5 dark:border-white/10">
-        {pageText && (
-          <>
-            <button
-              type="button"
-              onClick={() => onCopyTextToPrimary(pageText)}
-              className="flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-xl bg-blue-600/10 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-600/20 dark:text-blue-300"
-            >
-              <Copy className="h-3.5 w-3.5 shrink-0" /> Clip Sticky
-            </button>
-            <button
-              type="button"
-              onClick={() => onInsertTextToActive(pageText)}
-              className="flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-xl border border-black/10 py-2 text-xs font-semibold text-slate-700 hover:bg-black/5 dark:border-white/15 dark:text-slate-200 dark:hover:bg-white/10"
-            >
-              <FileText className="h-3.5 w-3.5 shrink-0" /> To Page
-            </button>
-          </>
-        )}
-        <button
-          type="button"
-          onClick={() =>
-            onInsertWebLink(
-              `https://pronotes.app/notebook/${splitNotebook.id}?p=${sSafeIdx + 1}`,
-              `${splitNotebook.title} (p.${sSafeIdx + 1})`
-            )
-          }
-          className="flex items-center justify-center gap-1 whitespace-nowrap rounded-xl border border-blue-500/25 bg-blue-500/8 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-500/15 dark:text-blue-300"
-        >
-          <Link2 className="h-3.5 w-3.5 shrink-0" /> + Link
-        </button>
       </div>
     </aside>
   );
@@ -846,6 +1091,19 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   settings,
   flashcards,
   bestQuizScore,
+  modelStates,
+  isSignedIn = false,
+  activeCollabRoom = null,
+  collabMembers = [],
+  collabItems = [],
+  collabMessages = [],
+  onSignInGoogle,
+  onCreateCollabRoom,
+  onJoinCollabRoom,
+  onLeaveCollabRoom,
+  onSendCollabMessage,
+  onBroadcastCollabItem,
+  onBroadcastCollabCursor,
   onBackHome,
   onSwitchNote,
   onCloseTab,
@@ -959,6 +1217,17 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     startW: 360,
   });
 
+  // v10 Feature Modals & Focus Timer
+  const [aiChatOpen, setAiChatOpen] = useState(false);
+  const [aiRecordOpen, setAiRecordOpen] = useState(false);
+  const [aiAssetModal, setAiAssetModal] = useState<{ open: boolean; category: AiImageCategory }>({
+    open: false,
+    category: 'sticker',
+  });
+  const [collabModalOpen, setCollabModalOpen] = useState(false);
+  const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
+  const [pomodoroActive, setPomodoroActive] = useState(false);
+
   // Study & AI States with visible progress stages
   const [aiBusyLabel, setAiBusyLabel] = useState<string | null>(null);
   const [aiStageLabel, setAiStageLabel] = useState<string | null>(null);
@@ -978,7 +1247,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     loadingStage?: string | null;
   }>({ open: false, questions: [], engineLabel: '' });
 
-  // Study timer
+  // Study / Pomodoro timer
   const [studySec, setStudySec] = useState(0);
   const [timerRunning, setTimerRunning] = useState(settings.studyAutoStart);
 
@@ -1019,6 +1288,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       | 'DRAG_ITEMS'
       | 'DRAG_MIND'
       | 'RESIZE_STICKY'
+      | 'STRETCH_ITEMS'
       | 'TAPE'
       | 'LASER';
     pts: StrokePt[];
@@ -1030,6 +1300,8 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     dragMindId: string | null;
     resizeStickyId: string | null;
     origStickySize: { w: number; h: number } | null;
+    stretchHandle: string | null;
+    stretchOrigBox: StretchBox | null;
     dragOrigItems: PageItem[] | null;
   }>({
     active: false,
@@ -1043,6 +1315,8 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     dragMindId: null,
     resizeStickyId: null,
     origStickySize: null,
+    stretchHandle: null,
+    stretchOrigBox: null,
     dragOrigItems: null,
   });
 
@@ -1249,6 +1523,11 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCmdPaletteOpen((v) => !v);
+        return;
+      }
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.code === 'Space') {
         e.preventDefault();
@@ -1567,8 +1846,8 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         ctx.fillRect(0, 0, page.width, page.height);
         ctx.restore();
 
-        // Offscreen cached paper template
-        const cacheKey = `${page.width}x${page.height}-${page.paper}-${paperBg}-${page.lineScale ?? 1}-${page.lineColor ?? ''}`;
+        // Offscreen cached paper template (supports custom AI image templates via page.cover)
+        const cacheKey = `${page.width}x${page.height}-${page.paper}-${paperBg}-${page.lineScale ?? 1}-${page.lineColor ?? ''}-${page.cover ?? ''}`;
         if (!paperCacheRef.current || paperCacheRef.current.key !== cacheKey) {
           const off = document.createElement('canvas');
           off.width = page.width;
@@ -1584,7 +1863,9 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               page.paper,
               paperBg,
               page.lineScale ?? 1,
-              page.lineColor
+              page.lineColor,
+              false,
+              page.cover
             );
           }
           paperCacheRef.current = { key: cacheKey, canvas: off };
@@ -1592,7 +1873,14 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         ctx.drawImage(paperCacheRef.current.canvas, 0, 0);
       }
 
-      const renderPage = workingItemsRef.current ? { ...page, items: workingItemsRef.current } : page;
+      const rawPageItems = workingItemsRef.current || page.items;
+      const collabPageItems =
+        activeCollabRoom && collabItems.length > 0
+          ? collabItems
+              .filter((ci) => ci.pageIdx === safeIdx && !rawPageItems.some((r) => r.id === ci.id))
+              .map((ci) => ci.data as unknown as PageItem)
+          : [];
+      const renderPage = { ...page, items: [...rawPageItems, ...collabPageItems] };
       renderPageItems(ctx, renderPage, imageCacheRef.current, selectedIds, settings.highlighterBehind);
 
       // Selected Sticky resize grip handle (bottom-right, hidden when collapsed or pinned)
@@ -1690,7 +1978,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         ctx.restore();
       }
 
-      // Selection bounding box
+      // Universal Selection Bounding Box + 8 Free X/Y Stretch Handles for ALL selected elements
       if (selectedIds.size > 0) {
         const selItems = renderPage.items.filter((i) => selectedIds.has(i.id));
         if (selItems.length > 0) {
@@ -1702,11 +1990,50 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             r = Math.max(r, bx.r);
             b = Math.max(b, bx.b);
           }
+          const cx = (l + r) / 2;
+          const cy = (t + b) / 2;
           ctx.save();
           ctx.strokeStyle = '#3D6CF4';
           ctx.lineWidth = 2 / camera.zoom;
           ctx.setLineDash([7 / camera.zoom, 5 / camera.zoom]);
           ctx.strokeRect(l - 6, t - 6, r - l + 12, b - t + 12);
+          ctx.setLineDash([]);
+
+          const handleRad = 5.5 / camera.zoom;
+          const handles: [number, number][] = [
+            [l - 6, t - 6],
+            [cx, t - 6],
+            [r + 6, t - 6],
+            [r + 6, cy],
+            [r + 6, b + 6],
+            [cx, b + 6],
+            [l - 6, b + 6],
+            [l - 6, cy],
+          ];
+          for (const [hx, hy] of handles) {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.strokeStyle = '#3D6CF4';
+            ctx.lineWidth = 2 / camera.zoom;
+            ctx.beginPath();
+            ctx.arc(hx, hy, handleRad, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+      }
+
+      // Live Collaborative Remote Cursors
+      if (activeCollabRoom && collabMembers.length > 0) {
+        for (const m of collabMembers) {
+          if (m.activePageIdx !== safeIdx) continue;
+          ctx.save();
+          ctx.fillStyle = m.color;
+          ctx.beginPath();
+          ctx.arc(m.cursorX, m.cursorY, 5 / camera.zoom, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.font = `700 ${Math.round(11 / camera.zoom)}px "Plus Jakarta Sans", sans-serif`;
+          ctx.fillText(m.displayName, m.cursorX + 8 / camera.zoom, m.cursorY + 3 / camera.zoom);
           ctx.restore();
         }
       }
@@ -1901,16 +2228,40 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       }
     }
 
-    // Check Sticky Resize Grip (disabled when collapsed or pinned)
-    if (selectedIds.size === 1) {
-      const sid = Array.from(selectedIds)[0];
-      const st = page.items.find((i): i is StickyItem => i.id === sid && i.kind === 'sticky');
-      if (st && !st.collapsed && !st.pinned && dist(world, { x: st.x + st.w, y: st.y + st.h }) <= 16 / camera.zoom) {
-        g.mode = 'RESIZE_STICKY';
-        g.resizeStickyId = st.id;
-        g.origStickySize = { w: st.w, h: st.h };
-        workingItemsRef.current = [...page.items];
-        return;
+    // Check 8-handle Universal Stretch Controls for ANY selected element(s)
+    if (selectedIds.size > 0) {
+      const selItems = page.items.filter((i) => selectedIds.has(i.id));
+      if (selItems.length > 0) {
+        let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+        for (const it of selItems) {
+          const bx = getItemBounds(it);
+          l = Math.min(l, bx.l);
+          t = Math.min(t, bx.t);
+          r = Math.max(r, bx.r);
+          b = Math.max(b, bx.b);
+        }
+        const cx = (l + r) / 2;
+        const cy = (t + b) / 2;
+        const hitR = 16 / camera.zoom;
+        const handleCoords: { key: string; x: number; y: number }[] = [
+          { key: 'nw', x: l - 6, y: t - 6 },
+          { key: 'n', x: cx, y: t - 6 },
+          { key: 'ne', x: r + 6, y: t - 6 },
+          { key: 'e', x: r + 6, y: cy },
+          { key: 'se', x: r + 6, y: b + 6 },
+          { key: 's', x: cx, y: b + 6 },
+          { key: 'sw', x: l - 6, y: b + 6 },
+          { key: 'w', x: l - 6, y: cy },
+        ];
+        const hitHandle = handleCoords.find((hc) => dist(world, hc) <= hitR);
+        if (hitHandle) {
+          g.mode = 'STRETCH_ITEMS';
+          g.stretchHandle = hitHandle.key;
+          g.stretchOrigBox = { l, t, r, b };
+          g.dragOrigItems = [...page.items];
+          workingItemsRef.current = [...page.items];
+          return;
+        }
       }
     }
 
@@ -2069,6 +2420,32 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       const dy = sy - g.lastScreen.y;
       setCamera((c) => ({ ...c, panX: c.panX + dx, panY: c.panY + dy }));
       g.lastScreen = { x: sx, y: sy };
+      return;
+    }
+
+    if (activeCollabRoom && onBroadcastCollabCursor) {
+      onBroadcastCollabCursor(world.x, world.y, safeIdx);
+    }
+
+    if (g.mode === 'STRETCH_ITEMS' && g.stretchHandle && g.stretchOrigBox && g.dragOrigItems) {
+      const ob = g.stretchOrigBox;
+      const dx = world.x - g.startWorld.x;
+      const dy = world.y - g.startWorld.y;
+      let nl = ob.l;
+      let nt = ob.t;
+      let nr = ob.r;
+      let nb = ob.b;
+      const hKey = g.stretchHandle;
+      if (hKey.includes('w')) nl = Math.min(ob.r - 24, ob.l + dx);
+      if (hKey.includes('e')) nr = Math.max(ob.l + 24, ob.r + dx);
+      if (hKey.includes('n')) nt = Math.min(ob.b - 24, ob.t + dy);
+      if (hKey.includes('s')) nb = Math.max(ob.t + 24, ob.b + dy);
+      const nextBox: StretchBox = { l: nl, t: nt, r: nr, b: nb };
+      workingItemsRef.current = g.dragOrigItems.map((it) =>
+        selectedIds.has(it.id) ? stretchPageItem(it, ob, nextBox) : it
+      );
+      g.lastWorld = world;
+      requestDraw();
       return;
     }
 
@@ -2267,6 +2644,19 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       return;
     }
 
+    if (g.mode === 'STRETCH_ITEMS') {
+      if (workingItemsRef.current) {
+        const finalItems = workingItemsRef.current;
+        workingItemsRef.current = null;
+        commitPageItems(() => finalItems, true);
+      }
+      g.stretchHandle = null;
+      g.stretchOrigBox = null;
+      g.dragOrigItems = null;
+      g.mode = 'NONE';
+      return;
+    }
+
     if (g.mode === 'RESIZE_STICKY') {
       if (workingItemsRef.current) {
         const finalItems = workingItemsRef.current;
@@ -2398,6 +2788,9 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         penKind,
       };
       commitPageItems((items) => [...items, ink]);
+      if (activeCollabRoom && onBroadcastCollabItem) {
+        onBroadcastCollabItem(ink, safeIdx);
+      }
     } else if (g.mode === 'SHAPE') {
       const shapes = ShapeBuilder.build(shapeKind, g.startWorld.x, g.startWorld.y, g.lastWorld.x, g.lastWorld.y);
       if (dist(g.startWorld, g.lastWorld) > 10) {
@@ -3072,8 +3465,13 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           </button>
         </div>
 
-        {/* iOS-Style Stretchable Draggable Tools Dock */}
-        <div className="relative flex items-center gap-0.5 overflow-x-auto rounded-2xl border border-black/8 bg-white/85 px-1.5 py-1 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-[#1B1D23]/90">
+        {/* iOS-Style Stretchable Draggable Tools Dock inside Optional LiquidGlassSurface */}
+        <LiquidGlassSurface
+          enabled={settings.liquidGlass}
+          radius={16}
+          className="relative flex items-center overflow-x-auto rounded-2xl border border-black/8 bg-white/85 px-1.5 py-1 shadow-sm dark:border-white/10 dark:bg-[#1B1D23]/90"
+        >
+        <div className="relative flex items-center gap-0.5">
           {orderedTools.map((t) => {
             const Icon = t.icon;
             const active = tool === t.id;
@@ -3138,6 +3536,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           })}
           <input ref={fileInputRef} type="file" accept="image/*" onChange={handleInsertImage} className="hidden" />
         </div>
+        </LiquidGlassSurface>
 
         {/* Right Actions */}
         <div className="flex items-center gap-1">
@@ -3145,16 +3544,60 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             <button
               type="button"
               onClick={() => setTimerRunning((r) => !r)}
-              onDoubleClick={() => setStudySec(0)}
-              title="Tap to pause/resume · Double-click to reset"
-              className="hidden items-center gap-1.5 rounded-xl bg-white/75 px-2.5 py-1.5 text-xs font-semibold shadow-sm dark:bg-white/10 md:inline-flex"
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setPomodoroActive((p) => !p);
+                setStudySec(0);
+              }}
+              onDoubleClick={() => {
+                setPomodoroActive((p) => !p);
+                setStudySec(0);
+              }}
+              title="Tap to pause/resume · Double-click to toggle Pomodoro focus timer"
+              className={`ios-stretch hidden items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-semibold shadow-sm md:inline-flex ${
+                pomodoroActive
+                  ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                  : 'bg-white/75 dark:bg-white/10'
+              }`}
             >
-              <Timer className={`h-3.5 w-3.5 ${timerRunning ? 'text-emerald-600' : 'text-slate-400'}`} />
+              <Timer className={`h-3.5 w-3.5 ${timerRunning ? (pomodoroActive ? 'text-amber-500' : 'text-emerald-600') : 'text-slate-400'}`} />
               <span className="font-mono-num">
-                {Math.floor(studySec / 60)}:{String(studySec % 60).padStart(2, '0')}
+                {(() => {
+                  const totalPom = (settings.pomodoroMinutes || 25) * 60;
+                  const shown = pomodoroActive ? Math.max(0, totalPom - studySec) : studySec;
+                  return `${Math.floor(shown / 60)}:${String(shown % 60).padStart(2, '0')}`;
+                })()}
               </span>
             </button>
           )}
+
+          {/* Quick Live Collab Study Pill */}
+          <button
+            type="button"
+            onClick={() => setCollabModalOpen(true)}
+            title="Live Collaborative Study Room"
+            className={`ios-stretch hidden items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs font-semibold shadow-xs sm:inline-flex ${
+              activeCollabRoom
+                ? 'bg-emerald-600 text-white'
+                : 'bg-white/75 text-slate-700 hover:bg-white dark:bg-white/10 dark:text-slate-200'
+            }`}
+          >
+            <Users className="h-3.5 w-3.5" />
+            <span className="hidden lg:inline">
+              {activeCollabRoom ? `${collabMembers.length} Live` : 'Collab'}
+            </span>
+          </button>
+
+          {/* AI Lecture Recording Quick Button */}
+          <button
+            type="button"
+            onClick={() => setAiRecordOpen(true)}
+            title="AI Lecture Recording Studio"
+            className="ios-stretch hidden items-center gap-1 rounded-xl bg-rose-500/12 px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-500/20 dark:text-rose-300 sm:inline-flex"
+          >
+            <Mic className="h-3.5 w-3.5" />
+            <span className="hidden lg:inline">Record</span>
+          </button>
 
           <div className="relative">
             <button
@@ -3163,41 +3606,72 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 setAiMenuOpen((v) => !v);
                 setMoreMenuOpen(false);
               }}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:opacity-95"
+              className="ios-stretch inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:opacity-95"
             >
               <Sparkles className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">AI Study</span>
             </button>
             {aiMenuOpen && (
-              <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-2xl border border-black/10 bg-white p-1.5 shadow-2xl dark:border-white/10 dark:bg-[#1E2027] animate-stagger-in">
+              <div className="absolute right-0 top-full z-50 mt-2 w-68 rounded-2xl border border-black/10 bg-white p-1.5 shadow-2xl dark:border-white/10 dark:bg-[#1E2027] animate-stagger-in">
                 <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                   {activeModel ? `Model: ${activeModel.name}` : 'Built-in On-Device Engine'}
                 </div>
                 <button
                   type="button"
+                  onClick={() => {
+                    setAiMenuOpen(false);
+                    setAiChatOpen(true);
+                  }}
+                  className="ios-stretch flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  <MessageSquare className="h-4 w-4 text-blue-600" /> AI Chat About Notes &amp; PDFs
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAiMenuOpen(false);
+                    setAiRecordOpen(true);
+                  }}
+                  className="ios-stretch flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  <Mic className="h-4 w-4 text-rose-500" /> AI Lecture Recording Notes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAiMenuOpen(false);
+                    setAiAssetModal({ open: true, category: 'sticker' });
+                  }}
+                  className="ios-stretch flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  <ImagePlus className="h-4 w-4 text-fuchsia-500" /> AI Stickers, Covers &amp; Templates
+                </button>
+                <div className="my-1 border-t border-black/8 dark:border-white/10" />
+                <button
+                  type="button"
                   onClick={handleAiSummary}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                  className="ios-stretch flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
                 >
                   <Sparkles className="h-4 w-4 text-violet-600" /> Summarize Page Key Points
                 </button>
                 <button
                   type="button"
                   onClick={handleAiGenerateMindMap}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                  className="ios-stretch flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
                 >
                   <Brain className="h-4 w-4 text-emerald-600" /> Turn Notes into Mind Map
                 </button>
                 <button
                   type="button"
                   onClick={handleAiFlashcards}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                  className="ios-stretch flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
                 >
                   <BookOpen className="h-4 w-4 text-blue-600" /> Make Flashcards from Notes
                 </button>
                 <button
                   type="button"
                   onClick={handleAiQuiz}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                  className="ios-stretch flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
                 >
                   <ListChecks className="h-4 w-4 text-amber-500" /> Take Study Quiz
                 </button>
@@ -3207,7 +3681,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                     setAiMenuOpen(false);
                     setSlideModalOpen(true);
                   }}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                  className="ios-stretch flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
                 >
                   <Play className="h-4 w-4 text-fuchsia-600" /> Slide Show Revision Deck
                 </button>
@@ -3218,9 +3692,9 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                     setAiMenuOpen(false);
                     onOpenLocalModels();
                   }}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-violet-700 hover:bg-violet-500/10 dark:text-violet-300"
+                  className="ios-stretch flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-violet-700 hover:bg-violet-500/10 dark:text-violet-300"
                 >
-                  <Cpu className="h-4 w-4" /> Download / Switch Local Models…
+                  <Cpu className="h-4 w-4" /> Download Text &amp; Image Models…
                 </button>
               </div>
             )}
@@ -4065,10 +4539,22 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             }`}
           />
 
-          {/* Floating Sticker Picker */}
+          {/* Floating Sticker Picker + AI Sticker Generator */}
           {stickerOpen && (
-            <div className="absolute left-1/2 top-3 z-40 -translate-x-1/2 rounded-2xl border border-black/10 bg-white p-3 shadow-2xl dark:border-white/10 dark:bg-[#1E2027] animate-stagger-in">
-              <div className="mb-1.5 text-[11px] font-bold text-slate-500">Tap a sticker to place</div>
+            <div className="absolute left-1/2 top-3 z-40 w-72 -translate-x-1/2 rounded-2xl border border-black/10 bg-white p-3.5 shadow-2xl dark:border-white/10 dark:bg-[#1E2027] animate-stagger-in">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-500">Tap a sticker to place</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStickerOpen(false);
+                    setAiAssetModal({ open: true, category: 'sticker' });
+                  }}
+                  className="ios-stretch inline-flex items-center gap-1 rounded-lg bg-gradient-to-r from-fuchsia-600 to-violet-600 px-2 py-1 text-[10px] font-bold text-white shadow-xs"
+                >
+                  <Wand2 className="h-3 w-3" /> AI Generate Sticker
+                </button>
+              </div>
               <div className="grid grid-cols-6 gap-1.5">
                 {STICKERS.map((s) => (
                   <button
@@ -4085,7 +4571,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                       ]);
                       setStickerOpen(false);
                     }}
-                    className="rounded-xl p-1.5 text-2xl hover:bg-black/5 dark:hover:bg-white/10"
+                    className="ios-stretch rounded-xl p-1.5 text-2xl hover:bg-black/5 dark:hover:bg-white/10"
                   >
                     {s}
                   </button>
@@ -4668,7 +5154,12 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               scrollDirection={settings.scroll}
               primaryPageIdx={safeIdx}
               width={splitWidth}
+              penColor={penColor}
+              penSize={penSize}
+              hlColor={hlColor}
+              hlSize={hlSize}
               onChangeNotebook={(id) => setSplitNoteId(id)}
+              onUpdateSplitNotebook={onUpdateNotebook}
               onSwapWithPrimary={(id) => {
                 setSplitNoteId(notebook.id);
                 onSwitchNote(id);
@@ -4833,9 +5324,21 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-[#191A1F]">
             <div className="flex items-center justify-between border-b border-black/8 px-6 py-4 dark:border-white/10">
               <h2 className="text-base font-bold">Page Template & Tint</h2>
-              <button type="button" onClick={() => setTemplateSheetOpen(false)}>
-                <X className="h-5 w-5 text-slate-400" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTemplateSheetOpen(false);
+                    setAiAssetModal({ open: true, category: 'template' });
+                  }}
+                  className="ios-stretch inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-3 py-1.5 text-xs font-semibold text-white"
+                >
+                  <Wand2 className="h-3.5 w-3.5" /> AI Generate Template
+                </button>
+                <button type="button" onClick={() => setTemplateSheetOpen(false)}>
+                  <X className="h-5 w-5 text-slate-400" />
+                </button>
+              </div>
             </div>
             <div className="flex-1 space-y-4 overflow-y-auto p-6">
               <div className="flex items-center gap-2">
@@ -4861,12 +5364,12 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                     type="button"
                     onClick={() => {
                       commitPages((pages) =>
-                        pages.map((pg, i) => (i === safeIdx ? { ...pg, paper: ps.id } : pg))
+                        pages.map((pg, i) => (i === safeIdx ? { ...pg, paper: ps.id, cover: null } : pg))
                       );
                       setTemplateSheetOpen(false);
                     }}
-                    className={`flex flex-col items-center rounded-xl border p-1.5 ${
-                      page.paper === ps.id ? 'border-blue-600 ring-2 ring-blue-500/20' : 'border-black/10'
+                    className={`ios-stretch flex flex-col items-center rounded-xl border p-1.5 ${
+                      page.paper === ps.id && !page.cover ? 'border-blue-600 ring-2 ring-blue-500/20' : 'border-black/10'
                     }`}
                   >
                     <PaperPreviewCanvas
@@ -5111,6 +5614,193 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           </form>
         </div>
       )}
+      {/* v10 AI Chat About Notes & PDFs */}
+      <AiNotesChatModal
+        open={aiChatOpen}
+        notebookTitle={notebook.title}
+        pages={notebook.pages}
+        settings={settings}
+        modelStates={modelStates}
+        onClose={() => setAiChatOpen(false)}
+        onOpenLocalModels={onOpenLocalModels}
+        onInsertReplyToPage={(replyText) => {
+          const c = screenToWorld(
+            (containerRef.current?.clientWidth || 800) / 2,
+            (containerRef.current?.clientHeight || 600) / 2
+          );
+          commitPageItems((items) => [
+            ...items,
+            {
+              id: `stk-chat-${Date.now()}`,
+              kind: 'sticky',
+              x: c.x - 165,
+              y: c.y - 115,
+              w: 330,
+              h: 230,
+              color: '#CFE2FF',
+              title: 'AI Study Answer',
+              text: replyText.slice(0, 750),
+              fontSize: 15,
+            },
+          ]);
+          showToast('Inserted AI answer sticky onto page');
+        }}
+      />
+
+      {/* v10 AI Image Generator (Stickers, Covers & Page Templates) */}
+      <AiAssetGeneratorModal
+        open={aiAssetModal.open}
+        initialCategory={aiAssetModal.category}
+        settings={settings}
+        modelStates={modelStates}
+        onSelectImageModel={(id) => onUpdateSettings({ activeImageModelId: id })}
+        onOpenModelsHub={onOpenLocalModels}
+        onClose={() => setAiAssetModal((s) => ({ ...s, open: false }))}
+        onApplyAsset={(category, dataUrl) => {
+          if (category === 'sticker') {
+            const c = screenToWorld(
+              (containerRef.current?.clientWidth || 800) / 2,
+              (containerRef.current?.clientHeight || 600) / 2
+            );
+            const imgItem: PageItem = {
+              id: `aisticker-${Date.now()}`,
+              kind: 'image',
+              src: dataUrl,
+              x: c.x - 110,
+              y: c.y - 110,
+              w: 220,
+              h: 220,
+            };
+            commitPageItems((items) => [...items, imgItem]);
+            setSelectedIds(new Set([imgItem.id]));
+            showToast('Inserted AI sticker — drag corners to stretch!');
+          } else if (category === 'cover') {
+            onUpdateNotebook(notebook.id, (nb) => ({ ...nb, cover: `image:${dataUrl}` }));
+            showToast('Applied new AI notebook cover!');
+          } else {
+            commitPages((pages) =>
+              pages.map((pg, idx) => (idx === safeIdx ? { ...pg, cover: dataUrl } : pg))
+            );
+            showToast('Applied AI custom page template!');
+          }
+        }}
+      />
+
+      {/* v10 AI Lecture Recording Studio */}
+      <AiRecordingModal
+        open={aiRecordOpen}
+        notebookTitle={notebook.title}
+        settings={settings}
+        onClose={() => setAiRecordOpen(false)}
+        onInsertNotesToPage={(formatted) => {
+          const c = screenToWorld(
+            (containerRef.current?.clientWidth || 800) / 2,
+            (containerRef.current?.clientHeight || 600) / 2
+          );
+          commitPageItems((items) => [
+            ...items,
+            {
+              id: `stk-rec-${Date.now()}`,
+              kind: 'sticky',
+              x: c.x - 175,
+              y: c.y - 130,
+              w: 350,
+              h: 260,
+              color: '#D8F3DC',
+              title: 'AI Lecture Notes',
+              text: formatted.slice(0, 900),
+              fontSize: 15,
+            },
+          ]);
+          showToast('Inserted AI lecture notes onto page');
+        }}
+      />
+
+      {/* v10 Live Collaborative Study Room */}
+      <CollabRoomModal
+        open={collabModalOpen}
+        isSignedIn={isSignedIn}
+        activeRoom={activeCollabRoom}
+        members={collabMembers}
+        messages={collabMessages}
+        onSignInGoogle={async () => {
+          await onSignInGoogle?.();
+        }}
+        onCreateRoom={async (title) => {
+          await onCreateCollabRoom?.(title);
+        }}
+        onJoinRoom={async (code) => {
+          await onJoinCollabRoom?.(code);
+        }}
+        onLeaveRoom={() => onLeaveCollabRoom?.()}
+        onSendMessage={async (text) => {
+          await onSendCollabMessage?.(text);
+        }}
+        onClose={() => setCollabModalOpen(false)}
+      />
+
+      {/* v10 Command Palette (Ctrl/Cmd+K) */}
+      <CommandPaletteModal
+        open={cmdPaletteOpen}
+        onClose={() => setCmdPaletteOpen(false)}
+        actions={
+          [
+            {
+              id: 'ai-chat',
+              label: 'AI Chat About Notes & PDFs',
+              hint: 'Ask local AI',
+              icon: 'ai',
+              run: () => setAiChatOpen(true),
+            },
+            {
+              id: 'ai-rec',
+              label: 'AI Lecture Recording Studio',
+              hint: 'Audio -> Notes',
+              icon: 'mic',
+              run: () => setAiRecordOpen(true),
+            },
+            {
+              id: 'ai-sticker',
+              label: 'AI Sticker, Cover & Template Studio',
+              hint: 'Image Gen',
+              icon: 'image',
+              run: () => setAiAssetModal({ open: true, category: 'sticker' }),
+            },
+            {
+              id: 'collab',
+              label: 'Open Live Collaborative Study Room',
+              hint: 'Multi-user',
+              icon: 'collab',
+              run: () => setCollabModalOpen(true),
+            },
+            {
+              id: 'slides',
+              label: 'Open Revision Slide Show Deck',
+              hint: 'AI + Manual',
+              icon: 'slides',
+              run: () => setSlideModalOpen(true),
+            },
+            {
+              id: 'pomodoro',
+              label: pomodoroActive ? 'Switch to Elapsed Timer' : `Start ${settings.pomodoroMinutes || 25}m Pomodoro Timer`,
+              hint: 'Focus',
+              icon: 'timer',
+              run: () => {
+                setPomodoroActive((p) => !p);
+                setStudySec(0);
+                setTimerRunning(true);
+              },
+            },
+            {
+              id: 'export-png',
+              label: 'Export Current View as PNG',
+              hint: 'Download',
+              icon: 'export',
+              run: handleExportPng,
+            },
+          ] as CommandPaletteAction[]
+        }
+      />
     </div>
   );
 };

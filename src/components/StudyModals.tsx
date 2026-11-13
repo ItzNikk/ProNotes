@@ -39,40 +39,47 @@ import {
   SlideKind,
   SlideThemeId,
 } from '../types/models';
-import { LOCAL_MODELS_CATALOG, RichSummaryResult } from '../utils/localAi';
+import { IMAGE_MODELS_CATALOG, LOCAL_MODELS_CATALOG, RichSummaryResult } from '../utils/localAi';
 import { AiParticleBackdrop } from './AiVisuals';
 
 // ================================================================
-// Local AI Model Hub Modal (Free Lightweight Local Models)
+// Local AI Model Hub Modal (Text + Lightweight Image Models)
 // ================================================================
 
 interface LocalAiModalProps {
   open: boolean;
   modelStates: Record<string, LocalModelState>;
   activeModelId: string | null;
+  activeImageModelId?: string | null;
   onClose: () => void;
   onDownload: (id: string) => void;
   onPause: (id: string) => void;
   onDelete: (id: string) => void;
   onActivate: (id: string | null) => void;
+  onActivateImage?: (id: string) => void;
 }
 
 export const LocalAiModal: React.FC<LocalAiModalProps> = ({
   open,
   modelStates,
   activeModelId,
+  activeImageModelId = 'sdxl-turbo-q4',
   onClose,
   onDownload,
   onPause,
   onDelete,
   onActivate,
+  onActivateImage,
 }) => {
-  const [catFilter, setCatFilter] = useState<'all' | 'fast' | 'balanced' | 'reasoning'>('all');
+  const [catFilter, setCatFilter] = useState<'all' | 'fast' | 'balanced' | 'reasoning' | 'image'>('all');
 
   if (!open) return null;
 
-  const readyModels = LOCAL_MODELS_CATALOG.filter((m) => modelStates[m.id]?.status === 'READY');
-  const usedMb = readyModels.reduce((sum, m) => sum + m.sizeMb, 0);
+  const readyTextModels = LOCAL_MODELS_CATALOG.filter((m) => modelStates[m.id]?.status === 'READY');
+  const readyImageModels = IMAGE_MODELS_CATALOG.filter((m) => modelStates[m.id]?.status === 'READY');
+  const usedMb =
+    readyTextModels.reduce((sum, m) => sum + m.sizeMb, 0) +
+    readyImageModels.reduce((sum, m) => sum + m.sizeMb, 0);
   const downloadingAny = Object.values(modelStates).some((s) => s.status === 'DOWNLOADING');
   const filteredCatalog = LOCAL_MODELS_CATALOG.filter(
     (m) => catFilter === 'all' || m.category === catFilter
@@ -88,9 +95,9 @@ export const LocalAiModal: React.FC<LocalAiModalProps> = ({
               <Cpu className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold tracking-tight">On-Device Local AI Models</h2>
+              <h2 className="text-lg font-bold tracking-tight">On-Device Local AI &amp; Image Models</h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                {LOCAL_MODELS_CATALOG.length} free lightweight quantized models cached on-device · 100% private & offline
+                {LOCAL_MODELS_CATALOG.length} text models + {IMAGE_MODELS_CATALOG.length} lightweight image models for Notes, Stickers &amp; Covers
               </p>
             </div>
           </div>
@@ -98,7 +105,7 @@ export const LocalAiModal: React.FC<LocalAiModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-full p-2 text-slate-500 hover:bg-black/5 dark:hover:bg-white/10"
+              className="ios-stretch rounded-full p-2 text-slate-500 hover:bg-black/5 dark:hover:bg-white/10"
             >
               <X className="h-5 w-5" />
             </button>
@@ -108,14 +115,13 @@ export const LocalAiModal: React.FC<LocalAiModalProps> = ({
         <div className="relative z-10 flex flex-wrap items-center justify-between gap-2 bg-slate-50/85 px-6 py-3 text-xs backdrop-blur-xs dark:bg-[#14151A]/85">
           <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
             <HardDrive className="h-4 w-4 text-blue-600" />
-            <span className="font-mono-num font-semibold">{usedMb} MB</span> cached on device (
-            {readyModels.length} ready)
+            <span className="font-mono-num font-semibold">{usedMb} MB</span> cached (
+            {readyTextModels.length + readyImageModels.length} ready)
           </div>
           <div className="text-slate-500 dark:text-slate-400">
             Active:{' '}
             <span className="font-semibold text-violet-600 dark:text-violet-400">
-              {LOCAL_MODELS_CATALOG.find((m) => m.id === activeModelId)?.name ||
-                'Built-in Study Engine'}
+              {LOCAL_MODELS_CATALOG.find((m) => m.id === activeModelId)?.name || 'Built-in Study Engine'}
             </span>
           </div>
         </div>
@@ -124,17 +130,18 @@ export const LocalAiModal: React.FC<LocalAiModalProps> = ({
         <div className="relative z-10 flex gap-1.5 overflow-x-auto border-b border-black/6 px-6 py-2.5 dark:border-white/8">
           {(
             [
-              { id: 'all', label: `All (${LOCAL_MODELS_CATALOG.length})` },
+              { id: 'all', label: `Text (${LOCAL_MODELS_CATALOG.length})` },
               { id: 'fast', label: 'Ultra-Fast' },
               { id: 'balanced', label: 'Balanced' },
               { id: 'reasoning', label: 'Deep Reasoning' },
+              { id: 'image', label: `Image Models (${IMAGE_MODELS_CATALOG.length})` },
             ] as const
           ).map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setCatFilter(tab.id)}
-              className={`shrink-0 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+              className={`ios-stretch shrink-0 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
                 catFilter === tab.id
                   ? 'bg-violet-600 text-white shadow-sm'
                   : 'bg-black/5 text-slate-600 hover:bg-black/10 dark:bg-white/8 dark:text-slate-300'
@@ -146,7 +153,104 @@ export const LocalAiModal: React.FC<LocalAiModalProps> = ({
         </div>
 
         <div className="relative z-10 flex-1 space-y-3 overflow-y-auto p-6">
-          {filteredCatalog.map((model) => {
+          {catFilter === 'image' ? (
+            IMAGE_MODELS_CATALOG.map((imgM) => {
+              const st = modelStates[imgM.id] || {
+                status: 'NOT_DOWNLOADED',
+                progress: 0,
+                downloadedBytes: 0,
+                totalBytes: imgM.sizeMb * 1024 * 1024,
+              };
+              const isReady = st.status === 'READY';
+              const isDownloading = st.status === 'DOWNLOADING';
+              const isActive = activeImageModelId === imgM.id;
+              return (
+                <div
+                  key={imgM.id}
+                  className={`rounded-2xl border p-4 transition ${
+                    isActive
+                      ? 'border-fuchsia-500 bg-fuchsia-50/60 dark:border-fuchsia-500/70 dark:bg-fuchsia-950/20'
+                      : 'border-black/10 bg-white dark:border-white/10 dark:bg-[#1E2027]'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">{imgM.name}</h3>
+                        {imgM.recommended && (
+                          <span className="rounded-md bg-fuchsia-600/12 px-2 py-0.5 text-[10px] font-bold text-fuchsia-600 dark:text-fuchsia-300">
+                            Recommended
+                          </span>
+                        )}
+                        <span className="font-mono-num rounded-md bg-black/5 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-white/10 dark:text-slate-300">
+                          {imgM.sizeMb} MB · {imgM.steps}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{imgM.description}</p>
+                      <div className="mt-2 flex items-center gap-2 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                        <Zap className="h-3 w-3" /> {imgM.speedTag}
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-2">
+                      {!isReady && !isDownloading ? (
+                        <button
+                          type="button"
+                          onClick={() => onDownload(imgM.id)}
+                          className="ios-stretch inline-flex items-center gap-1.5 rounded-xl bg-fuchsia-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-fuchsia-700"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          {st.status === 'PAUSED' ? 'Resume' : 'Download'}
+                        </button>
+                      ) : isDownloading ? (
+                        <button
+                          type="button"
+                          onClick={() => onPause(imgM.id)}
+                          className="ios-stretch inline-flex items-center gap-1.5 rounded-xl bg-amber-500/15 px-3.5 py-2 text-xs font-semibold text-amber-700 dark:text-amber-300"
+                        >
+                          <Pause className="h-3.5 w-3.5" /> Pause
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => onActivateImage?.(imgM.id)}
+                            className={`ios-stretch inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold transition ${
+                              isActive
+                                ? 'bg-fuchsia-600 text-white shadow-sm'
+                                : 'bg-black/5 text-slate-800 hover:bg-black/10 dark:bg-white/10 dark:text-slate-100'
+                            }`}
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            {isActive ? 'Active Image Model' : 'Use Image Model'}
+                          </button>
+                          {imgM.id !== 'vectorcraft-svg' && (
+                            <button
+                              type="button"
+                              onClick={() => onDelete(imgM.id)}
+                              className="ios-stretch rounded-xl p-2 text-slate-400 hover:bg-red-500/10 hover:text-red-500"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {isDownloading && (
+                    <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-black/8 dark:bg-white/10">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-fuchsia-600 to-violet-500 transition-all duration-150"
+                        style={{ width: `${Math.round(st.progress * 100)}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          ) : (
+          filteredCatalog.map((model) => {
             const st = modelStates[model.id] || {
               status: 'NOT_DOWNLOADED',
               progress: 0,
@@ -279,7 +383,7 @@ export const LocalAiModal: React.FC<LocalAiModalProps> = ({
                 )}
               </div>
             );
-          })}
+          }))}
         </div>
       </div>
     </div>

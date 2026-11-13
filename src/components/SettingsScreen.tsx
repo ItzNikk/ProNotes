@@ -2,13 +2,19 @@ import React, { useState } from 'react';
 import {
   ArrowLeft,
   Check,
+  Clock,
+  Cloud,
   Cpu,
   Download,
   Eraser,
   Globe,
+  Heart,
+  LogIn,
+  LogOut,
   Palette,
   PenTool,
   Plus,
+  RefreshCw,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -37,6 +43,14 @@ import { testCustomAiConnection } from '../utils/localAi';
 
 interface SettingsScreenProps {
   settings: AppSettings;
+  userEmail?: string | null;
+  userName?: string | null;
+  syncBusy?: boolean;
+  lastSyncAt?: number | null;
+  onSignInGoogle?: () => void;
+  onSignOut?: () => void;
+  onSyncNow?: () => void;
+  onOpenSupport?: () => void;
   onUpdate: (patch: Partial<AppSettings>) => void;
   onSavePenPreset?: (preset: PenPreset) => void;
   onDeletePenPreset?: (id: string) => void;
@@ -49,6 +63,14 @@ interface SettingsScreenProps {
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   settings,
+  userEmail,
+  userName,
+  syncBusy,
+  lastSyncAt,
+  onSignInGoogle,
+  onSignOut,
+  onSyncNow,
+  onOpenSupport,
   onUpdate,
   onSavePenPreset,
   onDeletePenPreset,
@@ -147,14 +169,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           </button>
           <div>
             <h1 className="text-lg font-bold tracking-tight">Settings</h1>
-            <p className="text-[11px] text-slate-500">Pro Notes v9.11.0 (Ultra)</p>
+            <p className="text-[11px] text-slate-500">Pro Notes v10.0.0 (Liquid &amp; Cloud)</p>
           </div>
         </div>
         {onOpenSetupWizard && (
           <button
             type="button"
             onClick={onOpenSetupWizard}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-95"
+            className="ios-stretch inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-95"
           >
             <Wand2 className="h-3.5 w-3.5" /> Open Ultra Setup Studio
           </button>
@@ -163,6 +185,68 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
         <div className="mx-auto max-w-3xl space-y-6 pb-16">
+          {/* Google Account & Cloud Sync */}
+          <section className="space-y-2">
+            <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+              <Cloud className="h-3.5 w-3.5" /> Google Account &amp; Cloud Sync
+            </h2>
+            <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
+              {userEmail ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+                  <div>
+                    <div className="text-sm font-semibold">{userName || 'Signed in with Google'}</div>
+                    <div className="text-xs text-slate-500">
+                      {userEmail}
+                      {lastSyncAt
+                        ? ` · Synced ${new Date(lastSyncAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                        : ''}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {onSyncNow && (
+                      <button
+                        type="button"
+                        disabled={syncBusy}
+                        onClick={onSyncNow}
+                        className="ios-stretch inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${syncBusy ? 'animate-spin' : ''}`} />
+                        {syncBusy ? 'Syncing...' : 'Sync Now'}
+                      </button>
+                    )}
+                    {onSignOut && (
+                      <button
+                        type="button"
+                        onClick={onSignOut}
+                        className="ios-stretch inline-flex items-center gap-1 rounded-xl border border-black/10 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-black/5 dark:border-white/15 dark:text-slate-300"
+                      >
+                        <LogOut className="h-3.5 w-3.5" /> Sign Out
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+                  <div>
+                    <div className="text-sm font-semibold">Sync notebooks across devices</div>
+                    <div className="text-xs text-slate-500">
+                      Sign in with Google to sync notes, folders, flashcards, and settings automatically
+                    </div>
+                  </div>
+                  {onSignInGoogle && (
+                    <button
+                      type="button"
+                      onClick={onSignInGoogle}
+                      className="ios-stretch inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+                    >
+                      <LogIn className="h-3.5 w-3.5" /> Sign in with Google
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </section>
+
           {/* Ultra Look & Motion */}
           <section className="space-y-2">
             <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
@@ -507,9 +591,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <div className="flex items-center gap-3">
                   <Cpu className="h-5 w-5 text-violet-600" />
                   <div>
-                    <div className="text-sm font-semibold">Manage downloadable local AI models</div>
+                    <div className="text-sm font-semibold">Manage downloadable local text &amp; image AI models</div>
                     <div className="text-xs text-slate-500">
-                      Download SmolLM2, Qwen 2.5/3, Llama 3.2, or Gemma 3 for offline study &amp; semantic search
+                      SmolLM2, Qwen, Llama, Gemma + lightweight image models (SDXL Turbo Q4, Flux Schnell Nano)
                     </div>
                   </div>
                 </div>
@@ -707,12 +791,65 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   <option value="BOTTOM">Floating bottom</option>
                 </select>
               </div>
+              <div className="flex items-center justify-between px-5 py-3.5">
+                <span className="inline-flex items-center gap-2 text-sm font-semibold">
+                  <Clock className="h-4 w-4 text-amber-500" /> Pomodoro Focus Duration
+                </span>
+                <div className="flex gap-1.5">
+                  {[15, 25, 45].map((mins) => (
+                    <button
+                      key={mins}
+                      type="button"
+                      onClick={() => onUpdate({ pomodoroMinutes: mins })}
+                      className={`ios-stretch rounded-xl px-3 py-1 text-xs font-semibold transition ${
+                        (settings.pomodoroMinutes || 25) === mins
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-black/5 text-slate-600 dark:bg-white/10 dark:text-slate-300'
+                      }`}
+                    >
+                      {mins}m
+                    </button>
+                  ))}
+                </div>
+              </div>
               <ToggleRow
                 title="Snap Mind Map nodes to grid"
                 sub="Align mind map cards gently to spatial grid increments"
                 checked={settings.whiteboardGridSnap}
                 onChange={(v) => onUpdate({ whiteboardGridSnap: v })}
               />
+            </div>
+          </section>
+
+          {/* Support Pro Notes & Reminders */}
+          <section className="space-y-2">
+            <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+              <Heart className="h-3.5 w-3.5 text-rose-500" /> Community &amp; Support
+            </h2>
+            <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
+              <ToggleRow
+                title="Support appreciation reminders"
+                sub="Show gentle periodic support & release note highlights"
+                checked={settings.supportReminders}
+                onChange={(v) => onUpdate({ supportReminders: v })}
+              />
+              {onOpenSupport && (
+                <button
+                  type="button"
+                  onClick={onOpenSupport}
+                  className="ios-stretch flex w-full items-center justify-between px-5 py-3.5 text-left hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
+                >
+                  <div>
+                    <div className="text-sm font-semibold text-rose-600 dark:text-rose-400">
+                      Open Support Note &amp; Share Pro Notes
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      Send appreciation, leave feature feedback, or share with classmates
+                    </div>
+                  </div>
+                  <Heart className="h-4 w-4 text-rose-500" />
+                </button>
+              )}
             </div>
           </section>
 

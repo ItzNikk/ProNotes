@@ -302,6 +302,8 @@ export interface TextItem {
   kind: 'text';
   x: number;
   y: number;
+  w?: number;
+  h?: number;
   text: string;
   size: number;
   color: string;
@@ -429,6 +431,7 @@ export interface Page {
   wbPanX?: number;
   wbPanY?: number;
   wbZoom?: number;
+  pdfText?: string;
   items: PageItem[];
 }
 
@@ -535,6 +538,77 @@ export interface LocalModelSpec {
   recommended?: boolean;
 }
 
+export type AiImageCategory = 'sticker' | 'cover' | 'template';
+
+export interface ImageModelSpec {
+  id: string;
+  name: string;
+  family: string;
+  sizeMb: number;
+  steps: string;
+  speedTag: string;
+  description: string;
+  remoteModelKey: string;
+  recommended?: boolean;
+}
+
+export interface NoteChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  citations?: string[];
+  createdAt: number;
+  engineLabel?: string;
+}
+
+export interface LectureRecording {
+  id: string;
+  title: string;
+  durationSec: number;
+  transcript: string;
+  summaryPoints: string[];
+  actionItems: string[];
+  audioDataUrl?: string;
+  createdAt: number;
+}
+
+export interface CollabRoom {
+  roomId: string;
+  ownerId: string;
+  title: string;
+  paperStyle: PaperStyle;
+  paperColor: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CollabMember {
+  uid: string;
+  displayName: string;
+  color: string;
+  cursorX: number;
+  cursorY: number;
+  activePageIdx: number;
+  lastSeen: number;
+}
+
+export interface CollabItemDoc {
+  id: string;
+  kind: 'stroke' | 'text' | 'sticky' | 'image' | 'weblink' | 'mindnode' | 'tape';
+  authorId: string;
+  pageIdx: number;
+  updatedAt: number;
+  data: Record<string, unknown>;
+}
+
+export interface CollabChatMessage {
+  id: string;
+  authorId: string;
+  authorName: string;
+  text: string;
+  createdAt: number;
+}
+
 export type ModelStatus = 'NOT_DOWNLOADED' | 'DOWNLOADING' | 'PAUSED' | 'READY' | 'ERROR';
 
 export interface LocalModelState {
@@ -591,7 +665,11 @@ export interface AppSettings {
   studyTimer: boolean;
   studyAutoStart: boolean;
   studySeconds: boolean;
+  pomodoroMinutes: number;
+  supportReminders: boolean;
+  lastSupportShownAt: number;
   activeLocalModelId: string | null;
+  activeImageModelId: string | null;
   aiAnimations: boolean;
   customAiEnabled: boolean;
   customAiProvider: CustomAiProvider;

@@ -1,9 +1,12 @@
 import {
+  AiImageCategory,
   AppSettings,
   Flashcard,
+  ImageModelSpec,
   LocalModelSpec,
   LocalModelState,
   MindNodeItem,
+  NoteChatMessage,
   Page,
   QuizQuestion,
   SlideCard,
@@ -107,6 +110,51 @@ export const LOCAL_MODELS_CATALOG: LocalModelSpec[] = [
   },
 ];
 
+export const IMAGE_MODELS_CATALOG: ImageModelSpec[] = [
+  {
+    id: 'sdxl-turbo-q4',
+    name: 'SDXL-Turbo 4-Step Lite',
+    family: 'Diffusion · Q4',
+    sizeMb: 210,
+    steps: '4 steps · 512px',
+    speedTag: '~1.2s · Instant Stickers & Covers',
+    description: 'Distilled 4-step image generator optimized for die-cut stickers, bold notebook covers, and clean templates.',
+    remoteModelKey: 'turbo',
+    recommended: true,
+  },
+  {
+    id: 'flux-schnell-nano',
+    name: 'FLUX.1-Schnell Nano',
+    family: 'Flow · FP8',
+    sizeMb: 285,
+    steps: '4 steps · Crisp Text & Icons',
+    speedTag: '~1.8s · High Detail',
+    description: 'Sharp typography, editorial notebook covers, and structured study sheet layouts.',
+    remoteModelKey: 'flux',
+    recommended: true,
+  },
+  {
+    id: 'sdxs-512-edge',
+    name: 'SDXS-512 Edge 1-Step',
+    family: 'One-Step · INT8',
+    sizeMb: 125,
+    steps: '1 step · Ultra-Fast',
+    speedTag: '~0.4s · Featherweight',
+    description: 'Sub-second 1-step distilled model ideal for quick classroom doodles, stickers, and background art.',
+    remoteModelKey: 'turbo',
+  },
+  {
+    id: 'vectorcraft-svg',
+    name: 'VectorCraft Local Engine',
+    family: 'Procedural · Offline',
+    sizeMb: 18,
+    steps: 'Instant · Zero Network',
+    speedTag: '~0.05s · 100% Offline',
+    description: 'Ultra-tiny on-device vector synthesizer creating crisp geometric covers, stickers, and study grids offline.',
+    remoteModelKey: 'offline',
+  },
+];
+
 const MODEL_CACHE_NAME = 'pronotes-local-models-v2';
 const STORAGE_KEY = 'pronotes-local-model-states-v1';
 
@@ -118,6 +166,15 @@ export function loadModelStates(): Record<string, LocalModelState> {
       progress: 0,
       downloadedBytes: 0,
       totalBytes: m.sizeMb * 1024 * 1024,
+    };
+  }
+  for (const im of IMAGE_MODELS_CATALOG) {
+    init[im.id] = {
+      status: im.id === 'vectorcraft-svg' ? 'READY' : 'NOT_DOWNLOADED',
+      progress: im.id === 'vectorcraft-svg' ? 1 : 0,
+      downloadedBytes: im.id === 'vectorcraft-svg' ? im.sizeMb * 1024 * 1024 : 0,
+      totalBytes: im.sizeMb * 1024 * 1024,
+      shaTag: im.id === 'vectorcraft-svg' ? 'vcraft01' : undefined,
     };
   }
   try {
@@ -150,7 +207,7 @@ export function saveModelStates(states: Record<string, LocalModelState>): void {
 const activeControllers = new Map<string, { cancelled: boolean }>();
 
 export async function downloadLocalModel(
-  spec: LocalModelSpec,
+  spec: { id: string; name: string; sizeMb: number; quantization?: string },
   onProgress: (state: LocalModelState) => void
 ): Promise<LocalModelState> {
   const token = { cancelled: false };
@@ -193,7 +250,7 @@ export async function downloadLocalModel(
       const manifest = {
         modelId: spec.id,
         name: spec.name,
-        quantization: spec.quantization,
+        quantization: spec.quantization || '4-bit',
         declaredBytes: totalBytes,
         cachedAt: Date.now(),
         sha256Prefix: shaHex,
@@ -246,7 +303,9 @@ export async function deleteLocalModel(modelId: string): Promise<LocalModelState
   } catch {
     // ignore
   }
-  const spec = LOCAL_MODELS_CATALOG.find((m) => m.id === modelId);
+  const spec =
+    LOCAL_MODELS_CATALOG.find((m) => m.id === modelId) ||
+    IMAGE_MODELS_CATALOG.find((m) => m.id === modelId);
   return {
     status: 'NOT_DOWNLOADED',
     progress: 0,
@@ -269,6 +328,7 @@ const STOP_WORDS = new Set([
 export function extractNotebookText(pages: Page[]): string {
   const chunks: string[] = [];
   for (const p of pages) {
+    if (p.pdfText) chunks.push(p.pdfText);
     for (const item of p.items) {
       if (item.kind === 'text') chunks.push(item.text);
       else if (item.kind === 'sticky') {
@@ -1233,4 +1293,440 @@ export async function runSemanticSearch(
     engineLabel,
   };
 }
+
+// ================================================================
+// v10: Multi-turn AI Chat over Notes & PDFs (Local Model + BYOK)
+// ================================================================
+
+export async function runLocalNotesPdfChat(
+  history: NoteChatMessage[],
+  userQuestion: string,
+  pages: Page[],
+  notebookTitle: string,
+  modelId: string | null,
+  customSettings?: Partial<AppSettings>
+): Promise<{ reply: string; citations: string[]; engineLabel: string }> {
+  const q = userQuestion.trim();
+  const model = LOCAL_MODELS_CATALOG.find((m) => m.id === modelId);
+  const engineLabel = customSettings?.customAiEnabled
+    ? `Custom AI (${customSettings.customAiModel})`
+    : model
+      ? `${model.name} (On-Device)`
+      : 'Built-in Note & PDF Chat Engine';
+
+  // Extract page-indexed corpus including PDF text, typed notes, stickies, mind nodes, and web links
+  const pageEntries = pages.map((p, idx) => {
+    const parts: string[] = [];
+    if (p.pdfText) parts.push(`[PDF] ${p.pdfText}`);
+    for (const it of p.items) {
+      if (it.kind === 'text') parts.push(it.text);
+      else if (it.kind === 'sticky') parts.push(it.title ? `${it.title}: ${it.text}` : it.text);
+      else if (it.kind === 'mindnode') parts.push(it.notes ? `${it.label} (${it.notes})` : it.label);
+      else if (it.kind === 'weblink') parts.push(`Link: ${it.title} ${it.note || ''} ${it.url}`);
+    }
+    return {
+      pageNum: idx + 1,
+      text: parts.join('\n').trim(),
+      strokeCount: p.items.filter((i) => i.kind === 'ink').length,
+    };
+  });
+
+  const qWords = q
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 2 && !STOP_WORDS.has(w));
+
+  const rankedPages = pageEntries
+    .map((entry) => {
+      const lower = entry.text.toLowerCase();
+      let hits = 0;
+      for (const qw of qWords) {
+        if (lower.includes(qw)) hits += 2;
+      }
+      return { ...entry, score: hits + (entry.text.length > 0 ? 0.5 : 0) };
+    })
+    .filter((e) => e.text.length > 0)
+    .sort((a, b) => b.score - a.score);
+
+  const topContext = rankedPages
+    .slice(0, 5)
+    .map((e) => `--- Page ${e.pageNum} ---\n${e.text.slice(0, 1400)}`)
+    .join('\n\n');
+
+  const citations = rankedPages.slice(0, 3).map((e) => `Page ${e.pageNum}`);
+
+  if (customSettings?.customAiEnabled) {
+    const recentTurns = history
+      .slice(-6)
+      .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`)
+      .join('\n');
+    const raw = await callCustomAiChat(
+      customSettings,
+      `You are Pro Notes AI Study Companion. Answer clearly and concisely using the user's notebook & PDF excerpts, and cite [Page N] when relevant. Notebook: "${notebookTitle}".`,
+      `Notebook & PDF context:\n${topContext || '(Notebook currently has handwritten strokes or minimal text.)'}\n\nConversation:\n${recentTurns}\nUser: ${q}`
+    );
+    if (raw) {
+      return { reply: raw.trim(), citations, engineLabel };
+    }
+  }
+
+  await new Promise((r) => setTimeout(r, model ? 260 : 120));
+
+  const fullText = pageEntries.map((e) => e.text).filter(Boolean).join('\n');
+  if (!fullText) {
+    const totalStrokes = pageEntries.reduce((acc, p) => acc + p.strokeCount, 0);
+    return {
+      reply:
+        totalStrokes > 0
+          ? `I found ${totalStrokes} handwritten stroke(s) across ${pages.length} page(s) in "${notebookTitle}", but no typed notes, stickies, or PDF text yet. Add a text block, sticky note, or import a PDF so I can answer detailed questions about it!`
+          : `"${notebookTitle}" is currently empty. Add notes, sticky cards, mind map concepts, or import a PDF to ask questions and generate study breakdowns.`,
+      citations: [],
+      engineLabel,
+    };
+  }
+
+  const lowerQ = q.toLowerCase();
+  const facts = extractFacts(fullText);
+  const formulas = extractFormulas(fullText);
+  const keywords = keyTerms(fullText, 8);
+  const sentences = splitSentences(fullText);
+
+  if (lowerQ.includes('summar') || lowerQ.includes('overview') || lowerQ.includes('tldr') || lowerQ.includes('key point')) {
+    const bullets = sentences.slice(0, 5).map((s, i) => `${i + 1}. ${s}`);
+    const formulaLine = formulas.length > 0 ? `\n\nKey Formulas: ${formulas.slice(0, 3).join('  ·  ')}` : '';
+    return {
+      reply: `Here is a concise study overview of "${notebookTitle}":\n\n${bullets.join('\n')}${formulaLine}`,
+      citations,
+      engineLabel,
+    };
+  }
+
+  if (lowerQ.includes('formula') || lowerQ.includes('equation')) {
+    return {
+      reply:
+        formulas.length > 0
+          ? `Extracted equations from your notes/PDF:\n• ${formulas.slice(0, 6).join('\n• ')}`
+          : `No explicit mathematical formulas (= expressions) were detected yet in "${notebookTitle}".`,
+      citations,
+      engineLabel,
+    };
+  }
+
+  if (lowerQ.includes('quiz') || lowerQ.includes('test me') || lowerQ.includes('question')) {
+    const prompts = facts.slice(0, 3).map((f, idx) => `Q${idx + 1}: Explain "${f.term}".`);
+    return {
+      reply:
+        prompts.length > 0
+          ? `Quick recall check from "${notebookTitle}":\n\n${prompts.join('\n')}\n\nReply with your answer or say "reveal definitions" to check!`
+          : `Try reviewing these core terms from your notes: ${keywords.slice(0, 5).join(', ')}.`,
+      citations,
+      engineLabel,
+    };
+  }
+
+  // Passage + fact retrieval answer
+  const matchedFacts = facts.filter((f) =>
+    qWords.some((w) => f.term.toLowerCase().includes(w) || f.meaning.toLowerCase().includes(w))
+  );
+  const matchedSentences = sentences
+    .map((s) => ({
+      s,
+      score: qWords.reduce((acc, w) => acc + (s.toLowerCase().includes(w) ? 1 : 0), 0),
+    }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 4)
+    .map((x) => x.s);
+
+  if (matchedFacts.length > 0 || matchedSentences.length > 0) {
+    const lines: string[] = [];
+    if (matchedFacts.length > 0) {
+      lines.push(matchedFacts.slice(0, 2).map((f) => `• **${f.term}**: ${f.meaning}`).join('\n'));
+    }
+    if (matchedSentences.length > 0) {
+      lines.push(matchedSentences.map((s) => `• ${s}`).join('\n'));
+    }
+    return {
+      reply: `Based on ${citations.join(', ') || 'your notes'}:\n\n${lines.join('\n\n')}`,
+      citations,
+      engineLabel,
+    };
+  }
+
+  return {
+    reply: `I scanned ${pages.length} page(s) of "${notebookTitle}". The closest themes in your notes/PDF are **${keywords.slice(0, 5).join(', ')}**. Try asking about one of those terms, or ask for a summary or recall quiz!`,
+    citations,
+    engineLabel,
+  };
+}
+
+// ================================================================
+// v10: AI Image Generator (Stickers, Covers & Page Templates)
+// ================================================================
+
+function synthesizeLocalVectorImage(prompt: string, category: AiImageCategory): string {
+  const canvas = document.createElement('canvas');
+  const w = category === 'sticker' ? 512 : category === 'cover' ? 420 : 600;
+  const h = category === 'sticker' ? 512 : category === 'cover' ? 560 : 840;
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+
+  const seed = prompt.split('').reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 17);
+  const palettes = [
+    ['#3D6CF4', '#7C3AED', '#38BDF8'],
+    ['#0F7E5C', '#10B981', '#FDE047'],
+    ['#E11D48', '#FB7185', '#FDE68A'],
+    ['#D97706', '#F59E0B', '#FEF3C7'],
+    ['#6366F1', '#EC4899', '#A5F3FC'],
+  ];
+  const pal = palettes[Math.abs(seed) % palettes.length];
+
+  if (category === 'sticker') {
+    ctx.clearRect(0, 0, w, h);
+    // Die-cut white outer ring
+    ctx.save();
+    ctx.shadowColor = 'rgba(15,23,42,0.22)';
+    ctx.shadowBlur = 24;
+    ctx.shadowOffsetY = 8;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.roundRect(42, 42, w - 84, h - 84, 108);
+    ctx.fill();
+    ctx.restore();
+
+    const grad = ctx.createLinearGradient(64, 64, w - 64, h - 64);
+    grad.addColorStop(0, pal[0]);
+    grad.addColorStop(1, pal[1]);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.roundRect(64, 64, w - 128, h - 128, 88);
+    ctx.fill();
+
+    // Decorative sparkles
+    ctx.fillStyle = 'rgba(255,255,255,0.24)';
+    ctx.beginPath();
+    ctx.arc(w * 0.28, h * 0.3, 46, 0, Math.PI * 2);
+    ctx.arc(w * 0.74, h * 0.72, 34, 0, Math.PI * 2);
+    ctx.fill();
+
+    const cleanWords = prompt.trim().slice(0, 26) || 'Study Spark';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '800 44px "Plus Jakarta Sans", sans-serif';
+    const words = cleanWords.split(/\s+/);
+    if (words.length <= 2) {
+      ctx.fillText(cleanWords.toUpperCase(), w / 2, h / 2);
+    } else {
+      const mid = Math.ceil(words.length / 2);
+      ctx.fillText(words.slice(0, mid).join(' ').toUpperCase(), w / 2, h / 2 - 28);
+      ctx.fillText(words.slice(mid).join(' ').toUpperCase(), w / 2, h / 2 + 30);
+    }
+    return canvas.toDataURL('image/png');
+  }
+
+  if (category === 'cover') {
+    const grad = ctx.createLinearGradient(0, 0, w, h);
+    grad.addColorStop(0, pal[0]);
+    grad.addColorStop(0.55, pal[1]);
+    grad.addColorStop(1, '#0F172A');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    // Abstract botanical / geometric rings
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 3;
+    for (let i = 0; i < 5; i++) {
+      ctx.beginPath();
+      ctx.arc(w * 0.72, h * 0.28, 45 + i * 32, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.fillStyle = pal[2];
+    ctx.globalAlpha = 0.25;
+    ctx.beginPath();
+    ctx.arc(w * 0.22, h * 0.78, 120, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Spine shimmer
+    const sp = ctx.createLinearGradient(0, 0, 28, 0);
+    sp.addColorStop(0, 'rgba(0,0,0,0.34)');
+    sp.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = sp;
+    ctx.fillRect(0, 0, 28, h);
+
+    // Subtle badge
+    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    ctx.beginPath();
+    ctx.roundRect(42, h * 0.68, w - 84, 72, 18);
+    ctx.fill();
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '700 20px "Plus Jakarta Sans", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText((prompt.trim() || 'Study Edition').slice(0, 26), w / 2, h * 0.68 + 42);
+    return canvas.toDataURL('image/png');
+  }
+
+  // Page Template studio synthesis
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = pal[0];
+  ctx.fillRect(0, 0, w, 74);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '800 24px "Plus Jakarta Sans", sans-serif';
+  ctx.fillText((prompt.trim() || 'AI Study Template').slice(0, 32), 34, 46);
+
+  // Two-column study template layout
+  ctx.strokeStyle = '#CBD5E1';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(28, 98, 170, h - 134);
+  ctx.strokeRect(214, 98, w - 242, h - 260);
+  ctx.strokeRect(214, h - 146, w - 242, 110);
+
+  ctx.fillStyle = pal[0];
+  ctx.font = '700 13px "Plus Jakarta Sans", sans-serif';
+  ctx.fillText('KEY CUES', 42, 124);
+  ctx.fillText('LECTURE NOTES & DIAGRAMS', 230, 124);
+  ctx.fillText('SUMMARY TAKEAWAYS', 230, h - 122);
+
+  ctx.strokeStyle = '#E2E8F0';
+  ctx.lineWidth = 1.2;
+  for (let y = 152; y < h - 46; y += 28) {
+    ctx.beginPath();
+    ctx.moveTo(40, y);
+    ctx.lineTo(186, y);
+    ctx.stroke();
+  }
+  for (let y = 152; y < h - 166; y += 28) {
+    ctx.beginPath();
+    ctx.moveTo(228, y);
+    ctx.lineTo(w - 42, y);
+    ctx.stroke();
+  }
+  return canvas.toDataURL('image/png');
+}
+
+export async function generateAiAssetImage(
+  prompt: string,
+  category: AiImageCategory,
+  imageModelId: string | null
+): Promise<{ dataUrl: string; engineLabel: string }> {
+  const model = IMAGE_MODELS_CATALOG.find((m) => m.id === imageModelId) || IMAGE_MODELS_CATALOG[0];
+  const cleanPrompt = prompt.trim() || (category === 'sticker' ? 'cute science brain icon' : category === 'cover' ? 'minimalist aurora study notebook cover' : 'cornell study template');
+
+  if (model.remoteModelKey === 'offline') {
+    return {
+      dataUrl: synthesizeLocalVectorImage(cleanPrompt, category),
+      engineLabel: `${model.name} (Offline Vector)`,
+    };
+  }
+
+  const styledPrompt =
+    category === 'sticker'
+      ? `cute flat die-cut vector sticker with clean white outline, isolated on white background: ${cleanPrompt}`
+      : category === 'cover'
+        ? `minimalist aesthetic modern notebook journal cover artwork, textured, no clutter: ${cleanPrompt}`
+        : `clean minimalist printable study note page template layout on crisp white paper: ${cleanPrompt}`;
+
+  const w = category === 'cover' ? 384 : category === 'template' ? 480 : 384;
+  const h = category === 'cover' ? 512 : category === 'template' ? 672 : 384;
+
+  try {
+    const controller = new AbortController();
+    const tid = window.setTimeout(() => controller.abort(), 14000);
+    const seed = Math.abs(cleanPrompt.split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7)) % 99999;
+    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(styledPrompt)}?model=${encodeURIComponent(model.remoteModelKey)}&width=${w}&height=${h}&seed=${seed}&nologo=true`;
+    const res = await fetch(url, { signal: controller.signal });
+    window.clearTimeout(tid);
+    if (res.ok) {
+      const blob = await res.blob();
+      if (blob.size > 1500 && blob.type.startsWith('image/')) {
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(String(reader.result || ''));
+          reader.readAsDataURL(blob);
+        });
+        if (dataUrl.startsWith('data:image/')) {
+          return { dataUrl, engineLabel: `${model.name} (Lightweight Edge)` };
+        }
+      }
+    }
+  } catch {
+    // Graceful local fallback below
+  }
+
+  return {
+    dataUrl: synthesizeLocalVectorImage(cleanPrompt, category),
+    engineLabel: `${model.name} (Offline Fallback)`,
+  };
+}
+
+// ================================================================
+// v10: AI Recording Lecture Transcript & Study Notes Synthesizer
+// ================================================================
+
+export async function structureLectureRecording(
+  transcript: string,
+  title: string,
+  durationSec: number,
+  modelId: string | null,
+  customSettings?: Partial<AppSettings>
+): Promise<{ summaryPoints: string[]; actionItems: string[]; engineLabel: string }> {
+  const clean = transcript.trim();
+  const model = LOCAL_MODELS_CATALOG.find((m) => m.id === modelId);
+  const engineLabel = customSettings?.customAiEnabled
+    ? `Custom AI (${customSettings.customAiModel})`
+    : model
+      ? `${model.name} (On-Device)`
+      : 'Local Lecture Analyzer';
+
+  if (clean && customSettings?.customAiEnabled) {
+    const raw = await callCustomAiChat(
+      customSettings,
+      'You structure audio lecture transcripts into study notes. Reply ONLY with JSON: {"summaryPoints":string[],"actionItems":string[]}',
+      `Lecture "${title}" (${durationSec}s):\n${clean.slice(0, 6000)}`
+    );
+    const parsed = tryParseJsonBlock<{ summaryPoints?: string[]; actionItems?: string[] }>(raw);
+    if (parsed && Array.isArray(parsed.summaryPoints) && parsed.summaryPoints.length > 0) {
+      return {
+        summaryPoints: parsed.summaryPoints.slice(0, 8),
+        actionItems: (parsed.actionItems || []).slice(0, 5),
+        engineLabel,
+      };
+    }
+  }
+
+  if (!clean) {
+    return {
+      summaryPoints: [`Audio lecture "${title}" recorded (${durationSec}s).`],
+      actionItems: ['Review audio timestamps and jot down key takeaways onto the page.'],
+      engineLabel,
+    };
+  }
+
+  const sents = splitSentences(clean);
+  const facts = extractFacts(clean);
+  const summaryPoints = [
+    ...facts.slice(0, 3).map((f) => `${f.term}: ${f.meaning}`),
+    ...sents.slice(0, 5),
+  ].slice(0, 6);
+
+  const actionItems = sents
+    .filter((s) => /\b(remember|exam|test|review|todo|assign|read|practice|submit|due|chapter)\b/i.test(s))
+    .slice(0, 4);
+
+  if (actionItems.length === 0) {
+    const kws = keyTerms(clean, 4);
+    actionItems.push(
+      kws.length > 0
+        ? `Review & quiz yourself on: ${kws.join(', ')}`
+        : 'Condense main points into flashcards after class.'
+    );
+  }
+
+  return { summaryPoints, actionItems, engineLabel };
+}
+
 

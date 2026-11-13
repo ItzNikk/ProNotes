@@ -117,12 +117,19 @@ import androidx.compose.material.icons.outlined.SwapVert
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.UnfoldLess
 import androidx.compose.material.icons.outlined.UnfoldMore
+import androidx.compose.material.icons.outlined.Brush
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material.icons.outlined.VerticalSplit
+import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -200,9 +207,13 @@ import com.pronotes.app.data.Repository
 import com.pronotes.app.data.ScribbleSensitivity
 import com.pronotes.app.data.ScrollDirection
 import com.pronotes.app.data.SettingsStore
+import com.kyant.backdrop.backdrops.LayerBackdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.pronotes.app.data.ToolbarDock
 import com.pronotes.app.ui.ColorEditorDialog
 import com.pronotes.app.ui.LocalMotionStyle
+import com.pronotes.app.ui.OptionalLiquidGlassBox
 import com.pronotes.app.ui.PenGlyph
 import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.ProIconView
@@ -210,6 +221,7 @@ import com.pronotes.app.ui.ShapeGlyph
 import com.pronotes.app.ui.StickerSet
 import com.pronotes.app.ui.Swatch
 import com.pronotes.app.ui.ToolGlyph
+import com.pronotes.app.ui.elasticStretch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -396,10 +408,15 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     var splitWeight by remember { mutableFloatStateOf(0.8f) }
     LaunchedEffect(vm.showQuizRequest) { if (vm.showQuizRequest > 0) showQuiz = true }
     var showCards by remember { mutableStateOf(false) }
+    var showAiChat by remember { mutableStateOf(false) }
+    var showAssetStudio by remember { mutableStateOf<AiAssetKind?>(null) }
+    var showLectureRecorder by remember { mutableStateOf(false) }
+    var showCollabRoom by remember { mutableStateOf(false) }
 
     // Real background blur (Android 12+) while a card, dialog or sheet is open.
     val overlayOpen = vm.textEdit != null || vm.stickyEdit != null || vm.webLinkEdit != null || vm.mindNodeEdit != null ||
-        vm.showSlideShow || renaming || goTo || pageColor || showStickers || vm.cardOpen || wheelAt != null
+        vm.showSlideShow || showAiChat || showAssetStudio != null || showLectureRecorder || showCollabRoom ||
+        renaming || goTo || pageColor || showStickers || vm.cardOpen || wheelAt != null
     val blurRadius by androidx.compose.animation.core.animateDpAsState(if (overlayOpen) 14.dp else 0.dp, label = "blur")
     val blurMod = if (android.os.Build.VERSION.SDK_INT >= 31 && blurRadius > 0.dp) Modifier.blur(blurRadius) else Modifier
 
@@ -441,6 +458,10 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                         onCards = { showCards = true },
                         onQuiz = { showQuiz = true },
                         onSlideShow = { vm.showSlideShow = true },
+                        onAiChat = { showAiChat = true },
+                        onAssetStudio = { kind -> showAssetStudio = kind },
+                        onLectureRecorder = { showLectureRecorder = true },
+                        onCollabRoom = { showCollabRoom = true },
                         onAddWebLink = {
                             val p = vm.currentPage
                             vm.openWebLink(vm.pageIndex, (p?.width ?: 1240f) / 2f, 340f, null)
@@ -471,10 +492,11 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
 
             // -------------------------------------------------------------- canvas
             var areaSize by remember { mutableStateOf(IntSize.Zero) }
+            val backdrop = rememberLayerBackdrop()
             Box(Modifier.weight(1f).fillMaxHeight().onSizeChanged { areaSize = it }) {
                 if (vm.loaded) {
                     AndroidView(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().layerBackdrop(backdrop),
                         factory = { ctx ->
                             NoteCanvasView(ctx, object : CanvasHost {
                                 override fun brush(tool: Tool) = vm.brushFor(tool)
@@ -557,6 +579,8 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 ) {
                     SelectionMenu(
                         vm = vm,
+                        backdrop = backdrop,
+                        liquidGlass = settings.liquidGlass,
                         onDuplicate = { val ids = vm.duplicateSelection(); canvas?.selectItems(vm.selectionPage, ids) },
                         onColor = { c -> val ids = vm.selection; val pg = vm.selectionPage; vm.recolorSelection(c); canvas?.selectItems(pg, ids) },
                         keep = { block -> val ids = vm.selection; val pg = vm.selectionPage; block(); canvas?.selectItems(pg, ids) },
@@ -566,7 +590,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
 
                 if (hideTools) Unit
                 else if (settings.toolbarDock != ToolbarDock.HEADER) {
-                    ToolDock(vm, settings, areaSize, onDock = { d -> store.update { it.copy(toolbarDock = d) } })
+                    ToolDock(vm, settings, areaSize, backdrop = backdrop, onDock = { d -> store.update { it.copy(toolbarDock = d) } })
                 }
                 // With the fixed top bar the tools and the colour / size options all live inside the bar itself.
 
@@ -715,7 +739,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                     }
                 }
 
-                if (settings.studyTimer && !focus) StudyTimer(vm, settings, areaSize)
+                if (settings.studyTimer && !focus) StudyTimer(vm, settings, areaSize, backdrop = backdrop)
 
                 val banner = when {
                     vm.capturingCard && vm.backFor != null -> "Drag a box over the answer"
@@ -818,7 +842,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
             }
         }
     }
-    if (showTemplates) TemplateSheet(vm, onClose = { showTemplates = false })
+    if (showTemplates) TemplateSheet(vm, onAiTemplate = { showTemplates = false; showAssetStudio = AiAssetKind.TEMPLATE }, onClose = { showTemplates = false })
     vm.summary?.let { res ->
         val clip = androidx.compose.ui.platform.LocalClipboardManager.current
         SummarySheet(
@@ -968,12 +992,31 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
 
     if (showStickers) {
         ModalBottomSheet(onDismissRequest = { showStickers = false; vm.tool = Tool.LASSO }) {
-            StickerSheet(vm) { bmp ->
+            StickerSheet(vm, onAiSticker = { showStickers = false; showAssetStudio = AiAssetKind.STICKER }) { bmp ->
                 showStickers = false
                 vm.tool = Tool.LASSO
                 vm.insertStickerBitmap(bmp) { pg, id -> canvas?.selectItems(pg, setOf(id)) }
             }
         }
+    }
+    if (showAiChat) AiNotesChatDialog(vm = vm, onClose = { showAiChat = false })
+    showAssetStudio?.let { kind ->
+        AiAssetStudioDialog(
+            vm = vm,
+            initialKind = kind,
+            onInsertSticker = { bmp -> vm.insertStickerBitmap(bmp) { pg, id -> canvas?.selectItems(pg, setOf(id)) } },
+            onApplyTemplate = { bmp -> vm.applyGeneratedTemplateBitmap(bmp) },
+            onApplyCover = { bmp -> vm.applyGeneratedCoverBitmap(bmp) },
+            onClose = { showAssetStudio = null },
+        )
+    }
+    if (showLectureRecorder) AiLectureRecorderDialog(vm = vm, onClose = { showLectureRecorder = false })
+    if (showCollabRoom) {
+        LiveCollabRoomDialog(
+            vm = vm,
+            repo = Repository.get(context),
+            onClose = { showCollabRoom = false },
+        )
     }
 }
 
@@ -1018,7 +1061,7 @@ private fun BarIcon(icon: ProIcon, label: String, enabled: Boolean = true, activ
         else -> MaterialTheme.colorScheme.onSurface
     }
     Box(
-        Modifier.size(40.dp).clip(Pill)
+        Modifier.size(40.dp).elasticStretch().clip(Pill)
             .background(if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -1034,6 +1077,10 @@ private fun TopBar(
     onCards: () -> Unit = {},
     onQuiz: () -> Unit = {},
     onSlideShow: () -> Unit = {},
+    onAiChat: () -> Unit = {},
+    onAssetStudio: (AiAssetKind) -> Unit = {},
+    onLectureRecorder: () -> Unit = {},
+    onCollabRoom: () -> Unit = {},
     onAddWebLink: () -> Unit = {},
     onTemplates: () -> Unit = {},
     onImportFiles: () -> Unit = {},
@@ -1168,6 +1215,26 @@ private fun TopBar(
                     text = { Text("Flashcard from area") },
                     leadingIcon = { Icon(Icons.Outlined.Crop, null, Modifier.size(20.dp)) },
                     onClick = { more = false; vm.capturingCard = true },
+                )
+                DropdownMenuItem(
+                    text = { Text("AI Chat (Notes & PDF)") },
+                    leadingIcon = { Icon(Icons.Outlined.ChatBubbleOutline, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary) },
+                    onClick = { more = false; onAiChat() },
+                )
+                DropdownMenuItem(
+                    text = { Text("AI Creative Studio (Stickers / Covers)") },
+                    leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary) },
+                    onClick = { more = false; onAssetStudio(AiAssetKind.STICKER) },
+                )
+                DropdownMenuItem(
+                    text = { Text("AI Lecture Recorder") },
+                    leadingIcon = { Icon(Icons.Outlined.Mic, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary) },
+                    onClick = { more = false; onLectureRecorder() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Live Study Room") },
+                    leadingIcon = { Icon(Icons.Outlined.Groups, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary) },
+                    onClick = { more = false; onCollabRoom() },
                 )
                 HorizontalDivider(Modifier.padding(vertical = 4.dp))
                 Text(
@@ -1419,7 +1486,13 @@ private fun PageThumb(vm: EditorViewModel, i: Int, page: Page, modifier: Modifie
 // ============================================================== tool dock
 
 @Composable
-private fun BoxScope.ToolDock(vm: EditorViewModel, settings: AppSettings, area: IntSize, onDock: (ToolbarDock) -> Unit) {
+private fun BoxScope.ToolDock(
+    vm: EditorViewModel,
+    settings: AppSettings,
+    area: IntSize,
+    backdrop: LayerBackdrop? = null,
+    onDock: (ToolbarDock) -> Unit,
+) {
     val dock = settings.toolbarDock
     var drag by remember { mutableStateOf(Offset.Zero) }
     var dragging by remember { mutableStateOf(false) }
@@ -1503,10 +1576,12 @@ private fun BoxScope.ToolDock(vm: EditorViewModel, settings: AppSettings, area: 
         val limit = if (isVertical) Modifier.heightIn(max = (areaH - 150.dp).coerceAtLeast(160.dp))
             else Modifier.widthIn(max = (areaW - if (narrow) 24.dp else 300.dp).coerceAtLeast(220.dp))
         val bar = @Composable {
-            Surface(
-                shape = Pill, color = glassColor(),
-                shadowElevation = if (dragging) 14.dp else 6.dp,
-                modifier = limit.graphicsLayer { alpha = fade }.glassEdge(Pill),
+            OptionalLiquidGlassBox(
+                backdrop = backdrop,
+                enabled = settings.liquidGlass,
+                shape = Pill,
+                fallbackColor = glassColor(),
+                modifier = limit.shadow(if (dragging) 14.dp else 6.dp, Pill).graphicsLayer { alpha = fade },
             ) {
                 if (isVertical) Column(Modifier.padding(5.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
                     grip(); tools(); if (hasOptions) { divider(); ToolOptions(vm, true, settings) }
@@ -1711,6 +1786,7 @@ private fun ToolButton(
     Box {
         Box(
             Modifier.padding(1.dp).size(sz)
+                .elasticStretch(enabled = !dragging, pressScale = 0.91f)
                 .graphicsLayer {
                     scaleX = stretchX
                     scaleY = stretchY
@@ -1854,7 +1930,7 @@ private fun ToolOptions(vm: EditorViewModel, vertical: Boolean, settings: AppSet
 
 @Composable
 private fun MiniChip(label: String, onClick: () -> Unit) {
-    Surface(shape = Pill, color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(3.dp).clickable(onClick = onClick)) {
+    Surface(shape = Pill, color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(3.dp).elasticStretch().clickable(onClick = onClick)) {
         Text(label, Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
     }
 }
@@ -2377,7 +2453,7 @@ private fun SliderRow(label: String, value: String, v: Float, range: ClosedFloat
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun StickerSheet(vm: EditorViewModel, onPick: (Bitmap) -> Unit) {
+private fun StickerSheet(vm: EditorViewModel, onAiSticker: () -> Unit = {}, onPick: (Bitmap) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var tab by remember { mutableIntStateOf(0) }
@@ -2390,8 +2466,11 @@ private fun StickerSheet(vm: EditorViewModel, onPick: (Bitmap) -> Unit) {
     }
     fun pick(s: Sticker) = scope.launch { withContext(Dispatchers.Default) { StickerLibrary.bitmap(s) }?.let(onPick) }
     Column(Modifier.padding(horizontal = 16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Stickers", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f).padding(start = 8.dp))
+            FilledTonalButton(onClick = onAiSticker, shape = Pill, modifier = Modifier.elasticStretch()) {
+                Text("✦ AI Sticker")
+            }
             TextButton(onClick = { importer.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
                 Icon(Icons.Outlined.Add, null); Text("Import")
             }
@@ -2526,52 +2605,66 @@ private fun FmtToggle(icon: androidx.compose.ui.graphics.vector.ImageVector, on:
 
 @Composable
 private fun SelectionMenu(
-    vm: EditorViewModel, onDuplicate: () -> Unit, onColor: (Int) -> Unit,
-    keep: (() -> Unit) -> Unit, onShareImage: () -> Unit,
+    vm: EditorViewModel,
+    backdrop: LayerBackdrop? = null,
+    liquidGlass: Boolean = false,
+    onDuplicate: () -> Unit,
+    onColor: (Int) -> Unit,
+    keep: (() -> Unit) -> Unit,
+    onShareImage: () -> Unit,
 ) {
     var colors by remember { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
-    Surface(shape = Pill, color = Color(0xE01B1F2A), contentColor = Color.White, shadowElevation = 8.dp, modifier = Modifier.glassEdge(Pill)) {
-        Row(Modifier.padding(horizontal = 6.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-            // Link first and labelled, so it is easy to find.
-            Surface(
-                shape = Pill, color = Color(0xFF3D6CF4), contentColor = Color.White,
-                modifier = Modifier.padding(4.dp).clip(Pill).clickable { vm.startLinkFromSelection() },
-            ) {
-                Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.Link, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Link", style = MaterialTheme.typography.labelLarge)
+    val fg = if (liquidGlass) MaterialTheme.colorScheme.onSurface else Color.White
+    OptionalLiquidGlassBox(
+        backdrop = backdrop,
+        enabled = liquidGlass,
+        shape = Pill,
+        fallbackColor = Color(0xE01B1F2A),
+        modifier = Modifier.shadow(8.dp, Pill),
+    ) {
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides fg) {
+            Row(Modifier.padding(horizontal = 6.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                // Link first and labelled, so it is easy to find.
+                Surface(
+                    shape = Pill, color = Color(0xFF3D6CF4), contentColor = Color.White,
+                    modifier = Modifier.padding(4.dp).elasticStretch().clip(Pill).clickable { vm.startLinkFromSelection() },
+                ) {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.Link, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Link", style = MaterialTheme.typography.labelLarge)
+                    }
                 }
-            }
-            // Linked content: a red Unlink right next to it.
-            if (vm.selectionLinks().isNotEmpty()) Surface(
-                shape = Pill, color = Color(0xFFE5484D), contentColor = Color.White,
-                modifier = Modifier.padding(4.dp).clip(Pill).clickable { vm.unlinkSelection() },
-            ) { Text("Unlink", Modifier.padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.labelLarge) }
-            IconButton(onClick = vm::cutSelection) { Icon(Icons.Outlined.ContentCut, "Cut") }
-            IconButton(onClick = vm::copySelection) { Icon(Icons.Outlined.ContentCopy, "Copy") }
-            IconButton(onClick = onDuplicate) { ProIconView(ProIcon.ADD, Color.White, Modifier.size(22.dp)) }
-            IconButton(onClick = { colors = true }) { Icon(Icons.Outlined.Palette, "Colour") }
-            IconButton(onClick = { keep { vm.rotateSelection(90f) } }) { Icon(Icons.Outlined.RotateRight, "Rotate 90°") }
-            Box {
-                IconButton(onClick = { more = true }) { ProIconView(ProIcon.MORE, Color.White, Modifier.size(22.dp)) }
-                DropdownMenu(more, { more = false }, shape = RoundedCornerShape(18.dp)) {
-                    DropdownMenuItem(text = { Text("Flip horizontally") }, leadingIcon = { Icon(Icons.Outlined.Flip, null) },
-                        onClick = { more = false; keep { vm.flipSelection() } })
-                    DropdownMenuItem(text = { Text("Bring to front") }, leadingIcon = { Icon(Icons.Outlined.FlipToFront, null) },
-                        onClick = { more = false; keep { vm.arrange(true) } })
-                    DropdownMenuItem(text = { Text("Send to back") }, leadingIcon = { Icon(Icons.Outlined.FlipToBack, null) },
-                        onClick = { more = false; keep { vm.arrange(false) } })
-                    DropdownMenuItem(text = { Text("Share as image") }, leadingIcon = { Icon(Icons.Outlined.IosShare, null) },
-                        onClick = { more = false; onShareImage() })
-                    DropdownMenuItem(text = { Text("Make flashcard") }, leadingIcon = { Icon(Icons.Outlined.Style, null) },
-                        onClick = { more = false; vm.cardFromSelection() })
-                    DropdownMenuItem(text = { Text("Add link…") }, leadingIcon = { Icon(Icons.Outlined.Link, null) },
-                        onClick = { more = false; vm.startLinkFromSelection() })
-                    DropdownMenuItem(text = { Text("Save as screenshot") }, leadingIcon = { Icon(Icons.Outlined.Image, null) },
-                        onClick = { more = false; vm.saveSelectionScreenshot() })
+                // Linked content: a red Unlink right next to it.
+                if (vm.selectionLinks().isNotEmpty()) Surface(
+                    shape = Pill, color = Color(0xFFE5484D), contentColor = Color.White,
+                    modifier = Modifier.padding(4.dp).elasticStretch().clip(Pill).clickable { vm.unlinkSelection() },
+                ) { Text("Unlink", Modifier.padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.labelLarge) }
+                IconButton(onClick = vm::cutSelection, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.ContentCut, "Cut") }
+                IconButton(onClick = vm::copySelection, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.ContentCopy, "Copy") }
+                IconButton(onClick = onDuplicate, modifier = Modifier.elasticStretch()) { ProIconView(ProIcon.ADD, fg, Modifier.size(22.dp)) }
+                IconButton(onClick = { colors = true }, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.Palette, "Colour") }
+                IconButton(onClick = { keep { vm.rotateSelection(90f) } }, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.RotateRight, "Rotate 90°") }
+                Box {
+                    IconButton(onClick = { more = true }, modifier = Modifier.elasticStretch()) { ProIconView(ProIcon.MORE, fg, Modifier.size(22.dp)) }
+                    DropdownMenu(more, { more = false }, shape = RoundedCornerShape(18.dp)) {
+                        DropdownMenuItem(text = { Text("Flip horizontally") }, leadingIcon = { Icon(Icons.Outlined.Flip, null) },
+                            onClick = { more = false; keep { vm.flipSelection() } })
+                        DropdownMenuItem(text = { Text("Bring to front") }, leadingIcon = { Icon(Icons.Outlined.FlipToFront, null) },
+                            onClick = { more = false; keep { vm.arrange(true) } })
+                        DropdownMenuItem(text = { Text("Send to back") }, leadingIcon = { Icon(Icons.Outlined.FlipToBack, null) },
+                            onClick = { more = false; keep { vm.arrange(false) } })
+                        DropdownMenuItem(text = { Text("Share as image") }, leadingIcon = { Icon(Icons.Outlined.IosShare, null) },
+                            onClick = { more = false; onShareImage() })
+                        DropdownMenuItem(text = { Text("Make flashcard") }, leadingIcon = { Icon(Icons.Outlined.Style, null) },
+                            onClick = { more = false; vm.cardFromSelection() })
+                        DropdownMenuItem(text = { Text("Add link…") }, leadingIcon = { Icon(Icons.Outlined.Link, null) },
+                            onClick = { more = false; vm.startLinkFromSelection() })
+                        DropdownMenuItem(text = { Text("Save as screenshot") }, leadingIcon = { Icon(Icons.Outlined.Image, null) },
+                            onClick = { more = false; vm.saveSelectionScreenshot() })
+                    }
                 }
+                IconButton(onClick = vm::deleteSelection, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.Delete, "Delete", tint = Color(0xFFFF8A80)) }
             }
-            IconButton(onClick = vm::deleteSelection) { Icon(Icons.Outlined.Delete, "Delete", tint = Color(0xFFFF8A80)) }
         }
     }
     if (colors) {
@@ -2586,10 +2679,17 @@ private fun SelectionMenu(
  * Tap to pause or resume, long-press for totals, drag to move it anywhere (the spot is remembered).
  */
 @Composable
-private fun StudyTimer(vm: EditorViewModel, settings: AppSettings, area: IntSize) {
+private fun StudyTimer(
+    vm: EditorViewModel,
+    settings: AppSettings,
+    area: IntSize,
+    backdrop: LayerBackdrop? = null,
+) {
     var running by remember { mutableStateOf(settings.studyAutoStart) }
     var session by remember { mutableStateOf(0L) }
     var unsaved by remember { mutableStateOf(0L) }
+    var pomoMode by remember { mutableStateOf(false) }
+    var pomoRemMs by remember(settings.pomodoroMinutes) { mutableStateOf(settings.pomodoroMinutes.coerceIn(5, 90) * 60_000L) }
     var menu by remember { mutableStateOf(false) }
     var resumed by remember { mutableStateOf(true) }
     var idle by remember { mutableStateOf(false) }
@@ -2605,13 +2705,20 @@ private fun StudyTimer(vm: EditorViewModel, settings: AppSettings, area: IntSize
         owner.lifecycle.addObserver(obs)
         onDispose { owner.lifecycle.removeObserver(obs); vm.addStudy(unsaved); unsaved = 0L }
     }
-    LaunchedEffect(running, resumed) {
+    LaunchedEffect(running, resumed, pomoMode) {
         while (running && resumed) {
             kotlinx.coroutines.delay(1000)
             val idleMs = settings.studyIdleMinutes * 60_000L
             idle = idleMs > 0 && System.currentTimeMillis() - vm.lastActivity > idleMs
             if (idle) continue
             session += 1000; unsaved += 1000
+            if (pomoMode) {
+                pomoRemMs = (pomoRemMs - 1000L).coerceAtLeast(0L)
+                if (pomoRemMs <= 0L) {
+                    running = false
+                    pomoRemMs = settings.pomodoroMinutes.coerceIn(5, 90) * 60_000L
+                }
+            }
             if (unsaved >= 30_000) { vm.addStudy(unsaved); unsaved = 0L }
         }
     }
@@ -2641,9 +2748,12 @@ private fun StudyTimer(vm: EditorViewModel, settings: AppSettings, area: IntSize
                 ) { change, amount -> change.consume(); drag += amount }
             },
     ) {
-        Surface(
-            shape = Pill, color = glassColor(), shadowElevation = 4.dp,
-            modifier = Modifier.glassEdge(Pill).clip(Pill).combinedClickableCompat({ running = !running }, { menu = true }),
+        OptionalLiquidGlassBox(
+            backdrop = backdrop,
+            enabled = settings.liquidGlass,
+            shape = Pill,
+            fallbackColor = glassColor(),
+            modifier = Modifier.shadow(4.dp, Pill).elasticStretch().combinedClickableCompat({ running = !running }, { menu = true }),
         ) {
             Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(
@@ -2651,8 +2761,11 @@ private fun StudyTimer(vm: EditorViewModel, settings: AppSettings, area: IntSize
                     tint = if (running && !idle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.width(6.dp))
-                Text(fmt(session), style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"))
-                val state = when { !running && session == 0L -> "tap to start"; !running -> "paused"; idle -> "idle"; else -> null }
+                Text(
+                    if (pomoMode) "🍅 ${fmt(pomoRemMs, true)}" else fmt(session),
+                    style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
+                )
+                val state = when { !running && session == 0L && !pomoMode -> "tap to start"; !running -> "paused"; idle -> "idle"; else -> null }
                 if (state != null) { Spacer(Modifier.width(6.dp)); Text(state, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
@@ -2661,7 +2774,16 @@ private fun StudyTimer(vm: EditorViewModel, settings: AppSettings, area: IntSize
             DropdownMenuItem(text = { Text("This session: ${fmt(session, true)}") }, onClick = { menu = false }, enabled = false)
             DropdownMenuItem(text = { Text("This notebook: ${fmt(total, true)}") }, onClick = { menu = false }, enabled = false)
             DropdownMenuItem(text = { Text(if (running) "Pause" else "Start") }, onClick = { menu = false; running = !running })
-            DropdownMenuItem(text = { Text("Restart session") }, onClick = { menu = false; vm.addStudy(unsaved); unsaved = 0L; session = 0L; running = true })
+            DropdownMenuItem(
+                text = { Text(if (pomoMode) "Switch to Stopwatch" else "Pomodoro (${settings.pomodoroMinutes}m)") },
+                onClick = {
+                    menu = false
+                    pomoMode = !pomoMode
+                    pomoRemMs = settings.pomodoroMinutes.coerceIn(5, 90) * 60_000L
+                    running = true
+                },
+            )
+            DropdownMenuItem(text = { Text("Restart session") }, onClick = { menu = false; vm.addStudy(unsaved); unsaved = 0L; session = 0L; pomoRemMs = settings.pomodoroMinutes.coerceIn(5, 90) * 60_000L; running = true })
             DropdownMenuItem(text = { Text("Move back to the bottom") }, onClick = { menu = false; pos = 0.5f to 0.93f; vm.setTimerPos(0.5f, 0.93f) })
         }
     }
@@ -2784,11 +2906,11 @@ private fun WebLinkDialog(vm: EditorViewModel, edit: EditorViewModel.WebLinkEdit
 }
 
 /**
- * Rewritten Ultra Split View:
- * - Honors scrollDirection setting (VERTICAL multi-page stream vs HORIZONTAL snap pager)
- * - Sync Page lock to follow main notebook page index
- * - Smooth pinch-zoom + pan + double-tap zoom + presets
- * - In-split search, swap panes, and 1-tap Clip Sticky / To Page / + Link
+ * v10 Writable Split View:
+ * - Clean single header bar with Read/Write mode toggle, Undo, and organized ⋯ menu
+ * - Compact ink/highlighter/eraser strip when writing in the split pane
+ * - Fixed zoom-out floor (35%–300%) with centered framing and presets (50%, Fit, 100%, 150%)
+ * - Honors scrollDirection setting, Sync Page lock, Search, Swap Panes, Clip Sticky / To Page / + Link
  */
 @Composable
 private fun SplitPanel(
@@ -2809,10 +2931,15 @@ private fun SplitPanel(
     val app = LocalContext.current.applicationContext as Application
     val vm2: EditorViewModel = viewModel(key = "split-$noteId", factory = viewModelFactory { initializer { EditorViewModel(app, noteId) } })
     var pick by remember { mutableStateOf(false) }
+    var splitMenu by remember { mutableStateOf(false) }
     var splitZoom by remember(noteId) { mutableFloatStateOf(1f) }
     var splitPan by remember(noteId) { mutableStateOf(Offset.Zero) }
     var showSplitSearch by remember(noteId) { mutableStateOf(false) }
     var syncPage by remember(noteId) { mutableStateOf(false) }
+    var writeMode by remember(noteId) { mutableStateOf(false) }
+    var inkKind by remember(noteId) { mutableStateOf("pen") } // "pen", "highlighter", "eraser"
+    var inkColor by remember(noteId) { mutableIntStateOf(0xFF1B1F2A.toInt()) }
+
     val listState = rememberLazyListState()
     val snapBehavior = rememberSnapFlingBehavior(lazyListState = listState)
     val scope = rememberCoroutineScope()
@@ -2821,7 +2948,7 @@ private fun SplitPanel(
     }
 
     LaunchedEffect(splitZoom) {
-        if (splitZoom <= 1.02f) splitPan = Offset.Zero
+        if (splitZoom <= 1.0f) splitPan = Offset.Zero
     }
     LaunchedEffect(mainPageIndex, syncPage, vm2.pages.size) {
         if (syncPage && vm2.pages.isNotEmpty()) {
@@ -2834,23 +2961,17 @@ private fun SplitPanel(
         listState.animateScrollToItem(hit.page.coerceIn(0, (vm2.pages.size - 1).coerceAtLeast(0)))
     }
 
-    fun extractPageText(pageIdx: Int): String {
-        val page = vm2.pages.getOrNull(pageIdx) ?: return ""
-        return page.items.mapNotNull {
-            when (it) {
-                is TextItem -> it.text
-                is StickyItem -> listOf(it.title, it.text).filter { s -> s.isNotBlank() }.joinToString(": ")
-                is WebLinkItem -> "${it.title} (${it.url})"
-                is MindNodeItem -> listOfNotNull(it.tag.takeIf { t -> t.isNotBlank() }, it.label, it.notes.takeIf { n -> n.isNotBlank() }).joinToString(" — ")
-                else -> null
-            }
-        }.joinToString("\n").trim()
-    }
+    fun extractPageText(pageIdx: Int): String = vm2.extractPageSummaryText(pageIdx)
 
     Column(modifier.background(MaterialTheme.colorScheme.surfaceContainerLow)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        // Clean single top header
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             Box(Modifier.weight(1f)) {
-                TextButton(onClick = { pick = true }) {
+                TextButton(onClick = { pick = true }, modifier = Modifier.elasticStretch()) {
                     Text(vm2.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Icon(Icons.Filled.KeyboardArrowDown, null)
                 }
@@ -2859,24 +2980,161 @@ private fun SplitPanel(
                 }
             }
             Surface(
-                shape = CircleShape,
-                color = if (syncPage) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.clip(CircleShape).clickable { syncPage = !syncPage },
+                shape = Pill,
+                color = if (writeMode) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.elasticStretch().clip(Pill).clickable { writeMode = !writeMode },
             ) {
-                Text(
-                    if (syncPage) "Sync On" else "Sync",
-                    Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (syncPage) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row(Modifier.padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        if (writeMode) Icons.Outlined.Brush else Icons.Outlined.Edit,
+                        null,
+                        Modifier.size(14.dp),
+                        tint = if (writeMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        if (writeMode) "Write" else "Read",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (writeMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            IconButton(onClick = {
-                showSplitSearch = !showSplitSearch
-                if (!showSplitSearch) vm2.clearSearch()
-            }) { Icon(Icons.Outlined.Search, "Search split note") }
-            IconButton(onClick = onSwap) { Icon(Icons.Outlined.SwapHoriz, "Swap panes") }
-            TextButton(onClick = { onOpen(noteId) }) { Text("Open") }
-            IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Close split view") }
+            if (writeMode) {
+                IconButton(
+                    enabled = vm2.canUndo,
+                    onClick = vm2::undo,
+                    modifier = Modifier.size(34.dp).elasticStretch(),
+                ) {
+                    Icon(Icons.AutoMirrored.Outlined.Undo, "Undo split edit", Modifier.size(18.dp))
+                }
+            }
+            Box {
+                IconButton(onClick = { splitMenu = true }, modifier = Modifier.size(34.dp).elasticStretch()) {
+                    Icon(Icons.Outlined.MoreHoriz, "Split view options", Modifier.size(20.dp))
+                }
+                DropdownMenu(splitMenu, { splitMenu = false }, shape = RoundedCornerShape(18.dp)) {
+                    DropdownMenuItem(
+                        text = { Text(if (syncPage) "Sync Page: On" else "Sync Page: Off") },
+                        onClick = { splitMenu = false; syncPage = !syncPage },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (showSplitSearch) "Hide Search" else "Search in Split Note") },
+                        leadingIcon = { Icon(Icons.Outlined.Search, null, Modifier.size(18.dp)) },
+                        onClick = {
+                            splitMenu = false
+                            showSplitSearch = !showSplitSearch
+                            if (!showSplitSearch) vm2.clearSearch()
+                        },
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Zoom: 50%") },
+                        onClick = { splitMenu = false; splitZoom = 0.5f; splitPan = Offset.Zero },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Zoom: Fit (100%)") },
+                        onClick = { splitMenu = false; splitZoom = 1f; splitPan = Offset.Zero },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Zoom: 150%") },
+                        onClick = { splitMenu = false; splitZoom = 1.5f },
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Ratio: 30 / 70") },
+                        onClick = { splitMenu = false; onRatioPreset(2.33f) },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Ratio: 50 / 50") },
+                        onClick = { splitMenu = false; onRatioPreset(1f) },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Ratio: 70 / 30") },
+                        onClick = { splitMenu = false; onRatioPreset(0.43f) },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Swap Panes") },
+                        leadingIcon = { Icon(Icons.Outlined.SwapHoriz, null, Modifier.size(18.dp)) },
+                        onClick = { splitMenu = false; onSwap() },
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Clip Page as Sticky") },
+                        leadingIcon = { Icon(Icons.Outlined.PushPin, null, Modifier.size(18.dp)) },
+                        onClick = {
+                            splitMenu = false
+                            val extracted = extractPageText(visiblePage)
+                            onClipToSticky(extracted.ifBlank { "Reference from ${vm2.title} (Page ${visiblePage + 1})" }, vm2.title)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Insert Page Text to Note") },
+                        leadingIcon = { Icon(Icons.Outlined.PostAdd, null, Modifier.size(18.dp)) },
+                        onClick = {
+                            splitMenu = false
+                            val extracted = extractPageText(visiblePage)
+                            onInsertToPage(extracted.ifBlank { "Notes from ${vm2.title} (Page ${visiblePage + 1})" }, vm2.title)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("+ Link Reference Card") },
+                        leadingIcon = { Icon(Icons.Outlined.Link, null, Modifier.size(18.dp)) },
+                        onClick = {
+                            splitMenu = false
+                            val firstLink = vm2.pages.getOrNull(visiblePage)?.items?.filterIsInstance<WebLinkItem>()?.firstOrNull()
+                            if (firstLink != null) onAddWebLink(firstLink.url, firstLink.title, firstLink.note)
+                            else {
+                                val snippet = extractPageText(visiblePage).take(90)
+                                onAddWebLink("https://pronotes.app/ref/${vm2.title.replace(" ", "-")}", "${vm2.title} · p.${visiblePage + 1}", snippet)
+                            }
+                        },
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Open Fullscreen") },
+                        onClick = { splitMenu = false; onOpen(noteId) },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Close Split View") },
+                        leadingIcon = { Icon(Icons.Filled.Close, null, Modifier.size(18.dp)) },
+                        onClick = { splitMenu = false; onClose() },
+                    )
+                }
+            }
+        }
+
+        // Compact write-mode ink strip (only visible when Write mode is active)
+        AnimatedVisibility(writeMode) {
+            Row(
+                Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer)
+                    .horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                listOf("pen" to "Pen", "highlighter" to "Highlight", "eraser" to "Eraser").forEach { (k, label) ->
+                    val active = inkKind == k
+                    Surface(
+                        shape = Pill,
+                        color = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.elasticStretch().clip(Pill).clickable { inkKind = k },
+                    ) {
+                        Text(
+                            label,
+                            Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+                if (inkKind != "eraser") {
+                    Box(Modifier.width(1.dp).height(16.dp).background(MaterialTheme.colorScheme.outlineVariant))
+                    listOf(0xFF1B1F2A, 0xFF3D6CF4, 0xFFEF4444, 0xFF10B981, 0xFFFFE066).forEach { c ->
+                        val ci = c.toInt()
+                        Swatch(ci, inkColor == ci, 16) { inkColor = ci }
+                    }
+                }
+            }
         }
 
         AnimatedVisibility(showSplitSearch) {
@@ -2908,149 +3166,56 @@ private fun SplitPanel(
             }
         }
 
-        // Ratio presets, scroll indicator & zoom bar
-        Row(
-            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f))
-                .horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 3.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surface) {
-                Text(
-                    if (scrollDirection == ScrollDirection.HORIZONTAL) "⇄ Page" else "⇅ Scroll",
-                    Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            listOf("30/70" to 2.33f, "50/50" to 1f, "70/30" to 0.43f).forEach { (label, w) ->
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface,
-                    modifier = Modifier.clip(CircleShape).clickable { onRatioPreset(w) },
-                ) {
-                    Text(label, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
-                }
-            }
-            Spacer(Modifier.width(4.dp))
-            TextButton(
-                onClick = { splitZoom = (splitZoom - 0.2f).coerceIn(0.6f, 2.8f) },
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-            ) { Text("-", style = MaterialTheme.typography.titleSmall) }
-            Text("${(splitZoom * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
-            TextButton(
-                onClick = { splitZoom = (splitZoom + 0.2f).coerceIn(0.6f, 2.8f) },
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-            ) { Text("+", style = MaterialTheme.typography.titleSmall) }
-            listOf("Fit" to 1f, "150%" to 1.5f).forEach { (label, z) ->
-                Surface(
-                    shape = CircleShape,
-                    color = if (kotlin.math.abs(splitZoom - z) < 0.08f) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                    modifier = Modifier.clip(CircleShape).clickable { splitZoom = z; if (z <= 1.02f) splitPan = Offset.Zero },
-                ) {
-                    Text(label, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
-                }
-            }
-        }
-
         if (vm2.pages.isNotEmpty()) {
-            // Quick page jumper + reference actions
+            // Ultra-clean compact page & zoom footer/pill strip
             Row(
-                Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 8.dp, vertical = 4.dp),
+                Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f))
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 IconButton(
                     enabled = visiblePage > 0,
                     onClick = { scope.launch { listState.animateScrollToItem((visiblePage - 1).coerceAtLeast(0)) } },
-                    modifier = Modifier.size(28.dp),
+                    modifier = Modifier.size(26.dp),
                 ) { Icon(Icons.Filled.KeyboardArrowUp, "Previous", Modifier.size(16.dp).graphicsLayer { rotationZ = -90f }) }
-                Row(
-                    Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    for (pIdx in 0 until vm2.pages.size) {
-                        val active = pIdx == visiblePage
-                        Surface(
-                            shape = CircleShape,
-                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-                            contentColor = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.clip(CircleShape).clickable {
-                                scope.launch { listState.animateScrollToItem(pIdx) }
-                            },
-                        ) {
-                            Text("${pIdx + 1}", Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
-                }
+                Text("p.${visiblePage + 1}/${vm2.pages.size}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 IconButton(
                     enabled = visiblePage < vm2.pages.size - 1,
                     onClick = { scope.launch { listState.animateScrollToItem((visiblePage + 1).coerceAtMost(vm2.pages.size - 1)) } },
-                    modifier = Modifier.size(28.dp),
+                    modifier = Modifier.size(26.dp),
                 ) { Icon(Icons.Filled.KeyboardArrowUp, "Next", Modifier.size(16.dp).graphicsLayer { rotationZ = 90f }) }
-            }
-
-            Row(
-                Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 8.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+                Spacer(Modifier.weight(1f))
+                TextButton(
+                    onClick = { splitZoom = (splitZoom - 0.15f).coerceIn(0.35f, 3.0f) },
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                    modifier = Modifier.height(26.dp),
+                ) { Text("-", style = MaterialTheme.typography.titleSmall) }
                 Text(
-                    "p.${visiblePage + 1}/${vm2.pages.size}",
+                    "${(splitZoom * 100).toInt()}%",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.clickable { splitZoom = 1f; splitPan = Offset.Zero },
                 )
                 TextButton(
-                    onClick = {
-                        val extracted = extractPageText(visiblePage)
-                        onClipToSticky(extracted.ifBlank { "Reference from ${vm2.title} (Page ${visiblePage + 1})" }, vm2.title)
-                    },
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                ) {
-                    Icon(Icons.Outlined.PushPin, null, Modifier.size(14.dp))
-                    Spacer(Modifier.width(3.dp))
-                    Text("Sticky", style = MaterialTheme.typography.labelSmall)
-                }
-                TextButton(
-                    onClick = {
-                        val extracted = extractPageText(visiblePage)
-                        onInsertToPage(extracted.ifBlank { "Notes from ${vm2.title} (Page ${visiblePage + 1})" }, vm2.title)
-                    },
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                ) {
-                    Icon(Icons.Outlined.PostAdd, null, Modifier.size(14.dp))
-                    Spacer(Modifier.width(3.dp))
-                    Text("To page", style = MaterialTheme.typography.labelSmall)
-                }
-                TextButton(
-                    onClick = {
-                        val firstLink = vm2.pages.getOrNull(visiblePage)?.items?.filterIsInstance<WebLinkItem>()?.firstOrNull()
-                        if (firstLink != null) {
-                            onAddWebLink(firstLink.url, firstLink.title, firstLink.note)
-                        } else {
-                            val snippet = extractPageText(visiblePage).take(90)
-                            onAddWebLink("https://pronotes.app/ref/${vm2.title.replace(" ", "-")}", "${vm2.title} · p.${visiblePage + 1}", snippet)
-                        }
-                    },
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                ) {
-                    ProIconView(ProIcon.WEBLINK, MaterialTheme.colorScheme.primary, Modifier.size(14.dp))
-                    Spacer(Modifier.width(3.dp))
-                    Text("+ Link", style = MaterialTheme.typography.labelSmall)
-                }
+                    onClick = { splitZoom = (splitZoom + 0.15f).coerceIn(0.35f, 3.0f) },
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                    modifier = Modifier.height(26.dp),
+                ) { Text("+", style = MaterialTheme.typography.titleSmall) }
             }
         }
 
-        // Smooth 60fps zoom & pan canvas viewport honoring ScrollDirection (VERTICAL stream vs HORIZONTAL pager)
+        // Smooth zoom (0.35f..3.0f centered when zoomed out) & optional writable ink overlay
         val renderW = if (splitZoom > 1.35f) 1400 else 860
-        BoxWithConstraints(Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))) {
+        BoxWithConstraints(
+            Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
             val viewW = with(LocalDensity.current) { maxWidth.toPx() }.coerceAtLeast(120f)
             val viewH = with(LocalDensity.current) { maxHeight.toPx() }.coerceAtLeast(120f)
             Box(
                 Modifier
                     .fillMaxSize()
-                    .pointerInput(viewW, viewH, scrollDirection) {
+                    .pointerInput(viewW, viewH, scrollDirection, writeMode) {
                         awaitEachGesture {
                             var pinching = false
                             while (true) {
@@ -3061,18 +3226,18 @@ private fun SplitPanel(
                                     val z = event.calculateZoom()
                                     val p = event.calculatePan()
                                     if (z != 1f || p != Offset.Zero) {
-                                        val nextZoom = (splitZoom * z).coerceIn(0.6f, 3.0f)
-                                        val maxPanX = ((nextZoom - 1f).coerceAtLeast(0f) * viewW * 0.52f)
-                                        val maxPanY = ((nextZoom - 1f).coerceAtLeast(0f) * viewH * 0.45f)
+                                        val nextZoom = (splitZoom * z).coerceIn(0.35f, 3.0f)
+                                        val maxPanX = ((nextZoom - 1f).coerceAtLeast(0f) * viewW * 0.55f)
+                                        val maxPanY = ((nextZoom - 1f).coerceAtLeast(0f) * viewH * 0.50f)
                                         splitZoom = nextZoom
-                                        splitPan = if (nextZoom <= 1.02f) Offset.Zero else Offset(
+                                        splitPan = if (nextZoom <= 1.0f) Offset.Zero else Offset(
                                             (splitPan.x + p.x).coerceIn(-maxPanX, maxPanX),
                                             (splitPan.y + p.y).coerceIn(-maxPanY, maxPanY),
                                         )
                                         event.changes.forEach { it.consume() }
                                         pinching = true
                                     }
-                                } else if (splitZoom > 1.03f) {
+                                } else if (splitZoom > 1.03f && !writeMode) {
                                     val p = event.calculatePan()
                                     val allowSinglePan = if (scrollDirection == ScrollDirection.HORIZONTAL) {
                                         pinching || kotlin.math.abs(p.y) > kotlin.math.abs(p.x) * 1.15f
@@ -3080,8 +3245,8 @@ private fun SplitPanel(
                                         pinching || kotlin.math.abs(p.x) > kotlin.math.abs(p.y) * 1.15f
                                     }
                                     if (allowSinglePan && p != Offset.Zero) {
-                                        val maxPanX = (splitZoom - 1f) * viewW * 0.52f
-                                        val maxPanY = (splitZoom - 1f) * viewH * 0.45f
+                                        val maxPanX = (splitZoom - 1f) * viewW * 0.55f
+                                        val maxPanY = (splitZoom - 1f) * viewH * 0.50f
                                         splitPan = Offset(
                                             (splitPan.x + p.x).coerceIn(-maxPanX, maxPanX),
                                             (splitPan.y + p.y).coerceIn(-maxPanY, maxPanY),
@@ -3092,18 +3257,21 @@ private fun SplitPanel(
                             }
                         }
                     }
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onDoubleTap = {
-                                if (kotlin.math.abs(splitZoom - 1f) > 0.08f) {
-                                    splitZoom = 1f
-                                    splitPan = Offset.Zero
-                                } else {
-                                    splitZoom = 1.75f
-                                }
-                            }
-                        )
-                    }
+                    .pointerInput(writeMode) {
+                        if (!writeMode) {
+                            detectTapGestures(
+                                onDoubleTap = {
+                                    if (kotlin.math.abs(splitZoom - 1f) > 0.08f) {
+                                        splitZoom = 1f
+                                        splitPan = Offset.Zero
+                                    } else {
+                                        splitZoom = 1.65f
+                                    }
+                                },
+                            )
+                        }
+                    },
+                contentAlignment = Alignment.Center,
             ) {
                 val transformMod = Modifier
                     .fillMaxSize()
@@ -3113,26 +3281,93 @@ private fun SplitPanel(
                         translationX = splitPan.x
                         translationY = splitPan.y
                     }
+
+                @Composable
+                fun SplitPageCard(i: Int, page: Page, cardModifier: Modifier) {
+                    val bmp by produceState<Bitmap?>(null, i, page, vm2.pages.size, renderW) { value = vm2.thumbnail(i, renderW) }
+                    var pageBoxSize by remember { mutableStateOf(IntSize.Zero) }
+                    var livePts by remember(i) { mutableStateOf<List<Offset>>(emptyList()) }
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        shadowElevation = 2.dp,
+                        color = Color.White,
+                        modifier = cardModifier.onSizeChanged { pageBoxSize = it },
+                    ) {
+                        Box(Modifier.fillMaxWidth()) {
+                            bmp?.let { Image(it.asImageBitmap(), "Page ${i + 1}", Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth) }
+                                ?: Box(Modifier.fillMaxWidth().aspectRatio((page.width / page.height).coerceIn(0.45f, 1.8f)))
+
+                            if (writeMode) {
+                                Box(
+                                    Modifier.matchParentSize().pointerInput(i, pageBoxSize, inkKind, inkColor) {
+                                        detectDragGestures(
+                                            onDragStart = { start -> livePts = listOf(start) },
+                                            onDrag = { change, _ ->
+                                                change.consume()
+                                                livePts = livePts + change.position
+                                            },
+                                            onDragEnd = {
+                                                val bw = pageBoxSize.width.toFloat().coerceAtLeast(1f)
+                                                val bh = pageBoxSize.height.toFloat().coerceAtLeast(1f)
+                                                val pagePts = livePts.map { pt ->
+                                                    (pt.x / bw * page.width) to (pt.y / bh * page.height)
+                                                }
+                                                livePts = emptyList()
+                                                if (pagePts.size >= 2) {
+                                                    if (inkKind == "eraser") {
+                                                        val hitIds = page.items.filterIsInstance<InkItem>().filter { item ->
+                                                            pagePts.any { (px, py) ->
+                                                                val b = item.bounds
+                                                                px >= b.left - 24f && px <= b.right + 24f && py >= b.top - 24f && py <= b.bottom + 24f
+                                                            }
+                                                        }.map { it.id }.toSet()
+                                                        if (hitIds.isNotEmpty()) {
+                                                            vm2.beginEdit(i)
+                                                            vm2.applySplitItems(i, page.items.filterNot { it.id in hitIds })
+                                                        }
+                                                    } else {
+                                                        val brush = if (inkKind == "highlighter") {
+                                                            Brushes.create(Brushes.HIGHLIGHTER, inkColor, 26f)
+                                                        } else {
+                                                            Brushes.create(Brushes.PEN, inkColor, 4.5f)
+                                                        }
+                                                        val stroke = InkCodec.strokeFromPoints(pagePts, brush)
+                                                        vm2.beginEdit(i)
+                                                        vm2.applySplitItems(i, page.items + InkItem(ItemIds.next(), stroke))
+                                                    }
+                                                }
+                                            },
+                                            onDragCancel = { livePts = emptyList() },
+                                        )
+                                    },
+                                )
+                                if (livePts.size > 1) {
+                                    androidx.compose.foundation.Canvas(Modifier.matchParentSize()) {
+                                        val path = Path().apply {
+                                            moveTo(livePts.first().x, livePts.first().y)
+                                            for (k in 1 until livePts.size) lineTo(livePts[k].x, livePts[k].y)
+                                        }
+                                        val col = if (inkKind == "eraser") Color(0x88EF4444) else if (inkKind == "highlighter") Color(inkColor).copy(alpha = 0.42f) else Color(inkColor)
+                                        val w = if (inkKind == "highlighter") 18f else if (inkKind == "eraser") 12f else 4f
+                                        drawPath(path, col, style = Stroke(width = w, cap = StrokeCap.Round))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if (scrollDirection == ScrollDirection.HORIZONTAL) {
                     LazyRow(
                         state = listState,
                         flingBehavior = snapBehavior,
                         modifier = transformMod,
                         contentPadding = PaddingValues(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         items(vm2.pages.size) { i ->
-                            val bmp by produceState<Bitmap?>(null, i, vm2.pages.size, renderW) { value = vm2.thumbnail(i, renderW) }
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                shadowElevation = 2.dp,
-                                color = Color.White,
-                                modifier = Modifier.fillParentMaxWidth(0.95f),
-                            ) {
-                                bmp?.let { Image(it.asImageBitmap(), "Page ${i + 1}", Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth) }
-                                    ?: Box(Modifier.fillMaxWidth().height(280.dp))
-                            }
+                            SplitPageCard(i, vm2.pages[i], Modifier.fillParentMaxWidth(0.95f))
                         }
                     }
                 } else {
@@ -3140,20 +3375,11 @@ private fun SplitPanel(
                         state = listState,
                         modifier = transformMod,
                         contentPadding = PaddingValues(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         items(vm2.pages.size) { i ->
-                            val bmp by produceState<Bitmap?>(null, i, vm2.pages.size, renderW) { value = vm2.thumbnail(i, renderW) }
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                shadowElevation = 2.dp,
-                                color = Color.White,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                bmp?.let { Image(it.asImageBitmap(), "Page ${i + 1}", Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth) }
-                                    ?: Box(Modifier.fillMaxWidth().height(280.dp))
-                            }
+                            SplitPageCard(i, vm2.pages[i], Modifier.fillMaxWidth())
                         }
                     }
                 }

@@ -174,6 +174,12 @@ data class AppSettings(
     val thumbCovers: Boolean = false,
     // on-device local models & Custom AI API
     val activeLocalModelId: String = "",
+    val activeImageModelId: String = "vectorcraft-svg",
+    val pomodoroMinutes: Int = 25,
+    val googleUid: String = "",
+    val googleEmail: String = "",
+    val googleName: String = "",
+    val lastCloudSyncMs: Long = 0L,
     val customAiEnabled: Boolean = false,
     val customAiProvider: CustomAiProvider = CustomAiProvider.OPENAI_COMPATIBLE,
     val customAiBaseUrl: String = CustomAiProvider.OPENAI_COMPATIBLE.defaultBaseUrl,
@@ -266,6 +272,12 @@ class SettingsStore private constructor(context: Context) {
             showHoverTooltips = b("showHoverTooltips", d.showHoverTooltips),
             thumbCovers = b("thumbCovers", d.thumbCovers),
             activeLocalModelId = prefs.getString("activeLocalModelId", d.activeLocalModelId) ?: "",
+            activeImageModelId = prefs.getString("activeImageModelId", d.activeImageModelId) ?: d.activeImageModelId,
+            pomodoroMinutes = prefs.getInt("pomodoroMinutes", d.pomodoroMinutes),
+            googleUid = prefs.getString("googleUid", "") ?: "",
+            googleEmail = prefs.getString("googleEmail", "") ?: "",
+            googleName = prefs.getString("googleName", "") ?: "",
+            lastCloudSyncMs = prefs.getLong("lastCloudSyncMs", 0L),
             customAiEnabled = b("customAiEnabled", d.customAiEnabled),
             customAiProvider = enumOf("customAiProvider", d.customAiProvider),
             customAiBaseUrl = prefs.getString("customAiBaseUrl", d.customAiBaseUrl) ?: d.customAiBaseUrl,
@@ -345,6 +357,12 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("showHoverTooltips", s.showHoverTooltips)
             .putBoolean("thumbCovers", s.thumbCovers)
             .putString("activeLocalModelId", s.activeLocalModelId)
+            .putString("activeImageModelId", s.activeImageModelId)
+            .putInt("pomodoroMinutes", s.pomodoroMinutes)
+            .putString("googleUid", s.googleUid)
+            .putString("googleEmail", s.googleEmail)
+            .putString("googleName", s.googleName)
+            .putLong("lastCloudSyncMs", s.lastCloudSyncMs)
             .putBoolean("customAiEnabled", s.customAiEnabled)
             .putString("customAiProvider", s.customAiProvider.name)
             .putString("customAiBaseUrl", s.customAiBaseUrl)
@@ -433,7 +451,7 @@ class SettingsStore private constructor(context: Context) {
         prefs.edit().putInt("launches", launches).apply()
         val last = prefs.getLong("supportShown", 0L)
         val days = (System.currentTimeMillis() - last) / 86_400_000L
-        return launches >= 8 && days >= 12 && launches % 6 == 0
+        return launches >= 2 && days >= 2 && launches % 4 == 0
     }
 
     fun markSupportShown() = prefs.edit().putLong("supportShown", System.currentTimeMillis()).apply()

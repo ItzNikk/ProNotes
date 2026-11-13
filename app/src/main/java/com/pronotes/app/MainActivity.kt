@@ -25,6 +25,7 @@ import com.pronotes.app.editor.EditorScreen
 import com.pronotes.app.library.LibraryScreen
 import com.pronotes.app.settings.SettingsScreen
 import com.pronotes.app.ui.ProNotesTheme
+import kotlinx.coroutines.launch
 
 object BuildConfigInfo {
     fun versionName(context: Context): String =
@@ -43,6 +44,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        com.pronotes.app.data.CloudSync.init(this)
         handleIntent(intent)
         UpdateCheckReceiver.schedule(this, SettingsStore.get(this).settings.value.updateReminders)
         // Leftover update packages take space; clear them unless installing or resuming a partial download.
@@ -118,7 +120,18 @@ class MainActivity : ComponentActivity() {
     private fun handleIntent(intent: Intent?) {
         if (intent == null) return
         when (intent.action) {
-            Intent.ACTION_VIEW -> intent.data?.let { pendingImport = PendingImport(uris = listOf(it)) }
+            Intent.ACTION_VIEW -> intent.data?.let { uri ->
+                if (uri.scheme == "com.pronotes.app" && uri.host == "auth") {
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                        val res = com.pronotes.app.data.CloudSync.handleAuthUri(this@MainActivity, uri)
+                        res.onFailure {
+                            android.widget.Toast.makeText(this@MainActivity, it.message ?: "Sign-in failed", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } else {
+                    pendingImport = PendingImport(uris = listOf(uri))
+                }
+            }
             Intent.ACTION_SEND -> {
                 @Suppress("DEPRECATION")
                 val stream = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)

@@ -4,24 +4,29 @@ import {
   Brain,
   ChevronRight,
   Clock,
+  Cloud,
   Copy,
   Cpu,
   FileText,
   Folder as FolderIcon,
   FolderPlus,
   Grid,
+  Heart,
   Layers,
   List,
+  LogIn,
   MoreVertical,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
+  RefreshCw,
   RotateCcw,
   Search,
   Settings,
   Star,
   Trash2,
   Upload,
+  Users,
   Wand2,
   X,
 } from 'lucide-react';
@@ -35,8 +40,9 @@ import {
   Page,
 } from '../types/models';
 import { CoverCanvas, FolderArt, NewNotebookModal, NewNotebookPayload } from './CoversAndPatterns';
-import { LOCAL_MODELS_CATALOG } from '../utils/localAi';
+import { IMAGE_MODELS_CATALOG, LOCAL_MODELS_CATALOG } from '../utils/localAi';
 import { parseImportedFiles, parseImportedText } from '../utils/noteImporter';
+import { SupportBanner } from './SupportBannerModal';
 
 type Section = 'DOCUMENTS' | 'FAVORITES' | 'RECENT' | 'TRASH';
 
@@ -45,6 +51,16 @@ interface LibraryScreenProps {
   notebooks: NotebookMeta[];
   settings: AppSettings;
   modelStates: Record<string, LocalModelState>;
+  userEmail?: string | null;
+  userName?: string | null;
+  syncBusy?: boolean;
+  lastSyncAt?: number | null;
+  supportBannerOpen?: boolean;
+  onSignInGoogle?: () => void;
+  onSyncNow?: () => void;
+  onOpenCollab?: () => void;
+  onOpenSupport?: () => void;
+  onDismissSupportBanner?: () => void;
   onOpenNote: (id: string) => void;
   onCreateNotebook: (payload: NewNotebookPayload & { folderId: string | null }) => void;
   onImportParsedNotebook: (title: string, pages: Page[], folderId: string | null) => void;
@@ -92,7 +108,7 @@ const NotebookGridCard = React.memo<{
   <div
     draggable={note.deletedAt === null}
     onDragStart={() => onDragStart(note.id)}
-    className="group relative flex flex-col items-center"
+    className="ios-stretch-card group relative flex flex-col items-center"
   >
     <div
       onClick={() => (note.deletedAt === null ? onOpen(note.id) : onToggleMenu(note.id))}
@@ -203,6 +219,16 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   notebooks,
   settings,
   modelStates,
+  userEmail,
+  userName,
+  syncBusy,
+  lastSyncAt,
+  supportBannerOpen,
+  onSignInGoogle,
+  onSyncNow,
+  onOpenCollab,
+  onOpenSupport,
+  onDismissSupportBanner,
   onOpenNote,
   onCreateNotebook,
   onImportParsedNotebook,
@@ -245,7 +271,9 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   const [dropHoverId, setDropHoverId] = useState<string | null>(null);
 
   const accent = ACCENT_COLORS[settings.accent];
-  const readyModelCount = LOCAL_MODELS_CATALOG.filter((m) => modelStates[m.id]?.status === 'READY').length;
+  const readyModelCount = [...LOCAL_MODELS_CATALOG, ...IMAGE_MODELS_CATALOG].filter(
+    (m) => modelStates[m.id]?.status === 'READY'
+  ).length;
   const activeModel = LOCAL_MODELS_CATALOG.find((m) => m.id === settings.activeLocalModelId);
 
   const trashCount = useMemo(() => notebooks.filter((n) => n.deletedAt !== null).length, [notebooks]);
@@ -383,7 +411,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
               </div>
               <div>
                 <h1 className="text-base font-bold leading-tight tracking-tight">Pro Notes</h1>
-                <span className="text-[11px] font-semibold text-blue-600 dark:text-blue-400">Ultra v9.11</span>
+                <span className="text-[11px] font-semibold text-blue-600 dark:text-blue-400">v10.0 · Ultra</span>
               </div>
             </div>
             <button
@@ -451,12 +479,44 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
             })}
           </nav>
 
-          {/* On-Device AI Status */}
+          {/* Cloud Sync, On-Device AI & Support */}
           <div className="mt-auto space-y-2 pt-4">
+            {userEmail ? (
+              <button
+                type="button"
+                onClick={onSyncNow}
+                className="ios-stretch flex w-full items-center justify-between gap-2 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-left"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
+                    <Cloud className="h-3.5 w-3.5 shrink-0" /> {userName || 'Google Sync'}
+                  </div>
+                  <div className="truncate text-[10px] text-slate-500 dark:text-slate-400">
+                    {syncBusy
+                      ? 'Syncing...'
+                      : lastSyncAt
+                        ? `Synced ${new Date(lastSyncAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                        : userEmail}
+                  </div>
+                </div>
+                <RefreshCw className={`h-3.5 w-3.5 shrink-0 text-emerald-600 ${syncBusy ? 'animate-spin' : ''}`} />
+              </button>
+            ) : (
+              onSignInGoogle && (
+                <button
+                  type="button"
+                  onClick={onSignInGoogle}
+                  className="ios-stretch flex w-full items-center gap-2 rounded-2xl border border-blue-500/25 bg-blue-500/10 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-500/18 dark:text-blue-300"
+                >
+                  <LogIn className="h-3.5 w-3.5 shrink-0" /> Sign in with Google Sync
+                </button>
+              )
+            )}
+
             <button
               type="button"
               onClick={onOpenLocalModels}
-              className="flex w-full flex-col gap-1 rounded-2xl border border-black/8 bg-white/80 p-3 text-left transition hover:border-violet-500/40 dark:border-white/10 dark:bg-[#202126]"
+              className="ios-stretch flex w-full flex-col gap-1 rounded-2xl border border-black/8 bg-white/80 p-3 text-left transition hover:border-violet-500/40 dark:border-white/10 dark:bg-[#202126]"
             >
               <div className="flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 text-xs font-bold text-violet-700 dark:text-violet-300">
@@ -467,7 +527,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                 </span>
               </div>
               <span className="truncate text-[11px] text-slate-500 dark:text-slate-400">
-                {activeModel ? activeModel.name : `${LOCAL_MODELS_CATALOG.length} free offline models`}
+                {activeModel ? activeModel.name : `${LOCAL_MODELS_CATALOG.length + IMAGE_MODELS_CATALOG.length} text & image models`}
               </span>
             </button>
 
@@ -475,17 +535,28 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
               <button
                 type="button"
                 onClick={onOpenSetupWizard}
-                className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-black/5 dark:text-slate-300 dark:hover:bg-white/5"
+                className="ios-stretch flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-black/5 dark:text-slate-300 dark:hover:bg-white/5"
               >
                 <Wand2 className="h-4 w-4 text-blue-600" />
                 <span>Ultra Setup Studio</span>
               </button>
             )}
 
+            {onOpenSupport && (
+              <button
+                type="button"
+                onClick={onOpenSupport}
+                className="ios-stretch flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-rose-600 hover:bg-rose-500/10 dark:text-rose-400"
+              >
+                <Heart className="h-4 w-4" />
+                <span>Support Pro Notes</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={onOpenSettings}
-              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-black/5 dark:text-slate-300 dark:hover:bg-white/5"
+              className="ios-stretch flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-black/5 dark:text-slate-300 dark:hover:bg-white/5"
             >
               <Settings className="h-4 w-4" />
               <span>Settings</span>
@@ -568,6 +639,10 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
           </div>
         </header>
 
+        {supportBannerOpen && onOpenSupport && onDismissSupportBanner && (
+          <SupportBanner onOpenSupport={onOpenSupport} onDismiss={onDismissSupportBanner} />
+        )}
+
         {importToast && (
           <div className="mx-6 mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
             {importToast}
@@ -579,7 +654,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
             <button
               type="button"
               onClick={() => setNewModal({ open: true, mode: 'notebook' })}
-              className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
+              className="ios-stretch inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
               style={{ backgroundColor: accent.primary }}
             >
               <Plus className="h-4 w-4" /> New Notebook
@@ -587,14 +662,14 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
             <button
               type="button"
               onClick={() => setNewModal({ open: true, mode: 'whiteboard' })}
-              className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-500/18 dark:text-emerald-300"
+              className="ios-stretch inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-500/18 dark:text-emerald-300"
             >
               <Layers className="h-4 w-4" /> Infinite Whiteboard
             </button>
             <button
               type="button"
               onClick={() => setNewModal({ open: true, mode: 'mindmap' })}
-              className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-violet-500/30 bg-violet-500/10 px-3.5 py-2 text-sm font-semibold text-violet-700 transition hover:bg-violet-500/18 dark:text-violet-300"
+              className="ios-stretch inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-violet-500/30 bg-violet-500/10 px-3.5 py-2 text-sm font-semibold text-violet-700 transition hover:bg-violet-500/18 dark:text-violet-300"
             >
               <Brain className="h-4 w-4" /> Mind Map
             </button>
@@ -602,7 +677,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
               <button
                 type="button"
                 onClick={() => setNewFolderOpen(true)}
-                className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-black/10 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-black/5 dark:border-white/10 dark:bg-[#1E1F24] dark:text-slate-200"
+                className="ios-stretch inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-black/10 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-black/5 dark:border-white/10 dark:bg-[#1E1F24] dark:text-slate-200"
               >
                 <FolderPlus className="h-4 w-4" /> New Folder
               </button>
@@ -610,10 +685,19 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
             <button
               type="button"
               onClick={() => setImportModalOpen(true)}
-              className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-black/10 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-black/5 dark:border-white/10 dark:bg-[#1E1F24] dark:text-slate-200"
+              className="ios-stretch inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-black/10 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-black/5 dark:border-white/10 dark:bg-[#1E1F24] dark:text-slate-200"
             >
               <Upload className="h-4 w-4" /> Import Notes
             </button>
+            {onOpenCollab && (
+              <button
+                type="button"
+                onClick={onOpenCollab}
+                className="ios-stretch inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3.5 py-2 text-sm font-semibold text-cyan-700 transition hover:bg-cyan-500/18 dark:text-cyan-300"
+              >
+                <Users className="h-4 w-4" /> Live Collab Room
+              </button>
+            )}
           </div>
         ) : (
           trashCount > 0 && (

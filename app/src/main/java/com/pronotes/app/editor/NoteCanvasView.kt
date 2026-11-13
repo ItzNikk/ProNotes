@@ -248,7 +248,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     private var selectionPage = -1
     /** Live move / resize / rotate of the selection, in page coordinates. Baked in on release. */
     private var liveMatrix: Matrix? = null
-    private enum class Grab { MOVE, SCALE, ROTATE }
+    private enum class Grab { MOVE, SCALE, STRETCH_L, STRETCH_R, STRETCH_T, STRETCH_B, ROTATE }
     private var grab = Grab.MOVE
     private var anchorX = 0f
     private var anchorY = 0f
@@ -256,6 +256,10 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     private var grabStartY = 0f
     private var liveScale = 1f
     private var liveDeg = 0f
+    private val grabBase = RectF()
+    private val liveBox = RectF()
+    private var liveScaleX = 1f
+    private var liveScaleY = 1f
 
     private val strokePages = HashMap<InProgressStrokeId, Int>()
 
@@ -1622,7 +1626,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     private fun handleRadius() = 22f * density
     private fun rotateHandleOffset() = 30f * density
 
-    /** Starts move / resize / rotate when the pen lands on the selection or one of its handles. */
+    /** Starts move / resize / stretch / rotate when the pen lands on the selection or one of its handles. */
     private fun beginGrab(px: Float, py: Float): Boolean {
         val base = selectionBaseBounds() ?: return false
         val p = pages.getOrNull(selectionPage)
@@ -1634,8 +1638,15 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         val corners = listOf(sb.left to sb.top, sb.right to sb.top, sb.right to sb.bottom, sb.left to sb.bottom)
         val baseCorners = listOf(base.left to base.top, base.right to base.top, base.right to base.bottom, base.left to base.bottom)
         val hit = corners.indexOfFirst { (cx, cy) -> hypot(px - cx, py - cy) < handleRadius() }
+        val midHit = listOf(
+            (sb.left to sb.centerY()) to Grab.STRETCH_L,
+            (sb.right to sb.centerY()) to Grab.STRETCH_R,
+            (sb.centerX() to sb.top) to Grab.STRETCH_T,
+            (sb.centerX() to sb.bottom) to Grab.STRETCH_B,
+        ).firstOrNull { (pt, _) -> hypot(px - pt.first, py - pt.second) < handleRadius() * 0.85f }?.second
         grab = when {
             hit >= 0 -> { val opp = baseCorners[(hit + 2) % 4]; anchorX = opp.first; anchorY = opp.second; Grab.SCALE }
+            midHit != null -> midHit
             hypot(px - sb.centerX(), py - (sb.top - rotateHandleOffset())) < handleRadius() -> {
                 anchorX = base.centerX(); anchorY = base.centerY(); Grab.ROTATE
             }
@@ -1645,7 +1656,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         activePage = selectionPage
         mode = Mode.MOVE
         grabStartX = lx; grabStartY = ly
-        liveScale = 1f; liveDeg = 0f
+        grabBase.set(base)
+        liveBox.set(base)
+        liveScale = 1f; liveScaleX = 1f; liveScaleY = 1f; liveDeg = 0f
         liveMatrix = Matrix()
         return true
     }
@@ -1658,6 +1671,21 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 val d0 = hypot(grabStartX - anchorX, grabStartY - anchorY).coerceAtLeast(1f)
                 liveScale = (hypot(x - anchorX, y - anchorY) / d0).coerceIn(0.1f, 12f)
                 m.setScale(liveScale, liveScale, anchorX, anchorY)
+            }
+            Grab.STRETCH_L, Grab.STRETCH_R, Grab.STRETCH_T, Grab.STRETCH_B -> {
+                val dx = x - grabStartX
+                val dy = y - grabStartY
+                liveBox.set(grabBase)
+                when (grab) {
+                    Grab.STRETCH_L -> liveBox.left = (grabBase.left + dx).coerceAtMost(grabBase.right - 36f)
+                    Grab.STRETCH_R -> liveBox.right = (grabBase.right + dx).coerceAtLeast(grabBase.left + 36f)
+                    Grab.STRETCH_T -> liveBox.top = (grabBase.top + dy).coerceAtMost(grabBase.bottom - 36f)
+                    Grab.STRETCH_B -> liveBox.bottom = (grabBase.bottom + dy).coerceAtLeast(grabBase.top + 36f)
+                    else -> Unit
+                }
+                liveScaleX = (liveBox.width() / grabBase.width().coerceAtLeast(1f)).coerceIn(0.15f, 8f)
+                liveScaleY = (liveBox.height() / grabBase.height().coerceAtLeast(1f)).coerceIn(0.15f, 8f)
+                m.setRectToRect(grabBase, liveBox, Matrix.ScaleToFit.FILL)
             }
             Grab.ROTATE -> {
                 val a0 = Math.toDegrees(kotlin.math.atan2((grabStartY - anchorY).toDouble(), (grabStartX - anchorX).toDouble()))
@@ -1703,13 +1731,16 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                     }
                 }
                 Grab.SCALE -> p.items.map { if (it.id in selection) it.transformed(m, liveScale, 0f) else it }
+                Grab.STRETCH_L, Grab.STRETCH_R, Grab.STRETCH_T, Grab.STRETCH_B -> p.items.map {
+                    if (it.id in selection) it.stretched(grabBase, liveBox) else it
+                }
                 Grab.ROTATE -> p.items.map { if (it.id in selection) it.transformed(m, 1f, liveDeg) else it }
             }
             updatePage(selectionPage, items)
             // The lasso loop follows the content.
             selectionOutline = selectionOutline?.map { (x, y) -> val a = floatArrayOf(x, y); m.mapPoints(a); a[0] to a[1] }
         }
-        liveScale = 1f; liveDeg = 0f
+        liveScale = 1f; liveScaleX = 1f; liveScaleY = 1f; liveDeg = 0f
         reportSelection()
     }
 
@@ -2554,6 +2585,17 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 canvas.drawCircle(x, y, hr, handleFill)
                 canvas.drawCircle(x, y, hr, selRing)
             }
+            // Mid-edge X/Y free stretch pill handles
+            val pw = 8f * density
+            val ph = 3.5f * density
+            val hTop = RectF(sb.centerX() - pw, sb.top - ph, sb.centerX() + pw, sb.top + ph)
+            val hBot = RectF(sb.centerX() - pw, sb.bottom - ph, sb.centerX() + pw, sb.bottom + ph)
+            val hLeft = RectF(sb.left - ph, sb.centerY() - pw, sb.left + ph, sb.centerY() + pw)
+            val hRight = RectF(sb.right - ph, sb.centerY() - pw, sb.right + ph, sb.centerY() + pw)
+            for (hRect in listOf(hTop, hBot, hLeft, hRight)) {
+                canvas.drawRoundRect(hRect, ph, ph, handleFill)
+                canvas.drawRoundRect(hRect, ph, ph, selRing)
+            }
             canvas.restore()
             if (rotating) {
                 pullText.color = 0xFF3D6CF4.toInt()
@@ -2562,6 +2604,10 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             } else if (grab == Grab.SCALE && liveMatrix != null) {
                 pullText.color = 0xFF3D6CF4.toInt()
                 canvas.drawText("${(liveScale * 100).roundToInt()}%", sb.centerX(), sb.bottom + 24f * density, pullText)
+                pullText.color = 0xFF5B6475.toInt()
+            } else if (grab in setOf(Grab.STRETCH_L, Grab.STRETCH_R, Grab.STRETCH_T, Grab.STRETCH_B) && liveMatrix != null) {
+                pullText.color = 0xFF3D6CF4.toInt()
+                canvas.drawText("${(liveScaleX * 100).roundToInt()}% × ${(liveScaleY * 100).roundToInt()}%", sb.centerX(), sb.bottom + 24f * density, pullText)
                 pullText.color = 0xFF5B6475.toInt()
             }
         }

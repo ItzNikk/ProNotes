@@ -1,0 +1,157 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && !id.matches('.*[/\\\\].*');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    match /test/connection {
+      allow get: if true;
+      allow write: if false;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create, update: if isOwner(userId)
+        && isValidId(userId)
+        && incoming().keys().hasAll(['uid', 'updatedAt'])
+        && incoming().keys().hasOnly(['uid', 'displayName', 'photoURL', 'email', 'updatedAt'])
+        && incoming().uid == userId
+        && incoming().updatedAt is int;
+      allow delete: if false;
+
+      match /preferences/{prefId} {
+        allow get: if isOwner(userId) && prefId == 'main';
+        allow create, update: if isOwner(userId)
+          && prefId == 'main'
+          && incoming().keys().hasAll(['updatedAt', 'data'])
+          && incoming().keys().hasOnly(['updatedAt', 'data'])
+          && incoming().updatedAt is int
+          && incoming().data is map;
+        allow delete: if false;
+      }
+
+      match /library/{docId} {
+        allow get, list: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && docId in ['folders', 'flashcards']
+          && incoming().keys().hasAll(['updatedAt', 'items'])
+          && incoming().keys().hasOnly(['updatedAt', 'items'])
+          && incoming().updatedAt is int
+          && incoming().items is list;
+        allow delete: if false;
+      }
+
+      match /notebooks/{notebookId} {
+        allow get, list: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && isValidId(notebookId)
+          && incoming().keys().hasAll(['id', 'title', 'modified', 'updatedAt', 'payload'])
+          && incoming().keys().hasOnly(['id', 'title', 'folderId', 'modified', 'updatedAt', 'deleted', 'payload'])
+          && incoming().id == notebookId
+          && incoming().title is string
+          && incoming().title.size() <= 300
+          && incoming().modified is int
+          && incoming().updatedAt is int
+          && incoming().payload is map;
+        allow delete: if isOwner(userId) && isValidId(notebookId);
+      }
+    }
+
+    match /collabRooms/{roomId} {
+      allow get: if isSignedIn() && isValidId(roomId);
+      allow list: if isSignedIn();
+      allow create: if isSignedIn()
+        && isValidId(roomId)
+        && incoming().keys().hasAll(['roomId', 'ownerId', 'title', 'createdAt', 'updatedAt'])
+        && incoming().keys().hasOnly(['roomId', 'ownerId', 'title', 'paperStyle', 'paperColor', 'createdAt', 'updatedAt'])
+        && incoming().roomId == roomId
+        && incoming().ownerId == request.auth.uid
+        && incoming().title is string
+        && incoming().title.size() >= 1
+        && incoming().title.size() <= 160
+        && incoming().createdAt is int
+        && incoming().updatedAt is int;
+      allow update: if isSignedIn()
+        && isValidId(roomId)
+        && existing().ownerId == request.auth.uid
+        && incoming().ownerId == existing().ownerId
+        && incoming().roomId == existing().roomId
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'paperStyle', 'paperColor', 'updatedAt'])
+        && incoming().updatedAt is int;
+      allow delete: if isSignedIn() && existing().ownerId == request.auth.uid;
+
+      match /members/{memberId} {
+        allow get, list: if isSignedIn() && exists(/databases/$(database)/documents/collabRooms/$(roomId));
+        allow create, update: if isOwner(memberId)
+          && exists(/databases/$(database)/documents/collabRooms/$(roomId))
+          && incoming().keys().hasAll(['uid', 'displayName', 'color', 'lastSeen'])
+          && incoming().keys().hasOnly(['uid', 'displayName', 'color', 'cursorX', 'cursorY', 'activePageIdx', 'lastSeen'])
+          && incoming().uid == request.auth.uid
+          && incoming().displayName is string
+          && incoming().displayName.size() <= 80
+          && incoming().color is string
+          && incoming().color.size() <= 24
+          && incoming().lastSeen is int;
+        allow delete: if isOwner(memberId);
+      }
+
+      match /items/{itemId} {
+        allow get, list: if isSignedIn() && exists(/databases/$(database)/documents/collabRooms/$(roomId));
+        allow create, update: if isSignedIn()
+          && isValidId(itemId)
+          && exists(/databases/$(database)/documents/collabRooms/$(roomId))
+          && incoming().keys().hasAll(['id', 'kind', 'authorId', 'updatedAt', 'data'])
+          && incoming().keys().hasOnly(['id', 'kind', 'authorId', 'pageIdx', 'updatedAt', 'data'])
+          && incoming().id == itemId
+          && incoming().authorId == request.auth.uid
+          && incoming().kind in ['stroke', 'text', 'sticky', 'image', 'weblink', 'mindnode', 'tape']
+          && incoming().updatedAt is int
+          && incoming().data is map;
+        allow delete: if isSignedIn()
+          && exists(/databases/$(database)/documents/collabRooms/$(roomId))
+          && (existing().authorId == request.auth.uid
+              || get(/databases/$(database)/documents/collabRooms/$(roomId)).data.ownerId == request.auth.uid);
+      }
+
+      match /messages/{msgId} {
+        allow get, list: if isSignedIn() && exists(/databases/$(database)/documents/collabRooms/$(roomId));
+        allow create: if isSignedIn()
+          && isValidId(msgId)
+          && exists(/databases/$(database)/documents/collabRooms/$(roomId))
+          && incoming().keys().hasAll(['id', 'authorId', 'authorName', 'text', 'createdAt'])
+          && incoming().keys().hasOnly(['id', 'authorId', 'authorName', 'text', 'createdAt'])
+          && incoming().id == msgId
+          && incoming().authorId == request.auth.uid
+          && incoming().authorName is string
+          && incoming().authorName.size() <= 80
+          && incoming().text is string
+          && incoming().text.size() >= 1
+          && incoming().text.size() <= 1000
+          && incoming().createdAt is int;
+        allow update, delete: if false;
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
