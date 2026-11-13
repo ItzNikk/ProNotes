@@ -2507,6 +2507,7 @@ private fun SplitPanel(
             val pageDp = (baseDp * splitZoom).coerceAtLeast(160.dp)
             val listWidth = (pageDp + 24.dp).coerceAtLeast(maxWidth)
             val w = with(LocalDensity.current) { pageDp.toPx().toInt() }.coerceIn(200, 2200)
+            val hScroll = rememberScrollState()
             Box(
                 Modifier
                     .fillMaxSize()
