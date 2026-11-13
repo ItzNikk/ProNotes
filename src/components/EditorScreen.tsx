@@ -122,8 +122,6 @@ interface PuffParticle {
   r: number;
   born: number;
   color: string;
-  streak?: boolean;
-  isStar?: boolean;
 }
 
 interface EraseRing {
@@ -1024,43 +1022,27 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
 
   const spawnPuffForItems = useCallback((items: PageItem[]) => {
     const now = performance.now();
-    const SPARKLE_COLORS = ['#FFFFFF', '#FDE68A', '#F59E0B', '#C4B5FD', '#7DD3FC'];
+    const GREY_PUFFS = ['#94A3B8', '#64748B', '#CBD5E1', '#475569', '#9CA3AF'];
     for (const it of items) {
       const b = getItemBounds(it);
-      // Soft radiant stardust aura
       ringsRef.current.push({
         x: b.cx,
         y: b.cy,
-        maxR: Math.max(32, Math.min(130, b.diag * 0.52)),
+        maxR: Math.max(28, Math.min(110, b.diag * 0.45)),
         born: now,
-        color: '#FDE68A',
+        color: '#94A3B8',
       });
-      // Primary center diamond sparkle
-      puffsRef.current.push({
-        x: b.cx,
-        y: b.cy,
-        vx: 0,
-        vy: -0.6,
-        r: Math.max(5.5, Math.min(15, b.diag * 0.12)),
-        born: now,
-        color: '#FFE89A',
-        isStar: true,
-      });
-      // Constellation of orbiting diamond sparkles and stardust specks
-      for (let k = 0; k < 18; k++) {
-        const ang = (Math.PI * 2 * k) / 18 + Math.random() * 0.45;
-        const speed = 1.2 + Math.random() * 2.6;
-        const col = SPARKLE_COLORS[k % SPARKLE_COLORS.length];
+      for (let k = 0; k < 16; k++) {
+        const ang = (Math.PI * 2 * k) / 16 + Math.random() * 0.55;
+        const speed = 0.8 + Math.random() * 2.2;
         puffsRef.current.push({
           x: b.l + Math.random() * Math.max(10, b.w),
           y: b.t + Math.random() * Math.max(10, b.h),
           vx: Math.cos(ang) * speed,
-          vy: Math.sin(ang) * speed - 0.7,
-          r: 2.2 + Math.random() * 2.8,
+          vy: Math.sin(ang) * speed - 0.55,
+          r: 2.2 + Math.random() * 3.8,
           born: now,
-          color: col,
-          streak: k % 4 === 1,
-          isStar: k % 3 === 0,
+          color: GREY_PUFFS[k % GREY_PUFFS.length],
         });
       }
     }
@@ -1532,78 +1514,35 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         ctx.restore();
       }
 
-      // Erase Glowing Stardust Dissolve Halo
-      ringsRef.current = ringsRef.current.filter((rg) => now - rg.born < 420);
+      // Soft grey erase puff ring
+      ringsRef.current = ringsRef.current.filter((rg) => now - rg.born < 380);
       for (const rg of ringsRef.current) {
-        const t = (now - rg.born) / 420;
-        const ease = 1 - Math.pow(1 - t, 3);
+        const t = (now - rg.born) / 380;
+        const ease = 1 - Math.pow(1 - t, 2);
         const rad = 6 + (rg.maxR - 6) * ease;
         ctx.save();
-        ctx.globalAlpha = Math.max(0, (1 - t) * 0.42);
-        const grad = ctx.createRadialGradient(rg.x, rg.y, 0, rg.x, rg.y, rad);
-        grad.addColorStop(0, '#FFFBEB');
-        grad.addColorStop(0.45, '#FDE68A');
-        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-        ctx.fillStyle = grad;
+        ctx.globalAlpha = Math.max(0, (1 - t) * 0.35);
+        ctx.strokeStyle = rg.color;
+        ctx.lineWidth = 2 * (1 - t * 0.5);
         ctx.beginPath();
         ctx.arc(rg.x, rg.y, rad, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.stroke();
         ctx.restore();
       }
 
-      // Diamond Starbursts & Shimmering Stardust
-      puffsRef.current = puffsRef.current.filter((pf) => now - pf.born < 580);
+      // Crumbling grey dust particles
+      puffsRef.current = puffsRef.current.filter((pf) => now - pf.born < 440);
       for (const pf of puffsRef.current) {
-        const t = (now - pf.born) / 580;
+        const t = (now - pf.born) / 440;
         const ease = 1 - Math.pow(1 - t, 2);
-        const px = pf.x + pf.vx * t * 38;
-        const py = pf.y + pf.vy * t * 38 - 14 * ease;
-        const twinkle = Math.sin(t * Math.PI * 3.5);
-        const alpha = Math.max(0, (1 - t) * (0.65 + 0.35 * twinkle));
+        const px = pf.x + pf.vx * t * 32;
+        const py = pf.y + pf.vy * t * 32 - 10 * ease;
         ctx.save();
-        ctx.globalAlpha = alpha;
-
-        if (pf.isStar) {
-          // 4-pointed diamond star ✨
-          const sz = Math.max(2.2, pf.r * 2.6 * (1 - t * 0.35));
-          ctx.fillStyle = pf.color;
-          ctx.beginPath();
-          ctx.moveTo(px, py - sz);
-          ctx.quadraticCurveTo(px, py, px + sz * 0.28, py);
-          ctx.quadraticCurveTo(px, py, px, py + sz);
-          ctx.quadraticCurveTo(px, py, px - sz * 0.28, py);
-          ctx.quadraticCurveTo(px, py, px, py - sz);
-          ctx.closePath();
-          ctx.fill();
-
-          ctx.beginPath();
-          ctx.moveTo(px - sz, py);
-          ctx.quadraticCurveTo(px, py, px, py - sz * 0.28);
-          ctx.quadraticCurveTo(px, py, px + sz, py);
-          ctx.quadraticCurveTo(px, py, px, py + sz * 0.28);
-          ctx.quadraticCurveTo(px, py, px - sz, py);
-          ctx.closePath();
-          ctx.fill();
-
-          // Luminous white center
-          ctx.fillStyle = '#FFFFFF';
-          ctx.beginPath();
-          ctx.arc(px, py, sz * 0.22, 0, Math.PI * 2);
-          ctx.fill();
-        } else if (pf.streak) {
-          ctx.strokeStyle = pf.color;
-          ctx.lineWidth = Math.max(1.2, pf.r * (1 - t * 0.55));
-          ctx.lineCap = 'round';
-          ctx.beginPath();
-          ctx.moveTo(px - pf.vx * 3.2, py - pf.vy * 3.2);
-          ctx.lineTo(px, py);
-          ctx.stroke();
-        } else {
-          ctx.fillStyle = pf.color;
-          ctx.beginPath();
-          ctx.arc(px, py, pf.r * (1 - t * 0.45), 0, Math.PI * 2);
-          ctx.fill();
-        }
+        ctx.globalAlpha = Math.max(0, (1 - t) * 0.72);
+        ctx.fillStyle = pf.color;
+        ctx.beginPath();
+        ctx.arc(px, py, Math.max(0.8, pf.r * (1 - t * 0.35)), 0, Math.PI * 2);
+        ctx.fill();
         ctx.restore();
       }
 

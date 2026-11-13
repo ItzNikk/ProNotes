@@ -226,7 +226,7 @@ class Repository private constructor(private val context: Context) {
                     width = PageSize.WIDTH,
                     height = PageSize.HEIGHT,
                     paper = PaperStyle.BLANK,
-                    items = listOf(ItemDoc.Image(UUID.randomUUID().mostSignificantBits and Long.MAX_VALUE, imgName, x, y, w, h)),
+                    items = listOf(ItemDoc.Image(imgName, x, y, w, h)),
                 )
             }
             if (imageUris.size > 1) importedTitle = "${firstName.substringBeforeLast('.')} (+${imageUris.size - 1})"
@@ -253,7 +253,7 @@ class Repository private constructor(private val context: Context) {
                             width = PageSize.WIDTH,
                             height = PageSize.HEIGHT,
                             paper = PaperStyle.BLANK,
-                            items = listOf(ItemDoc.Image(nextImportItemId(), imgName, (PageSize.WIDTH - bw * sc) / 2f, (PageSize.HEIGHT - bh * sc) / 2f, bw * sc, bh * sc)),
+                            items = listOf(ItemDoc.Image(imgName, (PageSize.WIDTH - bw * sc) / 2f, (PageSize.HEIGHT - bh * sc) / 2f, bw * sc, bh * sc)),
                         )
                     }
                     else -> {
@@ -322,7 +322,7 @@ class Repository private constructor(private val context: Context) {
                     width = PageSize.WIDTH,
                     height = PageSize.HEIGHT,
                     paper = PaperStyle.BLANK,
-                    items = listOf(ItemDoc.Image(nextImportItemId(), imgName, (PageSize.WIDTH - bw * sc) / 2f, (PageSize.HEIGHT - bh * sc) / 2f, bw * sc, bh * sc)),
+                    items = listOf(ItemDoc.Image(imgName, (PageSize.WIDTH - bw * sc) / 2f, (PageSize.HEIGHT - bh * sc) / 2f, bw * sc, bh * sc)),
                 )
             } else {
                 val raw = runCatching { context.contentResolver.openInputStream(u)?.bufferedReader()?.use { it.readText() } }.getOrNull().orEmpty()
@@ -345,7 +345,6 @@ class Repository private constructor(private val context: Context) {
         textToPageDocs(title.ifBlank { deriveTitleFromText(rawText) }, normalizeImportedText(rawText, "$title.md"))
             .map { InkCodec.fromDoc(it) }
 
-    private fun nextImportItemId(): Long = (UUID.randomUUID().mostSignificantBits and 0x0000FFFFFFFFFFFFL).coerceAtLeast(1000L)
 
     private fun deriveTitleFromText(raw: String): String {
         val first = raw.lineSequence().map { it.trim().trimStart('#', '-', '*', '>', ' ') }.firstOrNull { it.isNotBlank() } ?: "Imported Note"
@@ -401,7 +400,7 @@ class Repository private constructor(private val context: Context) {
         }
 
         if (sectionTitle.isNotBlank()) {
-            curItems += ItemDoc.Text(nextImportItemId(), sectionTitle, marginX, y, 36f, 0xFF1B1F2A.toInt(), style = TextStyleDoc(bold = true))
+            curItems += ItemDoc.Text(sectionTitle, marginX, y, 36f, 0xFF1B1F2A.toInt(), bold = true)
             y += 66f
         }
 
@@ -413,7 +412,7 @@ class Repository private constructor(private val context: Context) {
             if (isCallout && clean.length <= 360) {
                 if (y + 220f > maxY) flushPage()
                 val h = (120f + (clean.length / 36f) * 32f).coerceIn(140f, 300f)
-                curItems += ItemDoc.Sticky(nextImportItemId(), marginX, y, PageSize.WIDTH - marginX * 2, h, 0xFFFFF3A3.toInt(), clean, fontSize = 23f)
+                curItems += ItemDoc.Sticky(marginX, y, PageSize.WIDTH - marginX * 2, h, 0xFFFFF3A3.toInt(), clean, fontSize = 23f)
                 y += h + 28f
                 continue
             }
@@ -421,13 +420,12 @@ class Repository private constructor(private val context: Context) {
             val estHeight = (lines.sumOf { ((it.length / 46) + 1) } * if (isHeading) 42 else 34).toFloat().coerceAtLeast(36f)
             if (y + estHeight > maxY && curItems.isNotEmpty()) flushPage()
             curItems += ItemDoc.Text(
-                id = nextImportItemId(),
                 text = clean,
                 x = marginX,
                 y = y,
                 size = if (isHeading) 30f else 24f,
                 color = if (isHeading) 0xFF2855C8.toInt() else 0xFF1B1F2A.toInt(),
-                style = TextStyleDoc(bold = isHeading),
+                bold = isHeading,
             )
             y += estHeight + if (isHeading) 24f else 20f
         }

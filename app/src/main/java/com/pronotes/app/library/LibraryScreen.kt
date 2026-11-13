@@ -1235,6 +1235,7 @@ private fun UpdatePill() {
         com.pronotes.app.data.Updater.Phase.AVAILABLE -> "Update to ${u.release?.tag}"
         com.pronotes.app.data.Updater.Phase.DOWNLOADING -> "Downloading ${(u.progress * 100).toInt()}%"
         com.pronotes.app.data.Updater.Phase.READY -> "Install update"
+        com.pronotes.app.data.Updater.Phase.INSTALLING -> "Installing..."
         else -> null
     } ?: return
     Surface(

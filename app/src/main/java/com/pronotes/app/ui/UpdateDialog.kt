@@ -42,13 +42,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import com.pronotes.app.data.Updater
 import kotlinx.coroutines.launch
 
-/** Shows what changed before an update is downloaded. Lives once at the top of the app. */
+/** Shows what changed before an update is downloaded, and launches installer confirmation when foregrounded. */
 @Composable
 fun UpdateDialogHost() {
+    val context = LocalContext.current
+    val pending = Updater.pendingConfirm
+    androidx.compose.runtime.LaunchedEffect(pending) {
+        if (pending != null) {
+            Updater.launchConfirm(context, pending)
+        }
+    }
     if (!Updater.showDialog) return
     val rel = Updater.release ?: run { Updater.showDialog = false; return }
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var autoOpen by remember { mutableStateOf(Updater.autoOpen(context)) }
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 

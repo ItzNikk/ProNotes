@@ -2159,21 +2159,26 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
         private var puffs: List<RectF> = emptyList()
         private var puffT = 0f
-        private val sparklePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val sparkleGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-        private val sparkleRayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        private val puffPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        private val puffRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeCap = Paint.Cap.ROUND
         }
-        private val starPath = Path()
         private val puffSeeds = FloatArray(64) { kotlin.random.Random(it * 17 + 11).nextFloat() }
+        private val greyShades = intArrayOf(
+            0xFF94A3B8.toInt(),
+            0xFF64748B.toInt(),
+            0xFFCBD5E1.toInt(),
+            0xFF475569.toInt(),
+            0xFF9CA3AF.toInt(),
+        )
 
-        /** Scribble-erase: elegant diamond star sparkle burst with golden shimmer and stardust. */
+        /** Scribble-erase: classic grey crumbling dust particles dispersing from erased ink. */
         fun puff(rects: List<RectF>) {
             if (rects.isEmpty()) return
             puffs = rects
             ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = 580; interpolator = DecelerateInterpolator()
+                duration = 440; interpolator = DecelerateInterpolator()
                 addUpdateListener { puffT = it.animatedValue as Float; invalidate() }
                 addListener(object : android.animation.AnimatorListenerAdapter() {
                     override fun onAnimationEnd(animation: android.animation.Animator) { puffs = emptyList(); invalidate() }
@@ -2182,117 +2187,40 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             }
         }
 
-        private fun drawDiamondSparkle(canvas: Canvas, cx: Float, cy: Float, size: Float, color: Int, alpha: Float) {
-            if (size <= 0.8f || alpha <= 0.01f) return
-            starPath.reset()
-            // 4-pointed diamond star with pinched curves
-            starPath.moveTo(cx, cy - size)
-            starPath.quadTo(cx, cy, cx + size * 0.28f, cy)
-            starPath.quadTo(cx, cy, cx, cy + size)
-            starPath.quadTo(cx, cy, cx - size * 0.28f, cy)
-            starPath.quadTo(cx, cy, cx, cy - size)
-            starPath.close()
-
-            starPath.moveTo(cx - size, cy)
-            starPath.quadTo(cx, cy, cx, cy - size * 0.28f)
-            starPath.quadTo(cx, cy, cx + size, cy)
-            starPath.quadTo(cx, cy, cx, cy + size * 0.28f)
-            starPath.quadTo(cx, cy, cx - size, cy)
-            starPath.close()
-
-            sparklePaint.style = Paint.Style.FILL
-            sparklePaint.color = color
-            sparklePaint.alpha = (alpha * 255f).toInt().coerceIn(0, 255)
-            canvas.drawPath(starPath, sparklePaint)
-
-            // Pure diamond core
-            sparklePaint.color = Color.WHITE
-            sparklePaint.alpha = (alpha * 240f).toInt().coerceIn(0, 255)
-            canvas.drawCircle(cx, cy, size * 0.22f, sparklePaint)
-        }
-
         private fun drawPuffs(canvas: Canvas) {
             if (puffs.isEmpty()) return
             val t = puffT
             val ease = 1f - (1f - t) * (1f - t)
-            puffs.forEach { r ->
+            val fade = (1f - t).coerceIn(0f, 1f)
+            puffs.forEachIndexed { rIdx, r ->
                 val cx = r.centerX()
                 val cy = r.centerY()
-                val span = max(r.width(), r.height()).coerceAtLeast(24f * density)
+                val span = max(r.width(), r.height()).coerceAtLeast(22f * density)
 
-                // 1. Soft expanding luminous stardust halo (dissipates quickly)
-                if (t < 0.65f) {
-                    val haloFade = 1f - (t / 0.65f)
-                    val haloRadius = span * (0.35f + ease * 0.75f)
-                    sparkleGlowPaint.shader = android.graphics.RadialGradient(
-                        cx, cy, haloRadius.coerceAtLeast(10f),
-                        intArrayOf(0x55FFE4A0.toInt(), 0x22C4B5FD.toInt(), 0x00FFFFFF),
-                        floatArrayOf(0f, 0.45f, 1f),
-                        android.graphics.Shader.TileMode.CLAMP
-                    )
-                    sparkleGlowPaint.alpha = (haloFade * 200f).toInt().coerceIn(0, 255)
-                    canvas.drawCircle(cx, cy, haloRadius, sparkleGlowPaint)
-                    sparkleGlowPaint.shader = null
-                }
+                // Soft expanding grey dust ring
+                val ringRadius = (6f * density) + (span.coerceAtMost(120f * density) * 0.45f) * ease
+                puffRingPaint.color = 0xFF94A3B8.toInt()
+                puffRingPaint.strokeWidth = 1.6f * density * fade
+                puffRingPaint.alpha = (fade * 85f).toInt().coerceIn(0, 255)
+                canvas.drawCircle(cx, cy, ringRadius, puffRingPaint)
 
-                // 2. Primary central hero diamond sparkle (✨)
-                val heroScale = when {
-                    t < 0.3f -> (t / 0.3f)
-                    else -> 1f - ((t - 0.3f) / 0.7f)
-                }
-                val heroSize = (14f + span * 0.18f).coerceIn(12f, 38f) * density * heroScale
-                drawDiamondSparkle(canvas, cx, cy, heroSize, 0xFFFFE89A.toInt(), heroScale)
-
-                // 3. Constellation of orbiting diamond sparkles & shimmering stardust
-                for (k in 0 until 18) {
-                    val seed1 = puffSeeds[k]
-                    val seed2 = puffSeeds[(k + 9) % 64]
-                    val seed3 = puffSeeds[(k + 23) % 64]
-                    val ang = k * (2.0 * Math.PI / 18.0) + seed1 * 0.6
-                    val cosA = kotlin.math.cos(ang).toFloat()
-                    val sinA = kotlin.math.sin(ang).toFloat()
-
-                    // Stardust trajectories: float gently outwards and upwards
-                    val travelDist = (16f + 55f * seed2) * density * ease
-                    val px = cx + cosA * travelDist + (seed3 - 0.5f) * 16f * density * ease
-                    val py = cy + sinA * travelDist - (18f + 24f * seed1) * density * ease
-
-                    // Twinkle modulation
-                    val twinkle = kotlin.math.sin(t * Math.PI * (1.5 + seed2 * 2.0)).toFloat().coerceIn(0f, 1f)
-                    val particleAlpha = ((1f - t) * (0.6f + 0.4f * twinkle)).coerceIn(0f, 1f)
-
-                    if (k % 3 == 0) {
-                        // Satellite 4-point diamond star
-                        val starSize = (4f + 7f * seed1) * density * (1f - t * 0.45f)
-                        val starColor = when (k % 6) {
-                            0 -> 0xFFFFFFFF.toInt() // Diamond white
-                            3 -> 0xFFFDE68A.toInt() // Champagne gold
-                            else -> 0xFFC4B5FD.toInt() // Starlight violet
-                        }
-                        drawDiamondSparkle(canvas, px, py, starSize, starColor, particleAlpha)
-                    } else if (k % 3 == 1) {
-                        // Radiant light streak / glint ray
-                        val r0 = travelDist * 0.75f
-                        val r1 = travelDist + (6f + 14f * seed3) * density * (1f - t * 0.6f)
-                        val rayColor = if (k % 2 == 0) 0xFFFFE3A3.toInt() else 0xFFBAE6FD.toInt()
-                        sparkleRayPaint.color = rayColor
-                        sparkleRayPaint.strokeWidth = (1.5f + 1.2f * seed1) * density * (1f - t * 0.65f)
-                        sparkleRayPaint.alpha = (particleAlpha * 230f).toInt().coerceIn(0, 255)
-                        canvas.drawLine(cx + cosA * r0, cy + sinA * r0, cx + cosA * r1, cy + sinA * r1, sparkleRayPaint)
-                    } else {
-                        // Shimmering stardust orb
-                        val dotR = (1.6f + 2.4f * seed2) * density * (1f - t * 0.5f)
-                        val dotColor = when (k % 4) {
-                            0 -> 0xFFFFFFFF.toInt()
-                            1 -> 0xFFFCD34D.toInt()
-                            2 -> 0xFFA78BFA.toInt()
-                            else -> 0xFF7DD3FC.toInt()
-                        }
-                        sparklePaint.style = Paint.Style.FILL
-                        sparklePaint.color = dotColor
-                        sparklePaint.alpha = (particleAlpha * 240f).toInt().coerceIn(0, 255)
-                        canvas.drawCircle(px, py, dotR, sparklePaint)
-                    }
+                // Grey dust specks & puffs distributed across the erased bounds
+                val rw = r.width().coerceAtLeast(10f * density)
+                val rh = r.height().coerceAtLeast(10f * density)
+                for (k in 0 until 14) {
+                    val s1 = puffSeeds[(k + rIdx * 7) % 64]
+                    val s2 = puffSeeds[(k * 3 + 13 + rIdx) % 64]
+                    val s3 = puffSeeds[(k * 5 + 29) % 64]
+                    val ang = k * (2.0 * Math.PI / 14.0) + s1 * 0.7
+                    val speed = (14f + 30f * s2) * density * ease
+                    val startX = r.left + s1 * rw
+                    val startY = r.top + s2 * rh
+                    val px = startX + kotlin.math.cos(ang).toFloat() * speed
+                    val py = startY + kotlin.math.sin(ang).toFloat() * speed - (10f * density * ease)
+                    val radius = (2.2f + 3.6f * s3) * density * (1f - t * 0.4f)
+                    puffPaint.color = greyShades[(k + rIdx) % greyShades.size]
+                    puffPaint.alpha = (fade * (135f + 65f * s3)).toInt().coerceIn(0, 255)
+                    canvas.drawCircle(px, py, radius, puffPaint)
                 }
             }
         }

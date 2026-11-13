@@ -90,13 +90,10 @@ import com.pronotes.app.data.ThemeMode
 import com.pronotes.app.data.ToolbarDock
 import com.pronotes.app.data.ToolbarSize
 import com.pronotes.app.data.Updater.Phase as UPhase
-import com.pronotes.app.editor.Companions
 import com.pronotes.app.editor.LocalAiManager
 import com.pronotes.app.editor.LocalModelRuntime
 import com.pronotes.app.editor.LocalModelStatus
 import com.pronotes.app.editor.Nano
-import com.pronotes.app.editor.companionById
-import com.pronotes.app.editor.drawCompanion
 import com.pronotes.app.library.PaperPreview
 import com.pronotes.app.ui.GradientTitle
 import com.pronotes.app.ui.ProIcon
@@ -105,11 +102,11 @@ import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 
 private enum class Category(val label: String, val sub: String, val icon: ProIcon, val tint: Long) {
-    STYLUS("Stylus & input", "Pen name, pens, side button", ProIcon.PEN, 0xFF2A78D6),
+    STYLUS("Stylus & input", "Drawing, feel, side button, pens", ProIcon.PEN, 0xFF2A78D6),
     AI("On-device AI", "9 free local models, offline study", ProIcon.STAR, 0xFF6B5CE7),
     GESTURES("Gestures", "Live scribble sensitivity, circle, taps", ProIcon.LASSO, 0xFF7161E0),
     PAGES("Pages & paper", "Scroll, templates, paper colour", ProIcon.DOCUMENT, 0xFF0F7E5C),
-    TOOLBAR("Toolbar & Buddy", "Position, size, companion picker", ProIcon.TOOLBAR, 0xFFC04873),
+    TOOLBAR("Toolbar", "Position, size, tools, timer", ProIcon.TOOLBAR, 0xFFC04873),
     LOOK("Appearance", "Theme, accent, gradients, desk", ProIcon.PALETTE, 0xFFD97706),
     LIBRARY("Library & backup", "Covers, backup and restore", ProIcon.FOLDER, 0xFF256ABF),
     ABOUT("About", "Version, updates", ProIcon.INFO, 0xFF6B7280),
@@ -183,47 +180,6 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
         item {
             when (c) {
                 Category.STYLUS -> {
-                    var penNameDraft by remember(s.penName) { mutableStateOf(s.penName) }
-                    Section("Active stylus identity") {
-                        Box(
-                            Modifier.fillMaxWidth().height(96.dp).background(Color(0xFF02040A)),
-                        ) {
-                            com.pronotes.app.editor.AiParticleBackdrop(
-                                modifier = Modifier.matchParentSize(),
-                                active = true,
-                                variant = com.pronotes.app.editor.AiBackdropVariant.PEN_SETUP,
-                            )
-                            Column(Modifier.align(Alignment.CenterStart).padding(horizontal = 16.dp, vertical = 12.dp)) {
-                                Text("PEN CALIBRATION STAGE", style = MaterialTheme.typography.labelSmall, color = Color(0xFF7DD3FC))
-                                Spacer(Modifier.height(2.dp))
-                                Text(
-                                    penNameDraft.ifBlank { "My Stylus" },
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                )
-                                Text(
-                                    "Active stylus orbital ring sync",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Color(0xFFCBD5E1),
-                                )
-                            }
-                        }
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("PEN NAME", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedTextField(
-                                    penNameDraft,
-                                    { penNameDraft = it; up { cur -> cur.copy(penName = it) } },
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(16.dp),
-                                    placeholder = { Text("e.g. Samsung S Pen") },
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-                            Text("Shown in Pen Studio and used as your default stylus label.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
                     Section("Drawing") {
                         Toggle("Draw with stylus only", "Fingers scroll and zoom, they never draw", s.stylusOnly) { v -> up { it.copy(stylusOnly = v) } }
                         Toggle("Palm rejection", "Ignore touches right after the pen", s.palmRejection) { v -> up { it.copy(palmRejection = v) } }
@@ -556,6 +512,7 @@ private fun UpdateRow() {
         UPhase.AVAILABLE -> "Update to ${u.release?.tag}" to "Tap to see what changed"
         UPhase.DOWNLOADING -> "Downloading ${(u.progress * 100).toInt()}%" to "Keep the app open"
         UPhase.READY -> "Install update" to "Tap to open the installer"
+        UPhase.INSTALLING -> "Installing update..." to "Confirm when prompted"
         UPhase.FAILED -> "Update failed" to (u.error ?: "Tap to try again")
     }
     Column(
@@ -563,7 +520,8 @@ private fun UpdateRow() {
             when (u.phase) {
                 UPhase.AVAILABLE -> u.showDialog = true
                 UPhase.READY -> u.install(context)
-                UPhase.DOWNLOADING, UPhase.CHECKING -> Unit
+                UPhase.FAILED -> if (u.hasReadyApk(context)) u.install(context) else scope.launch { u.check(context) }
+                UPhase.DOWNLOADING, UPhase.CHECKING, UPhase.INSTALLING -> Unit
                 else -> scope.launch { u.check(context) }
             }
         }.padding(16.dp),
