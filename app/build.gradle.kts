@@ -27,13 +27,26 @@ android {
 
     signingConfigs {
         val ksPath = System.getenv("SIGNING_KEYSTORE_PATH")
-        if (!ksPath.isNullOrBlank()) {
+        if (!ksPath.isNullOrBlank() && file(ksPath).exists()) {
             create("release") {
                 storeFile = file(ksPath)
                 storeType = "pkcs12"
                 storePassword = System.getenv("SIGNING_STORE_PASSWORD")
                 keyAlias = System.getenv("SIGNING_KEY_ALIAS")
                 keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+            }
+        }
+        getByName("debug") {
+            val userKs = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            val b64 = rootProject.file("debug.keystore.base64")
+            if (!userKs.exists() && b64.exists()) {
+                try {
+                    userKs.parentFile?.mkdirs()
+                    userKs.writeBytes(java.util.Base64.getDecoder().decode(b64.readText().trim()))
+                } catch (_: Throwable) {}
+            }
+            if (userKs.exists()) {
+                storeFile = userKs
             }
         }
     }
