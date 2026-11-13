@@ -94,12 +94,12 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 private fun SlideTheme.colors(): List<Color> = when (this) {
-    SlideTheme.AURORA -> listOf(Color(0xFF1D4ED8), Color(0xFF7C3AED), Color(0xFF0EA5E9))
-    SlideTheme.COSMIC -> listOf(Color(0xFF0F172A), Color(0xFF312E81), Color(0xFF2563EB))
-    SlideTheme.SOLAR -> listOf(Color(0xFFEA580C), Color(0xFFDB2777), Color(0xFFF59E0B))
-    SlideTheme.MINT -> listOf(Color(0xFF059669), Color(0xFF0D9488), Color(0xFF0284C7))
-    SlideTheme.ROSE -> listOf(Color(0xFFBE185D), Color(0xFF7E22CE), Color(0xFFEC4899))
-    SlideTheme.ROYAL -> listOf(Color(0xFF1E3A8A), Color(0xFF4F46E5), Color(0xFF0891B2))
+    SlideTheme.AURORA_INDIGO -> listOf(Color(gradA), Color(gradB), Color(accent))
+    SlideTheme.SUNSET_CORAL -> listOf(Color(gradA), Color(gradB), Color(accent))
+    SlideTheme.EMERALD_MINT -> listOf(Color(gradA), Color(gradB), Color(accent))
+    SlideTheme.COSMIC_GOLD -> listOf(Color(gradA), Color(gradB), Color(accent))
+    SlideTheme.MIDNIGHT_PRISM -> listOf(Color(gradA), Color(gradB), Color(accent))
+    SlideTheme.ROSE_VELVET -> listOf(Color(gradA), Color(gradB), Color(accent))
 }
 
 @OptIn(ExperimentalLayoutApi::class)
