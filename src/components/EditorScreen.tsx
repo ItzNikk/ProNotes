@@ -121,6 +121,7 @@ interface PuffParticle {
   born: number;
   color: string;
   streak?: boolean;
+  isStar?: boolean;
 }
 
 interface EraseRing {
@@ -220,6 +221,8 @@ const SplitNotebookPane: React.FC<{
   const splitCanvasRef = useRef<HTMLCanvasElement>(null);
   const splitWrapRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ active: boolean; lx: number; ly: number }>({ active: false, lx: 0, ly: 0 });
+  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchRef = useRef<{ initialDist: number; initialZoom: number; initialPan: { x: number; y: number }; center: { x: number; y: number } } | null>(null);
 
   const sSafeIdx = Math.min(splitPageIdx, Math.max(0, splitNotebook.pages.length - 1));
   const spPage = splitNotebook.pages[sSafeIdx];
@@ -396,30 +399,106 @@ const SplitNotebookPane: React.FC<{
       <div ref={splitWrapRef} className="relative min-h-0 flex-1 overflow-hidden">
         <canvas
           ref={splitCanvasRef}
+          style={{ touchAction: 'none' }}
           onPointerDown={(e) => {
-            dragRef.current = { active: true, lx: e.clientX, ly: e.clientY };
             e.currentTarget.setPointerCapture(e.pointerId);
+            pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            if (pointersRef.current.size === 1) {
+              dragRef.current = { active: true, lx: e.clientX, ly: e.clientY };
+            } else if (pointersRef.current.size >= 2) {
+              dragRef.current.active = false;
+              const pts = Array.from(pointersRef.current.values());
+              const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+              const cx = (pts[0].x + pts[1].x) / 2;
+              const cy = (pts[0].y + pts[1].y) / 2;
+              pinchRef.current = {
+                initialDist: Math.max(10, dist),
+                initialZoom: splitZoom,
+                initialPan: { ...splitPan },
+                center: { x: cx, y: cy },
+              };
+            }
           }}
           onPointerMove={(e) => {
-            if (!dragRef.current.active) return;
-            const dx = e.clientX - dragRef.current.lx;
-            const dy = e.clientY - dragRef.current.ly;
-            dragRef.current.lx = e.clientX;
-            dragRef.current.ly = e.clientY;
-            setSplitPan((p) => ({ x: p.x + dx, y: p.y + dy }));
+            if (!pointersRef.current.has(e.pointerId)) return;
+            pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+            if (pointersRef.current.size >= 2 && pinchRef.current) {
+              const pts = Array.from(pointersRef.current.values());
+              const currentDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+              if (pinchRef.current.initialDist > 8) {
+                const factor = currentDist / pinchRef.current.initialDist;
+                const newZoom = Math.max(0.2, Math.min(3.5, pinchRef.current.initialZoom * factor));
+                const rect = splitWrapRef.current?.getBoundingClientRect();
+                const ox = rect ? pinchRef.current.center.x - rect.left : pinchRef.current.center.x;
+                const oy = rect ? pinchRef.current.center.y - rect.top : pinchRef.current.center.y;
+
+                const scaleRatio = newZoom / pinchRef.current.initialZoom;
+                const newPanX = ox - (ox - pinchRef.current.initialPan.x) * scaleRatio;
+                const newPanY = oy - (oy - pinchRef.current.initialPan.y) * scaleRatio;
+
+                setSplitZoom(newZoom);
+                setSplitPan({ x: newPanX, y: newPanY });
+              }
+            } else if (pointersRef.current.size === 1 && dragRef.current.active) {
+              const dx = e.clientX - dragRef.current.lx;
+              const dy = e.clientY - dragRef.current.ly;
+              dragRef.current.lx = e.clientX;
+              dragRef.current.ly = e.clientY;
+              setSplitPan((p) => ({ x: p.x + dx, y: p.y + dy }));
+            }
           }}
-          onPointerUp={() => {
+          onPointerUp={(e) => {
+            pointersRef.current.delete(e.pointerId);
+            if (pointersRef.current.size < 2) {
+              pinchRef.current = null;
+            }
+            if (pointersRef.current.size === 1) {
+              const remaining = Array.from(pointersRef.current.values())[0];
+              dragRef.current = { active: true, lx: remaining.x, ly: remaining.y };
+            } else {
+              dragRef.current.active = false;
+            }
+          }}
+          onPointerCancel={(e) => {
+            pointersRef.current.delete(e.pointerId);
+            if (pointersRef.current.size < 2) pinchRef.current = null;
             dragRef.current.active = false;
+          }}
+          onDoubleClick={() => {
+            const el = splitWrapRef.current;
+            if (!el || !spPage) return;
+            if (Math.abs(splitZoom - 1) < 0.1) {
+              const fit = Math.min((el.clientWidth - 28) / spPage.width, (el.clientHeight - 28) / spPage.height, 0.85);
+              const z = Math.max(0.24, fit);
+              setSplitZoom(z);
+              setSplitPan({ x: Math.max(12, (el.clientWidth - spPage.width * z) / 2), y: 14 });
+            } else {
+              setSplitZoom(1);
+              setSplitPan({ x: Math.max(12, (el.clientWidth - spPage.width) / 2), y: 14 });
+            }
           }}
           onWheel={(e) => {
             e.preventDefault();
             if (e.ctrlKey || e.metaKey) {
-              setSplitZoom((z) => Math.max(0.2, Math.min(2.5, z * (e.deltaY < 0 ? 1.1 : 0.9))));
+              const factor = e.deltaY < 0 ? 1.08 : 0.92;
+              const rect = splitWrapRef.current?.getBoundingClientRect();
+              const ox = rect ? e.clientX - rect.left : e.clientX;
+              const oy = rect ? e.clientY - rect.top : e.clientY;
+              setSplitZoom((prevZoom) => {
+                const nextZoom = Math.max(0.2, Math.min(3.5, prevZoom * factor));
+                const scaleRatio = nextZoom / prevZoom;
+                setSplitPan((p) => ({
+                  x: ox - (ox - p.x) * scaleRatio,
+                  y: oy - (oy - p.y) * scaleRatio,
+                }));
+                return nextZoom;
+              });
             } else {
               setSplitPan((p) => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
             }
           }}
-          className="h-full w-full cursor-grab active:cursor-grabbing"
+          className="h-full w-full cursor-grab active:cursor-grabbing touch-none select-none"
         />
       </div>
 
@@ -767,28 +846,43 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
 
   const spawnPuffForItems = useCallback((items: PageItem[]) => {
     const now = performance.now();
+    const SPARKLE_COLORS = ['#FFFFFF', '#FDE68A', '#F59E0B', '#C4B5FD', '#7DD3FC'];
     for (const it of items) {
       const b = getItemBounds(it);
-      const col = it.kind === 'ink' ? it.color : it.kind === 'sticky' ? '#F59E0B' : '#7C3AED';
+      // Soft radiant stardust aura
       ringsRef.current.push({
         x: b.cx,
         y: b.cy,
-        maxR: Math.max(36, Math.min(145, b.diag * 0.56)),
+        maxR: Math.max(32, Math.min(130, b.diag * 0.52)),
         born: now,
-        color: col,
+        color: '#FDE68A',
       });
-      for (let k = 0; k < 14; k++) {
-        const ang = (Math.PI * 2 * k) / 14 + Math.random() * 0.35;
-        const speed = 1.6 + Math.random() * 2.8;
+      // Primary center diamond sparkle
+      puffsRef.current.push({
+        x: b.cx,
+        y: b.cy,
+        vx: 0,
+        vy: -0.6,
+        r: Math.max(5.5, Math.min(15, b.diag * 0.12)),
+        born: now,
+        color: '#FFE89A',
+        isStar: true,
+      });
+      // Constellation of orbiting diamond sparkles and stardust specks
+      for (let k = 0; k < 18; k++) {
+        const ang = (Math.PI * 2 * k) / 18 + Math.random() * 0.45;
+        const speed = 1.2 + Math.random() * 2.6;
+        const col = SPARKLE_COLORS[k % SPARKLE_COLORS.length];
         puffsRef.current.push({
-          x: b.l + Math.random() * Math.max(12, b.w),
-          y: b.t + Math.random() * Math.max(12, b.h),
+          x: b.l + Math.random() * Math.max(10, b.w),
+          y: b.t + Math.random() * Math.max(10, b.h),
           vx: Math.cos(ang) * speed,
-          vy: Math.sin(ang) * speed - 0.6,
-          r: 2.0 + Math.random() * 2.8,
+          vy: Math.sin(ang) * speed - 0.7,
+          r: 2.2 + Math.random() * 2.8,
           born: now,
           color: col,
-          streak: k % 2 === 0,
+          streak: k % 4 === 1,
+          isStar: k % 3 === 0,
         });
       }
     }
@@ -1262,47 +1356,76 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         ctx.restore();
       }
 
-      // Erase Shockwave Dissolve Rings
-      ringsRef.current = ringsRef.current.filter((rg) => now - rg.born < 480);
+      // Erase Glowing Stardust Dissolve Halo
+      ringsRef.current = ringsRef.current.filter((rg) => now - rg.born < 420);
       for (const rg of ringsRef.current) {
-        const t = (now - rg.born) / 480;
+        const t = (now - rg.born) / 420;
         const ease = 1 - Math.pow(1 - t, 3);
-        const rad = 8 + (rg.maxR - 8) * ease;
+        const rad = 6 + (rg.maxR - 6) * ease;
         ctx.save();
-        ctx.globalAlpha = (1 - t) * 0.72;
-        ctx.strokeStyle = rg.color;
-        ctx.lineWidth = (3.4 - t * 2.2) / camera.zoom;
+        ctx.globalAlpha = Math.max(0, (1 - t) * 0.42);
+        const grad = ctx.createRadialGradient(rg.x, rg.y, 0, rg.x, rg.y, rad);
+        grad.addColorStop(0, '#FFFBEB');
+        grad.addColorStop(0.45, '#FDE68A');
+        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.fillStyle = grad;
         ctx.beginPath();
         ctx.arc(rg.x, rg.y, rad, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.globalAlpha = (1 - t) * 0.35;
-        ctx.lineWidth = 1.4 / camera.zoom;
-        ctx.beginPath();
-        ctx.arc(rg.x, rg.y, rad * 0.65, 0, Math.PI * 2);
-        ctx.stroke();
+        ctx.fill();
         ctx.restore();
       }
 
-      // Crumble & Spark Particles
-      puffsRef.current = puffsRef.current.filter((pf) => now - pf.born < 540);
+      // Diamond Starbursts & Shimmering Stardust
+      puffsRef.current = puffsRef.current.filter((pf) => now - pf.born < 580);
       for (const pf of puffsRef.current) {
-        const t = (now - pf.born) / 540;
-        const px = pf.x + pf.vx * t * 34;
-        const py = pf.y + pf.vy * t * 34;
+        const t = (now - pf.born) / 580;
+        const ease = 1 - Math.pow(1 - t, 2);
+        const px = pf.x + pf.vx * t * 38;
+        const py = pf.y + pf.vy * t * 38 - 14 * ease;
+        const twinkle = Math.sin(t * Math.PI * 3.5);
+        const alpha = Math.max(0, (1 - t) * (0.65 + 0.35 * twinkle));
         ctx.save();
-        ctx.globalAlpha = Math.max(0, 1 - t);
-        if (pf.streak) {
+        ctx.globalAlpha = alpha;
+
+        if (pf.isStar) {
+          // 4-pointed diamond star ✨
+          const sz = Math.max(2.2, pf.r * 2.6 * (1 - t * 0.35));
+          ctx.fillStyle = pf.color;
+          ctx.beginPath();
+          ctx.moveTo(px, py - sz);
+          ctx.quadraticCurveTo(px, py, px + sz * 0.28, py);
+          ctx.quadraticCurveTo(px, py, px, py + sz);
+          ctx.quadraticCurveTo(px, py, px - sz * 0.28, py);
+          ctx.quadraticCurveTo(px, py, px, py - sz);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.beginPath();
+          ctx.moveTo(px - sz, py);
+          ctx.quadraticCurveTo(px, py, px, py - sz * 0.28);
+          ctx.quadraticCurveTo(px, py, px + sz, py);
+          ctx.quadraticCurveTo(px, py, px, py + sz * 0.28);
+          ctx.quadraticCurveTo(px, py, px - sz, py);
+          ctx.closePath();
+          ctx.fill();
+
+          // Luminous white center
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.arc(px, py, sz * 0.22, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (pf.streak) {
           ctx.strokeStyle = pf.color;
-          ctx.lineWidth = Math.max(1.2, pf.r * (1 - t * 0.5));
+          ctx.lineWidth = Math.max(1.2, pf.r * (1 - t * 0.55));
           ctx.lineCap = 'round';
           ctx.beginPath();
-          ctx.moveTo(px - pf.vx * 3.5, py - pf.vy * 3.5);
+          ctx.moveTo(px - pf.vx * 3.2, py - pf.vy * 3.2);
           ctx.lineTo(px, py);
           ctx.stroke();
         } else {
           ctx.fillStyle = pf.color;
           ctx.beginPath();
-          ctx.arc(px, py, pf.r * (1 - t * 0.4), 0, Math.PI * 2);
+          ctx.arc(px, py, pf.r * (1 - t * 0.45), 0, Math.PI * 2);
           ctx.fill();
         }
         ctx.restore();

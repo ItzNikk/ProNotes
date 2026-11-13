@@ -29,6 +29,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -2506,8 +2507,23 @@ private fun SplitPanel(
             val pageDp = (baseDp * splitZoom).coerceAtLeast(160.dp)
             val listWidth = (pageDp + 24.dp).coerceAtLeast(maxWidth)
             val w = with(LocalDensity.current) { pageDp.toPx().toInt() }.coerceIn(200, 2200)
-            val hScroll = rememberScrollState()
-            Box(Modifier.fillMaxSize().then(if (splitZoom > 1.02f) Modifier.horizontalScroll(hScroll) else Modifier)) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, _, zoom, _ ->
+                            if (zoom != 1f) {
+                                splitZoom = (splitZoom * zoom).coerceIn(0.4f, 3.2f)
+                            }
+                        }
+                    }
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onDoubleTap = { splitZoom = if (kotlin.math.abs(splitZoom - 1f) > 0.08f) 1f else 1.75f }
+                        )
+                    }
+                    .then(if (splitZoom > 1.02f) Modifier.horizontalScroll(hScroll) else Modifier)
+            ) {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.width(listWidth).fillMaxHeight(),

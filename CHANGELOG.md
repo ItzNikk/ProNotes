@@ -1,6 +1,8 @@
 # Changelog
 
 ## v9.7.0
+- **Diamond sparkle scribble-erase animation**: Replaced cartoon puffs with refined 4-pointed diamond starbursts (`✨`), champagne gold shimmer, diamond white cores, and floating stardust specks that twinkle and dissipate smoothly.
+- **Multi-touch pinch-to-zoom in split notes**: Full two-finger pinch-to-zoom and two-finger pan support directly inside split reference notes, plus double-tap to reset/fit page width.
 - **Native 60 FPS visual study backdrops**: Atmospheric cosmic nebulae for Flashcards & Quiz launcher, dynamic glowing blue orbital ring dynamics for pen configuration, futuristic quantum data waves during on-device AI tasks, and high-energy challenge arenas for active quiz sessions—crafted with zero video-decode battery overhead and zero frame drops.
 - **Apple Notes-inspired maths animation & sweep**: Equation resolution now flows along a smooth curved Bezier path with dynamic bloom, spring-settle, letter-by-letter revelation, and quadratic/algebraic expression recognition.
 - **Clean Semantic Versioning**: Standardized release versioning to clean SemVer (`v9.7.0`) across all targets and CI artifacts.
