@@ -129,7 +129,7 @@ export const AiNotesChatModal: React.FC<{
       <div className="relative flex h-[84vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl dark:border-white/12 dark:bg-[#191A1F] animate-stagger-in">
         <AiParticleBackdrop accent="blue" variant="ai-wave" intensity={busy ? 'active' : 'soft'} />
 
-        {/* Gemini Vibe Header */}
+        {/* Modern Studio Header */}
         <div className="relative z-10 flex items-center justify-between border-b border-black/8 bg-white/85 px-5 py-4 backdrop-blur-md dark:border-white/10 dark:bg-[#1E2028]/90">
           <div className="flex items-center gap-3 min-w-0">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-[#4285F4] via-[#9B72CB] to-[#D96570] text-white shadow-md">
@@ -138,7 +138,7 @@ export const AiNotesChatModal: React.FC<{
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h2 className="truncate bg-gradient-to-r from-[#4285F4] via-[#9B72CB] to-[#D96570] bg-clip-text text-base font-extrabold text-transparent">
-                  Gemini Study Assistant
+                  Study Assistant
                 </h2>
                 <span className="rounded-full bg-[#9B72CB]/15 px-2 py-0.5 text-[10px] font-bold text-[#9B72CB]">
                   LIVE
@@ -149,8 +149,8 @@ export const AiNotesChatModal: React.FC<{
                   {settings.customAiEnabled
                     ? `Custom AI (${settings.customAiModel})`
                     : activeModel
-                      ? `${activeModel.name} · Gemini Live`
-                      : 'Gemini Study Engine'}
+                      ? `${activeModel.name} · Studio Live`
+                      : 'Pro Study Engine'}
                 </span>
                 <span className="rounded-full bg-[#4285F4]/12 px-2 py-0.5 font-semibold text-[#4285F4]">
                   {pages.length} page{pages.length === 1 ? '' : 's'} indexed
@@ -373,14 +373,14 @@ export const AiAssetGeneratorModal: React.FC<{
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
       <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-indigo-500/30 bg-white shadow-2xl dark:border-indigo-400/25 dark:bg-[#191A1F] animate-stagger-in">
-        {/* Samsung Galaxy AI Creative Studio Iridescent Header */}
+        {/* Creative Studio Iridescent Header */}
         <div className="flex items-center justify-between bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 px-6 py-4 text-white">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/20 text-white shadow-sm backdrop-blur-sm">
               <Sparkles className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-base font-extrabold tracking-tight">Galaxy Creative Studio</h2>
+              <h2 className="text-base font-extrabold tracking-tight">Creative Studio</h2>
               <p className="text-[11px] text-white/90">
                 Drawing Assist · Lite Image Synthesis ({creativeStyle})
               </p>

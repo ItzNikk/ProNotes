@@ -611,7 +611,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
               <ToggleRow
                 title="Enable Custom AI Endpoint"
-                sub="Route Summaries, Quizzes, Slide Show & Semantic Search via your own OpenAI-compatible, Gemini, or Ollama endpoint"
+                sub="Route Summaries, Quizzes, Slide Show & Semantic Search via your own OpenAI-compatible, Google AI, or Ollama endpoint"
                 checked={settings.customAiEnabled}
                 onChange={(v) => onUpdate({ customAiEnabled: v })}
               />
@@ -622,7 +622,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     {(
                       [
                         { id: 'OPENAI_COMPATIBLE', label: 'OpenAI / Groq / Together' },
-                        { id: 'GEMINI', label: 'Google Gemini REST' },
+                        { id: 'GEMINI', label: 'Google AI REST' },
                         { id: 'OLLAMA', label: 'Local Ollama' },
                       ] as { id: CustomAiProvider; label: string }[]
                     ).map((p) => (

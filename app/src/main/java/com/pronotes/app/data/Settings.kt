@@ -19,7 +19,7 @@ enum class AppFont(val label: String) { MODERN_SANS("Modern Sans"), EDITORIAL_SE
 enum class MotionStyle(val label: String) { ULTRA_SPRING("Ultra Spring"), MINIMAL_CRISP("Crisp"), REDUCED("Reduced") }
 enum class CustomAiProvider(val label: String, val defaultBaseUrl: String, val defaultModel: String) {
     OPENAI_COMPATIBLE("OpenAI / OpenRouter / Groq", "https://api.openai.com/v1", "gpt-4o-mini"),
-    GEMINI("Google Gemini REST", "https://generativelanguage.googleapis.com/v1beta", "gemini-2.5-flash"),
+    GEMINI("Google AI REST", "https://generativelanguage.googleapis.com/v1beta", "gemini-2.5-flash"),
     OLLAMA("Ollama / Local Server", "http://127.0.0.1:11434/v1", "llama3.2"),
 }
 enum class AccentColor(val label: String, val argb: Long, val argb2: Long) {

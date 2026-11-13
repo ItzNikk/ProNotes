@@ -113,12 +113,12 @@ export const LOCAL_MODELS_CATALOG: LocalModelSpec[] = [
 export const IMAGE_MODELS_CATALOG: ImageModelSpec[] = [
   {
     id: 'galaxy-sketch-lite',
-    name: 'Galaxy Sketch-to-Art Lite',
-    family: 'Samsung Creative Studio · INT4',
+    name: 'Creative Studio Lite',
+    family: 'One UI 9 Studio · INT4',
     sizeMb: 38,
     steps: '2 steps · Instant Lite',
     speedTag: '~0.2s · Lite Mode',
-    description: 'Samsung Creative Studio style sketch-to-art, 3D cartoon, watercolor, and pop-art stickers & covers.',
+    description: 'One UI 9 inspired studio design engine with sketch-to-art, 3D cartoon, watercolor, and pop-art stickers & covers.',
     remoteModelKey: 'turbo',
     recommended: true,
   },
@@ -1371,7 +1371,7 @@ export async function runLocalNotesPdfChat(
     .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`)
     .join('\n');
 
-  const sysPrompt = `You are Gemini Study Assistant inside Pro Notes. Directly and helpfully answer the user's exact question first. Use the provided notebook & PDF excerpts from "${notebookTitle}" when relevant and cite [Page N], or use your own general knowledge if the question goes beyond the notes. Never dump generic page summaries unless asked to summarize.`;
+  const sysPrompt = `You are Study Assistant inside Pro Notes. Directly and helpfully answer the user's exact question first. Use the provided notebook & PDF excerpts from "${notebookTitle}" when relevant and cite [Page N], or use your own general knowledge if the question goes beyond the notes. Never dump generic page summaries unless asked to summarize.`;
   const userPrompt = `Notebook & PDF context:\n${topContext || '(Notebook currently has handwritten strokes or minimal text.)'}\n\nConversation:\n${recentTurns}\nUser Question: ${q}`;
 
   if (customSettings?.customAiEnabled) {
@@ -1403,7 +1403,7 @@ export async function runLocalNotesPdfChat(
       const data = await res.json();
       const content = data?.choices?.[0]?.message?.content?.trim();
       if (content) {
-        return { reply: content, citations, engineLabel: `${engineLabel} · Gemini Live` };
+        return { reply: content, citations, engineLabel: `${engineLabel} · Studio Live` };
       }
     }
   } catch {
@@ -1663,16 +1663,16 @@ export async function generateAiAssetImage(
 
   const stylePromptAddon =
     creativeStyle === 'Watercolor'
-      ? 'soft Samsung Creative Studio pastel watercolor illustration style'
+      ? 'soft pastel watercolor illustration style'
       : creativeStyle === 'Sketch to Art'
-        ? 'Samsung Drawing Assist hand-drawn ink sketch to polished concept art'
+        ? 'hand-drawn ink sketch to polished concept art'
         : creativeStyle === 'Pop Art'
           ? 'vibrant halftone pop art graphic studio style'
           : creativeStyle === 'Anime Studio'
             ? 'cel-shaded anime studio illustration'
             : creativeStyle === 'Minimal Vector'
               ? 'flat geometric minimal vector design'
-              : 'Samsung Galaxy AI Creative Studio 3D Pixar-style glossy illustration';
+              : 'One UI 9 inspired 3D Pixar-style glossy illustration';
 
   const styledPrompt =
     category === 'sticker'

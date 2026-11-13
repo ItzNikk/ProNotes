@@ -940,6 +940,10 @@ fun CloudSignInDialogHost() {
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val curUser by CloudSync.user.collectAsState()
+    val syncStatus by CloudSync.status.collectAsState()
+    val isSyncing by CloudSync.syncing.collectAsState()
+
     var email by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
     var syncKey by remember { mutableStateOf("") }
@@ -953,8 +957,70 @@ fun CloudSignInDialogHost() {
             if (pickedEmail.isNotBlank()) {
                 email = pickedEmail
                 if (name.isBlank()) name = pickedEmail.substringBefore('@')
+                scope.launch {
+                    CloudSync.signInWithFreeGoogleAccount(context, email, name, syncKey)
+                        .onFailure { errorMsg = it.message ?: "Could not complete sign in." }
+                }
             }
         }
+    }
+
+    if (curUser != null) {
+        AlertDialog(
+            onDismissRequest = { CloudSync.dismissSignInDialog() },
+            title = {
+                Text("Google Account & Sync", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Signed in as", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                            Text(curUser!!.email, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            if (curUser!!.displayName.isNotBlank()) {
+                                Text(curUser!!.displayName, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+
+                    Text(
+                        "Your notebooks and settings automatically synchronize between devices using this Google ID with zero subscription fees.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    if (syncStatus.isNotBlank()) {
+                        Text(syncStatus, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    }
+
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            enabled = !isSyncing,
+                            onClick = { scope.launch { CloudSync.syncAll(context) } },
+                            shape = CircleShape,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(if (isSyncing) "Syncing…" else "Sync All Now")
+                        }
+                        OutlinedButton(
+                            onClick = { CloudSync.signOut(context) },
+                            shape = CircleShape,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("Sign Out")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { CloudSync.dismissSignInDialog() }) { Text("Close") }
+            },
+        )
+        return
     }
 
     AlertDialog(
@@ -967,7 +1033,7 @@ fun CloudSignInDialogHost() {
                     color = MaterialTheme.colorScheme.primaryContainer,
                 ) {
                     Text(
-                        "100% Free Cloud · Zero Paid APIs · Private Vault",
+                        "100% Free Cloud · Zero Cost · Cross-Device Sync",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
@@ -978,28 +1044,13 @@ fun CloudSignInDialogHost() {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    "Open Google's official Sign-In / Authority page in your browser or pick your device Google account to authorize cross-device sync for free.",
+                    "Sign in to synchronize your notes, bookmarks, and Live Study Rooms seamlessly across tablets and phones.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Button(
                     onClick = {
-                        runCatching {
-                            val authUrl = "https://accounts.google.com/AccountChooser?continue=" +
-                                URLEncoder.encode("https://myaccount.google.com/permissions", "UTF-8")
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            )
-                        }
-                    },
-                    shape = CircleShape,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("🌐 Open Google Authority Page (accounts.google.com)")
-                }
-                OutlinedButton(
-                    onClick = {
-                        runCatching {
+                        val launched = runCatching {
                             @Suppress("DEPRECATION")
                             val intent = AccountManager.newChooseAccountIntent(
                                 null,
@@ -1011,12 +1062,18 @@ fun CloudSignInDialogHost() {
                                 null,
                             )
                             accountPickerLauncher.launch(intent)
+                        }.isSuccess
+                        if (!launched) {
+                            runCatching {
+                                val authUrl = "https://accounts.google.com/signin/v2/identifier?flowName=GlifWebSignIn"
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                            }
                         }
                     },
                     shape = CircleShape,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("📱 Choose Device Google Account")
+                    Text("🌐 Choose Google Account on Device")
                 }
                 OutlinedTextField(
                     value = email,
@@ -1040,7 +1097,7 @@ fun CloudSignInDialogHost() {
                     value = syncKey,
                     onValueChange = { syncKey = it },
                     label = { Text("Sync Passphrase (optional, matches devices)") },
-                    placeholder = { Text("Same passphrase on your other devices") },
+                    placeholder = { Text("e.g. MyStudyPass2026") },
                     singleLine = true,
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth(),
@@ -1055,12 +1112,12 @@ fun CloudSignInDialogHost() {
                 onClick = {
                     scope.launch {
                         CloudSync.signInWithFreeGoogleAccount(context, email, name, syncKey)
-                            .onFailure { errorMsg = it.message ?: "Invalid email" }
+                            .onFailure { errorMsg = it.message ?: "Invalid email address." }
                     }
                 },
                 shape = CircleShape,
             ) {
-                Text("Continue")
+                Text("Sign In & Sync")
             }
         },
         dismissButton = {

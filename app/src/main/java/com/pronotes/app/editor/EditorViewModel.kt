@@ -1455,7 +1455,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     }
 
     /**
-     * Picture quiz: the boxed area becomes the question's picture. With Gemini Nano the model reads
+     * Picture quiz: the boxed area becomes the question's picture. With the on-device model it reads
      * the picture and writes questions; otherwise you get an editor with the picture to write your own.
      */
     private fun startQuizFromArea(pageIdx: Int, r: RectF) {
@@ -1875,7 +1875,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         clearTextSel()
     }
 
-    /** Explanation of the selected text, from Gemini Nano when this device has it. */
+    /** Explanation of the selected text, from on-device model when available. */
     var explanation by mutableStateOf<Pair<String, String>?>(null)
 
     fun explainTextSel() {
@@ -1924,7 +1924,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         }
 
         viewModelScope.launch {
-            aiStage = "Gemini is explaining your lasso selection…"
+            aiStage = "Explaining selection…"
             aiBusy = true
             val pageCtx = extractPageSummaryText(pgIdx).ifBlank {
                 p.pdfPage?.let { pdfPg -> indexFor(pdfPg)?.pageText(pdfPg) }.orEmpty()
@@ -1932,10 +1932,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             val selectedText = if (extractedParts.isNotEmpty()) {
                 extractedParts.joinToString("\n")
             } else {
-                val strokeCount = selectedItems.count { it is InkItem }
-                val fillCount = selectedItems.count { it is FillItem }
-                val baseCtx = pageCtx.take(360).ifBlank { "Topic: $title (Page ${pgIdx + 1})" }
-                "Lassoed selection ($strokeCount strokes${if (fillCount > 0) ", $fillCount fills" else ""}) on Page ${pgIdx + 1} of \"$title\":\n$baseCtx"
+                val nearbyText = p.items.filterIsInstance<TextItem>().map { it.text.trim() }.filter { it.isNotBlank() }.take(3)
+                val headings = pageCtx.lines().map { it.trim() }.filter { it.length >= 4 }.take(2)
+                val topicHint = (nearbyText + headings).firstOrNull()?.take(80) ?: title
+                "Study concept on Page ${pgIdx + 1} ($topicHint)"
             }
             val ans = try {
                 runCatching { Nano.explain(selectedText, pageCtx) }.getOrNull()
@@ -1952,7 +1952,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun explainCurrentPage() {
         val pgIdx = pageIndex
         viewModelScope.launch {
-            aiStage = "Gemini is explaining Page ${pgIdx + 1}…"
+            aiStage = "Explaining Page ${pgIdx + 1}…"
             aiBusy = true
             val pageCtx = extractPageSummaryText(pgIdx).ifBlank {
                 pages.getOrNull(pgIdx)?.pdfPage?.let { pdfPg -> indexFor(pdfPg)?.pageText(pdfPg) }.orEmpty()

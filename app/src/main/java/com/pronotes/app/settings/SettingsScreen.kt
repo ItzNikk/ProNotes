@@ -781,7 +781,7 @@ private fun LocalAiSection(s: AppSettings, store: SettingsStore) {
                             when {
                                 s.customAiEnabled && s.customAiBaseUrl.isNotBlank() ->
                                     "Custom AI API (${s.customAiProvider.label}) is primary for Slides, Summary, Search, Quizzes & Mind Maps"
-                                Nano.available -> "Gemini Nano AICore is active on this device"
+                                Nano.available -> "On-Device Neural AICore is active on this device"
                                 else -> "Connect Custom AI API or download any of the 9 free local models for richer study AI"
                             },
                             style = MaterialTheme.typography.labelSmall,
@@ -800,7 +800,7 @@ private fun LocalAiSection(s: AppSettings, store: SettingsStore) {
         }
     }
 
-    Section("Custom AI API (OpenAI · Gemini · Ollama)") {
+    Section("Custom AI API (OpenAI · Google AI · Ollama)") {
         Toggle(
             "Use Custom AI API",
             "Connect your own API endpoint or local Ollama server (stored privately on device)",

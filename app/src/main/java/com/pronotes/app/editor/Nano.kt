@@ -7,8 +7,8 @@ import com.google.mlkit.genai.prompt.GenerativeModel
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Free on-device language model: Gemini Nano through ML Kit's Prompt API. It runs fully on the
- * tablet on supported devices (recent Pixel, Galaxy and others with Android AICore). Everywhere
+ * Free on-device language model through Android AICore's Prompt API. It runs fully on the
+ * tablet on supported modern devices. Everywhere
  * else [available] is false and the app falls back to its own rule-based study tools.
  */
 object Nano {

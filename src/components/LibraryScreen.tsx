@@ -11,6 +11,7 @@ import {
   Folder as FolderIcon,
   FolderPlus,
   Grid,
+  GripHorizontal,
   Heart,
   Layers,
   List,
@@ -43,6 +44,7 @@ import { CoverCanvas, FolderArt, NewNotebookModal, NewNotebookPayload } from './
 import { IMAGE_MODELS_CATALOG, LOCAL_MODELS_CATALOG } from '../utils/localAi';
 import { parseImportedFiles, parseImportedText } from '../utils/noteImporter';
 import { SupportBanner } from './SupportBannerModal';
+import { LiquidGlassSurface } from './LiquidGlassSurface';
 
 type Section = 'DOCUMENTS' | 'FAVORITES' | 'RECENT' | 'TRASH';
 
@@ -269,6 +271,42 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   const [menuId, setMenuId] = useState<string | null>(null);
   const [dragPayload, setDragPayload] = useState<string | null>(null);
   const [dropHoverId, setDropHoverId] = useState<string | null>(null);
+
+  const [navOffset, setNavOffset] = useState({ x: 0, y: 0 });
+  const [isDraggingNav, setIsDraggingNav] = useState(false);
+  const dragAnchorRef = React.useRef<{ startX: number; startY: number; initX: number; initY: number } | null>(null);
+
+  const handleNavPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setIsDraggingNav(true);
+    dragAnchorRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      initX: navOffset.x,
+      initY: navOffset.y,
+    };
+  };
+
+  const handleNavPointerMove = (e: React.PointerEvent) => {
+    if (!dragAnchorRef.current) return;
+    const dx = e.clientX - dragAnchorRef.current.startX;
+    const dy = e.clientY - dragAnchorRef.current.startY;
+    setNavOffset({
+      x: dragAnchorRef.current.initX + dx,
+      y: dragAnchorRef.current.initY + dy,
+    });
+  };
+
+  const handleNavPointerUp = (e: React.PointerEvent) => {
+    if (dragAnchorRef.current) {
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {}
+      dragAnchorRef.current = null;
+    }
+    setIsDraggingNav(false);
+  };
 
   const accent = ACCENT_COLORS[settings.accent];
   const readyModelCount = [...LOCAL_MODELS_CATALOG, ...IMAGE_MODELS_CATALOG].filter(
@@ -831,49 +869,77 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
           )}
         </div>
 
-        {/* iOS 26 Floating Liquid Glass Bottom Navigation Bar */}
-        <div className="pointer-events-none fixed bottom-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 px-4">
-          <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-white/45 bg-white/72 px-2 py-1.5 shadow-[0_12px_36px_rgba(15,23,42,0.16)] backdrop-blur-2xl dark:border-white/18 dark:bg-[#1C1E26]/78">
-            {(
-              [
-                { id: 'DOCUMENTS', label: 'Documents', icon: FileText },
-                { id: 'RECENT', label: 'Recent', icon: Clock },
-                { id: 'FAVORITES', label: 'Favorites', icon: Star },
-                { id: 'STUDY_ROOM', label: 'Study Room', icon: Users },
-                { id: 'TRASH', label: 'Trash', icon: Trash2 },
-              ] as const
-            ).map((tab) => {
-              const IconComp = tab.icon;
-              const active = section === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => {
-                    if (tab.id === 'STUDY_ROOM') {
-                      onOpenCollab?.();
-                    } else {
-                      setSection(tab.id);
-                      setFolderId(null);
-                    }
-                  }}
-                  className={`ios-stretch flex flex-col items-center gap-0.5 rounded-full px-3.5 py-1.5 text-[11px] font-bold transition ${
-                    active
-                      ? 'border border-white/55 bg-blue-500/18 text-blue-600 shadow-xs dark:text-blue-300'
-                      : 'text-slate-600 hover:bg-black/5 dark:text-slate-300 dark:hover:bg-white/10'
-                  }`}
-                >
-                  <IconComp className="h-4 w-4" />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
-          </div>
+        {/* iOS 26 Floating Draggable Liquid Glass Bottom Navigation Bar */}
+        <div
+          style={{
+            transform: `translate(calc(-50% + ${navOffset.x}px), ${navOffset.y}px)`,
+            transition: isDraggingNav ? 'none' : 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
+          }}
+          className="pointer-events-none fixed bottom-4 left-1/2 z-30 flex items-center gap-3 px-4 select-none"
+        >
+          <LiquidGlassSurface
+            enabled={settings.liquidGlass}
+            radius={28}
+            className="pointer-events-auto rounded-full border border-white/45 bg-white/72 shadow-[0_12px_36px_rgba(15,23,42,0.16)] backdrop-blur-2xl dark:border-white/18 dark:bg-[#1C1E26]/78"
+          >
+            <div className="flex flex-col items-center px-2 py-1">
+              {/* Drag Handle Indicator */}
+              <div
+                onPointerDown={handleNavPointerDown}
+                onPointerMove={handleNavPointerMove}
+                onPointerUp={handleNavPointerUp}
+                onPointerCancel={handleNavPointerUp}
+                onDoubleClick={() => setNavOffset({ x: 0, y: 0 })}
+                className="flex w-full items-center justify-center py-1 cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                title="Drag to reposition anywhere · Double-click to dock at bottom"
+              >
+                <div className="h-1 w-9 rounded-full bg-slate-400/35 transition hover:bg-slate-500/60 dark:bg-white/30" />
+              </div>
+
+              <div className="flex items-center gap-1 pb-0.5">
+                {(
+                  [
+                    { id: 'DOCUMENTS', label: 'Documents', icon: FileText },
+                    { id: 'RECENT', label: 'Recent', icon: Clock },
+                    { id: 'FAVORITES', label: 'Favorites', icon: Star },
+                    { id: 'STUDY_ROOM', label: 'Study Room', icon: Users },
+                    { id: 'TRASH', label: 'Trash', icon: Trash2 },
+                  ] as const
+                ).map((tab) => {
+                  const IconComp = tab.icon;
+                  const active = section === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => {
+                        if (tab.id === 'STUDY_ROOM') {
+                          onOpenCollab?.();
+                        } else {
+                          setSection(tab.id);
+                          setFolderId(null);
+                        }
+                      }}
+                      className={`ios-stretch flex flex-col items-center gap-0.5 rounded-full px-3.5 py-1 text-[11px] font-bold transition ${
+                        active
+                          ? 'border border-white/55 bg-blue-500/18 text-blue-600 shadow-xs dark:text-blue-300'
+                          : 'text-slate-600 hover:bg-black/5 dark:text-slate-300 dark:hover:bg-white/10'
+                      }`}
+                    >
+                      <IconComp className="h-4 w-4" />
+                      <span>{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </LiquidGlassSurface>
+
           <button
             type="button"
             onClick={() => setNewModal({ open: true, mode: 'notebook' })}
             title="New Notebook"
-            className="pointer-events-auto ios-stretch flex h-12 w-12 items-center justify-center rounded-full border border-white/45 bg-gradient-to-tr from-[#4285F4] via-[#9B72CB] to-[#D96570] text-white shadow-[0_12px_28px_rgba(66,133,244,0.38)] backdrop-blur-2xl"
+            className="pointer-events-auto ios-stretch flex h-12 w-12 items-center justify-center rounded-full border border-white/45 bg-gradient-to-tr from-[#4285F4] via-[#9B72CB] to-[#D96570] text-white shadow-[0_12px_28px_rgba(66,133,244,0.38)] backdrop-blur-2xl shrink-0"
           >
             <Plus className="h-5 w-5" />
           </button>

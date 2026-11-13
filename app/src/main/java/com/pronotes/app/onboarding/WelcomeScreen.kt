@@ -1235,7 +1235,7 @@ private fun AiStudioSetupPage(active: Boolean, store: SettingsStore, onNext: () 
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("Custom AI API (OpenAI · Gemini · Ollama)", fontWeight = FontWeight.Bold)
+                            Text("Custom AI API (OpenAI · Google AI · Ollama)", fontWeight = FontWeight.Bold)
                             Text("Optional cloud or LAN endpoint for instant study generation", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Switch(s.customAiEnabled, { v -> store.update { it.copy(customAiEnabled = v) } })

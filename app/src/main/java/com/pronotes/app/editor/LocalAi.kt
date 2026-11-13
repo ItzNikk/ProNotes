@@ -2,6 +2,7 @@ package com.pronotes.app.editor
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.LinearGradient
 import android.graphics.Paint
@@ -120,7 +121,7 @@ data class ImageModelSpec(
 
 /**
  * Unified AI & On-Device Model hub:
- * Priority chain -> Custom AI API -> Gemini Nano -> Free Gemini-Vibe Cloud Tutor -> Downloaded GGUF / StudyGen.
+ * Priority chain -> Custom AI API -> On-Device AICore -> Free Studio Cloud Tutor -> Downloaded GGUF / StudyGen.
  * Supports full Pause, Resume (HTTP Range + .part persistence), and 100% error-free resilient downloads.
  */
 object LocalAiManager {
@@ -228,12 +229,12 @@ object LocalAiManager {
     val imageCatalog: List<ImageModelSpec> = listOf(
         ImageModelSpec(
             id = "galaxy-sketch-lite",
-            name = "Galaxy Creative Studio Lite",
-            backend = "Samsung Drawing Assist Lite",
+            name = "Creative Studio Lite",
+            backend = "Drawing Assist Lite (One UI 9 Inspired)",
             sizeLabel = "0 MB · Built-in Lite",
             approxBytes = 0L,
-            description = "Samsung Creative Studio style engine with 3D Cartoon, Watercolor, Sketch-to-Art, Pop Art & Anime modes.",
-            tags = listOf("Samsung Creative Vibe", "Lite Mode", "Instant"),
+            description = "One UI 9 inspired studio design engine with 3D Cartoon, Watercolor, Sketch to Art, Pop Art & Anime modes.",
+            tags = listOf("One UI 9 Vibe", "Lite Mode", "Instant"),
             downloadUrl = "",
             fileName = "",
             builtInReady = true,
@@ -383,9 +384,9 @@ object LocalAiManager {
     fun activeEngineLabel(context: Context): String {
         val s = SettingsStore.get(context).settings.value
         if (hasCustomApi(context)) return "Custom API · ${s.customAiModel}"
-        if (Nano.available) return "Gemini Nano (On-Device)"
+        if (Nano.available) return "On-Device AI Engine"
         activeSpec(context)?.let { return "${it.name} (Local)" }
-        return "Gemini Study Engine"
+        return "Pro Study Engine"
     }
 
     /**
@@ -790,10 +791,11 @@ object LocalAiManager {
 
     /**
      * 100% Free, Zero-Key LLM Chat Completion client so users get real conversational answers
-     * to their exact questions even without configuring an external API key.
+     * to their exact questions with dual-channel network fallback.
      */
     private suspend fun callFreePublicAi(systemPrompt: String, userPrompt: String): String? = withContext(Dispatchers.IO) {
-        runCatching {
+        // Attempt 1: Pollinations OpenAI-compatible chat endpoint
+        val r1 = runCatching {
             val payload = buildJsonObject {
                 put("model", "openai")
                 put("messages", buildJsonArray {
@@ -804,29 +806,40 @@ object LocalAiManager {
             val conn = (URL("https://text.pollinations.ai/openai").openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 doOutput = true
-                connectTimeout = 9_000
-                readTimeout = 16_000
+                connectTimeout = 7_000
+                readTimeout = 14_000
                 setRequestProperty("Content-Type", "application/json")
                 setRequestProperty("User-Agent", "ProNotes-Android/10.0")
             }
-            try {
-                conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
-                if (conn.responseCode in 200..299) {
-                    val raw = conn.inputStream.bufferedReader().use { it.readText() }.trim()
-                    if (raw.startsWith("{")) {
-                        val root = json.parseToJsonElement(raw).jsonObject
-                        val content = root["choices"]?.jsonArray?.firstOrNull()?.jsonObject
-                            ?.get("message")?.jsonObject?.get("content")?.jsonPrimitive?.content
-                        if (!content.isNullOrBlank()) return@withContext content.trim()
-                    } else if (raw.isNotBlank()) {
-                        return@withContext raw
-                    }
-                }
-            } finally {
-                conn.disconnect()
-            }
-            null
+            conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+            if (conn.responseCode in 200..299) {
+                val raw = conn.inputStream.bufferedReader().use { it.readText() }.trim()
+                if (raw.startsWith("{")) {
+                    val root = json.parseToJsonElement(raw).jsonObject
+                    root["choices"]?.jsonArray?.firstOrNull()?.jsonObject
+                        ?.get("message")?.jsonObject?.get("content")?.jsonPrimitive?.content?.trim()
+                } else raw.takeIf { it.isNotBlank() }
+            } else null
         }.getOrNull()
+        if (!r1.isNullOrBlank()) return@withContext r1
+
+        // Attempt 2: Direct Pollinations query string endpoint
+        val r2 = runCatching {
+            val cleanUser = URLEncoder.encode(userPrompt.take(1200), "UTF-8")
+            val cleanSys = URLEncoder.encode(systemPrompt.take(400), "UTF-8")
+            val conn = (URL("https://text.pollinations.ai/$cleanUser?system=$cleanSys").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 6_000
+                readTimeout = 12_000
+                setRequestProperty("User-Agent", "ProNotes-Android/10.0")
+            }
+            if (conn.responseCode in 200..299) {
+                conn.inputStream.bufferedReader().use { it.readText() }.trim().takeIf { it.isNotBlank() }
+            } else null
+        }.getOrNull()
+        if (!r2.isNullOrBlank()) return@withContext r2
+
+        null
     }
 
     suspend fun testCustomApi(context: Context): Result<String> {
@@ -905,9 +918,13 @@ object LocalAiManager {
     // ---------------------------------------------------------------- Explain (Text Selection & Lasso Selection)
 
     suspend fun explain(context: Context, selection: String, pageContext: String): String = withContext(Dispatchers.Default) {
-        val cleanSel = selection.trim()
-        val sys = "You are Gemini Study Tutor inside Pro Notes. Explain the user's selected text or lassoed note content clearly and directly in 3-5 helpful sentences, including key definitions or formulas if relevant."
-        val usr = "Selected content:\n$cleanSel\n\nSurrounding Page Context:\n${pageContext.take(3500)}"
+        val rawSel = selection.trim()
+        val cleanSel = if (rawSel.startsWith("Study concept from Page") || rawSel.contains("strokes")) {
+            rawSel.substringAfter("(").substringBefore(")").ifBlank { pageContext.take(120) }
+        } else rawSel
+
+        val sys = "You are an intelligent study tutor inside Pro Notes. Directly explain the user's selected study concept or question clearly and helpfully in 2-4 sentences, including key definitions, mechanisms, or formulas if relevant."
+        val usr = "Topic / Concept to Explain:\n$cleanSel\n\nSurrounding Page Context:\n${pageContext.take(3500)}"
 
         if (hasCustomApi(context) && cleanSel.isNotBlank()) {
             _stage.value = "Asking Custom AI…"
@@ -918,14 +935,23 @@ object LocalAiManager {
             }
         }
 
-        _stage.value = "Explaining with Gemini Study AI…"
+        if (Nano.available) {
+            _stage.value = "Thinking with On-Device AI…"
+            val nanoAi = runCatching { Nano.explain(cleanSel, pageContext) }.getOrNull()
+            if (!nanoAi.isNullOrBlank()) {
+                _stage.value = ""
+                return@withContext nanoAi
+            }
+        }
+
+        _stage.value = "Synthesizing explanation…"
         val freeAi = callFreePublicAi(sys, usr)
         if (!freeAi.isNullOrBlank()) {
             _stage.value = ""
             return@withContext freeAi
         }
 
-        delay(120)
+        _stage.value = ""
         val combined = (cleanSel + "\n" + pageContext).trim()
         val facts = StudyGen.facts(combined)
         val exactFact = facts.firstOrNull {
@@ -933,22 +959,25 @@ object LocalAiManager {
                 cleanSel.contains(it.term, ignoreCase = true) ||
                 it.sentence.contains(cleanSel, ignoreCase = true)
         }
-        _stage.value = ""
         if (exactFact != null) {
-            return@withContext "✨ ${exactFact.term}\n\n${exactFact.meaning}\n\nKey takeaway: ${exactFact.sentence}"
+            return@withContext "✨ ${exactFact.term}\n\n${exactFact.meaning}\n\nKey Takeaway: ${exactFact.sentence}"
         }
         val sentences = StudyGen.sentences(combined)
-        val matching = sentences.filter { it.contains(cleanSel.take(28), ignoreCase = true) }.take(3)
+        val matching = sentences.filter { s ->
+            val low = s.lowercase()
+            cleanSel.lowercase().split(Regex("\\s+")).filter { it.length >= 3 }.any { low.contains(it) }
+        }.take(3)
         val terms = StudyGen.keyTerms(combined, 5)
         buildString {
-            appendLine("✨ Concept Breakdown: \"${cleanSel.take(90)}\"")
+            appendLine("✨ Concept Breakdown: ${cleanSel.take(80)}")
             appendLine()
             if (matching.isNotEmpty()) {
                 matching.forEach { appendLine("• $it") }
             } else if (sentences.isNotEmpty()) {
-                sentences.take(3).forEach { appendLine("• $it") }
+                sentences.take(2).forEach { appendLine("• $it") }
             } else {
-                appendLine("• \"$cleanSel\" is a core concept on this page.")
+                appendLine("• $cleanSel represents a key principle within this notebook page.")
+                appendLine("• Review related notes or ask in the Study Assistant chat for a full step-by-step breakdown.")
             }
             if (terms.isNotEmpty()) {
                 appendLine("\nConnected terms: ${terms.joinToString(", ")}")
@@ -1181,7 +1210,7 @@ object LocalAiManager {
         )
     }
 
-    // ---------------------------------------------------------------- v10 Gemini-Vibe AI Chat over Notes & PDFs
+    // ---------------------------------------------------------------- Study Assistant AI Chat over Notes & PDFs
 
     suspend fun chatAboutNotesAndPdf(
         context: Context,
@@ -1205,15 +1234,15 @@ object LocalAiManager {
         val contextBlock = topPages.joinToString("\n\n") { (p, txt, _) -> "[Page ${p + 1}]\n${txt.take(1500)}" }
         val histTxt = history.takeLast(6).joinToString("\n") { (r, m) -> "$r: ${m.take(400)}" }
 
-        val systemPrompt = "You are Gemini Study Assistant built into Pro Notes. Directly and helpfully answer the user's question. " +
-            "If the user's notebook or PDF context contains relevant facts, cite [Page N] and use them. " +
-            "If the user asks a general question, math problem, explanation, or study request not yet written on the page, answer their question directly, accurately, and concisely."
+        val systemPrompt = "You are Study Assistant inside Pro Notes. Directly and helpfully answer the user's question. " +
+            "If the question asks about concepts in \"$notebookTitle\", cite [Page N] and explain them clearly. " +
+            "If the user asks an academic, math, or general knowledge question, answer it directly, accurately, and thoroughly with step-by-step logic."
         val userPayload = "Notebook Title: $notebookTitle\n\n" +
-            "Notebook / PDF Excerpts:\n${contextBlock.ifBlank { "(Page currently has drawings/ink or no typed text yet)" }}\n\n" +
+            "Notebook / PDF Excerpts:\n${contextBlock.ifBlank { "(Current page has ink/sketches without typed text)" }}\n\n" +
             "Conversation History:\n$histTxt\n\n" +
             "User Question: $q"
 
-        // 1. Custom AI API if enabled
+        // 1. Custom AI API if configured
         if (hasCustomApi(context)) {
             _stage.value = "Thinking with ${activeEngineLabel(context)}…"
             val resp = callCustomApi(context, systemPrompt, userPayload).getOrNull()
@@ -1221,15 +1250,15 @@ object LocalAiManager {
             if (!resp.isNullOrBlank()) return@withContext resp
         }
 
-        // 2. On-device Gemini Nano AICore if available
+        // 2. On-device local language model if available
         if (Nano.available) {
-            _stage.value = "Thinking with Gemini Nano…"
-            val nanoResp = runCatching { Nano.explain(q, contextBlock.ifBlank { notebookTitle }) }.getOrNull()
+            _stage.value = "Thinking with on-device AI…"
+            val nanoResp = runCatching { Nano.ask("$systemPrompt\n\n$userPayload") }.getOrNull()
             _stage.value = ""
             if (!nanoResp.isNullOrBlank()) return@withContext nanoResp
         }
 
-        // 3. Free Keyless Gemini-Vibe AI Responder (answers any user question directly!)
+        // 3. Free Keyless AI Responder (direct answers to any prompt)
         _stage.value = "Synthesizing answer…"
         val freeAi = callFreePublicAi(systemPrompt, userPayload)
         _stage.value = ""
@@ -1237,7 +1266,7 @@ object LocalAiManager {
             return@withContext freeAi
         }
 
-        // 4. Smart Question-Aware Offline Responder (when device has no internet)
+        // 4. Smart Question-Aware Offline Study Responder
         answerQuestionOffline(q, qTokens, notebookTitle, topPages, pagesText.size)
     }
 
@@ -1251,12 +1280,12 @@ object LocalAiManager {
         val low = q.lowercase().trim()
         val combined = topPages.joinToString("\n") { it.second }.trim()
 
-        // Direct greetings
+        // 1. Greetings
         if (low in setOf("hi", "hello", "hey", "hola", "yo") || low.startsWith("hello ") || low.startsWith("hi ")) {
-            return "Hello! I'm your Gemini Study Assistant for \"$notebookTitle\" ($totalPages pages). Ask me to explain a concept, solve a problem, quiz you, or summarize any page!"
+            return "Hello! I'm your Study Assistant for **$notebookTitle** ($totalPages pages). Ask me to explain a theorem, solve an equation, quiz your recall, or summarize key ideas!"
         }
 
-        // Direct math evaluation (e.g., "what is 12 * 15" or "24 + 88")
+        // 2. Direct Math & Arithmetic Evaluation
         val mathMatch = Regex("""(-?\d+(?:\.\d+)?)\s*([+\-*/×÷^])\s*(-?\d+(?:\.\d+)?)""").find(low)
         if (mathMatch != null) {
             val a = mathMatch.groupValues[1].toDoubleOrNull()
@@ -1273,72 +1302,89 @@ object LocalAiManager {
                 }
                 if (!res.isNaN()) {
                     val fmt = if (res == res.toLong().toDouble()) res.toLong().toString() else "%.4f".format(res).trimEnd('0').trimEnd('.')
-                    return "**$a $op $b = $fmt**\n\nLet me know if you'd like the step-by-step work inserted onto your note page!"
+                    return "**$a $op $b = $fmt**\n\n• Operation: $op\n• Result: $fmt\n\nTap **Insert to Page** to add this step-by-step solution to your notes!"
                 }
             }
         }
 
-        // Quiz request
-        if ("quiz" in low || "test me" in low || "question" in low && "ask" in low) {
+        // 3. Quiz & Practice Requests
+        if ("quiz" in low || "test me" in low || "practice" in low || ("question" in low && "ask" in low)) {
             if (combined.isNotBlank()) {
                 val mcqs = StudyGen.quiz(combined, 3)
                 if (mcqs.isNotEmpty()) {
                     return buildString {
-                        appendLine("Here is a quick 3-question check from **$notebookTitle**:")
+                        appendLine("Here is a 3-question recall check from **$notebookTitle**:")
                         mcqs.forEachIndexed { idx, m ->
                             appendLine("\n**Q${idx + 1}. ${m.question}**")
                             m.options.forEachIndexed { oi, opt -> appendLine("  ${'A' + oi}) $opt") }
-                            appendLine("  *Answer: ${'A' + m.answer}*")
+                            appendLine("  *Answer: ${'A' + m.answer}* (${m.explanation})")
                         }
                     }.trim()
                 }
             }
-            return "Here is a quick study recall check for **$notebookTitle**:\n\n" +
-                "1. What is the single most important thesis or formula in **$notebookTitle**?\n" +
-                "2. How does the main concept connect to real-world applications?\n" +
-                "3. Which term on this page would you put on a flashcard first?"
+            return "Here is a quick concept check for **$notebookTitle**:\n\n" +
+                "1. **Primary Principle**: What is the core definition or governing law in this topic?\n" +
+                "2. **Mechanism**: What causes this phenomenon or how does this formula behave under boundary conditions?\n" +
+                "3. **Application**: How is this theory applied in modern practice or engineering?"
         }
 
-        // Relevant sentences in notes
-        if (combined.isNotBlank()) {
-            val sentences = StudyGen.sentences(combined)
-            val matched = sentences.filter { s ->
-                val sLow = s.lowercase()
-                qTokens.any { sLow.contains(it) }
-            }.take(4)
-            val citations = topPages.joinToString(", ") { "[Page ${it.first + 1}]" }
-            if (matched.isNotEmpty()) {
+        // 4. Summary / Overview Requests
+        if ("summar" in low || "recap" in low || "overview" in low || "tldr" in low) {
+            val pts = if (combined.isNotBlank()) StudyGen.summary(combined, 5) else emptyList()
+            if (pts.isNotEmpty()) {
+                val citations = topPages.joinToString(", ") { "[Page ${it.first + 1}]" }
                 return buildString {
-                    appendLine("Based on your notes in **$notebookTitle** ($citations):")
+                    appendLine("Summary of **$notebookTitle** ($citations):")
                     appendLine()
-                    matched.forEach { appendLine("• $it") }
-                    val facts = StudyGen.facts(combined).filter { f -> qTokens.any { f.term.lowercase().contains(it) } }.take(2)
-                    if (facts.isNotEmpty()) {
-                        appendLine("\n**Key Definitions:**")
-                        facts.forEach { appendLine("• **${it.term}**: ${it.meaning}") }
-                    }
+                    pts.forEach { appendLine("• $it") }
                 }.trim()
             }
-            val pts = StudyGen.summary(combined, 4).ifEmpty { sentences.take(3) }
-            return buildString {
-                appendLine("Regarding **\"$q\"** in **$notebookTitle** ($citations):")
-                appendLine()
-                pts.forEach { appendLine("• $it") }
-            }.trim()
         }
 
-        // General topic question when page has no typed text yet
-        val cleanTopic = q.replace(Regex("(?i)^(what is|what are|explain|define|how does|how do|tell me about|why is)\\s+"), "").trim('?', '.', ' ')
+        // 5. Concept Explanation: "What is X", "Explain X", "Define X"
+        val conceptQuery = q.replace(Regex("(?i)^(what is|what are|explain|define|how does|how do|tell me about|why is)\\s+"), "").trim('?', '.', ' ')
+        if (combined.isNotBlank()) {
+            val facts = StudyGen.facts(combined)
+            val matchingFact = facts.firstOrNull {
+                it.term.contains(conceptQuery, ignoreCase = true) || conceptQuery.contains(it.term, ignoreCase = true)
+            }
+            if (matchingFact != null) {
+                return buildString {
+                    appendLine("✨ **${matchingFact.term}**")
+                    appendLine()
+                    appendLine("• **Definition**: ${matchingFact.meaning}")
+                    appendLine("• **Context**: ${matchingFact.sentence}")
+                    val cit = topPages.firstOrNull { it.second.contains(matchingFact.term, ignoreCase = true) }?.first?.let { "Page ${it + 1}" } ?: "Notes"
+                    appendLine("• **Source**: Found in $cit of \"$notebookTitle\".")
+                }.trim()
+            }
+
+            val sentences = StudyGen.sentences(combined)
+            val matchedSentences = sentences.filter { s ->
+                val sLow = s.lowercase()
+                qTokens.any { sLow.contains(it) }
+            }.take(3)
+            if (matchedSentences.isNotEmpty()) {
+                val citations = topPages.joinToString(", ") { "[Page ${it.first + 1}]" }
+                return buildString {
+                    appendLine("Regarding **\"$q\"** in **$notebookTitle** ($citations):")
+                    appendLine()
+                    matchedSentences.forEach { appendLine("• $it") }
+                }.trim()
+            }
+        }
+
+        // 6. Direct Knowledge Explanation when notes don't have typed text
         return buildString {
-            appendLine("✨ **${cleanTopic.replaceFirstChar { it.uppercase() }}**")
+            appendLine("✨ **${conceptQuery.replaceFirstChar { it.uppercase() }}**")
             appendLine()
-            appendLine("• **Core Idea**: $cleanTopic is a foundational concept related to your study session in \"$notebookTitle\".")
-            appendLine("• **How to Study It**: Break \"$cleanTopic\" into its definition, primary formula/mechanism, and one concrete example.")
-            appendLine("• **Tip**: Tap **Insert to Page** below to add this directly onto Page 1 as a study block!")
+            appendLine("• **Definition**: $conceptQuery is a fundamental concept in this study subject.")
+            appendLine("• **Key Framework**: To master $conceptQuery, focus on its primary definition, governing formulas or mechanisms, and practical applications.")
+            appendLine("• **Action**: Tap **Insert to Page** below to capture this study card directly into \"$notebookTitle\".")
         }.trim()
     }
 
-    // ---------------------------------------------------------------- v10 Samsung Creative Studio AI Stickers, Covers & Templates
+    // ---------------------------------------------------------------- Creative Studio (One UI 9 Inspired) AI Stickers, Covers & Templates
 
     suspend fun generateAiAssetBitmap(
         context: Context,
@@ -1360,16 +1406,52 @@ object LocalAiManager {
     ): Bitmap = withContext(Dispatchers.Default) {
         val cleanPrompt = prompt.trim().ifBlank {
             when (kind) {
-                AiAssetKind.STICKER -> "Galaxy Star Badge"
-                AiAssetKind.COVER -> "Creative Studio Journal"
+                AiAssetKind.STICKER -> "Study Goal Badge"
+                AiAssetKind.COVER -> "Minimal Studio Journal"
                 AiAssetKind.TEMPLATE -> "Cornell Study Planner"
             }
         }
+
+        val seed = (cleanPrompt + style.name).hashCode().let { if (it < 0) -it else it }
+        val cacheFile = File(context.cacheDir, "ai_asset_${kind.name.lowercase()}_${seed}_${style.name.lowercase()}.png")
+        if (cacheFile.exists() && cacheFile.length() > 2048L) {
+            BitmapFactory.decodeFile(cacheFile.absolutePath)?.let { return@withContext it }
+        }
+
+        // Real Prompt-Driven AI Image Synthesis from user's exact prompt
+        if (!liteMode) {
+            val fullPrompt = when (kind) {
+                AiAssetKind.STICKER -> "$cleanPrompt, cute sticker die-cut design, ${style.label} illustration, crisp white border, high quality digital artwork, solid clean backdrop"
+                AiAssetKind.COVER -> "$cleanPrompt, beautiful aesthetic journal book cover art, ${style.label} style, high quality elegant composition"
+                AiAssetKind.TEMPLATE -> "$cleanPrompt, stationery study organizer template, clean grid, ${style.label} accents"
+            }
+            val netBmp = withContext(Dispatchers.IO) {
+                runCatching {
+                    val genUrl = "https://image.pollinations.ai/prompt/${URLEncoder.encode(fullPrompt, "UTF-8")}?width=$width&height=$height&nologo=true&seed=$seed"
+                    val conn = (URL(genUrl).openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 8_000
+                        readTimeout = 16_000
+                        setRequestProperty("User-Agent", "ProNotes-Android/10.0")
+                    }
+                    if (conn.responseCode in 200..299) {
+                        val b = BitmapFactory.decodeStream(conn.inputStream)
+                        if (b != null) {
+                            runCatching {
+                                cacheFile.outputStream().use { b.compress(Bitmap.CompressFormat.PNG, 95, it) }
+                            }
+                            b
+                        } else null
+                    } else null
+                }.getOrNull()
+            }
+            if (netBmp != null) return@withContext netBmp
+        }
+
         var aiBadge = ""
         var aiAccent = accentArgb
         var layoutMode = ""
         if (hasCustomApi(context) && !liteMode) {
-            _stage.value = "Samsung Creative Studio · Designing ${kind.label.lowercase()}…"
+            _stage.value = "Creative Studio · Designing ${kind.label.lowercase()}…"
             val resp = callCustomApi(
                 context,
                 "Return JSON only: {\"badge\":\"2-3 word label\",\"hex\":\"#3D6CF4\",\"layout\":\"cornell|weekly|habit|storyboard|grid|star|ribbon|crest|cosmos|botanical\"}.",

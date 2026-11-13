@@ -114,7 +114,7 @@ import java.io.File
 
 private val PillShape = CircleShape
 
-private val GeminiGradientBrush = Brush.linearGradient(
+private val StudioGradientBrush = Brush.linearGradient(
     colors = listOf(
         Color(0xFF4285F4),
         Color(0xFF9B72CB),
@@ -122,7 +122,7 @@ private val GeminiGradientBrush = Brush.linearGradient(
     ),
 )
 
-private val SamsungStudioGradientBrush = Brush.linearGradient(
+private val OneUi9GradientBrush = Brush.linearGradient(
     colors = listOf(
         Color(0xFF6366F1),
         Color(0xFFA855F7),
@@ -131,7 +131,7 @@ private val SamsungStudioGradientBrush = Brush.linearGradient(
     ),
 )
 
-// ========================================================================= 1. AI Notes & PDF Chat (Google Gemini Vibe)
+// ========================================================================= 1. AI Notes & PDF Chat (Study Assistant)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -179,16 +179,16 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                 .fillMaxWidth()
                 .heightIn(max = 820.dp)
                 .statusBarsPadding()
-                .border(1.5.dp, GeminiGradientBrush, RoundedCornerShape(32.dp)),
+                .border(1.5.dp, StudioGradientBrush, RoundedCornerShape(32.dp)),
         ) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                // Gemini Header Bar
+                // Header Bar
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         Modifier
                             .size(40.dp)
                             .clip(CircleShape)
-                            .background(GeminiGradientBrush),
+                            .background(StudioGradientBrush),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(Icons.Outlined.AutoAwesome, null, tint = Color.White, modifier = Modifier.size(22.dp))
@@ -197,9 +197,9 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(
-                                "Gemini Study Assistant",
+                                "Study Assistant",
                                 style = MaterialTheme.typography.titleLarge.copy(
-                                    brush = GeminiGradientBrush,
+                                    brush = StudioGradientBrush,
                                     fontWeight = FontWeight.ExtraBold,
                                 ),
                             )
@@ -285,7 +285,7 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                 Text(
                                     "Hello, Scholar.",
                                     style = TextStyle(
-                                        brush = GeminiGradientBrush,
+                                        brush = StudioGradientBrush,
                                         fontSize = 30.sp,
                                         fontWeight = FontWeight.ExtraBold,
                                     ),
@@ -359,7 +359,7 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                         .padding(top = 4.dp, end = 8.dp)
                                         .size(28.dp)
                                         .clip(CircleShape)
-                                        .background(GeminiGradientBrush),
+                                        .background(StudioGradientBrush),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Icon(Icons.Outlined.AutoAwesome, null, tint = Color.White, modifier = Modifier.size(15.dp))
@@ -409,16 +409,16 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                 }
 
                 if (busy) {
-                    ThinkingPill(engine = vm.aiEngineLabel, stage = "Gemini is thinking & analyzing your notes…")
+                    ThinkingPill(engine = vm.aiEngineLabel, stage = "Analyzing notes and synthesizing answer…")
                 }
 
-                // Floating Gemini Prompt Pill Composer
+                // Floating Prompt Pill Composer
                 Surface(
                     shape = PillShape,
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, GeminiGradientBrush, PillShape),
+                        .border(1.dp, StudioGradientBrush, PillShape),
                 ) {
                     Row(
                         Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
@@ -434,7 +434,7 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                         OutlinedTextField(
                             value = input,
                             onValueChange = { input = it },
-                            placeholder = { Text("Ask Gemini anything about your notes or PDF or general topic…") },
+                            placeholder = { Text("Ask anything about your notes, PDF, or study topic…") },
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = Color.Transparent,
@@ -451,7 +451,7 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4285F4)),
                             modifier = Modifier.elasticStretch(),
                         ) {
-                            Icon(Icons.AutoMirrored.Outlined.Send, "Ask Gemini", tint = Color.White)
+                            Icon(Icons.AutoMirrored.Outlined.Send, "Ask", tint = Color.White)
                         }
                     }
                 }
@@ -528,18 +528,18 @@ fun AiAssetStudioDialog(
                 .fillMaxWidth()
                 .heightIn(max = 860.dp)
                 .statusBarsPadding()
-                .border(1.5.dp, SamsungStudioGradientBrush, RoundedCornerShape(32.dp)),
+                .border(1.5.dp, OneUi9GradientBrush, RoundedCornerShape(32.dp)),
         ) {
             Column(
                 Modifier.padding(18.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                // Samsung Galaxy AI Creative Studio Iridescent Header Banner
+                // One UI 9 Inspired Creative Studio Iridescent Header Banner
                 Box(
                     Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(24.dp))
-                        .background(SamsungStudioGradientBrush)
+                        .background(OneUi9GradientBrush)
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -555,7 +555,7 @@ fun AiAssetStudioDialog(
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(
-                                "Galaxy Creative Studio",
+                                "Creative Studio",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = Color.White,
@@ -832,17 +832,17 @@ fun AiAssetStudioDialog(
                         .height(240.dp)
                         .clip(RoundedCornerShape(24.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-                        .border(1.dp, SamsungStudioGradientBrush, RoundedCornerShape(24.dp)),
+                        .border(1.dp, OneUi9GradientBrush, RoundedCornerShape(24.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
                     preview?.let {
                         Image(
                             it.asImageBitmap(),
-                            "Samsung Creative Studio Preview",
+                            "Creative Studio Preview",
                             contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxSize().padding(14.dp),
                         )
-                    } ?: Text("Tap Generate to create with Galaxy Creative Studio", style = MaterialTheme.typography.bodySmall)
+                    } ?: Text("Tap Generate to create in Creative Studio", style = MaterialTheme.typography.bodySmall)
 
                     // Style & Lite Mode Badge Overlay
                     Surface(

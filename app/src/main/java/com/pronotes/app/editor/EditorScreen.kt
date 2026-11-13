@@ -1163,19 +1163,19 @@ private fun TopBar(
             }
             DropdownMenu(aiMenuOpen, { aiMenuOpen = false }, shape = RoundedCornerShape(22.dp)) {
                 Text(
-                    "✨ GEMINI & GALAXY AI STUDIO",
+                    "✨ PRO AI STUDIO",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
                 DropdownMenuItem(
-                    text = { Text("Gemini AI Chat (Notes & PDF)", fontWeight = FontWeight.SemiBold) },
+                    text = { Text("AI Study Chat (Notes & PDF)", fontWeight = FontWeight.SemiBold) },
                     leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null, tint = Color(0xFF4285F4)) },
                     onClick = { aiMenuOpen = false; onAiChat() },
                 )
                 DropdownMenuItem(
-                    text = { Text("Galaxy Creative Studio (Stickers / Covers)") },
+                    text = { Text("Creative Studio (Stickers / Covers)") },
                     leadingIcon = { Icon(Icons.Outlined.Palette, null, tint = Color(0xFF9B72CB)) },
                     onClick = { aiMenuOpen = false; onAssetStudio(AiAssetKind.STICKER) },
                 )
@@ -3066,108 +3066,93 @@ private fun SplitPanel(
     fun extractPageText(pageIdx: Int): String = vm2.extractPageSummaryText(pageIdx)
 
     Column(modifier.background(MaterialTheme.colorScheme.surfaceContainerLow)) {
-        // Clean single top header
+        // Clean One UI 9 inspired Split View Header
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Box(Modifier.weight(1f)) {
-                TextButton(onClick = { pick = true }, modifier = Modifier.elasticStretch()) {
-                    Text(vm2.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Icon(Icons.Filled.KeyboardArrowDown, null)
+                Surface(
+                    shape = Pill,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.clip(Pill).clickable { pick = true }.elasticStretch(),
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(Icons.Outlined.Book, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                        Text(vm2.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(16.dp))
+                    }
                 }
                 DropdownMenu(pick, { pick = false }, shape = RoundedCornerShape(18.dp)) {
                     others.forEach { (id, t) -> DropdownMenuItem(text = { Text(t) }, onClick = { pick = false; onPick(id) }) }
                 }
             }
+
+            // Quick Ratio & Swap Pill
+            Row(
+                Modifier.clip(Pill).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)).padding(horizontal = 2.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onSwap, modifier = Modifier.size(28.dp).elasticStretch()) {
+                    Icon(Icons.Outlined.SwapHoriz, "Swap Panes", Modifier.size(16.dp))
+                }
+                TextButton(onClick = { onRatioPreset(1f) }, contentPadding = PaddingValues(horizontal = 6.dp), modifier = Modifier.height(28.dp)) {
+                    Text("1:1", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                }
+                TextButton(onClick = { onRatioPreset(0.43f) }, contentPadding = PaddingValues(horizontal = 6.dp), modifier = Modifier.height(28.dp)) {
+                    Text("70:30", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+
+            // Write / Read Mode Toggle
             Surface(
                 shape = Pill,
-                color = if (writeMode) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.elasticStretch().clip(Pill).clickable { writeMode = !writeMode },
+                color = if (writeMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = if (writeMode) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.clip(Pill).clickable { writeMode = !writeMode }.elasticStretch(),
             ) {
                 Row(Modifier.padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        if (writeMode) Icons.Outlined.Brush else Icons.Outlined.Edit,
+                        if (writeMode) Icons.Outlined.Brush else Icons.Outlined.MenuBook,
                         null,
-                        Modifier.size(14.dp),
-                        tint = if (writeMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        Modifier.size(13.dp),
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
                         if (writeMode) "Write" else "Read",
                         style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (writeMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Bold,
                     )
                 }
             }
+
             if (writeMode) {
                 IconButton(
                     enabled = vm2.canUndo,
                     onClick = vm2::undo,
-                    modifier = Modifier.size(34.dp).elasticStretch(),
+                    modifier = Modifier.size(32.dp).elasticStretch(),
                 ) {
-                    Icon(Icons.AutoMirrored.Outlined.Undo, "Undo split edit", Modifier.size(18.dp))
+                    Icon(Icons.AutoMirrored.Outlined.Undo, "Undo", Modifier.size(17.dp))
                 }
             }
+
             Box {
-                IconButton(onClick = { splitMenu = true }, modifier = Modifier.size(34.dp).elasticStretch()) {
-                    Icon(Icons.Outlined.MoreHoriz, "Split view options", Modifier.size(20.dp))
+                IconButton(onClick = { splitMenu = true }, modifier = Modifier.size(32.dp).elasticStretch()) {
+                    Icon(Icons.Outlined.MoreVert, "Split Options", Modifier.size(18.dp))
                 }
                 DropdownMenu(splitMenu, { splitMenu = false }, shape = RoundedCornerShape(18.dp)) {
                     DropdownMenuItem(
-                        text = { Text(if (syncPage) "Sync Page: On" else "Sync Page: Off") },
-                        onClick = { splitMenu = false; syncPage = !syncPage },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(if (showSplitSearch) "Hide Search" else "Search in Split Note") },
+                        text = { Text(if (showSplitSearch) "Hide Search" else "Search in Note") },
                         leadingIcon = { Icon(Icons.Outlined.Search, null, Modifier.size(18.dp)) },
                         onClick = {
                             splitMenu = false
                             showSplitSearch = !showSplitSearch
                             if (!showSplitSearch) vm2.clearSearch()
-                        },
-                    )
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text("Zoom: 50%") },
-                        onClick = { splitMenu = false; splitZoom = 0.5f; splitPan = Offset.Zero },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Zoom: Fit (100%)") },
-                        onClick = { splitMenu = false; splitZoom = 1f; splitPan = Offset.Zero },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Zoom: 150%") },
-                        onClick = { splitMenu = false; splitZoom = 1.5f },
-                    )
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text("Ratio: 30 / 70") },
-                        onClick = { splitMenu = false; onRatioPreset(2.33f) },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Ratio: 50 / 50") },
-                        onClick = { splitMenu = false; onRatioPreset(1f) },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Ratio: 70 / 30") },
-                        onClick = { splitMenu = false; onRatioPreset(0.43f) },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Swap Panes") },
-                        leadingIcon = { Icon(Icons.Outlined.SwapHoriz, null, Modifier.size(18.dp)) },
-                        onClick = { splitMenu = false; onSwap() },
-                    )
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text("Clip Page as Sticky") },
-                        leadingIcon = { Icon(Icons.Outlined.PushPin, null, Modifier.size(18.dp)) },
-                        onClick = {
-                            splitMenu = false
-                            val extracted = extractPageText(visiblePage)
-                            onClipToSticky(extracted.ifBlank { "Reference from ${vm2.title} (Page ${visiblePage + 1})" }, vm2.title)
                         },
                     )
                     DropdownMenuItem(
@@ -3180,21 +3165,23 @@ private fun SplitPanel(
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("+ Link Reference Card") },
-                        leadingIcon = { Icon(Icons.Outlined.Link, null, Modifier.size(18.dp)) },
+                        text = { Text("Clip Page as Sticky") },
+                        leadingIcon = { Icon(Icons.Outlined.PushPin, null, Modifier.size(18.dp)) },
                         onClick = {
                             splitMenu = false
-                            val firstLink = vm2.pages.getOrNull(visiblePage)?.items?.filterIsInstance<WebLinkItem>()?.firstOrNull()
-                            if (firstLink != null) onAddWebLink(firstLink.url, firstLink.title, firstLink.note)
-                            else {
-                                val snippet = extractPageText(visiblePage).take(90)
-                                onAddWebLink("https://pronotes.app/ref/${vm2.title.replace(" ", "-")}", "${vm2.title} · p.${visiblePage + 1}", snippet)
-                            }
+                            val extracted = extractPageText(visiblePage)
+                            onClipToSticky(extracted.ifBlank { "Reference from ${vm2.title} (Page ${visiblePage + 1})" }, vm2.title)
                         },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (syncPage) "Sync Page Scrolling: On" else "Sync Page Scrolling: Off") },
+                        leadingIcon = { Icon(Icons.Outlined.Sync, null, Modifier.size(18.dp)) },
+                        onClick = { splitMenu = false; syncPage = !syncPage },
                     )
                     HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text("Open Fullscreen") },
+                        leadingIcon = { Icon(Icons.Outlined.Fullscreen, null, Modifier.size(18.dp)) },
                         onClick = { splitMenu = false; onOpen(noteId) },
                     )
                     DropdownMenuItem(

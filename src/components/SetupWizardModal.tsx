@@ -216,7 +216,7 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
                   },
                   {
                     title: 'Local or Custom AI',
-                    desc: 'Run lightweight offline models or plug in OpenAI, Gemini, or Ollama.',
+                    desc: 'Run lightweight offline models or plug in OpenAI, Google AI, or Ollama.',
                     color: '#3D6CF4',
                   },
                 ].map((card) => (
@@ -520,7 +520,7 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
                   <div>
                     <div className="text-sm font-bold">Custom AI API (Optional)</div>
                     <div className="text-xs text-slate-500">
-                      Bring OpenAI-compatible, Gemini, or local Ollama endpoints
+                      Bring OpenAI-compatible, Google AI, or local Ollama endpoints
                     </div>
                   </div>
                   <button
@@ -542,7 +542,7 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
                       {(
                         [
                           { id: 'OPENAI_COMPATIBLE' as CustomAiProvider, label: 'OpenAI / Groq' },
-                          { id: 'GEMINI' as CustomAiProvider, label: 'Gemini' },
+                          { id: 'GEMINI' as CustomAiProvider, label: 'Google AI REST' },
                           { id: 'OLLAMA' as CustomAiProvider, label: 'Ollama Local' },
                         ]
                       ).map((p) => (
