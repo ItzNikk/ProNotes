@@ -8,6 +8,12 @@ import android.media.MediaRecorder
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -494,6 +500,29 @@ fun AiAssetStudioDialog(
     var preview by remember { mutableStateOf<Bitmap?>(null) }
     var busy by remember { mutableStateOf(false) }
 
+    val infiniteTransition = rememberInfiniteTransition(label = "creativeStudioShimmer")
+    val shimmerOffset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1200f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "shimmerOffset",
+    )
+    val generatingGradient = Brush.linearGradient(
+        colors = listOf(
+            Color(0xFF6366F1), // Indigo
+            Color(0xFF8B5CF6), // Purple
+            Color(0xFFEC4899), // Pink
+            Color(0xFF3B82F6), // Sky blue
+            Color(0xFF10B981), // Emerald
+            Color(0xFF6366F1), // Loop
+        ),
+        start = Offset(shimmerOffset - 600f, shimmerOffset * 0.35f),
+        end = Offset(shimmerOffset + 600f, shimmerOffset * 0.35f + 800f),
+    )
+
     LaunchedEffect(Unit) {
         LocalAiManager.refresh(context)
     }
@@ -825,33 +854,92 @@ fun AiAssetStudioDialog(
                     }
                 }
 
-                // Samsung Creative Studio Canvas Preview Stage
+                // Creative Studio Canvas Preview Stage with Animated Gradient Background while Generating
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .height(240.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-                        .border(1.dp, OneUi9GradientBrush, RoundedCornerShape(24.dp)),
+                        .height(260.dp)
+                        .clip(RoundedCornerShape(26.dp))
+                        .background(if (busy) generatingGradient else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                        .border(
+                            width = if (busy) 2.dp else 1.dp,
+                            brush = if (busy) Brush.linearGradient(listOf(Color.White, Color(0xFFEC4899), Color.White)) else OneUi9GradientBrush,
+                            shape = RoundedCornerShape(26.dp),
+                        ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    preview?.let {
-                        Image(
-                            it.asImageBitmap(),
-                            "Creative Studio Preview",
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize().padding(14.dp),
-                        )
-                    } ?: Text("Tap Generate to create in Creative Studio", style = MaterialTheme.typography.bodySmall)
+                    if (busy) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.padding(20.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.25f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Outlined.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(30.dp),
+                                )
+                            }
+                            Text(
+                                "Generating ${kind.label}…",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White,
+                            )
+                            Text(
+                                "\"$prompt\" · ${style.label}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.9f),
+                                maxLines = 2,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            )
+                            LinearProgressIndicator(
+                                modifier = Modifier
+                                    .width(180.dp)
+                                    .height(5.dp)
+                                    .clip(PillShape),
+                                color = Color.White,
+                                trackColor = Color.White.copy(alpha = 0.35f),
+                            )
+                        }
+                    } else {
+                        preview?.let {
+                            Image(
+                                it.asImageBitmap(),
+                                "Creative Studio Preview",
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxSize().padding(14.dp),
+                            )
+                        } ?: Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                Icons.Outlined.AutoAwesome,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(34.dp),
+                            )
+                            Text("Enter prompt to generate in Creative Studio", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
 
-                    // Style & Lite Mode Badge Overlay
+                    // Style & Mode Badge Overlay
                     Surface(
                         shape = PillShape,
                         color = Color.Black.copy(alpha = 0.62f),
                         modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp),
                     ) {
                         Text(
-                            "${style.badge} ${style.label} · ${if (settings.imageLiteMode) "⚡ Lite" else "HD"}",
+                            "${style.badge} ${style.label} · ${if (settings.imageLiteMode) "⚡ Turbo" else "HD"}",
                             style = MaterialTheme.typography.labelSmall,
                             color = Color.White,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),

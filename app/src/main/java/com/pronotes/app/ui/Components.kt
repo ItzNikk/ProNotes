@@ -333,55 +333,20 @@ fun Ios26LiquidBottomNavBar(
     onPrimaryAction: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    var dragOffset by remember { mutableStateOf(Offset.Zero) }
-    val animatedX by animateFloatAsState(
-        targetValue = dragOffset.x,
-        animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow),
-        label = "navDragX",
-    )
-    val animatedY by animateFloatAsState(
-        targetValue = dragOffset.y,
-        animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow),
-        label = "navDragY",
+    var isScrubbing by remember { mutableStateOf(false) }
+    val dockScale by animateFloatAsState(
+        targetValue = if (isScrubbing) 1.025f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "dockScale",
     )
 
     Row(
         modifier = modifier
             .padding(horizontal = 16.dp, vertical = 10.dp)
-            .graphicsLayer {
-                translationX = animatedX
-                translationY = animatedY
-            }
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onDoubleTap = { dragOffset = Offset.Zero },
-                )
-            }
-            .pointerInput(Unit) {
-                detectDragGestures(
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        dragOffset = Offset(
-                            (dragOffset.x + dragAmount.x).coerceIn(-340f, 340f),
-                            (dragOffset.y + dragAmount.y).coerceIn(-640f, 40f),
-                        )
-                    },
-                    onDragEnd = {
-                        if (dragOffset.y > -24f) dragOffset = Offset(0f, 0f)
-                    },
-                )
-            },
+            .scale(dockScale),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
     ) {
-        // Drag Grip Handle indicator
-        Box(
-            modifier = Modifier
-                .width(4.dp)
-                .height(28.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-        )
 
         OptionalLiquidGlassBox(
             backdrop = backdrop,
@@ -390,7 +355,26 @@ fun Ios26LiquidBottomNavBar(
             fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
+                modifier = Modifier
+                    .padding(horizontal = 6.dp, vertical = 5.dp)
+                    .pointerInput(tabs) {
+                        detectDragGestures(
+                            onDragStart = { offset ->
+                                isScrubbing = true
+                                val tabW = size.width.toFloat() / tabs.size.coerceAtLeast(1)
+                                val idx = (offset.x / tabW).toInt().coerceIn(0, tabs.size - 1)
+                                onSelect(tabs[idx].id)
+                            },
+                            onDrag = { change, _ ->
+                                change.consume()
+                                val tabW = size.width.toFloat() / tabs.size.coerceAtLeast(1)
+                                val idx = (change.position.x / tabW).toInt().coerceIn(0, tabs.size - 1)
+                                onSelect(tabs[idx].id)
+                            },
+                            onDragEnd = { isScrubbing = false },
+                            onDragCancel = { isScrubbing = false },
+                        )
+                    },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {

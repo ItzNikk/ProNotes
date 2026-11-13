@@ -1418,24 +1418,37 @@ object LocalAiManager {
             BitmapFactory.decodeFile(cacheFile.absolutePath)?.let { return@withContext it }
         }
 
-        // Real Prompt-Driven AI Image Synthesis from user's exact prompt
-        if (!liteMode) {
-            val fullPrompt = when (kind) {
-                AiAssetKind.STICKER -> "$cleanPrompt, cute sticker die-cut design, ${style.label} illustration, crisp white border, high quality digital artwork, solid clean backdrop"
-                AiAssetKind.COVER -> "$cleanPrompt, beautiful aesthetic journal book cover art, ${style.label} style, high quality elegant composition"
-                AiAssetKind.TEMPLATE -> "$cleanPrompt, stationery study organizer template, clean grid, ${style.label} accents"
-            }
-            val netBmp = withContext(Dispatchers.IO) {
-                runCatching {
-                    val genUrl = "https://image.pollinations.ai/prompt/${URLEncoder.encode(fullPrompt, "UTF-8")}?width=$width&height=$height&nologo=true&seed=$seed"
+        // Real Prompt-Driven AI Image Synthesis from user's exact prompt (always enabled)
+        val styleKeywords = when (style) {
+            CreativeStyle.CARTOON_3D -> "3D Pixar Disney digital art render, vibrant glossy studio lighting, cute volumetric character design"
+            CreativeStyle.WATERCOLOR -> "delicate pastel watercolor illustration, soft wet wash on paper, artistic paint bleeding"
+            CreativeStyle.POP_ART -> "vibrant pop art halftone print style, high contrast bold outlines, retro graphic design"
+            CreativeStyle.ANIME -> "vivid Japanese anime studio keyframe illustration, cel shading, highly detailed aesthetic"
+            CreativeStyle.SKETCH -> "masterful graphite pencil and ink sketch, cross-hatching, fine artistic details"
+            CreativeStyle.MINIMAL -> "clean minimalist vector graphic, modern geometric shapes, elegant flat colors"
+        }
+
+        val fullPrompt = when (kind) {
+            AiAssetKind.STICKER -> "$cleanPrompt, cute die-cut sticker with clean white border outline, isolated on clean white backdrop, $styleKeywords, high quality"
+            AiAssetKind.COVER -> "$cleanPrompt, beautiful aesthetic notebook journal book cover artwork, $styleKeywords, elegant typography balance, high quality masterpiece"
+            AiAssetKind.TEMPLATE -> "$cleanPrompt, clean stationery study organizer planner page template, organized layout grid, $styleKeywords accents, crisp white paper"
+        }
+
+        val netBmp = withContext(Dispatchers.IO) {
+            val genUrls = listOf(
+                "https://image.pollinations.ai/prompt/${URLEncoder.encode(fullPrompt, "UTF-8")}?width=$width&height=$height&nologo=true&seed=$seed${if (liteMode) "&model=turbo" else ""}",
+                "https://image.pollinations.ai/prompt/${URLEncoder.encode(fullPrompt, "UTF-8")}?width=$width&height=$height&nologo=true&seed=$seed",
+            )
+            for (genUrl in genUrls) {
+                val downloaded = runCatching {
                     val conn = (URL(genUrl).openConnection() as HttpURLConnection).apply {
-                        connectTimeout = 8_000
-                        readTimeout = 16_000
+                        connectTimeout = if (liteMode) 9_000 else 14_000
+                        readTimeout = if (liteMode) 15_000 else 22_000
                         setRequestProperty("User-Agent", "ProNotes-Android/10.0")
                     }
                     if (conn.responseCode in 200..299) {
                         val b = BitmapFactory.decodeStream(conn.inputStream)
-                        if (b != null) {
+                        if (b != null && b.width > 20 && b.height > 20) {
                             runCatching {
                                 cacheFile.outputStream().use { b.compress(Bitmap.CompressFormat.PNG, 95, it) }
                             }
@@ -1443,9 +1456,11 @@ object LocalAiManager {
                         } else null
                     } else null
                 }.getOrNull()
+                if (downloaded != null) return@withContext downloaded
             }
-            if (netBmp != null) return@withContext netBmp
+            null
         }
+        if (netBmp != null) return@withContext netBmp
 
         var aiBadge = ""
         var aiAccent = accentArgb

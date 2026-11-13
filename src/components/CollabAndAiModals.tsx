@@ -545,19 +545,51 @@ export const AiAssetGeneratorModal: React.FC<{
             </div>
           </div>
 
-          {/* Preview */}
-          <div className="flex flex-col items-center justify-between rounded-2xl border border-black/8 bg-slate-50/80 p-4 dark:border-white/10 dark:bg-[#20222A] md:col-span-5">
-            <div className="flex h-56 w-full items-center justify-center overflow-hidden rounded-xl border border-dashed border-black/15 bg-white dark:border-white/15 dark:bg-[#17181E]">
+          {/* Creative Studio Preview Card */}
+          <div className="flex flex-col items-center justify-between rounded-3xl border border-indigo-500/20 bg-slate-50/80 p-4.5 shadow-sm dark:border-indigo-400/15 dark:bg-[#20222A] md:col-span-5">
+            <div
+              className={`relative flex h-64 w-full items-center justify-center overflow-hidden rounded-2xl border transition-all duration-300 ${
+                busy
+                  ? 'border-indigo-400/40 bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-500 shadow-xl'
+                  : 'border-black/10 bg-white/70 dark:border-white/10 dark:bg-[#17181E]'
+              }`}
+            >
               {busy ? (
-                <div className="flex flex-col items-center gap-2 text-xs font-semibold text-violet-600">
-                  <Loader2 className="h-7 w-7 animate-spin" />
-                  Synthesizing {category}...
+                <div className="relative z-10 flex flex-col items-center gap-3 p-4 text-center text-white">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/20 shadow-lg backdrop-blur-md animate-bounce">
+                    <Sparkles className="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-extrabold tracking-tight">
+                      Generating {category}…
+                    </div>
+                    <div className="mt-0.5 max-w-[220px] truncate text-[11px] text-white/85">
+                      "{prompt || presetsByCategory[category][0]}"
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 rounded-full bg-white/20 px-3 py-1 text-[10px] font-bold backdrop-blur-sm">
+                    <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
+                    <span>{creativeStyle} · Creative Studio</span>
+                  </div>
+                  <div className="h-1.5 w-36 overflow-hidden rounded-full bg-white/25">
+                    <div className="h-full w-2/3 rounded-full bg-white animate-pulse" />
+                  </div>
                 </div>
               ) : previewUrl ? (
-                <img src={previewUrl} alt="AI generated preview" className="max-h-full max-w-full object-contain" />
+                <div className="relative flex h-full w-full items-center justify-center p-3">
+                  <img
+                    src={previewUrl}
+                    alt="AI generated preview"
+                    className="max-h-full max-w-full rounded-xl object-contain shadow-md transition-all duration-300 hover:scale-[1.02]"
+                  />
+                  <div className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2.5 py-0.5 text-[10px] font-bold text-white backdrop-blur-md">
+                    {creativeStyle} · {liteMode ? '⚡ Turbo' : 'HD'}
+                  </div>
+                </div>
               ) : (
-                <div className="px-4 text-center text-xs text-slate-400">
-                  Enter a prompt or tap a preset chip to generate a custom {category}.
+                <div className="flex flex-col items-center gap-2 px-4 text-center text-xs text-slate-400">
+                  <Wand2 className="h-6 w-6 text-indigo-400/70" />
+                  <span>Enter a prompt to synthesize a prompt-driven {category}</span>
                 </div>
               )}
             </div>
