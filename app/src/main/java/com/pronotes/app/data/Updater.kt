@@ -75,10 +75,18 @@ object Updater {
     fun autoOpen(c: Context) = prefs(c).getBoolean("autoOpen", false)
     fun setAutoOpen(c: Context, on: Boolean) { prefs(c).edit().putBoolean("autoOpen", on).apply() }
 
+    /** True while waiting for the user to return from "Allow from this source" (survives process restart). */
+    fun isWaitingForInstall(c: Context): Boolean {
+        val at = prefs(c).getLong("waitingPermAt", 0L)
+        val valid = at > 0L && System.currentTimeMillis() - at < 30 * 60 * 1000L
+        return (waitingForPermission || valid) && hasReadyApk(c)
+    }
+
     /** Whether an update started inside this app installed within the last half hour. */
     fun consumeStartedFlag(c: Context): Boolean {
-        val at = prefs(c).getLong("startedAt", 0L)
-        prefs(c).edit().remove("startedAt").apply()
+        val p = prefs(c)
+        val at = p.getLong("startedAt", 0L)
+        p.edit().remove("startedAt").remove("waitingPermAt").apply()
         return at > 0 && System.currentTimeMillis() - at < 30 * 60 * 1000L
     }
 
@@ -104,7 +112,10 @@ object Updater {
 
     fun hasReadyApk(context: Context): Boolean {
         val f = apk ?: File(context.cacheDir, "updates/ProNotes.apk")
-        return f.exists() && f.length() > 100_000L
+        if (!f.exists() || f.length() <= 100_000L) return false
+        val targetTag = release?.tag
+        val cachedTag = prefs(context).getString("apkTag", null)
+        return targetTag == null || cachedTag == null || targetTag == cachedTag
     }
 
     suspend fun check(context: Context, quiet: Boolean = false) {
@@ -256,6 +267,7 @@ object Updater {
         }
         result.onSuccess {
             apk = it
+            prefs(app).edit().putString("apkTag", rel.tag).apply()
             progress = 1f
             phase = Phase.READY
             install(context)
@@ -270,10 +282,12 @@ object Updater {
         pendingConfirm?.let { confirm ->
             if (launchConfirm(context, confirm)) return
         }
-        if (!waitingForPermission) return
+        val persistedWait = prefs(context).getLong("waitingPermAt", 0L) > 0L
+        if (!waitingForPermission && !persistedWait) return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || context.packageManager.canRequestPackageInstalls()) {
             waitingForPermission = false
-            install(context)
+            prefs(context).edit().remove("waitingPermAt").apply()
+            if (hasReadyApk(context)) install(context)
         }
     }
 
@@ -306,8 +320,14 @@ object Updater {
         error = null
     }
 
-    fun reportInstallFailure(message: String?) {
+    fun reportInstallFailure(message: String?, deleteCachedApk: Boolean = false, context: Context? = null) {
         pendingConfirm = null
+        waitingForPermission = false
+        if (deleteCachedApk && context != null) {
+            apk = null
+            runCatching { File(context.cacheDir, "updates").deleteRecursively() }
+            prefs(context).edit().remove("apkTag").remove("waitingPermAt").apply()
+        }
         error = message ?: "The installer stopped."
         phase = Phase.FAILED
     }
@@ -321,11 +341,12 @@ object Updater {
         val file = apk?.takeIf { it.exists() && it.length() > 100_000L }
             ?: File(app.cacheDir, "updates/ProNotes.apk").takeIf { it.exists() && it.length() > 100_000L }
         if (file == null) {
-            reportInstallFailure("The update file is missing. Download it again.")
+            reportInstallFailure("The update file is missing. Download it again.", deleteCachedApk = true, context = app)
             return
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !app.packageManager.canRequestPackageInstalls()) {
             waitingForPermission = true
+            prefs(app).edit().putLong("waitingPermAt", System.currentTimeMillis()).apply()
             val permIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${app.packageName}"))
             val act = context.findActivity()
             if (act != null) {

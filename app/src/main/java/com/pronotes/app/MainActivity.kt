@@ -45,8 +45,11 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         handleIntent(intent)
         UpdateCheckReceiver.schedule(this, SettingsStore.get(this).settings.value.updateReminders)
-        // Leftover update packages (already installed, or abandoned) take space; clear them on start.
-        if (savedInstanceState == null) Thread { runCatching { java.io.File(cacheDir, "updates").deleteRecursively() } }.start()
+        // Leftover update packages (already installed, or abandoned) take space; clear them on start
+        // unless we just returned from granting "Install unknown apps" permission.
+        if (savedInstanceState == null && !com.pronotes.app.data.Updater.isWaitingForInstall(this)) {
+            Thread { runCatching { java.io.File(cacheDir, "updates").deleteRecursively() } }.start()
+        }
         setContent {
             ProNotesTheme {
               // A Surface gives every screen the right text colour in light and dark mode.

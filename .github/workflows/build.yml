@@ -73,8 +73,8 @@ jobs:
             echo "No semantic version heading found in CHANGELOG.md" >&2
             exit 1
           fi
-          VERSION_NAME="${BASE_VERSION}"
           VERSION_CODE="${GITHUB_RUN_NUMBER:-1}"
+          VERSION_NAME="${BASE_VERSION}.${VERSION_CODE}"
           echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
           echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=v$VERSION_NAME" >> "$GITHUB_ENV"

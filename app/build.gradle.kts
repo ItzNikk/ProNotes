@@ -17,7 +17,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = (System.getenv("VERSION_CODE") ?: "1").toInt()
-        versionName = System.getenv("VERSION_NAME") ?: "9.7.0"
+        versionName = System.getenv("VERSION_NAME") ?: "9.7.1"
         // Developer support: set pronotes.upi / pronotes.upiName in gradle.properties
         // (or SUPPORT_UPI / SUPPORT_UPI_NAME in CI). Empty hides the support screen.
         val upi = System.getenv("SUPPORT_UPI") ?: (project.findProperty("pronotes.upi") as String? ?: "")

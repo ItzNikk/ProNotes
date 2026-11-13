@@ -43,7 +43,7 @@ class InstallResultReceiver : BroadcastReceiver() {
             PackageInstaller.STATUS_FAILURE_CONFLICT, PackageInstaller.STATUS_FAILURE_INCOMPATIBLE ->
                 Updater.reportInstallFailure("This build was signed with a different key. Uninstall once, then install the new version.")
             PackageInstaller.STATUS_FAILURE_INVALID ->
-                Updater.reportInstallFailure("The downloaded APK was invalid. Try downloading again.")
+                Updater.reportInstallFailure("The downloaded APK was invalid. Tap Retry to download again.", deleteCachedApk = true, context = context.applicationContext)
             PackageInstaller.STATUS_FAILURE_STORAGE ->
                 Updater.reportInstallFailure("Not enough storage to install.")
             else -> Updater.reportInstallFailure(intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE))

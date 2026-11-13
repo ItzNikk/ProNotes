@@ -27,7 +27,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,17 +38,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.pronotes.app.data.Updater
-import kotlinx.coroutines.launch
 
 /** Shows what changed before an update is downloaded, and launches installer confirmation when foregrounded. */
 @Composable
 fun UpdateDialogHost() {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val pending = Updater.pendingConfirm
-    androidx.compose.runtime.LaunchedEffect(pending) {
+    androidx.compose.runtime.LaunchedEffect(pending, lifecycleOwner) {
         if (pending != null) {
-            Updater.launchConfirm(context, pending)
+            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                Updater.pendingConfirm?.let { Updater.launchConfirm(context, it) }
+            }
         }
     }
     if (!Updater.showDialog) return

@@ -1236,14 +1236,18 @@ private fun UpdatePill() {
         com.pronotes.app.data.Updater.Phase.DOWNLOADING -> "Downloading ${(u.progress * 100).toInt()}%"
         com.pronotes.app.data.Updater.Phase.READY -> "Install update"
         com.pronotes.app.data.Updater.Phase.INSTALLING -> "Installing..."
+        com.pronotes.app.data.Updater.Phase.FAILED -> if (u.release != null) "Update failed · Retry" else null
         else -> null
     } ?: return
     Surface(
-        shape = CircleShape, color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary,
+        shape = CircleShape,
+        color = if (u.phase == com.pronotes.app.data.Updater.Phase.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+        contentColor = if (u.phase == com.pronotes.app.data.Updater.Phase.FAILED) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary,
         modifier = Modifier.padding(horizontal = 6.dp).clickable {
             when (u.phase) {
                 com.pronotes.app.data.Updater.Phase.AVAILABLE -> u.showDialog = true
                 com.pronotes.app.data.Updater.Phase.READY -> u.install(context)
+                com.pronotes.app.data.Updater.Phase.FAILED -> if (u.hasReadyApk(context)) u.install(context) else u.showDialog = true
                 else -> Unit
             }
         },
