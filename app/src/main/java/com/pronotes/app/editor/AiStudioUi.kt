@@ -90,8 +90,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -854,13 +856,14 @@ fun AiAssetStudioDialog(
                     }
                 }
 
+                val previewBgBrush: Brush = if (busy) generatingGradient else SolidColor(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
                 // Creative Studio Canvas Preview Stage with Animated Gradient Background while Generating
                 Box(
                     Modifier
                         .fillMaxWidth()
                         .height(260.dp)
                         .clip(RoundedCornerShape(26.dp))
-                        .background(if (busy) generatingGradient else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                        .background(previewBgBrush)
                         .border(
                             width = if (busy) 2.dp else 1.dp,
                             brush = if (busy) Brush.linearGradient(listOf(Color.White, Color(0xFFEC4899), Color.White)) else OneUi9GradientBrush,
