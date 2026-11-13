@@ -1,5 +1,12 @@
 # Changelog
 
+## v9.7.0
+- **Native 60 FPS visual study backdrops**: Atmospheric cosmic nebulae for Flashcards & Quiz launcher, dynamic glowing blue orbital ring dynamics for pen configuration, futuristic quantum data waves during on-device AI tasks, and high-energy challenge arenas for active quiz sessions—crafted with zero video-decode battery overhead and zero frame drops.
+- **Apple Notes-inspired maths animation & sweep**: Equation resolution now flows along a smooth curved Bezier path with dynamic bloom, spring-settle, letter-by-letter revelation, and quadratic/algebraic expression recognition.
+- **Clean Semantic Versioning**: Standardized release versioning to clean SemVer (`v9.7.0`) across all targets and CI artifacts.
+- **Reliable CI release pipeline**: Provisioned complete Android SDK 36 platform and build tools in automated workflows with automatic license acceptance.
+- **Enhanced Pip & companion pet animations**: Expressive motivational gestures, focus idle loops, and seamless companion reactions across study screens.
+
 ## v9.6.0
 - **Live scribble-to-erase:** scribble or zig-zag directly across ink or text and watch it erase live while your pen is still down, alongside improved zig-zag and underline recognition.
 - **Upgraded maths engine:** now handles quadratic equations (`x^2 - 5x + 6 = 0`), percentages (`20% of 150`, `15% off 200`), unit conversions (`10 km to m`, `72 f to c`), `nCr` / `nPr`, `log2`, constants (`tau`, `phi`), and smart candidate ranking.

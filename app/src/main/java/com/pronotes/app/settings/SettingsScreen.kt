@@ -187,6 +187,30 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                 Category.STYLUS -> {
                     var penNameDraft by remember(s.penName) { mutableStateOf(s.penName) }
                     Section("Active stylus identity") {
+                        Box(
+                            Modifier.fillMaxWidth().height(96.dp).background(Color(0xFF02040A)),
+                        ) {
+                            com.pronotes.app.editor.AiParticleBackdrop(
+                                modifier = Modifier.matchParentSize(),
+                                active = true,
+                                variant = com.pronotes.app.editor.AiBackdropVariant.PEN_SETUP,
+                            )
+                            Column(Modifier.align(Alignment.CenterStart).padding(horizontal = 16.dp, vertical = 12.dp)) {
+                                Text("PEN CALIBRATION STAGE", style = MaterialTheme.typography.labelSmall, color = Color(0xFF7DD3FC))
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    penNameDraft.ifBlank { "My Stylus" },
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                )
+                                Text(
+                                    "Active stylus orbital ring sync",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFFCBD5E1),
+                                )
+                            }
+                        }
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("PEN NAME", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -706,6 +730,7 @@ private fun LocalAiSection(s: AppSettings) {
             com.pronotes.app.editor.AiParticleBackdrop(
                 modifier = Modifier.matchParentSize(),
                 active = states.values.any { it.status == LocalModelStatus.DOWNLOADING },
+                variant = com.pronotes.app.editor.AiBackdropVariant.AI_WAVE,
             )
             Column(Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {

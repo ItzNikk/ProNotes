@@ -27,6 +27,19 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platforms;android-36
+            build-tools;36.0.0
+            platform-tools
+
+      - name: Accept Android SDK licenses
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          yes | sdkmanager --licenses || true
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -58,11 +71,12 @@ jobs:
             echo "No semantic version heading found in CHANGELOG.md" >&2
             exit 1
           fi
-          VERSION_NAME="${BASE_VERSION}.${GITHUB_RUN_NUMBER}"
+          VERSION_NAME="${BASE_VERSION}"
+          VERSION_CODE="${GITHUB_RUN_NUMBER:-1}"
           echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
-          echo "VERSION_CODE=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=v$VERSION_NAME" >> "$GITHUB_ENV"
-          echo "Building Pro Notes $VERSION_NAME (versionCode $GITHUB_RUN_NUMBER)"
+          echo "Building Pro Notes $VERSION_NAME (versionCode $VERSION_CODE)"
 
       - name: Build release variant
         env:
@@ -80,13 +94,17 @@ jobs:
             exit 1
           fi
           cp "$APK" dist/ProNotes.apk
+          cp "$APK" "dist/ProNotes-v${VERSION_NAME}.apk"
           test -s dist/ProNotes.apk
+          test -s "dist/ProNotes-v${VERSION_NAME}.apk"
 
       - name: Upload APK build artifact
         uses: actions/upload-artifact@v4
         with:
           name: ProNotes-${{ env.VERSION_NAME }}
-          path: dist/ProNotes.apk
+          path: |
+            dist/ProNotes.apk
+            dist/ProNotes-v${{ env.VERSION_NAME }}.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -99,6 +117,13 @@ jobs:
             echo "Pro Notes improvements and fixes." > RELEASE_NOTES.md
           fi
 
+      - name: Clean up existing release tag if re-running
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete "${{ env.RELEASE_TAG }}" --cleanup-tag --yes || true
+
       # Every successful push to main creates a uniquely versioned GitHub Release.
       # Tag pushes are deliberately not build triggers, avoiding a second run when
       # this action creates the release tag itself.
@@ -110,5 +135,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: Pro Notes ${{ env.VERSION_NAME }}
           make_latest: true
-          files: dist/ProNotes.apk
+          files: |
+            dist/ProNotes.apk
+            dist/ProNotes-v${{ env.VERSION_NAME }}.apk
           body_path: RELEASE_NOTES.md

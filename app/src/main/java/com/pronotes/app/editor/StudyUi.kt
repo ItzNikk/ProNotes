@@ -134,27 +134,48 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
     var filter by remember { mutableIntStateOf(0) } // 0 = All, 1 = Due, 2 = Mastered
     val context = LocalContext.current
 
+    val cosmicScheme = MaterialTheme.colorScheme.copy(
+        background = Color(0xFF050916),
+        surface = Color(0xFF0D1429),
+        surfaceVariant = Color(0xFF172242),
+        onSurface = Color(0xFFF1F5F9),
+        onSurfaceVariant = Color(0xFFCBD5E1),
+        outlineVariant = Color(0xFF334155),
+        primary = Color(0xFF38BDF8),
+        onPrimary = Color(0xFF041224),
+        primaryContainer = Color(0xFF1E3A8A),
+        onPrimaryContainer = Color(0xFFE0F2FE),
+        secondaryContainer = Color(0xFF172554),
+        onSecondaryContainer = Color(0xFFBAE6FD),
+    )
+
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
-            shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(28.dp), color = Color(0xFF050916),
             modifier = Modifier.padding(18.dp).widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 800.dp).statusBarsPadding(),
         ) {
-            Box {
-                AiParticleBackdrop(Modifier.matchParentSize(), StudyColors.cards, active = vm.aiBusy || studying)
-                if (studying) {
-                    val deck = if (studyAll) vm.cards else vm.dueCards()
-                    StudyView(vm, deck, onDone = { studying = false })
-                } else {
-                    val due = vm.dueCards().size
-                    val mastered = vm.cards.count { it.box >= 4 }
-                    val learning = vm.cards.size - mastered
-                    Column(Modifier.padding(20.dp)) {
-                        StudyHero("Flashcards Studio", "${vm.cards.size} cards · powered by ${vm.aiEngineLabel}", StudyColors.cards, "🃏") {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                CompanionBadge(compact = true, onDarkBackground = true)
-                                TextButton(onClick = onClose) { Text("Close", color = Color.White) }
+            MaterialTheme(colorScheme = cosmicScheme) {
+                Box {
+                    AiParticleBackdrop(
+                        modifier = Modifier.matchParentSize(),
+                        accentColors = listOf(Color(0xFF38BDF8), Color(0xFF6366F1)),
+                        active = vm.aiBusy || studying,
+                        variant = if (vm.aiBusy) AiBackdropVariant.AI_WAVE else AiBackdropVariant.SPACE_NEBULA,
+                    )
+                    if (studying) {
+                        val deck = if (studyAll) vm.cards else vm.dueCards()
+                        StudyView(vm, deck, onDone = { studying = false })
+                    } else {
+                        val due = vm.dueCards().size
+                        val mastered = vm.cards.count { it.box >= 4 }
+                        val learning = vm.cards.size - mastered
+                        Column(Modifier.padding(20.dp)) {
+                            StudyHero("Flashcards Studio", "${vm.cards.size} cards · powered by ${vm.aiEngineLabel}", StudyColors.cards, "🃏") {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    CompanionBadge(compact = true, onDarkBackground = true)
+                                    TextButton(onClick = onClose) { Text("Close", color = Color.White) }
+                                }
                             }
-                        }
                     Spacer(Modifier.height(12.dp))
 
                     // Stats Strip
@@ -252,6 +273,7 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                         }
                     }
                 }
+            }
             }
             }
         }
@@ -445,78 +467,106 @@ fun QuizDialog(vm: EditorViewModel, onClose: () -> Unit) {
     var taking by remember { mutableStateOf<List<String>?>(null) }
     var editing by remember { mutableStateOf<QuizQuestion?>(null) }
     LaunchedEffect(vm.quizDraft) { vm.quizDraft?.let { editing = it; vm.quizDraft = null } }
+    val baseScheme = MaterialTheme.colorScheme
+    val cosmicScheme = baseScheme.copy(
+        background = Color(0xFF050916),
+        surface = Color(0xFF0D1429),
+        surfaceVariant = Color(0xFF172242),
+        onSurface = Color(0xFFF1F5F9),
+        onSurfaceVariant = Color(0xFFCBD5E1),
+        outlineVariant = Color(0xFF334155),
+        primary = Color(0xFF38BDF8),
+        onPrimary = Color(0xFF041224),
+        primaryContainer = Color(0xFF1E3A8A),
+        onPrimaryContainer = Color(0xFFE0F2FE),
+        secondaryContainer = Color(0xFF172554),
+        onSecondaryContainer = Color(0xFFBAE6FD),
+    )
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        val order = taking
+        val isStartScreen = order == null
         Surface(
-            shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(28.dp),
+            color = if (isStartScreen) Color(0xFF050916) else baseScheme.surface,
             modifier = Modifier.padding(18.dp).widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 820.dp).statusBarsPadding(),
         ) {
-            val order = taking
             Box {
-                AiParticleBackdrop(Modifier.matchParentSize(), StudyColors.quiz, active = vm.aiBusy || order != null)
+                AiParticleBackdrop(
+                    modifier = Modifier.matchParentSize(),
+                    accentColors = if (isStartScreen) listOf(Color(0xFF38BDF8), Color(0xFF6366F1)) else StudyColors.quiz,
+                    active = vm.aiBusy || order != null,
+                    variant = when {
+                        vm.aiBusy -> AiBackdropVariant.AI_WAVE
+                        order == null -> AiBackdropVariant.SPACE_NEBULA
+                        else -> AiBackdropVariant.QUIZ_CHALLENGE
+                    },
+                )
                 if (order != null) TakeQuiz(vm, order, onDone = { taking = null }, onRetry = { taking = it })
-                else Column(Modifier.padding(20.dp)) {
-                    val best = vm.quizBest()
-                    StudyHero(
-                        "Quiz Studio",
-                        "${vm.quiz.size} questions" + (best?.let { " · best ${it.first}% in ${clock(it.second)}" } ?: " · ${vm.aiEngineLabel}"),
-                        StudyColors.quiz,
-                        "🎯",
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            CompanionBadge(compact = true, onDarkBackground = true)
-                            TextButton(onClick = onClose) { Text("Close", color = Color.White) }
+                else MaterialTheme(colorScheme = cosmicScheme) {
+                    Column(Modifier.padding(20.dp)) {
+                        val best = vm.quizBest()
+                        StudyHero(
+                            "Quiz Studio",
+                            "${vm.quiz.size} questions" + (best?.let { " · best ${it.first}% in ${clock(it.second)}" } ?: " · ${vm.aiEngineLabel}"),
+                            StudyColors.quiz,
+                            "🎯",
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                CompanionBadge(compact = true, onDarkBackground = true)
+                                TextButton(onClick = onClose) { Text("Close", color = Color.White) }
+                            }
                         }
-                    }
-                Spacer(Modifier.height(14.dp))
-                Button(
-                    onClick = { taking = vm.quiz.shuffled().map { it.id } }, enabled = vm.quiz.isNotEmpty(), shape = Pill,
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                ) { Text(if (vm.quiz.isEmpty()) "Add or generate questions below" else "Start Timed Quiz · ${vm.quiz.size} Qs", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
-                Spacer(Modifier.height(10.dp))
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { editing = QuizQuestion(UUID.randomUUID().toString(), "", listOf("", "", "", ""), 0) }, shape = Pill) { Text("✎ Write question") }
-                    FilledTonalButton(onClick = { onClose(); vm.captureForQuiz = true; vm.capturingCard = true }, shape = Pill) { Text("🖼 From picture") }
-                    OutlinedButton(onClick = { vm.generateQuiz(false) }, shape = Pill) { Text("✦ AI · This page") }
-                    OutlinedButton(onClick = { vm.generateQuiz(true) }, shape = Pill) { Text("✦ AI · Whole notebook") }
-                }
-                if (vm.aiBusy) {
-                    Spacer(Modifier.height(10.dp))
-                    AiScanBanner(vm.aiStage, vm.aiEngineLabel, StudyColors.quiz)
-                }
-                Spacer(Modifier.height(10.dp))
-                if (vm.quiz.isEmpty()) {
-                    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f), modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            "Write your own multiple-choice questions, box a diagram, or let the on-device AI generate practice questions from your notes.",
-                            Modifier.padding(18.dp), color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                } else {
-                    LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(vm.quiz, key = { it.id }) { q ->
-                            val pic = remember(q.image) { vm.cardImage(q.image) }
-                            Surface(
-                                shape = RoundedCornerShape(18.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.52f),
-                                modifier = Modifier.animateItem().fillMaxWidth().clickable { editing = q },
-                            ) {
-                                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    if (pic != null) {
-                                        Image(pic.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)))
-                                        Spacer(Modifier.width(12.dp))
-                                    }
-                                    Column(Modifier.weight(1f)) {
-                                        Text(q.question.ifBlank { "Picture question" }, maxLines = 2, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                                        val tries = q.right + q.wrong
-                                        val stats = if (tries == 0) "New" else "${q.right * 100 / tries}% accuracy ($tries tries)"
-                                        Text((if (q.generated) "✦ AI · " else "") + stats, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.height(14.dp))
+                        Button(
+                            onClick = { taking = vm.quiz.shuffled().map { it.id } }, enabled = vm.quiz.isNotEmpty(), shape = Pill,
+                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                        ) { Text(if (vm.quiz.isEmpty()) "Add or generate questions below" else "Start Timed Quiz · ${vm.quiz.size} Qs", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+                        Spacer(Modifier.height(10.dp))
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { editing = QuizQuestion(UUID.randomUUID().toString(), "", listOf("", "", "", ""), 0) }, shape = Pill) { Text("✎ Write question") }
+                            FilledTonalButton(onClick = { onClose(); vm.captureForQuiz = true; vm.capturingCard = true }, shape = Pill) { Text("🖼 From picture") }
+                            OutlinedButton(onClick = { vm.generateQuiz(false) }, shape = Pill) { Text("✦ AI · This page") }
+                            OutlinedButton(onClick = { vm.generateQuiz(true) }, shape = Pill) { Text("✦ AI · Whole notebook") }
+                        }
+                        if (vm.aiBusy) {
+                            Spacer(Modifier.height(10.dp))
+                            AiScanBanner(vm.aiStage, vm.aiEngineLabel, StudyColors.quiz)
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        if (vm.quiz.isEmpty()) {
+                            Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    "Write your own multiple-choice questions, box a diagram, or let the on-device AI generate practice questions from your notes.",
+                                    Modifier.padding(18.dp), color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        } else {
+                            LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                items(vm.quiz, key = { it.id }) { q ->
+                                    val pic = remember(q.image) { vm.cardImage(q.image) }
+                                    Surface(
+                                        shape = RoundedCornerShape(18.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f),
+                                        modifier = Modifier.animateItem().fillMaxWidth().clickable { editing = q },
+                                    ) {
+                                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            if (pic != null) {
+                                                Image(pic.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)))
+                                                Spacer(Modifier.width(12.dp))
+                                            }
+                                            Column(Modifier.weight(1f)) {
+                                                Text(q.question.ifBlank { "Picture question" }, maxLines = 2, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                                                val tries = q.right + q.wrong
+                                                val stats = if (tries == 0) "New" else "${q.right * 100 / tries}% accuracy ($tries tries)"
+                                                Text((if (q.generated) "✦ AI · " else "") + stats, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
             }
         }
     }

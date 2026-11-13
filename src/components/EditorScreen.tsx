@@ -2944,13 +2944,14 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               </button>
             </div>
 
-            {/* Live Stroke Preview */}
-            <div className="mb-3 flex h-16 items-center justify-center rounded-2xl border border-black/8 bg-slate-50 dark:border-white/10 dark:bg-[#14151B]">
-              <svg viewBox="0 0 280 54" className="h-full w-full px-3">
+            {/* Live Stroke Preview with Pen Setup Opposite-Rotating Particles */}
+            <div className="relative mb-3 flex h-16 items-center justify-center overflow-hidden rounded-2xl border border-sky-500/25 bg-[#02040A]">
+              <AiParticleBackdrop variant="pen-setup" intensity="active" />
+              <svg viewBox="0 0 280 54" className="relative z-10 h-full w-full px-3">
                 <path
                   d="M 14 34 C 55 10, 95 46, 140 24 C 185 6, 225 44, 266 22"
                   fill="none"
-                  stroke={penColor}
+                  stroke={penColor === '#14171F' ? '#7DD3FC' : penColor}
                   strokeWidth={penSize}
                   strokeOpacity={penOpacity}
                   strokeLinecap={penKind === 'fineliner' ? 'butt' : 'round'}
@@ -3218,7 +3219,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           {/* Advanced Maths Quick-Pad (Multi-line variables, derivatives, fractions, steps) */}
           {mathPadOpen && (
             <div className="absolute right-4 top-3 z-40 w-88 overflow-hidden rounded-3xl border border-black/10 bg-white/95 p-4 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#1E2027]/95 animate-stagger-in">
-              <AiParticleBackdrop accent="amber" intensity="soft" className="opacity-55" />
+              <AiParticleBackdrop accent="blue" variant="ai-wave" intensity="soft" className="opacity-65" />
               <div className="relative z-10">
               <div className="mb-2 flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-600 dark:text-amber-400">
@@ -3880,7 +3881,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       {aiBusyLabel && (
         <>
           <div className="pointer-events-none fixed inset-0 z-40">
-            <AiParticleBackdrop accent="violet" intensity="active" />
+            <AiParticleBackdrop accent="blue" variant="ai-wave" intensity="active" />
           </div>
           <AiThinkingPill label={aiBusyLabel} stage={aiStageLabel} modelName={activeModel?.name} />
         </>

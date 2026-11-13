@@ -318,50 +318,78 @@ private fun LoopingVideo(@androidx.annotation.RawRes res: Int, circle: Boolean, 
 }
 
 /**
- * Glowing purple ring for the pen check, drawn in code so it always shows: soft haze, a turning
- * gradient band, a bright streak and drifting sparks. It glows brighter as the scan goes on.
+ * Glowing blue opposite-rotating particle rings on solid black background for pen setup/check.
  */
 @Composable
 private fun GlowRing(modifier: Modifier, energy: Float) {
     val t = rememberInfiniteTransition(label = "glow")
-    val spin by t.animateFloat(0f, 360f, infiniteRepeatable(tween(6000, easing = LinearEasing)), label = "spin")
-    val spin2 by t.animateFloat(360f, 0f, infiniteRepeatable(tween(9500, easing = LinearEasing)), label = "spin2")
-    val pulse by t.animateFloat(0f, 1f, infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "pulse")
-    val sparks = remember {
-        val rnd = kotlin.random.Random(7)
-        List(40) { floatArrayOf(rnd.nextFloat() * 360f, rnd.nextFloat(), 0.4f + rnd.nextFloat() * 0.6f) }
+    val spinCW by t.animateFloat(0f, 360f, infiniteRepeatable(tween(4200, easing = LinearEasing)), label = "spinCW")
+    val spinCCW by t.animateFloat(360f, 0f, infiniteRepeatable(tween(5800, easing = LinearEasing)), label = "spinCCW")
+    val pulse by t.animateFloat(0f, 1f, infiniteRepeatable(tween(1500, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "pulse")
+    val particles = remember {
+        val rnd = kotlin.random.Random(7717)
+        val list = ArrayList<FloatArray>(48)
+        for (ring in 0 until 3) {
+            val dir = if (ring % 2 == 0) 1f else -1f
+            val rNorm = when (ring) { 0 -> 0.86f; 1 -> 0.72f; else -> 0.58f }
+            val speed = 1f + ring * 0.28f
+            for (i in 0 until 16) {
+                list += floatArrayOf(
+                    (i * 22.5f) + rnd.nextFloat() * 8f,
+                    rNorm + (rnd.nextFloat() - 0.5f) * 0.04f,
+                    dir,
+                    speed,
+                    0.5f + rnd.nextFloat() * 0.7f,
+                    ring.toFloat(),
+                )
+            }
+        }
+        list
     }
-    val purple = Color(0xFFB45CFF); val pink = Color(0xFFE38BFF); val deep = Color(0xFF5A1AB0); val light = Color(0xFFF6D6FF)
+    val electric = Color(0xFF2563EB)
+    val sky = Color(0xFF38BDF8)
+    val ice = Color(0xFFE0F2FE)
+    val deep = Color(0xFF0A2472)
     Canvas(modifier) {
         val c = center
         val r = size.minDimension / 2f
         val ringR = r * 0.80f
-        val e = (0.55f + 0.45f * energy.coerceIn(0f, 1f))
-        drawCircle(Color.Black, r * 0.97f, c)
+        val e = (0.65f + 0.35f * energy.coerceIn(0f, 1f))
+        // Solid black stage with central blue core aura
+        drawCircle(Color(0xFF02040A), r * 0.97f, c)
         drawCircle(
-            Brush.radialGradient(listOf(Color.Transparent, Color.Transparent, Color(0xFF7A2BD9).copy(alpha = 0.45f * e), Color.Transparent), c, r),
+            Brush.radialGradient(listOf(electric.copy(alpha = 0.24f * e), sky.copy(alpha = 0.14f * e), Color.Transparent), c, r),
             r, c,
         )
-        for (k in 4 downTo 1) drawCircle(purple.copy(alpha = 0.09f * e), ringR, c, style = Stroke(r * 0.055f * k))
-        rotate(spin, c) {
+        // Outer CW blue energy band & inner CCW cyan orbital band
+        rotate(spinCW, c) {
             drawCircle(
-                Brush.sweepGradient(listOf(deep, pink, purple, deep, light, purple, deep), c),
-                ringR, c, style = Stroke(r * (0.10f + 0.025f * pulse)),
+                Brush.sweepGradient(listOf(deep, sky, electric, ice, sky, deep), c),
+                ringR, c, style = Stroke(r * (0.075f + 0.02f * pulse), cap = androidx.compose.ui.graphics.StrokeCap.Round),
             )
         }
-        rotate(spin2, c) {
+        rotate(spinCCW, c) {
             drawCircle(
-                Brush.sweepGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.6f * e), Color.Transparent, Color.Transparent, pink.copy(alpha = 0.5f * e), Color.Transparent), c),
-                ringR * 1.02f, c, style = Stroke(r * 0.025f),
+                Brush.sweepGradient(listOf(Color.Transparent, ice.copy(alpha = 0.85f * e), sky.copy(alpha = 0.45f * e), Color.Transparent, electric.copy(alpha = 0.7f * e), Color.Transparent), c),
+                ringR * 0.84f, c, style = Stroke(r * 0.032f, cap = androidx.compose.ui.graphics.StrokeCap.Round),
             )
         }
-        sparks.forEach { s ->
-            val a = Math.toRadians((s[0] + spin * s[2]).toDouble())
-            val rr = ringR + (s[1] - 0.5f) * r * 0.24f
-            drawCircle(
-                Color.White.copy(alpha = ((0.2f + 0.6f * s[1]) * e).coerceAtMost(1f)), r * 0.012f * s[2],
-                Offset(c.x + kotlin.math.cos(a).toFloat() * rr, c.y + kotlin.math.sin(a).toFloat() * rr),
-            )
+        // Opposite-moving blue light particles with trailing arcs
+        particles.forEach { p ->
+            val deg = p[0] + (if (p[2] > 0f) spinCW else spinCCW - 360f) * p[3]
+            val rr = r * p[1]
+            val col = when (p[5].toInt()) { 0 -> electric; 1 -> sky; else -> ice }
+            for (step in 3 downTo 0) {
+                val radAngle = Math.toRadians((deg - p[2] * step * 6.5f).toDouble())
+                val pos = Offset(c.x + kotlin.math.cos(radAngle).toFloat() * rr, c.y + kotlin.math.sin(radAngle).toFloat() * rr)
+                val fade = (1f - step * 0.24f) * e
+                if (step == 0) {
+                    drawCircle(col.copy(alpha = 0.28f * fade), r * 0.042f * p[4], pos)
+                    drawCircle(col.copy(alpha = 0.95f * fade), r * 0.017f * p[4], pos)
+                } else {
+                    drawCircle(col.copy(alpha = 0.35f * fade), r * 0.013f * p[4] * (1f - step * 0.2f), pos)
+                }
+            }
         }
     }
 }
@@ -606,7 +634,7 @@ private fun PenCheckPage(active: Boolean, store: SettingsStore, onNext: () -> Un
         listOf(PenStep.HOVER, PenStep.BUTTON, PenStep.TAPS, PenStep.SCAN).forEach { s ->
             val reached = step.ordinal >= s.ordinal
             val w by animateFloatAsState(if (step == s) 22f else 8f, spring(dampingRatio = 0.7f), label = "sd")
-            Box(Modifier.size(width = w.dp, height = 8.dp).clip(CircleShape).background(if (reached) Color(0xFFB45CFF) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f)))
+            Box(Modifier.size(width = w.dp, height = 8.dp).clip(CircleShape).background(if (reached) Color(0xFF38BDF8) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f)))
         }
     }
     Spacer(Modifier.height(10.dp))
@@ -626,7 +654,7 @@ private fun PenCheckPage(active: Boolean, store: SettingsStore, onNext: () -> Un
     }
     Spacer(Modifier.height(22.dp))
 
-    val primary = Color(0xFFB45CFF)
+    val primary = Color(0xFF38BDF8)
     val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
     Box(Modifier.size(240.dp), contentAlignment = Alignment.Center) {
         if (!done) {
@@ -647,7 +675,7 @@ private fun PenCheckPage(active: Boolean, store: SettingsStore, onNext: () -> Un
                         style = Stroke(w, cap = androidx.compose.ui.graphics.StrokeCap.Round),
                     )
                 }
-                Surface(shape = CircleShape, color = Color(0xE6150A24), border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x66E38BFF))) {
+                Surface(shape = CircleShape, color = Color(0xE6040B1A), border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x6638BDF8))) {
                     Text("$pct%", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp))
                 }
                 // Taps on the ring, paced: each one is "read" before the next counts.

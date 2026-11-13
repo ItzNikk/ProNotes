@@ -179,7 +179,7 @@ fun SummarySheet(
             modifier = Modifier.padding(18.dp).widthIn(max = 680.dp).fillMaxWidth(),
         ) {
             Box {
-                AiParticleBackdrop(Modifier.matchParentSize(), StudyColors.summary, active = true)
+                AiParticleBackdrop(Modifier.matchParentSize(), StudyColors.summary, active = true, variant = AiBackdropVariant.AI_WAVE)
                 Column(Modifier.padding(20.dp)) {
                     StudyHero(
                         "AI Note Summary",

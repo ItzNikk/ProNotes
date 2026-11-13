@@ -1593,7 +1593,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 val a1 = Math.toDegrees(kotlin.math.atan2((y - anchorY).toDouble(), (x - anchorX).toDouble()))
                 var deg = (a1 - a0).toFloat()
                 val snapped = (Math.round(deg / 15f) * 15).toFloat()
-                if (abs(deg - snapped) < 4f) deg = snapped   // snap to 15� steps
+                if (abs(deg - snapped) < 4f) deg = snapped   // snap to 15° steps
                 liveDeg = deg
                 m.setRotate(deg, anchorX, anchorY)
             }
@@ -2565,7 +2565,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             canvas.restore()
             if (rotating) {
                 pullText.color = 0xFF3D6CF4.toInt()
-                canvas.drawText("${liveDeg.roundToInt()}�", sb.centerX(), sb.bottom + 24f * density, pullText)
+                canvas.drawText("${liveDeg.roundToInt()}°", sb.centerX(), sb.bottom + 24f * density, pullText)
                 pullText.color = 0xFF5B6475.toInt()
             } else if (grab == Grab.SCALE && liveMatrix != null) {
                 pullText.color = 0xFF3D6CF4.toInt()

@@ -262,7 +262,7 @@ object LocalAiManager {
                         connectTimeout = 20_000
                         readTimeout = 30_000
                         instanceFollowRedirects = false
-                        setRequestProperty("User-Agent", "ProNotes-Android/9.6")
+                        setRequestProperty("User-Agent", "ProNotes-Android/9.7")
                     }
                     val code = conn.responseCode
                     if (code in 301..308) {

@@ -605,7 +605,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                     modifier = Modifier.fillMaxSize(),
                     enter = fadeIn(),
                     exit = fadeOut(),
-                ) { AiParticleBackdrop(Modifier.fillMaxSize(), active = true) }
+                ) { AiParticleBackdrop(Modifier.fillMaxSize(), active = true, variant = AiBackdropVariant.AI_WAVE) }
                 androidx.compose.animation.AnimatedVisibility(
                     vm.aiBusy, modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 180.dp),
                     enter = fadeIn() + scaleIn(initialScale = 0.8f), exit = fadeOut() + scaleOut(targetScale = 0.8f),
@@ -754,7 +754,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 modifier = Modifier.padding(20.dp).widthIn(max = 560.dp).fillMaxWidth(),
             ) {
                 Box {
-                    AiParticleBackdrop(Modifier.matchParentSize(), active = true)
+                    AiParticleBackdrop(Modifier.matchParentSize(), active = true, variant = AiBackdropVariant.AI_WAVE)
                     Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
@@ -2327,7 +2327,7 @@ private fun MathPadDialog(vm: EditorViewModel, onDismiss: () -> Unit) {
             modifier = Modifier.padding(18.dp).widthIn(max = 580.dp).fillMaxWidth(),
         ) {
             Box {
-                AiParticleBackdrop(Modifier.matchParentSize(), active = true)
+                AiParticleBackdrop(Modifier.matchParentSize(), active = true, variant = AiBackdropVariant.AI_WAVE)
                 Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Outlined.Functions, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)

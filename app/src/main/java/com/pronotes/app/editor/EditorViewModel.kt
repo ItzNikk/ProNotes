@@ -1579,6 +1579,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val hand = TextStyleSpec(font = TextFont.HAND)
         val final = TextItem(ItemIds.next(), text, ax, b.top, size * 1.1f, MATH_COLOR, hand)
         mathSrc[final.id] = RectF(b)
+        val animationStart = android.os.SystemClock.uptimeMillis()
+        val answerRect = RectF(ax, b.top - size * 1.15f, ax + text.length * size * 0.62f, b.top + size * 0.3f)
+        mathAnim = MathAnim(page, RectF(b), answerRect, animationStart)
         viewModelScope.launch {
             val cur = pages.getOrNull(page) ?: return@launch
             beginEdit(page)
@@ -1596,6 +1599,11 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             pages[page] = now.copy(items = now.items.map { if (it.id == final.id) final else it })
             onPagesChanged?.invoke()
             scheduleSave()
+            delay(maxOf(SWEEP_MS + 650L, text.length * 84L + 160L))
+            if (mathAnim?.start == animationStart) {
+                mathAnim = null
+                onPagesChanged?.invoke()
+            }
         }
         return true
     }

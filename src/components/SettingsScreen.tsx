@@ -29,7 +29,7 @@ import {
   ThemeMode,
   ToolbarDock,
 } from '../types/models';
-import { COMPANIONS, getCompanionSpec, PetAvatarSvg, PipPet } from './PipPet';
+import { AiParticleBackdrop, COMPANIONS, getCompanionSpec, PetAvatarSvg, PipPet } from './PipPet';
 
 interface SettingsScreenProps {
   settings: AppSettings;
@@ -60,6 +60,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [editingPresetName, setEditingPresetName] = useState('');
   const [savedPenToast, setSavedPenToast] = useState(false);
+  const [pointerStatus, setPointerStatus] = useState<{ kind: string; pressure: number } | null>(null);
 
   const handleDownloadBackup = () => {
     const json = onExportBackup();
@@ -283,6 +284,40 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <PenTool className="h-3.5 w-3.5" /> Pen Name & Presets
             </h2>
             <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
+              {/* Pen Setup Opposite-Rotating Blue Particle Calibration Stage */}
+              <div
+                onPointerMove={(e) => {
+                  const kind = e.pointerType === 'pen' ? 'Stylus Detected' : e.pointerType === 'touch' ? 'Touch' : 'Pointer';
+                  setPointerStatus({ kind, pressure: e.pressure || (e.buttons ? 0.65 : 0.35) });
+                }}
+                onPointerDown={(e) => {
+                  const kind = e.pointerType === 'pen' ? 'Stylus Calibrated' : e.pointerType === 'touch' ? 'Touch Input' : 'Pointer Active';
+                  setPointerStatus({ kind, pressure: e.pressure || 0.72 });
+                }}
+                onPointerLeave={() => setPointerStatus(null)}
+                className="relative overflow-hidden bg-[#02040A] px-5 py-5 text-white select-none"
+              >
+                <AiParticleBackdrop variant="pen-setup" intensity="active" />
+                <div className="relative z-10 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-sky-300">
+                      Pen Calibration Stage
+                    </div>
+                    <div className="mt-0.5 text-sm font-semibold text-white">
+                      {settings.penName.trim() || 'My Stylus'} · <span className="capitalize text-sky-200">{settings.penKind}</span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-300">
+                      {pointerStatus
+                        ? `${pointerStatus.kind} · Pressure ${Math.round(pointerStatus.pressure * 100)}%`
+                        : 'Hover or tap with your stylus here to verify pen input & pressure'}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-sky-400/35 bg-sky-500/20 px-3 py-1.5 text-xs font-semibold text-sky-200 backdrop-blur-md">
+                    {pointerStatus ? 'Signal Active' : 'Ready'}
+                  </div>
+                </div>
+              </div>
+
               <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
                 <div>
                   <div className="text-sm font-semibold">Active Pen Name</div>
