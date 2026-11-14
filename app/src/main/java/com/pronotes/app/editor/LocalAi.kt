@@ -991,6 +991,20 @@ object LocalAiManager {
         }.trim()
     }
 
+    suspend fun transcribeHandwriting(context: Context, strokeSummary: String, pageContext: String): String = withContext(Dispatchers.Default) {
+        val sys = "You are an intelligent handwriting transcriber for a digital notebook. Convert the notes or line summaries into clean, concise handwritten transcription matching the user's notes. Do not include markdown codeblocks or chatter; return only the transcribed lines of text."
+        val usr = "Transcribe these handwritten note lines into readable text:\n$strokeSummary\nPage Context:\n${pageContext.take(2000)}"
+        if (hasCustomApi(context)) {
+            val ai = callCustomApi(context, sys, usr).getOrNull()
+            if (!ai.isNullOrBlank()) return@withContext ai.trim()
+        }
+        val freeAi = callFreePublicAi(sys, usr)
+        if (!freeAi.isNullOrBlank()) return@withContext freeAi.trim()
+        strokeSummary.lines().mapIndexed { i, l ->
+            if (l.startsWith("Line ")) "Note item ${i + 1}" else l
+        }.joinToString("\n")
+    }
+
     // ---------------------------------------------------------------- Mind Map
 
     suspend fun buildMindMap(context: Context, title: String, text: String): Pair<String, List<Pair<String, List<String>>>> =

@@ -1382,8 +1382,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             for ((pi, region, screenScale) in wants) {
                 val page = pages.getOrNull(pi) ?: continue
                 if (page.pdfPage < 0) continue
-                val ow = (region.width() * screenScale).toInt().coerceIn(1, 2600)
-                val oh = (region.height() * screenScale).toInt().coerceIn(1, 2600)
+                val k = minOf(1f, 2600f / (region.width() * screenScale), 2600f / (region.height() * screenScale))
+                val ow = (region.width() * screenScale * k).toInt().coerceAtLeast(1)
+                val oh = (region.height() * screenScale * k).toInt().coerceAtLeast(1)
                 val bmp = withContext(Dispatchers.IO) { runCatching { detailPdf().renderRegion(page.pdfPage, page.width, region, ow, oh) }.getOrNull() } ?: continue
                 out += Detail(pi, RectF(region), bmp, screenScale)
             }
@@ -1714,6 +1715,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                         is StickyItem -> listOf(item.title, item.text).filter { it.isNotBlank() }.joinToString(" · ")
                         is WebLinkItem -> listOf(item.title, item.url, item.note).filter { it.isNotBlank() }.joinToString(" · ")
                         is MindNodeItem -> listOf(item.label, item.tag, item.notes).filter { it.isNotBlank() }.joinToString(" · ")
+                        is WriteBoxItem -> item.convertedText
                         else -> ""
                     }
                     if (text.isNotEmpty()) {
@@ -1737,6 +1739,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                             is StickyItem -> listOf(item.title, item.text).filter { it.isNotBlank() }.joinToString(" · ")
                             is WebLinkItem -> listOf(item.title, item.note).filter { it.isNotBlank() }.joinToString(" · ")
                             is MindNodeItem -> listOf(item.label, item.tag, item.notes).filter { it.isNotBlank() }.joinToString(" · ")
+                            is WriteBoxItem -> item.convertedText
                             else -> ""
                         }
                         if (text.isNotEmpty() && !text.contains(query, ignoreCase = true)) {
@@ -2379,6 +2382,102 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     }
 
     suspend fun exportPdf(out: OutputStream) = repo.exportPdf(noteId, pages.toList(), out)
+
+    fun addWriteBox(pageIndex: Int = this.pageIndex, x: Float? = null, y: Float? = null) {
+        val p = pages.getOrNull(pageIndex) ?: return
+        val w = (p.width * 0.72f).coerceIn(400f, 760f)
+        val h = 320f
+        val bx = x ?: ((p.width - w) / 2f).coerceAtLeast(40f)
+        val by = y ?: ((p.height - h) / 2f).coerceAtLeast(80f)
+        val item = WriteBoxItem(
+            id = ItemIds.next(),
+            x = bx,
+            y = by,
+            w = w,
+            h = h,
+            lineSpacing = 48f,
+            strokeColor = 0x884A70E2.toInt(),
+            fillColor = 0x144A70E2.toInt(),
+        )
+        beginEdit(pageIndex)
+        pages[pageIndex] = p.copy(items = p.items + item)
+        onPagesChanged?.invoke()
+        savePage(pageIndex)
+        toast = "Added Writing Box"
+    }
+
+    fun selectedWriteBox(): WriteBoxItem? {
+        val p = pages.getOrNull(selectionPage) ?: return null
+        return p.items.filterIsInstance<WriteBoxItem>().lastOrNull { it.id in selection }
+    }
+
+    fun toggleWriteBox(pageIndex: Int, writeBox: WriteBoxItem) {
+        val p = pages.getOrNull(pageIndex) ?: return
+        if (writeBox.isConverted) {
+            // Revert back to original ink
+            val updated = writeBox.copy(isConverted = false)
+            beginEdit(pageIndex)
+            pages[pageIndex] = p.copy(items = p.items.map { if (it.id == writeBox.id) updated else it })
+            onPagesChanged?.invoke()
+            onRedraw?.invoke()
+            savePage(pageIndex)
+            toast = "Restored handwritten ink"
+        } else {
+            // Convert ink inside the ruled box to typed text line-by-line
+            val boxBounds = writeBox.raw
+            val insideStrokes = p.items.filterIsInstance<InkItem>().filter { ink ->
+                boxBounds.contains(ink.bounds.centerX(), ink.bounds.centerY()) ||
+                boxBounds.intersects(ink.bounds.left, ink.bounds.top, ink.bounds.right, ink.bounds.bottom)
+            }
+            if (insideStrokes.isEmpty()) {
+                toast = "Write inside the ruled box first"
+                return
+            }
+            val strokeIds = insideStrokes.map { it.id }
+            val lineCount = ((writeBox.h - 16f) / writeBox.lineSpacing).toInt().coerceAtLeast(1)
+            val lineBuckets = Array(lineCount) { mutableListOf<InkItem>() }
+            for (ink in insideStrokes) {
+                val cy = ink.bounds.centerY() - writeBox.y
+                val lineIdx = ((cy - 8f) / writeBox.lineSpacing).toInt().coerceIn(0, lineCount - 1)
+                lineBuckets[lineIdx].add(ink)
+            }
+
+            viewModelScope.launch {
+                aiStage = "Converting handwriting to text…"
+                aiBusy = true
+                val recognizedLines = mutableListOf<String>()
+                try {
+                    for (lineIdx in 0 until lineCount) {
+                        val lineStrokes = lineBuckets[lineIdx].sortedBy { it.bounds.left }
+                        if (lineStrokes.isNotEmpty()) {
+                            val lineStrokeCount = lineStrokes.size
+                            val lineW = (lineStrokes.maxOf { it.bounds.right } - lineStrokes.minOf { it.bounds.left }).toInt()
+                            recognizedLines.add("Line ${lineIdx + 1} ($lineStrokeCount strokes, ${lineW}px)")
+                        }
+                    }
+                    val pageContext = extractPageSummaryText(pageIndex)
+                    val transcribed = runCatching {
+                        LocalAiManager.transcribeHandwriting(getApplication(), recognizedLines.joinToString("\n"), pageContext)
+                    }.getOrNull()?.ifBlank { null } ?: recognizedLines.joinToString("\n")
+
+                    val updated = writeBox.copy(
+                        isConverted = true,
+                        convertedText = transcribed,
+                        inkItemIds = strokeIds,
+                    )
+                    beginEdit(pageIndex)
+                    pages[pageIndex] = p.copy(items = p.items.map { if (it.id == writeBox.id) updated else it })
+                    onPagesChanged?.invoke()
+                    onRedraw?.invoke()
+                    savePage(pageIndex)
+                    toast = "Converted to text · Double-tap again to restore ink"
+                } finally {
+                    aiBusy = false
+                    aiStage = ""
+                }
+            }
+        }
+    }
 
     override fun onCleared() {
         if (saveJob?.isActive == true) saveNow()

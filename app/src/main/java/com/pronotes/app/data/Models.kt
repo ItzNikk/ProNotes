@@ -168,6 +168,24 @@ sealed class ItemDoc {
         val color: Int = 0xFF2A78D6.toInt(),
         val rot: Float = 0f,
     ) : ItemDoc()
+
+    @Serializable
+    @SerialName("writebox")
+    data class WriteBox(
+        val x: Float,
+        val y: Float,
+        val w: Float = 640f,
+        val h: Float = 320f,
+        val lineSpacing: Float = 48f,
+        val strokeColor: Int = 0x884A70E2.toInt(),
+        val fillColor: Int = 0x144A70E2.toInt(),
+        val inkItemIds: List<Long> = emptyList(),
+        val convertedText: String = "",
+        val isConverted: Boolean = false,
+        val font: String = "SANS",
+        val fontSize: Float = 24f,
+        val rot: Float = 0f,
+    ) : ItemDoc()
 }
 
 @Serializable

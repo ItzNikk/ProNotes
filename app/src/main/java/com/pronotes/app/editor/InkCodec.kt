@@ -185,6 +185,12 @@ object InkCodec {
                 )
                 is MindNodeItem -> ItemDoc.MindNode(item.id, item.x, item.y, item.w, item.h, item.label, item.parentId, item.color, item.shape, item.collapsed, item.notes, item.tag)
                 is WebLinkItem -> ItemDoc.WebLink(item.url, item.title, item.note, item.x, item.y, item.w, item.h, item.color, item.rot)
+                is WriteBoxItem -> ItemDoc.WriteBox(
+                    item.x, item.y, item.w, item.h, item.lineSpacing,
+                    item.strokeColor, item.fillColor, item.inkItemIds,
+                    item.convertedText, item.isConverted,
+                    item.font.name, item.fontSize, item.rot,
+                )
             }
         },
     )
@@ -260,6 +266,22 @@ object InkCodec {
                             w = item.w,
                             h = item.h,
                             color = item.color,
+                            rot = item.rot,
+                        )
+                        is ItemDoc.WriteBox -> WriteBoxItem(
+                            id = ItemIds.next(),
+                            x = item.x,
+                            y = item.y,
+                            w = item.w,
+                            h = item.h,
+                            lineSpacing = item.lineSpacing,
+                            strokeColor = item.strokeColor,
+                            fillColor = item.fillColor,
+                            inkItemIds = item.inkItemIds,
+                            convertedText = item.convertedText,
+                            isConverted = item.isConverted,
+                            font = runCatching { TextFont.valueOf(item.font) }.getOrDefault(TextFont.SANS),
+                            fontSize = item.fontSize,
                             rot = item.rot,
                         )
                     }

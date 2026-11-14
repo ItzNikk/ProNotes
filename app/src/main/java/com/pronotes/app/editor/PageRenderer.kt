@@ -126,6 +126,10 @@ class PageRenderer(private val noteDir: File?) {
     private val stickyText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 30f; color = 0xFF2B2B2B.toInt() }
     private val stickyTitleText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 18f; isFakeBoldText = true; color = 0xFF1F2430.toInt() }
     private val stickyStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2.4f }
+    private val writeBoxFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val writeBoxBorder = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2.4f }
+    private val writeBoxRule = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.2f }
+    private val writeBoxText = TextPaint(Paint.ANTI_ALIAS_FLAG)
     private val linkCardFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; setShadowLayer(12f, 0f, 4f, 0x22000000) }
     private val linkCardStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2.5f }
     private val linkTitlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { isFakeBoldText = true; textSize = 24f }
@@ -775,6 +779,7 @@ class PageRenderer(private val noteDir: File?) {
             val b = item.localBounds
             RectF.intersects(visible, tmp.apply { set(b.left + item.dx, b.top + item.dy, b.right + item.dx, b.bottom + item.dy) })
         }
+        is WriteBoxItem -> RectF.intersects(visible, item.bounds)
         else -> true
     }
     private val tmp = RectF()
@@ -807,8 +812,10 @@ class PageRenderer(private val noteDir: File?) {
         hiddenNodes: Set<Long>,
         allItems: List<PageItem>,
     ) {
+        val convertedInkIds = allItems.filterIsInstance<WriteBoxItem>().filter { it.isConverted }.flatMap { it.inkItemIds }.toSet()
         for (item in ordered) {
             if (item is MindNodeItem && item.id in hiddenNodes) continue
+            if (item is InkItem && item.id in convertedInkIds) continue
             val moved = transform != null && item.id in transformIds
             if (!moved && !onScreen(item)) continue
             if (moved) {
@@ -863,6 +870,7 @@ class PageRenderer(private val noteDir: File?) {
                 is StickyItem -> drawSticky(canvas, item)
                 is WebLinkItem -> drawWebLink(canvas, item)
                 is MindNodeItem -> drawMindNode(canvas, item, allItems)
+                is WriteBoxItem -> drawWriteBox(canvas, item)
             }
             if (moved) canvas.restore()
         }
@@ -1048,6 +1056,50 @@ class PageRenderer(private val noteDir: File?) {
                         stickyText.isStrikeThruText = false
                     }
                     canvas.restore()
+                }
+            }
+            canvas.restore()
+        }
+    }
+
+    private fun drawWriteBox(canvas: Canvas, item: WriteBoxItem) {
+        val r = item.raw
+        rotated(canvas, r, item.rot) {
+            canvas.save()
+            writeBoxFill.color = item.fillColor
+            canvas.drawRoundRect(r, 16f, 16f, writeBoxFill)
+
+            writeBoxBorder.color = item.strokeColor
+            canvas.drawRoundRect(r, 16f, 16f, writeBoxBorder)
+
+            // Ruled lines inside the box
+            writeBoxRule.color = (item.strokeColor and 0x00FFFFFF) or (0x44 shl 24)
+            var ly = r.top + item.lineSpacing
+            while (ly < r.bottom - 8f) {
+                canvas.drawLine(r.left + 14f, ly, r.right - 14f, ly, writeBoxRule)
+                ly += item.lineSpacing
+            }
+
+            // Top-right indicator badge
+            val badge = if (item.isConverted) "TEXT · Double-tap for ink" else "WRITING BOX · Double-tap to convert"
+            stickyTitleText.textSize = 12f
+            val bw = stickyTitleText.measureText(badge) + 16f
+            val badgeRect = RectF(r.right - bw - 12f, r.top + 6f, r.right - 12f, r.top + 26f)
+            fillPaint.color = (item.strokeColor and 0x00FFFFFF) or (0x28 shl 24)
+            canvas.drawRoundRect(badgeRect, 10f, 10f, fillPaint)
+            stickyTitleText.color = if (isDark) 0xFFCBD5E1.toInt() else 0xFF334155.toInt()
+            canvas.drawText(badge, badgeRect.left + 8f, badgeRect.top + 14f, stickyTitleText)
+
+            if (item.isConverted && item.convertedText.isNotBlank()) {
+                writeBoxText.textSize = item.fontSize
+                writeBoxText.typeface = item.font.typeface
+                writeBoxText.color = if (isDark) 0xFFF1F5F9.toInt() else 0xFF1E293B.toInt()
+                val lines = item.convertedText.lines()
+                var baseline = r.top + item.lineSpacing - 8f
+                for (line in lines) {
+                    if (baseline >= r.bottom - 4f) break
+                    canvas.drawText(line, r.left + 18f, baseline, writeBoxText)
+                    baseline += item.lineSpacing
                 }
             }
             canvas.restore()

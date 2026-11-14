@@ -329,6 +329,26 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
             else -> { vm.saveNow(); onBack() }
         }
     }
+    val activity = context as? androidx.activity.ComponentActivity
+    DisposableEffect(focus) {
+        val window = activity?.window
+        if (window != null) {
+            val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+            if (focus) {
+                insetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            } else {
+                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            }
+        }
+        onDispose {
+            val win = activity?.window
+            if (win != null && focus) {
+                val insetsController = androidx.core.view.WindowCompat.getInsetsController(win, win.decorView)
+                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
     DisposableEffect(Unit) { onDispose { vm.saveNow(); vm.onPagesChanged = null; vm.onScrollTo = null; vm.onRedraw = null } }
 
     LaunchedEffect(canvas) {
@@ -478,7 +498,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
             }
         }
 
-        Row(Modifier.weight(1f).fillMaxWidth()) {
+        Row(Modifier.weight(1f).fillMaxWidth().then(if (!focus) Modifier.navigationBarsPadding() else Modifier)) {
             // ------------------------------------------------------ pages panel (left)
             AnimatedVisibility(
                 showPages && !focus,
@@ -512,6 +532,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                                 override fun onStickyChecklistToggle(page: Int, sticky: StickyItem, lineIndex: Int) = vm.toggleStickyCheckLine(page, sticky, lineIndex)
                                 override fun onWebLinkTap(page: Int, x: Float, y: Float, existing: WebLinkItem?) = vm.openWebLink(page, x, y, existing)
                                 override fun onMindMapTap(page: Int, x: Float, y: Float, existing: MindNodeItem?) = vm.onMindMapTap(page, x, y, existing)
+                                override fun onWriteBoxDoubleTap(page: Int, item: WriteBoxItem) = vm.toggleWriteBox(page, item)
                                 override fun onCurrentPage(index: Int) = vm.onCurrentPage(index)
                                 override fun onPullAddPage() = vm.addPage(atEnd = true)
                                 override fun undo() = vm.undo()
@@ -621,10 +642,13 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                         contentPadding = PaddingValues(horizontal = 6.dp),
                         modifier = Modifier.offset {
                             val y = (r.top - 64 * density).let { if (it < 8) r.bottom + 12 * density else it }
-                            IntOffset(r.left.roundToInt().coerceIn(8, (areaSize.width - 360 * density).roundToInt().coerceAtLeast(8)), y.roundToInt())
+                            val maxBarW = minOf(640f * density, (areaSize.width - 16).coerceAtLeast(1).toFloat())
+                            val x = r.left.coerceIn(8f, (areaSize.width - maxBarW - 8f).coerceAtLeast(8f))
+                            IntOffset(x.roundToInt(), y.roundToInt())
                         },
                     ) {
-                        Row(Modifier.widthIn(max = 640.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                        val maxAvailableDp = ((areaSize.width - 24) / density).coerceAtLeast(240f).dp
+                        Row(Modifier.widthIn(max = minOf(640.dp, maxAvailableDp)).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                             TextButton(onClick = { vm.textSel?.text?.let { clip.setText(androidx.compose.ui.text.AnnotatedString(it)) }; vm.clearTextSel() }) { Text("Copy", color = Color.White) }
                             // Highlight in one of four colours.
                             listOf(0xFFFFE066, 0xFF8CE99A, 0xFF74C0FC, 0xFFFFA8A8).forEach { c ->
@@ -1178,6 +1202,7 @@ private fun TopBar(
                 LiquidMenuItem("New page after this") { vm.addPage() },
                 LiquidMenuItem("New page at the end") { vm.addPage(atEnd = true) },
                 LiquidMenuItem("Infinite whiteboard page") { vm.addPage(paper = PaperStyle.DOTTED, isWhiteboard = true) },
+                LiquidMenuItem("Add Writing Box", icon = { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)) }) { vm.addWriteBox(vm.pageIndex) },
                 LiquidMenuItem("Choose a template…") { onTemplates() },
                 LiquidMenuItem("✨ Create AI Template…", Icons.Outlined.AutoAwesome) { onAssetStudio(AiAssetKind.TEMPLATE) },
             ),
@@ -1205,6 +1230,7 @@ private fun TopBar(
             add(LiquidMenuItem("Live Study Room", icon = { Icon(Icons.Outlined.Groups, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary) }) { onCollabRoom() })
             add(LiquidMenuDivider)
             add(LiquidMenuItem("Add web link card…", icon = { ProIconView(ProIcon.WEBLINK, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp), ink = MaterialTheme.colorScheme.primary) }) { onAddWebLink() })
+            add(LiquidMenuItem("Add Writing Box", icon = { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)) }) { vm.addWriteBox(vm.pageIndex) })
             add(LiquidMenuItem("Link item to page/URL…", icon = { Icon(Icons.Outlined.Link, null, Modifier.size(18.dp)) }) { vm.beginLinkFlow() })
             add(LiquidMenuItem("Split view", icon = { ProIconView(ProIcon.SPLIT, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) { onSplit() })
             add(LiquidMenuItem("Page template…", icon = { ProIconView(ProIcon.TEMPLATE, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) { onTemplates() })
@@ -2563,6 +2589,17 @@ private fun SelectionMenu(
                         Icon(Icons.Outlined.Link, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
                         Spacer(Modifier.width(6.dp))
                         Text("Link", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary)
+                    }
+                }
+                val boxInSel = vm.selectedWriteBox()
+                if (boxInSel != null) {
+                    LiquidGlassPill(
+                        onClick = { vm.toggleWriteBox(vm.selectionPage, boxInSel) },
+                        style = GlassDefaults.accent(),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        modifier = Modifier.padding(4.dp).elasticStretch(),
+                    ) {
+                        Text(if (boxInSel.isConverted) "Show Ink" else "Convert to Text", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary)
                     }
                 }
                 // Linked content: a red Unlink right next to it.

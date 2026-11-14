@@ -60,6 +60,7 @@ interface CanvasHost {
     fun onStickyChecklistToggle(page: Int, sticky: StickyItem, lineIndex: Int) {}
     fun onWebLinkTap(page: Int, x: Float, y: Float, existing: WebLinkItem?) {}
     fun onMindMapTap(page: Int, x: Float, y: Float, existing: MindNodeItem?) {}
+    fun onWriteBoxDoubleTap(page: Int, item: WriteBoxItem) {}
     fun onCurrentPage(index: Int)
     fun onPullAddPage()
     fun undo()
@@ -1901,9 +1902,19 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 else if (webCard != null) { buzz(); host.onOpenUrl(webCard.url); lastTapTime = 0L }
                 else if (action == MotionEvent.ACTION_UP && maxFingers == 1 && quick && !fingerMoved) {
                     val now = SystemClock.uptimeMillis()
-                    if (settings.doubleTapZoom && now - lastTapTime < 320 && hypot(e.x - lastTapX, e.y - lastTapY) < touchSlop * 3) {
-                        toggleZoom(e.x, e.y)
-                        lastTapTime = 0L
+                    if (now - lastTapTime < 320 && hypot(e.x - lastTapX, e.y - lastTapY) < touchSlop * 3) {
+                        val (dx, dy) = toDoc(e.x, e.y)
+                        val pi = pageAt(dx, dy)
+                        val (lx, ly) = toLocal(e.x, e.y, pi)
+                        val writeBox = pages.getOrNull(pi)?.items?.filterIsInstance<WriteBoxItem>()?.lastOrNull { it.bounds.contains(lx, ly) }
+                        if (writeBox != null && !readOnly) {
+                            buzz(HapticFeedbackConstants.CONTEXT_CLICK)
+                            host.onWriteBoxDoubleTap(pi, writeBox)
+                            lastTapTime = 0L
+                        } else if (settings.doubleTapZoom) {
+                            toggleZoom(e.x, e.y)
+                            lastTapTime = 0L
+                        }
                     } else {
                         lastTapTime = now; lastTapX = e.x; lastTapY = e.y
                         if (selection.isNotEmpty()) clearSelection()
