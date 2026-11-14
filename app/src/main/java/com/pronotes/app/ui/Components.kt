@@ -1,9 +1,5 @@
 package com.pronotes.app.ui
 
-import android.graphics.RenderEffect as AndroidRenderEffect
-import android.graphics.RuntimeShader
-import android.graphics.Shader
-import android.os.Build
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -11,7 +7,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -33,7 +28,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,28 +35,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.asComposeRenderEffect
-import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.layer.GraphicsLayer
-import androidx.compose.ui.graphics.layer.drawLayer
-import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.github.skydoves.colorpicker.compose.BrightnessSlider
 import com.github.skydoves.colorpicker.compose.HsvColorPicker
 import com.github.skydoves.colorpicker.compose.rememberColorPickerController
+import com.kyant.backdrop.backdrops.layerBackdrop as kyantLayerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop as kyantRememberLayerBackdrop
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
 
 /** A colour dot that grows when selected. */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -175,181 +165,76 @@ fun Modifier.elasticStretch(enabled: Boolean = true, pressScale: Float = 0.94f):
 }
 
 // ---------------------------------------------------------------------------
-// Open-Source AGSL Liquid Glass Backdrop Engine (SDK 36 / AGP 8.12 compatible)
+// Official Kyant0/AndroidLiquidGlass Backdrop Engine (io.github.kyant0:backdrop)
 // ---------------------------------------------------------------------------
 
-/** Holds the live GraphicsLayer of the underlying note canvas for real-time optical refraction. */
-@Stable
-class LayerBackdrop(val graphicsLayer: GraphicsLayer) {
-    var rootPosition: Offset by mutableStateOf(Offset.Zero)
-}
+typealias LayerBackdrop = com.kyant.backdrop.backdrops.LayerBackdrop
 
 @Composable
-fun rememberLayerBackdrop(): LayerBackdrop {
-    val gl = rememberGraphicsLayer()
-    return remember(gl) { LayerBackdrop(gl) }
-}
+fun rememberLayerBackdrop(): LayerBackdrop = kyantRememberLayerBackdrop()
 
-fun Modifier.layerBackdrop(backdrop: LayerBackdrop): Modifier = this
-    .onGloballyPositioned { backdrop.rootPosition = it.positionInRoot() }
-    .drawWithContent {
-        backdrop.graphicsLayer.record {
-            this@drawWithContent.drawContent()
-        }
-        drawLayer(backdrop.graphicsLayer)
-    }
+fun Modifier.layerBackdrop(backdrop: LayerBackdrop): Modifier = this.kyantLayerBackdrop(backdrop)
 
 /**
- * Premier Open-Source AGSL Liquid Glass optical lens shader (Android 13+ / API 33+):
- * Inspired by Kyant0/AndroidLiquidGlass & iOS 18 / visionOS dynamic glass aesthetics.
- * Performs dynamic cursor/touch glare reflection, rounded meniscus lens refraction,
- * subtle RGB chromatic dispersion near the bevel rim, and vibrancy saturation boost.
- */
-private const val LIQUID_GLASS_AGSL = """
-    uniform shader content;
-    uniform float2 resolution;
-    uniform float2 touchPos;
-    uniform float glareIntensity;
-
-    half4 main(float2 fragCoord) {
-        float2 uv = fragCoord / max(resolution, float2(1.0, 1.0));
-        float2 centered = uv * 2.0 - 1.0;
-        
-        // Signed distance to curved meniscus perimeter
-        float edgeDist = length(max(abs(centered) - float2(0.68, 0.68), 0.0));
-        float lensStrength = smoothstep(0.0, 0.42, edgeDist) * 14.0;
-        float2 dir = normalize(centered + float2(0.0001, 0.0001));
-        float2 offset = dir * lensStrength;
-
-        // Chromatic aberration (RGB channel dispersion across optical glass bevel)
-        half4 colR = content.eval(fragCoord - offset * 1.15);
-        half4 colG = content.eval(fragCoord - offset * 1.00);
-        half4 colB = content.eval(fragCoord - offset * 0.85);
-        half3 rgb = half3(colR.r, colG.g, colB.b);
-
-        // Apple HIG Vibrancy saturation boost
-        half luma = dot(rgb, half3(0.299, 0.587, 0.114));
-        rgb = mix(half3(luma), rgb, 1.25);
-
-        // Dynamic pointer specular highlight & glare sheen
-        float2 tNorm = touchPos / max(resolution, float2(1.0, 1.0));
-        float dTouch = distance(uv, tNorm);
-        float glare = exp(-dTouch * 4.5) * glareIntensity * 0.35;
-        rgb += half3(glare);
-
-        return half4(rgb, colG.a);
-    }
-"""
-
-/**
- * Premier Open-Source Liquid Glass surface (Android API 26-36 compatible).
- * - Android 13+ (API 33+): Full AGSL RuntimeShader with optical refraction & chromatic dispersion.
- * - Android 12 (API 31-32): Hardware RenderEffect blur with multi-pass specular rim & inner gloss.
- * - Android 8-11 (API 26-30): Ultra-fast translucent acrylic composite with 0 frame drops.
+ * Physical Liquid Glass surface powered by Kyant0/AndroidLiquidGlass (`io.github.kyant0:backdrop`).
+ * Performs vibrancy boost, Gaussian backdrop blur, optical SDF edge lens refraction, and rim highlights.
  */
 @Composable
 fun OptionalLiquidGlassBox(
     backdrop: LayerBackdrop?,
     enabled: Boolean,
-    shape: Shape = RoundedCornerShape(24.dp),
+    shape: Shape = RoundedCornerShape(28.dp),
     modifier: Modifier = Modifier,
     fallbackColor: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
     content: @Composable BoxScope.() -> Unit,
 ) {
-    if (enabled) {
-        val surfaceTint = MaterialTheme.colorScheme.surface.copy(alpha = 0.48f)
-        val specularRim = remember {
+    if (enabled && backdrop != null) {
+        val surfaceTint = MaterialTheme.colorScheme.surface.copy(alpha = 0.44f)
+        val rimBrush = remember {
             Brush.linearGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.85f),
-                    Color.White.copy(alpha = 0.30f),
-                    Color(0xFF93C5FD).copy(alpha = 0.45f),
-                    Color(0xFFC084FC).copy(alpha = 0.25f),
-                )
+                    Color.White.copy(alpha = 0.65f),
+                    Color.White.copy(alpha = 0.14f),
+                    Color(0xFF93C5FD).copy(alpha = 0.32f),
+                ),
             )
         }
-        val innerSheen = remember {
-            Brush.verticalGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = 0.32f),
-                    Color.Transparent,
-                    Color.White.copy(alpha = 0.10f),
+        val applyLens = shape != androidx.compose.ui.graphics.RectangleShape && shape != RoundedCornerShape(0.dp)
+        Box(
+            modifier = modifier
+                .drawBackdrop(
+                    backdrop = backdrop,
+                    shape = { shape },
+                    effects = {
+                        vibrancy()
+                        blur(18f.dp.toPx())
+                        if (applyLens) lens(12f.dp.toPx(), 24f.dp.toPx())
+                    },
+                    onDrawSurface = {
+                        drawRect(surfaceTint)
+                    },
                 )
-            )
-        }
-
-        var touchOffset by remember { mutableStateOf(Offset(200f, 100f)) }
-        var isTouching by remember { mutableStateOf(false) }
-        val glareAnim by animateFloatAsState(
-            targetValue = if (isTouching) 1f else 0.45f,
-            animationSpec = spring(stiffness = Spring.StiffnessLow),
-            label = "glareSheen",
+                .border(0.9.dp, rimBrush, shape),
+            content = content,
         )
-
-        // Compile or retrieve cached AGSL shader on Android 13+ (API 33+)
-        val agslShader = remember {
-            if (Build.VERSION.SDK_INT >= 33) {
-                runCatching { RuntimeShader(LIQUID_GLASS_AGSL) }.getOrNull()
-            } else null
+    } else if (enabled) {
+        val surfaceTint = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+        val rimBrush = remember {
+            Brush.linearGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.72f),
+                    Color.White.copy(alpha = 0.2f),
+                    Color(0xFF93C5FD).copy(alpha = 0.32f),
+                ),
+            )
         }
-
-        // Cache hardware blur effect on Android 12+ (API 31+)
-        val composeRenderEffect = remember(agslShader) {
-            if (Build.VERSION.SDK_INT >= 31) {
-                runCatching {
-                    val blur = AndroidRenderEffect.createBlurEffect(28f, 28f, Shader.TileMode.CLAMP)
-                    if (agslShader != null) {
-                        AndroidRenderEffect.createRuntimeShaderEffect(agslShader, "content")
-                    } else {
-                        blur
-                    }.asComposeRenderEffect()
-                }.getOrNull()
-            } else null
-        }
-
         Box(
             modifier = modifier
                 .clip(shape)
                 .background(surfaceTint, shape)
-                .border(1.2.dp, specularRim, shape)
-                .pointerInput(enabled) {
-                    detectTapGestures(
-                        onPress = { offset ->
-                            touchOffset = offset
-                            isTouching = true
-                            tryAwaitRelease()
-                            isTouching = false
-                        }
-                    )
-                },
-        ) {
-            if (backdrop != null && composeRenderEffect != null) {
-                Spacer(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .graphicsLayer {
-                            if (Build.VERSION.SDK_INT >= 33 && agslShader != null && size.width > 0 && size.height > 0) {
-                                agslShader.setFloatUniform("resolution", size.width, size.height)
-                                agslShader.setFloatUniform("touchPos", touchOffset.x, touchOffset.y)
-                                agslShader.setFloatUniform("glareIntensity", glareAnim)
-                            }
-                            renderEffect = composeRenderEffect
-                        }
-                        .drawWithContent {
-                            drawLayer(backdrop.graphicsLayer)
-                            drawRect(surfaceTint)
-                            drawRect(innerSheen)
-                        }
-                )
-            } else {
-                Spacer(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .background(innerSheen)
-                )
-            }
-            content()
-        }
+                .border(1.dp, rimBrush, shape),
+            content = content,
+        )
     } else {
         Box(
             modifier = modifier
@@ -505,8 +390,8 @@ fun Ios26LiquidBottomNavBar(
                         .background(
                             Brush.linearGradient(
                                 listOf(
-                                    Color(0xFF4285F4).copy(alpha = 0.88f),
-                                    Color(0xFF9B72CB).copy(alpha = 0.88f),
+                                    Color(0xFF6366F1).copy(alpha = 0.92f),
+                                    Color(0xFF8C65FF).copy(alpha = 0.92f),
                                 )
                             ),
                             CircleShape,

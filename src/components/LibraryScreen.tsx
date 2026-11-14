@@ -923,7 +923,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
             type="button"
             onClick={() => setNewModal({ open: true, mode: 'notebook' })}
             title="New Notebook"
-            className="pointer-events-auto ios-stretch flex h-12 w-12 items-center justify-center rounded-full border border-white/45 bg-gradient-to-tr from-[#4285F4] via-[#9B72CB] to-[#D96570] text-white shadow-[0_12px_28px_rgba(66,133,244,0.38)] backdrop-blur-2xl shrink-0"
+            className="pointer-events-auto ios-stretch flex h-12 w-12 items-center justify-center rounded-full border border-white/45 bg-gradient-to-tr from-[#2A78D6] via-[#6366F1] to-[#8C65FF] text-white shadow-[0_12px_28px_rgba(99,102,241,0.38)] backdrop-blur-2xl shrink-0"
           >
             <Plus className="h-5 w-5" />
           </button>

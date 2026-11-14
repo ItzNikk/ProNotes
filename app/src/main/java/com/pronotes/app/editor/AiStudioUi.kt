@@ -128,20 +128,29 @@ private val PillShape = CircleShape
 
 private val StudioGradientBrush = Brush.linearGradient(
     colors = listOf(
-        Color(0xFF4285F4),
-        Color(0xFF9B72CB),
-        Color(0xFFD96570),
+        Color(0xFF2A78D6),
+        Color(0xFF6366F1),
+        Color(0xFF38BDF8),
     ),
 )
 
-private val OneUi9Purple = Color(0xFF6366F1)
+private val OneUi9Purple = Color(0xFF8C65FF)
 
 private val OneUi9GradientBrush = Brush.linearGradient(
     colors = listOf(
-        Color(0xFF6366F1),
-        Color(0xFFA855F7),
-        Color(0xFFEC4899),
-        Color(0xFF38BDF8),
+        Color(0xFF66D7E6),
+        Color(0xFF5FA8F8),
+        Color(0xFF8C65FF),
+        Color(0xFF9BECE4),
+    ),
+)
+
+private val CreativeStageBackdropBrush = Brush.verticalGradient(
+    colors = listOf(
+        Color(0xFF66D7E6),
+        Color(0xFF5EA8F5),
+        Color(0xFF8A9AF8),
+        Color(0xFF9BECE4),
     ),
 )
 
@@ -219,13 +228,13 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                             )
                             Surface(
                                 shape = PillShape,
-                                color = Color(0xFF9B72CB).copy(alpha = 0.14f),
+                                color = Color(0xFF6366F1).copy(alpha = 0.14f),
                             ) {
                                 Text(
-                                    "LIVE",
+                                    "CONTEXT",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF9B72CB),
+                                    color = Color(0xFF6366F1),
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                 )
                             }
@@ -247,29 +256,29 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                     Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Surface(shape = PillShape, color = Color(0xFF4285F4).copy(alpha = 0.12f)) {
+                    Surface(shape = PillShape, color = Color(0xFF2A78D6).copy(alpha = 0.12f)) {
                         Text(
                             "📄 Current: Page ${vm.pageIndex + 1}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF4285F4),
+                            color = Color(0xFF2A78D6),
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                         )
                     }
-                    Surface(shape = PillShape, color = Color(0xFF9B72CB).copy(alpha = 0.12f)) {
+                    Surface(shape = PillShape, color = Color(0xFF8C65FF).copy(alpha = 0.12f)) {
                         Text(
                             "📚 ${vm.pages.size} Pages Indexed",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF9B72CB),
+                            color = Color(0xFF8C65FF),
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                         )
                     }
-                    Surface(shape = PillShape, color = Color(0xFFD96570).copy(alpha = 0.12f)) {
+                    Surface(shape = PillShape, color = Color(0xFF0EA5E9).copy(alpha = 0.12f)) {
                         Text(
-                            "✨ Direct Question Answering",
+                            "✨ Direct Q&A + Equations",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFFD96570),
+                            color = Color(0xFF0EA5E9),
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                         )
@@ -281,7 +290,7 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                     "Summarize key concepts",
                     "Extract formulas & definitions",
                     "Quiz me with 3 questions",
-                    "Create a study checklist",
+                    "Solve equations step-by-step",
                 )
 
                 LazyColumn(
@@ -387,7 +396,7 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                     bottomEnd = 22.dp,
                                 ),
                                 color = if (isUser) {
-                                    Color(0xFF4285F4)
+                                    Color(0xFF2A78D6)
                                 } else {
                                     MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
                                 },
@@ -442,7 +451,7 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                         Icon(
                             Icons.Outlined.AutoAwesome,
                             null,
-                            tint = Color(0xFF9B72CB),
+                            tint = Color(0xFF6366F1),
                             modifier = Modifier.padding(start = 6.dp).size(20.dp),
                         )
                         OutlinedTextField(
@@ -462,7 +471,7 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                             enabled = input.isNotBlank() && !busy,
                             onClick = { send(input) },
                             shape = PillShape,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4285F4)),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2A78D6)),
                             modifier = Modifier.elasticStretch(),
                         ) {
                             Icon(Icons.AutoMirrored.Outlined.Send, "Ask", tint = Color.White)
@@ -493,17 +502,18 @@ fun AiAssetStudioDialog(
     val imgStates by LocalAiManager.imageStates.collectAsState()
 
     var kind by remember(initialKind) { mutableStateOf(initialKind) }
-    var style by remember { mutableStateOf(CreativeStyle.CARTOON_3D) }
+    var style by remember { mutableStateOf(CreativeStyle.WATERCOLOR) }
     var showModelDrawer by remember { mutableStateOf(false) }
     var prompt by remember(initialKind) {
         mutableStateOf(
             when (initialKind) {
-                AiAssetKind.STICKER -> "Study Star Goal"
-                AiAssetKind.COVER -> vm.title
+                AiAssetKind.STICKER -> "Cute Study Owl"
+                AiAssetKind.COVER -> vm.title.ifBlank { "Botanical Emerald Journal" }
                 AiAssetKind.TEMPLATE -> "Cornell Study Notes"
             },
         )
     }
+    var variationNonce by remember { mutableIntStateOf(0) }
     var accent by remember { mutableIntStateOf(0xFF6366F1.toInt()) }
     var preview by remember { mutableStateOf<Bitmap?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -513,19 +523,19 @@ fun AiAssetStudioDialog(
         initialValue = 0f,
         targetValue = 1200f,
         animationSpec = infiniteRepeatable(
-            animation = tween(3200, easing = LinearEasing),
+            animation = tween(2800, easing = LinearEasing),
             repeatMode = RepeatMode.Restart,
         ),
         label = "shimmerOffset",
     )
     val generatingGradient = Brush.linearGradient(
         colors = listOf(
-            Color(0xFF6366F1), // Indigo
-            Color(0xFF8B5CF6), // Purple
-            Color(0xFFEC4899), // Pink
-            Color(0xFF3B82F6), // Sky blue
-            Color(0xFF10B981), // Emerald
-            Color(0xFF6366F1), // Loop
+            Color(0xFF66D7E6),
+            Color(0xFF8C65FF),
+            Color(0xFFEC4899),
+            Color(0xFF38BDF8),
+            Color(0xFF9BECE4),
+            Color(0xFF66D7E6),
         ),
         start = Offset(shimmerOffset - 600f, shimmerOffset * 0.35f),
         end = Offset(shimmerOffset + 600f, shimmerOffset * 0.35f + 800f),
@@ -535,147 +545,305 @@ fun AiAssetStudioDialog(
         LocalAiManager.refresh(context)
     }
 
-    fun generateNow() {
+    fun generateNow(freshVariation: Boolean = false) {
         if (busy) return
+        if (freshVariation) variationNonce++
+        val nonceSnap = variationNonce
         busy = true
         scope.launch {
-            preview = LocalAiManager.generateAiAssetBitmap(context, kind, prompt, accent, style)
+            preview = LocalAiManager.generateAiAssetBitmap(
+                context = context,
+                kind = kind,
+                prompt = prompt,
+                accentArgb = accent,
+                style = style,
+                liteMode = settings.imageLiteMode,
+                variationNonce = nonceSnap,
+            )
             busy = false
         }
     }
 
     LaunchedEffect(kind, style, settings.imageLiteMode, settings.activeImageModelId) {
-        generateNow()
+        variationNonce = 0
+        generateNow(false)
     }
 
     val presets = when (kind) {
-        AiAssetKind.STICKER -> listOf("Gold Star Exam", "Key Formula Ribbon", "Focus Badge", "Science Atom", "Rocket Launch", "Brain Spark")
-        AiAssetKind.COVER -> listOf("Cosmos Minimal", "Botanical Journal", "Physics Atlas", "Architecture Slate", "Cyber Neon", "Pastel Studio")
+        AiAssetKind.STICKER -> listOf("Cute Study Owl", "Physics Atom Spark", "Gold Exam Star", "Coffee Study Cat", "DNA Helix Badge")
+        AiAssetKind.COVER -> listOf("Botanical Emerald Journal", "Deep Space Nebula", "Minimalist Bauhaus", "Calm Pastel Waves")
         AiAssetKind.TEMPLATE -> listOf("Cornell Notes", "Weekly Planner", "14-Day Habit Tracker", "Storyboard Grid", "Exam Revision Sheet")
+    }
+    val aspectLabel = when (kind) {
+        AiAssetKind.STICKER -> "1:1"
+        AiAssetKind.COVER -> "3:4"
+        AiAssetKind.TEMPLATE -> "A4"
     }
 
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
             shape = RoundedCornerShape(32.dp),
-            color = MaterialTheme.colorScheme.surface,
+            color = Color.Transparent,
             tonalElevation = 8.dp,
             modifier = Modifier
                 .padding(14.dp)
                 .widthIn(max = 760.dp)
                 .fillMaxWidth()
-                .heightIn(max = 860.dp)
+                .heightIn(max = 880.dp)
                 .statusBarsPadding()
-                .border(1.5.dp, OneUi9GradientBrush, RoundedCornerShape(32.dp)),
+                .clip(RoundedCornerShape(32.dp))
+                .background(CreativeStageBackdropBrush)
+                .border(1.2.dp, Color.White.copy(alpha = 0.55f), RoundedCornerShape(32.dp)),
         ) {
             Column(
                 Modifier.padding(18.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                // One UI 9 Inspired Creative Studio Iridescent Header Banner
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(OneUi9GradientBrush)
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                // Sleek One UI 9 Creative Studio Top Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            Modifier
-                                .size(42.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(Color.White.copy(alpha = 0.22f)),
-                            contentAlignment = Alignment.Center,
+                    Surface(
+                        shape = CircleShape,
+                        color = Color.White.copy(alpha = 0.22f),
+                        modifier = Modifier.clip(CircleShape).clickable { onClose() },
+                    ) {
+                        Text(
+                            "✕",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+                        )
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Creative Studio",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White,
+                        )
+                        Text(
+                            "${kind.label} · ${LocalAiManager.activeImageModelLabel(context)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.9f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    // Aspect badge matching studio screenshot (1:1 / 3:4 / A4)
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color.White.copy(alpha = 0.2f),
+                        modifier = Modifier.border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(10.dp)),
+                    ) {
+                        Text(
+                            aspectLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                        )
+                    }
+                    // Lite Mode toggle chip
+                    Surface(
+                        shape = PillShape,
+                        color = if (settings.imageLiteMode) Color.White else Color.White.copy(alpha = 0.22f),
+                        modifier = Modifier
+                            .clip(PillShape)
+                            .clickable { settingsStore.update { it.copy(imageLiteMode = !it.imageLiteMode) } }
+                            .elasticStretch(),
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            Icon(Icons.Outlined.AutoAwesome, null, tint = Color.White, modifier = Modifier.size(24.dp))
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                "Creative Studio",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White,
+                            Icon(
+                                Icons.Outlined.Bolt,
+                                null,
+                                tint = if (settings.imageLiteMode) OneUi9Purple else Color.White,
+                                modifier = Modifier.size(15.dp),
                             )
                             Text(
-                                "Drawing Assist · ${LocalAiManager.activeImageModelLabel(context)}",
+                                if (settings.imageLiteMode) "Lite" else "HD",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color.White.copy(alpha = 0.9f),
+                                fontWeight = FontWeight.Bold,
+                                color = if (settings.imageLiteMode) OneUi9Purple else Color.White,
                             )
-                        }
-                        // ⚡ Lite Mode Toggle Chip
-                        Surface(
-                            shape = PillShape,
-                            color = if (settings.imageLiteMode) Color.White else Color.White.copy(alpha = 0.22f),
-                            modifier = Modifier
-                                .clip(PillShape)
-                                .clickable {
-                                    settingsStore.update { it.copy(imageLiteMode = !it.imageLiteMode) }
-                                }
-                                .elasticStretch(),
-                        ) {
-                            Row(
-                                Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                Icon(
-                                    Icons.Outlined.Bolt,
-                                    null,
-                                    tint = if (settings.imageLiteMode) Color(0xFF6366F1) else Color.White,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                                Text(
-                                    if (settings.imageLiteMode) "⚡ Lite Mode ON" else "Lite Mode OFF",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (settings.imageLiteMode) Color(0xFF6366F1) else Color.White,
-                                )
-                            }
-                        }
-                        Spacer(Modifier.width(6.dp))
-                        TextButton(onClick = onClose) {
-                            Text("Close", color = Color.White, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
 
-                // Quick Lite Image Switcher & Pause/Resume Drawer Toggle
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                // Asset Type Selector Pill Bar (Sticker / Cover / Template)
+                Surface(
+                    shape = PillShape,
+                    color = Color.Black.copy(alpha = 0.14f),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(
-                        "CREATIVE STYLE (DRAWING ASSIST)",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                    TextButton(onClick = { showModelDrawer = !showModelDrawer }) {
-                        Icon(Icons.Outlined.Download, null, Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(if (showModelDrawer) "Hide Lite Models" else "Lite Image Models (Pause / Resume)")
+                    Row(Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        AiAssetKind.entries.forEach { k ->
+                            val active = kind == k
+                            Surface(
+                                shape = PillShape,
+                                color = if (active) Color.White else Color.Transparent,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(PillShape)
+                                    .clickable { kind = k },
+                            ) {
+                                Text(
+                                    k.label,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (active) Color(0xFF1E293B) else Color.White,
+                                    modifier = Modifier.padding(vertical = 8.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Center Frosted Squircle Preview Stage (matching One UI Creative Studio reference)
+                val centerStageGlow = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFFD946EF).copy(alpha = 0.42f),
+                        Color(0xFF8C65FF).copy(alpha = 0.25f),
+                        Color.White.copy(alpha = 0.14f),
+                    ),
+                )
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(270.dp)
+                        .clip(RoundedCornerShape(28.dp))
+                        .background(if (busy) generatingGradient else centerStageGlow)
+                        .border(1.2.dp, Color.White.copy(alpha = 0.45f), RoundedCornerShape(28.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (busy) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.padding(20.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(54.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.26f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(Icons.Outlined.AutoAwesome, null, tint = Color.White, modifier = Modifier.size(28.dp))
+                            }
+                            Text(
+                                "Creating your ${kind.label.lowercase()}…",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White,
+                            )
+                            Text(
+                                "\"$prompt\" · ${style.label}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.92f),
+                                maxLines = 2,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            )
+                            LinearProgressIndicator(
+                                modifier = Modifier.width(180.dp).height(5.dp).clip(PillShape),
+                                color = Color.White,
+                                trackColor = Color.White.copy(alpha = 0.35f),
+                            )
+                        }
+                    } else if (preview != null) {
+                        Image(
+                            preview!!.asImageBitmap(),
+                            "Creative Studio Preview",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize().padding(16.dp),
+                        )
+                    } else {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(28.dp),
+                        ) {
+                            Text(
+                                "Imagine it, create it. Any image, instantly.",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            )
+                        }
+                    }
+
+                    // Bottom-left style badge pill (matching studio reference card)
+                    Surface(
+                        shape = PillShape,
+                        color = Color.Black.copy(alpha = 0.48f),
+                        modifier = Modifier.align(Alignment.BottomStart).padding(12.dp),
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
+                            Text(style.badge, fontSize = 13.sp)
+                            Text(
+                                style.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                            )
+                        }
+                    }
+
+                    // Bottom-right Lite Models toggle pill
+                    Surface(
+                        shape = PillShape,
+                        color = Color.White.copy(alpha = 0.24f),
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(12.dp)
+                            .clip(PillShape)
+                            .clickable { showModelDrawer = !showModelDrawer },
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Icon(Icons.Outlined.Download, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                            Text(
+                                if (showModelDrawer) "Hide Models" else "Models",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                            )
+                        }
                     }
                 }
 
                 // Inline Lite Image Models Manager with Pause / Resume / Cancel
                 if (showModelDrawer) {
                     Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        shape = RoundedCornerShape(22.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    "Lite Image Models · Pause & Resume Supported",
+                                    "Lite Image Models · Pause & Resume",
                                     style = MaterialTheme.typography.labelLarge,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.weight(1f),
                                 )
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text("⚡ Lite Mode", style = MaterialTheme.typography.labelSmall)
+                                    Text("Lite", style = MaterialTheme.typography.labelSmall)
                                     Switch(
                                         checked = settings.imageLiteMode,
                                         onCheckedChange = { v -> settingsStore.update { it.copy(imageLiteMode = v) } },
@@ -687,37 +855,20 @@ fun AiAssetStudioDialog(
                                 val isActive = settings.activeImageModelId == m.id
                                 Surface(
                                     shape = RoundedCornerShape(14.dp),
-                                    color = if (isActive) {
-                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
-                                    } else {
-                                        MaterialTheme.colorScheme.surface
+                                    color = if (isActive) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable {
+                                        settingsStore.update { it.copy(activeImageModelId = m.id) }
                                     },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .clickable { settingsStore.update { it.copy(activeImageModelId = m.id) } },
                                 ) {
                                     Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Column(Modifier.weight(1f)) {
-                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                    Text(m.name, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                                                    Surface(shape = PillShape, color = MaterialTheme.colorScheme.secondaryContainer) {
-                                                        Text(
-                                                            "${m.sizeLabel} · ${m.backend}",
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                        )
-                                                    }
-                                                }
+                                                Text("${m.name} (${m.sizeLabel})", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                                                 Text(m.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             }
                                             when (st.status) {
                                                 LocalModelStatus.READY -> {
-                                                    Button(
-                                                        onClick = { settingsStore.update { it.copy(activeImageModelId = m.id) } },
-                                                        shape = PillShape,
-                                                    ) {
+                                                    Button(onClick = { settingsStore.update { it.copy(activeImageModelId = m.id) } }, shape = PillShape) {
                                                         Icon(Icons.Outlined.CheckCircle, null, Modifier.size(15.dp))
                                                         Spacer(Modifier.width(4.dp))
                                                         Text(if (isActive) "Active" else "Use")
@@ -725,34 +876,22 @@ fun AiAssetStudioDialog(
                                                 }
                                                 LocalModelStatus.DOWNLOADING -> {
                                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                                        FilledTonalButton(
-                                                            onClick = { LocalAiManager.pauseImageModelDownload(context, m.id) },
-                                                            shape = PillShape,
-                                                        ) {
+                                                        FilledTonalButton(onClick = { LocalAiManager.pauseImageModelDownload(context, m.id) }, shape = PillShape) {
                                                             Icon(Icons.Outlined.Pause, null, Modifier.size(15.dp))
                                                             Spacer(Modifier.width(4.dp))
                                                             Text("Pause")
                                                         }
-                                                        TextButton(onClick = { LocalAiManager.cancelImageModelDownload(context, m.id) }) {
-                                                            Text("Cancel")
-                                                        }
+                                                        TextButton(onClick = { LocalAiManager.cancelImageModelDownload(context, m.id) }) { Text("Cancel") }
                                                     }
                                                 }
                                                 LocalModelStatus.PAUSED -> {
                                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                                        Button(
-                                                            onClick = {
-                                                                LocalAiManager.startImageModelDownload(context, m.id)
-                                                            },
-                                                            shape = PillShape,
-                                                        ) {
+                                                        Button(onClick = { LocalAiManager.startImageModelDownload(context, m.id) }, shape = PillShape) {
                                                             Icon(Icons.Outlined.PlayArrow, null, Modifier.size(15.dp))
                                                             Spacer(Modifier.width(4.dp))
                                                             Text("Resume ${(st.progress * 100).toInt()}%")
                                                         }
-                                                        TextButton(onClick = { LocalAiManager.cancelImageModelDownload(context, m.id) }) {
-                                                            Text("Cancel")
-                                                        }
+                                                        TextButton(onClick = { LocalAiManager.cancelImageModelDownload(context, m.id) }) { Text("Cancel") }
                                                     }
                                                 }
                                                 else -> {
@@ -783,7 +922,7 @@ fun AiAssetStudioDialog(
                     }
                 }
 
-                // Samsung Creative Studio Visual Style Cards (3D Cartoon, Watercolor, Sketch to Art, Pop Art, Anime, Minimal)
+                // Style Chips Strip
                 Row(
                     Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -791,258 +930,127 @@ fun AiAssetStudioDialog(
                     CreativeStyle.entries.forEach { cs ->
                         val selected = style == cs
                         Surface(
-                            shape = RoundedCornerShape(18.dp),
-                            color = if (selected) {
-                                Color(0xFF6366F1)
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
-                            },
-                            contentColor = if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
+                            shape = PillShape,
+                            color = if (selected) Color.White else Color.Black.copy(alpha = 0.22f),
+                            contentColor = if (selected) Color(0xFF1E293B) else Color.White,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(18.dp))
+                                .clip(PillShape)
                                 .clickable { style = cs }
                                 .elasticStretch(),
                         ) {
                             Row(
-                                Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
-                                Text(cs.badge, fontSize = 16.sp)
+                                Text(cs.badge, fontSize = 15.sp)
                                 Text(cs.label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
                 }
 
-                // Asset Type Tabs (Sticker / Cover / Page Template)
-                PrimaryTabRow(selectedTabIndex = kind.ordinal, containerColor = Color.Transparent) {
-                    AiAssetKind.entries.forEach { k ->
-                        Tab(
-                            selected = kind == k,
-                            onClick = { kind = k },
-                            text = { Text(k.label, fontWeight = FontWeight.SemiBold) },
-                        )
+                // Inspiration Chips + Accent Palette
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    presets.forEach { p ->
+                        val sel = prompt == p
+                        Surface(
+                            shape = PillShape,
+                            color = if (sel) Color.White.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.22f),
+                            modifier = Modifier
+                                .clip(PillShape)
+                                .clickable {
+                                    prompt = p
+                                    generateNow(true)
+                                },
+                        ) {
+                            Text(
+                                p,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (sel) Color(0xFF1E293B) else Color.White,
+                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+                            )
+                        }
                     }
                 }
 
-                // Prominent Prompt & Direct Generation Card
-                Column(
+                // Translucent Dark Prompt Box (matching uploaded screenshot bottom composer)
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color.Black.copy(alpha = 0.28f),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                        .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(24.dp)),
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            "Prompt for ${kind.label}",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Text(
-                            style.label,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         OutlinedTextField(
                             value = prompt,
                             onValueChange = { prompt = it },
                             placeholder = {
                                 Text(
-                                    when (kind) {
-                                        AiAssetKind.STICKER -> "Describe sticker (e.g. Study Owl, Glowing Coffee)..."
-                                        AiAssetKind.COVER -> "Describe cover (e.g. Deep Space Nebula, Vintage Leather)..."
-                                        AiAssetKind.TEMPLATE -> "Describe template (e.g. Cornell Grid, Weekly Sprint)..."
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
+                                    "Describe what you want to create",
+                                    color = Color.White.copy(alpha = 0.72f),
+                                    style = MaterialTheme.typography.bodyMedium,
                                 )
                             },
-                            leadingIcon = {
-                                Icon(Icons.Outlined.AutoAwesome, null, tint = OneUi9Purple, modifier = Modifier.size(20.dp))
-                            },
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
                             singleLine = true,
-                            shape = RoundedCornerShape(16.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color.Transparent,
+                                unfocusedBorderColor = Color.Transparent,
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                cursorColor = Color.White,
+                            ),
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                            keyboardActions = KeyboardActions(onDone = { if (prompt.isNotBlank() && !busy) generateNow() }),
+                            keyboardActions = KeyboardActions(onDone = { if (prompt.isNotBlank() && !busy) generateNow(true) }),
                             modifier = Modifier.weight(1f),
                         )
-
                         Button(
-                            onClick = { generateNow() },
+                            onClick = { generateNow(true) },
                             enabled = !busy && prompt.isNotBlank(),
-                            modifier = Modifier
-                                .height(54.dp)
-                                .elasticStretch(),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = OneUi9Purple),
+                            shape = PillShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.White,
+                                contentColor = Color(0xFF1E293B),
+                            ),
+                            modifier = Modifier.height(44.dp).elasticStretch(),
                         ) {
                             if (busy) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    color = Color.White,
-                                    strokeWidth = 2.dp,
-                                )
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = OneUi9Purple, strokeWidth = 2.dp)
                             } else {
-                                Icon(Icons.Outlined.AutoAwesome, null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
+                                Icon(Icons.Outlined.AutoAwesome, null, modifier = Modifier.size(16.dp), tint = OneUi9Purple)
+                                Spacer(Modifier.width(5.dp))
                                 Text("Generate", fontWeight = FontWeight.Bold)
                             }
                         }
                     }
-
-                    // Inspiration Preset Chips right beneath the prompt input
-                    Row(
-                        Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        presets.forEach { p ->
-                            FilterChip(
-                                selected = prompt == p,
-                                onClick = {
-                                    prompt = p
-                                    generateNow()
-                                },
-                                label = { Text(p, style = MaterialTheme.typography.labelSmall) },
-                                shape = PillShape,
-                                modifier = Modifier.elasticStretch(),
-                            )
-                        }
-                    }
                 }
 
-                // Color Palette Row
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text("Studio Palette:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(0xFF6366F1, 0xFF3D6CF4, 0xFFEC4899, 0xFF10B981, 0xFFF59E0B, 0xFFEF4444, 0xFF06B6D4, 0xFF1E293B).forEach { c ->
-                            val ci = c.toInt()
-                            Swatch(ci, accent == ci, 26) { accent = ci; generateNow() }
-                        }
-                    }
-                }
-
-                val previewBgBrush: Brush = if (busy) generatingGradient else SolidColor(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-                // Creative Studio Canvas Preview Stage with Animated Gradient Background while Generating
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(260.dp)
-                        .clip(RoundedCornerShape(26.dp))
-                        .background(previewBgBrush)
-                        .border(
-                            width = if (busy) 2.dp else 1.dp,
-                            brush = if (busy) Brush.linearGradient(listOf(Color.White, Color(0xFFEC4899), Color.White)) else OneUi9GradientBrush,
-                            shape = RoundedCornerShape(26.dp),
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (busy) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.padding(20.dp),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.25f)),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    Icons.Outlined.AutoAwesome,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(30.dp),
-                                )
-                            }
-                            Text(
-                                "Generating ${kind.label}…",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White,
-                            )
-                            Text(
-                                "\"$prompt\" · ${style.label}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.White.copy(alpha = 0.9f),
-                                maxLines = 2,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            )
-                            LinearProgressIndicator(
-                                modifier = Modifier
-                                    .width(180.dp)
-                                    .height(5.dp)
-                                    .clip(PillShape),
-                                color = Color.White,
-                                trackColor = Color.White.copy(alpha = 0.35f),
-                            )
-                        }
-                    } else {
-                        preview?.let {
-                            Image(
-                                it.asImageBitmap(),
-                                "Creative Studio Preview",
-                                contentScale = ContentScale.Fit,
-                                modifier = Modifier.fillMaxSize().padding(14.dp),
-                            )
-                        } ?: Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Icon(
-                                Icons.Outlined.AutoAwesome,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(34.dp),
-                            )
-                            Text("Enter prompt to generate in Creative Studio", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-
-                    // Style & Mode Badge Overlay
-                    Surface(
-                        shape = PillShape,
-                        color = Color.Black.copy(alpha = 0.62f),
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp),
-                    ) {
-                        Text(
-                            "${style.badge} ${style.label} · ${if (settings.imageLiteMode) "⚡ Turbo" else "HD"}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        )
-                    }
-                }
-
+                // Bottom Action Pill Bar: Regenerate (always fresh variation) + Primary Apply CTA
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(
+                    FilledTonalButton(
                         enabled = !busy,
-                        onClick = { generateNow() },
+                        onClick = { generateNow(true) },
                         shape = PillShape,
-                        modifier = Modifier.weight(1f).elasticStretch(),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = Color.Black.copy(alpha = 0.28f),
+                            contentColor = Color.White,
+                        ),
+                        modifier = Modifier.weight(1f).height(48.dp).elasticStretch(),
                     ) {
                         Icon(Icons.Outlined.Refresh, null, Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(if (busy) "Rendering…" else "Regenerate")
+                        Text(if (busy) "Creating…" else "Regenerate")
                     }
                     Button(
                         enabled = preview != null && !busy,
@@ -1056,14 +1064,19 @@ fun AiAssetStudioDialog(
                             onClose()
                         },
                         shape = PillShape,
-                        modifier = Modifier.weight(1f).elasticStretch(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF1E293B),
+                            contentColor = Color.White,
+                        ),
+                        modifier = Modifier.weight(1.3f).height(48.dp).elasticStretch(),
                     ) {
                         Text(
                             when (kind) {
                                 AiAssetKind.STICKER -> "Insert Sticker"
-                                AiAssetKind.TEMPLATE -> "Apply Page Template"
-                                AiAssetKind.COVER -> "Set Notebook Cover"
+                                AiAssetKind.TEMPLATE -> "Apply Template"
+                                AiAssetKind.COVER -> "Set Cover"
                             },
+                            fontWeight = FontWeight.Bold,
                         )
                     }
                 }

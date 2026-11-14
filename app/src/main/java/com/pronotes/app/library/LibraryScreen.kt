@@ -19,6 +19,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -80,6 +81,7 @@ import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PictureAsPdf
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Star
@@ -119,6 +121,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -1258,8 +1262,10 @@ private fun NewNotebookDialog(
     var wMm by remember { mutableStateOf("%.0f".format(defaults.defaultPreset.wMm)) }
     var hMm by remember { mutableStateOf("%.0f".format(defaults.defaultPreset.hMm)) }
     var photo by remember { mutableStateOf<Uri?>(null) }
+    var aiCoverBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var aiCoverNonce by remember { mutableStateOf(0) }
     var tab by remember { mutableStateOf(0) }
-    val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) { photo = uri; cover = "photo" } }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) { photo = uri; aiCoverBitmap = null; cover = "photo" } }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("New notebook") },
@@ -1267,7 +1273,14 @@ private fun NewNotebookDialog(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(width = 72.dp, height = 96.dp)) {
-                        if (cover == "photo" || cover == "thumb") {
+                        if (cover == "photo" && aiCoverBitmap != null) {
+                            Image(
+                                aiCoverBitmap!!.asImageBitmap(),
+                                contentDescription = "AI Cover Preview",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize().clip(NotebookShape),
+                            )
+                        } else if (cover == "photo" || cover == "thumb") {
                             Box(Modifier.fillMaxSize().clip(NotebookShape).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
                                 Text(if (cover == "photo") "Photo" else "Page 1", style = MaterialTheme.typography.labelSmall)
                             }
@@ -1288,7 +1301,7 @@ private fun NewNotebookDialog(
                             val genScope = rememberCoroutineScope()
                             var aiCoverBusy by remember { mutableStateOf(false) }
                             var aiCoverPrompt by remember { mutableStateOf("") }
-                            CoverGallery(cover, { cover = it; photo = null }) { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+                            CoverGallery(cover, { cover = it; photo = null; aiCoverBitmap = null }) { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 OutlinedTextField(
                                     aiCoverPrompt,
@@ -1304,16 +1317,20 @@ private fun NewNotebookDialog(
                                     modifier = Modifier.elasticStretch(),
                                     onClick = {
                                         aiCoverBusy = true
+                                        val nextNonce = if (cover == "photo" && aiCoverBitmap != null) aiCoverNonce + 1 else aiCoverNonce
+                                        aiCoverNonce = nextNonce
                                         genScope.launch {
                                             runCatching {
                                                 val bmp = LocalAiManager.generateAiAssetBitmap(
-                                                    ctx,
-                                                    AiAssetKind.COVER,
-                                                    aiCoverPrompt.ifBlank { name },
-                                                    startColor,
+                                                    context = ctx,
+                                                    kind = AiAssetKind.COVER,
+                                                    prompt = aiCoverPrompt.ifBlank { name },
+                                                    accentArgb = startColor,
+                                                    variationNonce = nextNonce,
                                                 )
                                                 val file = File(ctx.cacheDir, "ai_cover_${System.currentTimeMillis()}.png")
                                                 file.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 96, it) }
+                                                aiCoverBitmap = bmp
                                                 photo = Uri.fromFile(file)
                                                 cover = "photo"
                                             }
@@ -1321,9 +1338,13 @@ private fun NewNotebookDialog(
                                         }
                                     },
                                 ) {
-                                    Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp))
+                                    Icon(
+                                        if (cover == "photo" && aiCoverBitmap != null) Icons.Outlined.Refresh else Icons.Outlined.AutoAwesome,
+                                        null,
+                                        Modifier.size(16.dp),
+                                    )
                                     Spacer(Modifier.width(4.dp))
-                                    Text(if (aiCoverBusy) "…" else "AI Cover")
+                                    Text(if (aiCoverBusy) "…" else if (cover == "photo" && aiCoverBitmap != null) "Regen" else "AI Cover")
                                 }
                             }
                             if (cover != "thumb" && !preset.isWhiteboard) Row(verticalAlignment = Alignment.CenterVertically) {

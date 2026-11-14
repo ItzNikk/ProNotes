@@ -1430,6 +1430,44 @@ export async function runLocalNotesPdfChat(
 
   const lowerQ = q.toLowerCase();
 
+  // 0. Instant Step-by-Step Math / Linear / Quadratic Solver
+  const linMatch = lowerQ.replace(/solve\s+/g, '').match(/(-?\d*\.?\d*)\s*x\s*([+\-])\s*(\d+\.?\d*)\s*=\s*(-?\d+\.?\d*)/);
+  if (linMatch && !lowerQ.includes('x^2') && !lowerQ.includes('x²')) {
+    const aStr = linMatch[1];
+    const a = aStr === '' || aStr === '+' ? 1 : aStr === '-' ? -1 : Number(aStr);
+    const bSign = linMatch[2] === '-' ? -1 : 1;
+    const b = Number(linMatch[3]) * bSign;
+    const c = Number(linMatch[4]);
+    if (Number.isFinite(a) && a !== 0 && Number.isFinite(b) && Number.isFinite(c)) {
+      const rhs = c - b;
+      const x = Number((rhs / a).toFixed(4));
+      return {
+        reply: `**Step-by-Step Linear Solution**\n\n• Equation: \`${linMatch[0]}\`\n• Isolate x term: \`${a}x = ${rhs}\`\n• Divide by \`${a}\`: **x = ${x}**`,
+        citations,
+        engineLabel,
+      };
+    }
+  }
+  const arithMatch = lowerQ.match(/(-?\d+(?:\.\d+)?)\s*([+\-*/×÷^])\s*(-?\d+(?:\.\d+)?)/);
+  if (arithMatch) {
+    const a = Number(arithMatch[1]);
+    const op = arithMatch[2];
+    const b = Number(arithMatch[3]);
+    let res = NaN;
+    if (op === '+') res = a + b;
+    else if (op === '-') res = a - b;
+    else if (op === '*' || op === '×') res = a * b;
+    else if (op === '/' || op === '÷') res = b !== 0 ? a / b : NaN;
+    else if (op === '^') res = Math.pow(a, b);
+    if (Number.isFinite(res)) {
+      return {
+        reply: `**${a} ${op} ${b} = ${Number(res.toFixed(4))}**\n\n• Operation: \`${op}\`\n• Result: **${Number(res.toFixed(4))}**`,
+        citations,
+        engineLabel,
+      };
+    }
+  }
+
   // 1. Friendly Conversational & Capability Queries
   if (/^(hi|hello|hey|greetings|who are you|what can you do|help)/i.test(lowerQ.trim())) {
     return {
@@ -1527,7 +1565,11 @@ export async function runLocalNotesPdfChat(
 // v10: AI Image Generator (Stickers, Covers & Page Templates)
 // ================================================================
 
-function synthesizeLocalVectorImage(prompt: string, category: AiImageCategory): string {
+function synthesizeLocalVectorImage(
+  prompt: string,
+  category: AiImageCategory,
+  variationNonce: number = 0
+): string {
   const canvas = document.createElement('canvas');
   const w = category === 'sticker' ? 512 : category === 'cover' ? 420 : 600;
   const h = category === 'sticker' ? 512 : category === 'cover' ? 560 : 840;
@@ -1536,22 +1578,22 @@ function synthesizeLocalVectorImage(prompt: string, category: AiImageCategory): 
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
 
-  const seed = prompt.split('').reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 17);
+  const seed = prompt.split('').reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 17) + variationNonce * 7919;
   const palettes = [
-    ['#3D6CF4', '#7C3AED', '#38BDF8'],
+    ['#6366F1', '#8C65FF', '#38BDF8'],
     ['#0F7E5C', '#10B981', '#FDE047'],
     ['#E11D48', '#FB7185', '#FDE68A'],
     ['#D97706', '#F59E0B', '#FEF3C7'],
-    ['#6366F1', '#EC4899', '#A5F3FC'],
+    ['#2A78D6', '#06B6D4', '#A5F3FC'],
+    ['#7C3AED', '#EC4899', '#C4B5FD'],
   ];
   const pal = palettes[Math.abs(seed) % palettes.length];
 
   if (category === 'sticker') {
     ctx.clearRect(0, 0, w, h);
-    // Die-cut white outer ring
     ctx.save();
     ctx.shadowColor = 'rgba(15,23,42,0.22)';
-    ctx.shadowBlur = 24;
+    ctx.shadowBlur = 22;
     ctx.shadowOffsetY = 8;
     ctx.fillStyle = '#FFFFFF';
     ctx.beginPath();
@@ -1564,13 +1606,12 @@ function synthesizeLocalVectorImage(prompt: string, category: AiImageCategory): 
     grad.addColorStop(1, pal[1]);
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.roundRect(64, 64, w - 128, h - 128, 88);
+    ctx.roundRect(62, 62, w - 124, h - 124, 90);
     ctx.fill();
 
-    // Decorative sparkles
-    ctx.fillStyle = 'rgba(255,255,255,0.24)';
+    ctx.fillStyle = 'rgba(255,255,255,0.22)';
     ctx.beginPath();
-    ctx.arc(w * 0.28, h * 0.3, 46, 0, Math.PI * 2);
+    ctx.arc(w * (0.25 + (Math.abs(seed) % 20) * 0.01), h * 0.3, 46, 0, Math.PI * 2);
     ctx.arc(w * 0.74, h * 0.72, 34, 0, Math.PI * 2);
     ctx.fill();
 
@@ -1578,7 +1619,7 @@ function synthesizeLocalVectorImage(prompt: string, category: AiImageCategory): 
     ctx.fillStyle = '#FFFFFF';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '800 44px "Plus Jakarta Sans", sans-serif';
+    ctx.font = '800 42px "Plus Jakarta Sans", sans-serif';
     const words = cleanWords.split(/\s+/);
     if (words.length <= 2) {
       ctx.fillText(cleanWords.toUpperCase(), w / 2, h / 2);
@@ -1598,12 +1639,13 @@ function synthesizeLocalVectorImage(prompt: string, category: AiImageCategory): 
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, w, h);
 
-    // Abstract botanical / geometric rings
     ctx.strokeStyle = 'rgba(255,255,255,0.22)';
     ctx.lineWidth = 3;
+    const rx = w * (0.35 + (Math.abs(seed) % 40) * 0.01);
+    const ry = h * (0.24 + (Math.abs(seed >> 3) % 22) * 0.01);
     for (let i = 0; i < 5; i++) {
       ctx.beginPath();
-      ctx.arc(w * 0.72, h * 0.28, 45 + i * 32, 0, Math.PI * 2);
+      ctx.arc(rx, ry, 44 + i * 32, 0, Math.PI * 2);
       ctx.stroke();
     }
     ctx.fillStyle = pal[2];
@@ -1613,14 +1655,12 @@ function synthesizeLocalVectorImage(prompt: string, category: AiImageCategory): 
     ctx.fill();
     ctx.globalAlpha = 1;
 
-    // Spine shimmer
-    const sp = ctx.createLinearGradient(0, 0, 28, 0);
+    const sp = ctx.createLinearGradient(0, 0, 26, 0);
     sp.addColorStop(0, 'rgba(0,0,0,0.34)');
     sp.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = sp;
-    ctx.fillRect(0, 0, 28, h);
+    ctx.fillRect(0, 0, 26, h);
 
-    // Subtle badge
     ctx.fillStyle = 'rgba(255,255,255,0.16)';
     ctx.beginPath();
     ctx.roundRect(42, h * 0.68, w - 84, 72, 18);
@@ -1632,7 +1672,6 @@ function synthesizeLocalVectorImage(prompt: string, category: AiImageCategory): 
     return canvas.toDataURL('image/png');
   }
 
-  // Page Template studio synthesis
   ctx.fillStyle = '#FFFFFF';
   ctx.fillRect(0, 0, w, h);
   ctx.fillStyle = pal[0];
@@ -1641,7 +1680,6 @@ function synthesizeLocalVectorImage(prompt: string, category: AiImageCategory): 
   ctx.font = '800 24px "Plus Jakarta Sans", sans-serif';
   ctx.fillText((prompt.trim() || 'AI Study Template').slice(0, 32), 34, 46);
 
-  // Two-column study template layout
   ctx.strokeStyle = '#CBD5E1';
   ctx.lineWidth = 2;
   ctx.strokeRect(28, 98, 170, h - 134);
@@ -1671,96 +1709,245 @@ function synthesizeLocalVectorImage(prompt: string, category: AiImageCategory): 
   return canvas.toDataURL('image/png');
 }
 
+async function applyChromaKeyStickerFilter(blob: Blob): Promise<string> {
+  const bitmap = await createImageBitmap(blob);
+  const w = bitmap.width;
+  const h = bitmap.height;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    bitmap.close();
+    return URL.createObjectURL(blob);
+  }
+  ctx.drawImage(bitmap, 0, 0);
+  bitmap.close();
+
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const data = imgData.data;
+
+  // Sample corners (4x4 patch) to detect chroma green or uniform light studio backdrop
+  let sumR = 0;
+  let sumG = 0;
+  let sumB = 0;
+  let cnt = 0;
+  const corners: [number, number][] = [
+    [0, 0],
+    [Math.max(0, w - 4), 0],
+    [0, Math.max(0, h - 4)],
+    [Math.max(0, w - 4), Math.max(0, h - 4)],
+  ];
+  for (const [sx, sy] of corners) {
+    for (let dy = 0; dy < 4 && sy + dy < h; dy++) {
+      for (let dx = 0; dx < 4 && sx + dx < w; dx++) {
+        const off = ((sy + dy) * w + (sx + dx)) * 4;
+        sumR += data[off];
+        sumG += data[off + 1];
+        sumB += data[off + 2];
+        cnt++;
+      }
+    }
+  }
+  const bgR = sumR / Math.max(1, cnt);
+  const bgG = sumG / Math.max(1, cnt);
+  const bgB = sumB / Math.max(1, cnt);
+  const isChromaGreen = bgG > bgR + 28 && bgG > bgB + 28;
+  const isUniformLight = bgR > 212 && bgG > 212 && bgB > 212;
+
+  if (!isChromaGreen && !isUniformLight) {
+    return canvas.toDataURL('image/png');
+  }
+
+  const total = w * h;
+  const bgMask = new Uint8Array(total);
+  const queue = new Int32Array(total);
+  let head = 0;
+  let tail = 0;
+
+  const matchesBg = (idx: number): boolean => {
+    const off = idx * 4;
+    const r = data[off];
+    const g = data[off + 1];
+    const b = data[off + 2];
+    if (isChromaGreen) {
+      return (g > r + 20 && g > b + 20) || Math.abs(r - bgR) + Math.abs(g - bgG) + Math.abs(b - bgB) < 95;
+    }
+    return Math.abs(r - bgR) + Math.abs(g - bgG) + Math.abs(b - bgB) < 62;
+  };
+
+  const push = (idx: number) => {
+    if (!bgMask[idx] && matchesBg(idx)) {
+      bgMask[idx] = 1;
+      queue[tail++] = idx;
+    }
+  };
+
+  for (let x = 0; x < w; x++) {
+    push(x);
+    push((h - 1) * w + x);
+  }
+  for (let y = 0; y < h; y++) {
+    push(y * w);
+    push(y * w + (w - 1));
+  }
+
+  while (head < tail) {
+    const cur = queue[head++];
+    const x = cur % w;
+    const y = (cur / w) | 0;
+    if (x > 0) push(cur - 1);
+    if (x + 1 < w) push(cur + 1);
+    if (y > 0) push(cur - w);
+    if (y + 1 < h) push(cur + w);
+  }
+
+  for (let i = 0; i < total; i++) {
+    const off = i * 4;
+    if (bgMask[i]) {
+      data[off + 3] = 0;
+    } else if (isChromaGreen) {
+      const maxRb = Math.max(data[off], data[off + 2]);
+      if (data[off + 1] > maxRb + 10) data[off + 1] = maxRb + 6;
+    }
+  }
+
+  // Synthesize crisp 6px pure white die-cut contour halo around opaque foreground
+  const borderR = Math.max(4, Math.min(8, Math.round(Math.min(w, h) * 0.014)));
+  const rSq = borderR * borderR;
+  const copy = new Uint8ClampedArray(data);
+  for (let y = borderR; y < h - borderR; y++) {
+    for (let x = borderR; x < w - borderR; x++) {
+      const idx = y * w + x;
+      const off = idx * 4;
+      if (data[off + 3] < 32) {
+        let nearFg = false;
+        outer: for (let dy = -borderR; dy <= borderR; dy++) {
+          const ny = (y + dy) * w;
+          for (let dx = -borderR; dx <= borderR; dx++) {
+            if (dx * dx + dy * dy <= rSq && data[(ny + x + dx) * 4 + 3] > 180) {
+              nearFg = true;
+              break outer;
+            }
+          }
+        }
+        if (nearFg) {
+          copy[off] = 255;
+          copy[off + 1] = 255;
+          copy[off + 2] = 255;
+          copy[off + 3] = 255;
+        }
+      }
+    }
+  }
+
+  imgData.data.set(copy);
+  ctx.putImageData(imgData, 0, 0);
+  return canvas.toDataURL('image/png');
+}
+
 export async function generateAiAssetImage(
   prompt: string,
   category: AiImageCategory,
   imageModelId: string | null,
   creativeStyle: string = '3D Cartoon',
-  liteMode: boolean = true
+  liteMode: boolean = true,
+  variationNonce: number = 0
 ): Promise<{ dataUrl: string; engineLabel: string }> {
   const model = IMAGE_MODELS_CATALOG.find((m) => m.id === imageModelId) || IMAGE_MODELS_CATALOG[0];
-  const cleanPrompt = prompt.trim() || (category === 'sticker' ? 'cute science brain icon' : category === 'cover' ? 'minimalist aurora study notebook cover' : 'cornell study template');
+  const cleanPrompt =
+    prompt.trim() ||
+    (category === 'sticker'
+      ? 'cute science atom badge'
+      : category === 'cover'
+        ? 'Botanical Emerald Journal'
+        : 'Cornell study lecture sheet');
 
   if (model.remoteModelKey === 'offline') {
     return {
-      dataUrl: synthesizeLocalVectorImage(`${creativeStyle} ${cleanPrompt}`, category),
+      dataUrl: synthesizeLocalVectorImage(`${creativeStyle} ${cleanPrompt}`, category, variationNonce),
       engineLabel: `${model.name} · ${creativeStyle} (Offline Lite)`,
     };
   }
 
   const stylePromptAddon =
     creativeStyle === 'Watercolor'
-      ? 'soft pastel watercolor illustration style'
+      ? 'delicate translucent watercolor illustration on textured cold-press paper, soft pigment blooms'
       : creativeStyle === 'Sketch to Art'
-        ? 'hand-drawn ink sketch to polished concept art'
+        ? 'refined architectural ink and graphite illustration, fine cross-hatching, balanced composition'
         : creativeStyle === 'Pop Art'
-          ? 'vibrant halftone pop art graphic studio style'
+          ? 'bold pop art graphic print, crisp inked contours, vibrant halftone studio palette'
           : creativeStyle === 'Anime Studio'
-            ? 'cel-shaded anime studio illustration'
+            ? 'high-detail cel-shaded anime studio keyframe artwork, luminous highlights, clean linework'
             : creativeStyle === 'Minimal Vector'
-              ? 'flat geometric minimal vector design'
-              : 'One UI 9 inspired 3D Pixar-style glossy illustration';
+              ? 'modern editorial minimalist vector design, Swiss geometric precision, refined flat tones'
+              : '3D stylized studio render, crisp volumetric lighting, smooth matte clay and glossy ceramic surfaces';
 
   const styledPrompt =
     category === 'sticker'
-      ? `cute die-cut sticker with clean white outline, ${stylePromptAddon}, isolated on white background: ${cleanPrompt}`
+      ? `single centered isolated die-cut vinyl sticker of ${cleanPrompt}, ${stylePromptAddon}, clean smooth solid pure white sticker contour outline, centered composition with breathing margin, flat solid bright lime chroma green #00FF00 background`
       : category === 'cover'
-        ? `modern notebook journal cover artwork, ${stylePromptAddon}, no clutter: ${cleanPrompt}`
-        : `clean printable study note page template layout on crisp white paper, ${stylePromptAddon}: ${cleanPrompt}`;
+        ? `vertical 3:4 full-bleed flat 2D editorial stationery notebook cover artwork featuring ${cleanPrompt}, ${stylePromptAddon}, tactile matte bookcloth or fine art paper finish, clean negative space in upper third for title legibility`
+        : `flat orthographic top-down 2D printable A4 study organizer worksheet for ${cleanPrompt}, crisp pure white #FFFFFF paper sheet, sharp thin slate alignment rules, clean structured boxes, subtle ${stylePromptAddon} header`;
 
-  const w = liteMode ? (category === 'cover' ? 320 : 320) : category === 'cover' ? 384 : category === 'template' ? 480 : 384;
-  const h = liteMode ? (category === 'cover' ? 420 : 320) : category === 'cover' ? 512 : category === 'template' ? 672 : 384;
+  const negativePrompt =
+    category === 'sticker'
+      ? 'scenery, room, desk, table, photo frame, collage, multiple scattered objects, cast shadow on floor, watermark, blurry'
+      : category === 'cover'
+        ? '3d book mockup, open book, desk photo, table, hands holding notebook, spiral wire, gibberish text, random letters, watermark, border frame'
+        : '3d perspective, tilted desk photo, pens, coffee mug, shadows, hands, dark paper, messy handwriting, watermark';
 
-  try {
-    const controller = new AbortController();
-    const tid = window.setTimeout(() => controller.abort(), liteMode ? 9000 : 14000);
-    const seed = Math.abs((cleanPrompt + creativeStyle).split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7)) % 99999;
-    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(styledPrompt)}?model=${encodeURIComponent(model.remoteModelKey)}&width=${w}&height=${h}&seed=${seed}&nologo=true`;
-    const res = await fetch(url, { signal: controller.signal });
-    window.clearTimeout(tid);
-    if (res.ok) {
-      const blob = await res.blob();
-      if (blob.size > 1500 && blob.type.startsWith('image/')) {
-        const dataUrl = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(String(reader.result || ''));
-          reader.readAsDataURL(blob);
-        });
-        if (dataUrl.startsWith('data:image/')) {
-          return { dataUrl, engineLabel: `${model.name} · ${creativeStyle}${liteMode ? ' (⚡ Lite)' : ''}` };
-        }
-      }
-    }
-  } catch {
-    // Secondary fallback without model param
+  const w = liteMode ? (category === 'cover' ? 480 : category === 'template' ? 560 : 480) : category === 'cover' ? 600 : category === 'template' ? 720 : 576;
+  const h = liteMode ? (category === 'cover' ? 640 : category === 'template' ? 792 : 480) : category === 'cover' ? 800 : category === 'template' ? 1018 : 576;
+
+  const baseHash = Math.abs((cleanPrompt + '|' + creativeStyle + '|' + category).split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7));
+  const seed = (baseHash + variationNonce * 7919) % 999999;
+
+  const candidates = liteMode
+    ? [
+        `https://image.pollinations.ai/prompt/${encodeURIComponent(styledPrompt)}?model=flux&width=${w}&height=${h}&seed=${seed}&nologo=true&negative=${encodeURIComponent(negativePrompt)}`,
+        `https://image.pollinations.ai/prompt/${encodeURIComponent(styledPrompt)}?model=turbo&width=${w}&height=${h}&seed=${seed}&nologo=true&negative=${encodeURIComponent(negativePrompt)}`,
+      ]
+    : [
+        `https://image.pollinations.ai/prompt/${encodeURIComponent(styledPrompt)}?model=flux&enhance=true&width=${w}&height=${h}&seed=${seed}&nologo=true&negative=${encodeURIComponent(negativePrompt)}`,
+        `https://image.pollinations.ai/prompt/${encodeURIComponent(styledPrompt)}?model=turbo&width=${w}&height=${h}&seed=${seed}&nologo=true&negative=${encodeURIComponent(negativePrompt)}`,
+      ];
+
+  for (let i = 0; i < candidates.length; i++) {
     try {
-      const controller2 = new AbortController();
-      const tid2 = window.setTimeout(() => controller2.abort(), 8000);
-      const seed2 = Math.abs((cleanPrompt + 'seed').split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 11)) % 99999;
-      const url2 = `https://image.pollinations.ai/prompt/${encodeURIComponent(styledPrompt)}?width=${w}&height=${h}&seed=${seed2}&nologo=true`;
-      const res2 = await fetch(url2, { signal: controller2.signal });
-      window.clearTimeout(tid2);
-      if (res2.ok) {
-        const blob2 = await res2.blob();
-        if (blob2.size > 1500 && blob2.type.startsWith('image/')) {
-          const dataUrl2 = await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(String(reader.result || ''));
-            reader.readAsDataURL(blob2);
-          });
-          if (dataUrl2.startsWith('data:image/')) {
-            return { dataUrl: dataUrl2, engineLabel: `${model.name} · ${creativeStyle} (Live Turbo)` };
+      const controller = new AbortController();
+      const tid = window.setTimeout(() => controller.abort(), liteMode ? 12000 : 18000);
+      const res = await fetch(candidates[i], { signal: controller.signal });
+      window.clearTimeout(tid);
+      if (res.ok) {
+        const blob = await res.blob();
+        if (blob.size > 1500 && blob.type.startsWith('image/')) {
+          let dataUrl = '';
+          if (category === 'sticker') {
+            dataUrl = await applyChromaKeyStickerFilter(blob);
+          } else {
+            dataUrl = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(String(reader.result || ''));
+              reader.readAsDataURL(blob);
+            });
+          }
+          if (dataUrl.startsWith('data:image/')) {
+            return {
+              dataUrl,
+              engineLabel: `${model.name} · ${creativeStyle} (${i === 0 ? 'FLUX.1' : 'Turbo'})`,
+            };
           }
         }
       }
     } catch {
-      // Graceful local fallback below
+      // Try next route or procedural fallback
     }
   }
 
   return {
-    dataUrl: synthesizeLocalVectorImage(`${creativeStyle} ${cleanPrompt}`, category),
-    engineLabel: `${model.name} · ${creativeStyle} (Instant Lite)`,
+    dataUrl: synthesizeLocalVectorImage(`${creativeStyle} ${cleanPrompt}`, category, variationNonce),
+    engineLabel: `${model.name} · ${creativeStyle} (Instant Vector)`,
   };
 }
 

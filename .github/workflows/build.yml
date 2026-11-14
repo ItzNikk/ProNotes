@@ -1,4 +1,4 @@
-name: Build and release Pro Notes APK
+name: Build and release Pro Notes (Android & Windows)
 
 on:
   push:
@@ -14,9 +14,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build Android release APK
+  build-android:
+    name: Build Android APK
     runs-on: ubuntu-latest
+    outputs:
+      version_name: ${{ steps.version.outputs.version_name }}
+      release_tag: ${{ steps.version.outputs.release_tag }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -65,6 +68,7 @@ jobs:
           fi
 
       - name: Calculate version
+        id: version
         shell: bash
         run: |
           set -euo pipefail
@@ -78,9 +82,11 @@ jobs:
           echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
           echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=v$VERSION_NAME" >> "$GITHUB_ENV"
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "release_tag=v$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "Building Pro Notes $VERSION_NAME (versionCode $VERSION_CODE)"
 
-      - name: Build release variant
+      - name: Build Android release APK
         env:
           VERSION_NAME: ${{ env.VERSION_NAME }}
           VERSION_CODE: ${{ env.VERSION_CODE }}
@@ -91,55 +97,123 @@ jobs:
           SUPPORT_UPI_NAME: Pro Notes
         run: |
           gradle assembleRelease --stacktrace
-          mkdir -p dist
+          mkdir -p release-assets
           APK="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | head -n 1)"
           if [ -z "$APK" ]; then
             echo "Release APK was not produced" >&2
             exit 1
           fi
-          cp "$APK" dist/ProNotes.apk
-          cp "$APK" "dist/ProNotes-v${{ env.VERSION_NAME }}.apk"
-          test -s dist/ProNotes.apk
-          test -s "dist/ProNotes-v${{ env.VERSION_NAME }}.apk"
+          cp "$APK" release-assets/ProNotes.apk
+          cp "$APK" "release-assets/ProNotes-v${{ env.VERSION_NAME }}.apk"
+          test -s release-assets/ProNotes.apk
 
-      - name: Upload APK build artifact
+      - name: Upload Android APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ProNotes-${{ env.VERSION_NAME }}
-          path: |
-            dist/ProNotes.apk
-            dist/ProNotes-v${{ env.VERSION_NAME }}.apk
+          name: pronotes-android
+          path: release-assets/*.apk
           if-no-files-found: error
           retention-days: 30
 
-      - name: Prepare release notes
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+  build-windows:
+    name: Build Windows Installer (.exe)
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Calculate Windows version
         shell: bash
         run: |
+          set -euo pipefail
+          BASE_VERSION="$(grep -m1 -oE '^## v[0-9]+(\.[0-9]+)*' CHANGELOG.md | sed 's/^## v//')"
+          VERSION_CODE="${GITHUB_RUN_NUMBER:-1}"
+          VERSION_NAME="${BASE_VERSION}.${VERSION_CODE}"
+          echo "BASE_VERSION=$BASE_VERSION" >> "$GITHUB_ENV"
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies & build web bundle
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build Tauri Windows NSIS Installer
+        shell: bash
+        run: |
+          npx --yes @tauri-apps/cli@2 build --bundles nsis
+          mkdir -p release-assets
+          EXE="$(find src-tauri/target/release/bundle/nsis -maxdepth 1 -type f -name '*.exe' | head -n 1)"
+          if [ -z "$EXE" ]; then
+            echo "Windows NSIS installer (.exe) was not produced" >&2
+            exit 1
+          fi
+          cp "$EXE" release-assets/ProNotes-Setup.exe
+          cp "$EXE" "release-assets/ProNotes-Setup-v${{ env.VERSION_NAME }}.exe"
+          test -s release-assets/ProNotes-Setup.exe
+
+      - name: Upload Windows EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pronotes-windows
+          path: release-assets/*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish Cross-Platform GitHub Release
+    needs: [build-android, build-windows]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Download Android & Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release notes & staging folder
+        shell: bash
+        run: |
+          set -euo pipefail
           awk '/^## v/{if (found) exit; found=1; next} found {print}' CHANGELOG.md > RELEASE_NOTES.md
           if [ ! -s RELEASE_NOTES.md ]; then
-            echo "Pro Notes improvements and fixes." > RELEASE_NOTES.md
+            echo "Pro Notes cross-platform improvements and fixes." > RELEASE_NOTES.md
           fi
+          mkdir -p publish-assets
+          cp artifacts/pronotes-android/*.apk publish-assets/
+          cp artifacts/pronotes-windows/*.exe publish-assets/
+          ls -lh publish-assets
 
       - name: Clean up existing release tag if re-running
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "${{ env.RELEASE_TAG }}" --cleanup-tag --yes || true
+          gh release delete "${{ needs.build-android.outputs.release_tag }}" --cleanup-tag --yes || true
 
-      # Every successful push to main creates a uniquely versioned GitHub Release.
-      # Tag pushes are deliberately not build triggers, avoiding a second run when
-      # this action creates the release tag itself.
-      - name: Publish GitHub Release
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+      - name: Publish GitHub Release (APK + Windows Setup EXE)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.RELEASE_TAG }}
+          tag_name: ${{ needs.build-android.outputs.release_tag }}
           target_commitish: ${{ github.sha }}
-          name: Pro Notes ${{ env.VERSION_NAME }}
+          name: Pro Notes ${{ needs.build-android.outputs.version_name }}
           make_latest: true
           files: |
-            dist/ProNotes.apk
-            dist/ProNotes-v${{ env.VERSION_NAME }}.apk
+            publish-assets/*.apk
+            publish-assets/*.exe
           body_path: RELEASE_NOTES.md

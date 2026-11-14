@@ -1147,7 +1147,7 @@ private fun TopBar(
                     .clip(Pill)
                     .background(
                         Brush.linearGradient(
-                            listOf(Color(0xFF4285F4), Color(0xFF9B72CB), Color(0xFFD96570)),
+                            listOf(Color(0xFF2A78D6), Color(0xFF6366F1), Color(0xFF8C65FF)),
                         ),
                     )
                     .clickable { aiMenuOpen = true },
@@ -1171,17 +1171,17 @@ private fun TopBar(
                 )
                 DropdownMenuItem(
                     text = { Text("AI Study Chat (Notes & PDF)", fontWeight = FontWeight.SemiBold) },
-                    leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null, tint = Color(0xFF4285F4)) },
+                    leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null, tint = Color(0xFF2A78D6)) },
                     onClick = { aiMenuOpen = false; onAiChat() },
                 )
                 DropdownMenuItem(
                     text = { Text("Creative Studio (Stickers / Covers)") },
-                    leadingIcon = { Icon(Icons.Outlined.Palette, null, tint = Color(0xFF9B72CB)) },
+                    leadingIcon = { Icon(Icons.Outlined.Palette, null, tint = Color(0xFF6366F1)) },
                     onClick = { aiMenuOpen = false; onAssetStudio(AiAssetKind.STICKER) },
                 )
                 DropdownMenuItem(
                     text = { Text("Explain Current Page with AI") },
-                    leadingIcon = { Icon(Icons.Outlined.ChatBubbleOutline, null, tint = Color(0xFFD96570)) },
+                    leadingIcon = { Icon(Icons.Outlined.ChatBubbleOutline, null, tint = Color(0xFF8C65FF)) },
                     onClick = { aiMenuOpen = false; vm.explainCurrentPage() },
                 )
                 DropdownMenuItem(
@@ -2714,7 +2714,7 @@ private fun SelectionMenu(
                         .clip(Pill)
                         .background(
                             Brush.linearGradient(
-                                listOf(Color(0xFF4285F4), Color(0xFF9B72CB), Color(0xFFD96570)),
+                                listOf(Color(0xFF2A78D6), Color(0xFF6366F1), Color(0xFF8C65FF)),
                             ),
                         )
                         .clickable { vm.explainLassoSelection() },

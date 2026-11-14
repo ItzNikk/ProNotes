@@ -16,3 +16,5 @@ firebase-applet-config.json
 .env
 .env.*
 !.env.example
+src-tauri/target/
+

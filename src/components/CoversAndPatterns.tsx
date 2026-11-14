@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, Layers, Loader2, Sparkles, Wand2, X } from 'lucide-react';
+import { Check, Layers, Loader2, RefreshCw, Sparkles, Wand2, X } from 'lucide-react';
 import {
   AppSettings,
   COVER_COLORS,
@@ -155,6 +155,7 @@ export const NewNotebookModal: React.FC<NewNotebookModalProps> = ({
   const [paperGroup, setPaperGroup] = useState<string>('All');
   const [aiCoverPrompt, setAiCoverPrompt] = useState<string>('');
   const [aiCoverBusy, setAiCoverBusy] = useState(false);
+  const [aiCoverNonce, setAiCoverNonce] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -576,22 +577,22 @@ export const NewNotebookModal: React.FC<NewNotebookModalProps> = ({
                   </div>
 
                   {/* Prominent AI Cover Generator & Studio */}
-                  <div className="rounded-2xl border border-violet-500/30 bg-gradient-to-br from-violet-500/[0.08] via-indigo-500/[0.05] to-fuchsia-500/[0.06] p-4 space-y-3 shadow-xs dark:border-violet-400/25 dark:bg-violet-950/20">
+                  <div className="rounded-2xl border border-indigo-500/30 bg-gradient-to-br from-sky-500/[0.08] via-indigo-500/[0.06] to-violet-500/[0.07] p-4 space-y-3 shadow-xs dark:border-indigo-400/25 dark:bg-indigo-950/20">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-tr from-violet-600 to-fuchsia-600 text-white shadow-xs">
+                        <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-tr from-[#2A78D6] via-[#6366F1] to-[#8C65FF] text-white shadow-xs">
                           <Wand2 className="h-3.5 w-3.5" />
                         </div>
-                        <span className="text-xs font-bold text-violet-900 dark:text-violet-200">
+                        <span className="text-xs font-bold text-indigo-950 dark:text-indigo-200">
                           AI Cover Studio
                         </span>
                       </div>
-                      <span className="rounded-full bg-violet-600/10 px-2 py-0.5 text-[10px] font-bold text-violet-700 dark:bg-violet-400/15 dark:text-violet-300">
-                        {IMAGE_MODELS_CATALOG.find((m) => m.id === (defaults.activeImageModelId || IMAGE_MODELS_CATALOG[0].id))?.name || 'SDXL Turbo'}
+                      <span className="rounded-full bg-indigo-600/10 px-2 py-0.5 text-[10px] font-bold text-indigo-700 dark:bg-indigo-400/15 dark:text-indigo-300">
+                        {IMAGE_MODELS_CATALOG.find((m) => m.id === (defaults.activeImageModelId || IMAGE_MODELS_CATALOG[0].id))?.name || 'FLUX.1 Studio'}
                       </span>
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2 sm:flex-nowrap">
                       <input
                         type="text"
                         value={aiCoverPrompt}
@@ -599,12 +600,17 @@ export const NewNotebookModal: React.FC<NewNotebookModalProps> = ({
                         onKeyDown={async (e) => {
                           if (e.key === 'Enter' && aiCoverPrompt.trim() && !aiCoverBusy) {
                             e.preventDefault();
+                            const nextNonce = aiCoverNonce + 1;
+                            setAiCoverNonce(nextNonce);
                             setAiCoverBusy(true);
                             try {
                               const res = await generateAiAssetImage(
                                 aiCoverPrompt,
                                 'cover',
-                                defaults.activeImageModelId || IMAGE_MODELS_CATALOG[0].id
+                                defaults.activeImageModelId || IMAGE_MODELS_CATALOG[0].id,
+                                'Minimal Vector',
+                                true,
+                                nextNonce
                               );
                               setCover(`image:${res.dataUrl}`);
                             } finally {
@@ -613,28 +619,62 @@ export const NewNotebookModal: React.FC<NewNotebookModalProps> = ({
                           }
                         }}
                         placeholder="Describe notebook cover (e.g. Deep Space Nebula, Vintage Leather, Minimal Bauhaus)..."
-                        className="flex-1 rounded-xl border border-black/15 bg-white px-3.5 py-2 text-xs font-medium outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 dark:border-white/18 dark:bg-[#20222B]"
+                        className="flex-1 min-w-[180px] rounded-xl border border-black/15 bg-white px-3.5 py-2 text-xs font-medium outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-white/18 dark:bg-[#20222B]"
                       />
                       <button
                         type="button"
                         disabled={aiCoverBusy || !aiCoverPrompt.trim()}
                         onClick={async () => {
+                          const nextNonce = aiCoverNonce + 1;
+                          setAiCoverNonce(nextNonce);
                           setAiCoverBusy(true);
                           try {
                             const res = await generateAiAssetImage(
                               aiCoverPrompt,
                               'cover',
-                              defaults.activeImageModelId || IMAGE_MODELS_CATALOG[0].id
+                              defaults.activeImageModelId || IMAGE_MODELS_CATALOG[0].id,
+                              'Minimal Vector',
+                              true,
+                              nextNonce
                             );
                             setCover(`image:${res.dataUrl}`);
                           } finally {
                             setAiCoverBusy(false);
                           }
                         }}
-                        className="ios-stretch inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-600 via-indigo-600 to-fuchsia-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:brightness-110 disabled:opacity-40"
+                        className="ios-stretch inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#2A78D6] via-[#6366F1] to-[#8C65FF] px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:brightness-110 disabled:opacity-40"
                       >
                         {aiCoverBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                         <span>{aiCoverBusy ? 'Generating…' : 'Generate Cover'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={aiCoverBusy}
+                        onClick={async () => {
+                          const nextNonce = aiCoverNonce + 1;
+                          setAiCoverNonce(nextNonce);
+                          const activePrompt = aiCoverPrompt.trim() || 'Botanical Emerald Journal';
+                          if (!aiCoverPrompt.trim()) setAiCoverPrompt(activePrompt);
+                          setAiCoverBusy(true);
+                          try {
+                            const res = await generateAiAssetImage(
+                              activePrompt,
+                              'cover',
+                              defaults.activeImageModelId || IMAGE_MODELS_CATALOG[0].id,
+                              'Minimal Vector',
+                              true,
+                              nextNonce
+                            );
+                            setCover(`image:${res.dataUrl}`);
+                          } finally {
+                            setAiCoverBusy(false);
+                          }
+                        }}
+                        title="Generate a fresh variation"
+                        className="ios-stretch inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-indigo-500/25 bg-white px-3 py-2 text-xs font-bold text-indigo-700 shadow-xs transition hover:bg-indigo-50 disabled:opacity-40 dark:border-indigo-400/25 dark:bg-[#252834] dark:text-indigo-200 dark:hover:bg-indigo-950/40"
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${aiCoverBusy ? 'animate-spin' : ''}`} />
+                        <span>Regenerate</span>
                       </button>
                     </div>
 
@@ -645,20 +685,25 @@ export const NewNotebookModal: React.FC<NewNotebookModalProps> = ({
                           key={chip}
                           type="button"
                           onClick={async () => {
+                            const nextNonce = aiCoverNonce + 1;
+                            setAiCoverNonce(nextNonce);
                             setAiCoverPrompt(chip);
                             setAiCoverBusy(true);
                             try {
                               const res = await generateAiAssetImage(
                                 chip,
                                 'cover',
-                                defaults.activeImageModelId || IMAGE_MODELS_CATALOG[0].id
+                                defaults.activeImageModelId || IMAGE_MODELS_CATALOG[0].id,
+                                'Minimal Vector',
+                                true,
+                                nextNonce
                               );
                               setCover(`image:${res.dataUrl}`);
                             } finally {
                               setAiCoverBusy(false);
                             }
                           }}
-                          className="ios-stretch rounded-lg bg-white/90 px-2.5 py-1 text-[10px] font-semibold text-slate-700 shadow-xs hover:bg-violet-50 hover:text-violet-700 dark:bg-[#252834] dark:text-slate-300 dark:hover:bg-violet-950/40 dark:hover:text-violet-300"
+                          className="ios-stretch rounded-lg bg-white/90 px-2.5 py-1 text-[10px] font-semibold text-slate-700 shadow-xs hover:bg-indigo-50 hover:text-indigo-700 dark:bg-[#252834] dark:text-slate-300 dark:hover:bg-indigo-950/40 dark:hover:text-indigo-300"
                         >
                           {chip}
                         </button>

@@ -18,6 +18,7 @@ import {
   Command,
   Clock,
   Download,
+  RefreshCw,
 } from 'lucide-react';
 import {
   AiImageCategory,
@@ -132,16 +133,16 @@ export const AiNotesChatModal: React.FC<{
         {/* Modern Studio Header */}
         <div className="relative z-10 flex items-center justify-between border-b border-black/8 bg-white/85 px-5 py-4 backdrop-blur-md dark:border-white/10 dark:bg-[#1E2028]/90">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-[#4285F4] via-[#9B72CB] to-[#D96570] text-white shadow-md">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-[#2A78D6] via-[#6366F1] to-[#38BDF8] text-white shadow-md">
               <Sparkles className="h-5 w-5" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h2 className="truncate bg-gradient-to-r from-[#4285F4] via-[#9B72CB] to-[#D96570] bg-clip-text text-base font-extrabold text-transparent">
+                <h2 className="truncate bg-gradient-to-r from-[#2A78D6] via-[#6366F1] to-[#38BDF8] bg-clip-text text-base font-extrabold text-transparent">
                   Study Assistant
                 </h2>
-                <span className="rounded-full bg-[#9B72CB]/15 px-2 py-0.5 text-[10px] font-bold text-[#9B72CB]">
-                  LIVE
+                <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[10px] font-bold text-indigo-600 dark:text-indigo-300">
+                  CONTEXT
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
@@ -149,14 +150,14 @@ export const AiNotesChatModal: React.FC<{
                   {settings.customAiEnabled
                     ? `Custom AI (${settings.customAiModel})`
                     : activeModel
-                      ? `${activeModel.name} · Studio Live`
+                      ? `${activeModel.name} · On-Device`
                       : 'Pro Study Engine'}
                 </span>
-                <span className="rounded-full bg-[#4285F4]/12 px-2 py-0.5 font-semibold text-[#4285F4]">
+                <span className="rounded-full bg-[#2A78D6]/12 px-2 py-0.5 font-semibold text-[#2A78D6]">
                   {pages.length} page{pages.length === 1 ? '' : 's'} indexed
                 </span>
                 {pdfCount > 0 && (
-                  <span className="rounded-full bg-[#D96570]/12 px-2 py-0.5 font-semibold text-[#D96570]">
+                  <span className="rounded-full bg-indigo-500/12 px-2 py-0.5 font-semibold text-indigo-600 dark:text-indigo-300">
                     {pdfCount} PDF page{pdfCount === 1 ? '' : 's'}
                   </span>
                 )}
@@ -184,12 +185,12 @@ export const AiNotesChatModal: React.FC<{
         {/* Messages */}
         <div className="relative z-10 flex-1 space-y-3 overflow-y-auto p-5">
           {messages.length <= 1 && (
-            <div className="mb-3 rounded-2xl border border-[#9B72CB]/20 bg-gradient-to-br from-[#4285F4]/8 via-[#9B72CB]/8 to-[#D96570]/8 p-4">
-              <div className="bg-gradient-to-r from-[#4285F4] via-[#9B72CB] to-[#D96570] bg-clip-text text-xl font-extrabold text-transparent">
+            <div className="mb-3 rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-[#2A78D6]/8 via-[#6366F1]/8 to-[#38BDF8]/8 p-4">
+              <div className="bg-gradient-to-r from-[#2A78D6] via-[#6366F1] to-[#38BDF8] bg-clip-text text-xl font-extrabold text-transparent">
                 Hello, Scholar.
               </div>
               <div className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
-                Ask any question about &ldquo;{notebookTitle}&rdquo; or any study topic — I answer your exact question directly.
+                Ask any question about &ldquo;{notebookTitle}&rdquo;, solve equations step-by-step, or generate flashcards directly.
               </div>
             </div>
           )}
@@ -261,7 +262,7 @@ export const AiNotesChatModal: React.FC<{
         {/* Quick prompts + Composer */}
         <div className="relative z-10 space-y-2 border-t border-black/8 bg-white/85 px-5 py-3.5 backdrop-blur-md dark:border-white/10 dark:bg-[#1E2028]/90">
           <div className="flex flex-wrap gap-1.5">
-            {['Summarize notebook', 'Extract key formulas', 'Quiz me on this chapter', 'List main definitions'].map((qp) => (
+            {['Explain Page 1 simply', 'Summarize notebook', 'Extract key formulas', 'Quiz me on this chapter', 'Solve 2x + 6 = 14'].map((qp) => (
               <button
                 key={qp}
                 type="button"
@@ -324,9 +325,10 @@ export const AiAssetGeneratorModal: React.FC<{
   onClose,
 }) => {
   const [category, setCategory] = useState<AiImageCategory>(initialCategory);
-  const [creativeStyle, setCreativeStyle] = useState<string>('3D Cartoon');
+  const [creativeStyle, setCreativeStyle] = useState<string>('Watercolor');
   const [liteMode, setLiteMode] = useState<boolean>(true);
   const [prompt, setPrompt] = useState('');
+  const [variationNonce, setVariationNonce] = useState(0);
   const [busy, setBusy] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [engineUsed, setEngineUsed] = useState<string>('');
@@ -335,6 +337,7 @@ export const AiAssetGeneratorModal: React.FC<{
     if (open) {
       setCategory(initialCategory);
       setPreviewUrl(null);
+      setVariationNonce(0);
     }
   }, [open, initialCategory]);
 
@@ -342,27 +345,30 @@ export const AiAssetGeneratorModal: React.FC<{
 
   const activeImgModel = settings.activeImageModelId || IMAGE_MODELS_CATALOG[0].id;
   const creativeStyles = [
-    { id: '3D Cartoon', emoji: '🧸' },
     { id: 'Watercolor', emoji: '🎨' },
+    { id: '3D Cartoon', emoji: '🧸' },
     { id: 'Sketch to Art', emoji: '✏️' },
     { id: 'Pop Art', emoji: '⚡' },
     { id: 'Anime Studio', emoji: '✨' },
     { id: 'Minimal Vector', emoji: '📐' },
   ];
   const presetsByCategory: Record<AiImageCategory, string[]> = {
-    sticker: ['Cute Brain Bulb', 'Physics Atom Spark', 'Gold Exam Star', 'Coffee Study Cat', 'DNA Helix Badge'],
-    cover: ['Deep Space Nebula', 'Botanical Emerald Journal', 'Minimalist Bauhaus Grid', 'Sunset Gradient Leather'],
+    sticker: ['Cute Study Owl', 'Physics Atom Spark', 'Gold Exam Star', 'Coffee Study Cat', 'DNA Helix Badge'],
+    cover: ['Botanical Emerald Journal', 'Deep Space Nebula', 'Minimalist Bauhaus Grid', 'Calm Pastel Waves'],
     template: ['Cornell Lecture Grid', 'Organic Chemistry Sheet', 'Weekly Exam Planner', 'Two-Column Comparison'],
   };
+  const aspectBadge = category === 'sticker' ? '1:1' : category === 'cover' ? '3:4' : 'A4';
 
-  const handleGenerate = async (customPrompt?: string, customStyle?: string) => {
+  const handleGenerate = async (customPrompt?: string, customStyle?: string, freshVariation: boolean = false) => {
     const targetPrompt = (customPrompt ?? prompt).trim() || presetsByCategory[category][0];
     const targetStyle = customStyle ?? creativeStyle;
     if (busy) return;
+    const nextNonce = freshVariation ? variationNonce + 1 : variationNonce;
+    if (freshVariation) setVariationNonce(nextNonce);
     setPrompt(targetPrompt);
     setBusy(true);
     try {
-      const res = await generateAiAssetImage(targetPrompt, category, activeImgModel, targetStyle, liteMode);
+      const res = await generateAiAssetImage(targetPrompt, category, activeImgModel, targetStyle, liteMode, nextNonce);
       setPreviewUrl(res.dataUrl);
       setEngineUsed(res.engineLabel);
     } finally {
@@ -372,73 +378,139 @@ export const AiAssetGeneratorModal: React.FC<{
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-indigo-500/30 bg-white shadow-2xl dark:border-indigo-400/25 dark:bg-[#191A1F] animate-stagger-in">
-        {/* Creative Studio Iridescent Header */}
-        <div className="flex items-center justify-between bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 px-6 py-4 text-white">
+      <div
+        className="w-full max-w-3xl overflow-hidden rounded-[32px] border border-white/50 shadow-2xl animate-stagger-in"
+        style={{
+          background: 'linear-gradient(165deg, #66D7E6 0%, #5EA8F5 36%, #8C8CF8 72%, #9BECE4 100%)',
+        }}
+      >
+        {/* Sleek One UI 9 Creative Studio Header */}
+        <div className="flex items-center justify-between px-6 pt-5 pb-3 text-white">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/20 text-white shadow-sm backdrop-blur-sm">
-              <Sparkles className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-base font-extrabold tracking-tight">Creative Studio</h2>
-              <p className="text-[11px] text-white/90">
-                Drawing Assist · Lite Image Synthesis ({creativeStyle})
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setLiteMode((v) => !v)}
-              className={`ios-stretch rounded-full px-3 py-1 text-[11px] font-bold transition ${
-                liteMode
-                  ? 'bg-white text-indigo-700 shadow-xs'
-                  : 'bg-white/20 text-white'
-              }`}
-            >
-              ⚡ {liteMode ? 'Lite Mode ON' : 'Lite Mode OFF'}
-            </button>
             <button
               type="button"
               onClick={onClose}
-              className="ios-stretch rounded-full p-1.5 text-white/90 hover:bg-white/15"
+              className="ios-stretch flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur-sm hover:bg-white/30"
+              aria-label="Close Creative Studio"
             >
-              <X className="h-5 w-5" />
+              <X className="h-4.5 w-4.5" />
             </button>
+            <div>
+              <h2 className="text-base font-extrabold tracking-tight">Creative Studio</h2>
+              <p className="text-[11px] text-white/90">
+                {creativeStyle} · {IMAGE_MODELS_CATALOG.find((m) => m.id === activeImgModel)?.name || 'Creative Lite'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="rounded-lg border border-white/50 bg-white/15 px-2.5 py-1 text-[11px] font-bold">
+              {aspectBadge}
+            </span>
+            <button
+              type="button"
+              onClick={() => setLiteMode((v) => !v)}
+              className={`ios-stretch rounded-full px-3 py-1 text-[11px] font-bold transition whitespace-nowrap ${
+                liteMode ? 'bg-white text-indigo-700 shadow-xs' : 'bg-white/20 text-white'
+              }`}
+            >
+              {liteMode ? 'Lite' : 'HD'}
+            </button>
+            {onOpenModelsHub && (
+              <button
+                type="button"
+                onClick={onOpenModelsHub}
+                className="ios-stretch rounded-full bg-white/20 px-3 py-1 text-[11px] font-semibold text-white hover:bg-white/30 whitespace-nowrap"
+              >
+                Models
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="grid gap-5 p-6 md:grid-cols-12">
-          {/* Controls */}
-          <div className="space-y-4 md:col-span-7">
-            {/* Samsung Creative Studio Style Carousel */}
-            <div>
-              <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
-                Creative Style (Drawing Assist)
-              </label>
-              <div className="flex flex-wrap gap-1.5">
-                {creativeStyles.map((st) => (
-                  <button
-                    key={st.id}
-                    type="button"
-                    onClick={() => {
-                      setCreativeStyle(st.id);
-                      void handleGenerate(prompt || presetsByCategory[category][0], st.id);
-                    }}
-                    className={`ios-stretch inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-bold transition ${
-                      creativeStyle === st.id
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : 'bg-black/5 text-slate-700 hover:bg-indigo-500/10 dark:bg-white/10 dark:text-slate-200'
-                    }`}
-                  >
-                    <span>{st.emoji}</span>
-                    <span>{st.id}</span>
-                  </button>
-                ))}
+        <div className="grid gap-5 px-6 pb-6 pt-2 md:grid-cols-12">
+          {/* Center-Left Frosted Squircle Preview Stage */}
+          <div className="flex flex-col justify-between md:col-span-6">
+            <div
+              className="relative flex h-72 w-full items-center justify-center overflow-hidden rounded-[28px] border border-white/45 shadow-lg transition-all duration-300"
+              style={{
+                background: busy
+                  ? 'linear-gradient(135deg, rgba(102,215,230,0.85), rgba(140,101,255,0.85), rgba(236,72,153,0.78))'
+                  : 'radial-gradient(circle at 50% 45%, rgba(217,70,239,0.44) 0%, rgba(140,101,255,0.28) 45%, rgba(255,255,255,0.16) 100%)',
+                backdropFilter: 'blur(24px)',
+              }}
+            >
+              {busy ? (
+                <div className="relative z-10 flex flex-col items-center gap-3 p-4 text-center text-white">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/25 shadow-lg backdrop-blur-md animate-bounce">
+                    <Sparkles className="h-6 w-6 text-white" />
+                  </div>
+                  <div className="text-sm font-extrabold tracking-tight">Creating {category}…</div>
+                  <div className="max-w-[220px] truncate text-[11px] text-white/90">
+                    &ldquo;{prompt || presetsByCategory[category][0]}&rdquo;
+                  </div>
+                </div>
+              ) : previewUrl ? (
+                <img
+                  src={previewUrl}
+                  alt="Creative Studio Preview"
+                  className="max-h-full max-w-full rounded-2xl object-contain p-4 drop-shadow-lg transition-transform duration-300 hover:scale-[1.02]"
+                />
+              ) : (
+                <div className="px-8 text-center">
+                  <p className="text-base font-bold leading-snug text-white drop-shadow-xs">
+                    Imagine it, create it. Any image, instantly.
+                  </p>
+                </div>
+              )}
+
+              {/* Bottom-left style badge */}
+              <div className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-full bg-black/45 px-3 py-1 text-[11px] font-bold text-white backdrop-blur-md">
+                <span>{creativeStyles.find((s) => s.id === creativeStyle)?.emoji || '🎨'}</span>
+                <span>{creativeStyle}</span>
               </div>
+              {engineUsed && !busy && (
+                <div className="absolute bottom-3 right-3 rounded-full bg-black/35 px-2.5 py-0.5 text-[10px] font-semibold text-white/90 backdrop-blur-md">
+                  {liteMode ? 'Lite' : 'HD'}
+                </div>
+              )}
             </div>
 
-            <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-black/5 p-1 dark:bg-white/8">
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleGenerate(undefined, undefined, true)}
+                className="ios-stretch inline-flex flex-1 items-center justify-center gap-1.5 rounded-full bg-black/28 px-4 py-2.5 text-xs font-bold text-white backdrop-blur-md hover:bg-black/40 disabled:opacity-40 whitespace-nowrap"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${busy ? 'animate-spin' : ''}`} />
+                <span>{busy ? 'Creating…' : 'Regenerate'}</span>
+              </button>
+              <button
+                type="button"
+                disabled={!previewUrl || busy}
+                onClick={() => {
+                  if (!previewUrl) return;
+                  onApplyAsset(category, previewUrl);
+                  onClose();
+                }}
+                className="ios-stretch inline-flex flex-[1.3] items-center justify-center gap-1.5 rounded-full bg-slate-900 px-4 py-2.5 text-xs font-bold text-white shadow-md hover:bg-slate-800 disabled:opacity-40 whitespace-nowrap"
+              >
+                <Check className="h-3.5 w-3.5" />
+                <span>
+                  {category === 'sticker'
+                    ? 'Insert Sticker'
+                    : category === 'cover'
+                      ? 'Set Cover'
+                      : 'Apply Template'}
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* Right Controls Column */}
+          <div className="flex flex-col justify-between space-y-3.5 md:col-span-6">
+            <div className="grid grid-cols-3 gap-1 rounded-full bg-black/15 p-1 backdrop-blur-sm">
               {(
                 [
                   { id: 'sticker', label: 'Sticker' },
@@ -452,11 +524,10 @@ export const AiAssetGeneratorModal: React.FC<{
                   onClick={() => {
                     setCategory(c.id);
                     setPreviewUrl(null);
+                    setVariationNonce(0);
                   }}
-                  className={`ios-stretch rounded-lg py-1.5 text-xs font-semibold transition ${
-                    category === c.id
-                      ? 'bg-white text-slate-900 shadow-sm dark:bg-[#272A34] dark:text-white'
-                      : 'text-slate-500'
+                  className={`ios-stretch rounded-full py-1.5 text-xs font-bold transition ${
+                    category === c.id ? 'bg-white text-slate-900 shadow-sm' : 'text-white/90 hover:text-white'
                   }`}
                 >
                   {c.label}
@@ -464,159 +535,88 @@ export const AiAssetGeneratorModal: React.FC<{
               ))}
             </div>
 
-            <div>
-              <div className="mb-1.5 flex items-center justify-between">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                  Lightweight Image Model
-                </label>
-                {onOpenModelsHub && (
-                  <button
-                    type="button"
-                    onClick={onOpenModelsHub}
-                    className="text-[11px] font-semibold text-blue-600 hover:underline dark:text-blue-400"
-                  >
-                    Manage Downloads
-                  </button>
-                )}
-              </div>
-              <div className="grid grid-cols-2 gap-1.5">
-                {IMAGE_MODELS_CATALOG.map((m) => {
-                  const ready = modelStates[m.id]?.status === 'READY';
-                  const sel = activeImgModel === m.id;
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => onSelectImageModel(m.id)}
-                      className={`ios-stretch rounded-xl border p-2 text-left transition ${
-                        sel
-                          ? 'border-violet-600 bg-violet-500/10 text-violet-700 dark:text-violet-300'
-                          : 'border-black/10 hover:bg-black/[0.02] dark:border-white/10'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="truncate text-[11px] font-bold">{m.name}</span>
-                        {ready && <Check className="h-3 w-3 shrink-0 text-emerald-500" />}
-                      </div>
-                      <div className="text-[10px] text-slate-500">{m.sizeMb} MB · {m.steps}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                Describe your {category}
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') void handleGenerate();
-                  }}
-                  placeholder={`e.g. ${presetsByCategory[category][0]}`}
-                  className="flex-1 rounded-xl border border-black/12 bg-white px-3.5 py-2 text-xs outline-none focus:border-violet-500 dark:border-white/15 dark:bg-[#22242C]"
-                />
+            <div className="flex flex-wrap gap-1.5">
+              {creativeStyles.map((st) => (
                 <button
+                  key={st.id}
                   type="button"
-                  disabled={!prompt.trim() || busy}
-                  onClick={() => void handleGenerate()}
-                  className="ios-stretch inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-2 text-xs font-semibold text-white shadow-sm disabled:opacity-45"
+                  onClick={() => {
+                    setCreativeStyle(st.id);
+                    void handleGenerate(prompt || presetsByCategory[category][0], st.id, true);
+                  }}
+                  className={`ios-stretch inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-bold transition ${
+                    creativeStyle === st.id
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'bg-black/20 text-white hover:bg-black/30'
+                  }`}
                 >
-                  {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
-                  {busy ? 'Generating' : 'Generate'}
+                  <span>{st.emoji}</span>
+                  <span>{st.id}</span>
                 </button>
-              </div>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {presetsByCategory[category].map((pr) => (
+              ))}
+            </div>
+
+            <div className="flex flex-wrap gap-1.5">
+              {presetsByCategory[category].map((pr) => (
+                <button
+                  key={pr}
+                  type="button"
+                  onClick={() => void handleGenerate(pr, undefined, true)}
+                  className="ios-stretch rounded-full bg-white/22 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-white/35"
+                >
+                  {pr}
+                </button>
+              ))}
+            </div>
+
+            {/* Model selector */}
+            <div className="grid grid-cols-2 gap-1.5">
+              {IMAGE_MODELS_CATALOG.slice(0, 4).map((m) => {
+                const ready = modelStates[m.id]?.status === 'READY';
+                const sel = activeImgModel === m.id;
+                return (
                   <button
-                    key={pr}
+                    key={m.id}
                     type="button"
-                    onClick={() => void handleGenerate(pr)}
-                    className="ios-stretch rounded-lg bg-black/5 px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-violet-500/12 hover:text-violet-600 dark:bg-white/8 dark:text-slate-300"
+                    onClick={() => onSelectImageModel(m.id)}
+                    className={`ios-stretch rounded-2xl border px-2.5 py-1.5 text-left transition ${
+                      sel
+                        ? 'border-white bg-white/90 text-slate-900 shadow-xs'
+                        : 'border-white/25 bg-black/18 text-white hover:bg-black/28'
+                    }`}
                   >
-                    {pr}
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="truncate text-[11px] font-bold">{m.name}</span>
+                      {ready && <Check className="h-3 w-3 shrink-0 text-emerald-500" />}
+                    </div>
+                    <div className={`text-[10px] ${sel ? 'text-slate-500' : 'text-white/75'}`}>{m.steps}</div>
                   </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Creative Studio Preview Card */}
-          <div className="flex flex-col items-center justify-between rounded-3xl border border-indigo-500/20 bg-slate-50/80 p-4.5 shadow-sm dark:border-indigo-400/15 dark:bg-[#20222A] md:col-span-5">
-            <div
-              className={`relative flex h-64 w-full items-center justify-center overflow-hidden rounded-2xl border transition-all duration-300 ${
-                busy
-                  ? 'border-indigo-400/40 bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-500 shadow-xl'
-                  : 'border-black/10 bg-white/70 dark:border-white/10 dark:bg-[#17181E]'
-              }`}
-            >
-              {busy ? (
-                <div className="relative z-10 flex flex-col items-center gap-3 p-4 text-center text-white">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/20 shadow-lg backdrop-blur-md animate-bounce">
-                    <Sparkles className="h-6 w-6 text-white" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-extrabold tracking-tight">
-                      Generating {category}…
-                    </div>
-                    <div className="mt-0.5 max-w-[220px] truncate text-[11px] text-white/85">
-                      "{prompt || presetsByCategory[category][0]}"
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5 rounded-full bg-white/20 px-3 py-1 text-[10px] font-bold backdrop-blur-sm">
-                    <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
-                    <span>{creativeStyle} · Creative Studio</span>
-                  </div>
-                  <div className="h-1.5 w-36 overflow-hidden rounded-full bg-white/25">
-                    <div className="h-full w-2/3 rounded-full bg-white animate-pulse" />
-                  </div>
-                </div>
-              ) : previewUrl ? (
-                <div className="relative flex h-full w-full items-center justify-center p-3">
-                  <img
-                    src={previewUrl}
-                    alt="AI generated preview"
-                    className="max-h-full max-w-full rounded-xl object-contain shadow-md transition-all duration-300 hover:scale-[1.02]"
-                  />
-                  <div className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2.5 py-0.5 text-[10px] font-bold text-white backdrop-blur-md">
-                    {creativeStyle} · {liteMode ? '⚡ Turbo' : 'HD'}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center gap-2 px-4 text-center text-xs text-slate-400">
-                  <Wand2 className="h-6 w-6 text-indigo-400/70" />
-                  <span>Enter a prompt to synthesize a prompt-driven {category}</span>
-                </div>
-              )}
+                );
+              })}
             </div>
 
-            {engineUsed && (
-              <div className="mt-2 text-[10px] font-medium text-slate-500">
-                Engine: {engineUsed}
-              </div>
-            )}
-
-            <button
-              type="button"
-              disabled={!previewUrl || busy}
-              onClick={() => {
-                if (!previewUrl) return;
-                onApplyAsset(category, previewUrl);
-                onClose();
-              }}
-              className="ios-stretch mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl bg-blue-600 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-40"
-            >
-              <Check className="h-3.5 w-3.5" />
-              {category === 'sticker'
-                ? 'Insert Sticker to Page'
-                : category === 'cover'
-                  ? 'Apply Cover'
-                  : 'Apply Template to Page'}
-            </button>
+            {/* Translucent Prompt Input Bar + Generate Pill */}
+            <div className="flex items-center gap-2 rounded-2xl border border-white/30 bg-black/28 p-2 backdrop-blur-md">
+              <input
+                type="text"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void handleGenerate(undefined, undefined, true);
+                }}
+                placeholder="Describe what you want to create"
+                className="flex-1 bg-transparent px-2 py-1.5 text-xs font-medium text-white placeholder-white/70 outline-none"
+              />
+              <button
+                type="button"
+                disabled={busy || (!prompt.trim() && !presetsByCategory[category][0])}
+                onClick={() => void handleGenerate(undefined, undefined, true)}
+                className="ios-stretch inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white px-4 py-2 text-xs font-bold text-slate-900 shadow-sm hover:bg-white/90 disabled:opacity-45 whitespace-nowrap"
+              >
+                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-600" /> : <Wand2 className="h-3.5 w-3.5 text-indigo-600" />}
+                <span>{busy ? 'Generating' : 'Generate'}</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

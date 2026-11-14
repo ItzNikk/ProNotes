@@ -1236,14 +1236,16 @@ object LocalAiManager {
             Triple(pNum, body.trim(), hits + boost)
         }.sortedByDescending { it.third }
 
-        val topPages = ranked.filter { it.third > 0 }.ifEmpty { ranked.filter { it.second.isNotBlank() } }.take(4)
-        val contextBlock = topPages.joinToString("\n\n") { (p, txt, _) -> "[Page ${p + 1}]\n${txt.take(1500)}" }
+        val topPages = ranked.filter { it.third > 0 }.ifEmpty { ranked.filter { it.second.isNotBlank() } }.take(6)
+        val contextBlock = topPages.joinToString("\n\n") { (p, txt, _) -> "[Page ${p + 1}]\n${txt.take(1800)}" }
         val histTxt = history.takeLast(6).joinToString("\n") { (r, m) -> "$r: ${m.take(400)}" }
+        val loadedGguf = activeSpec(context)
 
         val systemPrompt = "You are Study Assistant inside Pro Notes. Directly and helpfully answer the user's question. " +
             "If the question asks about concepts in \"$notebookTitle\", cite [Page N] and explain them clearly. " +
             "If the user asks an academic, math, or general knowledge question, answer it directly, accurately, and thoroughly with step-by-step logic."
-        val userPayload = "Notebook Title: $notebookTitle\n\n" +
+        val userPayload = "Notebook Title: $notebookTitle\n" +
+            "Active Local Model Context: ${loadedGguf?.name ?: "Built-in Study Engine"}\n\n" +
             "Notebook / PDF Excerpts:\n${contextBlock.ifBlank { "(Current page has ink/sketches without typed text)" }}\n\n" +
             "Conversation History:\n$histTxt\n\n" +
             "User Question: $q"
@@ -1272,8 +1274,8 @@ object LocalAiManager {
             return@withContext freeAi
         }
 
-        // 4. Smart Question-Aware Offline Study Responder
-        answerQuestionOffline(q, qTokens, notebookTitle, topPages, pagesText.size)
+        // 4. Smart Question-Aware Offline Study & Equation Responder
+        answerQuestionOffline(q, qTokens, notebookTitle, topPages, pagesText.size, loadedGguf?.name)
     }
 
     private fun answerQuestionOffline(
@@ -1282,16 +1284,62 @@ object LocalAiManager {
         notebookTitle: String,
         topPages: List<Triple<Int, String, Int>>,
         totalPages: Int,
+        ggufModelName: String? = null,
     ): String {
         val low = q.lowercase().trim()
         val combined = topPages.joinToString("\n") { it.second }.trim()
+        val engineFooter = ggufModelName?.let { "\n\n*Indexed via local profile: $it*" } ?: ""
 
         // 1. Greetings
         if (low in setOf("hi", "hello", "hey", "hola", "yo") || low.startsWith("hello ") || low.startsWith("hi ")) {
-            return "Hello! I'm your Study Assistant for **$notebookTitle** ($totalPages pages). Ask me to explain a theorem, solve an equation, quiz your recall, or summarize key ideas!"
+            return "Hello! I'm your Study Assistant for **$notebookTitle** ($totalPages pages). Ask me to explain a theorem, solve an equation, quiz your recall, or summarize key ideas!$engineFooter"
         }
 
-        // 2. Direct Math & Arithmetic Evaluation
+        // 2a. Linear equation ax + b = c
+        val linMatch = Regex("""(-?\d*\.?\d*)\s*x\s*([+\-])\s*(\d+\.?\d*)\s*=\s*(-?\d+\.?\d*)""").find(low.replace("solve ", ""))
+        if (linMatch != null && !low.contains("x^2") && !low.contains("x²")) {
+            val aStr = linMatch.groupValues[1]
+            val a = when (aStr) { "", "+" -> 1.0; "-" -> -1.0; else -> aStr.toDoubleOrNull() ?: 1.0 }
+            val bSign = if (linMatch.groupValues[2] == "-") -1.0 else 1.0
+            val b = (linMatch.groupValues[3].toDoubleOrNull() ?: 0.0) * bSign
+            val c = linMatch.groupValues[4].toDoubleOrNull() ?: 0.0
+            if (a != 0.0) {
+                val rhs = c - b
+                val x = rhs / a
+                val fmtX = if (x == x.toLong().toDouble()) x.toLong().toString() else "%.4f".format(x).trimEnd('0').trimEnd('.')
+                return "**Step-by-Step Linear Solution**\n\n" +
+                    "• Equation: `${linMatch.value}`\n" +
+                    "• Subtract/add constant: `${a}x = $rhs`\n" +
+                    "• Divide by `$a`: **x = $fmtX**"
+            }
+        }
+
+        // 2b. Quadratic equation ax^2 + bx + c = 0
+        val quadMatch = Regex("""(-?\d*\.?\d*)\s*x(?:\^2|²)\s*([+\-])\s*(\d*\.?\d*)\s*x\s*([+\-])\s*(\d+\.?\d*)\s*=\s*0""").find(low.replace("solve ", ""))
+        if (quadMatch != null) {
+            val aStr = quadMatch.groupValues[1]
+            val a = when (aStr) { "", "+" -> 1.0; "-" -> -1.0; else -> aStr.toDoubleOrNull() ?: 1.0 }
+            val bSign = if (quadMatch.groupValues[2] == "-") -1.0 else 1.0
+            val bMag = quadMatch.groupValues[3].ifBlank { "1" }.toDoubleOrNull() ?: 1.0
+            val b = bSign * bMag
+            val cSign = if (quadMatch.groupValues[4] == "-") -1.0 else 1.0
+            val c = cSign * (quadMatch.groupValues[5].toDoubleOrNull() ?: 0.0)
+            if (a != 0.0) {
+                val disc = b * b - 4 * a * c
+                return if (disc >= 0) {
+                    val r1 = (-b + kotlin.math.sqrt(disc)) / (2 * a)
+                    val r2 = (-b - kotlin.math.sqrt(disc)) / (2 * a)
+                    "**Step-by-Step Quadratic Solution**\n\n" +
+                        "• Formula: `x = (-b ± √(b² - 4ac)) / 2a`\n" +
+                        "• Discriminant Δ = `%.4f`\n".format(disc).trimEnd('0').trimEnd('.') +
+                        "• Roots: **x₁ = ${"%.4f".format(r1).trimEnd('0').trimEnd('.')}**, **x₂ = ${"%.4f".format(r2).trimEnd('0').trimEnd('.')}**"
+                } else {
+                    "**Quadratic Analysis**\n\n• Discriminant Δ = $disc (< 0) → Complex conjugate roots."
+                }
+            }
+        }
+
+        // 2c. Direct Math & Arithmetic Evaluation
         val mathMatch = Regex("""(-?\d+(?:\.\d+)?)\s*([+\-*/×÷^])\s*(-?\d+(?:\.\d+)?)""").find(low)
         if (mathMatch != null) {
             val a = mathMatch.groupValues[1].toDoubleOrNull()
@@ -1325,16 +1373,28 @@ object LocalAiManager {
                             m.options.forEachIndexed { oi, opt -> appendLine("  ${'A' + oi}) $opt") }
                             appendLine("  *Answer: ${'A' + m.answer}* (${m.explanation})")
                         }
-                    }.trim()
+                    }.trim() + engineFooter
                 }
             }
             return "Here is a quick concept check for **$notebookTitle**:\n\n" +
                 "1. **Primary Principle**: What is the core definition or governing law in this topic?\n" +
                 "2. **Mechanism**: What causes this phenomenon or how does this formula behave under boundary conditions?\n" +
-                "3. **Application**: How is this theory applied in modern practice or engineering?"
+                "3. **Application**: How is this theory applied in modern practice or engineering?$engineFooter"
         }
 
-        // 4. Summary / Overview Requests
+        // 4. Formula extraction requests
+        if ("formula" in low || "equation" in low) {
+            val formulaRegex = Regex("""(?:[A-Za-z_][\w]*\s*=[^.\n;]{1,42}|\d+\s*[+\-*/^×÷]\s*[\w\d()+\-*/^×÷.\s]{1,34}=[^.\n]{1,24})""")
+            val found = formulaRegex.findAll(combined).map { it.value.trim() }.distinct().take(8).toList()
+            if (found.isNotEmpty()) {
+                return buildString {
+                    appendLine("**Extracted Formulas & Equations from $notebookTitle:**\n")
+                    found.forEach { appendLine("• `$it`") }
+                }.trim() + engineFooter
+            }
+        }
+
+        // 5. Summary / Overview Requests
         if ("summar" in low || "recap" in low || "overview" in low || "tldr" in low) {
             val pts = if (combined.isNotBlank()) StudyGen.summary(combined, 5) else emptyList()
             if (pts.isNotEmpty()) {
@@ -1343,11 +1403,11 @@ object LocalAiManager {
                     appendLine("Summary of **$notebookTitle** ($citations):")
                     appendLine()
                     pts.forEach { appendLine("• $it") }
-                }.trim()
+                }.trim() + engineFooter
             }
         }
 
-        // 5. Concept Explanation: "What is X", "Explain X", "Define X"
+        // 6. Concept Explanation: "What is X", "Explain X", "Define X"
         val conceptQuery = q.replace(Regex("(?i)^(what is|what are|explain|define|how does|how do|tell me about|why is)\\s+"), "").trim('?', '.', ' ')
         if (combined.isNotBlank()) {
             val facts = StudyGen.facts(combined)
@@ -1362,74 +1422,35 @@ object LocalAiManager {
                     appendLine("• **Context**: ${matchingFact.sentence}")
                     val cit = topPages.firstOrNull { it.second.contains(matchingFact.term, ignoreCase = true) }?.first?.let { "Page ${it + 1}" } ?: "Notes"
                     appendLine("• **Source**: Found in $cit of \"$notebookTitle\".")
-                }.trim()
+                }.trim() + engineFooter
             }
 
             val sentences = StudyGen.sentences(combined)
             val matchedSentences = sentences.filter { s ->
                 val sLow = s.lowercase()
                 qTokens.any { sLow.contains(it) }
-            }.take(3)
+            }.take(4)
             if (matchedSentences.isNotEmpty()) {
                 val citations = topPages.joinToString(", ") { "[Page ${it.first + 1}]" }
                 return buildString {
                     appendLine("Regarding **\"$q\"** in **$notebookTitle** ($citations):")
                     appendLine()
                     matchedSentences.forEach { appendLine("• $it") }
-                }.trim()
+                }.trim() + engineFooter
             }
         }
 
-        // 6. Direct Knowledge Explanation when notes don't have typed text
+        // 7. Direct Knowledge Explanation when notes don't have typed text
         return buildString {
             appendLine("✨ **${conceptQuery.replaceFirstChar { it.uppercase() }}**")
             appendLine()
             appendLine("• **Definition**: $conceptQuery is a fundamental concept in this study subject.")
             appendLine("• **Key Framework**: To master $conceptQuery, focus on its primary definition, governing formulas or mechanisms, and practical applications.")
             appendLine("• **Action**: Tap **Insert to Page** below to capture this study card directly into \"$notebookTitle\".")
-        }.trim()
+        }.trim() + engineFooter
     }
 
     // ---------------------------------------------------------------- Creative Studio (One UI 9 Inspired) AI Stickers, Covers & Templates
-
-    /**
-     * Automatic client-side sticker transparency & die-cut contouring.
-     * Takes an AI-generated image (with white/light background), detects the solid background
-     * corner colors, replaces background pixels with alpha=0, and preserves the clean sticker.
-     */
-    private fun processStickerTransparency(src: Bitmap): Bitmap {
-        val w = src.width
-        val h = src.height
-        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        val pixels = IntArray(w * h)
-        src.getPixels(pixels, 0, w, 0, 0, w, h)
-
-        // Sample 4 corners to establish background color reference
-        val cTL = pixels[0]
-        val cTR = pixels[w - 1]
-        val cBL = pixels[(h - 1) * w]
-        val cBR = pixels[(h - 1) * w + (w - 1)]
-
-        val rRef = (android.graphics.Color.red(cTL) + android.graphics.Color.red(cTR) + android.graphics.Color.red(cBL) + android.graphics.Color.red(cBR)) / 4
-        val gRef = (android.graphics.Color.green(cTL) + android.graphics.Color.green(cTR) + android.graphics.Color.green(cBL) + android.graphics.Color.green(cBR)) / 4
-        val bRef = (android.graphics.Color.blue(cTL) + android.graphics.Color.blue(cTR) + android.graphics.Color.blue(cBL) + android.graphics.Color.blue(cBR)) / 4
-
-        // If corners are solid white / near-white, threshold out background
-        if (rRef > 225 && gRef > 225 && bRef > 225) {
-            for (i in pixels.indices) {
-                val p = pixels[i]
-                val r = android.graphics.Color.red(p)
-                val g = android.graphics.Color.green(p)
-                val b = android.graphics.Color.blue(p)
-                val diff = Math.abs(r - rRef) + Math.abs(g - gRef) + Math.abs(b - bRef)
-                if (diff < 38) {
-                    pixels[i] = 0 // Transparent
-                }
-            }
-        }
-        out.setPixels(pixels, 0, w, 0, 0, w, h)
-        return out
-    }
 
     suspend fun generateAiAssetBitmap(
         context: Context,
@@ -1438,72 +1459,103 @@ object LocalAiManager {
         accentArgb: Int,
         style: CreativeStyle = CreativeStyle.CARTOON_3D,
         liteMode: Boolean = SettingsStore.get(context).settings.value.imageLiteMode,
+        variationNonce: Int = 0,
         width: Int = when (kind) {
-            AiAssetKind.STICKER -> if (liteMode) 448 else 512
-            AiAssetKind.COVER -> if (liteMode) 780 else 900
+            AiAssetKind.STICKER -> if (liteMode) 512 else 640
+            AiAssetKind.COVER -> if (liteMode) 720 else 900
             AiAssetKind.TEMPLATE -> 1240
         },
         height: Int = when (kind) {
-            AiAssetKind.STICKER -> if (liteMode) 448 else 512
-            AiAssetKind.COVER -> if (liteMode) 1040 else 1200
+            AiAssetKind.STICKER -> if (liteMode) 512 else 640
+            AiAssetKind.COVER -> if (liteMode) 960 else 1200
             AiAssetKind.TEMPLATE -> 1754
         },
     ): Bitmap = withContext(Dispatchers.Default) {
         val cleanPrompt = prompt.trim().ifBlank {
             when (kind) {
                 AiAssetKind.STICKER -> "Study Goal Badge"
-                AiAssetKind.COVER -> "Minimal Studio Journal"
+                AiAssetKind.COVER -> "Botanical Emerald Journal"
                 AiAssetKind.TEMPLATE -> "Cornell Study Planner"
             }
         }
 
-        val seed = (cleanPrompt + style.name).hashCode().let { if (it < 0) -it else it }
-        val cacheFile = File(context.cacheDir, "ai_asset_${kind.name.lowercase()}_${seed}_${style.name.lowercase()}.png")
-        if (cacheFile.exists() && cacheFile.length() > 2048L) {
+        val baseSeed = (cleanPrompt + "|" + style.name + "|" + kind.name).hashCode().let { if (it < 0) -it else it }
+        val seed = ((baseSeed.toLong() + variationNonce.toLong() * 7919L) and 0x7FFFFFFFL).toInt().coerceAtLeast(1)
+        val cacheFile = File(context.cacheDir, "ai_v2_${kind.name.lowercase()}_${seed}_${style.name.lowercase()}.png")
+        if (variationNonce == 0 && cacheFile.exists() && cacheFile.length() > 2048L) {
             BitmapFactory.decodeFile(cacheFile.absolutePath)?.let { return@withContext it }
         }
 
-        // Real Prompt-Driven AI Image Synthesis from user's exact prompt (always enabled)
         val styleKeywords = when (style) {
-            CreativeStyle.CARTOON_3D -> "3D Pixar Disney digital art render, vibrant glossy studio lighting, cute volumetric character design"
-            CreativeStyle.WATERCOLOR -> "delicate pastel watercolor illustration, soft wet wash on paper, artistic paint bleeding"
-            CreativeStyle.POP_ART -> "vibrant pop art halftone print style, high contrast bold outlines, retro graphic design"
-            CreativeStyle.ANIME -> "vivid Japanese anime studio keyframe illustration, cel shading, highly detailed aesthetic"
-            CreativeStyle.SKETCH -> "masterful graphite pencil and ink sketch, cross-hatching, fine artistic details"
-            CreativeStyle.MINIMAL -> "clean minimalist vector graphic, modern geometric shapes, elegant flat colors"
+            CreativeStyle.CARTOON_3D -> "3D stylized studio render, crisp volumetric lighting, smooth matte clay and glossy ceramic surfaces"
+            CreativeStyle.WATERCOLOR -> "delicate translucent watercolor illustration on textured cold-press paper, soft pigment blooms"
+            CreativeStyle.POP_ART -> "bold pop art graphic print, crisp inked contours, vibrant halftone studio palette"
+            CreativeStyle.ANIME -> "high-detail cel-shaded anime studio keyframe artwork, luminous highlights, clean linework"
+            CreativeStyle.SKETCH -> "refined architectural ink and graphite illustration, fine cross-hatching, balanced composition"
+            CreativeStyle.MINIMAL -> "modern editorial minimalist vector design, Swiss geometric precision, refined flat tones"
         }
 
-        val fullPrompt = when (kind) {
-            AiAssetKind.STICKER -> "$cleanPrompt, cute die-cut vinyl sticker, thick clean crisp white border contour outline, sticker isolated on solid pure white background, $styleKeywords, vector art, high contrast, studio lighting"
-            AiAssetKind.COVER -> "$cleanPrompt, beautiful aesthetic notebook journal book cover artwork, $styleKeywords, elegant typography balance, high quality masterpiece"
-            AiAssetKind.TEMPLATE -> "$cleanPrompt, clean stationery study organizer planner page template, organized layout grid, $styleKeywords accents, crisp white paper"
+        val (fullPrompt, negativePrompt) = when (kind) {
+            AiAssetKind.STICKER -> (
+                "single centered isolated die-cut vinyl sticker of $cleanPrompt, $styleKeywords, " +
+                    "clean smooth solid pure white sticker contour outline, centered composition with breathing margin, " +
+                    "flat solid pure bright lime chroma green #00FF00 background, crisp silhouette"
+                ) to "scenery, room, desk, table, photo frame, collage, multiple scattered objects, cast shadow on floor, watermark, signature, blurry"
+            AiAssetKind.COVER -> (
+                "vertical 3:4 full-bleed flat 2D editorial stationery notebook cover artwork featuring $cleanPrompt, $styleKeywords, " +
+                    "tactile matte bookcloth or fine art paper finish, clean artistic negative space in upper third for title legibility, harmonious colors"
+                ) to "3d book mockup, open book, desk photo, table, hands holding notebook, spiral wire, gibberish text, random letters, watermark, border frame"
+            AiAssetKind.TEMPLATE -> (
+                "flat orthographic top-down 2D printable A4 study organizer worksheet for $cleanPrompt, " +
+                    "crisp pure white #FFFFFF paper sheet, sharp thin slate alignment rules, clean structured boxes, subtle $styleKeywords header"
+                ) to "3d perspective, tilted desk photo, pens, coffee mug, shadows, hands, dark paper, messy handwriting, watermark"
         }
+
+        val encPrompt = URLEncoder.encode(fullPrompt, "UTF-8")
+        val encNeg = URLEncoder.encode(negativePrompt, "UTF-8")
+        val genW = if (kind == AiAssetKind.TEMPLATE) (if (liteMode) 620 else 768) else width
+        val genH = if (kind == AiAssetKind.TEMPLATE) (if (liteMode) 876 else 1088) else height
 
         val netBmp = withContext(Dispatchers.IO) {
-            val genUrls = listOf(
-                "https://image.pollinations.ai/prompt/${URLEncoder.encode(fullPrompt, "UTF-8")}?width=$width&height=$height&nologo=true&seed=$seed&model=flux",
-                "https://image.pollinations.ai/prompt/${URLEncoder.encode(fullPrompt, "UTF-8")}?width=$width&height=$height&nologo=true&seed=$seed${if (liteMode) "&model=turbo" else ""}",
-                "https://image.pollinations.ai/prompt/${URLEncoder.encode(fullPrompt, "UTF-8")}?width=$width&height=$height&nologo=true&seed=$seed",
-            )
+            val genUrls = if (liteMode) {
+                listOf(
+                    "https://image.pollinations.ai/prompt/$encPrompt?model=flux&width=$genW&height=$genH&seed=$seed&nologo=true&negative=$encNeg",
+                    "https://image.pollinations.ai/prompt/$encPrompt?model=turbo&width=$genW&height=$genH&seed=$seed&nologo=true&negative=$encNeg",
+                )
+            } else {
+                listOf(
+                    "https://image.pollinations.ai/prompt/$encPrompt?model=flux&enhance=true&width=$genW&height=$genH&seed=$seed&nologo=true&negative=$encNeg",
+                    "https://image.pollinations.ai/prompt/$encPrompt?model=turbo&width=$genW&height=$genH&seed=$seed&nologo=true&negative=$encNeg",
+                )
+            }
             for (genUrl in genUrls) {
                 val downloaded = runCatching {
                     val conn = (URL(genUrl).openConnection() as HttpURLConnection).apply {
-                        connectTimeout = if (liteMode) 9_000 else 14_000
-                        readTimeout = if (liteMode) 15_000 else 22_000
+                        connectTimeout = if (liteMode) 11_000 else 16_000
+                        readTimeout = if (liteMode) 18_000 else 28_000
                         setRequestProperty("User-Agent", "ProNotes-Android/10.0")
                     }
-                    if (conn.responseCode in 200..299) {
-                        val b = BitmapFactory.decodeStream(conn.inputStream)
-                        if (b != null && b.width > 20 && b.height > 20) {
-                            val processed = if (kind == AiAssetKind.STICKER) {
-                                processStickerTransparency(b)
-                            } else b
-                            runCatching {
-                                cacheFile.outputStream().use { processed.compress(Bitmap.CompressFormat.PNG, 95, it) }
-                            }
-                            processed
+                    try {
+                        if (conn.responseCode in 200..299) {
+                            val b = BitmapFactory.decodeStream(conn.inputStream)
+                            if (b != null && b.width > 24 && b.height > 24) {
+                                val scaled = if (b.width != width || b.height != height) {
+                                    Bitmap.createScaledBitmap(b, width, height, true)
+                                } else b
+                                val finalBmp = if (kind == AiAssetKind.STICKER) {
+                                    applyChromaKeyAndDieCutBorder(scaled)
+                                } else {
+                                    scaled
+                                }
+                                runCatching {
+                                    cacheFile.outputStream().use { finalBmp.compress(Bitmap.CompressFormat.PNG, 95, it) }
+                                }
+                                finalBmp
+                            } else null
                         } else null
-                    } else null
+                    } finally {
+                        conn.disconnect()
+                    }
                 }.getOrNull()
                 if (downloaded != null) return@withContext downloaded
             }
@@ -1518,7 +1570,7 @@ object LocalAiManager {
             _stage.value = "Creative Studio · Designing ${kind.label.lowercase()}…"
             val resp = callCustomApi(
                 context,
-                "Return JSON only: {\"badge\":\"2-3 word label\",\"hex\":\"#3D6CF4\",\"layout\":\"cornell|weekly|habit|storyboard|grid|star|ribbon|crest|cosmos|botanical\"}.",
+                "Return JSON only: {\"badge\":\"2-3 word label\",\"hex\":\"#6366F1\",\"layout\":\"cornell|weekly|habit|storyboard|grid|star|ribbon|crest|cosmos|botanical\"}.",
                 "Kind: ${kind.name}, Style: ${style.label}, Prompt: $cleanPrompt",
             ).getOrNull()
             extractJsonObject(resp.orEmpty())?.let { o ->
@@ -1532,13 +1584,17 @@ object LocalAiManager {
         }
 
         val rng = Random(seed)
+        val palettePool = listOf(0xFF6366F1.toInt(), 0xFF2A78D6.toInt(), 0xFF0EA5E9.toInt(), 0xFF10B981.toInt(), 0xFFEC4899.toInt(), 0xFFF59E0B.toInt())
+        if (variationNonce > 0) {
+            aiAccent = palettePool[(seed + variationNonce) % palettePool.size]
+        }
         val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
         val low = (cleanPrompt + " " + layoutMode).lowercase()
 
         when (kind) {
             AiAssetKind.STICKER -> {
-                val cx = width / 2f; val cy = height / 2f; val r = width * 0.41f
+                val cx = width / 2f; val cy = height / 2f; val r = width * 0.40f
                 val c1 = aiAccent
                 val c2 = when (style) {
                     CreativeStyle.CARTOON_3D -> lightenColor(aiAccent, 0.38f)
@@ -1576,7 +1632,6 @@ object LocalAiManager {
                         canvas.drawCircle(cx, cy, r * 1.04f, whiteBorder)
                         canvas.drawCircle(cx, cy, r * 0.94f, bgPaint)
                         if (style == CreativeStyle.CARTOON_3D) {
-                            // 3D specular gloss highlight
                             val gloss = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x48FFFFFF }
                             canvas.drawOval(RectF(cx - r * 0.55f, cy - r * 0.78f, cx + r * 0.25f, cy - r * 0.25f), gloss)
                         } else if (style == CreativeStyle.POP_ART) {
@@ -1590,7 +1645,7 @@ object LocalAiManager {
                 val label = aiBadge.ifBlank { cleanPrompt.take(16) }
                 val tp = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = 0xFFFFFFFF.toInt()
-                    textSize = (width * 0.098f).coerceIn(28f, 50f)
+                    textSize = (width * 0.095f).coerceIn(28f, 50f)
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     textAlign = Paint.Align.CENTER
                 }
@@ -1604,15 +1659,23 @@ object LocalAiManager {
                         width.toFloat(),
                         height.toFloat(),
                         aiAccent,
-                        if (style == CreativeStyle.WATERCOLOR) lightenColor(aiAccent, 0.35f) else darkenColor(aiAccent, 0.38f),
+                        if (style == CreativeStyle.WATERCOLOR) lightenColor(aiAccent, 0.38f) else darkenColor(aiAccent, 0.42f),
                         Shader.TileMode.CLAMP,
                     )
                 }
                 canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), base)
+                val ringP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = 0x2EFFFFFF; this.style = Paint.Style.STROKE; strokeWidth = 3f
+                }
+                val rcx = width * (0.3f + rng.nextFloat() * 0.45f)
+                val rcy = height * (0.22f + rng.nextFloat() * 0.25f)
+                for (i in 0..5) {
+                    canvas.drawCircle(rcx, rcy, width * (0.09f + i * 0.065f), ringP)
+                }
                 val blobPaint = Paint(Paint.ANTI_ALIAS_FLAG)
                 val count = if (style == CreativeStyle.WATERCOLOR) 12 else 7
                 for (i in 0 until count) {
-                    blobPaint.color = (if (i % 2 == 0) 0x2AFFFFFF else 0x1A000000)
+                    blobPaint.color = (if (i % 2 == 0) 0x24FFFFFF else 0x16000000)
                     val bx = rng.nextFloat() * width; val by = rng.nextFloat() * height
                     val br = width * (0.14f + rng.nextFloat() * 0.26f)
                     canvas.drawCircle(bx, by, br, blobPaint)
@@ -1623,36 +1686,36 @@ object LocalAiManager {
                         canvas.drawCircle(rng.nextFloat() * width, rng.nextFloat() * height, 2f + rng.nextFloat() * 4f, starP)
                     }
                 }
-                canvas.drawRect(0f, 0f, width * 0.06f, height.toFloat(), Paint().apply { color = 0x28000000 })
-                val plate = RectF(width * 0.12f, height * 0.32f, width * 0.88f, height * 0.62f)
-                canvas.drawRoundRect(plate, 42f, 42f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x33FFFFFF })
-                canvas.drawRoundRect(plate, 42f, 42f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = 0x77FFFFFF; this.style = Paint.Style.STROKE; strokeWidth = 3f
+                canvas.drawRect(0f, 0f, width * 0.055f, height.toFloat(), Paint().apply { color = 0x30000000 })
+                val plate = RectF(width * 0.12f, height * 0.60f, width * 0.88f, height * 0.84f)
+                canvas.drawRoundRect(plate, 38f, 38f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x2BFFFFFF })
+                canvas.drawRoundRect(plate, 38f, 38f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = 0x66FFFFFF; this.style = Paint.Style.STROKE; strokeWidth = 2.5f
                 })
                 val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = 0xFFFFFFFF.toInt()
-                    textSize = (width * 0.072f).coerceIn(42f, 64f)
+                    textSize = (width * 0.064f).coerceIn(36f, 56f)
                     typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
                 }
                 val words = cleanPrompt.split(' ').take(4).joinToString(" ").uppercase()
-                canvas.drawText(words.take(18), plate.left + 40f, plate.centerY() - 10f, titlePaint)
+                canvas.drawText(words.take(18), plate.left + 36f, plate.centerY() - 8f, titlePaint)
                 val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = 0xEEFFFFFF.toInt(); textSize = (width * 0.034f).coerceIn(22f, 30f)
+                    color = 0xE6FFFFFF.toInt(); textSize = (width * 0.032f).coerceIn(20f, 28f)
                 }
-                canvas.drawText("${style.badge} ${style.label} · ${activeImageModelLabel(context)}", plate.left + 40f, plate.centerY() + 46f, subPaint)
+                canvas.drawText("${style.label} Edition", plate.left + 36f, plate.centerY() + 40f, subPaint)
             }
             AiAssetKind.TEMPLATE -> {
-                canvas.drawColor(0xFFFDFCF9.toInt())
+                canvas.drawColor(0xFFFFFFFF.toInt())
                 val lineP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFD9E1EC.toInt(); strokeWidth = 2f }
                 val accentP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = aiAccent; strokeWidth = 3.5f }
-                val hdrFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = (aiAccent and 0x00FFFFFF) or 0x1E000000 }
+                val hdrFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = (aiAccent and 0x00FFFFFF) or 0x18000000 }
                 val headTitle = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = aiAccent; textSize = 44f; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 }
                 val labelP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF5A6577.toInt(); textSize = 26f }
                 val pad = 76f
                 canvas.drawRoundRect(RectF(pad, 68f, width - pad, 174f), 22f, 22f, hdrFill)
-                canvas.drawText("${style.badge} ${cleanPrompt.take(28)}", pad + 26f, 136f, headTitle)
+                canvas.drawText(cleanPrompt.take(30), pad + 26f, 136f, headTitle)
                 when {
                     "cornell" in low -> {
                         val cueX = width * 0.31f
@@ -1717,6 +1780,122 @@ object LocalAiManager {
             }
         }
         bmp
+    }
+
+    /**
+     * Flood-fills uniform chroma green or white outer backdrop from edges to true ARGB transparency,
+     * then composites a smooth 6px white die-cut contour border around the isolated sticker subject.
+     */
+    private fun applyChromaKeyAndDieCutBorder(src: Bitmap): Bitmap {
+        val w = src.width
+        val h = src.height
+        if (w < 16 || h < 16) return src
+        val px = IntArray(w * h)
+        src.getPixels(px, 0, w, 0, 0, w, h)
+
+        var sumR = 0L; var sumG = 0L; var sumB = 0L; var samples = 0
+        val corners = listOf(0 to 0, (w - 4) to 0, 0 to (h - 4), (w - 4) to (h - 4))
+        for ((sx, sy) in corners) {
+            for (dy in 0..3) for (dx in 0..3) {
+                val c = px[(sy + dy) * w + (sx + dx)]
+                sumR += (c shr 16) and 0xFF
+                sumG += (c shr 8) and 0xFF
+                sumB += c and 0xFF
+                samples++
+            }
+        }
+        val bgR = (sumR / samples).toInt()
+        val bgG = (sumG / samples).toInt()
+        val bgB = (sumB / samples).toInt()
+        val isChromaGreen = bgG > bgR + 28 && bgG > bgB + 28
+        val isUniformLight = bgR > 212 && bgG > 212 && bgB > 212
+        if (!isChromaGreen && !isUniformLight) return src
+
+        val bgMask = BooleanArray(w * h)
+        val queue = IntArray(w * h)
+        var head = 0
+        var tail = 0
+
+        fun matchesBg(c: Int): Boolean {
+            val r = (c shr 16) and 0xFF
+            val g = (c shr 8) and 0xFF
+            val b = c and 0xFF
+            return if (isChromaGreen) {
+                (g > r + 20 && g > b + 20) || (kotlin.math.abs(r - bgR) + kotlin.math.abs(g - bgG) + kotlin.math.abs(b - bgB) < 95)
+            } else {
+                kotlin.math.abs(r - bgR) + kotlin.math.abs(g - bgG) + kotlin.math.abs(b - bgB) < 62
+            }
+        }
+
+        fun tryPush(idx: Int) {
+            if (!bgMask[idx] && matchesBg(px[idx])) {
+                bgMask[idx] = true
+                queue[tail++] = idx
+            }
+        }
+
+        for (x in 0 until w) {
+            tryPush(x)
+            tryPush((h - 1) * w + x)
+        }
+        for (y in 0 until h) {
+            tryPush(y * w)
+            tryPush(y * w + (w - 1))
+        }
+
+        while (head < tail) {
+            val cur = queue[head++]
+            val x = cur % w
+            val y = cur / w
+            if (x > 0) tryPush(cur - 1)
+            if (x + 1 < w) tryPush(cur + 1)
+            if (y > 0) tryPush(cur - w)
+            if (y + 1 < h) tryPush(cur + w)
+        }
+
+        // Remove chroma spill on perimeter subject pixels & punch alpha
+        for (i in px.indices) {
+            if (bgMask[i]) {
+                px[i] = 0x00000000
+            } else if (isChromaGreen) {
+                val c = px[i]
+                val a = (c ushr 24) and 0xFF
+                val r = (c shr 16) and 0xFF
+                var g = (c shr 8) and 0xFF
+                val b = c and 0xFF
+                val maxRb = maxOf(r, b)
+                if (g > maxRb + 10) g = maxRb + 6
+                px[i] = (a shl 24) or (r shl 16) or (g shl 8) or b
+            }
+        }
+
+        // Synthesize 6px pure white die-cut sticker contour halo behind opaque foreground
+        val borderR = (minOf(w, h) * 0.014f).toInt().coerceIn(5, 9)
+        val rSq = borderR * borderR
+        val out = px.copyOf()
+        for (y in borderR until h - borderR) {
+            val rowOff = y * w
+            for (x in borderR until w - borderR) {
+                val idx = rowOff + x
+                if ((px[idx] ushr 24) < 32) {
+                    var nearFg = false
+                    loop@ for (dy in -borderR..borderR) {
+                        val ny = (y + dy) * w
+                        for (dx in -borderR..borderR) {
+                            if (dx * dx + dy * dy <= rSq && (px[ny + x + dx] ushr 24) > 180) {
+                                nearFg = true
+                                break@loop
+                            }
+                        }
+                    }
+                    if (nearFg) out[idx] = 0xFFFFFFFF.toInt()
+                }
+            }
+        }
+
+        return Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).apply {
+            setPixels(out, 0, w, 0, 0, w, h)
+        }
     }
 
     private fun starPath(cx: Float, cy: Float, outerR: Float, innerR: Float, points: Int): Path = Path().apply {
