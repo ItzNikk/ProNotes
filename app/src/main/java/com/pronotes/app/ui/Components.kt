@@ -90,7 +90,9 @@ import kotlin.math.max
 object GlassButtonPalette {
     val Emerald = Color(0xFF246A5B)
     val OceanBlue = Color(0xFF2563EB)
-    val GalaxyPurple = Color(0xFF7C3AED)
+    val StudioPurple = Color(0xFF7C3AED)
+    @Deprecated("Renamed to StudioPurple", ReplaceWith("StudioPurple"))
+    val GalaxyPurple = StudioPurple
     val SkyCyan = Color(0xFF0891B2)
     val WarmAmber = Color(0xFFD97706)
     val CoralRose = Color(0xFFE11D48)

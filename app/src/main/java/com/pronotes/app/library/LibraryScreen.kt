@@ -281,13 +281,25 @@ fun LibraryScreen(
                     tabs = listOf(
                         LiquidTab("DOCUMENTS", "Library", Icons.Outlined.Description),
                         LiquidTab("RECENT", "Recent", Icons.Outlined.AccessTime),
+                        LiquidTab("SEARCH", "Search", Icons.Outlined.Search),
                         LiquidTab("FAVORITES", "Starred", Icons.Outlined.StarBorder),
                         LiquidTab("TRASH", "Trash", Icons.Outlined.Delete, badge = trashCount > 0),
                     ),
-                    selectedKey = section.name,
+                    selectedKey = if (searching) "SEARCH" else section.name,
                     onSelect = { tabId ->
-                        section = Section.valueOf(tabId)
-                        folderId = null
+                        if (tabId == "SEARCH") {
+                            searching = true
+                        } else {
+                            searching = false
+                            section = Section.valueOf(tabId)
+                            folderId = null
+                        }
+                    },
+                    onReselect = { tabId ->
+                        if (tabId == "SEARCH") {
+                            searching = !searching
+                            if (!searching) query = ""
+                        }
                     },
                     labels = LiquidTabLabels.Stacked,
                     modifier = Modifier.align(Alignment.BottomCenter),

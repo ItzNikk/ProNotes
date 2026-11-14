@@ -579,6 +579,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                         liquidGlass = settings.liquidGlass,
                         onDuplicate = { val ids = vm.duplicateSelection(); canvas?.selectItems(vm.selectionPage, ids) },
                         onColor = { c -> val ids = vm.selection; val pg = vm.selectionPage; vm.recolorSelection(c); canvas?.selectItems(pg, ids) },
+                        onRainbow = { val ids = vm.selection; val pg = vm.selectionPage; vm.rainbowSelection(); canvas?.selectItems(pg, ids) },
                         keep = { block -> val ids = vm.selection; val pg = vm.selectionPage; block(); canvas?.selectItems(pg, ids) },
                         onShareImage = { scope.launch { vm.selectionImage()?.let { shareBitmap(context, it, vm.title + " selection") } } },
                     )
@@ -1730,7 +1731,7 @@ private fun ToolButton(
                     Tool.HIGHLIGHTER -> HighlighterCard(vm)
                     Tool.SHAPE -> ShapeCard(vm)
                     Tool.ERASER -> EraserCard(vm)
-                    Tool.LASSO -> LassoCard()
+                    Tool.LASSO -> LassoCard(vm)
                     Tool.LASER -> LaserCard()
                     Tool.TEXT -> TextCard(vm)
                     Tool.TAPE -> Card("Tape") {
@@ -2120,7 +2121,7 @@ private fun EraserCard(vm: EditorViewModel) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun LassoCard() {
+private fun LassoCard(vm: EditorViewModel? = null) {
     val store = SettingsStore.get(LocalContext.current)
     val s by store.settings.collectAsState()
     Card("Lasso") {
@@ -2136,6 +2137,32 @@ private fun LassoCard() {
         }
         ToggleLine("Select anything the lasso touches", s.lassoTouching) { v -> store.update { it.copy(lassoTouching = v) } }
         ToggleLine("Circle and hold with the pen", s.circleToLasso) { v -> store.update { it.copy(circleToLasso = v) } }
+        if (vm != null && vm.selection.isNotEmpty()) {
+            HorizontalDivider(Modifier.padding(vertical = 4.dp))
+            Row(
+                Modifier.fillMaxWidth().clickable { vm.rainbowSelection() }.padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(
+                    Modifier.size(22.dp).clip(CircleShape).background(
+                        Brush.sweepGradient(
+                            listOf(
+                                Color(0xFFFF1744),
+                                Color(0xFFFF9100),
+                                Color(0xFFFFEA00),
+                                Color(0xFF00E676),
+                                Color(0xFF00E5FF),
+                                Color(0xFF2979FF),
+                                Color(0xFFD500F9),
+                                Color(0xFFFF1744),
+                            )
+                        )
+                    ).border(1.dp, Color.White.copy(alpha = 0.85f), CircleShape)
+                )
+                Text("Rainbow Recolor Selection", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            }
+        }
     }
 }
 
@@ -2511,6 +2538,7 @@ private fun SelectionMenu(
     liquidGlass: Boolean = false,
     onDuplicate: () -> Unit,
     onColor: (Int) -> Unit,
+    onRainbow: () -> Unit,
     keep: (() -> Unit) -> Unit,
     onShareImage: () -> Unit,
 ) {
@@ -2552,6 +2580,28 @@ private fun SelectionMenu(
                 IconButton(onClick = vm::copySelection, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.ContentCopy, "Copy") }
                 IconButton(onClick = onDuplicate, modifier = Modifier.elasticStretch()) { ProIconView(ProIcon.ADD, fg, Modifier.size(22.dp)) }
                 IconButton(onClick = { colors = true }, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.Palette, "Colour") }
+                IconButton(onClick = onRainbow, modifier = Modifier.elasticStretch()) {
+                    Box(
+                        Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.sweepGradient(
+                                    listOf(
+                                        Color(0xFFFF1744),
+                                        Color(0xFFFF9100),
+                                        Color(0xFFFFEA00),
+                                        Color(0xFF00E676),
+                                        Color(0xFF00E5FF),
+                                        Color(0xFF2979FF),
+                                        Color(0xFFD500F9),
+                                        Color(0xFFFF1744),
+                                    )
+                                )
+                            )
+                            .border(1.dp, Color.White.copy(alpha = 0.85f), CircleShape)
+                    )
+                }
                 IconButton(onClick = { keep { vm.rotateSelection(90f) } }, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.RotateRight, "Rotate 90°") }
                 LiquidMenuButton(
                     style = GlassDefaults.control(),

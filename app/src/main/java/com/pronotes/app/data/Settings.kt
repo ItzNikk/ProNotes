@@ -145,6 +145,7 @@ data class AppSettings(
     val paperVolume: Float = 0.4f,
     val liquidGlass: Boolean = true,
     val glassTransparency: Float = 0.58f,
+    val cornerRoundnessDp: Int = 24,
     // pens
     val penName: String = "Pro Stylus",
     val hoverCursor: Boolean = true,
@@ -175,7 +176,7 @@ data class AppSettings(
     val thumbCovers: Boolean = false,
     // on-device local models & Custom AI API
     val activeLocalModelId: String = "",
-    val activeImageModelId: String = "galaxy-sketch-lite",
+    val activeImageModelId: String = "pronotes-studio-lite",
     val imageLiteMode: Boolean = true,
     val pomodoroMinutes: Int = 25,
     val googleUid: String = "",
@@ -248,6 +249,7 @@ class SettingsStore private constructor(context: Context) {
             paperVolume = prefs.getFloat("paperVol", d.paperVolume),
             liquidGlass = b("glassV10", true),
             glassTransparency = prefs.getFloat("glassTransparency", d.glassTransparency).coerceIn(0.15f, 0.95f),
+            cornerRoundnessDp = prefs.getInt("cornerRoundness", d.cornerRoundnessDp).coerceIn(8, 36),
             penName = prefs.getString("penName", d.penName) ?: d.penName,
             hoverCursor = b("hoverCursor", d.hoverCursor),
             penClickDelay = enumOf("penClickDelay", d.penClickDelay),
@@ -334,6 +336,7 @@ class SettingsStore private constructor(context: Context) {
             .putFloat("paperVol", s.paperVolume)
             .putBoolean("glassV10", s.liquidGlass)
             .putFloat("glassTransparency", s.glassTransparency.coerceIn(0.15f, 0.95f))
+            .putInt("cornerRoundness", s.cornerRoundnessDp.coerceIn(8, 36))
             .putString("penName", s.penName)
             .putBoolean("hoverCursor", s.hoverCursor)
             .putString("penClickDelay", s.penClickDelay.name)

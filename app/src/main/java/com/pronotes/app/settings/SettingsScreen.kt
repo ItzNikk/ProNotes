@@ -230,12 +230,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                         }
                         Toggle("Paper haptics", "Tiny ticks as you write, like paper grain", s.paperHaptics) { v -> up { it.copy(paperHaptics = v) } }
                     }
-                    Section("Pen side button") {
-                        Choice("While held", s.sideButton.label, SideButton.entries.map { it.label }) { i -> up { it.copy(sideButton = SideButton.entries[i]) } }
-                        Choice("Button click delay", s.penClickDelay.label, PenClickDelay.entries.map { it.label }) { i -> up { it.copy(penClickDelay = PenClickDelay.entries[i]) } }
-                        Toggle("Hover preview", "Show where the pen will touch", s.hoverCursor) { v -> up { it.copy(hoverCursor = v) } }
-                    }
-                    PensSection(store)
+                    UnifiedPensSection(s, store) { up(it) }
                 }
                 Category.GESTURES -> {
                     Section("Pen gestures") {
@@ -347,6 +342,15 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                                     onValueChange = { v -> up { it.copy(glassTransparency = v) } },
                                 )
                             }
+                        }
+                        Box(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+                            LiquidSliderRow(
+                                label = "Corner roundness",
+                                valueText = "${s.cornerRoundnessDp} dp",
+                                value = s.cornerRoundnessDp.toFloat(),
+                                valueRange = 8f..36f,
+                                onValueChange = { v -> up { it.copy(cornerRoundnessDp = v.toInt()) } },
+                            )
                         }
                     }
                     Section("Typography") {
@@ -636,37 +640,55 @@ private fun UpdateRow() {
     }
 }
 
-/** Saved pens with inline rename/alias + dedicated Setup Stylus modal (fixed off onTour!). */
+/** Unified single Stylus & Pens section — eliminates redundant duplicate pen sections. */
 @Composable
-private fun PensSection(store: SettingsStore) {
+private fun UnifiedPensSection(
+    s: AppSettings,
+    store: SettingsStore,
+    up: ((AppSettings) -> AppSettings) -> Unit,
+) {
     val pens by store.pens.collectAsState()
     var showSetup by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<PenProfile?>(null) }
 
-    Section("Your pens") {
-        if (pens.isEmpty()) Info("Tap 'Set up a pen' below or write with a stylus to register it.")
-        pens.forEachIndexed { i, p ->
-            if (i > 0) HorizontalDivider()
-            Column(Modifier.padding(vertical = 4.dp)) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    ProIconView(ProIcon.PEN, MaterialTheme.colorScheme.primary, Modifier.size(22.dp))
-                    Spacer(Modifier.size(14.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(p.displayName(), fontWeight = FontWeight.SemiBold)
-                        Text("${p.brand} · ${p.name}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+    Section("Pens & Stylus") {
+        Choice("Side button while held", s.sideButton.label, SideButton.entries.map { it.label }) { i -> up { it.copy(sideButton = SideButton.entries[i]) } }
+        Choice("Button click delay", s.penClickDelay.label, PenClickDelay.entries.map { it.label }) { i -> up { it.copy(penClickDelay = PenClickDelay.entries[i]) } }
+        Toggle("Hover preview cursor", "Show floating dot where the pen will land", s.hoverCursor) { v -> up { it.copy(hoverCursor = v) } }
+        HorizontalDivider()
+
+        if (pens.isEmpty()) {
+            Info("No external styluses paired yet. Write on screen or tap 'Add custom stylus' below.")
+        } else {
+            Text(
+                "CONFIGURED STYLUSES",
+                style = MaterialTheme.typography.labelSmall,
+                color = LiquidGlassTheme.colors.contentMuted,
+                modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
+            )
+            pens.forEachIndexed { i, p ->
+                if (i > 0) HorizontalDivider()
+                Column(Modifier.padding(vertical = 4.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        ProIconView(ProIcon.PEN, MaterialTheme.colorScheme.primary, Modifier.size(22.dp))
+                        Spacer(Modifier.size(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(p.displayName(), fontWeight = FontWeight.SemiBold)
+                            Text("${p.brand} · ${p.name}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        }
+                        IconButton(onClick = { renameTarget = p }) { Icon(Icons.Outlined.Edit, "Rename pen") }
+                        TextButton(onClick = { store.forgetPen(p.name) }) { Text("Forget") }
                     }
-                    IconButton(onClick = { renameTarget = p }) { Icon(Icons.Outlined.Edit, "Rename pen") }
-                    TextButton(onClick = { store.forgetPen(p.name) }) { Text("Forget") }
+                    Choice("Hold side button", p.sideButton.label, SideButton.entries.map { it.label }) { k -> store.updatePen(p.copy(sideButton = SideButton.entries[k])) }
+                    Choice("Click button", p.click.label, PenAction.entries.map { it.label }) { k -> store.updatePen(p.copy(click = PenAction.entries[k])) }
+                    Choice("Double-click button", p.doubleClick.label, PenAction.entries.map { it.label }) { k -> store.updatePen(p.copy(doubleClick = PenAction.entries[k])) }
                 }
-                Choice("Hold side button", p.sideButton.label, SideButton.entries.map { it.label }) { k -> store.updatePen(p.copy(sideButton = SideButton.entries[k])) }
-                Choice("Click button", p.click.label, PenAction.entries.map { it.label }) { k -> store.updatePen(p.copy(click = PenAction.entries[k])) }
-                Choice("Double-click button", p.doubleClick.label, PenAction.entries.map { it.label }) { k -> store.updatePen(p.copy(doubleClick = PenAction.entries[k])) }
             }
         }
         HorizontalDivider()
         Row(Modifier.fillMaxWidth().clickable { showSetup = true }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             ProIconView(ProIcon.ADD, MaterialTheme.colorScheme.primary, Modifier.size(22.dp)); Spacer(Modifier.size(16.dp))
-            Text("Set up a pen", Modifier.weight(1f))
+            Text("Add custom stylus", Modifier.weight(1f))
         }
     }
 

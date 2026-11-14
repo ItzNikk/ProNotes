@@ -1,5 +1,16 @@
 # Changelog
 
+## v11.0.0
+- **Liquid Glass Overhaul & Transparency Fix**: Redesigned floating navigation bar and editor toolbar with true optical translucency, customizable glass corner roundness (8dp to 36dp), and one-tap Liquid Glass toggle.
+- **Reworked High-Contrast Controls & Icons**: Redesigned all action buttons and icons with vibrant high-contrast accents, clear labels, and spring touch physics.
+- **ProNotes Creative Studio AI Engine**: Upgraded on-device AI suite with symbolic multi-variable equation solver, unit conversions, Anki-style flashcard extraction, and FLUX.1 neural sticker synthesis with automatic die-cut vinyl edge detection.
+- **Instant Library Search on Bottom Bar**: Direct search integration on the main bottom navigation dock with real-time in-note and in-PDF indexing.
+- **Reliable Scribble-to-Erase**: Re-engineered scribble motion filter to prevent accidental erasures while ensuring natural zig-zag gestures instantly clear ink.
+- **Rainbow Lasso Tool**: Added vibrant rainbow gradient effect to the lasso selection menu for colorful note stylization.
+- **Streamlined Onboarding**: Removed welcome setup gate; ProNotes launches directly into your notebook library.
+- **Refined Settings Experience**: Modern categorized card layout with unified stylus preferences, eliminated duplicate pen entries, and enhanced Google Account sync.
+- **Windows Native Desktop Support**: Prepared single-executable desktop architecture for Windows 10/11 with low-latency stylus and touch input.
+
 ## v10.0.0
 - **Universal Stretchability**: Added elastic spring stretchability across buttons, cards, and chips plus 8-handle free X/Y stretch and rotation on all canvas items (ink strokes, shapes, text, sticky notes, images/stickers, washi tape, mind nodes, and web link cards).
 - **AI Notes & PDF Chat**: Added multi-turn Study Chat grounded in notebook pages and imported PDF content, with one-tap Copy and Insert to Page.

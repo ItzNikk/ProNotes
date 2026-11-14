@@ -580,7 +580,9 @@ fun AiAssetStudioDialog(
 
     fun generateNow(freshVariation: Boolean = false) {
         if (busy) return
-        if (freshVariation) variationNonce++
+        if (freshVariation) {
+            variationNonce = kotlin.random.Random.nextInt(1, 9999999)
+        }
         val nonceSnap = variationNonce
         busy = true
         scope.launch {

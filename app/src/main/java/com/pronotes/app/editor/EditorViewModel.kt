@@ -571,6 +571,38 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         })
     }
 
+    /** Applies a vibrant spectral rainbow gradient across all selected strokes and items. */
+    fun rainbowSelection() {
+        val p = pages.getOrNull(selectionPage) ?: return
+        val rainbowColors = intArrayOf(
+            0xFFFF1744.toInt(), // Vivid Crimson
+            0xFFFF9100.toInt(), // Sunset Orange
+            0xFFFFEA00.toInt(), // Electric Yellow
+            0xFF00E676.toInt(), // Spring Green
+            0xFF00E5FF.toInt(), // Bright Cyan
+            0xFF2979FF.toInt(), // Cobalt Blue
+            0xFFD500F9.toInt(), // Neon Violet
+        )
+        beginEdit(selectionPage)
+        var idx = 0
+        applyItems(selectionPage, p.items.map { item ->
+            if (item.id !in selection) item
+            else {
+                val c = rainbowColors[idx % rainbowColors.size]
+                idx++
+                when (item) {
+                    is InkItem -> item.withStroke(Stroke(Brushes.recolor(item.stroke.brush, c), item.stroke.inputs))
+                    is TextItem -> item.copy(color = c)
+                    is TapeItem -> item.copy(color = c)
+                    is StickyItem -> item.copy(color = c)
+                    is WebLinkItem -> item.copy(color = c)
+                    is FillItem -> item.recolored((c and 0x00FFFFFF) or (item.color and 0xFF000000.toInt()))
+                    else -> item
+                }
+            }
+        })
+    }
+
     fun commitText(text: String, size: Float = textSize, color: Int = textColor ?: penStyle.color, style: TextStyleSpec = textStyle) {
         val edit = textEdit ?: return
         textEdit = null

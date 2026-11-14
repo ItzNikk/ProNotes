@@ -95,7 +95,7 @@ enum class AiAssetKind(val label: String) {
     TEMPLATE("Template"),
 }
 
-/** Samsung Creative Studio / Drawing Assist artistic styles. */
+/** ProNotes Creative Studio artistic styles. */
 enum class CreativeStyle(val label: String, val badge: String) {
     CARTOON_3D("3D Cartoon", "🧸"),
     WATERCOLOR("Watercolor", "🎨"),
@@ -228,13 +228,13 @@ object LocalAiManager {
 
     val imageCatalog: List<ImageModelSpec> = listOf(
         ImageModelSpec(
-            id = "galaxy-sketch-lite",
-            name = "Creative Studio Lite",
-            backend = "Drawing Assist Lite (One UI 9 Inspired)",
+            id = "pronotes-studio-lite",
+            name = "ProNotes Creative Studio Lite",
+            backend = "Studio Creative Engine Lite",
             sizeLabel = "0 MB · Built-in Lite",
             approxBytes = 0L,
-            description = "One UI 9 inspired studio design engine with 3D Cartoon, Watercolor, Sketch to Art, Pop Art & Anime modes.",
-            tags = listOf("One UI 9 Vibe", "Lite Mode", "Instant"),
+            description = "ProNotes high-fidelity studio design engine with 3D Cartoon, Watercolor, Sketch to Art, Pop Art & Anime modes.",
+            tags = listOf("Studio Design", "Lite Mode", "Instant"),
             downloadUrl = "",
             fileName = "",
             builtInReady = true,
@@ -714,7 +714,7 @@ object LocalAiManager {
         val spec = imageCatalog.firstOrNull { it.id == modelId } ?: return
         if (!spec.builtInReady) imageModelFile(context, spec).delete()
         val store = SettingsStore.get(context)
-        if (store.settings.value.activeImageModelId == modelId) store.update { it.copy(activeImageModelId = "galaxy-sketch-lite") }
+        if (store.settings.value.activeImageModelId == modelId) store.update { it.copy(activeImageModelId = "pronotes-studio-lite") }
         refresh(context)
     }
 
@@ -1450,7 +1450,7 @@ object LocalAiManager {
         }.trim() + engineFooter
     }
 
-    // ---------------------------------------------------------------- Creative Studio (One UI 9 Inspired) AI Stickers, Covers & Templates
+    // ---------------------------------------------------------------- Creative Studio AI Stickers, Covers & Templates
 
     suspend fun generateAiAssetBitmap(
         context: Context,

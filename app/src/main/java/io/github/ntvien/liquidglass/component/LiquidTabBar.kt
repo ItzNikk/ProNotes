@@ -167,7 +167,8 @@ public fun LiquidBottomTabs(
     val containerColor = colors.chromeFill
     val sceneBackdrops = LocalGlassBackdrops.current
     val layer = LocalGlassLayer.current
-    val resolvedBackdrop = (if (layer == GlassLayer.Overlay) sceneBackdrops?.overlay else sceneBackdrops?.background)
+    val resolvedBackdrop = sceneBackdrops?.background
+        ?: (if (layer == GlassLayer.Overlay) sceneBackdrops?.overlay else sceneBackdrops?.background)
         ?: emptyBackdrop()
 
     val tabsBackdrop = rememberLayerBackdrop()

@@ -115,7 +115,7 @@ enum class AspectRatioChoice(val label: String, val ratio: Float) {
 }
 
 enum class StudioAssetMode(val label: String, val badge: String, val tint: Color) {
-    STICKER("Sticker", "⭐", GlassButtonPalette.GalaxyPurple),
+    STICKER("Sticker", "⭐", GlassButtonPalette.StudioPurple),
     COVER("Book Cover", "📖", GlassButtonPalette.OceanBlue),
     TEMPLATE("Study Template", "📐", GlassButtonPalette.Emerald),
 }
@@ -190,11 +190,12 @@ fun GalaxyCreativeStudioScreen(
         }
     }
 
-    fun handleGenerate() {
+    fun handleGenerate(forceRefresh: Boolean = false) {
         if (isGenerating) return
         val q = promptText.trim()
         isGenerating = true
         errorMessage = null
+        val seed = if (forceRefresh) kotlin.random.Random.nextInt(1, 9999999) else 0
 
         scope.launch {
             try {
@@ -205,7 +206,7 @@ fun GalaxyCreativeStudioScreen(
                             AspectRatioChoice.PORTRAIT -> 450 to 600
                             AspectRatioChoice.LANDSCAPE -> 640 to 360
                         }
-                        engine.generateSticker(prompt = q, style = selectedStyle, width = w, height = h)
+                        engine.generateSticker(prompt = q, style = selectedStyle, width = w, height = h, seedNonce = seed, forceRefresh = forceRefresh)
                     }
                     StudioAssetMode.COVER -> {
                         val (w, h) = when (aspectRatio) {
@@ -213,7 +214,7 @@ fun GalaxyCreativeStudioScreen(
                             AspectRatioChoice.PORTRAIT -> 900 to 1200
                             AspectRatioChoice.LANDSCAPE -> 1200 to 675
                         }
-                        engine.generateCover(title = q, theme = selectedCoverTheme, width = w, height = h)
+                        engine.generateCover(title = q, theme = selectedCoverTheme, width = w, height = h, seedNonce = seed, forceRefresh = forceRefresh)
                     }
                     StudioAssetMode.TEMPLATE -> {
                         val (w, h) = when (aspectRatio) {
@@ -277,7 +278,7 @@ fun GalaxyCreativeStudioScreen(
             colors = listOf(
                 Color(0xFF38BDF8), // Cyan
                 Color(0xFF4DE8D8), // Turquoise
-                Color(0xFF2A78D6), // Samsung One UI Blue
+                Color(0xFF2A78D6), // Studio Blue
                 Color(0xFF1E3A8A), // Deep Blue
             ),
         )
@@ -540,7 +541,7 @@ fun GalaxyCreativeStudioScreen(
                                                 )
                                                 Spacer(Modifier.height(4.dp))
                                                 Text(
-                                                    text = "FLUX.1 Neural Studio · One UI 9",
+                                                    text = "ProNotes Neural Engine · Studio v11",
                                                     color = Color.White.copy(alpha = 0.65f),
                                                     fontSize = 12.sp,
                                                     fontWeight = FontWeight.Normal,
@@ -814,7 +815,7 @@ fun GalaxyCreativeStudioScreen(
                         LiquidGlassPill(
                             selected = true,
                             tint = GlassButtonPalette.WarmAmber,
-                            onClick = { handleGenerate() },
+                            onClick = { handleGenerate(forceRefresh = true) },
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
                             modifier = Modifier.elasticStretch(),
                         ) {

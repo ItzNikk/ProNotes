@@ -949,6 +949,13 @@ fun CloudSignInDialogHost() {
     var syncKey by remember { mutableStateOf("") }
     var errorMsg by remember { mutableStateOf("") }
 
+    val deviceAccounts = remember {
+        runCatching {
+            val am = AccountManager.get(context)
+            am.getAccountsByType("com.google").map { it.name }.filter { it.isNotBlank() }
+        }.getOrDefault(emptyList())
+    }
+
     val accountPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -1040,6 +1047,28 @@ fun CloudSignInDialogHost() {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (deviceAccounts.isNotEmpty()) {
+                    Text(
+                        "DISCOVERED GOOGLE ACCOUNTS",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        deviceAccounts.forEach { acc ->
+                            com.pronotes.app.ui.LiquidGlassChip(
+                                selected = email == acc,
+                                label = acc,
+                                onClick = {
+                                    email = acc
+                                    if (name.isBlank()) name = acc.substringBefore('@')
+                                },
+                            )
+                        }
+                    }
+                }
                 Button(
                     onClick = {
                         val launched = runCatching {

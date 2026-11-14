@@ -991,14 +991,16 @@ class ProNotesAiEngine(private val context: Context) {
         style: StickerStyle = StickerStyle.CARTOON_3D,
         width: Int = 512,
         height: Int = 512,
+        seedNonce: Int = 0,
+        forceRefresh: Boolean = false,
     ): Bitmap = withContext(Dispatchers.Default) {
         val cleanPrompt = prompt.trim().ifEmpty { "Cute Study Mascot" }
-        val seed = abs((cleanPrompt + style.name).hashCode())
+        val seed = if (seedNonce != 0) seedNonce else abs((cleanPrompt + style.name).hashCode())
 
         val cacheDir = File(context.cacheDir, "pronotes_ai_cache").apply { mkdirs() }
-        val cacheKey = "sticker_${cleanPrompt.take(20).replace(Regex("[^a-zA-Z0-9]"), "_")}_${style.name}_${width}x${height}.png"
+        val cacheKey = "sticker_${cleanPrompt.take(20).replace(Regex("[^a-zA-Z0-9]"), "_")}_${style.name}_${width}x${height}_s$seed.png"
         val cacheFile = File(cacheDir, cacheKey)
-        if (cacheFile.exists() && cacheFile.length() > 2048L) {
+        if (!forceRefresh && seedNonce == 0 && cacheFile.exists() && cacheFile.length() > 2048L) {
             val cachedBmp = BitmapFactory.decodeFile(cacheFile.absolutePath)
             if (cachedBmp != null) return@withContext cachedBmp
         }
@@ -1021,7 +1023,7 @@ class ProNotesAiEngine(private val context: Context) {
                 val conn = (URL(urlString).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 12_000
                     readTimeout = 25_000
-                    setRequestProperty("User-Agent", "ProNotes-Android/10.0")
+                    setRequestProperty("User-Agent", "ProNotes-Android/11.0")
                 }
 
                 if (conn.responseCode in 200..299) {
@@ -1225,14 +1227,16 @@ class ProNotesAiEngine(private val context: Context) {
         theme: CoverTheme = CoverTheme.GALAXY,
         width: Int = 900,
         height: Int = 1200,
+        seedNonce: Int = 0,
+        forceRefresh: Boolean = false,
     ): Bitmap = withContext(Dispatchers.Default) {
         val cleanTitle = title.trim().ifEmpty { "ProNotes Journal" }
-        val seed = abs((cleanTitle + theme.name).hashCode())
+        val seed = if (seedNonce != 0) seedNonce else abs((cleanTitle + theme.name).hashCode())
 
         val onlineBmp = withContext(Dispatchers.IO) {
             runCatching {
                 val themeKeywords = when (theme) {
-                    CoverTheme.GALAXY -> "vibrant deep cosmic galaxy nebula, starry night sky, purple cyan space dust, high detail artwork"
+                    CoverTheme.GALAXY -> "vibrant deep cosmic nebula, starry night sky, purple cyan space dust, high detail artwork"
                     CoverTheme.BOTANICAL -> "aesthetic botanical illustration, lush monstera leaves, soft pastel flowers, gold foil accents"
                     CoverTheme.MINIMAL -> "modern minimalist geometric graphic design, bauhaus art style, elegant balance"
                     CoverTheme.VINTAGE -> "vintage leather bound book cover texture, embossed ornate frame, gold foil embossing"
@@ -1247,7 +1251,7 @@ class ProNotesAiEngine(private val context: Context) {
                 val conn = (URL(urlString).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 14_000
                     readTimeout = 28_000
-                    setRequestProperty("User-Agent", "ProNotes-Android/10.0")
+                    setRequestProperty("User-Agent", "ProNotes-Android/11.0")
                 }
 
                 if (conn.responseCode in 200..299) {

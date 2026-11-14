@@ -58,20 +58,14 @@ class MainActivity : ComponentActivity() {
                 com.pronotes.app.ui.UpdateDialogHost()
                 com.pronotes.app.data.CloudSignInDialogHost()
                 val nav = rememberNavController()
-                val firstRun = remember { !SettingsStore.get(this@MainActivity).settings.value.onboardingDone }
                 NavHost(
                     navController = nav,
-                    startDestination = if (firstRun) "welcome" else "library",
+                    startDestination = "library",
                     enterTransition = { fadeIn() + scaleIn(initialScale = 0.96f) },
                     exitTransition = { fadeOut() },
                     popEnterTransition = { fadeIn() },
                     popExitTransition = { fadeOut() + scaleOut(targetScale = 0.96f) },
                 ) {
-                    composable("welcome") {
-                        com.pronotes.app.onboarding.WelcomeScreen(onDone = {
-                            if (!nav.popBackStack()) nav.navigate("library") { popUpTo("welcome") { inclusive = true } }
-                        })
-                    }
                     composable("support") { com.pronotes.app.support.SupportScreen(onBack = { nav.popBackStack() }) }
                     composable("studio") {
                         com.pronotes.app.ai.GalaxyCreativeStudioScreen(onBack = { nav.popBackStack() })
