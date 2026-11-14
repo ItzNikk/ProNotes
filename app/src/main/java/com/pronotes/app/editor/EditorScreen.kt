@@ -210,6 +210,8 @@ import com.pronotes.app.data.SettingsStore
 import com.pronotes.app.data.ToolbarDock
 import com.pronotes.app.ui.ColorEditorDialog
 import com.pronotes.app.ui.LayerBackdrop
+import com.pronotes.app.ui.LiquidSlider
+import com.pronotes.app.ui.LiquidToggle
 import com.pronotes.app.ui.LocalMotionStyle
 import com.pronotes.app.ui.OptionalLiquidGlassBox
 import com.pronotes.app.ui.layerBackdrop
@@ -633,9 +635,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                             }
                             TextButton(onClick = { vm.lineTextSel(strike = false) }) { Text("Underline", color = Color.White) }
                             TextButton(onClick = { vm.lineTextSel(strike = true) }) { Text("Strike", color = Color.White) }
-                            TextButton(onClick = { vm.explainTextSel() }) { Text("Explain", color = Color.White) }
                             TextButton(onClick = { vm.cardFromTextSel() }) { Text("Flashcard", color = Color.White) }
-                            TextButton(onClick = { vm.quizFromTextSel() }) { Text("Quiz", color = Color.White) }
                             TextButton(onClick = { val q = vm.textSel?.text ?: ""; vm.clearTextSel(); showSearch = true; vm.search(q) }) { Text("Search", color = Color.White) }
                             TextButton(onClick = {
                                 val q = vm.textSel?.text ?: ""; vm.clearTextSel()
@@ -651,16 +651,6 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                         modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 120.dp),
                     ) { Text(msg, Modifier.padding(horizontal = 18.dp, vertical = 10.dp), style = MaterialTheme.typography.labelLarge) }
                 }
-                androidx.compose.animation.AnimatedVisibility(
-                    vm.aiBusy,
-                    modifier = Modifier.fillMaxSize(),
-                    enter = fadeIn(),
-                    exit = fadeOut(),
-                ) { AiParticleBackdrop(Modifier.fillMaxSize(), active = true, variant = AiBackdropVariant.AI_WAVE) }
-                androidx.compose.animation.AnimatedVisibility(
-                    vm.aiBusy, modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 180.dp),
-                    enter = fadeIn() + scaleIn(initialScale = 0.8f), exit = fadeOut() + scaleOut(targetScale = 0.8f),
-                ) { ThinkingPill(engine = vm.aiEngineLabel, stage = vm.aiStage) }
 
                 if (vm.currentPage?.isWhiteboard == true && !focus) {
                     Surface(
@@ -719,11 +709,6 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                             }
                             TextButton(onClick = { vm.exportMindMapOutlineToPage() }) { Text("Outline") }
                             TextButton(onClick = { vm.flashcardsFromMindMap() }) { Text("Cards") }
-                            TextButton(onClick = { vm.generateMindMapFromNotes() }) {
-                                Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("AI Map")
-                            }
                         }
                     }
                 }
@@ -816,56 +801,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     if (showCards) FlashcardsDialog(vm, onClose = { showCards = false })
     if (showQuiz) QuizDialog(vm, onClose = { showQuiz = false })
     if (vm.showSlideShow) SlideShowDialog(vm, onClose = { vm.showSlideShow = false })
-    vm.explanation?.let { (sel, ans) ->
-        Dialog(onDismissRequest = { vm.explanation = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-            Surface(
-                shape = RoundedCornerShape(28.dp),
-                color = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.padding(20.dp).widthIn(max = 560.dp).fillMaxWidth(),
-            ) {
-                Box {
-                    AiParticleBackdrop(Modifier.matchParentSize(), active = true, variant = AiBackdropVariant.AI_WAVE)
-                    Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Explained", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        }
-                        Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("\"" + sel.take(160) + "\"", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(ans, style = MaterialTheme.typography.bodyMedium)
-                            Text("By ${vm.aiEngineLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
-                            TextButton(onClick = {
-                                vm.insertAiTextToPage(ans)
-                                vm.explanation = null
-                            }) { Text("Insert to Page") }
-                            TextButton(onClick = { vm.explanation = null }) { Text("Done", fontWeight = FontWeight.Bold) }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if (showTemplates) TemplateSheet(vm, onAiTemplate = { showTemplates = false; showAssetStudio = AiAssetKind.TEMPLATE }, onClose = { showTemplates = false })
-    vm.summary?.let { res ->
-        val clip = androidx.compose.ui.platform.LocalClipboardManager.current
-        SummarySheet(
-            result = res,
-            onClose = { vm.summary = null },
-            onCopy = {
-                val formatted = buildString {
-                    appendLine(res.headline)
-                    res.points.forEach { appendLine("• $it") }
-                }
-                clip.setText(androidx.compose.ui.text.AnnotatedString(formatted.trim()))
-            },
-            onAdd = { vm.summaryToPage() },
-            onAddSticky = { vm.summaryToSticky() },
-            onBuildMindMap = { vm.summary = null; vm.generateMindMapFromNotes() },
-        )
-    }
+    if (showTemplates) TemplateSheet(vm, onAiTemplate = { showTemplates = false }, onClose = { showTemplates = false })
     vm.linkToDelete?.let { id ->
         AlertDialog(
             onDismissRequest = { vm.linkToDelete = null },
@@ -998,25 +934,13 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
 
     if (showStickers) {
         ModalBottomSheet(onDismissRequest = { showStickers = false; vm.tool = Tool.LASSO }) {
-            StickerSheet(vm, onAiSticker = { showStickers = false; showAssetStudio = AiAssetKind.STICKER }) { bmp ->
+            StickerSheet(vm) { bmp ->
                 showStickers = false
                 vm.tool = Tool.LASSO
                 vm.insertStickerBitmap(bmp) { pg, id -> canvas?.selectItems(pg, setOf(id)) }
             }
         }
     }
-    if (showAiChat) AiNotesChatDialog(vm = vm, onClose = { showAiChat = false })
-    showAssetStudio?.let { kind ->
-        AiAssetStudioDialog(
-            vm = vm,
-            initialKind = kind,
-            onInsertSticker = { bmp -> vm.insertStickerBitmap(bmp) { pg, id -> canvas?.selectItems(pg, setOf(id)) } },
-            onApplyTemplate = { bmp -> vm.applyGeneratedTemplateBitmap(bmp) },
-            onApplyCover = { bmp -> vm.applyGeneratedCoverBitmap(bmp) },
-            onClose = { showAssetStudio = null },
-        )
-    }
-    if (showLectureRecorder) AiLectureRecorderDialog(vm = vm, onClose = { showLectureRecorder = false })
     if (showCollabRoom) {
         LiveCollabRoomDialog(
             vm = vm,
@@ -1134,78 +1058,6 @@ private fun TopBar(
                 modifier = Modifier.weight(1f).padding(horizontal = 10.dp).clickable(onClick = onRename),
             )
         }
-        // Dedicated ✨ AI Button directly in the Fixed Top Bar
-        var aiMenuOpen by remember { mutableStateOf(false) }
-        Box {
-            Surface(
-                shape = Pill,
-                color = Color.Transparent,
-                modifier = Modifier
-                    .padding(horizontal = 4.dp)
-                    .height(36.dp)
-                    .elasticStretch()
-                    .clip(Pill)
-                    .background(
-                        Brush.linearGradient(
-                            listOf(Color(0xFF2A78D6), Color(0xFF6366F1), Color(0xFF8C65FF)),
-                        ),
-                    )
-                    .clickable { aiMenuOpen = true },
-            ) {
-                Row(
-                    Modifier.padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    Icon(Icons.Outlined.AutoAwesome, "AI Hub", tint = Color.White, modifier = Modifier.size(17.dp))
-                    Text("AI", color = Color.White, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold)
-                }
-            }
-            DropdownMenu(aiMenuOpen, { aiMenuOpen = false }, shape = RoundedCornerShape(22.dp)) {
-                Text(
-                    "✨ PRO AI STUDIO",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-                DropdownMenuItem(
-                    text = { Text("AI Study Chat (Notes & PDF)", fontWeight = FontWeight.SemiBold) },
-                    leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null, tint = Color(0xFF2A78D6)) },
-                    onClick = { aiMenuOpen = false; onAiChat() },
-                )
-                DropdownMenuItem(
-                    text = { Text("Creative Studio (Stickers / Covers)") },
-                    leadingIcon = { Icon(Icons.Outlined.Palette, null, tint = Color(0xFF6366F1)) },
-                    onClick = { aiMenuOpen = false; onAssetStudio(AiAssetKind.STICKER) },
-                )
-                DropdownMenuItem(
-                    text = { Text("Explain Current Page with AI") },
-                    leadingIcon = { Icon(Icons.Outlined.ChatBubbleOutline, null, tint = Color(0xFF8C65FF)) },
-                    onClick = { aiMenuOpen = false; vm.explainCurrentPage() },
-                )
-                DropdownMenuItem(
-                    text = { Text("AI Slide Show Revision") },
-                    leadingIcon = { ProIconView(ProIcon.SLIDESHOW, MaterialTheme.colorScheme.primary, Modifier.size(20.dp)) },
-                    onClick = { aiMenuOpen = false; onSlideShow() },
-                )
-                DropdownMenuItem(
-                    text = { Text("AI Lecture Recorder") },
-                    leadingIcon = { Icon(Icons.Outlined.Mic, null, tint = MaterialTheme.colorScheme.primary) },
-                    onClick = { aiMenuOpen = false; onLectureRecorder() },
-                )
-                DropdownMenuItem(
-                    text = { Text("Summarize Page") },
-                    leadingIcon = { ProIconView(ProIcon.SUMMARY, MaterialTheme.colorScheme.primary, Modifier.size(20.dp)) },
-                    onClick = { aiMenuOpen = false; vm.summarize() },
-                )
-                DropdownMenuItem(
-                    text = { Text("Generate Mind Map") },
-                    leadingIcon = { ProIconView(ProIcon.MINDMAP, MaterialTheme.colorScheme.primary, Modifier.size(20.dp)) },
-                    onClick = { aiMenuOpen = false; vm.generateMindMapFromNotes() },
-                )
-            }
-        }
         if (vm.pages.isNotEmpty()) {
             Surface(shape = Pill, color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.72f)) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 2.dp)) {
@@ -1259,20 +1111,10 @@ private fun TopBar(
             BarIcon(ProIcon.MORE, "More") { more = true }
             DropdownMenu(more, { more = false }, shape = RoundedCornerShape(20.dp)) {
                 Text(
-                    "STUDY & AI",
+                    "STUDY TOOLS",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-                DropdownMenuItem(
-                    text = { Text("Slide show revision") },
-                    leadingIcon = { ProIconView(ProIcon.SLIDESHOW, MaterialTheme.colorScheme.primary, Modifier.size(20.dp), ink = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)) },
-                    onClick = { more = false; onSlideShow() },
-                )
-                DropdownMenuItem(
-                    text = { Text("Summarise page") },
-                    leadingIcon = { ProIconView(ProIcon.SUMMARY, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp), ink = MaterialTheme.colorScheme.primary) },
-                    onClick = { more = false; vm.summarize() },
                 )
                 DropdownMenuItem(
                     text = { Text("Flashcards") },
@@ -1280,34 +1122,9 @@ private fun TopBar(
                     onClick = { more = false; onCards() },
                 )
                 DropdownMenuItem(
-                    text = { Text("Quiz") },
-                    leadingIcon = { ProIconView(ProIcon.QUIZ, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp)) },
-                    onClick = { more = false; onQuiz() },
-                )
-                DropdownMenuItem(
-                    text = { Text("Generate mind map") },
-                    leadingIcon = { ProIconView(ProIcon.MINDMAP, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp), ink = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)) },
-                    onClick = { more = false; vm.generateMindMapFromNotes() },
-                )
-                DropdownMenuItem(
                     text = { Text("Flashcard from area") },
                     leadingIcon = { Icon(Icons.Outlined.Crop, null, Modifier.size(20.dp)) },
                     onClick = { more = false; vm.capturingCard = true },
-                )
-                DropdownMenuItem(
-                    text = { Text("AI Chat (Notes & PDF)") },
-                    leadingIcon = { Icon(Icons.Outlined.ChatBubbleOutline, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary) },
-                    onClick = { more = false; onAiChat() },
-                )
-                DropdownMenuItem(
-                    text = { Text("AI Creative Studio (Stickers / Covers)") },
-                    leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary) },
-                    onClick = { more = false; onAssetStudio(AiAssetKind.STICKER) },
-                )
-                DropdownMenuItem(
-                    text = { Text("AI Lecture Recorder") },
-                    leadingIcon = { Icon(Icons.Outlined.Mic, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary) },
-                    onClick = { more = false; onLectureRecorder() },
                 )
                 DropdownMenuItem(
                     text = { Text("Live Study Room") },
@@ -1433,7 +1250,7 @@ private fun SearchBar(vm: EditorViewModel) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = vm.searchQuery, onValueChange = vm::search, singleLine = true,
-                placeholder = { Text(if (vm.isPdf) "Smart AI & exact search in PDF and notes" else "Smart AI & exact search across notes") },
+                placeholder = { Text(if (vm.isPdf) "Search in PDF and notes" else "Search across notes") },
                 leadingIcon = { ProIconView(ProIcon.SEARCH, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.size(20.dp)) },
                 shape = Pill, modifier = Modifier.weight(1f),
             )
@@ -1450,37 +1267,6 @@ private fun SearchBar(vm: EditorViewModel) {
             IconButton(onClick = { vm.stepHit(-1) }, enabled = vm.searchHits.isNotEmpty()) { Icon(Icons.Filled.KeyboardArrowUp, "Previous") }
             IconButton(onClick = { vm.stepHit(1) }, enabled = vm.searchHits.isNotEmpty()) { Icon(Icons.Filled.KeyboardArrowDown, "Next") }
             IconButton(onClick = vm::clearSearch) { Icon(Icons.Filled.Close, "Clear") }
-        }
-        vm.searchAiAnswer?.let { ai ->
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
-                modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f), RoundedCornerShape(16.dp)),
-            ) {
-                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        ProIconView(ProIcon.CUSTOM_AI, MaterialTheme.colorScheme.primary, Modifier.size(16.dp), ink = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
-                        Spacer(Modifier.width(6.dp))
-                        Text("AI Search Insight · ${vm.aiEngineLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                    }
-                    if (ai.answer.isNotBlank()) {
-                        Text(ai.answer, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
-                    }
-                    if (ai.expandedTerms.isNotEmpty()) {
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            ai.expandedTerms.forEach { term ->
-                                Surface(
-                                    shape = Pill,
-                                    color = MaterialTheme.colorScheme.surface,
-                                    modifier = Modifier.clip(Pill).clickable { vm.search(term) },
-                                ) {
-                                    Text(term, Modifier.padding(horizontal = 9.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
         if (vm.searchHits.isNotEmpty()) {
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 160.dp)) {
@@ -1996,7 +1782,6 @@ private fun ToolOptions(vm: EditorViewModel, vertical: Boolean, settings: AppSet
                     MiniChip("Fit Map") { vm.fitMindMapToView() }
                     MiniChip(if (vm.moveMindSubtree) "Subtree: On" else "Subtree: Off") { vm.moveMindSubtree = !vm.moveMindSubtree }
                     MiniChip("Cards") { vm.flashcardsFromMindMap() }
-                    MiniChip("AI Map") { vm.generateMindMapFromNotes() }
                 }
                 else -> Unit
             }
@@ -2467,9 +2252,14 @@ private fun MindNodeDialog(vm: EditorViewModel, edit: EditorViewModel.MindNodeEd
 
 @Composable
 private fun ToggleLine(label: String, value: Boolean, onChange: (Boolean) -> Unit) {
+    val toggleBackdrop = rememberLayerBackdrop()
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        Switch(value, onChange)
+        LiquidToggle(
+            selected = { value },
+            onSelect = onChange,
+            backdrop = toggleBackdrop,
+        )
     }
 }
 
@@ -2518,12 +2308,19 @@ private fun ShapeCard(vm: EditorViewModel) {
 
 @Composable
 private fun SliderRow(label: String, value: String, v: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit) {
-    Column(Modifier.clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)).padding(horizontal = 14.dp, vertical = 6.dp)) {
-        Row {
+    val sliderBackdrop = rememberLayerBackdrop()
+    Column(Modifier.clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)).padding(horizontal = 14.dp, vertical = 10.dp)) {
+        Row(Modifier.padding(bottom = 8.dp)) {
             Text(label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
             Text(value, style = MaterialTheme.typography.labelSmall)
         }
-        Slider(v, onChange, valueRange = range)
+        LiquidSlider(
+            value = { v },
+            onValueChange = onChange,
+            valueRange = range,
+            visibilityThreshold = ((range.endInclusive - range.start) * 0.005f).coerceAtLeast(0.001f),
+            backdrop = sliderBackdrop,
+        )
     }
 }
 
@@ -2531,7 +2328,7 @@ private fun SliderRow(label: String, value: String, v: Float, range: ClosedFloat
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun StickerSheet(vm: EditorViewModel, onAiSticker: () -> Unit = {}, onPick: (Bitmap) -> Unit) {
+private fun StickerSheet(vm: EditorViewModel, onPick: (Bitmap) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var tab by remember { mutableIntStateOf(0) }
@@ -2546,9 +2343,6 @@ private fun StickerSheet(vm: EditorViewModel, onAiSticker: () -> Unit = {}, onPi
     Column(Modifier.padding(horizontal = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Stickers", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f).padding(start = 8.dp))
-            FilledTonalButton(onClick = onAiSticker, shape = Pill, modifier = Modifier.elasticStretch()) {
-                Text("✦ AI Sticker")
-            }
             TextButton(onClick = { importer.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
                 Icon(Icons.Outlined.Add, null); Text("Import")
             }
@@ -2703,31 +2497,9 @@ private fun SelectionMenu(
     ) {
         androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides fg) {
             Row(Modifier.padding(horizontal = 6.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                // ✨ Explain with AI button right inside the Lasso selection menu!
-                Surface(
-                    shape = Pill,
-                    color = Color.Transparent,
-                    contentColor = Color.White,
-                    modifier = Modifier
-                        .padding(4.dp)
-                        .elasticStretch()
-                        .clip(Pill)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(Color(0xFF2A78D6), Color(0xFF6366F1), Color(0xFF8C65FF)),
-                            ),
-                        )
-                        .clickable { vm.explainLassoSelection() },
-                ) {
-                    Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(17.dp), tint = Color.White)
-                        Spacer(Modifier.width(5.dp))
-                        Text("Explain", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = Color.White)
-                    }
-                }
                 // Link button
                 Surface(
-                    shape = Pill, color = Color(0xFF3D6CF4), contentColor = Color.White,
+                    shape = Pill, color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier.padding(4.dp).elasticStretch().clip(Pill).clickable { vm.startLinkFromSelection() },
                 ) {
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -2747,8 +2519,6 @@ private fun SelectionMenu(
                 Box {
                     IconButton(onClick = { more = true }, modifier = Modifier.elasticStretch()) { ProIconView(ProIcon.MORE, fg, Modifier.size(22.dp)) }
                     DropdownMenu(more, { more = false }, shape = RoundedCornerShape(18.dp)) {
-                        DropdownMenuItem(text = { Text("✨ Explain selection with AI") }, leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary) },
-                            onClick = { more = false; vm.explainLassoSelection() })
                         DropdownMenuItem(text = { Text("Flip horizontally") }, leadingIcon = { Icon(Icons.Outlined.Flip, null) },
                             onClick = { more = false; keep { vm.flipSelection() } })
                         DropdownMenuItem(text = { Text("Bring to front") }, leadingIcon = { Icon(Icons.Outlined.FlipToFront, null) },

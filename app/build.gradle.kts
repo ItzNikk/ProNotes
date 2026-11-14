@@ -94,8 +94,6 @@ kotlin {
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2025.08.00")
     implementation(composeBom)
-    // Free on-device Gemini Nano (only on devices with Android AICore; the app falls back otherwise).
-    implementation("com.google.mlkit:genai-prompt:1.0.0-beta4")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.animation:animation")
@@ -132,5 +130,5 @@ dependencies {
     // PDF text extraction for in-document search.
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     // Official Kyant0 AndroidLiquidGlass Backdrop library for real-time optical refraction.
-    implementation("io.github.kyant0:backdrop:1.0.6")
+    implementation("io.github.kyant0:backdrop:1.0.2")
 }

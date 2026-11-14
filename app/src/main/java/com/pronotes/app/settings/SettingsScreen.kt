@@ -94,27 +94,25 @@ import com.pronotes.app.data.ThemeMode
 import com.pronotes.app.data.ToolbarDock
 import com.pronotes.app.data.ToolbarSize
 import com.pronotes.app.data.Updater.Phase as UPhase
-import com.pronotes.app.editor.LocalAiManager
-import com.pronotes.app.editor.LocalModelRuntime
-import com.pronotes.app.editor.LocalModelStatus
-import com.pronotes.app.editor.Nano
 import com.pronotes.app.library.PaperPreview
 import com.pronotes.app.ui.GradientTitle
+import com.pronotes.app.ui.LiquidSlider
+import com.pronotes.app.ui.LiquidToggle
 import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.ProIconView
 import com.pronotes.app.ui.elasticStretch
+import com.pronotes.app.ui.rememberLayerBackdrop
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 
 private enum class Category(val label: String, val sub: String, val icon: ProIcon, val tint: Long) {
-    STYLUS("Stylus & input", "Drawing, feel, side button, pens", ProIcon.PEN, 0xFF2A78D6),
-    AI("AI & Cloud Studio", "Custom AI API & 9 offline models", ProIcon.CUSTOM_AI, 0xFF6B5CE7),
-    GESTURES("Gestures", "Live scribble sensitivity, circle, taps", ProIcon.LASSO, 0xFF7161E0),
-    PAGES("Pages & paper", "Scroll, templates, paper colour", ProIcon.DOCUMENT, 0xFF0F7E5C),
-    TOOLBAR("Toolbar", "Stretchable dock, hover tooltips, timer", ProIcon.TOOLBAR, 0xFFC04873),
-    LOOK("Appearance & Ultra UI", "Theme, typography, motion, accent", ProIcon.PALETTE, 0xFFD97706),
-    LIBRARY("Library & backup", "Covers, backup and restore", ProIcon.FOLDER, 0xFF256ABF),
-    ABOUT("About", "Version, resumable updates", ProIcon.INFO, 0xFF6B7280),
+    STYLUS("Stylus & input", "Drawing, feel, side button, pens", ProIcon.PEN, 0xFF24483F),
+    GESTURES("Gestures", "Live scribble sensitivity, circle, taps", ProIcon.LASSO, 0xFF2E4A7A),
+    PAGES("Pages & paper", "Scroll, templates, paper colour", ProIcon.DOCUMENT, 0xFF2F6B4F),
+    TOOLBAR("Toolbar", "Floating capsule, hover tooltips, timer", ProIcon.TOOLBAR, 0xFF7A2E42),
+    LOOK("Appearance & Theme", "OpenLeaf botanical palette, typography, motion", ProIcon.PALETTE, 0xFFB98A2E),
+    LIBRARY("Library & backup", "Covers, cloud sync, backup and restore", ProIcon.FOLDER, 0xFF35655A),
+    ABOUT("About", "Version, resumable updates", ProIcon.INFO, 0xFF5A5F58),
 }
 
 @Composable
@@ -193,6 +191,20 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                     }
                     Section("Paper feel") {
                         Toggle("Writing sound", "A soft pencil-on-paper sound that follows your speed", s.paperSound) { v -> up { it.copy(paperSound = v) } }
+                        if (s.paperSound) {
+                            val sliderBackdrop = rememberLayerBackdrop()
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                Text("Writing sound volume (${(s.paperVolume * 100).toInt()}%)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.height(6.dp))
+                                LiquidSlider(
+                                    value = { s.paperVolume },
+                                    onValueChange = { v -> up { it.copy(paperVolume = v) } },
+                                    valueRange = 0.05f..1f,
+                                    visibilityThreshold = 0.01f,
+                                    backdrop = sliderBackdrop,
+                                )
+                            }
+                        }
                         Toggle("Paper haptics", "Tiny ticks as you write, like paper grain", s.paperHaptics) { v -> up { it.copy(paperHaptics = v) } }
                     }
                     Section("Pen side button") {
@@ -201,9 +213,6 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                         Toggle("Hover preview", "Show where the pen will touch", s.hoverCursor) { v -> up { it.copy(hoverCursor = v) } }
                     }
                     PensSection(store)
-                }
-                Category.AI -> {
-                    LocalAiSection(s, store)
                 }
                 Category.GESTURES -> {
                     Section("Pen gestures") {
@@ -328,11 +337,11 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                     }
                     Section("Setup Studio") {
                         Row(Modifier.fillMaxWidth().clickable(onClick = onTour).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            ProIconView(ProIcon.CUSTOM_AI, MaterialTheme.colorScheme.primary, Modifier.size(22.dp))
+                            ProIconView(ProIcon.STAR, MaterialTheme.colorScheme.primary, Modifier.size(22.dp))
                             Spacer(Modifier.size(16.dp))
                             Column(Modifier.weight(1f)) {
-                                Text("Open Ultra Setup Studio")
-                                Text("Preview themes, typography, AI engine, and stylus calibration", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Open Setup Studio")
+                                Text("Preview themes, typography, and stylus calibration", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -398,6 +407,7 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 
 @Composable
 private fun Toggle(title: String, sub: String, value: Boolean, onChange: (Boolean) -> Unit) {
+    val toggleBackdrop = rememberLayerBackdrop()
     Row(
         Modifier.fillMaxWidth().clickable { onChange(!value) }.padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -406,7 +416,11 @@ private fun Toggle(title: String, sub: String, value: Boolean, onChange: (Boolea
             Text(title)
             Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(value, onChange)
+        LiquidToggle(
+            selected = { value },
+            onSelect = onChange,
+            backdrop = toggleBackdrop,
+        )
     }
 }
 
@@ -485,11 +499,16 @@ private fun ToolbarEditor(spec: String, onChange: (String) -> Unit) {
                     ProIconView(com.pronotes.app.ui.iconFor(tool), MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp))
                     Spacer(Modifier.width(12.dp))
                     Text(tool.name.lowercase().replaceFirstChar { it.uppercase() }, Modifier.weight(1f))
-                    Switch(visible, onCheckedChange = { v ->
-                        if (!v && list.count { it.second } <= 1) return@Switch
-                        list = list.toMutableList().also { it[i] = tool to v }
-                        onChange(com.pronotes.app.editor.ToolbarOrder.encode(list))
-                    })
+                    val rowBackdrop = rememberLayerBackdrop()
+                    LiquidToggle(
+                        selected = { visible },
+                        onSelect = { v ->
+                            if (!v && list.count { it.second } <= 1) return@LiquidToggle
+                            list = list.toMutableList().also { it[i] = tool to v }
+                            onChange(com.pronotes.app.editor.ToolbarOrder.encode(list))
+                        },
+                        backdrop = rowBackdrop,
+                    )
                 }
             }
         }
@@ -750,297 +769,3 @@ private fun CloudAccountSection(s: AppSettings) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun LocalAiSection(s: AppSettings, store: SettingsStore) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val states by LocalAiManager.states.collectAsState()
-    val imageStates by LocalAiManager.imageStates.collectAsState()
-    var modelTab by remember { mutableStateOf(0) } // 0 = Text Models, 1 = Image Models
-    var cat by remember { mutableStateOf("All") }
-    var showKey by remember { mutableStateOf(false) }
-    var testBusy by remember { mutableStateOf(false) }
-    var testResult by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
-    LaunchedEffect(Unit) { LocalAiManager.refresh(context) }
-
-    Section("Active AI Engine") {
-        Box(Modifier.fillMaxWidth()) {
-            com.pronotes.app.editor.AiParticleBackdrop(
-                modifier = Modifier.matchParentSize(),
-                active = states.values.any { it.status == LocalModelStatus.DOWNLOADING },
-                variant = com.pronotes.app.editor.AiBackdropVariant.AI_WAVE,
-            )
-            Column(Modifier.fillMaxWidth()) {
-                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    ProIconView(ProIcon.CUSTOM_AI, Color(0xFF6B5CE7), Modifier.size(24.dp))
-                    Spacer(Modifier.width(14.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(LocalAiManager.activeEngineLabel(context), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            when {
-                                s.customAiEnabled && s.customAiBaseUrl.isNotBlank() ->
-                                    "Custom AI API (${s.customAiProvider.label}) is primary for Slides, Summary, Search, Quizzes & Mind Maps"
-                                Nano.available -> "On-Device Neural AICore is active on this device"
-                                else -> "Connect Custom AI API or download any of the 9 free local models for richer study AI"
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                if (s.activeLocalModelId.isNotBlank()) {
-                    HorizontalDivider(Modifier.padding(start = 54.dp))
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Use built-in fallback rules only", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                        TextButton(onClick = { LocalAiManager.activateModel(context, "") }) { Text("Reset") }
-                    }
-                }
-            }
-        }
-    }
-
-    Section("Custom AI API (OpenAI · Google AI · Ollama)") {
-        Toggle(
-            "Use Custom AI API",
-            "Connect your own API endpoint or local Ollama server (stored privately on device)",
-            s.customAiEnabled,
-        ) { on -> store.update { it.copy(customAiEnabled = on) } }
-
-        if (s.customAiEnabled) {
-            HorizontalDivider()
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Choice(
-                    "Provider",
-                    s.customAiProvider.label,
-                    CustomAiProvider.entries.map { it.label },
-                ) { idx ->
-                    val nextProv = CustomAiProvider.entries[idx]
-                    store.update { cur ->
-                        val prevProv = cur.customAiProvider
-                        val nextUrl = if (cur.customAiBaseUrl.isBlank() || cur.customAiBaseUrl == prevProv.defaultBaseUrl) nextProv.defaultBaseUrl else cur.customAiBaseUrl
-                        val nextModel = if (cur.customAiModel.isBlank() || cur.customAiModel == prevProv.defaultModel) nextProv.defaultModel else cur.customAiModel
-                        cur.copy(customAiProvider = nextProv, customAiBaseUrl = nextUrl, customAiModel = nextModel)
-                    }
-                }
-                OutlinedTextField(
-                    value = s.customAiBaseUrl,
-                    onValueChange = { v -> store.update { it.copy(customAiBaseUrl = v) } },
-                    label = { Text("Base URL") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = s.customAiModel,
-                    onValueChange = { v -> store.update { it.copy(customAiModel = v) } },
-                    label = { Text("Model name") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = s.customAiApiKey,
-                    onValueChange = { v -> store.update { it.copy(customAiApiKey = v) } },
-                    label = { Text(if (s.customAiProvider == CustomAiProvider.OLLAMA) "API Key (optional for Ollama)" else "API Key") },
-                    singleLine = true,
-                    visualTransformation = if (showKey) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                    trailingIcon = {
-                        TextButton(onClick = { showKey = !showKey }) { Text(if (showKey) "Hide" else "Show") }
-                    },
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
-                        enabled = !testBusy,
-                        onClick = {
-                            testBusy = true
-                            testResult = null
-                            scope.launch {
-                                val res = LocalAiManager.testCustomApi(context)
-                                testBusy = false
-                                testResult = res.fold(
-                                    onSuccess = { true to "Connected: ${it.take(80)}" },
-                                    onFailure = { false to (it.message ?: "Connection failed") },
-                                )
-                            }
-                        },
-                        shape = CircleShape,
-                    ) { Text(if (testBusy) "Testing…" else "Test Connection") }
-                    testResult?.let { (ok, msg) ->
-                        Text(
-                            msg,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (ok) Color(0xFF10B981) else MaterialTheme.colorScheme.error,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    Section("On-Device Models (${LocalAiManager.catalog.size} Text · ${LocalAiManager.imageCatalog.size} Image)") {
-        Segmented(
-            listOf("Text Models (${LocalAiManager.catalog.size})", "Image Models (${LocalAiManager.imageCatalog.size})"),
-            modelTab,
-        ) { modelTab = it }
-
-        if (modelTab == 0) {
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                listOf("All", "Fast", "Writing", "Reasoning").forEach { c ->
-                    FilterChip(cat == c, { cat = c }, label = { Text(c) }, shape = CircleShape)
-                }
-            }
-            val filtered = LocalAiManager.catalog.filter { cat == "All" || it.category == cat }
-            filtered.forEachIndexed { idx, spec ->
-                if (idx > 0) HorizontalDivider()
-                val rt = states[spec.id] ?: LocalModelRuntime()
-                val isActive = s.activeLocalModelId == spec.id && rt.status == LocalModelStatus.READY
-                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(spec.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            Text("${spec.family} · ${spec.quantization} · ${spec.sizeLabel} · ${"⚡".repeat(spec.speedScore.coerceIn(1, 5))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                        }
-                        if (isActive) {
-                            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
-                                Text("Active", Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                            }
-                        }
-                    }
-                    Text(spec.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        spec.tags.forEach { tag ->
-                            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
-                                Text(tag, Modifier.padding(horizontal = 10.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall)
-                            }
-                        }
-                    }
-                    when (rt.status) {
-                        LocalModelStatus.DOWNLOADING -> {
-                            val dlMb = rt.downloadedBytes / (1024f * 1024f)
-                            val totMb = (rt.totalBytes.coerceAtLeast(1L)) / (1024f * 1024f)
-                            LinearProgressIndicator(progress = { rt.progress }, modifier = Modifier.fillMaxWidth())
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("Downloading ${"%.1f".format(dlMb)} / ${"%.0f".format(totMb)} MB (${(rt.progress * 100).toInt()}%)", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                                OutlinedButton(onClick = { LocalAiManager.pauseDownload(context, spec.id) }, shape = CircleShape) { Text("Pause") }
-                                TextButton(onClick = { LocalAiManager.cancelDownload(context, spec.id) }) { Text("Cancel") }
-                            }
-                        }
-                        LocalModelStatus.PAUSED -> {
-                            val dlMb = rt.downloadedBytes / (1024f * 1024f)
-                            val totMb = (rt.totalBytes.coerceAtLeast(1L)) / (1024f * 1024f)
-                            LinearProgressIndicator(progress = { rt.progress }, modifier = Modifier.fillMaxWidth())
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Paused at ${"%.1f".format(dlMb)} / ${"%.0f".format(totMb)} MB (${(rt.progress * 100).toInt()}%)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
-                                Button(onClick = { LocalAiManager.startDownload(context, spec.id) }, shape = CircleShape) { Text("Resume") }
-                                TextButton(onClick = { LocalAiManager.cancelDownload(context, spec.id) }) { Text("Cancel") }
-                            }
-                        }
-                        LocalModelStatus.READY -> {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                if (!isActive) {
-                                    Button(onClick = { LocalAiManager.activateModel(context, spec.id) }, shape = CircleShape) { Text("Use Model") }
-                                }
-                                OutlinedButton(onClick = { LocalAiManager.deleteModel(context, spec.id) }, shape = CircleShape) { Text("Delete") }
-                            }
-                        }
-                        LocalModelStatus.ERROR -> {
-                            Text(rt.error ?: "Download interrupted", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-                            Button(onClick = { LocalAiManager.startDownload(context, spec.id) }, shape = CircleShape) { Text("Resume / Retry") }
-                        }
-                        LocalModelStatus.NOT_DOWNLOADED -> {
-                            Button(onClick = { LocalAiManager.startDownload(context, spec.id) }, shape = CircleShape) { Text("Download Free (${spec.sizeLabel})") }
-                        }
-                    }
-                }
-            }
-            HorizontalDivider()
-            Info("Downloaded GGUF weights support Pause & Resume and are stored privately on device for AI Chat, Lasso Explain, summaries, quizzes, and mind maps.")
-        } else {
-            Toggle(
-                "⚡ Lite Image Mode",
-                "Use lightweight INT4/Q4 fast generation for Samsung Creative Studio stickers, covers & templates",
-                s.imageLiteMode,
-            ) { on -> store.update { it.copy(imageLiteMode = on) } }
-            HorizontalDivider()
-            LocalAiManager.imageCatalog.forEachIndexed { idx, spec ->
-                if (idx > 0) HorizontalDivider()
-                val rt = imageStates[spec.id] ?: LocalModelRuntime(
-                    status = if (spec.builtInReady) LocalModelStatus.READY else LocalModelStatus.NOT_DOWNLOADED,
-                )
-                val isActive = s.activeImageModelId == spec.id
-                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(spec.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            Text("${spec.backend} · ${spec.sizeLabel}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                        }
-                        if (isActive) {
-                            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
-                                Text("Active", Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                            }
-                        }
-                    }
-                    Text(spec.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        spec.tags.forEach { tag ->
-                            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
-                                Text(tag, Modifier.padding(horizontal = 10.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall)
-                            }
-                        }
-                    }
-                    when {
-                        spec.builtInReady -> {
-                            if (!isActive) {
-                                Button(onClick = { LocalAiManager.activateImageModel(context, spec.id) }, shape = CircleShape) { Text("Use Lite Engine") }
-                            }
-                        }
-                        rt.status == LocalModelStatus.DOWNLOADING -> {
-                            val dlMb = rt.downloadedBytes / (1024f * 1024f)
-                            val totMb = (rt.totalBytes.coerceAtLeast(1L)) / (1024f * 1024f)
-                            LinearProgressIndicator(progress = { rt.progress }, modifier = Modifier.fillMaxWidth())
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("Downloading ${"%.1f".format(dlMb)} / ${"%.0f".format(totMb)} MB (${(rt.progress * 100).toInt()}%)", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                                OutlinedButton(onClick = { LocalAiManager.pauseImageModelDownload(context, spec.id) }, shape = CircleShape) { Text("Pause") }
-                                TextButton(onClick = { LocalAiManager.cancelImageModelDownload(context, spec.id) }) { Text("Cancel") }
-                            }
-                        }
-                        rt.status == LocalModelStatus.PAUSED -> {
-                            val dlMb = rt.downloadedBytes / (1024f * 1024f)
-                            val totMb = (rt.totalBytes.coerceAtLeast(1L)) / (1024f * 1024f)
-                            LinearProgressIndicator(progress = { rt.progress }, modifier = Modifier.fillMaxWidth())
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Paused at ${"%.1f".format(dlMb)} / ${"%.0f".format(totMb)} MB (${(rt.progress * 100).toInt()}%)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
-                                Button(onClick = { LocalAiManager.startImageModelDownload(context, spec.id) }, shape = CircleShape) { Text("Resume") }
-                                TextButton(onClick = { LocalAiManager.cancelImageModelDownload(context, spec.id) }) { Text("Cancel") }
-                            }
-                        }
-                        rt.status == LocalModelStatus.READY -> {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (!isActive) {
-                                    Button(onClick = { LocalAiManager.activateImageModel(context, spec.id) }, shape = CircleShape) { Text("Use Model") }
-                                }
-                                OutlinedButton(onClick = { LocalAiManager.deleteImageModel(context, spec.id) }, shape = CircleShape) { Text("Delete") }
-                            }
-                        }
-                        rt.status == LocalModelStatus.ERROR -> {
-                            Text(rt.error ?: "Download interrupted", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-                            Button(onClick = { LocalAiManager.startImageModelDownload(context, spec.id) }, shape = CircleShape) { Text("Resume / Retry") }
-                        }
-                        else -> {
-                            Button(onClick = { LocalAiManager.startImageModelDownload(context, spec.id) }, shape = CircleShape) { Text("Download Lite (${spec.sizeLabel})") }
-                        }
-                    }
-                }
-            }
-            HorizontalDivider()
-            Info("Lite Image Models support Pause & Resume and power Samsung Creative Studio stickers, covers, and custom page templates.")
-        }
-    }
-}

@@ -23,12 +23,12 @@ enum class CustomAiProvider(val label: String, val defaultBaseUrl: String, val d
     OLLAMA("Ollama / Local Server", "http://127.0.0.1:11434/v1", "llama3.2"),
 }
 enum class AccentColor(val label: String, val argb: Long, val argb2: Long) {
-    BLUE("Blue", 0xFF2A78D6, 0xFF7161E0),
+    GREEN("Leaf", 0xFF24483F, 0xFF35655A),
+    BLUE("Indigo", 0xFF2E4A7A, 0xFF3D6CF4),
+    PINK("Wine", 0xFF7A2E42, 0xFFC04873),
+    ORANGE("Ochre", 0xFFB98A2E, 0xFFD95926),
     VIOLET("Violet", 0xFF6250D6, 0xFFD55181),
-    GREEN("Green", 0xFF0F7E5C, 0xFF3987E5),
-    ORANGE("Orange", 0xFFD95926, 0xFFE34948),
-    PINK("Pink", 0xFFC04873, 0xFF8173E3),
-    GRAPHITE("Graphite", 0xFF383835, 0xFF7B7974),
+    GRAPHITE("Ink", 0xFF1F2421, 0xFF5A5F58),
 }
 enum class PaperTint(val label: String, val argb: Int) {
     WHITE("White", 0xFFFFFFFF.toInt()),
@@ -165,9 +165,9 @@ data class AppSettings(
     val lassoTouching: Boolean = false,
     // look & ultra customization
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
-    val accent: AccentColor = AccentColor.BLUE,
-    val gradientTitles: Boolean = true,
-    val appFont: AppFont = AppFont.MODERN_SANS,
+    val accent: AccentColor = AccentColor.GREEN,
+    val gradientTitles: Boolean = false,
+    val appFont: AppFont = AppFont.EDITORIAL_SERIF,
     val motionStyle: MotionStyle = MotionStyle.ULTRA_SPRING,
     val showHoverTooltips: Boolean = true,
     // library

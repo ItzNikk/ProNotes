@@ -39,7 +39,7 @@ import {
   ThemeMode,
   ToolbarDock,
 } from '../types/models';
-import { testCustomAiConnection } from '../utils/localAi';
+import { LiquidToggle } from './LiquidGlassSurface';
 
 interface SettingsScreenProps {
   settings: AppSettings;
@@ -115,14 +115,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     e.target.value = '';
   };
 
-  const handleTestCustomApi = async () => {
-    setTestingApi(true);
-    setApiTestResult(null);
-    const res = await testCustomAiConnection(settings);
-    setApiTestResult(res);
-    setTestingApi(false);
-  };
-
   const ToggleRow: React.FC<{
     title: string;
     sub: string;
@@ -137,27 +129,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <div className="text-sm font-semibold">{title}</div>
         <div className="text-xs text-slate-500 dark:text-slate-400">{sub}</div>
       </div>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onChange(!checked);
-        }}
-        className={`relative h-6 w-11 shrink-0 rounded-full transition ${
-          checked ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-700'
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-            checked ? 'left-[22px]' : 'left-0.5'
-          }`}
-        />
-      </button>
+      <LiquidToggle selected={checked} onSelect={onChange} />
     </div>
   );
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#F7F7F5] text-[#1B1F2A] dark:bg-[#0F0F0F] dark:text-[#F3F4F6]">
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#EFEBE2] text-[#1D211E] dark:bg-[#141411] dark:text-[#ECE8DE]">
       <header className="flex items-center justify-between gap-3 border-b border-black/8 bg-white/80 px-6 py-4 backdrop-blur-md dark:border-white/8 dark:bg-[#141415]/80">
         <div className="flex items-center gap-3">
           <button
@@ -575,152 +552,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 checked={settings.highlighterBehind}
                 onChange={(v) => onUpdate({ highlighterBehind: v })}
               />
-            </div>
-          </section>
-
-          {/* Local AI & Custom AI API (BYOK) */}
-          <section className="space-y-2">
-            <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
-              <Sparkles className="h-3.5 w-3.5" /> Local AI &amp; Custom AI API (BYOK)
-            </h2>
-            <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
-              <div
-                onClick={onOpenLocalModels}
-                className="flex cursor-pointer items-center justify-between px-5 py-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
-              >
-                <div className="flex items-center gap-3">
-                  <Cpu className="h-5 w-5 text-violet-600" />
-                  <div>
-                    <div className="text-sm font-semibold">Manage downloadable local text &amp; image AI models</div>
-                    <div className="text-xs text-slate-500">
-                      SmolLM2, Qwen, Llama, Gemma + lightweight image models (SDXL Turbo Q4, Flux Schnell Nano)
-                    </div>
-                  </div>
-                </div>
-                <span className="rounded-lg bg-violet-500/12 px-2.5 py-1 text-xs font-semibold text-violet-700 dark:text-violet-300">
-                  Open Hub
-                </span>
-              </div>
-
-              <ToggleRow
-                title="Enhanced AI visual animations"
-                sub="Orbital shimmer sweeps, flowing particle waves, and animated Slide Show cards"
-                checked={settings.aiAnimations}
-                onChange={(v) => onUpdate({ aiAnimations: v })}
-              />
-
-              <ToggleRow
-                title="Enable Custom AI Endpoint"
-                sub="Route Summaries, Quizzes, Slide Show & Semantic Search via your own OpenAI-compatible, Google AI, or Ollama endpoint"
-                checked={settings.customAiEnabled}
-                onChange={(v) => onUpdate({ customAiEnabled: v })}
-              />
-
-              {settings.customAiEnabled && (
-                <div className="space-y-3 bg-slate-50/70 p-5 dark:bg-[#20222A]/60">
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    {(
-                      [
-                        { id: 'OPENAI_COMPATIBLE', label: 'OpenAI / Groq / Together' },
-                        { id: 'GEMINI', label: 'Google AI REST' },
-                        { id: 'OLLAMA', label: 'Local Ollama' },
-                      ] as { id: CustomAiProvider; label: string }[]
-                    ).map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => {
-                          const defaultUrl =
-                            p.id === 'GEMINI'
-                              ? 'https://generativelanguage.googleapis.com'
-                              : p.id === 'OLLAMA'
-                                ? 'http://localhost:11434'
-                                : 'https://api.openai.com/v1';
-                          const defaultModel =
-                            p.id === 'GEMINI'
-                              ? 'gemini-2.5-flash'
-                              : p.id === 'OLLAMA'
-                                ? 'qwen2.5:3b'
-                                : 'gpt-4o-mini';
-                          onUpdate({
-                            customAiProvider: p.id,
-                            customAiBaseUrl: defaultUrl,
-                            customAiModel: defaultModel,
-                          });
-                        }}
-                        className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${
-                          settings.customAiProvider === p.id
-                            ? 'border-blue-600 bg-blue-600 text-white'
-                            : 'border-black/10 bg-white dark:border-white/10 dark:bg-[#191A1F]'
-                        }`}
-                      >
-                        {p.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div>
-                      <label className="mb-1 block text-[11px] font-bold uppercase text-slate-500">
-                        Base URL
-                      </label>
-                      <input
-                        type="url"
-                        value={settings.customAiBaseUrl}
-                        onChange={(e) => onUpdate({ customAiBaseUrl: e.target.value })}
-                        placeholder="https://api.openai.com/v1"
-                        className="w-full rounded-xl border border-black/12 bg-white px-3 py-2 text-xs dark:border-white/15 dark:bg-[#191A1F]"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-[11px] font-bold uppercase text-slate-500">
-                        Model Name
-                      </label>
-                      <input
-                        type="text"
-                        value={settings.customAiModel}
-                        onChange={(e) => onUpdate({ customAiModel: e.target.value })}
-                        placeholder="gpt-4o-mini"
-                        className="w-full rounded-xl border border-black/12 bg-white px-3 py-2 text-xs dark:border-white/15 dark:bg-[#191A1F]"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="mb-1 block text-[11px] font-bold uppercase text-slate-500">
-                      API Key (stored locally in your browser)
-                    </label>
-                    <input
-                      type="password"
-                      value={settings.customAiApiKey}
-                      onChange={(e) => onUpdate({ customAiApiKey: e.target.value })}
-                      placeholder={settings.customAiProvider === 'OLLAMA' ? 'Optional for Ollama' : 'sk-... / AIza...'}
-                      className="w-full rounded-xl border border-black/12 bg-white px-3 py-2 text-xs dark:border-white/15 dark:bg-[#191A1F]"
-                    />
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                    <button
-                      type="button"
-                      disabled={testingApi}
-                      onClick={handleTestCustomApi}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      <Globe className="h-3.5 w-3.5" />
-                      {testingApi ? 'Testing Endpoint...' : 'Test Connection'}
-                    </button>
-                    {apiTestResult && (
-                      <span
-                        className={`inline-flex items-center gap-1 text-xs font-semibold ${
-                          apiTestResult.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'
-                        }`}
-                      >
-                        <Zap className="h-3.5 w-3.5" /> {apiTestResult.message}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
           </section>
 

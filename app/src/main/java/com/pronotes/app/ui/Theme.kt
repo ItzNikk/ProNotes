@@ -9,6 +9,7 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -24,41 +25,47 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.runtime.CompositionLocalProvider
 import com.pronotes.app.data.AccentColor
 import com.pronotes.app.data.AppFont
 import com.pronotes.app.data.MotionStyle
 import com.pronotes.app.data.SettingsStore
 import com.pronotes.app.data.ThemeMode
 
-val Accent = Color(0xFF2A78D6)
+/** OpenLeaf primary botanical leaf green (`Y.Light.accent`). */
+val Accent = Color(0xFF24483F)
 
 /** The two accent colours used for gradient titles. Null when gradients are off. */
 val LocalTitleGradient = compositionLocalOf<List<Color>?> { null }
 val LocalMotionStyle = compositionLocalOf { MotionStyle.ULTRA_SPRING }
 
 private fun typographyFor(font: AppFont): Typography {
-    val ff = when (font) {
+    val bodyFamily = when (font) {
         AppFont.MODERN_SANS -> FontFamily.SansSerif
-        AppFont.EDITORIAL_SERIF -> FontFamily.Serif
+        AppFont.EDITORIAL_SERIF -> FontFamily.SansSerif
+        AppFont.STUDIO_MONO -> FontFamily.Monospace
+        AppFont.ROUNDED -> FontFamily.SansSerif
+    }
+    // OpenLeaf signature typography: editorial serif for display/headings, crisp sans for UI controls.
+    val headingFamily = when (font) {
+        AppFont.EDITORIAL_SERIF, AppFont.MODERN_SANS -> FontFamily.Serif
         AppFont.STUDIO_MONO -> FontFamily.Monospace
         AppFont.ROUNDED -> FontFamily.SansSerif
     }
     val trackingBoost = if (font == AppFont.ROUNDED) 0.15f else 0f
     return Typography(
-        displaySmall = TextStyle(fontFamily = ff, fontSize = 36.sp, lineHeight = 42.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.8 + trackingBoost).sp),
-        headlineLarge = TextStyle(fontFamily = ff, fontSize = 32.sp, lineHeight = 38.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.6 + trackingBoost).sp),
-        headlineMedium = TextStyle(fontFamily = ff, fontSize = 26.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4 + trackingBoost).sp),
-        headlineSmall = TextStyle(fontFamily = ff, fontSize = 21.sp, lineHeight = 27.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2 + trackingBoost).sp),
-        titleLarge = TextStyle(fontFamily = ff, fontSize = 19.sp, lineHeight = 25.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.15 + trackingBoost).sp),
-        titleMedium = TextStyle(fontFamily = ff, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold, letterSpacing = trackingBoost.sp),
-        titleSmall = TextStyle(fontFamily = ff, fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (0.1 + trackingBoost).sp),
-        bodyLarge = TextStyle(fontFamily = ff, fontSize = 16.sp, lineHeight = 23.sp, fontWeight = FontWeight.Normal),
-        bodyMedium = TextStyle(fontFamily = ff, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Normal),
-        bodySmall = TextStyle(fontFamily = ff, fontSize = 12.5.sp, lineHeight = 17.sp, fontWeight = FontWeight.Normal),
-        labelLarge = TextStyle(fontFamily = ff, fontSize = 13.5.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (0.1 + trackingBoost).sp),
-        labelMedium = TextStyle(fontFamily = ff, fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, letterSpacing = (0.2 + trackingBoost).sp),
-        labelSmall = TextStyle(fontFamily = ff, fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (0.35 + trackingBoost).sp),
+        displaySmall = TextStyle(fontFamily = headingFamily, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5 + trackingBoost).sp),
+        headlineLarge = TextStyle(fontFamily = headingFamily, fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.4 + trackingBoost).sp),
+        headlineMedium = TextStyle(fontFamily = headingFamily, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3 + trackingBoost).sp),
+        headlineSmall = TextStyle(fontFamily = headingFamily, fontSize = 20.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2 + trackingBoost).sp),
+        titleLarge = TextStyle(fontFamily = headingFamily, fontSize = 18.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.1 + trackingBoost).sp),
+        titleMedium = TextStyle(fontFamily = bodyFamily, fontSize = 15.5.sp, lineHeight = 21.sp, fontWeight = FontWeight.SemiBold, letterSpacing = trackingBoost.sp),
+        titleSmall = TextStyle(fontFamily = bodyFamily, fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (0.05 + trackingBoost).sp),
+        bodyLarge = TextStyle(fontFamily = bodyFamily, fontSize = 15.5.sp, lineHeight = 22.sp, fontWeight = FontWeight.Normal),
+        bodyMedium = TextStyle(fontFamily = bodyFamily, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Normal),
+        bodySmall = TextStyle(fontFamily = bodyFamily, fontSize = 12.5.sp, lineHeight = 17.sp, fontWeight = FontWeight.Normal),
+        labelLarge = TextStyle(fontFamily = bodyFamily, fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium, letterSpacing = (0.1 + trackingBoost).sp),
+        labelMedium = TextStyle(fontFamily = bodyFamily, fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, letterSpacing = (0.15 + trackingBoost).sp),
+        labelSmall = TextStyle(fontFamily = bodyFamily, fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (0.3 + trackingBoost).sp),
     )
 }
 
@@ -73,35 +80,44 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
     }
     val accent = settings.accent
     val primary = Color(accent.argb)
+    // OpenLeaf Light Palette (Y.Light: bg=#EFEBE2, surface=#FBF9F4, surface2=#F4F0E7, ink=#1F2421, ink2=#5A5F58)
     val light = lightColorScheme(
         primary = primary,
-        onPrimary = Color.White,
-        primaryContainer = lerp(primary, Color.White, 0.86f),
-        onPrimaryContainer = lerp(primary, Color.Black, 0.5f),
-        secondary = Color(0xFF5B6475),
-        background = Color(0xFFF6F6F3),
-        onBackground = Color(0xFF1B1F2A),
-        surface = Color.White,
-        onSurface = Color(0xFF1B1F2A),
-        surfaceVariant = Color(0xFFEFEFEC),
-        onSurfaceVariant = Color(0xFF5F5E5A),
-        surfaceContainer = Color(0xFFF9F9F7),
-        surfaceContainerHigh = Color.White,
-        outline = Color(0xFFD2D1C7),
-        outlineVariant = Color(0xFFE7E6E1),
+        onPrimary = Color(0xFFF5F2E8),
+        primaryContainer = lerp(primary, Color(0xFFFBF9F4), 0.86f),
+        onPrimaryContainer = lerp(primary, Color(0xFF1F2421), 0.35f),
+        secondary = Color(0xFF35655A),
+        background = Color(0xFFEFEBE2),
+        onBackground = Color(0xFF1F2421),
+        surface = Color(0xFFFBF9F4),
+        onSurface = Color(0xFF1F2421),
+        surfaceVariant = Color(0xFFF4F0E7),
+        onSurfaceVariant = Color(0xFF5A5F58),
+        surfaceContainer = Color(0xFFF4F0E7),
+        surfaceContainerHigh = Color(0xFFFBF9F4),
+        outline = Color(0xFF8E9189),
+        outlineVariant = Color(0xFFE0DBD0),
+        error = Color(0xFF9B3B3B),
     )
+    // OpenLeaf Dark Palette (Y.Dark: bg=#141411, surface=#1D1C18, surface2=#25241F, ink=#EDE8DB, ink2=#B1AC9F)
+    val darkPrimary = if (accent == AccentColor.GREEN) Color(0xFF8CC1AC) else lerp(primary, Color(0xFFEDE8DB), 0.38f)
     val darkScheme = darkColorScheme(
-        primary = lerp(primary, Color.White, 0.35f),
-        onPrimary = Color(0xFF0B0B0B),
-        primaryContainer = lerp(primary, Color.Black, 0.55f),
-        onPrimaryContainer = lerp(primary, Color.White, 0.7f),
-        background = Color(0xFF0E0F12),
-        surface = Color(0xFF18191D),
-        surfaceVariant = Color(0xFF25262B),
-        surfaceContainer = Color(0xFF131418),
-        surfaceContainerHigh = Color(0xFF1F2026),
-        outline = Color(0xFF45464D),
-        outlineVariant = Color(0xFF2B2C32),
+        primary = darkPrimary,
+        onPrimary = Color(0xFF0F1D18),
+        primaryContainer = lerp(darkPrimary, Color(0xFF141411), 0.72f),
+        onPrimaryContainer = Color(0xFFEDE8DB),
+        secondary = Color(0xFFA5D3C0),
+        background = Color(0xFF141411),
+        onBackground = Color(0xFFEDE8DB),
+        surface = Color(0xFF1D1C18),
+        onSurface = Color(0xFFEDE8DB),
+        surfaceVariant = Color(0xFF25241F),
+        onSurfaceVariant = Color(0xFFB1AC9F),
+        surfaceContainer = Color(0xFF25241F),
+        surfaceContainerHigh = Color(0xFF2E2C26),
+        outline = Color(0xFF7F7B70),
+        outlineVariant = Color(0xFF2E2C26),
+        error = Color(0xFFD67B7B),
     )
     val gradient = if (settings.gradientTitles) listOf(primary, Color(accent.argb2)).let { g ->
         if (dark) g.map { lerp(it, Color.White, 0.3f) } else g
@@ -115,9 +131,9 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
             colorScheme = if (dark) darkScheme else light,
             typography = typography,
             shapes = Shapes(
-                small = RoundedCornerShape(14.dp),
-                medium = RoundedCornerShape(20.dp),
-                large = RoundedCornerShape(28.dp),
+                small = RoundedCornerShape(10.dp),
+                medium = RoundedCornerShape(14.dp),
+                large = RoundedCornerShape(20.dp),
             ),
             content = content,
         )

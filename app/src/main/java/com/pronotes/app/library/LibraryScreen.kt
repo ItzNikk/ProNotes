@@ -139,12 +139,11 @@ import com.pronotes.app.data.NotebookMeta
 import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.data.Repository
 import com.pronotes.app.data.SettingsStore
-import com.pronotes.app.editor.AiAssetKind
 import com.pronotes.app.editor.LiveCollabRoomDialog
-import com.pronotes.app.editor.LocalAiManager
 import com.pronotes.app.ui.ColorEditorDialog
 import com.pronotes.app.ui.Ios26LiquidBottomNavBar
 import com.pronotes.app.ui.LiquidNavTab
+import com.pronotes.app.ui.LiquidToggle
 import com.pronotes.app.ui.OptionalLiquidGlassBox
 import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.Swatch
@@ -498,25 +497,20 @@ fun LibraryScreen(
         }
     }
 
-    // iOS 26 Floating Liquid Glass Bottom Navigation Bar
+    // Kyant0/AndroidLiquidGlass Bottom Navigation Bar
     Ios26LiquidBottomNavBar(
         tabs = listOf(
-            LiquidNavTab("DOCUMENTS", "Documents", ProIcon.DOCUMENT),
+            LiquidNavTab("DOCUMENTS", "Library", ProIcon.DOCUMENT),
             LiquidNavTab("RECENT", "Recent", ProIcon.RESTORE),
-            LiquidNavTab("FAVORITES", "Favorites", ProIcon.STAR),
-            LiquidNavTab("STUDY_ROOM", "Study Room", ProIcon.CUSTOM_AI),
+            LiquidNavTab("FAVORITES", "Starred", ProIcon.STAR),
             LiquidNavTab("TRASH", "Trash", ProIcon.TRASH),
         ),
         selectedId = section.name,
         backdrop = libraryBackdrop,
         liquidGlass = settings.liquidGlass,
         onSelect = { tabId ->
-            if (tabId == "STUDY_ROOM") {
-                collabOpen = true
-            } else {
-                section = Section.valueOf(tabId)
-                folderId = null
-            }
+            section = Section.valueOf(tabId)
+            folderId = null
         },
         onPrimaryAction = { newNotebook = true },
         modifier = Modifier.align(Alignment.BottomCenter),
@@ -1262,10 +1256,8 @@ private fun NewNotebookDialog(
     var wMm by remember { mutableStateOf("%.0f".format(defaults.defaultPreset.wMm)) }
     var hMm by remember { mutableStateOf("%.0f".format(defaults.defaultPreset.hMm)) }
     var photo by remember { mutableStateOf<Uri?>(null) }
-    var aiCoverBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-    var aiCoverNonce by remember { mutableStateOf(0) }
     var tab by remember { mutableStateOf(0) }
-    val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) { photo = uri; aiCoverBitmap = null; cover = "photo" } }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) { photo = uri; cover = "photo" } }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("New notebook") },
@@ -1273,14 +1265,7 @@ private fun NewNotebookDialog(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(width = 72.dp, height = 96.dp)) {
-                        if (cover == "photo" && aiCoverBitmap != null) {
-                            Image(
-                                aiCoverBitmap!!.asImageBitmap(),
-                                contentDescription = "AI Cover Preview",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize().clip(NotebookShape),
-                            )
-                        } else if (cover == "photo" || cover == "thumb") {
+                        if (cover == "photo" || cover == "thumb") {
                             Box(Modifier.fillMaxSize().clip(NotebookShape).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
                                 Text(if (cover == "photo") "Photo" else "Page 1", style = MaterialTheme.typography.labelSmall)
                             }
@@ -1297,62 +1282,18 @@ private fun NewNotebookDialog(
                 Box(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
                     when (tab) {
                         0 -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            val ctx = LocalContext.current
-                            val genScope = rememberCoroutineScope()
-                            var aiCoverBusy by remember { mutableStateOf(false) }
-                            var aiCoverPrompt by remember { mutableStateOf("") }
-                            CoverGallery(cover, { cover = it; photo = null; aiCoverBitmap = null }) { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                OutlinedTextField(
-                                    aiCoverPrompt,
-                                    { aiCoverPrompt = it },
-                                    singleLine = true,
-                                    placeholder = { Text("AI cover theme (e.g. Cosmos, Bio)…") },
-                                    shape = CircleShape,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                FilledTonalButton(
-                                    enabled = !aiCoverBusy,
-                                    shape = CircleShape,
-                                    modifier = Modifier.elasticStretch(),
-                                    onClick = {
-                                        aiCoverBusy = true
-                                        val nextNonce = if (cover == "photo" && aiCoverBitmap != null) aiCoverNonce + 1 else aiCoverNonce
-                                        aiCoverNonce = nextNonce
-                                        genScope.launch {
-                                            runCatching {
-                                                val bmp = LocalAiManager.generateAiAssetBitmap(
-                                                    context = ctx,
-                                                    kind = AiAssetKind.COVER,
-                                                    prompt = aiCoverPrompt.ifBlank { name },
-                                                    accentArgb = startColor,
-                                                    variationNonce = nextNonce,
-                                                )
-                                                val file = File(ctx.cacheDir, "ai_cover_${System.currentTimeMillis()}.png")
-                                                file.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 96, it) }
-                                                aiCoverBitmap = bmp
-                                                photo = Uri.fromFile(file)
-                                                cover = "photo"
-                                            }
-                                            aiCoverBusy = false
-                                        }
-                                    },
-                                ) {
-                                    Icon(
-                                        if (cover == "photo" && aiCoverBitmap != null) Icons.Outlined.Refresh else Icons.Outlined.AutoAwesome,
-                                        null,
-                                        Modifier.size(16.dp),
-                                    )
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(if (aiCoverBusy) "…" else if (cover == "photo" && aiCoverBitmap != null) "Regen" else "AI Cover")
-                                }
-                            }
+                            CoverGallery(cover, { cover = it; photo = null }) { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
                             if (cover != "thumb" && !preset.isWhiteboard) Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text("Cover as first page")
                                     Text("Write on your cover", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                androidx.compose.material3.Switch(coverPage, { coverPage = it })
+                                val toggleBackdrop = com.pronotes.app.ui.rememberLayerBackdrop()
+                                LiquidToggle(
+                                    selected = { coverPage },
+                                    onSelect = { coverPage = it },
+                                    backdrop = toggleBackdrop,
+                                )
                             }
                         }
                         1 -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1439,7 +1380,12 @@ private fun NewNotebookDialog(
                             } else {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("Landscape", Modifier.weight(1f))
-                                    androidx.compose.material3.Switch(landscape, { landscape = it })
+                                    val landBackdrop = com.pronotes.app.ui.rememberLayerBackdrop()
+                                    LiquidToggle(
+                                        selected = { landscape },
+                                        onSelect = { landscape = it },
+                                        backdrop = landBackdrop,
+                                    )
                                 }
                             }
                             if (preset == com.pronotes.app.data.PagePreset.CUSTOM) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

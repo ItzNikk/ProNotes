@@ -43,7 +43,11 @@ import { CoverCanvas, FolderArt, NewNotebookModal, NewNotebookPayload } from './
 import { IMAGE_MODELS_CATALOG, LOCAL_MODELS_CATALOG } from '../utils/localAi';
 import { parseImportedFiles, parseImportedText } from '../utils/noteImporter';
 import { SupportBanner } from './SupportBannerModal';
-import { LiquidGlassSurface } from './LiquidGlassSurface';
+import {
+  LiquidBottomTab,
+  LiquidBottomTabs,
+  LiquidButton,
+} from './LiquidGlassSurface';
 
 type Section = 'DOCUMENTS' | 'FAVORITES' | 'RECENT' | 'TRASH';
 
@@ -271,45 +275,17 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   const [dragPayload, setDragPayload] = useState<string | null>(null);
   const [dropHoverId, setDropHoverId] = useState<string | null>(null);
 
-  const [isScrubbingTabs, setIsScrubbingTabs] = useState(false);
-  const tabsRowRef = React.useRef<HTMLDivElement>(null);
-
   const navTabItems = useMemo(() => [
     { id: 'DOCUMENTS' as const, label: 'Documents', icon: FileText },
     { id: 'RECENT' as const, label: 'Recent', icon: Clock },
     { id: 'FAVORITES' as const, label: 'Favorites', icon: Star },
-    { id: 'STUDY_ROOM' as const, label: 'Study Room', icon: Users },
     { id: 'TRASH' as const, label: 'Trash', icon: Trash2 },
   ], []);
 
-  const handleTabsPointerDown = (e: React.PointerEvent) => {
-    if (e.button !== 0) return;
-    setIsScrubbingTabs(true);
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    handleTabsPointerMove(e);
-  };
-
-  const handleTabsPointerMove = (e: React.PointerEvent) => {
-    if (!tabsRowRef.current) return;
-    const rect = tabsRowRef.current.getBoundingClientRect();
-    const relX = e.clientX - rect.left;
-    const tabWidth = rect.width / navTabItems.length;
-    const idx = Math.max(0, Math.min(navTabItems.length - 1, Math.floor(relX / tabWidth)));
-    const target = navTabItems[idx];
-    if (target && target.id !== 'STUDY_ROOM' && target.id !== section) {
-      setSection(target.id);
-      setFolderId(null);
-    }
-  };
-
-  const handleTabsPointerUp = (e: React.PointerEvent) => {
-    if (isScrubbingTabs) {
-      try {
-        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-      } catch {}
-      setIsScrubbingTabs(false);
-    }
-  };
+  const selectedTabIndex = useMemo(
+    () => Math.max(0, navTabItems.findIndex((t) => t.id === section)),
+    [navTabItems, section]
+  );
 
   const accent = ACCENT_COLORS[settings.accent];
   const readyModelCount = [...LOCAL_MODELS_CATALOG, ...IMAGE_MODELS_CATALOG].filter(
@@ -437,9 +413,9 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#F7F7F5] text-[#1B1F2A] dark:bg-[#0F0F0F] dark:text-[#F3F4F6]">
+    <div className="flex h-screen w-screen overflow-hidden bg-[#EFEBE2] text-[#1D211E] dark:bg-[#141411] dark:text-[#ECE8DE]">
       {sidebarOpen && (
-        <aside className="flex w-60 shrink-0 flex-col border-r border-black/8 bg-[#EFEFEF]/85 px-3.5 py-4 dark:border-white/8 dark:bg-[#171718]">
+        <aside className="flex w-60 shrink-0 flex-col border-r border-black/8 bg-[#E5DFD3]/90 px-3.5 py-4 dark:border-white/8 dark:bg-[#191814]">
           <div className="mb-5 flex items-center justify-between px-1.5">
             <div className="flex items-center gap-2.5">
               <div
@@ -451,8 +427,8 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                 <span className="font-display text-base font-extrabold">P</span>
               </div>
               <div>
-                <h1 className="text-base font-bold leading-tight tracking-tight">Pro Notes</h1>
-                <span className="text-[11px] font-semibold text-blue-600 dark:text-blue-400">v10.0 · Ultra</span>
+                <h1 className="font-display text-base font-bold leading-tight tracking-tight">Pro Notes</h1>
+                <span className="text-[11px] font-semibold text-[#2F6B4F] dark:text-[#8CC1AC]">OpenLeaf Edition</span>
               </div>
             </div>
             <button
@@ -553,24 +529,6 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                 </button>
               )
             )}
-
-            <button
-              type="button"
-              onClick={onOpenLocalModels}
-              className="ios-stretch flex w-full flex-col gap-1 rounded-2xl border border-black/8 bg-white/80 p-3 text-left transition hover:border-violet-500/40 dark:border-white/10 dark:bg-[#202126]"
-            >
-              <div className="flex items-center justify-between">
-                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-violet-700 dark:text-violet-300">
-                  <Cpu className="h-3.5 w-3.5" /> Local AI Models
-                </span>
-                <span className="font-mono-num rounded-md bg-violet-500/12 px-1.5 py-0.5 text-[10px] font-bold text-violet-700 dark:text-violet-300">
-                  {readyModelCount} ready
-                </span>
-              </div>
-              <span className="truncate text-[11px] text-slate-500 dark:text-slate-400">
-                {activeModel ? activeModel.name : `${LOCAL_MODELS_CATALOG.length + IMAGE_MODELS_CATALOG.length} text & image models`}
-              </span>
-            </button>
 
             {onOpenSetupWizard && (
               <button
@@ -872,61 +830,47 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
           )}
         </div>
 
-        {/* iOS 26 Floating Liquid Glass Bottom Navigation Bar with Fluid Tab Scrubbing */}
+        {/* Kyant0/AndroidLiquidGlass Prebuilt LiquidBottomTabs + LiquidButton */}
         <div className="pointer-events-none fixed bottom-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 px-4 select-none">
-          <LiquidGlassSurface
+          <LiquidBottomTabs
+            selectedTabIndex={selectedTabIndex}
+            tabCount={navTabItems.length}
             enabled={settings.liquidGlass}
-            radius={28}
-            className={`pointer-events-auto rounded-full border border-white/45 bg-white/72 shadow-[0_12px_36px_rgba(15,23,42,0.16)] backdrop-blur-2xl transition-transform duration-200 dark:border-white/18 dark:bg-[#1C1E26]/78 ${
-              isScrubbingTabs ? 'scale-[1.02] shadow-[0_16px_44px_rgba(15,23,42,0.22)]' : 'scale-100'
-            }`}
+            onTabSelected={(idx) => {
+              const target = navTabItems[idx];
+              if (target) {
+                setSection(target.id);
+                setFolderId(null);
+              }
+            }}
           >
-            <div
-              ref={tabsRowRef}
-              onPointerDown={handleTabsPointerDown}
-              onPointerMove={handleTabsPointerMove}
-              onPointerUp={handleTabsPointerUp}
-              onPointerCancel={handleTabsPointerUp}
-              className="flex items-center gap-1 px-2.5 py-1.5 touch-none"
-              title="Slide across to switch tabs"
-            >
-              {navTabItems.map((tab) => {
-                const IconComp = tab.icon;
-                const active = section === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => {
-                      if (tab.id === 'STUDY_ROOM') {
-                        onOpenCollab?.();
-                      } else {
-                        setSection(tab.id);
-                        setFolderId(null);
-                      }
-                    }}
-                    className={`ios-stretch flex flex-col items-center gap-0.5 rounded-full px-3.5 py-1 text-[11px] font-bold transition-all ${
-                      active
-                        ? 'border border-white/55 bg-blue-500/18 text-blue-600 shadow-xs scale-105 dark:text-blue-300'
-                        : 'text-slate-600 hover:bg-black/5 dark:text-slate-300 dark:hover:bg-white/10'
-                    }`}
-                  >
-                    <IconComp className="h-4 w-4" />
-                    <span>{tab.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </LiquidGlassSurface>
+            {navTabItems.map((tab) => {
+              const IconComp = tab.icon;
+              const active = section === tab.id;
+              return (
+                <LiquidBottomTab
+                  key={tab.id}
+                  active={active}
+                  onClick={() => {
+                    setSection(tab.id);
+                    setFolderId(null);
+                  }}
+                >
+                  <IconComp className="h-4 w-4" />
+                  <span>{tab.label}</span>
+                </LiquidBottomTab>
+              );
+            })}
+          </LiquidBottomTabs>
 
-          <button
-            type="button"
+          <LiquidButton
             onClick={() => setNewModal({ open: true, mode: 'notebook' })}
             title="New Notebook"
-            className="pointer-events-auto ios-stretch flex h-12 w-12 items-center justify-center rounded-full border border-white/45 bg-gradient-to-tr from-[#2A78D6] via-[#6366F1] to-[#8C65FF] text-white shadow-[0_12px_28px_rgba(99,102,241,0.38)] backdrop-blur-2xl shrink-0"
+            tint={accent.primary}
+            className="pointer-events-auto !h-12 !w-12 !p-0 shrink-0"
           >
             <Plus className="h-5 w-5" />
-          </button>
+          </LiquidButton>
         </div>
       </main>
 

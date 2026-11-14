@@ -224,15 +224,15 @@ enum class PagePreset(
 }
 
 val CoverColors = listOf(
-    0xFF3D6CF4.toInt(), 0xFF2BB673.toInt(), 0xFFF2994A.toInt(), 0xFFEB5757.toInt(),
-    0xFF9B51E0.toInt(), 0xFF1B1F2A.toInt(), 0xFF56CCF2.toInt(), 0xFFF2C94C.toInt(),
-    0xFF7BC8A4.toInt(), 0xFFF4A7C0.toInt(), 0xFF0E4C92.toInt(), 0xFF8D6E63.toInt(),
+    0xFF24483F.toInt(), 0xFF2E4A7A.toInt(), 0xFF7A2E42.toInt(), 0xFFB98A2E.toInt(),
+    0xFF1E2321.toInt(), 0xFF35655A.toInt(), 0xFF8D6E63.toInt(), 0xFF3D6CF4.toInt(),
+    0xFF2BB673.toInt(), 0xFFF2994A.toInt(), 0xFFEB5757.toInt(), 0xFF9B51E0.toInt(),
 )
 
 val FolderColors = listOf(
-    0xFF5AC8FA.toInt(), 0xFF3D6CF4.toInt(), 0xFF34C759.toInt(), 0xFFFF9500.toInt(),
-    0xFFFF3B30.toInt(), 0xFFAF52DE.toInt(), 0xFFFF2D55.toInt(), 0xFFFFCC00.toInt(),
-    0xFF8E8E93.toInt(), 0xFF1B1F2A.toInt(),
+    0xFF24483F.toInt(), 0xFF2E4A7A.toInt(), 0xFF2F6B4F.toInt(), 0xFF7A2E42.toInt(),
+    0xFFB98A2E.toInt(), 0xFF1E2321.toInt(), 0xFF3D6CF4.toInt(), 0xFF34C759.toInt(),
+    0xFF8E9189.toInt(), 0xFF5A5F58.toInt(),
 )
 
 val CoverPatterns = listOf(

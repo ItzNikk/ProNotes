@@ -73,21 +73,38 @@ fun CoverArt(spec: String, title: String, noteDir: File?, cacheKey: Any, modifie
                     if (bmp != null) drawIntoCanvas { c -> c.nativeCanvas.drawBitmap(bmp, 0f, 0f, null) }
                 }
                 @Suppress("UNUSED_VARIABLE") val unused = color
-                if (showTitle && pattern == null) {
+                if (showTitle && title.isNotBlank()) {
+                    // OpenLeaf CoverView cream label plate (#F4EEDF) with subtle border and serif title
                     Box(
-                        Modifier.align(Alignment.Center).fillMaxWidth(0.66f).padding(start = 8.dp)
-                            .clip(RoundedCornerShape(6.dp)).background(Color.White.copy(alpha = 0.92f)).padding(6.dp),
+                        Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 18.dp, start = 14.dp, end = 10.dp)
+                            .fillMaxWidth(0.76f)
+                            .shadow(2.dp, RoundedCornerShape(4.dp))
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Color(0xFFF4EEDF))
+                            .padding(horizontal = 8.dp, vertical = 7.dp),
                     ) {
-                        Text(title, style = MaterialTheme.typography.labelSmall, color = Color(0xFF1B1F2A), maxLines = 2,
-                            overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                        Text(
+                            title,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                            ),
+                            color = Color(0xFF2A2824),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Start,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
             }
         }
-        // Spine shading.
+        // OpenLeaf spine crease & shading.
         Box(
-            Modifier.fillMaxHeight().fillMaxWidth(0.08f)
-                .background(Brush.horizontalGradient(listOf(Color.Black.copy(alpha = 0.22f), Color.Transparent))),
+            Modifier.fillMaxHeight().fillMaxWidth(0.09f)
+                .background(Brush.horizontalGradient(listOf(Color.Black.copy(alpha = 0.24f), Color.White.copy(alpha = 0.08f), Color.Transparent))),
         )
     }
 }

@@ -753,8 +753,6 @@ fun TemplateSheet(vm: EditorViewModel, onAiTemplate: () -> Unit = {}, onClose: (
             Column(Modifier.padding(20.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Templates", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-                    FilledTonalButton(onClick = { onClose(); onAiTemplate() }, shape = Pill) { Text("✦ AI Template") }
-                    Spacer(Modifier.width(6.dp))
                     TextButton(onClick = onClose) { Text("Close") }
                 }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -782,7 +780,13 @@ fun TemplateSheet(vm: EditorViewModel, onAiTemplate: () -> Unit = {}, onClose: (
                 }
                 Spacer(Modifier.height(12.dp))
                 Text("LINE SPACING  ${"%.1f".format(scale)}×", style = MaterialTheme.typography.labelSmall)
-                Slider(scale, { scale = (it * 10).toInt() / 10f }, valueRange = 0.6f..2f)
+                com.pronotes.app.ui.LiquidSlider(
+                    value = { scale },
+                    onValueChange = { scale = (it * 10).toInt() / 10f },
+                    valueRange = 0.6f..2f,
+                    visibilityThreshold = 0.01f,
+                    backdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop(),
+                )
                 Text("LINE COLOUR", style = MaterialTheme.typography.labelSmall)
                 Row(Modifier.horizontalScroll(rememberScrollState())) {
                     val lines = listOf<Int?>(null, 0xFFB8C7DC.toInt(), 0xFF9AA4B2.toInt(), 0xFF7FB2F0.toInt(), 0xFFF4A3A3.toInt(), 0xFF9ED8B0.toInt(), 0xFFE0C48A.toInt(), 0xFF4A505A.toInt())

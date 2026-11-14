@@ -141,11 +141,8 @@ import {
 import { AiParticleBackdrop, AiThinkingPill } from './AiVisuals';
 import { PaperPreviewCanvas } from './CoversAndPatterns';
 import { FlashcardsModal, QuizModal, SlideShowModal, SummaryModal } from './StudyModals';
-import { LiquidGlassSurface } from './LiquidGlassSurface';
+import { LiquidGlassSurface, LiquidSlider } from './LiquidGlassSurface';
 import {
-  AiAssetGeneratorModal,
-  AiNotesChatModal,
-  AiRecordingModal,
   CollabRoomModal,
   CommandPaletteAction,
   CommandPaletteModal,
@@ -216,10 +213,10 @@ interface EditorScreenProps {
   onOpenLocalModels: () => void;
 }
 
-const PEN_COLORS = ['#1B1F2A', '#2A78D6', '#E5484D', '#0F7E5C', '#7C3AED', '#F2994A', '#FFFFFF'];
-const HL_COLORS = ['#FFE066', '#8CE99A', '#74C0FC', '#FFA8A8', '#D0BFFF'];
-const STICKY_COLORS = ['#FFF3B0', '#D8F3DC', '#CFE2FF', '#FDE2E4', '#E9D8FD', '#FFE8CC'];
-const MIND_COLORS = ['#3D6CF4', '#2BB673', '#F2994A', '#9B51E0', '#EB5757', '#0EA5E9'];
+const PEN_COLORS = ['#1E2321', '#2E4A7A', '#2F6B4F', '#7A2E42', '#B98A2E', '#5A625E', '#FFFFFF'];
+const HL_COLORS = ['#F3E28C', '#B6DEC2', '#B4CDE6', '#E8B8C2', '#D2C4E8'];
+const STICKY_COLORS = ['#FBF4D8', '#E2EFE4', '#DFE8F2', '#F5E1E4', '#EAE2F3', '#F7E8D4'];
+const MIND_COLORS = ['#24483F', '#2E4A7A', '#B98A2E', '#7A2E42', '#2F6B4F', '#5C4B7D'];
 const STICKERS = ['⭐', '💡', '📌', '🔥', '✅', '🧠', '🎯', '📐', '🧪', '⚡', '🏆', '❤️'];
 
 const PEN_NIBS: { id: PenKind; label: string; desc: string }[] = [
@@ -3588,17 +3585,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             </span>
           </button>
 
-          {/* AI Lecture Recording Quick Button */}
-          <button
-            type="button"
-            onClick={() => setAiRecordOpen(true)}
-            title="AI Lecture Recording Studio"
-            className="ios-stretch hidden items-center gap-1 rounded-xl bg-rose-500/12 px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-500/20 dark:text-rose-300 sm:inline-flex"
-          >
-            <Mic className="h-3.5 w-3.5" />
-            <span className="hidden lg:inline">Record</span>
-          </button>
-
           <div className="relative">
             <button
               type="button"
@@ -3606,53 +3592,22 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 setAiMenuOpen((v) => !v);
                 setMoreMenuOpen(false);
               }}
-              className="ios-stretch inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:opacity-95"
+              className="ios-stretch inline-flex items-center gap-1.5 rounded-xl bg-[#24483F] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:opacity-95"
             >
-              <Sparkles className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">AI Study</span>
+              <BookOpen className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Study Tools</span>
             </button>
             {aiMenuOpen && (
-              <div className="absolute right-0 top-full z-50 mt-2 w-68 rounded-2xl border border-black/10 bg-white p-1.5 shadow-2xl dark:border-white/10 dark:bg-[#1E2027] animate-stagger-in">
+              <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-2xl border border-black/10 bg-[#FBF9F4] p-1.5 shadow-2xl dark:border-white/10 dark:bg-[#1D1C18] animate-stagger-in">
                 <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  {activeModel ? `Model: ${activeModel.name}` : 'Built-in On-Device Engine'}
+                  Study &amp; Revision Tools
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAiMenuOpen(false);
-                    setAiChatOpen(true);
-                  }}
-                  className="ios-stretch flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-                >
-                  <MessageSquare className="h-4 w-4 text-blue-600" /> AI Chat About Notes &amp; PDFs
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAiMenuOpen(false);
-                    setAiRecordOpen(true);
-                  }}
-                  className="ios-stretch flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-                >
-                  <Mic className="h-4 w-4 text-rose-500" /> AI Lecture Recording Notes
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAiMenuOpen(false);
-                    setAiAssetModal({ open: true, category: 'sticker' });
-                  }}
-                  className="ios-stretch flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-                >
-                  <ImagePlus className="h-4 w-4 text-fuchsia-500" /> AI Stickers, Covers &amp; Templates
-                </button>
-                <div className="my-1 border-t border-black/8 dark:border-white/10" />
                 <button
                   type="button"
                   onClick={handleAiSummary}
                   className="ios-stretch flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
                 >
-                  <Sparkles className="h-4 w-4 text-violet-600" /> Summarize Page Key Points
+                  <FileText className="h-4 w-4 text-[#2F6B4F]" /> Summarize Page Key Points
                 </button>
                 <button
                   type="button"
@@ -3684,17 +3639,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                   className="ios-stretch flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
                 >
                   <Play className="h-4 w-4 text-fuchsia-600" /> Slide Show Revision Deck
-                </button>
-                <div className="my-1 border-t border-black/8 dark:border-white/10" />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAiMenuOpen(false);
-                    onOpenLocalModels();
-                  }}
-                  className="ios-stretch flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-violet-700 hover:bg-violet-500/10 dark:text-violet-300"
-                >
-                  <Cpu className="h-4 w-4" /> Download Text &amp; Image Models…
                 </button>
               </div>
             )}
@@ -3891,16 +3835,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 <div className="px-3 pb-1 pt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                   System
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMoreMenuOpen(false);
-                    onOpenLocalModels();
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-                >
-                  <Cpu className="h-4 w-4 text-violet-600" /> Local AI Models
-                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -4252,13 +4186,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             </button>
             <button
               type="button"
-              onClick={handleAiGenerateMindMap}
-              className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-violet-600/12 px-2.5 py-1 text-[11px] font-semibold text-violet-700 hover:bg-violet-600/20 dark:text-violet-300"
-            >
-              <Sparkles className="h-3 w-3" /> AI Map
-            </button>
-            <button
-              type="button"
               onClick={fitMindMapToView}
               className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-blue-600/12 px-2.5 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-600/20 dark:text-blue-300"
             >
@@ -4345,31 +4272,29 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               ))}
             </div>
 
-            {/* Sliders */}
+            {/* Kyant0 LiquidSlider Controls */}
             <div className="space-y-2 text-xs">
               <div className="flex items-center justify-between gap-2">
                 <span className="w-20 text-slate-500">Thickness</span>
-                <input
-                  type="range"
+                <LiquidSlider
                   min={1.5}
                   max={16}
                   step={0.5}
                   value={penSize}
-                  onChange={(e) => setPenSize(Number(e.target.value))}
-                  className="flex-1 accent-blue-600"
+                  onChange={setPenSize}
+                  className="flex-1"
                 />
                 <span className="font-mono-num w-10 text-right font-semibold">{penSize}px</span>
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="w-20 text-slate-500">Opacity</span>
-                <input
-                  type="range"
+                <LiquidSlider
                   min={0.35}
                   max={1}
                   step={0.05}
                   value={penOpacity}
-                  onChange={(e) => setPenOpacity(Number(e.target.value))}
-                  className="flex-1 accent-blue-600"
+                  onChange={setPenOpacity}
+                  className="flex-1"
                 />
                 <span className="font-mono-num w-10 text-right font-semibold">
                   {Math.round(penOpacity * 100)}%
@@ -4377,14 +4302,13 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="w-20 text-slate-500">Stabilizer</span>
-                <input
-                  type="range"
+                <LiquidSlider
                   min={0}
                   max={0.85}
                   step={0.05}
                   value={penStabilizer}
-                  onChange={(e) => setPenStabilizer(Number(e.target.value))}
-                  className="flex-1 accent-blue-600"
+                  onChange={setPenStabilizer}
+                  className="flex-1"
                 />
                 <span className="font-mono-num w-10 text-right font-semibold">
                   {Math.round(penStabilizer * 100)}%
@@ -4539,21 +4463,11 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             }`}
           />
 
-          {/* Floating Sticker Picker + AI Sticker Generator */}
+          {/* Floating Sticker Picker */}
           {stickerOpen && (
-            <div className="absolute left-1/2 top-3 z-40 w-72 -translate-x-1/2 rounded-2xl border border-black/10 bg-white p-3.5 shadow-2xl dark:border-white/10 dark:bg-[#1E2027] animate-stagger-in">
+            <div className="absolute left-1/2 top-3 z-40 w-72 -translate-x-1/2 rounded-2xl border border-black/10 bg-[#FBF9F4] p-3.5 shadow-2xl dark:border-white/10 dark:bg-[#1D1C18] animate-stagger-in">
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-[11px] font-bold text-slate-500">Tap a sticker to place</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStickerOpen(false);
-                    setAiAssetModal({ open: true, category: 'sticker' });
-                  }}
-                  className="ios-stretch inline-flex items-center gap-1 rounded-lg bg-gradient-to-r from-fuchsia-600 to-violet-600 px-2 py-1 text-[10px] font-bold text-white shadow-xs"
-                >
-                  <Wand2 className="h-3 w-3" /> AI Generate Sticker
-                </button>
               </div>
               <div className="grid grid-cols-6 gap-1.5">
                 {STICKERS.map((s) => (
@@ -5086,16 +5000,9 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           {/* Floating Lasso Selection Action Bar */}
           {selectedIds.size > 0 && !selectedMindNode && !selectedStickyNode && !selectedWebLinkNode && (
             <div className="absolute bottom-16 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1.5 rounded-2xl border border-black/10 bg-white/95 px-3 py-2 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#1F2128]/95 animate-stagger-in">
-              <span className="font-mono-num pr-1 text-xs font-bold text-blue-600">
+              <span className="font-mono-num pr-1 text-xs font-bold text-[#24483F] dark:text-[#8CC1AC]">
                 {selectedIds.size} selected
               </span>
-              <button
-                type="button"
-                onClick={handleAiExplainSelection}
-                className="inline-flex items-center gap-1 rounded-xl bg-violet-500/15 px-2.5 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-500/25 dark:text-violet-300"
-              >
-                <Sparkles className="h-3.5 w-3.5" /> AI Explain
-              </button>
               <button
                 type="button"
                 onClick={deleteSelected}
@@ -5248,43 +5155,13 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 autoFocus
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search or ask concept..."
+                placeholder="Search in notebook..."
                 className="flex-1 bg-transparent text-sm outline-none"
               />
               <button type="button" onClick={() => setSearchOpen(false)}>
                 <X className="h-4 w-4 text-slate-400" />
               </button>
             </div>
-
-            {searchQuery.trim().length >= 2 && (semanticBusy || semanticResult) && (
-              <div className="mb-2.5 rounded-xl border border-violet-500/25 bg-violet-500/8 p-2.5 text-xs">
-                <div className="mb-1 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300">
-                  <span className="inline-flex items-center gap-1">
-                    <Sparkles className="h-3 w-3" /> {semanticResult?.engineLabel || 'AI Search Insight'}
-                  </span>
-                  {semanticBusy && <span>Thinking…</span>}
-                </div>
-                {semanticResult && (
-                  <>
-                    <p className="leading-relaxed text-slate-700 dark:text-slate-200">{semanticResult.answer}</p>
-                    {semanticResult.expandedTerms.length > 0 && (
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        {semanticResult.expandedTerms.map((term) => (
-                          <button
-                            key={term}
-                            type="button"
-                            onClick={() => setSearchQuery(term)}
-                            className="rounded-md bg-violet-600/15 px-1.5 py-0.5 text-[10px] font-bold text-violet-700 hover:bg-violet-600/25 dark:text-violet-300"
-                          >
-                            AI · {term}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
 
             <div className="max-h-60 space-y-1.5 overflow-y-auto">
               {searchHits.map((h, i) => (
@@ -5301,17 +5178,12 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                     <span className="font-mono-num text-[10px] font-bold text-blue-600">
                       Page {h.pageIdx + 1}
                     </span>
-                    {h.matchTag && (
-                      <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[9px] font-bold text-violet-600 dark:text-violet-300">
-                        {h.matchTag}
-                      </span>
-                    )}
                   </div>
                   <span className="truncate">{h.preview}</span>
                 </button>
               ))}
               {searchQuery && searchHits.length === 0 && (
-                <div className="py-3 text-center text-xs text-slate-400">No direct text hits — check AI concepts above</div>
+                <div className="py-3 text-center text-xs text-slate-400">No text hits found</div>
               )}
             </div>
           </aside>
@@ -5321,24 +5193,12 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       {/* Template Sheet Modal */}
       {templateSheetOpen && page && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-          <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-[#191A1F]">
+          <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-black/10 bg-[#FBF9F4] shadow-2xl dark:border-white/10 dark:bg-[#191814]">
             <div className="flex items-center justify-between border-b border-black/8 px-6 py-4 dark:border-white/10">
-              <h2 className="text-base font-bold">Page Template & Tint</h2>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTemplateSheetOpen(false);
-                    setAiAssetModal({ open: true, category: 'template' });
-                  }}
-                  className="ios-stretch inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-3 py-1.5 text-xs font-semibold text-white"
-                >
-                  <Wand2 className="h-3.5 w-3.5" /> AI Generate Template
-                </button>
-                <button type="button" onClick={() => setTemplateSheetOpen(false)}>
-                  <X className="h-5 w-5 text-slate-400" />
-                </button>
-              </div>
+              <h2 className="text-base font-bold">Page Template &amp; Tint</h2>
+              <button type="button" onClick={() => setTemplateSheetOpen(false)}>
+                <X className="h-5 w-5 text-slate-400" />
+              </button>
             </div>
             <div className="flex-1 space-y-4 overflow-y-auto p-6">
               <div className="flex items-center gap-2">
@@ -5614,109 +5474,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           </form>
         </div>
       )}
-      {/* v10 AI Chat About Notes & PDFs */}
-      <AiNotesChatModal
-        open={aiChatOpen}
-        notebookTitle={notebook.title}
-        pages={notebook.pages}
-        settings={settings}
-        modelStates={modelStates}
-        onClose={() => setAiChatOpen(false)}
-        onOpenLocalModels={onOpenLocalModels}
-        onInsertReplyToPage={(replyText) => {
-          const c = screenToWorld(
-            (containerRef.current?.clientWidth || 800) / 2,
-            (containerRef.current?.clientHeight || 600) / 2
-          );
-          commitPageItems((items) => [
-            ...items,
-            {
-              id: `stk-chat-${Date.now()}`,
-              kind: 'sticky',
-              x: c.x - 165,
-              y: c.y - 115,
-              w: 330,
-              h: 230,
-              color: '#CFE2FF',
-              title: 'AI Study Answer',
-              text: replyText.slice(0, 750),
-              fontSize: 15,
-            },
-          ]);
-          showToast('Inserted AI answer sticky onto page');
-        }}
-      />
-
-      {/* v10 AI Image Generator (Stickers, Covers & Page Templates) */}
-      <AiAssetGeneratorModal
-        open={aiAssetModal.open}
-        initialCategory={aiAssetModal.category}
-        settings={settings}
-        modelStates={modelStates}
-        onSelectImageModel={(id) => onUpdateSettings({ activeImageModelId: id })}
-        onOpenModelsHub={onOpenLocalModels}
-        onClose={() => setAiAssetModal((s) => ({ ...s, open: false }))}
-        onApplyAsset={(category, dataUrl) => {
-          if (category === 'sticker') {
-            const c = screenToWorld(
-              (containerRef.current?.clientWidth || 800) / 2,
-              (containerRef.current?.clientHeight || 600) / 2
-            );
-            const imgItem: PageItem = {
-              id: `aisticker-${Date.now()}`,
-              kind: 'image',
-              src: dataUrl,
-              x: c.x - 110,
-              y: c.y - 110,
-              w: 220,
-              h: 220,
-            };
-            commitPageItems((items) => [...items, imgItem]);
-            setSelectedIds(new Set([imgItem.id]));
-            showToast('Inserted AI sticker — drag corners to stretch!');
-          } else if (category === 'cover') {
-            onUpdateNotebook(notebook.id, (nb) => ({ ...nb, cover: `image:${dataUrl}` }));
-            showToast('Applied new AI notebook cover!');
-          } else {
-            commitPages((pages) =>
-              pages.map((pg, idx) => (idx === safeIdx ? { ...pg, cover: dataUrl } : pg))
-            );
-            showToast('Applied AI custom page template!');
-          }
-        }}
-      />
-
-      {/* v10 AI Lecture Recording Studio */}
-      <AiRecordingModal
-        open={aiRecordOpen}
-        notebookTitle={notebook.title}
-        settings={settings}
-        onClose={() => setAiRecordOpen(false)}
-        onInsertNotesToPage={(formatted) => {
-          const c = screenToWorld(
-            (containerRef.current?.clientWidth || 800) / 2,
-            (containerRef.current?.clientHeight || 600) / 2
-          );
-          commitPageItems((items) => [
-            ...items,
-            {
-              id: `stk-rec-${Date.now()}`,
-              kind: 'sticky',
-              x: c.x - 175,
-              y: c.y - 130,
-              w: 350,
-              h: 260,
-              color: '#D8F3DC',
-              title: 'AI Lecture Notes',
-              text: formatted.slice(0, 900),
-              fontSize: 15,
-            },
-          ]);
-          showToast('Inserted AI lecture notes onto page');
-        }}
-      />
-
-      {/* v10 Live Collaborative Study Room */}
+      {/* Live Collaborative Study Room */}
       <CollabRoomModal
         open={collabModalOpen}
         isSignedIn={isSignedIn}

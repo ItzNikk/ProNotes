@@ -394,19 +394,6 @@ export function App() {
         />
       )}
 
-      <LocalAiModal
-        open={modelsModalOpen}
-        modelStates={modelStates}
-        activeModelId={state.settings.activeLocalModelId}
-        activeImageModelId={state.settings.activeImageModelId}
-        onClose={() => setModelsModalOpen(false)}
-        onDownload={startModelDownload}
-        onPause={pauseModelDownload}
-        onDelete={removeLocalModel}
-        onActivate={(id) => updateSettings({ activeLocalModelId: id })}
-        onActivateImage={(id) => updateSettings({ activeImageModelId: id })}
-      />
-
       <SetupWizardModal
         open={!state.settings.setupCompleted || setupOpen}
         settings={state.settings}

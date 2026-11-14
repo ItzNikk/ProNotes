@@ -263,44 +263,54 @@ export function drawCoverOnCanvas(
     }
   }
 
-  // Spine gradient + notebook elastic band
-  const spine = ctx.createLinearGradient(0, 0, w * 0.09, 0);
-  spine.addColorStop(0, 'rgba(0,0,0,0.24)');
-  spine.addColorStop(1, 'rgba(0,0,0,0)');
+  // OpenLeaf Book Spine Crease + Subtle Elastic Band
+  const spine = ctx.createLinearGradient(0, 0, w * 0.1, 0);
+  spine.addColorStop(0, 'rgba(0,0,0,0.28)');
+  spine.addColorStop(0.65, 'rgba(0,0,0,0.08)');
+  spine.addColorStop(1, 'rgba(255,255,255,0.08)');
   ctx.fillStyle = spine;
-  ctx.fillRect(0, 0, w * 0.09, h);
+  ctx.fillRect(0, 0, w * 0.1, h);
 
-  ctx.fillStyle = 'rgba(0,0,0,0.16)';
-  ctx.fillRect(w * 0.83, 0, w * 0.045, h);
+  ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+  ctx.lineWidth = Math.max(1, w / 150);
+  ctx.beginPath();
+  ctx.moveTo(w * 0.095, 0);
+  ctx.lineTo(w * 0.095, h);
+  ctx.stroke();
 
   if (title) {
-    const labelBg = 'rgba(255,255,255,0.92)';
-    const bx = w * 0.16;
-    const by = h * 0.25;
-    const bw = w * 0.62;
-    const bh = h * 0.26;
-    ctx.fillStyle = labelBg;
+    const bx = w * 0.17;
+    const by = h * 0.22;
+    const bw = w * 0.66;
+    const bh = h * 0.27;
+    const r = Math.max(4, w * 0.035);
+    ctx.fillStyle = '#F4EEDF';
     ctx.beginPath();
-    ctx.roundRect(bx, by, bw, bh, Math.max(4, w * 0.04));
+    ctx.roundRect(bx, by, bw, bh, r);
     ctx.fill();
-    ctx.fillStyle = '#1B1F2A';
-    const fontSize = Math.max(9, Math.round(w * 0.09));
-    ctx.font = `600 ${fontSize}px "Plus Jakarta Sans", sans-serif`;
+
+    ctx.strokeStyle = 'rgba(42, 40, 36, 0.22)';
+    ctx.lineWidth = Math.max(0.8, w / 190);
+    ctx.strokeRect(bx + 2.5, by + 2.5, bw - 5, bh - 5);
+
+    ctx.fillStyle = '#2A2824';
+    const fontSize = Math.max(9, Math.round(w * 0.088));
+    ctx.font = `600 ${fontSize}px "Fraunces", Georgia, serif`;
     const words = title.split(' ');
     let line = '';
     let ly = by + fontSize * 1.45;
     for (const word of words) {
       const test = line ? `${line} ${word}` : word;
-      if (ctx.measureText(test).width > bw - w * 0.1 && line) {
-        ctx.fillText(line, bx + w * 0.05, ly);
+      if (ctx.measureText(test).width > bw - w * 0.12 && line) {
+        ctx.fillText(line, bx + w * 0.06, ly);
         line = word;
-        ly += fontSize * 1.25;
-        if (ly > by + bh - 4) break;
+        ly += fontSize * 1.22;
+        if (ly > by + bh - 5) break;
       } else {
         line = test;
       }
     }
-    if (line && ly <= by + bh - 2) ctx.fillText(line, bx + w * 0.05, ly);
+    if (line && ly <= by + bh - 3) ctx.fillText(line, bx + w * 0.06, ly);
   }
   ctx.restore();
 }

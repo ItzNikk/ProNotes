@@ -30,16 +30,16 @@ import java.util.UUID
 data class ToolStyle(val colors: List<Int>, val sizes: List<Float>, val color: Int, val size: Float)
 
 val PenPalette = listOf(
-    0xFF1B1F2A, 0xFF5B6475, 0xFF3D6CF4, 0xFF0A84FF, 0xFF5AC8FA, 0xFF34C759,
-    0xFF2BB673, 0xFF00897B, 0xFFFFCC00, 0xFFFF9500, 0xFFFF3B30, 0xFFEB5757,
-    0xFFFF2D55, 0xFFAF52DE, 0xFF9B51E0, 0xFF6D4C41, 0xFFFFFFFF, 0xFF000000,
+    0xFF1E2321, 0xFF2E4A7A, 0xFF2F6B4F, 0xFF7A2E42, 0xFFB98A2E, 0xFF24483F,
+    0xFF5A5F58, 0xFF3D6CF4, 0xFF0A84FF, 0xFF34C759, 0xFF00897B, 0xFFFF9500,
+    0xFFEB5757, 0xFF9B51E0, 0xFF6D4C41, 0xFFFFFFFF, 0xFF000000,
 ).map { it.toInt() }
 
-val HighlighterPalette = listOf(0xFFFFE066, 0xFF8CE99A, 0xFF74C0FC, 0xFFFFA8A8, 0xFFE599F7).map { it.toInt() }
-val TapeColors = listOf(0xFFF4A7C0, 0xFF9AD0EC, 0xFFB8E0A8, 0xFFFFD98E, 0xFFCDB4F0).map { it.toInt() }
-val StickyColors = listOf(0xFFFFF3A3, 0xFFFFD6E0, 0xFFCDEBFF, 0xFFD8F5C8, 0xFFFFE2C2).map { it.toInt() }
-val WebLinkColors = listOf(0xFF3D6CF4, 0xFF0EA5E9, 0xFF8B5CF6, 0xFF10B981, 0xFFF59E0B, 0xFFEF4444).map { it.toInt() }
-val MindPalette = listOf(0xFF3D6CF4, 0xFF9B51E0, 0xFF2BB673, 0xFFF2994A, 0xFFEB5757, 0xFF00897B, 0xFF5B6475).map { it.toInt() }
+val HighlighterPalette = listOf(0xFFF3D77A, 0xFFA5D3C0, 0xFF9AD0EC, 0xFFFFA8A8, 0xFFE599F7).map { it.toInt() }
+val TapeColors = listOf(0xFF24483F, 0xFF2E4A7A, 0xFF7A2E42, 0xFFB98A2E, 0xFF8E9189).map { it.toInt() }
+val StickyColors = listOf(0xFFF4EEDF, 0xFFFFF3A3, 0xFFD8F5C8, 0xFFCDEBFF, 0xFFFFD6E0).map { it.toInt() }
+val WebLinkColors = listOf(0xFF24483F, 0xFF2E4A7A, 0xFF2F6B4F, 0xFF7A2E42, 0xFFB98A2E, 0xFF3D6CF4).map { it.toInt() }
+val MindPalette = listOf(0xFF24483F, 0xFF2E4A7A, 0xFF2F6B4F, 0xFF7A2E42, 0xFFB98A2E, 0xFF35655A, 0xFF5A5F58).map { it.toInt() }
 
 class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(app) {
     private val repo = Repository.get(app)
@@ -80,9 +80,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         }
     }
     var penType by mutableStateOf(savedEnum(1, PenType.FOUNTAIN))
-    var penStyle by mutableStateOf(style("pen", listOf(PenPalette[0], PenPalette[2], PenPalette[10], PenPalette[5], PenPalette[13]), listOf(2f, 4f, 7f), 4f, 2))
-    var highlighterStyle by mutableStateOf(style("highlighter", HighlighterPalette, listOf(16f, 28f, 42f), 28f, 3))
-    var shapeStyle by mutableStateOf(style("shape", listOf(PenPalette[0], PenPalette[2], PenPalette[10], PenPalette[5], PenPalette[13]), listOf(2f, 4f, 7f), 4f, 4))
+    var penStyle by mutableStateOf(style("pen", PenPalette.take(5), listOf(2f, 4f, 7f), 3.6f, 2))
+    var highlighterStyle by mutableStateOf(style("highlighter", HighlighterPalette, listOf(16f, 28f, 42f), 22f, 3))
+    var shapeStyle by mutableStateOf(style("shape", PenPalette.take(5), listOf(2f, 4f, 7f), 3.6f, 4))
     var shapeKind by mutableStateOf(savedEnum(5, ShapeKind.AUTO))
     var shapeDashed by mutableStateOf(false)
     /** Bumped when the selected image or sticker tool is tapped again. */

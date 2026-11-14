@@ -25,8 +25,7 @@ import {
   PAPER_TINTS,
   ThemeMode,
 } from '../types/models';
-import { LOCAL_MODELS_CATALOG, testCustomAiConnection } from '../utils/localAi';
-import { AiParticleBackdrop } from './AiVisuals';
+import { LiquidToggle } from './LiquidGlassSurface';
 
 interface SetupWizardModalProps {
   open: boolean;
@@ -41,7 +40,6 @@ const STEPS = [
   { id: 'intro', label: 'Welcome', icon: Sparkles },
   { id: 'look', label: 'Look Studio', icon: Palette },
   { id: 'workspace', label: 'Workspace', icon: Sliders },
-  { id: 'ai', label: 'AI Studio', icon: Cpu },
   { id: 'pen', label: 'Pen Check', icon: PenTool },
 ];
 
@@ -66,8 +64,6 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
   if (!open) return null;
 
   const accent = ACCENT_COLORS[settings.accent];
-  const recommendedModel = LOCAL_MODELS_CATALOG[0];
-  const recState = modelStates[recommendedModel.id];
 
   const handlePadDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = padRef.current;
@@ -111,18 +107,9 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
     setInkCount(0);
   };
 
-  const handleTestApi = async () => {
-    setTesting(true);
-    setTestStatus(null);
-    const res = await testCustomAiConnection(settings);
-    setTesting(false);
-    setTestStatus({ ok: res.ok, msg: res.message });
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-md">
-      <div className="relative flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-[28px] border border-white/15 bg-white shadow-2xl dark:bg-[#14161D] animate-stagger-in">
-        <AiParticleBackdrop accent="blue" variant="space-nebula" intensity="soft" />
+      <div className="relative flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-[28px] border border-white/15 bg-[#FBF9F4] shadow-2xl dark:bg-[#191814] animate-stagger-in">
 
         {/* Header + Progress Stepper */}
         <div className="relative z-10 border-b border-black/8 bg-white/85 px-6 py-4 backdrop-blur-md dark:border-white/10 dark:bg-[#14161D]/90">
@@ -155,7 +142,7 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
             </button>
           </div>
 
-          <div className="mt-4 grid grid-cols-5 gap-2">
+          <div className="mt-4 grid grid-cols-4 gap-2">
             {STEPS.map((st, idx) => {
               const Icon = st.icon;
               const active = idx === step;
@@ -463,17 +450,7 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
                       <div className="text-sm font-semibold">{item.title}</div>
                       <div className="text-xs text-slate-500">{item.sub}</div>
                     </div>
-                    <span
-                      className={`relative h-6 w-11 shrink-0 rounded-full transition ${
-                        item.checked ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-700'
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                          item.checked ? 'left-[22px]' : 'left-0.5'
-                        }`}
-                      />
-                    </span>
+                    <LiquidToggle selected={item.checked} onSelect={item.onChange} />
                   </div>
                 ))}
               </div>
@@ -481,153 +458,6 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
           )}
 
           {step === 3 && (
-            <div className="space-y-4 animate-stagger-in">
-              {/* Recommended Offline Model */}
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-violet-500/25 bg-violet-50/70 p-4 dark:bg-violet-950/25">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold">{recommendedModel.name}</span>
-                    <span className="rounded-md bg-violet-600/15 px-2 py-0.5 text-[10px] font-bold text-violet-700 dark:text-violet-300">
-                      Recommended · {recommendedModel.sizeMb} MB
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
-                    Boosts Semantic Search, Summaries, Quizzes, and Chapter Slide Shows offline.
-                  </p>
-                </div>
-                {recState?.status === 'READY' ? (
-                  <span className="inline-flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white">
-                    <Check className="h-3.5 w-3.5" /> Ready
-                  </span>
-                ) : recState?.status === 'DOWNLOADING' ? (
-                  <span className="font-mono-num rounded-xl bg-violet-600/15 px-3 py-1.5 text-xs font-bold text-violet-700 dark:text-violet-300">
-                    {Math.round(recState.progress * 100)}%…
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => onDownloadModel(recommendedModel.id)}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-violet-700"
-                  >
-                    <Download className="h-3.5 w-3.5" /> Download Free
-                  </button>
-                )}
-              </div>
-
-              {/* Optional Custom AI API */}
-              <div className="space-y-3 rounded-2xl border border-black/10 p-4 dark:border-white/10">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-bold">Custom AI API (Optional)</div>
-                    <div className="text-xs text-slate-500">
-                      Bring OpenAI-compatible, Google AI, or local Ollama endpoints
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onUpdateSettings({ customAiEnabled: !settings.customAiEnabled })}
-                    className={`rounded-xl px-3 py-1.5 text-xs font-bold transition ${
-                      settings.customAiEnabled
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-black/5 text-slate-600 dark:bg-white/10 dark:text-slate-300'
-                    }`}
-                  >
-                    {settings.customAiEnabled ? 'Enabled' : 'Disabled'}
-                  </button>
-                </div>
-
-                {settings.customAiEnabled && (
-                  <div className="space-y-2.5 pt-1">
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {(
-                        [
-                          { id: 'OPENAI_COMPATIBLE' as CustomAiProvider, label: 'OpenAI / Groq' },
-                          { id: 'GEMINI' as CustomAiProvider, label: 'Google AI REST' },
-                          { id: 'OLLAMA' as CustomAiProvider, label: 'Ollama Local' },
-                        ]
-                      ).map((p) => (
-                        <button
-                          key={p.id}
-                          type="button"
-                          onClick={() =>
-                            onUpdateSettings({
-                              customAiProvider: p.id,
-                              customAiBaseUrl:
-                                p.id === 'GEMINI'
-                                  ? 'https://generativelanguage.googleapis.com/v1beta'
-                                  : p.id === 'OLLAMA'
-                                    ? 'http://localhost:11434'
-                                    : 'https://api.openai.com/v1',
-                              customAiModel:
-                                p.id === 'GEMINI'
-                                  ? 'gemini-2.5-flash'
-                                  : p.id === 'OLLAMA'
-                                    ? 'llama3.2'
-                                    : 'gpt-4o-mini',
-                            })
-                          }
-                          className={`rounded-xl py-1.5 text-xs font-bold transition ${
-                            settings.customAiProvider === p.id
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-black/5 text-slate-600 dark:bg-white/10 dark:text-slate-300'
-                          }`}
-                        >
-                          {p.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <input
-                        type="text"
-                        value={settings.customAiBaseUrl}
-                        onChange={(e) => onUpdateSettings({ customAiBaseUrl: e.target.value })}
-                        placeholder="Base URL"
-                        className="rounded-xl border border-black/12 bg-transparent px-3 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-white/15"
-                      />
-                      <input
-                        type="text"
-                        value={settings.customAiModel}
-                        onChange={(e) => onUpdateSettings({ customAiModel: e.target.value })}
-                        placeholder="Model ID (e.g. gpt-4o-mini)"
-                        className="rounded-xl border border-black/12 bg-transparent px-3 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-white/15"
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <input
-                        type="password"
-                        value={settings.customAiApiKey}
-                        onChange={(e) => onUpdateSettings({ customAiApiKey: e.target.value })}
-                        placeholder="API Key (stored locally in browser only)"
-                        className="flex-1 rounded-xl border border-black/12 bg-transparent px-3 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-white/15"
-                      />
-                      <button
-                        type="button"
-                        disabled={testing}
-                        onClick={handleTestApi}
-                        className="inline-flex items-center gap-1 rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50"
-                      >
-                        <Zap className="h-3.5 w-3.5" /> {testing ? 'Testing…' : 'Test'}
-                      </button>
-                    </div>
-                    {testStatus && (
-                      <div
-                        className={`rounded-xl px-3 py-2 text-xs font-semibold ${
-                          testStatus.ok
-                            ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'
-                            : 'bg-red-500/12 text-red-600 dark:text-red-300'
-                        }`}
-                      >
-                        {testStatus.msg}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {step === 4 && (
             <div className="space-y-4 animate-stagger-in">
               <div className="flex items-center justify-between">
                 <div>
