@@ -136,6 +136,7 @@ import com.pronotes.app.data.SettingsStore
 import com.pronotes.app.editor.LiveCollabRoomDialog
 import com.pronotes.app.ui.BotanicalGlassBackground
 import com.pronotes.app.ui.ColorEditorDialog
+import com.pronotes.app.ui.GlassButtonPalette
 import com.pronotes.app.ui.LiquidGlassCard
 import com.pronotes.app.ui.LiquidGlassChip
 import com.pronotes.app.ui.LiquidGlassDialog
@@ -180,6 +181,7 @@ fun LibraryScreen(
     pendingImport: com.pronotes.app.PendingImport?,
     onImportConsumed: () -> Unit,
     onSupport: () -> Unit = {},
+    onOpenStudio: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val repo = remember { Repository.get(context) }
@@ -345,6 +347,7 @@ fun LibraryScreen(
                         onCollapse = { sidebar = false }, onSettings = onSettings,
                         onSupport = onSupport,
                         onOpenCollab = { collabOpen = true },
+                        onOpenStudio = onOpenStudio,
                         onDropTo = { s, payload ->
                             when (s) {
                                 Section.DOCUMENTS -> dropInto(payload, null)
@@ -405,27 +408,45 @@ fun LibraryScreen(
                             UpdatePill()
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                 LiquidGlassPill(
+                                    selected = true,
+                                    tint = GlassButtonPalette.GalaxyPurple,
+                                    onClick = onOpenStudio,
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+                                    modifier = Modifier.elasticStretch(),
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                        Icon(Icons.Outlined.AutoAwesome, "Creative Studio", Modifier.size(16.dp), tint = Color.White)
+                                        Text("Studio", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                                    }
+                                }
+                                LiquidGlassPill(
+                                    tint = GlassButtonPalette.OceanBlue,
                                     onClick = { collabOpen = true },
                                     contentPadding = PaddingValues(8.dp),
+                                    modifier = Modifier.elasticStretch(),
                                 ) {
-                                    Icon(Icons.Outlined.Groups, "Live Study Room", Modifier.size(20.dp))
+                                    Icon(Icons.Outlined.Groups, "Live Study Room", Modifier.size(20.dp), tint = GlassButtonPalette.OceanBlue)
                                 }
                                 LiquidGlassPill(
                                     selected = searching,
+                                    tint = GlassButtonPalette.WarmAmber,
                                     onClick = { searching = !searching; if (!searching) query = "" },
                                     contentPadding = PaddingValues(8.dp),
+                                    modifier = Modifier.elasticStretch(),
                                 ) {
                                     com.pronotes.app.ui.ProIconView(
                                         com.pronotes.app.ui.ProIcon.SEARCH,
-                                        if (searching) LiquidGlassTheme.colors.onAccent else MaterialTheme.colorScheme.onSurface,
+                                        if (searching) Color.White else GlassButtonPalette.WarmAmber,
                                         Modifier.size(20.dp),
                                     )
                                 }
                                 LiquidGlassPill(
+                                    tint = GlassButtonPalette.MintTeal,
                                     onClick = onSettings,
                                     contentPadding = PaddingValues(8.dp),
+                                    modifier = Modifier.elasticStretch(),
                                 ) {
-                                    com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SETTINGS, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp))
+                                    com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SETTINGS, GlassButtonPalette.MintTeal, Modifier.size(20.dp))
                                 }
                             }
                         }
@@ -498,6 +519,7 @@ fun LibraryScreen(
                                         }
                                     },
                                     LiquidMenuDivider,
+                                    LiquidMenuItem("✨ AI Creative Studio (Stickers & Covers)", Icons.Outlined.AutoAwesome) { onOpenStudio() },
                                     LiquidMenuItem("Folder", Icons.Outlined.CreateNewFolder) { newFolder = true },
                                     LiquidMenuItem("Import files (PDF, MD, TXT, Images)", Icons.Outlined.UploadFile) {
                                         importFilesLauncher.launch(arrayOf("application/pdf", "text/*", "image/*", "application/json", "application/octet-stream"))
@@ -505,9 +527,9 @@ fun LibraryScreen(
                                     LiquidMenuItem("Paste notes from another app…", Icons.Outlined.ContentPaste) { pasteImportOpen = true },
                                 ),
                                 contentDescription = "Create new",
-                                style = GlassDefaults.accent().copy(kind = GlassKind.Frost),
+                                style = GlassDefaults.accent(),
                                 shape = GlassDefaults.PillShape,
-                                menuWidth = 280.dp,
+                                menuWidth = 290.dp,
                                 modifier = Modifier.elasticStretch(),
                             ) {
                                 Row(Modifier.padding(horizontal = 16.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -537,26 +559,30 @@ fun LibraryScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                             LiquidGlassPill(
                                 selected = !listView,
+                                tint = GlassButtonPalette.Emerald,
                                 onClick = { listView = false },
                                 contentPadding = PaddingValues(8.dp),
+                                modifier = Modifier.elasticStretch(),
                             ) {
                                 Icon(
                                     Icons.Outlined.GridView,
                                     "Grid",
                                     Modifier.size(18.dp),
-                                    tint = if (!listView) LiquidGlassTheme.colors.onAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = if (!listView) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                             LiquidGlassPill(
                                 selected = listView,
+                                tint = GlassButtonPalette.OceanBlue,
                                 onClick = { listView = true },
                                 contentPadding = PaddingValues(8.dp),
+                                modifier = Modifier.elasticStretch(),
                             ) {
                                 Icon(
                                     Icons.AutoMirrored.Outlined.ViewList,
                                     "List",
                                     Modifier.size(18.dp),
-                                    tint = if (listView) LiquidGlassTheme.colors.onAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = if (listView) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
@@ -821,6 +847,7 @@ private fun Sidebar(
     onSettings: () -> Unit,
     onSupport: () -> Unit,
     onOpenCollab: () -> Unit,
+    onOpenStudio: () -> Unit = {},
     onDropTo: (Section, String) -> Boolean,
 ) {
     val context = LocalContext.current
@@ -837,7 +864,7 @@ private fun Sidebar(
         Column(Modifier.statusBarsPadding().padding(horizontal = 14.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = onCollapse) { Icon(Icons.Outlined.ChevronLeft, "Hide sidebar") }
+                IconButton(onClick = onCollapse, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.ChevronLeft, "Hide sidebar") }
             }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 6.dp, bottom = 22.dp)) {
                 androidx.compose.foundation.Image(
@@ -895,7 +922,7 @@ private fun Sidebar(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.CloudSync, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Outlined.CloudSync, null, Modifier.size(16.dp), tint = GlassButtonPalette.OceanBlue)
                         Spacer(Modifier.width(6.dp))
                         Text(
                             cloudUser?.let { it.displayName.ifBlank { it.email } } ?: "Google Cloud Sync",
@@ -909,29 +936,46 @@ private fun Sidebar(
                         Text(syncStatus, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
                     }
                     if (cloudUser == null) {
-                        FilledTonalButton(
+                        LiquidGlassPill(
+                            selected = true,
+                            tint = GlassButtonPalette.OceanBlue,
                             onClick = { runCatching { context.startActivity(CloudSync.buildGoogleAuthIntent()) } },
-                            shape = CircleShape,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
                             modifier = Modifier.fillMaxWidth().elasticStretch(),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        ) { Text("Sign in with Google", style = MaterialTheme.typography.labelSmall) }
+                        ) {
+                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                Text("Sign in with Google", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                        }
                     } else {
-                        FilledTonalButton(
-                            enabled = !syncing,
-                            onClick = { scope.launch { CloudSync.syncAll(context) } },
-                            shape = CircleShape,
+                        LiquidGlassPill(
+                            selected = true,
+                            tint = GlassButtonPalette.Emerald,
+                            onClick = { if (!syncing) scope.launch { CloudSync.syncAll(context) } },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
                             modifier = Modifier.fillMaxWidth().elasticStretch(),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        ) { Text(if (syncing) "Syncing…" else "Sync Now", style = MaterialTheme.typography.labelSmall) }
+                        ) {
+                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                Text(if (syncing) "Syncing…" else "Sync Now", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                        }
                     }
                 }
             }
             Spacer(Modifier.height(6.dp))
             Row(
+                Modifier.fillMaxWidth().elasticStretch().clip(CircleShape).clickable(onClick = onOpenStudio).padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Outlined.AutoAwesome, null, tint = GlassButtonPalette.GalaxyPurple)
+                Spacer(Modifier.width(12.dp))
+                Text("Creative Studio", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+            }
+            Row(
                 Modifier.fillMaxWidth().elasticStretch().clip(CircleShape).clickable(onClick = onOpenCollab).padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Outlined.Groups, null, tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Outlined.Groups, null, tint = GlassButtonPalette.OceanBlue)
                 Spacer(Modifier.width(12.dp))
                 Text("Live Study Room", color = MaterialTheme.colorScheme.onSurface)
             }

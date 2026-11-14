@@ -196,8 +196,11 @@ import com.pronotes.app.data.ScribbleSensitivity
 import com.pronotes.app.data.ScrollDirection
 import com.pronotes.app.data.SettingsStore
 import com.pronotes.app.data.ToolbarDock
+import com.pronotes.app.ai.GalaxyCreativeStudioScreen
+import com.pronotes.app.ai.StudioAssetMode
 import com.pronotes.app.ui.BotanicalGlassBackground
 import com.pronotes.app.ui.ColorEditorDialog
+import com.pronotes.app.ui.GlassButtonPalette
 import com.pronotes.app.ui.LiquidContextMenu
 import com.pronotes.app.ui.LiquidGlassCard
 import com.pronotes.app.ui.LiquidGlassChip
@@ -251,20 +254,12 @@ private fun glassColor(): Color = MaterialTheme.colorScheme.surface.copy(alpha =
 
 @Composable
 private fun Modifier.glassEdge(shape: androidx.compose.ui.graphics.Shape): Modifier {
-    if (!glassOn()) return this.border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+    if (!glassOn()) return this
     val dark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
-    return this
-        .border(
-            1.dp,
-            Brush.verticalGradient(
-                listOf(Color.White.copy(alpha = if (dark) 0.22f else 0.85f), Color.White.copy(alpha = if (dark) 0.05f else 0.25f)),
-            ),
-            shape,
-        )
-        .background(
-            Brush.verticalGradient(listOf(Color.White.copy(alpha = if (dark) 0.06f else 0.28f), Color.Transparent)),
-            shape,
-        )
+    return this.background(
+        Brush.verticalGradient(listOf(Color.White.copy(alpha = if (dark) 0.08f else 0.24f), Color.Transparent)),
+        shape,
+    )
 }
 
 /** Shares a bitmap as a PNG through the system share sheet. */
@@ -810,7 +805,43 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     if (showCards) FlashcardsDialog(vm, onClose = { showCards = false })
     if (showQuiz) QuizDialog(vm, onClose = { showQuiz = false })
     if (vm.showSlideShow) SlideShowDialog(vm, onClose = { vm.showSlideShow = false })
-    if (showTemplates) TemplateSheet(vm, onAiTemplate = { showTemplates = false }, onClose = { showTemplates = false })
+    if (showTemplates) TemplateSheet(vm, onAiTemplate = { showTemplates = false; showAssetStudio = AiAssetKind.TEMPLATE }, onClose = { showTemplates = false })
+    if (showAiChat) {
+        AiNotesChatDialog(vm = vm, onClose = { showAiChat = false })
+    }
+    showAssetStudio?.let { kind ->
+        val initialStudioMode = when (kind) {
+            AiAssetKind.STICKER -> StudioAssetMode.STICKER
+            AiAssetKind.COVER -> StudioAssetMode.COVER
+            AiAssetKind.TEMPLATE -> StudioAssetMode.TEMPLATE
+        }
+        val initialStudioPrompt = when (kind) {
+            AiAssetKind.STICKER -> "Cute Kawaii Study Cat"
+            AiAssetKind.COVER -> vm.title.ifBlank { "Botanical Emerald Journal" }
+            AiAssetKind.TEMPLATE -> "Cornell Study Notes"
+        }
+        Dialog(
+            onDismissRequest = { showAssetStudio = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            GalaxyCreativeStudioScreen(
+                initialMode = initialStudioMode,
+                initialPrompt = initialStudioPrompt,
+                onBack = { showAssetStudio = null },
+                onApplyResult = { bmp, mode ->
+                    showAssetStudio = null
+                    when (mode) {
+                        StudioAssetMode.STICKER -> {
+                            vm.tool = Tool.LASSO
+                            vm.insertStickerBitmap(bmp) { pg, id -> canvas?.selectItems(pg, setOf(id)) }
+                        }
+                        StudioAssetMode.COVER -> vm.applyGeneratedCoverBitmap(bmp)
+                        StudioAssetMode.TEMPLATE -> vm.applyGeneratedTemplateBitmap(bmp)
+                    }
+                },
+            )
+        }
+    }
     vm.linkToDelete?.let { id ->
         LiquidGlassDialog(
             onDismissRequest = { vm.linkToDelete = null },
@@ -941,7 +972,13 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
 
     if (showStickers) {
         LiquidGlassSheet(onDismissRequest = { showStickers = false; vm.tool = Tool.LASSO }) {
-            StickerSheet(vm) { bmp ->
+            StickerSheet(
+                vm = vm,
+                onOpenAiStudio = {
+                    showStickers = false
+                    showAssetStudio = AiAssetKind.STICKER
+                },
+            ) { bmp ->
                 showStickers = false
                 vm.tool = Tool.LASSO
                 vm.insertStickerBitmap(bmp) { pg, id -> canvas?.selectItems(pg, setOf(id)) }
@@ -1105,28 +1142,63 @@ private fun TopBar(
             }
             Spacer(Modifier.width(4.dp))
         }
+        // Colorful Galaxy Studio & AI Tutor pills in TopBar
+        LiquidGlassPill(
+            selected = true,
+            tint = GlassButtonPalette.GalaxyPurple,
+            onClick = { onAssetStudio(AiAssetKind.STICKER) },
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+            modifier = Modifier.elasticStretch(),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Icon(Icons.Outlined.AutoAwesome, "Creative Studio", Modifier.size(15.dp), tint = Color.White)
+                Text("Studio", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
+            }
+        }
+        Spacer(Modifier.width(4.dp))
+        LiquidGlassPill(
+            tint = GlassButtonPalette.OceanBlue,
+            onClick = onAiChat,
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+            modifier = Modifier.elasticStretch(),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Icon(Icons.Outlined.ChatBubbleOutline, "Study Assistant", Modifier.size(15.dp), tint = GlassButtonPalette.OceanBlue)
+                Text("AI", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = GlassButtonPalette.OceanBlue)
+            }
+        }
+        Spacer(Modifier.width(4.dp))
         LiquidMenuButton(
-            style = GlassDefaults.control(),
+            style = GlassDefaults.tinted(GlassButtonPalette.Emerald),
             contentPadding = PaddingValues(8.dp),
-            buttonContent = { ProIconView(ProIcon.ADD, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) },
+            modifier = Modifier.elasticStretch(),
+            buttonContent = { ProIconView(ProIcon.ADD, GlassButtonPalette.Emerald, Modifier.size(22.dp)) },
             items = listOf(
                 LiquidMenuItem("New page after this") { vm.addPage() },
                 LiquidMenuItem("New page at the end") { vm.addPage(atEnd = true) },
                 LiquidMenuItem("Infinite whiteboard page") { vm.addPage(paper = PaperStyle.DOTTED, isWhiteboard = true) },
                 LiquidMenuItem("Choose a template…") { onTemplates() },
+                LiquidMenuItem("✨ Create AI Template…", Icons.Outlined.AutoAwesome) { onAssetStudio(AiAssetKind.TEMPLATE) },
             ),
         )
+        Spacer(Modifier.width(4.dp))
         LiquidMenuButton(
-            style = GlassDefaults.control(),
+            style = GlassDefaults.tinted(GlassButtonPalette.SkyCyan),
             contentPadding = PaddingValues(8.dp),
-            buttonContent = { ProIconView(ProIcon.SHARE, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) },
+            modifier = Modifier.elasticStretch(),
+            buttonContent = { ProIconView(ProIcon.SHARE, GlassButtonPalette.SkyCyan, Modifier.size(22.dp)) },
             items = listOf(
                 LiquidMenuItem("Export as PDF…", icon = { Icon(Icons.Outlined.PictureAsPdf, null, Modifier.size(18.dp)) }) { onExport() },
                 LiquidMenuItem("Share PDF", icon = { Icon(Icons.Outlined.IosShare, null, Modifier.size(18.dp)) }) { onShare() },
                 LiquidMenuItem("Share this page as image", icon = { Icon(Icons.Outlined.Image, null, Modifier.size(18.dp)) }) { onSharePage() },
             ),
         )
+        Spacer(Modifier.width(4.dp))
         val moreEntries = buildList<LiquidMenuEntry> {
+            add(LiquidMenuItem("✨ AI Creative Studio", icon = { Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(18.dp), tint = GlassButtonPalette.GalaxyPurple) }) { onAssetStudio(AiAssetKind.STICKER) })
+            add(LiquidMenuItem("🤖 Study Assistant & Math Solver", icon = { Icon(Icons.Outlined.ChatBubbleOutline, null, Modifier.size(18.dp), tint = GlassButtonPalette.OceanBlue) }) { onAiChat() })
+            add(LiquidMenuItem("🎨 Generate AI Notebook Cover", icon = { Icon(Icons.Outlined.Palette, null, Modifier.size(18.dp), tint = GlassButtonPalette.CoralRose) }) { onAssetStudio(AiAssetKind.COVER) })
+            add(LiquidMenuDivider)
             add(LiquidMenuItem("Flashcards", icon = { ProIconView(ProIcon.FLASHCARDS, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp), ink = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)) }) { onCards() })
             add(LiquidMenuItem("Flashcard from area", icon = { Icon(Icons.Outlined.Crop, null, Modifier.size(18.dp)) }) { vm.capturingCard = true })
             add(LiquidMenuItem("Live Study Room", icon = { Icon(Icons.Outlined.Groups, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary) }) { onCollabRoom() })
@@ -1158,9 +1230,10 @@ private fun TopBar(
             add(LiquidMenuItem("Settings", icon = { ProIconView(ProIcon.SETTINGS, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) { onSettings() })
         }
         LiquidMenuButton(
-            style = GlassDefaults.control(),
+            style = GlassDefaults.tinted(GlassButtonPalette.WarmAmber),
             contentPadding = PaddingValues(8.dp),
-            buttonContent = { ProIconView(ProIcon.MORE, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) },
+            modifier = Modifier.elasticStretch(),
+            buttonContent = { ProIconView(ProIcon.MORE, GlassButtonPalette.WarmAmber, Modifier.size(22.dp)) },
             items = moreEntries,
         )
     }
@@ -2261,7 +2334,7 @@ private fun SliderRow(label: String, value: String, v: Float, range: ClosedFloat
 // ============================================================== stickers
 
 @Composable
-private fun StickerSheet(vm: EditorViewModel, onPick: (Bitmap) -> Unit) {
+private fun StickerSheet(vm: EditorViewModel, onOpenAiStudio: () -> Unit = {}, onPick: (Bitmap) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var tab by remember { mutableIntStateOf(0) }
@@ -2274,10 +2347,30 @@ private fun StickerSheet(vm: EditorViewModel, onPick: (Bitmap) -> Unit) {
     }
     fun pick(s: Sticker) = scope.launch { withContext(Dispatchers.Default) { StickerLibrary.bitmap(s) }?.let(onPick) }
     Column(Modifier.padding(horizontal = 16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Stickers", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f).padding(start = 8.dp))
-            TextButton(onClick = { importer.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
-                Icon(Icons.Outlined.Add, null); Text("Import")
+            LiquidGlassPill(
+                selected = true,
+                tint = GlassButtonPalette.GalaxyPurple,
+                onClick = onOpenAiStudio,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+                modifier = Modifier.elasticStretch(),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp), tint = Color.White)
+                    Text("AI Sticker", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            }
+            LiquidGlassPill(
+                tint = GlassButtonPalette.OceanBlue,
+                onClick = { importer.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+                modifier = Modifier.elasticStretch(),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(Icons.Outlined.Add, null, Modifier.size(16.dp), tint = GlassButtonPalette.OceanBlue)
+                    Text("Import", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = GlassButtonPalette.OceanBlue)
+                }
             }
         }
         LiquidSegmentedControl(

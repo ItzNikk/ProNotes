@@ -203,12 +203,11 @@ public fun LiquidGlassTheme(
         if (look == GlassLook.Auto) (if (isHighEndDevice()) GlassLook.Rich else GlassLook.Optimized) else look
     }
     val rich = resolved == GlassLook.Rich
-    // Refracting the content is the most expensive part of the glass: by default only the rich look and high-end devices.
+    // Sampling the cached 1/4-res background layer instead of re-recording scrolling content every frame keeps 120fps smoothness.
     val samplesContent = when {
         quality == GlassQuality.Off -> false
         overlaySamplesContent != null -> overlaySamplesContent
-        rich -> true
-        else -> quality == GlassQuality.Full && isHighEndDevice()
+        else -> false
     }
     val styles = remember(colors, rich) { GlassStyles.from(colors, rich) }
     CompositionLocalProvider(

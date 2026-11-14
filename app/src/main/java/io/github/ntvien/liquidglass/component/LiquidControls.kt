@@ -229,22 +229,22 @@ public fun LiquidGlassSlider(
                     highlight = {
                         val progress = dampedDragAnimation.pressProgress
                         Highlight.Ambient.copy(
-                            width = Highlight.Ambient.width / 1.5f,
+                            width = 0.35.dp,
                             blurRadius = Highlight.Ambient.blurRadius / 1.5f,
-                            alpha = (0.55f + 0.45f * progress).coerceIn(0f, 1f),
+                            alpha = (0.28f + 0.35f * progress).coerceIn(0f, 0.65f),
                         )
                     },
                     shadow = {
                         Shadow(
-                            radius = 4f.dp,
-                            color = Color.Black.copy(alpha = 0.08f),
+                            radius = 5f.dp,
+                            color = Color.Black.copy(alpha = 0.12f),
                         )
                     },
                     innerShadow = {
                         val progress = dampedDragAnimation.pressProgress
                         InnerShadow(
                             radius = 4f.dp * progress,
-                            alpha = progress,
+                            alpha = progress * 0.7f,
                         )
                     },
                     layerBlock = {
@@ -256,10 +256,9 @@ public fun LiquidGlassSlider(
                     },
                     onDrawSurface = {
                         val progress = dampedDragAnimation.pressProgress
-                        drawRect(colors.raisedFill.copy(alpha = (1f - progress * 0.78f).coerceIn(0.22f, 1f)))
+                        drawRect(colors.raisedFill.copy(alpha = (0.85f - progress * 0.70f).coerceIn(0.15f, 0.85f)))
                     },
                 )
-                .border(0.8.dp, colors.accent.copy(alpha = 0.35f), CircleShape)
                 .size(40f.dp, 24f.dp),
         )
     }
@@ -390,22 +389,22 @@ public fun LiquidGlassToggle(
                     highlight = {
                         val progress = dampedDragAnimation.pressProgress
                         Highlight.Ambient.copy(
-                            width = Highlight.Ambient.width / 1.5f,
+                            width = 0.35.dp,
                             blurRadius = Highlight.Ambient.blurRadius / 1.5f,
-                            alpha = (0.5f + 0.5f * progress).coerceIn(0f, 1f),
+                            alpha = (0.28f + 0.35f * progress).coerceIn(0f, 0.65f),
                         )
                     },
                     shadow = {
                         Shadow(
-                            radius = 4f.dp,
-                            color = Color.Black.copy(alpha = 0.08f),
+                            radius = 5f.dp,
+                            color = Color.Black.copy(alpha = 0.12f),
                         )
                     },
                     innerShadow = {
                         val progress = dampedDragAnimation.pressProgress
                         InnerShadow(
                             radius = 4f.dp * progress,
-                            alpha = progress,
+                            alpha = progress * 0.7f,
                         )
                     },
                     layerBlock = {
@@ -417,10 +416,9 @@ public fun LiquidGlassToggle(
                     },
                     onDrawSurface = {
                         val progress = dampedDragAnimation.pressProgress
-                        drawRect(colors.raisedFill.copy(alpha = (1f - progress * 0.78f).coerceIn(0.22f, 1f)))
+                        drawRect(colors.raisedFill.copy(alpha = (0.85f - progress * 0.70f).coerceIn(0.15f, 0.85f)))
                     },
                 )
-                .border(0.6.dp, colors.glassStroke.copy(alpha = 0.7f), CircleShape)
                 .size(40f.dp, 24f.dp),
         )
     }

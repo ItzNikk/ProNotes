@@ -1,7 +1,6 @@
 package io.github.ntvien.liquidglass
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -14,30 +13,15 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import io.github.ntvien.liquidglass.internal.backdrop.drawBackdrop
+import io.github.ntvien.liquidglass.internal.backdrop.effects.VibrancySaturation
 import io.github.ntvien.liquidglass.internal.backdrop.effects.blur
 import io.github.ntvien.liquidglass.internal.backdrop.effects.lens
-import io.github.ntvien.liquidglass.internal.backdrop.effects.VibrancySaturation
 import io.github.ntvien.liquidglass.internal.backdrop.effects.vibrancy
 import io.github.ntvien.liquidglass.internal.backdrop.highlight.Highlight
 import io.github.ntvien.liquidglass.internal.backdrop.shadow.Shadow
 
 /**
- * Draws liquid glass behind this element. The single entry point to the glass engine.
- *
- * Picks how to draw from the device [GlassQuality] and [GlassStyle.kind]:
- * - Liquid + [GlassQuality.Full]: lens refraction (+ chromatic aberration) + highlight + shadow; blur only when the
- *   glass samples scrolling content.
- * - Liquid + [GlassQuality.BlurOnly]: highlight + shadow (+ blur when sampling content). No AGSL on Android 12.
- * - [GlassKind.Frost] or [GlassQuality.Off]: translucent fill + sheen + stroke, never samples the background.
- *
- * Must be inside a [LiquidGlassScene] to sample anything; outside it the element falls back to frost.
- *
- * Performance budget per screen: at most 6 real (Liquid) glass elements, the tab bar included. Use
- * [GlassDefaults.frost] for repeated items.
- *
- * @param style a preset from [GlassDefaults], or a copy of one.
- * @param shape a [androidx.compose.foundation.shape.RoundedCornerShape]; path-based shapes are slow.
- * @param interaction pass [rememberGlassInteraction] on pressable elements for the press/tilt/glint effect.
+ * Draws borderless, high-transparency Liquid Glass behind this element.
  */
 @Composable
 public fun Modifier.liquidGlass(
@@ -51,7 +35,6 @@ public fun Modifier.liquidGlass(
     val shadowsEnabled = LocalGlassShadows.current
     val colors = LocalGlassColors.current
     val highlightColor = colors.glassHighlight
-    val strokeColor = colors.glassStroke
 
     val useLiquid = style.kind == GlassKind.Liquid && quality != GlassQuality.Off && backdrops != null
     if (!useLiquid) {
@@ -66,8 +49,7 @@ public fun Modifier.liquidGlass(
             )
             .clip(shape)
             .background(style.fallbackSurface)
-            .frostSheen(highlightColor.copy(alpha = highlightColor.alpha * style.fallbackSheen))
-            .border(style.highlightWidth.coerceAtLeast(1.dp), strokeColor, shape)
+            .frostSheen(highlightColor.copy(alpha = (highlightColor.alpha * style.fallbackSheen * 0.45f).coerceIn(0f, 0.42f)))
             .then(interaction?.highlightModifier ?: Modifier)
             .then(interaction?.gestureModifier ?: Modifier)
     }
@@ -77,7 +59,6 @@ public fun Modifier.liquidGlass(
     val blurRadius = style.blur
     val useLens = allowLens && style.lensHeight > 0.dp && style.lensAmount > 0.dp
     return this
-        .then(if (interaction == null) Modifier.graphicsLayer() else Modifier)
         .drawBackdrop(
             backdrop = backdrop,
             shape = { shape },
@@ -94,7 +75,16 @@ public fun Modifier.liquidGlass(
                     )
                 }
             },
-            highlight = { Highlight(width = style.highlightWidth, alpha = style.highlightAlpha) },
+            highlight = if (style.highlightWidth > 0.dp && style.highlightAlpha > 0f) {
+                {
+                    Highlight.Ambient.copy(
+                        width = style.highlightWidth.coerceAtMost(0.45.dp),
+                        alpha = (style.highlightAlpha * 0.28f).coerceIn(0f, 0.35f),
+                    )
+                }
+            } else {
+                null
+            },
             shadow = if (style.shadowRadius > 0.dp && shadowsEnabled) {
                 { Shadow(radius = style.shadowRadius, color = style.shadowColor) }
             } else {
@@ -109,12 +99,12 @@ public fun Modifier.liquidGlass(
         .then(interaction?.gestureModifier ?: Modifier)
 }
 
-/** Diagonal sheen from the top-left corner, faking glass light when real glass is not drawn. Cached per size. */
+/** Soft top-left specular sheen without any harsh border outline. Cached per size. */
 private fun Modifier.frostSheen(highlight: Color): Modifier = drawWithCache {
     val brush = Brush.radialGradient(
         colors = listOf(highlight, Color.Transparent),
-        center = Offset(size.width * 0.12f, 0f),
-        radius = size.maxDimension * 0.7f,
+        center = Offset(size.width * 0.18f, 0f),
+        radius = size.maxDimension * 0.85f,
     )
     onDrawBehind { drawRect(brush) }
 }

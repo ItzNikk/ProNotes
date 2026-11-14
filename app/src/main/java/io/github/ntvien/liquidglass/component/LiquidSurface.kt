@@ -25,22 +25,7 @@ import io.github.ntvien.liquidglass.rememberGlassInteraction
 
 /**
  * A block of liquid glass: cards, glass buttons, floating actions.
- *
- * With [onClick] it is a button and gets the press effect (swell, tilt, glint). Content color is up to the caller;
- * [GlassStyle.contentColor] of the chosen [style] is the matching color.
- *
- * ```
- * LiquidSurface(onClick = { open() }, onClickLabel = "Open details") {
- *     BasicText("Today", style = TextStyle(color = GlassDefaults.card().contentColor))
- * }
- * ```
- *
- * @param style preset from [GlassDefaults] (default [GlassDefaults.card]).
- * @param shape default [GlassDefaults.ContinuousCardShape] for real glass and [GlassDefaults.CardShape] for frost (lists).
- *   Use a [androidx.compose.foundation.shape.RoundedCornerShape] for repeated items: continuous corners are a path.
- * @param contentPadding padding inside the glass.
- * @param onClick makes the surface a button.
- * @param onClickLabel describes the click for accessibility services.
+ * Includes non-consuming radial touch glow and spring stretch when [interactive] is true.
  */
 @Composable
 public fun LiquidSurface(
@@ -50,18 +35,25 @@ public fun LiquidSurface(
     contentPadding: PaddingValues = PaddingValues(16.dp),
     onClick: (() -> Unit)? = null,
     onClickLabel: String? = null,
+    interactive: Boolean = true,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val interaction = if (onClick != null) rememberGlassInteraction() else null
+    val interaction = if (interactive || onClick != null) rememberGlassInteraction() else null
     Box(
         modifier = modifier
             .liquidGlass(style = style, shape = shape, interaction = interaction)
             .then(
                 if (onClick != null) {
-                    Modifier.clickable(interactionSource = null, indication = null, role = Role.Button, onClickLabel = onClickLabel, onClick = onClick)
+                    Modifier.clickable(
+                        interactionSource = null,
+                        indication = null,
+                        role = Role.Button,
+                        onClickLabel = onClickLabel,
+                        onClick = onClick,
+                    )
                 } else {
                     Modifier
-                }
+                },
             )
             .padding(contentPadding),
         content = content,

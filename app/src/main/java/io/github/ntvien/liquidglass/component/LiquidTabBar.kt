@@ -350,17 +350,20 @@ public fun LiquidBottomTabs(
                     },
                     highlight = {
                         val progress = dampedDragAnimation.pressProgress
-                        Highlight.Default.copy(alpha = progress)
+                        Highlight.Ambient.copy(
+                            width = 0.35.dp,
+                            alpha = (0.18f + 0.32f * progress).coerceIn(0f, 0.5f),
+                        )
                     },
                     shadow = {
                         val progress = dampedDragAnimation.pressProgress
-                        Shadow(alpha = progress)
+                        Shadow(alpha = progress * 0.65f)
                     },
                     innerShadow = {
                         val progress = dampedDragAnimation.pressProgress
                         InnerShadow(
                             radius = 8f.dp * progress,
-                            alpha = progress,
+                            alpha = progress * 0.75f,
                         )
                     },
                     layerBlock = {
@@ -373,11 +376,11 @@ public fun LiquidBottomTabs(
                     onDrawSurface = {
                         val progress = dampedDragAnimation.pressProgress
                         drawRect(
-                            if (isLightTheme) Color.Black.copy(0.1f)
-                            else Color.White.copy(0.1f),
-                            alpha = 1f - progress,
+                            if (isLightTheme) accentColor.copy(alpha = 0.14f)
+                            else Color.White.copy(alpha = 0.14f),
+                            alpha = 1f - progress * 0.6f,
                         )
-                        drawRect(Color.Black.copy(alpha = 0.03f * progress))
+                        drawRect(Color.White.copy(alpha = 0.08f * progress))
                     },
                 )
                 .height(56f.dp)
@@ -639,14 +642,14 @@ half4 main(float2 coord) {
             if (progress > 0f) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && shader != null) {
                     drawRect(
-                        Color.White.copy(0.08f * progress),
+                        Color.White.copy(0.12f * progress),
                         blendMode = BlendMode.Plus,
                     )
                     shader.apply {
                         val pos = position(size, positionAnimation.value)
                         setFloatUniform("size", size.width, size.height)
-                        setColorUniform("color", Color.White.copy(0.15f * progress).toArgb())
-                        setFloatUniform("radius", size.minDimension * 1.5f)
+                        setColorUniform("color", Color.White.copy(0.32f * progress).toArgb())
+                        setFloatUniform("radius", size.minDimension * 1.8f)
                         setFloatUniform(
                             "position",
                             pos.x.fastCoerceIn(0f, size.width),
@@ -659,7 +662,7 @@ half4 main(float2 coord) {
                     )
                 } else {
                     drawRect(
-                        Color.White.copy(0.25f * progress),
+                        Color.White.copy(0.30f * progress),
                         blendMode = BlendMode.Plus,
                     )
                 }

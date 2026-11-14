@@ -1,9 +1,3 @@
-/*
- * Press / drag effect for glass (the glass swells, tilts toward the finger and glints at the touch point).
- * Ported from Kyant0/AndroidLiquidGlass (catalog: InteractiveHighlight.kt, DragGestureInspector.kt, LiquidButton.kt),
- * Copyright Kyant, Apache License 2.0. https://github.com/Kyant0/AndroidLiquidGlass
- * Modified for liquid-glass: spring parameters exposed, wrapped into a reusable GlassInteraction.
- */
 package io.github.ntvien.liquidglass
 
 import androidx.compose.animation.core.Animatable
@@ -20,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.ShaderBrush
@@ -43,21 +38,20 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.max
 import kotlin.math.sin
 import kotlin.math.tanh
 
 /**
- * Press state of a glass element: it swells when pressed, tilts toward the finger while dragged and glints at the
- * touch point. It never consumes touches, so `clickable` on the same element still receives the tap.
- *
- * Create it with [rememberGlassInteraction] and pass it to [liquidGlass]. [LiquidSurface] does this for you when it
- * has an `onClick`. All values are read in the draw/layer phase: pressing does not recompose.
+ * Interactive press, directional elastic stretch, and luminous radial touch glow for Liquid Glass elements.
+ * Never consumes pointer events, so child or parent clickables always receive taps cleanly.
  */
 @Stable
 public class GlassInteraction internal constructor(
     private val scope: CoroutineScope,
     dampingRatio: Float,
     stiffness: Float,
+    private val glowColor: Color = Color(0xFF7CE8D8),
 ) {
     private val pressSpec = spring(dampingRatio, stiffness, 0.001f)
     private val positionSpec = spring(dampingRatio, stiffness, Offset.VisibilityThreshold)
@@ -75,54 +69,74 @@ public class GlassInteraction internal constructor(
         RuntimeShader(
             """
 uniform float2 size;
-layout(color) uniform half4 color;
+layout(color) uniform half4 coreColor;
+layout(color) uniform half4 auraColor;
 uniform float radius;
 uniform float2 position;
 half4 main(float2 coord) {
     float dist = distance(coord, position);
-    float intensity = smoothstep(radius, radius * 0.5, dist);
-    return color * intensity;
+    float core = smoothstep(radius * 0.55, 0.0, dist);
+    float aura = smoothstep(radius, radius * 0.15, dist);
+    return coreColor * core + auraColor * aura;
 }"""
         )
     } else {
         null
     }
 
-    /** Swell + tilt toward the finger. */
+    /** Elastic spring swell + directional drag stretch toward the finger. */
     internal val layerBlock: GraphicsLayerScope.() -> Unit = {
         val w = size.width
         val h = size.height
         if (w > 0f && h > 0f) {
             val progress = press.value
-            val scale = lerp(1f, 1f + 4.dp.toPx() / h, progress)
-            val maxOffset = size.minDimension
+            val swell = (6.dp.toPx() / max(w, h).coerceAtLeast(48f)).coerceIn(0.025f, 0.065f)
+            val baseScale = lerp(1f, 1f + swell, progress)
+            val maxOffset = size.minDimension.coerceAtLeast(1f)
             val offset = position.value - start
-            translationX = maxOffset * tanh(0.05f * offset.x / maxOffset)
-            translationY = maxOffset * tanh(0.05f * offset.y / maxOffset)
-            val maxDragScale = 4.dp.toPx() / h
+            translationX = maxOffset * tanh(0.065f * offset.x / maxOffset)
+            translationY = maxOffset * tanh(0.065f * offset.y / maxOffset)
+            val maxDragScale = (8.dp.toPx() / h.coerceAtLeast(36f)).coerceIn(0.02f, 0.08f)
             val angle = atan2(offset.y, offset.x)
-            scaleX = scale + maxDragScale * abs(cos(angle) * offset.x / size.maxDimension) * (w / h).fastCoerceAtMost(1f)
-            scaleY = scale + maxDragScale * abs(sin(angle) * offset.y / size.maxDimension) * (h / w).fastCoerceAtMost(1f)
+            val maxDim = size.maxDimension.coerceAtLeast(1f)
+            scaleX = baseScale + maxDragScale * abs(cos(angle) * offset.x / maxDim) * (w / h).fastCoerceAtMost(1f)
+            scaleY = baseScale + maxDragScale * abs(sin(angle) * offset.y / maxDim) * (h / w).fastCoerceAtMost(1f)
         }
     }
 
-    /** Glint at the touch point. */
+    /** Luminous dual-tone radial touch glow at the pointer position. */
     internal val highlightModifier: Modifier = Modifier.drawWithContent {
+        drawContent()
         val progress = press.value
-        if (progress > 0f) {
+        if (progress > 0.005f) {
+            val p = Offset(
+                position.value.x.fastCoerceIn(0f, size.width),
+                position.value.y.fastCoerceIn(0f, size.height),
+            )
+            val radius = max(size.width, size.height).coerceAtLeast(64f) * 0.85f
             if (shader != null) {
-                drawRect(Color.White.copy(alpha = 0.08f * progress), blendMode = BlendMode.Plus)
-                val p = position.value
+                drawRect(Color.White.copy(alpha = 0.06f * progress), blendMode = BlendMode.Plus)
                 shader.setFloatUniform("size", size.width, size.height)
-                shader.setColorUniform("color", Color.White.copy(alpha = 0.15f * progress))
-                shader.setFloatUniform("radius", size.minDimension * 1.5f)
-                shader.setFloatUniform("position", p.x.fastCoerceIn(0f, size.width), p.y.fastCoerceIn(0f, size.height))
+                shader.setColorUniform("coreColor", Color.White.copy(alpha = 0.34f * progress))
+                shader.setColorUniform("auraColor", glowColor.copy(alpha = 0.24f * progress))
+                shader.setFloatUniform("radius", radius)
+                shader.setFloatUniform("position", p.x, p.y)
                 drawRect(ShaderBrush(shader.asComposeShader()), blendMode = BlendMode.Plus)
             } else {
-                drawRect(Color.White.copy(alpha = 0.25f * progress), blendMode = BlendMode.Plus)
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.36f * progress),
+                            glowColor.copy(alpha = 0.18f * progress),
+                            Color.Transparent,
+                        ),
+                        center = p,
+                        radius = radius,
+                    ),
+                    blendMode = BlendMode.Plus,
+                )
             }
         }
-        drawContent()
     }
 
     internal val gestureModifier: Modifier = Modifier.pointerInput(this) {
@@ -149,14 +163,17 @@ half4 main(float2 coord) {
 
 /**
  * Remembers a [GlassInteraction] for a pressable glass element.
- *
- * @param dampingRatio spring damping of the press; lower bounces more.
- * @param stiffness spring stiffness of the press.
  */
 @Composable
-public fun rememberGlassInteraction(dampingRatio: Float = 0.5f, stiffness: Float = 300f): GlassInteraction {
+public fun rememberGlassInteraction(
+    dampingRatio: Float = 0.48f,
+    stiffness: Float = 360f,
+): GlassInteraction {
     val scope = rememberCoroutineScope()
-    return remember(scope, dampingRatio, stiffness) { GlassInteraction(scope, dampingRatio, stiffness) }
+    val accent = LocalGlassColors.current.accent
+    return remember(scope, dampingRatio, stiffness, accent) {
+        GlassInteraction(scope, dampingRatio, stiffness, glowColor = accent)
+    }
 }
 
 /** Tracks press and drag WITHOUT consuming events, so a clickable on the same element still gets the tap. */

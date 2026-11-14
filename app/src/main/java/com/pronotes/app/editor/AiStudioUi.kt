@@ -176,6 +176,8 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
 
+    val aiEngine = remember(context) { com.pronotes.app.ai.ProNotesAiEngine(context) }
+
     LaunchedEffect(vm.noteId, vm.pages.size, vm.pageIndex) {
         corpus = vm.extractPagesCorpus()
     }
@@ -188,13 +190,37 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
         busy = true
         scope.launch {
             val pagesSnap = vm.extractPagesCorpus().also { corpus = it }
-            val reply = LocalAiManager.chatAboutNotesAndPdf(
-                context = context,
-                notebookTitle = vm.title,
-                pagesText = pagesSnap,
-                history = messages.toList(),
-                question = q,
-            )
+            val fullNotesText = pagesSnap.joinToString("\n\n") { (p, t) -> "Page ${p + 1}:\n$t" }
+            val qLower = q.lowercase()
+            val reply = when {
+                qLower.contains("solve") && q.any { it.isDigit() || it == '=' } -> {
+                    val eq = q.substringAfter("solve", q).trim()
+                    val sol = aiEngine.solveEquation(eq.ifBlank { q })
+                    buildString {
+                        appendLine("📐 **Symbolic Solution**: `${sol.result}`")
+                        sol.steps.forEach { appendLine("• $it") }
+                    }.trim()
+                }
+                qLower.contains("summarize") && fullNotesText.isNotBlank() -> {
+                    val sum = aiEngine.summarize(fullNotesText, com.pronotes.app.ai.ProNotesAiEngine.SummaryStyle.EXAM_CHEAT_SHEET)
+                    buildString {
+                        appendLine("✨ **${sum.headline}**")
+                        appendLine()
+                        sum.keyPoints.forEach { appendLine("• $it") }
+                        if (sum.actionItems.isNotEmpty()) {
+                            appendLine()
+                            appendLine("**Action Items:**")
+                            sum.actionItems.forEach { appendLine("☐ $it") }
+                        }
+                    }.trim()
+                }
+                else -> {
+                    aiEngine.chatWithNotes(
+                        question = q,
+                        notebookPages = pagesSnap.map { it.second },
+                    )
+                }
+            }
             messages += "assistant" to reply
             busy = false
         }
@@ -203,7 +229,7 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(
             Modifier.fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.36f))
+                .background(Color.Black.copy(alpha = 0.28f))
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClose)
                 .padding(14.dp),
             contentAlignment = Alignment.Center,
@@ -215,7 +241,6 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                     .fillMaxWidth()
                     .heightIn(max = 820.dp)
                     .statusBarsPadding()
-                    .border(1.5.dp, StudioGradientBrush, RoundedCornerShape(32.dp))
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
             ) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -446,9 +471,7 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                     style = GlassDefaults.frost(),
                     shape = PillShape,
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, StudioGradientBrush, PillShape),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,

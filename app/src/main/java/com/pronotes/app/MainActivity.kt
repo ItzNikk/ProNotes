@@ -73,6 +73,9 @@ class MainActivity : ComponentActivity() {
                         })
                     }
                     composable("support") { com.pronotes.app.support.SupportScreen(onBack = { nav.popBackStack() }) }
+                    composable("studio") {
+                        com.pronotes.app.ai.GalaxyCreativeStudioScreen(onBack = { nav.popBackStack() })
+                    }
                     composable("library") {
                         LibraryScreen(
                             onOpen = { id -> nav.navigate("editor/$id") },
@@ -80,6 +83,7 @@ class MainActivity : ComponentActivity() {
                             pendingImport = pendingImport,
                             onImportConsumed = { pendingImport = null },
                             onSupport = { nav.navigate("support") },
+                            onOpenStudio = { nav.navigate("studio") },
                         )
                     }
                     composable("editor/{id}") { entry ->
