@@ -557,7 +557,7 @@ class ProNotesAiEngine(private val context: Context) {
 
         data class Number(val v: Double) : Expr() {
             override fun repr() = if (v == v.roundToInt().toDouble()) "${v.roundToInt()}" else "$v"
-            override fun evaluateWithSteps() = v to emptyList()
+            override fun evaluateWithSteps(): Pair<Double, List<String>> = v to emptyList<String>()
         }
 
         data class Binary(val left: Expr, val op: Char, val right: Expr) : Expr() {

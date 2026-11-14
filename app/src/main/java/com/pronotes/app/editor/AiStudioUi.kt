@@ -195,30 +195,33 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
             val reply = when {
                 qLower.contains("solve") && q.any { it.isDigit() || it == '=' } -> {
                     val eq = q.substringAfter("solve", q).trim()
-                    val sol = aiEngine.solveEquation(eq.ifBlank { q })
+                    val sol = aiEngine.solveMath(eq.ifBlank { q })
                     buildString {
                         appendLine("📐 **Symbolic Solution**: `${sol.result}`")
                         sol.steps.forEach { appendLine("• $it") }
                     }.trim()
                 }
                 qLower.contains("summarize") && fullNotesText.isNotBlank() -> {
-                    val sum = aiEngine.summarize(fullNotesText, com.pronotes.app.ai.ProNotesAiEngine.SummaryStyle.EXAM_CHEAT_SHEET)
+                    val sum = aiEngine.summarize(fullNotesText, maxPoints = 6)
                     buildString {
                         appendLine("✨ **${sum.headline}**")
                         appendLine()
-                        sum.keyPoints.forEach { appendLine("• $it") }
-                        if (sum.actionItems.isNotEmpty()) {
+                        sum.bulletPoints.forEach { appendLine("• $it") }
+                        if (sum.keyTerms.isNotEmpty()) {
                             appendLine()
-                            appendLine("**Action Items:**")
-                            sum.actionItems.forEach { appendLine("☐ $it") }
+                            appendLine("**Key Terms:** ${sum.keyTerms.joinToString(", ")}")
                         }
                     }.trim()
                 }
                 else -> {
-                    aiEngine.chatWithNotes(
-                        question = q,
-                        notebookPages = pagesSnap.map { it.second },
-                    )
+                    val chatHistory = messages.map { (role, content) ->
+                        com.pronotes.app.ai.ChatMessage(role = role, content = content)
+                    }
+                    aiEngine.chat(
+                        query = q,
+                        documentContext = fullNotesText,
+                        history = chatHistory,
+                    ).answer
                 }
             }
             messages += "assistant" to reply
