@@ -9,9 +9,9 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.unit.Density
 
-internal interface Backdrop {
+public interface Backdrop {
 
-    val isCoordinatesDependent: Boolean
+    public val isCoordinatesDependent: Boolean
 
     fun DrawScope.drawBackdrop(
         density: Density,

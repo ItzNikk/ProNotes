@@ -95,10 +95,9 @@ import io.github.ntvien.liquidglass.GlassLayer
 import io.github.ntvien.liquidglass.LiquidGlassTheme
 import io.github.ntvien.liquidglass.LocalGlassBackdrops
 import io.github.ntvien.liquidglass.LocalGlassLayer
-import io.github.ntvien.liquidglass.internal.backdrop.Backdrop
+import io.github.ntvien.liquidglass.internal.backdrop.backdrops.emptyBackdrop
 import io.github.ntvien.liquidglass.internal.backdrop.backdrops.layerBackdrop
 import io.github.ntvien.liquidglass.internal.backdrop.backdrops.rememberCombinedBackdrop
-import io.github.ntvien.liquidglass.internal.backdrop.backdrops.rememberEmptyBackdrop
 import io.github.ntvien.liquidglass.internal.backdrop.backdrops.rememberLayerBackdrop
 import io.github.ntvien.liquidglass.internal.backdrop.drawBackdrop
 import io.github.ntvien.liquidglass.internal.backdrop.effects.blur
@@ -160,7 +159,6 @@ public fun LiquidBottomTabs(
     onTabSelected: (index: Int) -> Unit,
     tabsCount: Int,
     modifier: Modifier = Modifier,
-    backdrop: Backdrop? = null,
     content: @Composable RowScope.() -> Unit,
 ) {
     val isLightTheme = !isSystemInDarkTheme()
@@ -169,9 +167,8 @@ public fun LiquidBottomTabs(
     val containerColor = colors.chromeFill
     val sceneBackdrops = LocalGlassBackdrops.current
     val layer = LocalGlassLayer.current
-    val resolvedBackdrop = backdrop
-        ?: (if (layer == GlassLayer.Overlay) sceneBackdrops?.overlay else sceneBackdrops?.background)
-        ?: rememberEmptyBackdrop()
+    val resolvedBackdrop = (if (layer == GlassLayer.Overlay) sceneBackdrops?.overlay else sceneBackdrops?.background)
+        ?: emptyBackdrop()
 
     val tabsBackdrop = rememberLayerBackdrop()
 

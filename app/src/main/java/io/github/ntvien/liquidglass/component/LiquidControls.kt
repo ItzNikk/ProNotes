@@ -55,11 +55,10 @@ import io.github.ntvien.liquidglass.GlassLayer
 import io.github.ntvien.liquidglass.LiquidGlassTheme
 import io.github.ntvien.liquidglass.LocalGlassBackdrops
 import io.github.ntvien.liquidglass.LocalGlassLayer
-import io.github.ntvien.liquidglass.internal.backdrop.Backdrop
+import io.github.ntvien.liquidglass.internal.backdrop.backdrops.emptyBackdrop
 import io.github.ntvien.liquidglass.internal.backdrop.backdrops.layerBackdrop
 import io.github.ntvien.liquidglass.internal.backdrop.backdrops.rememberBackdrop
 import io.github.ntvien.liquidglass.internal.backdrop.backdrops.rememberCombinedBackdrop
-import io.github.ntvien.liquidglass.internal.backdrop.backdrops.rememberEmptyBackdrop
 import io.github.ntvien.liquidglass.internal.backdrop.backdrops.rememberLayerBackdrop
 import io.github.ntvien.liquidglass.internal.backdrop.drawBackdrop
 import io.github.ntvien.liquidglass.internal.backdrop.effects.blur
@@ -89,16 +88,14 @@ public fun LiquidGlassSlider(
     valueRange: ClosedFloatingPointRange<Float>,
     modifier: Modifier = Modifier,
     steps: Int = 0,
-    backdrop: Backdrop? = null,
 ) {
     val colors = LiquidGlassTheme.colors
     val accentColor = colors.accent
     val trackColor = colors.contentMuted.copy(alpha = 0.24f)
     val sceneBackdrops = LocalGlassBackdrops.current
     val layer = LocalGlassLayer.current
-    val resolvedBackdrop = backdrop
-        ?: (if (layer == GlassLayer.Overlay) sceneBackdrops?.overlay else sceneBackdrops?.background)
-        ?: rememberEmptyBackdrop()
+    val resolvedBackdrop = (if (layer == GlassLayer.Overlay) sceneBackdrops?.overlay else sceneBackdrops?.background)
+        ?: emptyBackdrop()
 
     val haptic = LocalHapticFeedback.current
     val currentOnValueChange by rememberUpdatedState(onValueChange)
@@ -277,16 +274,14 @@ public fun LiquidGlassToggle(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
-    backdrop: Backdrop? = null,
 ) {
     val colors = LiquidGlassTheme.colors
     val accentColor = colors.accent
     val trackColor = colors.contentMuted.copy(alpha = 0.26f)
     val sceneBackdrops = LocalGlassBackdrops.current
     val layer = LocalGlassLayer.current
-    val resolvedBackdrop = backdrop
-        ?: (if (layer == GlassLayer.Overlay) sceneBackdrops?.overlay else sceneBackdrops?.background)
-        ?: rememberEmptyBackdrop()
+    val resolvedBackdrop = (if (layer == GlassLayer.Overlay) sceneBackdrops?.overlay else sceneBackdrops?.background)
+        ?: emptyBackdrop()
 
     val density = LocalDensity.current
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
@@ -438,7 +433,6 @@ public fun LiquidGlassToggle(
 public fun LiquidButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    backdrop: Backdrop? = null,
     isInteractive: Boolean = true,
     tint: Color = Color.Unspecified,
     surfaceColor: Color = Color.Unspecified,
@@ -447,9 +441,8 @@ public fun LiquidButton(
     val colors = LiquidGlassTheme.colors
     val sceneBackdrops = LocalGlassBackdrops.current
     val layer = LocalGlassLayer.current
-    val resolvedBackdrop = backdrop
-        ?: (if (layer == GlassLayer.Overlay) sceneBackdrops?.overlay else sceneBackdrops?.background)
-        ?: rememberEmptyBackdrop()
+    val resolvedBackdrop = (if (layer == GlassLayer.Overlay) sceneBackdrops?.overlay else sceneBackdrops?.background)
+        ?: emptyBackdrop()
     val resolvedSurface = if (surfaceColor.isSpecified) surfaceColor else colors.glassFillStrong
 
     val animationScope = rememberCoroutineScope()
