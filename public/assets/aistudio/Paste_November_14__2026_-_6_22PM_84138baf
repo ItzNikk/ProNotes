@@ -1,0 +1,497 @@
+Run gradle assembleRelease --stacktrace
+Starting a Gradle Daemon (subsequent builds will be faster)
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preReleaseBuild UP-TO-DATE
+> Task :app:mergeReleaseJniLibFolders
+> Task :app:mergeReleaseNativeLibs
+> Task :app:checkReleaseDuplicateClasses
+
+> Task :app:stripReleaseDebugSymbols
+Unable to strip the following libraries, packaging them as they are: libandroidx.graphics.path.so, libgraphics-core.so, libink.so. Run with --info option to learn more.
+
+> Task :app:buildKotlinToolingMetadata
+> Task :app:extractReleaseNativeSymbolTables FROM-CACHE
+> Task :app:mergeReleaseNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:generateReleaseBuildConfig
+> Task :app:generateReleaseResValues FROM-CACHE
+> Task :app:checkReleaseAarMetadata
+> Task :app:mapReleaseSourceSetPaths
+> Task :app:generateReleaseResources FROM-CACHE
+> Task :app:mergeReleaseResources FROM-CACHE
+> Task :app:packageReleaseResources FROM-CACHE
+> Task :app:parseReleaseLocalResources FROM-CACHE
+> Task :app:createReleaseCompatibleScreenManifests
+> Task :app:extractDeepLinksRelease FROM-CACHE
+> Task :app:processReleaseMainManifest
+> Task :app:processReleaseManifest
+> Task :app:javaPreCompileRelease FROM-CACHE
+> Task :app:desugarReleaseFileDependencies FROM-CACHE
+> Task :app:mergeReleaseStartupProfile
+> Task :app:mergeExtDexRelease FROM-CACHE
+> Task :app:mergeReleaseShaders
+> Task :app:mergeReleaseArtProfile
+> Task :app:compileReleaseShaders NO-SOURCE
+> Task :app:generateReleaseAssets UP-TO-DATE
+> Task :app:mergeReleaseAssets
+> Task :app:compressReleaseAssets FROM-CACHE
+> Task :app:extractReleaseVersionControlInfo
+> Task :app:extractProguardFiles
+> Task :app:collectReleaseDependencies
+> Task :app:sdkReleaseDependencyData
+> Task :app:validateSigningRelease
+> Task :app:writeReleaseAppMetadata
+> Task :app:writeReleaseSigningConfigVersions
+> Task :app:processReleaseManifestForPackage
+> Task :app:processReleaseResources
+> Task :app:optimizeReleaseResources
+> Task :app:compileReleaseKotlin
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/AiStudioUi.kt:1081:1 Syntax error: Expecting a top level declaration.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/AiVisuals.kt:24:37 Unresolved reference 'theme'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/AiVisuals.kt:369:17 Function invocation 'LiquidGlassTheme(...)' expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/AiVisuals.kt:369:34 Unresolved reference 'styles'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1093:38 Unresolved reference 'styles'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1094:13 No parameter with name 'contentPadding' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1095:13 No parameter with name 'buttonContent' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1095:31 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1095:70 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1096:13 No value passed for parameter 'contentDescription'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1096:13 No value passed for parameter 'content'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1104:38 Unresolved reference 'styles'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1105:13 No parameter with name 'contentPadding' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1106:13 No parameter with name 'buttonContent' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1106:31 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1106:72 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1107:13 No value passed for parameter 'contentDescription'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1107:13 No value passed for parameter 'content'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1108:57 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1108:59 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1109:52 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1109:54 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1110:67 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1110:69 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1114:53 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1114:55 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1114:101 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1114:166 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1115:62 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1115:64 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1116:58 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1116:60 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1116:137 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1118:61 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1118:63 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1118:106 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1118:171 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1119:65 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1119:67 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1120:53 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1120:55 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1120:96 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1121:57 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1121:59 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1121:103 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1122:135 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1122:137 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1123:70 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1123:72 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1124:55 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1124:57 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1124:100 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1125:123 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1125:125 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1125:166 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1128:119 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1128:121 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1130:52 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1130:54 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1132:57 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1132:59 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1132:99 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1134:51 No parameter with name 'isDestructive' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1134:80 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1134:82 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1134:123 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1137:58 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1137:60 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1137:102 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1138:95 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1138:97 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1138:137 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1138:219 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1139:54 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1139:56 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1139:97 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1140:136 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1140:138 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1141:53 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1141:55 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1141:96 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1142:51 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1142:53 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1142:97 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1145:38 Unresolved reference 'styles'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1146:13 No parameter with name 'contentPadding' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1147:13 No parameter with name 'buttonContent' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1147:31 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1147:71 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1148:13 No value passed for parameter 'contentDescription'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1148:13 No value passed for parameter 'content'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1203:44 Unresolved reference 'styles'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1612:46 Unresolved reference 'styles'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1749:54 No parameter with name 'isDestructive' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:1961:42 No parameter with name 'isDestructive' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2322:50 Unresolved reference 'styles'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2323:25 No parameter with name 'contentPadding' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2324:25 No parameter with name 'buttonContent' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2325:29 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2325:74 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2326:29 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2327:29 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2329:25 No value passed for parameter 'contentDescription'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2329:25 No value passed for parameter 'content'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2410:21 No parameter with name 'style' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2410:46 Unresolved reference 'styles'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2422:25 No parameter with name 'style' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2422:50 Unresolved reference 'styles'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2435:46 Unresolved reference 'styles'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2436:21 No parameter with name 'contentPadding' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2437:21 No parameter with name 'buttonContent' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2437:39 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2438:21 No value passed for parameter 'contentDescription'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2438:21 No value passed for parameter 'content'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2439:68 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2439:70 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2440:65 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2440:67 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2441:63 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2441:65 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2442:65 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2442:67 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2443:65 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2443:67 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2444:60 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2444:62 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2445:69 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2445:71 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2760:46 Unresolved reference 'styles'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2761:21 No parameter with name 'contentPadding' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2762:21 No parameter with name 'buttonContent' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2763:25 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2763:104 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2764:25 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2765:25 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2765:111 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2766:25 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2767:25 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2769:21 No value passed for parameter 'contentDescription'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2769:21 No value passed for parameter 'content'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2794:17 No parameter with name 'style' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2794:57 Unresolved reference 'styles'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2794:128 Unresolved reference 'styles'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2824:42 Unresolved reference 'styles'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2825:17 No parameter with name 'contentPadding' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2826:17 No parameter with name 'buttonContent' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2826:35 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2827:17 No value passed for parameter 'contentDescription'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2827:17 No value passed for parameter 'content'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2830:32 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2830:34 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2837:32 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2837:34 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2844:32 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2844:34 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2851:32 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2851:34 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2856:32 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2856:34 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2860:25 No parameter with name 'isDestructive' found.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2861:32 Argument type mismatch: actual type is 'Function0<Unit>', but 'ImageVector?' was expected.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/com/***/app/editor/EditorScreen.kt:2861:34 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/io/github/ntvien/liquidglass/GlassStyle.kt:11:18 Unresolved reference 'shapes'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/io/github/ntvien/liquidglass/GlassStyle.kt:12:18 Unresolved reference 'shapes'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/io/github/ntvien/liquidglass/GlassStyle.kt:206:45 Unresolved reference 'RoundedRectangle'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/io/github/ntvien/liquidglass/GlassStyle.kt:209:45 Unresolved reference 'Capsule'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/io/github/ntvien/liquidglass/internal/backdrop/DrawBackdropModifier.kt:301:13 To call contextual declarations, specify the '-Xcontext-parameters' compiler option.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/io/github/ntvien/liquidglass/internal/backdrop/DrawBackdropModifier.kt:339:13 To call contextual declarations, specify the '-Xcontext-parameters' compiler option.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/io/github/ntvien/liquidglass/internal/backdrop/backdrops/LayerBackdropModifier.kt:61:9 To call contextual declarations, specify the '-Xcontext-parameters' compiler option.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/io/github/ntvien/liquidglass/internal/backdrop/effects/Lens.kt:18:18 Unresolved reference 'shapes'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/io/github/ntvien/liquidglass/internal/backdrop/effects/Lens.kt:71:12 Unresolved reference 'RoundedRectangularShape'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/io/github/ntvien/liquidglass/internal/backdrop/effects/Lens.kt:72:33 Unresolved reference 'corners'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/io/github/ntvien/liquidglass/internal/backdrop/highlight/HighlightStyle.kt:17:18 Unresolved reference 'shapes'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/io/github/ntvien/liquidglass/internal/backdrop/highlight/HighlightStyle.kt:125:18 Unresolved reference 'RoundedRectangularShape'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/io/github/ntvien/liquidglass/internal/backdrop/highlight/HighlightStyle.kt:126:29 Unresolved reference 'corners'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/io/github/ntvien/liquidglass/internal/backdrop/internal/LayerRecorder.kt:14:1 The feature "context parameters" is experimental and should be enabled explicitly. This can be done by supplying the compiler argument '-Xcontext-parameters', but note that no stability guarantees are provided.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/io/github/ntvien/liquidglass/internal/backdrop/internal/Paint.kt:11:37 Unresolved reference 'nativePaint'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/io/github/ntvien/liquidglass/internal/backdrop/internal/Paint.kt:15:10 Unresolved reference 'nativePaint'.
+e: file:///home/runner/work/ProNotes/ProNotes/app/src/main/java/io/github/ntvien/liquidglass/internal/backdrop/internal/Paint.kt:21:10 Unresolved reference 'nativePaint'.
+
+> Task :app:compileReleaseKotlin FAILED
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/__run_3-1794660407747.json
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+37 actionable tasks: 26 executed, 11 from cache
+Execution failed for task ':app:compileReleaseKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+* Exception is:
+org.gradle.api.tasks.TaskExecutionException: Execution failed for task ':app:compileReleaseKotlin'.
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.lambda$executeIfValid$1(ExecuteActionsTaskExecuter.java:130)
+	at org.gradle.internal.Try$Failure.ifSuccessfulOrElse(Try.java:293)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:128)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.execute(ExecuteActionsTaskExecuter.java:116)
+	at org.gradle.api.internal.tasks.execution.ProblemsTaskPathTrackingTaskExecuter.execute(ProblemsTaskPathTrackingTaskExecuter.java:40)
+	at org.gradle.api.internal.tasks.execution.FinalizePropertiesTaskExecuter.execute(FinalizePropertiesTaskExecuter.java:46)
+	at org.gradle.api.internal.tasks.execution.ResolveTaskExecutionModeExecuter.execute(ResolveTaskExecutionModeExecuter.java:51)
+	at org.gradle.api.internal.tasks.execution.SkipTaskWithNoActionsExecuter.execute(SkipTaskWithNoActionsExecuter.java:57)
+	at org.gradle.api.internal.tasks.execution.SkipOnlyIfTaskExecuter.execute(SkipOnlyIfTaskExecuter.java:74)
+	at org.gradle.api.internal.tasks.execution.CatchExceptionTaskExecuter.execute(CatchExceptionTaskExecuter.java:36)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.executeTask(EventFiringTaskExecuter.java:77)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:55)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:52)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter.execute(EventFiringTaskExecuter.java:52)
+	at org.gradle.execution.plan.LocalTaskNodeExecutor.execute(LocalTaskNodeExecutor.java:42)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:331)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:318)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.lambda$execute$0(DefaultTaskExecutionGraph.java:314)
+	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:85)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:314)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:303)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.execute(DefaultPlanExecutor.java:459)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.run(DefaultPlanExecutor.java:376)
+	at org.gradle.execution.plan.DefaultPlanExecutor.process(DefaultPlanExecutor.java:111)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph.executeWithServices(DefaultTaskExecutionGraph.java:138)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph.execute(DefaultTaskExecutionGraph.java:123)
+	at org.gradle.execution.SelectedTaskExecutionAction.execute(SelectedTaskExecutionAction.java:35)
+	at org.gradle.execution.DryRunBuildExecutionAction.execute(DryRunBuildExecutionAction.java:51)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor$ExecuteTasks.call(BuildOperationFiringBuildWorkerExecutor.java:54)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor$ExecuteTasks.call(BuildOperationFiringBuildWorkerExecutor.java:43)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor.execute(BuildOperationFiringBuildWorkerExecutor.java:40)
+	at org.gradle.internal.build.DefaultBuildLifecycleController.lambda$executeTasks$10(DefaultBuildLifecycleController.java:313)
+	at org.gradle.internal.model.StateTransitionController.doTransition(StateTransitionController.java:266)
+	at org.gradle.internal.model.StateTransitionController.lambda$tryTransition$8(StateTransitionController.java:177)
+	at org.gradle.internal.work.DefaultSynchronizer.withLock(DefaultSynchronizer.java:46)
+	at org.gradle.internal.model.StateTransitionController.tryTransition(StateTransitionController.java:177)
+	at org.gradle.internal.build.DefaultBuildLifecycleController.executeTasks(DefaultBuildLifecycleController.java:304)
+	at org.gradle.internal.build.DefaultBuildWorkGraphController$DefaultBuildWorkGraph.runWork(DefaultBuildWorkGraphController.java:220)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocks(DefaultWorkerLeaseService.java:263)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:127)
+	at org.gradle.composite.internal.DefaultBuildController.doRun(DefaultBuildController.java:181)
+	at org.gradle.composite.internal.DefaultBuildController.access$000(DefaultBuildController.java:50)
+	at org.gradle.composite.internal.DefaultBuildController$BuildOpRunnable.lambda$run$0(DefaultBuildController.java:198)
+	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:85)
+	at org.gradle.composite.internal.DefaultBuildController$BuildOpRunnable.run(DefaultBuildController.java:198)
+	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:64)
+	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:48)
+Caused by: org.gradle.workers.internal.DefaultWorkerExecutor$WorkExecutionException: A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+	at org.gradle.workers.internal.DefaultWorkerExecutor$WorkItemExecution.waitForCompletion(DefaultWorkerExecutor.java:287)
+	at org.gradle.internal.work.DefaultAsyncWorkTracker.lambda$waitForItemsAndGatherFailures$2(DefaultAsyncWorkTracker.java:130)
+	at org.gradle.internal.Factories$1.create(Factories.java:31)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withoutLocks(DefaultWorkerLeaseService.java:335)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withoutLocks(DefaultWorkerLeaseService.java:318)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withoutLock(DefaultWorkerLeaseService.java:323)
+	at org.gradle.internal.work.DefaultAsyncWorkTracker.waitForItemsAndGatherFailures(DefaultAsyncWorkTracker.java:126)
+	at org.gradle.internal.work.DefaultAsyncWorkTracker.waitForItemsAndGatherFailures(DefaultAsyncWorkTracker.java:92)
+	at org.gradle.internal.work.DefaultAsyncWorkTracker.waitForAll(DefaultAsyncWorkTracker.java:78)
+	at org.gradle.internal.work.DefaultAsyncWorkTracker.waitForCompletion(DefaultAsyncWorkTracker.java:66)
+	at org.gradle.api.internal.tasks.execution.TaskExecution$3.run(TaskExecution.java:252)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperationRunner.java:30)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperationRunner.java:27)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.run(DefaultBuildOperationRunner.java:48)
+	at org.gradle.api.internal.tasks.execution.TaskExecution.executeAction(TaskExecution.java:229)
+	at org.gradle.api.internal.tasks.execution.TaskExecution.executeActions(TaskExecution.java:212)
+	at org.gradle.api.internal.tasks.execution.TaskExecution.executeWithPreviousOutputFiles(TaskExecution.java:195)
+	at org.gradle.api.internal.tasks.execution.TaskExecution.execute(TaskExecution.java:162)
+	at org.gradle.internal.execution.steps.ExecuteStep.executeInternal(ExecuteStep.java:105)
+	at org.gradle.internal.execution.steps.ExecuteStep.access$000(ExecuteStep.java:44)
+	at org.gradle.internal.execution.steps.ExecuteStep$1.call(ExecuteStep.java:59)
+	at org.gradle.internal.execution.steps.ExecuteStep$1.call(ExecuteStep.java:56)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+	at org.gradle.internal.execution.steps.ExecuteStep.execute(ExecuteStep.java:56)
+	at org.gradle.internal.execution.steps.ExecuteStep.execute(ExecuteStep.java:44)
+	at org.gradle.internal.execution.steps.CancelExecutionStep.execute(CancelExecutionStep.java:42)
+	at org.gradle.internal.execution.steps.TimeoutStep.executeWithoutTimeout(TimeoutStep.java:75)
+	at org.gradle.internal.execution.steps.TimeoutStep.execute(TimeoutStep.java:55)
+	at org.gradle.internal.execution.steps.PreCreateOutputParentsStep.execute(PreCreateOutputParentsStep.java:50)
+	at org.gradle.internal.execution.steps.PreCreateOutputParentsStep.execute(PreCreateOutputParentsStep.java:28)
+	at org.gradle.internal.execution.steps.RemovePreviousOutputsStep.execute(RemovePreviousOutputsStep.java:67)
+	at org.gradle.internal.execution.steps.RemovePreviousOutputsStep.execute(RemovePreviousOutputsStep.java:37)
+	at org.gradle.internal.execution.steps.BroadcastChangingOutputsStep.execute(BroadcastChangingOutputsStep.java:61)
+	at org.gradle.internal.execution.steps.BroadcastChangingOutputsStep.execute(BroadcastChangingOutputsStep.java:26)
+	at org.gradle.internal.execution.steps.CaptureOutputsAfterExecutionStep.execute(CaptureOutputsAfterExecutionStep.java:69)
+	at org.gradle.internal.execution.steps.CaptureOutputsAfterExecutionStep.execute(CaptureOutputsAfterExecutionStep.java:46)
+	at org.gradle.internal.execution.steps.ResolveInputChangesStep.execute(ResolveInputChangesStep.java:40)
+	at org.gradle.internal.execution.steps.ResolveInputChangesStep.execute(ResolveInputChangesStep.java:29)
+	at org.gradle.internal.execution.steps.BuildCacheStep.executeWithoutCache(BuildCacheStep.java:189)
+	at org.gradle.internal.execution.steps.BuildCacheStep.executeAndStoreInCache(BuildCacheStep.java:145)
+	at org.gradle.internal.execution.steps.BuildCacheStep.lambda$executeWithCache$4(BuildCacheStep.java:101)
+	at org.gradle.internal.execution.steps.BuildCacheStep.lambda$executeWithCache$5(BuildCacheStep.java:101)
+	at org.gradle.internal.Try$Success.map(Try.java:175)
+	at org.gradle.internal.execution.steps.BuildCacheStep.executeWithCache(BuildCacheStep.java:85)
+	at org.gradle.internal.execution.steps.BuildCacheStep.lambda$execute$0(BuildCacheStep.java:74)
+	at org.gradle.internal.Either$Left.fold(Either.java:115)
+	at org.gradle.internal.execution.caching.CachingState.fold(CachingState.java:62)
+	at org.gradle.internal.execution.steps.BuildCacheStep.execute(BuildCacheStep.java:73)
+	at org.gradle.internal.execution.steps.BuildCacheStep.execute(BuildCacheStep.java:48)
+	at org.gradle.internal.execution.steps.StoreExecutionStateStep.execute(StoreExecutionStateStep.java:46)
+	at org.gradle.internal.execution.steps.StoreExecutionStateStep.execute(StoreExecutionStateStep.java:35)
+	at org.gradle.internal.execution.steps.SkipUpToDateStep.executeBecause(SkipUpToDateStep.java:75)
+	at org.gradle.internal.execution.steps.SkipUpToDateStep.lambda$execute$2(SkipUpToDateStep.java:53)
+	at org.gradle.internal.execution.steps.SkipUpToDateStep.execute(SkipUpToDateStep.java:53)
+	at org.gradle.internal.execution.steps.SkipUpToDateStep.execute(SkipUpToDateStep.java:35)
+	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsFinishedStep.execute(MarkSnapshottingInputsFinishedStep.java:37)
+	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsFinishedStep.execute(MarkSnapshottingInputsFinishedStep.java:27)
+	at org.gradle.internal.execution.steps.ResolveIncrementalCachingStateStep.executeDelegate(ResolveIncrementalCachingStateStep.java:49)
+	at org.gradle.internal.execution.steps.ResolveIncrementalCachingStateStep.executeDelegate(ResolveIncrementalCachingStateStep.java:27)
+	at org.gradle.internal.execution.steps.AbstractResolveCachingStateStep.execute(AbstractResolveCachingStateStep.java:71)
+	at org.gradle.internal.execution.steps.AbstractResolveCachingStateStep.execute(AbstractResolveCachingStateStep.java:39)
+	at org.gradle.internal.execution.steps.ResolveChangesStep.execute(ResolveChangesStep.java:65)
+	at org.gradle.internal.execution.steps.ResolveChangesStep.execute(ResolveChangesStep.java:36)
+	at org.gradle.internal.execution.steps.ValidateStep.execute(ValidateStep.java:107)
+	at org.gradle.internal.execution.steps.ValidateStep.execute(ValidateStep.java:56)
+	at org.gradle.internal.execution.steps.AbstractCaptureStateBeforeExecutionStep.execute(AbstractCaptureStateBeforeExecutionStep.java:64)
+	at org.gradle.internal.execution.steps.AbstractCaptureStateBeforeExecutionStep.execute(AbstractCaptureStateBeforeExecutionStep.java:43)
+	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.executeWithNonEmptySources(AbstractSkipEmptyWorkStep.java:125)
+	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.execute(AbstractSkipEmptyWorkStep.java:61)
+	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.execute(AbstractSkipEmptyWorkStep.java:36)
+	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsStartedStep.execute(MarkSnapshottingInputsStartedStep.java:38)
+	at org.gradle.internal.execution.steps.LoadPreviousExecutionStateStep.execute(LoadPreviousExecutionStateStep.java:36)
+	at org.gradle.internal.execution.steps.LoadPreviousExecutionStateStep.execute(LoadPreviousExecutionStateStep.java:23)
+	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.execute(HandleStaleOutputsStep.java:75)
+	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.execute(HandleStaleOutputsStep.java:41)
+	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.lambda$execute$0(AssignMutableWorkspaceStep.java:35)
+	at org.gradle.api.internal.tasks.execution.TaskExecution$4.withWorkspace(TaskExecution.java:289)
+	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.execute(AssignMutableWorkspaceStep.java:31)
+	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.execute(AssignMutableWorkspaceStep.java:22)
+	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:40)
+	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:23)
+	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.lambda$execute$2(ExecuteWorkBuildOperationFiringStep.java:67)
+	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:67)
+	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:39)
+	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:46)
+	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:34)
+	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:48)
+	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:35)
+	at org.gradle.internal.execution.impl.DefaultExecutionEngine$1.execute(DefaultExecutionEngine.java:61)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:127)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.execute(ExecuteActionsTaskExecuter.java:116)
+	at org.gradle.api.internal.tasks.execution.ProblemsTaskPathTrackingTaskExecuter.execute(ProblemsTaskPathTrackingTaskExecuter.java:40)
+	at org.gradle.api.internal.tasks.execution.FinalizePropertiesTaskExecuter.execute(FinalizePropertiesTaskExecuter.java:46)
+	at org.gradle.api.internal.tasks.execution.ResolveTaskExecutionModeExecuter.execute(ResolveTaskExecutionModeExecuter.java:51)
+	at org.gradle.api.internal.tasks.execution.SkipTaskWithNoActionsExecuter.execute(SkipTaskWithNoActionsExecuter.java:57)
+	at org.gradle.api.internal.tasks.execution.SkipOnlyIfTaskExecuter.execute(SkipOnlyIfTaskExecuter.java:74)
+	at org.gradle.api.internal.tasks.execution.CatchExceptionTaskExecuter.execute(CatchExceptionTaskExecuter.java:36)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.executeTask(EventFiringTaskExecuter.java:77)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:55)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:52)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter.execute(EventFiringTaskExecuter.java:52)
+	at org.gradle.execution.plan.LocalTaskNodeExecutor.execute(LocalTaskNodeExecutor.java:42)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:331)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:318)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.lambda$execute$0(DefaultTaskExecutionGraph.java:314)
+	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:85)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:314)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:303)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.execute(DefaultPlanExecutor.java:459)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.run(DefaultPlanExecutor.java:376)
+	at org.gradle.execution.plan.DefaultPlanExecutor.process(DefaultPlanExecutor.java:111)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph.executeWithServices(DefaultTaskExecutionGraph.java:138)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph.execute(DefaultTaskExecutionGraph.java:123)
+	at org.gradle.execution.SelectedTaskExecutionAction.execute(SelectedTaskExecutionAction.java:35)
+	at org.gradle.execution.DryRunBuildExecutionAction.execute(DryRunBuildExecutionAction.java:51)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor$ExecuteTasks.call(BuildOperationFiringBuildWorkerExecutor.java:54)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor$ExecuteTasks.call(BuildOperationFiringBuildWorkerExecutor.java:43)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor.execute(BuildOperationFiringBuildWorkerExecutor.java:40)
+	at org.gradle.internal.build.DefaultBuildLifecycleController.lambda$executeTasks$10(DefaultBuildLifecycleController.java:313)
+	at org.gradle.internal.model.StateTransitionController.doTransition(StateTransitionController.java:266)
+	at org.gradle.internal.model.StateTransitionController.lambda$tryTransition$8(StateTransitionController.java:177)
+	at org.gradle.internal.work.DefaultSynchronizer.withLock(DefaultSynchronizer.java:46)
+	at org.gradle.internal.model.StateTransitionController.tryTransition(StateTransitionController.java:177)
+	at org.gradle.internal.build.DefaultBuildLifecycleController.executeTasks(DefaultBuildLifecycleController.java:304)
+	at org.gradle.internal.build.DefaultBuildWorkGraphController$DefaultBuildWorkGraph.runWork(DefaultBuildWorkGraphController.java:220)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocks(DefaultWorkerLeaseService.java:263)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:127)
+	at org.gradle.composite.internal.DefaultBuildController.doRun(DefaultBuildController.java:181)
+	at org.gradle.composite.internal.DefaultBuildController.access$000(DefaultBuildController.java:50)
+	at org.gradle.composite.internal.DefaultBuildController$BuildOpRunnable.lambda$run$0(DefaultBuildController.java:198)
+	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:85)
+	at org.gradle.composite.internal.DefaultBuildController$BuildOpRunnable.run(DefaultBuildController.java:198)
+	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:64)
+	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:48)
+Caused by: org.jetbrains.kotlin.gradle.tasks.CompilationErrorException: Compilation error. See log for more details
+	at org.jetbrains.kotlin.gradle.tasks.TasksUtilsKt.throwExceptionIfCompilationFailed(tasksUtils.kt:21)
+	at org.jetbrains.kotlin.compilerRunner.GradleKotlinCompilerWork.run(GradleKotlinCompilerWork.kt:115)
+	at org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction.execute(GradleCompilerRunnerWithWorkers.kt:74)
+	at org.gradle.workers.internal.DefaultWorkerServer.execute(DefaultWorkerServer.java:63)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1$1.create(NoIsolationWorkerFactory.java:66)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1$1.create(NoIsolationWorkerFactory.java:62)
+	at org.gradle.internal.classloader.ClassLoaderUtils.executeInClassloader(ClassLoaderUtils.java:100)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1.lambda$execute$0(NoIsolationWorkerFactory.java:62)
+	at org.gradle.workers.internal.AbstractWorker$1.call(AbstractWorker.java:44)
+	at org.gradle.workers.internal.AbstractWorker$1.call(AbstractWorker.java:41)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+	at org.gradle.workers.internal.AbstractWorker.executeWrappedInBuildOperation(AbstractWorker.java:41)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1.execute(NoIsolationWorkerFactory.java:59)
+	at org.gradle.workers.internal.DefaultWorkerExecutor.lambda$submitWork$0(DefaultWorkerExecutor.java:174)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.runExecution(DefaultConditionalExecutionQueue.java:194)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.access$700(DefaultConditionalExecutionQueue.java:127)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner$1.run(DefaultConditionalExecutionQueue.java:169)
+	at org.gradle.internal.Factories$1.create(Factories.java:31)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocks(DefaultWorkerLeaseService.java:263)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:127)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:132)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.runBatch(DefaultConditionalExecutionQueue.java:164)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.run(DefaultConditionalExecutionQueue.java:133)
+	... 2 more

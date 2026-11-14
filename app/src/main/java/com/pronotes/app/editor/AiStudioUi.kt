@@ -1071,12 +1071,11 @@ fun AiAssetStudioDialog(
                             fontWeight = FontWeight.Bold,
                         )
                     }
-                }
+                    }
                 }
             }
+            }
         }
-    }
-    }
     }
 }
 

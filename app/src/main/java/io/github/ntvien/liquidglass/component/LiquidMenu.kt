@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -103,45 +105,69 @@ public class LiquidMenuItem(
     public val icon: ImageVector? = null,
     public val destructive: Boolean = false,
     public val enabled: Boolean = true,
+    public val leadingContent: (@Composable () -> Unit)? = null,
     public val onClick: () -> Unit,
-) : LiquidMenuEntry
+) : LiquidMenuEntry {
+    public constructor(
+        label: String,
+        icon: @Composable () -> Unit,
+        isDestructive: Boolean = false,
+        enabled: Boolean = true,
+        onClick: () -> Unit,
+    ) : this(
+        label = label,
+        icon = null,
+        destructive = isDestructive,
+        enabled = enabled,
+        leadingContent = icon,
+        onClick = onClick,
+    )
+
+    public constructor(
+        label: String,
+        isDestructive: Boolean,
+        enabled: Boolean = true,
+        onClick: () -> Unit,
+    ) : this(
+        label = label,
+        icon = null,
+        destructive = isDestructive,
+        enabled = enabled,
+        leadingContent = null,
+        onClick = onClick,
+    )
+}
 
 /** A thin line between groups of [LiquidMenuItem]s. */
 public object LiquidMenuDivider : LiquidMenuEntry
 
-/**
- * A glass button that opens a liquid-glass menu, iOS 26 style.
- *
- * - The menu grows out of the button like a water droplet: it morphs from the button's frame to the menu's frame on a
- *   bouncy spring, overshoots a little and settles. Items fade in one after another.
- * - Choose by tapping an item, or press the button and drag the finger onto an item and release (a light haptic tick on
- *   every item passed). Dragging inside the open menu works the same way.
- * - Closes by tapping outside, by system Back, or after choosing; it shrinks back into the button.
- * - Opens below the button, or above it when there is no room; aligned to the side of the screen the button is on.
- *
- * Draws inside the nearest [io.github.ntvien.liquidglass.LiquidGlassScene] (above the tab bar) so the menu is real
- * glass. Outside a scene it opens in a popup with the frosted look.
- *
- * ```
- * LiquidMenuButton(
- *     items = listOf(
- *         LiquidMenuItem("Rename", editIcon) { rename() },
- *         LiquidMenuItem("Share", shareIcon) { share() },
- *         LiquidMenuDivider,
- *         LiquidMenuItem("Delete", trashIcon, destructive = true) { delete() },
- *     ),
- *     contentDescription = "More",
- * ) { Image(moreIcon, contentDescription = null) }
- * ```
- *
- * @param items menu entries, top to bottom.
- * @param contentDescription accessibility label of the button (e.g. "More").
- * @param style glass of the button (default [GlassDefaults.control]).
- * @param shape shape of the button (default [GlassDefaults.PillShape]).
- * @param menuWidth width of the open menu.
- * @param textStyle item label style; colors come from [LiquidGlassTheme.colors].
- * @param content the button face, usually a 20–24 dp icon. Give the button a size of at least 44 dp.
- */
+@Composable
+public fun LiquidMenuButton(
+    items: List<LiquidMenuEntry>,
+    modifier: Modifier = Modifier,
+    style: GlassStyle = GlassDefaults.control(),
+    shape: Shape = GlassDefaults.PillShape,
+    contentPadding: PaddingValues = PaddingValues(8.dp),
+    menuWidth: Dp = 250.dp,
+    contentDescription: String = "Menu",
+    buttonContent: @Composable RowScope.() -> Unit,
+) {
+    LiquidMenuButton(
+        items = items,
+        contentDescription = contentDescription,
+        modifier = modifier,
+        style = style,
+        shape = shape,
+        menuWidth = menuWidth,
+    ) {
+        Row(
+            modifier = Modifier.padding(contentPadding),
+            verticalAlignment = Alignment.CenterVertically,
+            content = buttonContent,
+        )
+    }
+}
+
 @Composable
 public fun LiquidMenuButton(
     items: List<LiquidMenuEntry>,
@@ -356,7 +382,11 @@ private fun MenuItems(state: LiquidMenuState, textStyle: TextStyle) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        if (entry.icon != null) GlassIcon(entry.icon, color, size = 20.dp)
+                        if (entry.icon != null) {
+                            GlassIcon(entry.icon, color, size = 20.dp)
+                        } else if (entry.leadingContent != null) {
+                            entry.leadingContent.invoke()
+                        }
                         BasicText(
                             entry.label,
                             style = textStyle.copy(color = color),

@@ -1067,30 +1067,32 @@ private fun TopBar(
         }
         if (vm.pages.isNotEmpty()) {
             LiquidGlassPill(contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp)) {
-                IconButton(onClick = { vm.goToPage(vm.pageIndex - 1) }, enabled = vm.pageIndex > 0, modifier = Modifier.size(30.dp)) {
-                    Icon(Icons.Filled.KeyboardArrowUp, "Previous page", Modifier.size(16.dp).graphicsLayer { rotationZ = -90f })
-                }
-                Row(
-                    Modifier.clip(Pill).clickable(onClick = onGoTo).padding(horizontal = 6.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (vm.currentPage?.bookmarked == true) {
-                        ProIconView(ProIcon.BOOKMARK, Color(0xFFE34948), Modifier.size(12.dp), ink = Color(0xFFE34948))
-                        Spacer(Modifier.width(3.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { vm.goToPage(vm.pageIndex - 1) }, enabled = vm.pageIndex > 0, modifier = Modifier.size(30.dp)) {
+                        Icon(Icons.Filled.KeyboardArrowUp, "Previous page", Modifier.size(16.dp).graphicsLayer { rotationZ = -90f })
                     }
-                    Text(
-                        if (vm.currentPage?.isWhiteboard == true) "Board" else "${vm.pageIndex + 1}/${vm.pages.size}",
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                }
-                IconButton(onClick = { vm.goToPage(vm.pageIndex + 1) }, enabled = vm.pageIndex < vm.pages.size - 1, modifier = Modifier.size(30.dp)) {
-                    Icon(Icons.Filled.KeyboardArrowUp, "Next page", Modifier.size(16.dp).graphicsLayer { rotationZ = 90f })
+                    Row(
+                        Modifier.clip(Pill).clickable(onClick = onGoTo).padding(horizontal = 6.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (vm.currentPage?.bookmarked == true) {
+                            ProIconView(ProIcon.BOOKMARK, Color(0xFFE34948), Modifier.size(12.dp), ink = Color(0xFFE34948))
+                            Spacer(Modifier.width(3.dp))
+                        }
+                        Text(
+                            if (vm.currentPage?.isWhiteboard == true) "Board" else "${vm.pageIndex + 1}/${vm.pages.size}",
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                    IconButton(onClick = { vm.goToPage(vm.pageIndex + 1) }, enabled = vm.pageIndex < vm.pages.size - 1, modifier = Modifier.size(30.dp)) {
+                        Icon(Icons.Filled.KeyboardArrowUp, "Next page", Modifier.size(16.dp).graphicsLayer { rotationZ = 90f })
+                    }
                 }
             }
             Spacer(Modifier.width(4.dp))
         }
         LiquidMenuButton(
-            style = LiquidGlassTheme.styles.subtle,
+            style = GlassDefaults.control(),
             contentPadding = PaddingValues(8.dp),
             buttonContent = { ProIconView(ProIcon.ADD, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) },
             items = listOf(
@@ -1101,7 +1103,7 @@ private fun TopBar(
             ),
         )
         LiquidMenuButton(
-            style = LiquidGlassTheme.styles.subtle,
+            style = GlassDefaults.control(),
             contentPadding = PaddingValues(8.dp),
             buttonContent = { ProIconView(ProIcon.SHARE, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) },
             items = listOf(
@@ -1142,7 +1144,7 @@ private fun TopBar(
             add(LiquidMenuItem("Settings", icon = { ProIconView(ProIcon.SETTINGS, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) { onSettings() })
         }
         LiquidMenuButton(
-            style = LiquidGlassTheme.styles.subtle,
+            style = GlassDefaults.control(),
             contentPadding = PaddingValues(8.dp),
             buttonContent = { ProIconView(ProIcon.MORE, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) },
             items = moreEntries,
@@ -1200,7 +1202,7 @@ private fun SearchBar(vm: EditorViewModel) {
 @Composable
 private fun PagesPanel(vm: EditorViewModel, onJump: (Int) -> Unit, onClose: () -> Unit) {
     var tab by remember { mutableIntStateOf(0) }
-    LiquidSurface(style = LiquidGlassTheme.styles.frost, shape = RoundedCornerShape(0.dp), modifier = Modifier.width(200.dp).fillMaxHeight()) {
+    LiquidSurface(style = GlassDefaults.frost(), shape = RoundedCornerShape(0.dp), modifier = Modifier.width(200.dp).fillMaxHeight()) {
         Column {
             Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Pages", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
@@ -1609,7 +1611,7 @@ private fun ToolButton(
             }
             Popup(alignment = align, offset = off, properties = PopupProperties(focusable = false)) {
                 LiquidSurface(
-                    style = LiquidGlassTheme.styles.frost,
+                    style = GlassDefaults.frost(),
                     shape = Pill,
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
                 ) {
@@ -2319,7 +2321,7 @@ private fun TextDialog(vm: EditorViewModel, edit: EditorViewModel.TextEdit) {
                 OutlinedTextField(text, { text = it }, minLines = 3, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     LiquidMenuButton(
-                        style = LiquidGlassTheme.styles.subtle,
+                        style = GlassDefaults.control(),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                         buttonContent = {
                             Text(style.font.label, style = MaterialTheme.typography.labelLarge)
@@ -2407,19 +2409,21 @@ private fun SelectionMenu(
                 // Link button
                 LiquidGlassPill(
                     onClick = { vm.startLinkFromSelection() },
-                    style = LiquidGlassTheme.styles.tinted(MaterialTheme.colorScheme.primary),
+                    style = GlassDefaults.accent(),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                     modifier = Modifier.padding(4.dp).elasticStretch(),
                 ) {
-                    Icon(Icons.Outlined.Link, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Link", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.Link, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Link", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary)
+                    }
                 }
                 // Linked content: a red Unlink right next to it.
                 if (vm.selectionLinks().isNotEmpty()) {
                     LiquidGlassPill(
                         onClick = { vm.unlinkSelection() },
-                        style = LiquidGlassTheme.styles.tinted(Color(0xFFE5484D)),
+                        style = GlassDefaults.accent().copy(surface = Color(0xFFE5484D), fallbackSurface = Color(0xFFE5484D)),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                         modifier = Modifier.padding(4.dp).elasticStretch(),
                     ) {
@@ -2432,7 +2436,7 @@ private fun SelectionMenu(
                 IconButton(onClick = { colors = true }, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.Palette, "Colour") }
                 IconButton(onClick = { keep { vm.rotateSelection(90f) } }, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.RotateRight, "Rotate 90°") }
                 LiquidMenuButton(
-                    style = LiquidGlassTheme.styles.subtle,
+                    style = GlassDefaults.control(),
                     contentPadding = PaddingValues(8.dp),
                     buttonContent = { ProIconView(ProIcon.MORE, fg, Modifier.size(22.dp)) },
                     items = listOf(
@@ -2757,7 +2761,7 @@ private fun SplitPanel(
         ) {
             Box(Modifier.weight(1f)) {
                 LiquidMenuButton(
-                    style = LiquidGlassTheme.styles.subtle,
+                    style = GlassDefaults.control(),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
                     buttonContent = {
                         Icon(Icons.Outlined.MenuBook, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
@@ -2791,23 +2795,25 @@ private fun SplitPanel(
             // Write / Read Mode Toggle
             LiquidGlassPill(
                 onClick = { writeMode = !writeMode },
-                style = if (writeMode) LiquidGlassTheme.styles.tinted(MaterialTheme.colorScheme.primary) else LiquidGlassTheme.styles.subtle,
+                style = if (writeMode) GlassDefaults.accent() else GlassDefaults.control(),
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
                 modifier = Modifier.elasticStretch(),
             ) {
-                Icon(
-                    if (writeMode) Icons.Outlined.Brush else Icons.Outlined.MenuBook,
-                    null,
-                    Modifier.size(13.dp),
-                    tint = if (writeMode) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.width(4.dp))
-                Text(
-                    if (writeMode) "Write" else "Read",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = if (writeMode) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        if (writeMode) Icons.Outlined.Brush else Icons.Outlined.MenuBook,
+                        null,
+                        Modifier.size(13.dp),
+                        tint = if (writeMode) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        if (writeMode) "Write" else "Read",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (writeMode) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                    )
+                }
             }
 
             if (writeMode) {
@@ -2821,7 +2827,7 @@ private fun SplitPanel(
             }
 
             LiquidMenuButton(
-                style = LiquidGlassTheme.styles.subtle,
+                style = GlassDefaults.control(),
                 contentPadding = PaddingValues(6.dp),
                 buttonContent = { Icon(Icons.Outlined.MoreHoriz, "Split Options", Modifier.size(18.dp)) },
                 items = listOf(

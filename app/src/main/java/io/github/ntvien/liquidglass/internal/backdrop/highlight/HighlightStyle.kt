@@ -14,7 +14,6 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.util.fastCoerceAtMost
-import com.kyant.shapes.RoundedRectangularShape
 import io.github.ntvien.liquidglass.internal.backdrop.RuntimeShader
 import io.github.ntvien.liquidglass.internal.backdrop.RuntimeShaderCache
 import io.github.ntvien.liquidglass.internal.backdrop.internal.AmbientHighlightShaderString
@@ -120,12 +119,6 @@ internal interface HighlightStyle {
 private fun DrawScope.getCornerRadii(shape: Shape): FloatArray {
     val size = size
     val maxRadius = size.minDimension / 2f
-    // Continuous corners (RoundedRectangle, Capsule) are not CornerBasedShape: read their radii like effects/Lens.kt does,
-    // instead of treating them as a capsule (wrong rim on tall cards).
-    if (shape is RoundedRectangularShape) {
-        val corners = shape.corners(size, layoutDirection, this)
-        return floatArrayOf(corners.topLeft, corners.topRight, corners.bottomRight, corners.bottomLeft)
-    }
     val shape = shape as? CornerBasedShape ?: return FloatArray(4) { maxRadius }
     val isLtr = layoutDirection == LayoutDirection.Ltr
     val topLeft =

@@ -8,8 +8,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.kyant.shapes.Capsule
-import com.kyant.shapes.RoundedRectangle
 
 /** Kind of glass. */
 public enum class GlassKind {
@@ -203,8 +201,8 @@ public object GlassDefaults {
      * Drawn with a path, so it costs more than [CardShape]: use it for a few large blocks per screen, never for list
      * rows, chips or other repeated items.
      */
-    public val ContinuousCardShape: Shape = RoundedRectangle(24.dp)
+    public val ContinuousCardShape: Shape = RoundedCornerShape(24.dp)
 
     /** iOS-style continuous capsule: the tab bar and its droplet. Same cost rule as [ContinuousCardShape]. */
-    public val ContinuousPillShape: Shape = Capsule()
+    public val ContinuousPillShape: Shape = RoundedCornerShape(percent = 50)
 }

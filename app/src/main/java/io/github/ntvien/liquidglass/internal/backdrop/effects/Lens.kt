@@ -15,7 +15,6 @@ import io.github.ntvien.liquidglass.internal.backdrop.internal.RoundedRectRefrac
 import io.github.ntvien.liquidglass.internal.backdrop.internal.RoundedRectRefractionWithDispersionShaderString
 import io.github.ntvien.liquidglass.internal.backdrop.internal.RuntimeShaderEffect
 import io.github.ntvien.liquidglass.internal.backdrop.isRuntimeShaderSupported
-import com.kyant.shapes.RoundedRectangularShape
 
 internal fun BackdropEffectScope.lens(
     @FloatRange(from = 0.0) refractionHeight: Float,
@@ -68,16 +67,6 @@ internal fun BackdropEffectScope.lens(
 
 private val BackdropEffectScope.cornerRadii: FloatArray?
     get() = when (val shape = shape) {
-        is RoundedRectangularShape -> {
-            val corners = shape.corners(size, layoutDirection, this)
-            floatArrayOf(
-                corners.topLeft,
-                corners.topRight,
-                corners.bottomRight,
-                corners.bottomLeft
-            )
-        }
-
         is AbsoluteRoundedCornerShape -> {
             val size = size
             val maxRadius = size.minDimension / 2f

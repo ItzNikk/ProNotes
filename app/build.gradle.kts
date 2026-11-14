@@ -88,6 +88,7 @@ android {
 kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)
+        freeCompilerArgs.add("-Xcontext-parameters")
     }
 }
 
@@ -129,6 +130,4 @@ dependencies {
     implementation("com.github.skydoves:colorpicker-compose:1.1.2")
     // PDF text extraction for in-document search.
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
-    // Official Kyant0 AndroidLiquidGlass Backdrop library for real-time optical refraction.
-    implementation("io.github.kyant0:backdrop:1.0.2")
 }

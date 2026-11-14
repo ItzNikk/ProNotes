@@ -479,11 +479,11 @@ fun LiquidGlassCard(
 fun LiquidGlassPill(
     modifier: Modifier = Modifier,
     selected: Boolean = false,
+    style: GlassStyle = if (selected) GlassDefaults.accent() else GlassDefaults.frost(),
     onClick: (() -> Unit)? = null,
     contentPadding: PaddingValues = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val style = if (selected) GlassDefaults.accent() else GlassDefaults.frost()
     LiquidSurface(
         modifier = modifier,
         style = style,
@@ -672,6 +672,8 @@ fun LiquidContextMenu(
                             ) {
                                 if (entry.icon != null) {
                                     Icon(entry.icon, null, tint = fg, modifier = Modifier.size(20.dp))
+                                } else if (entry.leadingContent != null) {
+                                    entry.leadingContent.invoke()
                                 }
                                 Text(
                                     entry.label,
