@@ -2402,7 +2402,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         beginEdit(pageIndex)
         pages[pageIndex] = p.copy(items = p.items + item)
         onPagesChanged?.invoke()
-        savePage(pageIndex)
+        scheduleSave()
         toast = "Added Writing Box"
     }
 
@@ -2420,7 +2420,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             pages[pageIndex] = p.copy(items = p.items.map { if (it.id == writeBox.id) updated else it })
             onPagesChanged?.invoke()
             onRedraw?.invoke()
-            savePage(pageIndex)
+            scheduleSave()
             toast = "Restored handwritten ink"
         } else {
             // Convert ink inside the ruled box to typed text line-by-line
@@ -2469,7 +2469,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                     pages[pageIndex] = p.copy(items = p.items.map { if (it.id == writeBox.id) updated else it })
                     onPagesChanged?.invoke()
                     onRedraw?.invoke()
-                    savePage(pageIndex)
+                    scheduleSave()
                     toast = "Converted to text · Double-tap again to restore ink"
                 } finally {
                     aiBusy = false
