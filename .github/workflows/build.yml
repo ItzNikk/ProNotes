@@ -147,8 +147,9 @@ jobs:
           workspaces: src-tauri
 
       - name: Install frontend dependencies & build web bundle
+        shell: bash
         run: |
-          npm ci
+          npm ci || npm install --no-audit --no-fund
           npm run build
 
       - name: Build Tauri Windows NSIS Installer

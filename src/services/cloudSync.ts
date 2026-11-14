@@ -1,16 +1,4 @@
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  onSnapshot,
-  orderBy,
-  query,
-  setDoc,
-  Unsubscribe,
-} from 'firebase/firestore';
-import { db, handleFirestoreError, isFirebaseConfigured, OperationType, User } from '../firebase';
+import { User } from '../firebase';
 import {
   AppSettings,
   CollabChatMessage,
@@ -23,6 +11,8 @@ import {
   PaperStyle,
 } from '../types/models';
 
+export type Unsubscribe = () => void;
+
 const COLLAB_COLORS = ['#3D6CF4', '#E11D48', '#0F7E5C', '#7C3AED', '#D97706', '#0EA5E9'];
 const FREE_RELAY_BASE = 'https://ntfy.sh';
 
@@ -31,7 +21,7 @@ function memberColorForUid(uid: string): string {
   return COLLAB_COLORS[Math.abs(hash) % COLLAB_COLORS.length];
 }
 
-function sanitizeForFirestore<T>(val: T): T {
+function sanitizeForCloud<T>(val: T): T {
   return JSON.parse(
     JSON.stringify(val, (_key, v) => (v === undefined ? null : v))
   ) as T;
@@ -39,7 +29,7 @@ function sanitizeForFirestore<T>(val: T): T {
 
 function compactNotebookForCloud(nb: NotebookMeta): NotebookMeta {
   const raw = JSON.stringify(nb);
-  if (raw.length < 850_000) return sanitizeForFirestore(nb);
+  if (raw.length < 850_000) return sanitizeForCloud(nb);
   const trimmedPages = nb.pages.map((p) => ({
     ...p,
     cover: p.cover && p.cover.length > 180_000 ? null : p.cover,
@@ -50,7 +40,7 @@ function compactNotebookForCloud(nb: NotebookMeta): NotebookMeta {
       return it;
     }),
   }));
-  return sanitizeForFirestore({ ...nb, pages: trimmedPages });
+  return sanitizeForCloud({ ...nb, pages: trimmedPages });
 }
 
 function freeVaultKey(uid: string, suffix: string): string {
@@ -79,62 +69,31 @@ async function postFreeRelay(topic: string, payload: unknown): Promise<void> {
 }
 
 export async function syncUserProfileToCloud(user: User): Promise<void> {
-  if (!isFirebaseConfigured) {
-    try {
-      localStorage.setItem(
-        freeVaultKey(user.uid, 'profile'),
-        JSON.stringify({
-          uid: user.uid,
-          displayName: user.displayName || 'Pro Notes User',
-          photoURL: user.photoURL || '',
-          email: user.email || '',
-          updatedAt: Date.now(),
-        })
-      );
-    } catch {
-      // ignore
-    }
-    return;
-  }
-  const path = `users/${user.uid}`;
   try {
-    await setDoc(
-      doc(db, 'users', user.uid),
-      {
+    localStorage.setItem(
+      freeVaultKey(user.uid, 'profile'),
+      JSON.stringify({
         uid: user.uid,
         displayName: user.displayName || 'Pro Notes User',
         photoURL: user.photoURL || '',
         email: user.email || '',
         updatedAt: Date.now(),
-      },
-      { merge: true }
+      })
     );
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
+  } catch {
+    // ignore
   }
 }
 
 export async function pushSettingsToCloud(uid: string, settings: AppSettings): Promise<void> {
-  const safeSettings = sanitizeForFirestore({
+  const safeSettings = sanitizeForCloud({
     ...settings,
     customAiApiKey: '',
   });
-  if (!isFirebaseConfigured) {
-    try {
-      localStorage.setItem(freeVaultKey(uid, 'settings'), JSON.stringify(safeSettings));
-    } catch {
-      // ignore
-    }
-    return;
-  }
-  const path = `users/${uid}/preferences/main`;
   try {
-    await setDoc(doc(db, 'users', uid, 'preferences', 'main'), {
-      updatedAt: Date.now(),
-      data: safeSettings,
-    });
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
+    localStorage.setItem(freeVaultKey(uid, 'settings'), JSON.stringify(safeSettings));
+  } catch {
+    // ignore
   }
 }
 
@@ -143,77 +102,36 @@ export async function pushLibraryListsToCloud(
   folders: Folder[],
   flashcards: Flashcard[]
 ): Promise<void> {
-  if (!isFirebaseConfigured) {
-    try {
-      localStorage.setItem(freeVaultKey(uid, 'folders'), JSON.stringify(folders));
-      localStorage.setItem(freeVaultKey(uid, 'flashcards'), JSON.stringify(flashcards));
-    } catch {
-      // ignore
-    }
-    return;
-  }
   try {
-    await setDoc(doc(db, 'users', uid, 'library', 'folders'), {
-      updatedAt: Date.now(),
-      items: sanitizeForFirestore(folders),
-    });
-    await setDoc(doc(db, 'users', uid, 'library', 'flashcards'), {
-      updatedAt: Date.now(),
-      items: sanitizeForFirestore(flashcards),
-    });
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, `users/${uid}/library`);
+    localStorage.setItem(freeVaultKey(uid, 'folders'), JSON.stringify(folders));
+    localStorage.setItem(freeVaultKey(uid, 'flashcards'), JSON.stringify(flashcards));
+  } catch {
+    // ignore
   }
 }
 
 export async function pushNotebookToCloud(uid: string, nb: NotebookMeta): Promise<void> {
   const compacted = compactNotebookForCloud(nb);
-  if (!isFirebaseConfigured) {
-    try {
-      const existingRaw = localStorage.getItem(freeVaultKey(uid, 'notebooks'));
-      const map: Record<string, NotebookMeta> = existingRaw ? JSON.parse(existingRaw) : {};
-      map[nb.id] = compacted;
-      localStorage.setItem(freeVaultKey(uid, 'notebooks'), JSON.stringify(map));
-    } catch {
-      // ignore
-    }
-    return;
-  }
-  const path = `users/${uid}/notebooks/${nb.id}`;
   try {
-    await setDoc(doc(db, 'users', uid, 'notebooks', nb.id), {
-      id: nb.id,
-      title: nb.title.slice(0, 280),
-      folderId: nb.folderId || '',
-      modified: nb.modified,
-      updatedAt: Date.now(),
-      deleted: nb.deletedAt !== null,
-      payload: compacted,
-    });
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
+    const existingRaw = localStorage.getItem(freeVaultKey(uid, 'notebooks'));
+    const map: Record<string, NotebookMeta> = existingRaw ? JSON.parse(existingRaw) : {};
+    map[nb.id] = compacted;
+    localStorage.setItem(freeVaultKey(uid, 'notebooks'), JSON.stringify(map));
+  } catch {
+    // ignore
   }
 }
 
 export async function deleteNotebookFromCloud(uid: string, notebookId: string): Promise<void> {
-  if (!isFirebaseConfigured) {
-    try {
-      const existingRaw = localStorage.getItem(freeVaultKey(uid, 'notebooks'));
-      if (existingRaw) {
-        const map: Record<string, NotebookMeta> = JSON.parse(existingRaw);
-        delete map[notebookId];
-        localStorage.setItem(freeVaultKey(uid, 'notebooks'), JSON.stringify(map));
-      }
-    } catch {
-      // ignore
-    }
-    return;
-  }
-  const path = `users/${uid}/notebooks/${notebookId}`;
   try {
-    await deleteDoc(doc(db, 'users', uid, 'notebooks', notebookId));
-  } catch (err) {
-    handleFirestoreError(err, OperationType.DELETE, path);
+    const existingRaw = localStorage.getItem(freeVaultKey(uid, 'notebooks'));
+    if (existingRaw) {
+      const map: Record<string, NotebookMeta> = JSON.parse(existingRaw);
+      delete map[notebookId];
+      localStorage.setItem(freeVaultKey(uid, 'notebooks'), JSON.stringify(map));
+    }
+  } catch {
+    // ignore
   }
 }
 
@@ -223,78 +141,25 @@ export async function pullFullCloudLibrary(uid: string): Promise<{
   flashcards: Flashcard[];
   notebooks: NotebookMeta[];
 }> {
-  if (!isFirebaseConfigured) {
-    try {
-      const sRaw = localStorage.getItem(freeVaultKey(uid, 'settings'));
-      const fRaw = localStorage.getItem(freeVaultKey(uid, 'folders'));
-      const fcRaw = localStorage.getItem(freeVaultKey(uid, 'flashcards'));
-      const nbRaw = localStorage.getItem(freeVaultKey(uid, 'notebooks'));
-      const nbMap: Record<string, NotebookMeta> = nbRaw ? JSON.parse(nbRaw) : {};
-      return {
-        settingsPatch: sRaw ? (JSON.parse(sRaw) as Partial<AppSettings>) : null,
-        folders: fRaw ? (JSON.parse(fRaw) as Folder[]) : [],
-        flashcards: fcRaw ? (JSON.parse(fcRaw) as Flashcard[]) : [],
-        notebooks: Object.values(nbMap),
-      };
-    } catch {
-      return { settingsPatch: null, folders: [], flashcards: [], notebooks: [] };
-    }
-  }
-
-  let settingsPatch: Partial<AppSettings> | null = null;
-  let folders: Folder[] = [];
-  let flashcards: Flashcard[] = [];
-  const notebooks: NotebookMeta[] = [];
-
   try {
-    const prefSnap = await getDoc(doc(db, 'users', uid, 'preferences', 'main'));
-    if (prefSnap.exists()) {
-      const data = prefSnap.data()?.data;
-      if (data && typeof data === 'object') {
-        settingsPatch = data as Partial<AppSettings>;
-      }
-    }
-  } catch (err) {
-    handleFirestoreError(err, OperationType.GET, `users/${uid}/preferences/main`);
+    const sRaw = localStorage.getItem(freeVaultKey(uid, 'settings'));
+    const fRaw = localStorage.getItem(freeVaultKey(uid, 'folders'));
+    const fcRaw = localStorage.getItem(freeVaultKey(uid, 'flashcards'));
+    const nbRaw = localStorage.getItem(freeVaultKey(uid, 'notebooks'));
+    const nbMap: Record<string, NotebookMeta> = nbRaw ? JSON.parse(nbRaw) : {};
+    return {
+      settingsPatch: sRaw ? (JSON.parse(sRaw) as Partial<AppSettings>) : null,
+      folders: fRaw ? (JSON.parse(fRaw) as Folder[]) : [],
+      flashcards: fcRaw ? (JSON.parse(fcRaw) as Flashcard[]) : [],
+      notebooks: Object.values(nbMap),
+    };
+  } catch {
+    return { settingsPatch: null, folders: [], flashcards: [], notebooks: [] };
   }
-
-  try {
-    const foldersSnap = await getDoc(doc(db, 'users', uid, 'library', 'folders'));
-    if (foldersSnap.exists()) {
-      const items = foldersSnap.data()?.items;
-      if (Array.isArray(items)) folders = items as Folder[];
-    }
-  } catch (err) {
-    handleFirestoreError(err, OperationType.GET, `users/${uid}/library/folders`);
-  }
-
-  try {
-    const fcSnap = await getDoc(doc(db, 'users', uid, 'library', 'flashcards'));
-    if (fcSnap.exists()) {
-      const items = fcSnap.data()?.items;
-      if (Array.isArray(items)) flashcards = items as Flashcard[];
-    }
-  } catch (err) {
-    handleFirestoreError(err, OperationType.GET, `users/${uid}/library/flashcards`);
-  }
-
-  try {
-    const nbSnaps = await getDocs(collection(db, 'users', uid, 'notebooks'));
-    nbSnaps.forEach((snap) => {
-      const payload = snap.data()?.payload as NotebookMeta | undefined;
-      if (payload && payload.id) {
-        notebooks.push(payload);
-      }
-    });
-  } catch (err) {
-    handleFirestoreError(err, OperationType.LIST, `users/${uid}/notebooks`);
-  }
-
-  return { settingsPatch, folders, flashcards, notebooks };
 }
 
 // ================================================================
-// Live Multi-User Collaborative Study Rooms (Free Relay + Firestore)
+// Live Multi-User Collaborative Study Rooms (Free Relay + BroadcastChannel)
 // ================================================================
 
 interface FreeRoomState {
@@ -369,25 +234,15 @@ export async function createCollabRoom(
     lastSeen: now,
   };
 
-  if (!isFirebaseConfigured) {
-    const state: FreeRoomState = {
-      room,
-      members: { [user.uid]: hostMember },
-      items: {},
-      messages: [],
-    };
-    saveFreeRoomState(code, state);
-    void postFreeRelay(freeRoomTopic(code), { kind: 'member', member: hostMember, room });
-    return room;
-  }
-
-  try {
-    await setDoc(doc(db, 'collabRooms', code), room);
-    await setDoc(doc(db, 'collabRooms', code, 'members', user.uid), hostMember);
-    return room;
-  } catch (err) {
-    handleFirestoreError(err, OperationType.CREATE, `collabRooms/${code}`);
-  }
+  const state: FreeRoomState = {
+    room,
+    members: { [user.uid]: hostMember },
+    items: {},
+    messages: [],
+  };
+  saveFreeRoomState(code, state);
+  void postFreeRelay(freeRoomTopic(code), { kind: 'member', member: hostMember, room });
+  return room;
 }
 
 export async function joinCollabRoom(user: User, roomIdInput: string): Promise<CollabRoom> {
@@ -402,27 +257,11 @@ export async function joinCollabRoom(user: User, roomIdInput: string): Promise<C
     lastSeen: Date.now(),
   };
 
-  if (!isFirebaseConfigured) {
-    const state = loadFreeRoomState(roomId, user.uid, `Study Room ${roomId}`);
-    state.members[user.uid] = member;
-    saveFreeRoomState(roomId, state);
-    void postFreeRelay(freeRoomTopic(roomId), { kind: 'member', member, room: state.room });
-    return state.room;
-  }
-
-  const path = `collabRooms/${roomId}`;
-  try {
-    const snap = await getDoc(doc(db, 'collabRooms', roomId));
-    if (!snap.exists()) {
-      throw new Error(`Study room "${roomId}" was not found.`);
-    }
-    const room = snap.data() as CollabRoom;
-    await setDoc(doc(db, 'collabRooms', roomId, 'members', user.uid), member);
-    return room;
-  } catch (err) {
-    if (err instanceof Error && err.message.includes('was not found')) throw err;
-    handleFirestoreError(err, OperationType.GET, path);
-  }
+  const state = loadFreeRoomState(roomId, user.uid, `Study Room ${roomId}`);
+  state.members[user.uid] = member;
+  saveFreeRoomState(roomId, state);
+  void postFreeRelay(freeRoomTopic(roomId), { kind: 'member', member, room: state.room });
+  return state.room;
 }
 
 export function subscribeCollabRoom(
@@ -433,100 +272,61 @@ export function subscribeCollabRoom(
     onMessages: (msgs: CollabChatMessage[]) => void;
   }
 ): Unsubscribe {
-  if (!isFirebaseConfigured) {
-    const emitState = (st: FreeRoomState) => {
-      callbacks.onMembers(Object.values(st.members));
-      callbacks.onItems(Object.values(st.items).sort((a, b) => a.updatedAt - b.updatedAt));
-      callbacks.onMessages([...st.messages].sort((a, b) => a.createdAt - b.createdAt));
-    };
+  const emitState = (st: FreeRoomState) => {
+    callbacks.onMembers(Object.values(st.members));
+    callbacks.onItems(Object.values(st.items).sort((a, b) => a.updatedAt - b.updatedAt));
+    callbacks.onMessages([...st.messages].sort((a, b) => a.createdAt - b.createdAt));
+  };
 
-    emitState(loadFreeRoomState(roomId));
+  emitState(loadFreeRoomState(roomId));
 
-    const bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(`pronotes_room_${roomId}`) : null;
-    if (bc) {
-      bc.onmessage = (ev) => {
-        if (ev.data) emitState(ev.data as FreeRoomState);
-      };
-    }
-
-    const timer = window.setInterval(async () => {
-      try {
-        const res = await fetch(`${FREE_RELAY_BASE}/${freeRoomTopic(roomId)}/json?poll=1&since=6h`);
-        if (!res.ok) return;
-        const text = await res.text();
-        const st = loadFreeRoomState(roomId);
-        let changed = false;
-        for (const line of text.split('\n')) {
-          if (!line.trim()) continue;
-          const env = JSON.parse(line);
-          if (env.event !== 'message' || !env.message) continue;
-          const pkt = JSON.parse(env.message);
-          if (pkt.kind === 'member' && pkt.member?.uid) {
-            st.members[pkt.member.uid] = pkt.member;
-            changed = true;
-          } else if (pkt.kind === 'item' && pkt.item?.id) {
-            st.items[pkt.item.id] = pkt.item;
-            changed = true;
-          } else if (pkt.kind === 'delete_item' && pkt.itemId) {
-            delete st.items[pkt.itemId];
-            changed = true;
-          } else if (pkt.kind === 'chat' && pkt.msg?.id) {
-            if (!st.messages.some((m) => m.id === pkt.msg.id)) {
-              st.messages.push(pkt.msg);
-              changed = true;
-            }
-          }
-        }
-        if (changed) {
-          saveFreeRoomState(roomId, st);
-          emitState(st);
-        }
-      } catch {
-        // ignore network poll errors
-      }
-    }, 4500);
-
-    return () => {
-      window.clearInterval(timer);
-      bc?.close();
+  const bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(`pronotes_room_${roomId}`) : null;
+  if (bc) {
+    bc.onmessage = (ev) => {
+      if (ev.data) emitState(ev.data as FreeRoomState);
     };
   }
 
-  const unsubMembers = onSnapshot(
-    collection(db, 'collabRooms', roomId, 'members'),
-    (snap) => {
-      const list: CollabMember[] = [];
-      snap.forEach((d) => list.push(d.data() as CollabMember));
-      callbacks.onMembers(list);
-    },
-    (err) => handleFirestoreError(err, OperationType.LIST, `collabRooms/${roomId}/members`)
-  );
-
-  const unsubItems = onSnapshot(
-    collection(db, 'collabRooms', roomId, 'items'),
-    (snap) => {
-      const list: CollabItemDoc[] = [];
-      snap.forEach((d) => list.push(d.data() as CollabItemDoc));
-      list.sort((a, b) => a.updatedAt - b.updatedAt);
-      callbacks.onItems(list);
-    },
-    (err) => handleFirestoreError(err, OperationType.LIST, `collabRooms/${roomId}/items`)
-  );
-
-  const unsubMessages = onSnapshot(
-    query(collection(db, 'collabRooms', roomId, 'messages'), orderBy('createdAt', 'asc')),
-    (snap) => {
-      const list: CollabChatMessage[] = [];
-      snap.forEach((d) => list.push(d.data() as CollabChatMessage));
-      callbacks.onMessages(list);
-    },
-    (err) => handleFirestoreError(err, OperationType.LIST, `collabRooms/${roomId}/messages`)
-  );
+  const timer = window.setInterval(async () => {
+    try {
+      const res = await fetch(`${FREE_RELAY_BASE}/${freeRoomTopic(roomId)}/json?poll=1&since=6h`);
+      if (!res.ok) return;
+      const text = await res.text();
+      const st = loadFreeRoomState(roomId);
+      let changed = false;
+      for (const line of text.split('\n')) {
+        if (!line.trim()) continue;
+        const env = JSON.parse(line);
+        if (env.event !== 'message' || !env.message) continue;
+        const pkt = JSON.parse(env.message);
+        if (pkt.kind === 'member' && pkt.member?.uid) {
+          st.members[pkt.member.uid] = pkt.member;
+          changed = true;
+        } else if (pkt.kind === 'item' && pkt.item?.id) {
+          st.items[pkt.item.id] = pkt.item;
+          changed = true;
+        } else if (pkt.kind === 'delete_item' && pkt.itemId) {
+          delete st.items[pkt.itemId];
+          changed = true;
+        } else if (pkt.kind === 'chat' && pkt.msg?.id) {
+          if (!st.messages.some((m) => m.id === pkt.msg.id)) {
+            st.messages.push(pkt.msg);
+            changed = true;
+          }
+        }
+      }
+      if (changed) {
+        saveFreeRoomState(roomId, st);
+        emitState(st);
+      }
+    } catch {
+      // ignore network poll errors
+    }
+  }, 4500);
 
   return () => {
-    unsubMembers();
-    unsubItems();
-    unsubMessages();
+    window.clearInterval(timer);
+    bc?.close();
   };
 }
 
@@ -541,39 +341,20 @@ export async function upsertCollabItem(
     authorId: user.uid,
     pageIdx: itemDoc.pageIdx ?? 0,
     updatedAt: Date.now(),
-    data: sanitizeForFirestore(itemDoc.data),
+    data: sanitizeForCloud(itemDoc.data),
   };
 
-  if (!isFirebaseConfigured) {
-    const st = loadFreeRoomState(roomId);
-    st.items[fullDoc.id] = fullDoc;
-    saveFreeRoomState(roomId, st);
-    void postFreeRelay(freeRoomTopic(roomId), { kind: 'item', item: fullDoc });
-    return;
-  }
-
-  const path = `collabRooms/${roomId}/items/${itemDoc.id}`;
-  try {
-    await setDoc(doc(db, 'collabRooms', roomId, 'items', itemDoc.id), fullDoc);
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
-  }
+  const st = loadFreeRoomState(roomId);
+  st.items[fullDoc.id] = fullDoc;
+  saveFreeRoomState(roomId, st);
+  void postFreeRelay(freeRoomTopic(roomId), { kind: 'item', item: fullDoc });
 }
 
 export async function deleteCollabItem(roomId: string, itemId: string): Promise<void> {
-  if (!isFirebaseConfigured) {
-    const st = loadFreeRoomState(roomId);
-    delete st.items[itemId];
-    saveFreeRoomState(roomId, st);
-    void postFreeRelay(freeRoomTopic(roomId), { kind: 'delete_item', itemId });
-    return;
-  }
-  const path = `collabRooms/${roomId}/items/${itemId}`;
-  try {
-    await deleteDoc(doc(db, 'collabRooms', roomId, 'items', itemId));
-  } catch (err) {
-    handleFirestoreError(err, OperationType.DELETE, path);
-  }
+  const st = loadFreeRoomState(roomId);
+  delete st.items[itemId];
+  saveFreeRoomState(roomId, st);
+  void postFreeRelay(freeRoomTopic(roomId), { kind: 'delete_item', itemId });
 }
 
 export async function updateCollabCursor(
@@ -593,19 +374,9 @@ export async function updateCollabCursor(
     lastSeen: Date.now(),
   };
 
-  if (!isFirebaseConfigured) {
-    const st = loadFreeRoomState(roomId);
-    st.members[user.uid] = member;
-    saveFreeRoomState(roomId, st);
-    return;
-  }
-
-  const path = `collabRooms/${roomId}/members/${user.uid}`;
-  try {
-    await setDoc(doc(db, 'collabRooms', roomId, 'members', user.uid), member, { merge: true });
-  } catch (err) {
-    handleFirestoreError(err, OperationType.UPDATE, path);
-  }
+  const st = loadFreeRoomState(roomId);
+  st.members[user.uid] = member;
+  saveFreeRoomState(roomId, st);
 }
 
 export async function sendCollabMessage(
@@ -624,18 +395,8 @@ export async function sendCollabMessage(
     createdAt: Date.now(),
   };
 
-  if (!isFirebaseConfigured) {
-    const st = loadFreeRoomState(roomId);
-    st.messages.push(msg);
-    saveFreeRoomState(roomId, st);
-    void postFreeRelay(freeRoomTopic(roomId), { kind: 'chat', msg });
-    return;
-  }
-
-  const path = `collabRooms/${roomId}/messages/${id}`;
-  try {
-    await setDoc(doc(db, 'collabRooms', roomId, 'messages', id), msg);
-  } catch (err) {
-    handleFirestoreError(err, OperationType.CREATE, path);
-  }
+  const st = loadFreeRoomState(roomId);
+  st.messages.push(msg);
+  saveFreeRoomState(roomId, st);
+  void postFreeRelay(freeRoomTopic(roomId), { kind: 'chat', msg });
 }

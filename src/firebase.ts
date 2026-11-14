@@ -1,41 +1,29 @@
-import { initializeApp, FirebaseApp } from 'firebase/app';
-import {
-  getAuth,
-  GoogleAuthProvider,
-  signInWithPopup,
-  signOut,
-  onAuthStateChanged as fbOnAuthStateChanged,
-  User,
-  Auth,
-} from 'firebase/auth';
-import {
-  getFirestore,
-  Firestore,
-} from 'firebase/firestore';
-import firebaseConfig from '../firebase-applet-config.json';
-
-export const isFirebaseConfigured = Boolean(
-  firebaseConfig.apiKey && firebaseConfig.apiKey.trim().length > 0 &&
-  firebaseConfig.projectId && firebaseConfig.projectId.trim().length > 0
-);
-
-let appInstance: FirebaseApp | null = null;
-let dbInstance: Firestore | null = null;
-let authInstance: Auth | null = null;
-
-if (isFirebaseConfigured) {
-  try {
-    appInstance = initializeApp(firebaseConfig);
-    dbInstance = getFirestore(appInstance, firebaseConfig.firestoreDatabaseId || '(default)');
-    authInstance = getAuth(appInstance);
-  } catch {
-    appInstance = null;
-    dbInstance = null;
-    authInstance = null;
-  }
+export interface ProviderUserInfo {
+  providerId: string;
+  uid: string;
+  displayName: string | null;
+  email: string | null;
+  phoneNumber: string | null;
+  photoURL: string | null;
 }
 
-export const db = dbInstance as Firestore;
+export interface User {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+  emailVerified: boolean;
+  isAnonymous: boolean;
+  tenantId?: string | null;
+  providerData: ProviderUserInfo[];
+}
+
+export interface Auth {
+  readonly currentUser: User | null;
+}
+
+export const isFirebaseConfigured = false;
+export const db: null = null;
 
 const FREE_USER_STORAGE_KEY = 'pronotes_free_cloud_user_v10';
 type AuthListener = (user: User | null) => void;
@@ -53,14 +41,11 @@ function loadFreeCloudUser(): User | null {
 
 let currentFreeUser: User | null = loadFreeCloudUser();
 
-export const auth = (authInstance ?? {
+export const auth: Auth = {
   get currentUser() {
     return currentFreeUser;
   },
-}) as Auth;
-
-const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: 'select_account' });
+};
 
 export enum OperationType {
   CREATE = 'create',
@@ -133,14 +118,10 @@ async function sha256Short(input: string): Promise<string> {
 }
 
 export async function signInWithGoogleAccount(customEmail?: string, customName?: string): Promise<User> {
-  if (isFirebaseConfigured && authInstance) {
-    const res = await signInWithPopup(authInstance, googleProvider);
-    return res.user;
-  }
   const email = (customEmail || 'scholar@gmail.com').trim().toLowerCase();
   const displayName = (customName || email.split('@')[0] || 'Scholar').trim();
   const uid = `u_${await sha256Short(`pronotes_v10:${email}:`)}`;
-  const freeUser = {
+  const freeUser: User = {
     uid,
     email,
     displayName,
@@ -157,7 +138,7 @@ export async function signInWithGoogleAccount(customEmail?: string, customName?:
         photoURL: null,
       },
     ],
-  } as unknown as User;
+  };
   currentFreeUser = freeUser;
   try {
     localStorage.setItem(FREE_USER_STORAGE_KEY, JSON.stringify(freeUser));
@@ -169,10 +150,6 @@ export async function signInWithGoogleAccount(customEmail?: string, customName?:
 }
 
 export async function signOutAccount(): Promise<void> {
-  if (isFirebaseConfigured && authInstance) {
-    await signOut(authInstance);
-    return;
-  }
   currentFreeUser = null;
   try {
     localStorage.removeItem(FREE_USER_STORAGE_KEY);
@@ -182,15 +159,10 @@ export async function signOutAccount(): Promise<void> {
   freeAuthListeners.forEach((cb) => cb(null));
 }
 
-export function onAuthStateChanged(authObj: Auth, callback: AuthListener): () => void {
-  if (isFirebaseConfigured && authInstance) {
-    return fbOnAuthStateChanged(authObj, callback);
-  }
+export function onAuthStateChanged(_authObj: Auth, callback: AuthListener): () => void {
   freeAuthListeners.add(callback);
   queueMicrotask(() => callback(currentFreeUser));
   return () => {
     freeAuthListeners.delete(callback);
   };
 }
-
-export type { User };
