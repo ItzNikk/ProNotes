@@ -143,14 +143,14 @@ public object LiquidMenuDivider : LiquidMenuEntry
 
 @Composable
 public fun LiquidMenuButton(
+    contentPadding: PaddingValues,
+    buttonContent: @Composable RowScope.() -> Unit,
     items: List<LiquidMenuEntry>,
     modifier: Modifier = Modifier,
     style: GlassStyle = GlassDefaults.control(),
     shape: Shape = GlassDefaults.PillShape,
-    contentPadding: PaddingValues = PaddingValues(8.dp),
     menuWidth: Dp = 250.dp,
     contentDescription: String = "Menu",
-    buttonContent: @Composable RowScope.() -> Unit,
 ) {
     LiquidMenuButton(
         items = items,

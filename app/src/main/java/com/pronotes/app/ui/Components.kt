@@ -68,6 +68,7 @@ import com.github.skydoves.colorpicker.compose.HsvColorPicker
 import com.github.skydoves.colorpicker.compose.rememberColorPickerController
 import io.github.ntvien.liquidglass.GlassDefaults
 import io.github.ntvien.liquidglass.GlassKind
+import io.github.ntvien.liquidglass.GlassStyle
 import io.github.ntvien.liquidglass.LiquidGlassTheme
 import io.github.ntvien.liquidglass.component.LiquidGlassSlider
 import io.github.ntvien.liquidglass.component.LiquidGlassToggle
