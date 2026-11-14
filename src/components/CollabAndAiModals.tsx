@@ -1,958 +1,28 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import {
   Check,
-  Copy,
-  ImagePlus,
-  Loader2,
-  MessageSquare,
-  Mic,
-  Pause,
-  Play,
-  Plus,
-  Send,
-  Sparkles,
-  Square,
-  Users,
-  Wand2,
-  X,
-  Command,
   Clock,
+  Command,
+  Copy,
   Download,
-  RefreshCw,
+  Layers,
+  Users,
+  X,
 } from 'lucide-react';
 import {
-  AiImageCategory,
-  AppSettings,
   CollabChatMessage,
   CollabMember,
   CollabRoom,
-  LectureRecording,
-  LocalModelState,
-  NoteChatMessage,
-  Page,
 } from '../types/models';
 import {
-  generateAiAssetImage,
-  IMAGE_MODELS_CATALOG,
-  LOCAL_MODELS_CATALOG,
-  runLocalNotesPdfChat,
-  structureLectureRecording,
-} from '../utils/localAi';
-import { AiParticleBackdrop } from './AiVisuals';
+  LiquidButton,
+  LiquidGlassSurface,
+  LiquidInput,
+  LiquidModal,
+} from './LiquidGlassSurface';
 
 // ================================================================
-// 1. AI Chat About Notes & PDFs Using Downloaded / Local Model
-// ================================================================
-
-export const AiNotesChatModal: React.FC<{
-  open: boolean;
-  notebookTitle: string;
-  pages: Page[];
-  settings: AppSettings;
-  modelStates: Record<string, LocalModelState>;
-  onClose: () => void;
-  onInsertReplyToPage: (text: string) => void;
-  onOpenLocalModels: () => void;
-}> = ({
-  open,
-  notebookTitle,
-  pages,
-  settings,
-  modelStates,
-  onClose,
-  onInsertReplyToPage,
-  onOpenLocalModels,
-}) => {
-  const [messages, setMessages] = useState<NoteChatMessage[]>([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      text: `Hi! Ask me anything about "${notebookTitle}" — including your typed notes, sticky cards, mind map nodes, and imported PDF pages.`,
-      createdAt: Date.now(),
-    },
-  ]);
-  const [input, setInput] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, busy, open]);
-
-  if (!open) return null;
-
-  const activeModel = LOCAL_MODELS_CATALOG.find(
-    (m) => m.id === settings.activeLocalModelId && modelStates[m.id]?.status === 'READY'
-  );
-  const pdfCount = pages.filter((p) => Boolean(p.pdfText && p.pdfText.trim().length > 0)).length;
-
-  const askQuestion = async (qText: string) => {
-    const clean = qText.trim();
-    if (!clean || busy) return;
-    const userMsg: NoteChatMessage = {
-      id: `u-${Date.now()}`,
-      role: 'user',
-      text: clean,
-      createdAt: Date.now(),
-    };
-    const nextHist = [...messages, userMsg];
-    setMessages(nextHist);
-    setInput('');
-    setBusy(true);
-    try {
-      const res = await runLocalNotesPdfChat(
-        nextHist,
-        clean,
-        pages,
-        notebookTitle,
-        activeModel?.id || settings.activeLocalModelId,
-        settings
-      );
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `a-${Date.now()}`,
-          role: 'assistant',
-          text: res.reply,
-          citations: res.citations,
-          engineLabel: res.engineLabel,
-          createdAt: Date.now(),
-        },
-      ]);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
-      <div className="relative flex h-[84vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl dark:border-white/12 dark:bg-[#191A1F] animate-stagger-in">
-        <AiParticleBackdrop accent="blue" variant="ai-wave" intensity={busy ? 'active' : 'soft'} />
-
-        {/* Modern Studio Header */}
-        <div className="relative z-10 flex items-center justify-between border-b border-black/8 bg-white/85 px-5 py-4 backdrop-blur-md dark:border-white/10 dark:bg-[#1E2028]/90">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-[#2A78D6] via-[#6366F1] to-[#38BDF8] text-white shadow-md">
-              <Sparkles className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h2 className="truncate bg-gradient-to-r from-[#2A78D6] via-[#6366F1] to-[#38BDF8] bg-clip-text text-base font-extrabold text-transparent">
-                  Study Assistant
-                </h2>
-                <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[10px] font-bold text-indigo-600 dark:text-indigo-300">
-                  CONTEXT
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
-                <span>
-                  {settings.customAiEnabled
-                    ? `Custom AI (${settings.customAiModel})`
-                    : activeModel
-                      ? `${activeModel.name} · On-Device`
-                      : 'Pro Study Engine'}
-                </span>
-                <span className="rounded-full bg-[#2A78D6]/12 px-2 py-0.5 font-semibold text-[#2A78D6]">
-                  {pages.length} page{pages.length === 1 ? '' : 's'} indexed
-                </span>
-                {pdfCount > 0 && (
-                  <span className="rounded-full bg-indigo-500/12 px-2 py-0.5 font-semibold text-indigo-600 dark:text-indigo-300">
-                    {pdfCount} PDF page{pdfCount === 1 ? '' : 's'}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={onOpenLocalModels}
-              className="ios-stretch rounded-full border border-black/10 px-3 py-1.5 text-[11px] font-semibold hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/10"
-            >
-              Models
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="ios-stretch rounded-full p-1.5 text-slate-500 hover:bg-black/5 dark:hover:bg-white/10"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Messages */}
-        <div className="relative z-10 flex-1 space-y-3 overflow-y-auto p-5">
-          {messages.length <= 1 && (
-            <div className="mb-3 rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-[#2A78D6]/8 via-[#6366F1]/8 to-[#38BDF8]/8 p-4">
-              <div className="bg-gradient-to-r from-[#2A78D6] via-[#6366F1] to-[#38BDF8] bg-clip-text text-xl font-extrabold text-transparent">
-                Hello, Scholar.
-              </div>
-              <div className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
-                Ask any question about &ldquo;{notebookTitle}&rdquo;, solve equations step-by-step, or generate flashcards directly.
-              </div>
-            </div>
-          )}
-          {messages.map((m) => (
-            <div
-              key={m.id}
-              className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}
-            >
-              <div
-                className={`max-w-[88%] rounded-2xl px-4 py-3 text-xs leading-relaxed shadow-xs whitespace-pre-wrap ${
-                  m.role === 'user'
-                    ? 'bg-blue-600 text-white'
-                    : 'border border-black/8 bg-slate-50/90 text-slate-800 dark:border-white/10 dark:bg-[#23252E]/95 dark:text-slate-100'
-                }`}
-              >
-                {m.text}
-                {m.role === 'assistant' && m.citations && m.citations.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {m.citations.map((c) => (
-                      <span
-                        key={c}
-                        className="rounded-md bg-blue-500/12 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 dark:text-blue-300"
-                      >
-                        {c}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {m.role === 'assistant' && m.id !== 'welcome' && (
-                <div className="mt-1 flex items-center gap-2 px-1">
-                  {m.engineLabel && (
-                    <span className="text-[10px] text-slate-400">{m.engineLabel}</span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard?.writeText(m.text);
-                      setCopiedId(m.id);
-                      window.setTimeout(() => setCopiedId(null), 1500);
-                    }}
-                    className="ios-stretch inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-semibold text-slate-500 hover:bg-black/5 dark:hover:bg-white/10"
-                  >
-                    {copiedId === m.id ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
-                    {copiedId === m.id ? 'Copied' : 'Copy'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onInsertReplyToPage(m.text);
-                      onClose();
-                    }}
-                    className="ios-stretch inline-flex items-center gap-1 rounded-lg bg-blue-600/10 px-2 py-0.5 text-[10px] font-bold text-blue-600 hover:bg-blue-600/20 dark:text-blue-300"
-                  >
-                    <Plus className="h-3 w-3" /> Add to Page
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
-          {busy && (
-            <div className="flex items-center gap-2 text-xs font-semibold text-violet-600 dark:text-violet-300">
-              <Loader2 className="h-4 w-4 animate-spin" /> Reading notes &amp; PDF pages...
-            </div>
-          )}
-          <div ref={bottomRef} />
-        </div>
-
-        {/* Quick prompts + Composer */}
-        <div className="relative z-10 space-y-2 border-t border-black/8 bg-white/85 px-5 py-3.5 backdrop-blur-md dark:border-white/10 dark:bg-[#1E2028]/90">
-          <div className="flex flex-wrap gap-1.5">
-            {['Explain Page 1 simply', 'Summarize notebook', 'Extract key formulas', 'Quiz me on this chapter', 'Solve 2x + 6 = 14'].map((qp) => (
-              <button
-                key={qp}
-                type="button"
-                onClick={() => void askQuestion(qp)}
-                className="ios-stretch rounded-xl border border-black/10 bg-black/[0.03] px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-blue-500/10 hover:text-blue-600 dark:border-white/10 dark:bg-white/[0.05] dark:text-slate-200"
-              >
-                {qp}
-              </button>
-            ))}
-          </div>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void askQuestion(input);
-            }}
-            className="flex items-center gap-2"
-          >
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask a question about these notes or PDF..."
-              className="flex-1 rounded-2xl border border-black/12 bg-white px-4 py-2.5 text-xs outline-none focus:border-blue-500 dark:border-white/15 dark:bg-[#252731]"
-            />
-            <button
-              type="submit"
-              disabled={!input.trim() || busy}
-              className="ios-stretch inline-flex items-center gap-1.5 rounded-2xl bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-45"
-            >
-              <Send className="h-3.5 w-3.5" /> Ask
-            </button>
-          </form>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ================================================================
-// 2. AI Studio Image Generator (Stickers, Covers & Page Templates)
-// ================================================================
-
-export const AiAssetGeneratorModal: React.FC<{
-  open: boolean;
-  initialCategory?: AiImageCategory;
-  settings: AppSettings;
-  modelStates: Record<string, LocalModelState>;
-  onSelectImageModel: (id: string) => void;
-  onOpenModelsHub?: () => void;
-  onApplyAsset: (category: AiImageCategory, dataUrl: string) => void;
-  onClose: () => void;
-}> = ({
-  open,
-  initialCategory = 'sticker',
-  settings,
-  modelStates,
-  onSelectImageModel,
-  onOpenModelsHub,
-  onApplyAsset,
-  onClose,
-}) => {
-  const [category, setCategory] = useState<AiImageCategory>(initialCategory);
-  const [creativeStyle, setCreativeStyle] = useState<string>('Watercolor');
-  const [liteMode, setLiteMode] = useState<boolean>(true);
-  const [prompt, setPrompt] = useState('');
-  const [variationNonce, setVariationNonce] = useState(0);
-  const [busy, setBusy] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [engineUsed, setEngineUsed] = useState<string>('');
-
-  useEffect(() => {
-    if (open) {
-      setCategory(initialCategory);
-      setPreviewUrl(null);
-      setVariationNonce(0);
-    }
-  }, [open, initialCategory]);
-
-  if (!open) return null;
-
-  const activeImgModel = settings.activeImageModelId || IMAGE_MODELS_CATALOG[0].id;
-  const creativeStyles = [
-    { id: 'Watercolor', emoji: '🎨' },
-    { id: '3D Cartoon', emoji: '🧸' },
-    { id: 'Sketch to Art', emoji: '✏️' },
-    { id: 'Pop Art', emoji: '⚡' },
-    { id: 'Anime Studio', emoji: '✨' },
-    { id: 'Minimal Vector', emoji: '📐' },
-  ];
-  const presetsByCategory: Record<AiImageCategory, string[]> = {
-    sticker: ['Cute Study Owl', 'Physics Atom Spark', 'Gold Exam Star', 'Coffee Study Cat', 'DNA Helix Badge'],
-    cover: ['Botanical Emerald Journal', 'Deep Space Nebula', 'Minimalist Bauhaus Grid', 'Calm Pastel Waves'],
-    template: ['Cornell Lecture Grid', 'Organic Chemistry Sheet', 'Weekly Exam Planner', 'Two-Column Comparison'],
-  };
-  const aspectBadge = category === 'sticker' ? '1:1' : category === 'cover' ? '3:4' : 'A4';
-
-  const handleGenerate = async (customPrompt?: string, customStyle?: string, freshVariation: boolean = false) => {
-    const targetPrompt = (customPrompt ?? prompt).trim() || presetsByCategory[category][0];
-    const targetStyle = customStyle ?? creativeStyle;
-    if (busy) return;
-    const nextNonce = freshVariation ? variationNonce + 1 : variationNonce;
-    if (freshVariation) setVariationNonce(nextNonce);
-    setPrompt(targetPrompt);
-    setBusy(true);
-    try {
-      const res = await generateAiAssetImage(targetPrompt, category, activeImgModel, targetStyle, liteMode, nextNonce);
-      setPreviewUrl(res.dataUrl);
-      setEngineUsed(res.engineLabel);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
-      <div
-        className="w-full max-w-3xl overflow-hidden rounded-[32px] border border-white/50 shadow-2xl animate-stagger-in"
-        style={{
-          background: 'linear-gradient(165deg, #66D7E6 0%, #5EA8F5 36%, #8C8CF8 72%, #9BECE4 100%)',
-        }}
-      >
-        {/* Sleek One UI 9 Creative Studio Header */}
-        <div className="flex items-center justify-between px-6 pt-5 pb-3 text-white">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="ios-stretch flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur-sm hover:bg-white/30"
-              aria-label="Close Creative Studio"
-            >
-              <X className="h-4.5 w-4.5" />
-            </button>
-            <div>
-              <h2 className="text-base font-extrabold tracking-tight">Creative Studio</h2>
-              <p className="text-[11px] text-white/90">
-                {creativeStyle} · {IMAGE_MODELS_CATALOG.find((m) => m.id === activeImgModel)?.name || 'Creative Lite'}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="rounded-lg border border-white/50 bg-white/15 px-2.5 py-1 text-[11px] font-bold">
-              {aspectBadge}
-            </span>
-            <button
-              type="button"
-              onClick={() => setLiteMode((v) => !v)}
-              className={`ios-stretch rounded-full px-3 py-1 text-[11px] font-bold transition whitespace-nowrap ${
-                liteMode ? 'bg-white text-indigo-700 shadow-xs' : 'bg-white/20 text-white'
-              }`}
-            >
-              {liteMode ? 'Lite' : 'HD'}
-            </button>
-            {onOpenModelsHub && (
-              <button
-                type="button"
-                onClick={onOpenModelsHub}
-                className="ios-stretch rounded-full bg-white/20 px-3 py-1 text-[11px] font-semibold text-white hover:bg-white/30 whitespace-nowrap"
-              >
-                Models
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="grid gap-5 px-6 pb-6 pt-2 md:grid-cols-12">
-          {/* Center-Left Frosted Squircle Preview Stage */}
-          <div className="flex flex-col justify-between md:col-span-6">
-            <div
-              className="relative flex h-72 w-full items-center justify-center overflow-hidden rounded-[28px] border border-white/45 shadow-lg transition-all duration-300"
-              style={{
-                background: busy
-                  ? 'linear-gradient(135deg, rgba(102,215,230,0.85), rgba(140,101,255,0.85), rgba(236,72,153,0.78))'
-                  : 'radial-gradient(circle at 50% 45%, rgba(217,70,239,0.44) 0%, rgba(140,101,255,0.28) 45%, rgba(255,255,255,0.16) 100%)',
-                backdropFilter: 'blur(24px)',
-              }}
-            >
-              {busy ? (
-                <div className="relative z-10 flex flex-col items-center gap-3 p-4 text-center text-white">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/25 shadow-lg backdrop-blur-md animate-bounce">
-                    <Sparkles className="h-6 w-6 text-white" />
-                  </div>
-                  <div className="text-sm font-extrabold tracking-tight">Creating {category}…</div>
-                  <div className="max-w-[220px] truncate text-[11px] text-white/90">
-                    &ldquo;{prompt || presetsByCategory[category][0]}&rdquo;
-                  </div>
-                </div>
-              ) : previewUrl ? (
-                <img
-                  src={previewUrl}
-                  alt="Creative Studio Preview"
-                  className="max-h-full max-w-full rounded-2xl object-contain p-4 drop-shadow-lg transition-transform duration-300 hover:scale-[1.02]"
-                />
-              ) : (
-                <div className="px-8 text-center">
-                  <p className="text-base font-bold leading-snug text-white drop-shadow-xs">
-                    Imagine it, create it. Any image, instantly.
-                  </p>
-                </div>
-              )}
-
-              {/* Bottom-left style badge */}
-              <div className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-full bg-black/45 px-3 py-1 text-[11px] font-bold text-white backdrop-blur-md">
-                <span>{creativeStyles.find((s) => s.id === creativeStyle)?.emoji || '🎨'}</span>
-                <span>{creativeStyle}</span>
-              </div>
-              {engineUsed && !busy && (
-                <div className="absolute bottom-3 right-3 rounded-full bg-black/35 px-2.5 py-0.5 text-[10px] font-semibold text-white/90 backdrop-blur-md">
-                  {liteMode ? 'Lite' : 'HD'}
-                </div>
-              )}
-            </div>
-
-            <div className="mt-3 flex gap-2">
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void handleGenerate(undefined, undefined, true)}
-                className="ios-stretch inline-flex flex-1 items-center justify-center gap-1.5 rounded-full bg-black/28 px-4 py-2.5 text-xs font-bold text-white backdrop-blur-md hover:bg-black/40 disabled:opacity-40 whitespace-nowrap"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${busy ? 'animate-spin' : ''}`} />
-                <span>{busy ? 'Creating…' : 'Regenerate'}</span>
-              </button>
-              <button
-                type="button"
-                disabled={!previewUrl || busy}
-                onClick={() => {
-                  if (!previewUrl) return;
-                  onApplyAsset(category, previewUrl);
-                  onClose();
-                }}
-                className="ios-stretch inline-flex flex-[1.3] items-center justify-center gap-1.5 rounded-full bg-slate-900 px-4 py-2.5 text-xs font-bold text-white shadow-md hover:bg-slate-800 disabled:opacity-40 whitespace-nowrap"
-              >
-                <Check className="h-3.5 w-3.5" />
-                <span>
-                  {category === 'sticker'
-                    ? 'Insert Sticker'
-                    : category === 'cover'
-                      ? 'Set Cover'
-                      : 'Apply Template'}
-                </span>
-              </button>
-            </div>
-          </div>
-
-          {/* Right Controls Column */}
-          <div className="flex flex-col justify-between space-y-3.5 md:col-span-6">
-            <div className="grid grid-cols-3 gap-1 rounded-full bg-black/15 p-1 backdrop-blur-sm">
-              {(
-                [
-                  { id: 'sticker', label: 'Sticker' },
-                  { id: 'cover', label: 'Cover' },
-                  { id: 'template', label: 'Template' },
-                ] as { id: AiImageCategory; label: string }[]
-              ).map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => {
-                    setCategory(c.id);
-                    setPreviewUrl(null);
-                    setVariationNonce(0);
-                  }}
-                  className={`ios-stretch rounded-full py-1.5 text-xs font-bold transition ${
-                    category === c.id ? 'bg-white text-slate-900 shadow-sm' : 'text-white/90 hover:text-white'
-                  }`}
-                >
-                  {c.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex flex-wrap gap-1.5">
-              {creativeStyles.map((st) => (
-                <button
-                  key={st.id}
-                  type="button"
-                  onClick={() => {
-                    setCreativeStyle(st.id);
-                    void handleGenerate(prompt || presetsByCategory[category][0], st.id, true);
-                  }}
-                  className={`ios-stretch inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-bold transition ${
-                    creativeStyle === st.id
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'bg-black/20 text-white hover:bg-black/30'
-                  }`}
-                >
-                  <span>{st.emoji}</span>
-                  <span>{st.id}</span>
-                </button>
-              ))}
-            </div>
-
-            <div className="flex flex-wrap gap-1.5">
-              {presetsByCategory[category].map((pr) => (
-                <button
-                  key={pr}
-                  type="button"
-                  onClick={() => void handleGenerate(pr, undefined, true)}
-                  className="ios-stretch rounded-full bg-white/22 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-white/35"
-                >
-                  {pr}
-                </button>
-              ))}
-            </div>
-
-            {/* Model selector */}
-            <div className="grid grid-cols-2 gap-1.5">
-              {IMAGE_MODELS_CATALOG.slice(0, 4).map((m) => {
-                const ready = modelStates[m.id]?.status === 'READY';
-                const sel = activeImgModel === m.id;
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => onSelectImageModel(m.id)}
-                    className={`ios-stretch rounded-2xl border px-2.5 py-1.5 text-left transition ${
-                      sel
-                        ? 'border-white bg-white/90 text-slate-900 shadow-xs'
-                        : 'border-white/25 bg-black/18 text-white hover:bg-black/28'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="truncate text-[11px] font-bold">{m.name}</span>
-                      {ready && <Check className="h-3 w-3 shrink-0 text-emerald-500" />}
-                    </div>
-                    <div className={`text-[10px] ${sel ? 'text-slate-500' : 'text-white/75'}`}>{m.steps}</div>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Translucent Prompt Input Bar + Generate Pill */}
-            <div className="flex items-center gap-2 rounded-2xl border border-white/30 bg-black/28 p-2 backdrop-blur-md">
-              <input
-                type="text"
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void handleGenerate(undefined, undefined, true);
-                }}
-                placeholder="Describe what you want to create"
-                className="flex-1 bg-transparent px-2 py-1.5 text-xs font-medium text-white placeholder-white/70 outline-none"
-              />
-              <button
-                type="button"
-                disabled={busy || (!prompt.trim() && !presetsByCategory[category][0])}
-                onClick={() => void handleGenerate(undefined, undefined, true)}
-                className="ios-stretch inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white px-4 py-2 text-xs font-bold text-slate-900 shadow-sm hover:bg-white/90 disabled:opacity-45 whitespace-nowrap"
-              >
-                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-600" /> : <Wand2 className="h-3.5 w-3.5 text-indigo-600" />}
-                <span>{busy ? 'Generating' : 'Generate'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ================================================================
-// 3. AI Recording & Structured Lecture Notes Studio
-// ================================================================
-
-export const AiRecordingModal: React.FC<{
-  open: boolean;
-  notebookTitle: string;
-  settings: AppSettings;
-  onClose: () => void;
-  onInsertNotesToPage: (formattedNotes: string) => void;
-}> = ({ open, notebookTitle, settings, onClose, onInsertNotesToPage }) => {
-  const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'paused' | 'done'>('idle');
-  const [elapsedSec, setElapsedSec] = useState(0);
-  const [levels, setLevels] = useState<number[]>(new Array(18).fill(8));
-  const [transcript, setTranscript] = useState('');
-  const [recTitle, setRecTitle] = useState(`${notebookTitle} Lecture`);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [result, setResult] = useState<LectureRecording | null>(null);
-  const [analyzing, setAnalyzing] = useState(false);
-
-  const mediaRecRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
-  const rafRef = useRef<number>(0);
-  const timerRef = useRef<number>(0);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const speechRef = useRef<any>(null);
-
-  const cleanupStreams = () => {
-    window.cancelAnimationFrame(rafRef.current);
-    window.clearInterval(timerRef.current);
-    try {
-      speechRef.current?.stop();
-    } catch {
-      // ignore
-    }
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-  };
-
-  useEffect(() => {
-    if (!open) {
-      cleanupStreams();
-      setRecordingState('idle');
-    }
-    return cleanupStreams;
-  }, [open]);
-
-  if (!open) return null;
-
-  const startRecording = async () => {
-    setErrorMsg(null);
-    setResult(null);
-    setAudioUrl(null);
-    chunksRef.current = [];
-    setElapsedSec(0);
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-
-      // Live audio waveform analyzer
-      const audioCtx = new AudioContext();
-      const source = audioCtx.createMediaStreamSource(stream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 64;
-      source.connect(analyser);
-      const data = new Uint8Array(analyser.frequencyBinCount);
-      const tickWave = () => {
-        analyser.getByteFrequencyData(data);
-        const bars = Array.from({ length: 18 }, (_, i) =>
-          Math.max(6, Math.round((data[i % data.length] / 255) * 44))
-        );
-        setLevels(bars);
-        rafRef.current = window.requestAnimationFrame(tickWave);
-      };
-      tickWave();
-
-      const rec = new MediaRecorder(stream);
-      mediaRecRef.current = rec;
-      rec.ondataavailable = (ev) => {
-        if (ev.data.size > 0) chunksRef.current.push(ev.data);
-      };
-      rec.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        const url = URL.createObjectURL(blob);
-        setAudioUrl(url);
-        cleanupStreams();
-      };
-      rec.start(400);
-      setRecordingState('recording');
-
-      timerRef.current = window.setInterval(() => {
-        setElapsedSec((s) => s + 1);
-      }, 1000);
-
-      // Optional live Web SpeechRecognition transcript when supported
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SR) {
-        const sr = new SR();
-        sr.continuous = true;
-        sr.interimResults = true;
-        sr.lang = 'en-US';
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        sr.onresult = (e: any) => {
-          let finalTxt = '';
-          for (let i = 0; i < e.results.length; i++) {
-            finalTxt += e.results[i][0].transcript + ' ';
-          }
-          if (finalTxt.trim()) setTranscript(finalTxt.trim());
-        };
-        sr.onerror = () => {};
-        sr.start();
-        speechRef.current = sr;
-      }
-    } catch {
-      setErrorMsg('Microphone permission unavailable in this preview. Type or paste spoken notes below to generate AI lecture structure!');
-      setRecordingState('done');
-    }
-  };
-
-  const pauseResume = () => {
-    const rec = mediaRecRef.current;
-    if (!rec) return;
-    if (recordingState === 'recording') {
-      rec.pause();
-      window.clearInterval(timerRef.current);
-      setRecordingState('paused');
-    } else if (recordingState === 'paused') {
-      rec.resume();
-      timerRef.current = window.setInterval(() => setElapsedSec((s) => s + 1), 1000);
-      setRecordingState('recording');
-    }
-  };
-
-  const stopRecording = () => {
-    try {
-      mediaRecRef.current?.stop();
-    } catch {
-      cleanupStreams();
-    }
-    setRecordingState('done');
-  };
-
-  const synthesizeNotes = async () => {
-    setAnalyzing(true);
-    try {
-      const res = await structureLectureRecording(
-        transcript,
-        recTitle,
-        elapsedSec,
-        settings.activeLocalModelId,
-        settings
-      );
-      setResult({
-        id: `rec-${Date.now()}`,
-        title: recTitle,
-        durationSec: elapsedSec,
-        transcript,
-        summaryPoints: res.summaryPoints,
-        actionItems: res.actionItems,
-        createdAt: Date.now(),
-      });
-    } finally {
-      setAnalyzing(false);
-    }
-  };
-
-  const mins = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
-  const secs = String(elapsedSec % 60).padStart(2, '0');
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl dark:border-white/12 dark:bg-[#191A1F] animate-stagger-in">
-        <div className="flex items-center justify-between border-b border-black/8 px-6 py-4 dark:border-white/10">
-          <div className="flex items-center gap-3">
-            <div className={`flex h-9 w-9 items-center justify-center rounded-xl text-white shadow-sm ${recordingState === 'recording' ? 'bg-rose-600 animate-pulse' : 'bg-blue-600'}`}>
-              <Mic className="h-4.5 w-4.5" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold tracking-tight">AI Lecture Recording Studio</h2>
-              <p className="text-xs text-slate-500">Live audio capture + AI structured study notes</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="ios-stretch rounded-full p-1.5 text-slate-500 hover:bg-black/5 dark:hover:bg-white/10"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="flex-1 space-y-4 overflow-y-auto p-6">
-          <input
-            type="text"
-            value={recTitle}
-            onChange={(e) => setRecTitle(e.target.value)}
-            placeholder="Lecture / recording title"
-            className="w-full rounded-xl border border-black/12 bg-white px-3.5 py-2 text-sm font-semibold outline-none focus:border-blue-500 dark:border-white/15 dark:bg-[#22242C]"
-          />
-
-          {/* Waveform + Controls */}
-          <div className="flex flex-col items-center gap-3 rounded-2xl border border-black/8 bg-slate-50/80 p-4 dark:border-white/10 dark:bg-[#20222A]">
-            <div className="flex h-12 items-center gap-1.5">
-              {levels.map((lv, idx) => (
-                <div
-                  key={idx}
-                  className="w-1.5 rounded-full bg-gradient-to-t from-blue-600 to-rose-500 transition-all duration-75"
-                  style={{ height: `${recordingState === 'recording' ? lv : 6}px` }}
-                />
-              ))}
-            </div>
-            <div className="font-mono-num text-xl font-bold tracking-tight">{mins}:{secs}</div>
-            <div className="flex flex-wrap items-center gap-2">
-              {recordingState === 'idle' || recordingState === 'done' ? (
-                <button
-                  type="button"
-                  onClick={() => void startRecording()}
-                  className="ios-stretch inline-flex items-center gap-1.5 rounded-xl bg-rose-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-rose-700"
-                >
-                  <Mic className="h-3.5 w-3.5" />
-                  {recordingState === 'done' ? 'Record Again' : 'Start Recording'}
-                </button>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={pauseResume}
-                    className="ios-stretch inline-flex items-center gap-1.5 rounded-xl bg-amber-500/15 px-3.5 py-2 text-xs font-semibold text-amber-700 dark:text-amber-300"
-                  >
-                    {recordingState === 'recording' ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                    {recordingState === 'recording' ? 'Pause' : 'Resume'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={stopRecording}
-                    className="ios-stretch inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white dark:bg-white dark:text-slate-900"
-                  >
-                    <Square className="h-3 w-3 fill-current" /> Stop
-                  </button>
-                </>
-              )}
-              {recordingState === 'recording' && (
-                <button
-                  type="button"
-                  onClick={() => setTranscript((t) => `${t}${t ? '\n' : ''}[${mins}:${secs}] Key point: `)}
-                  className="ios-stretch rounded-xl border border-black/12 bg-white px-3 py-2 text-xs font-semibold dark:border-white/15 dark:bg-[#272A34]"
-                >
-                  + Timestamp Bookmark
-                </button>
-              )}
-            </div>
-            {audioUrl && (
-              <audio controls src={audioUrl} className="mt-1 h-9 w-full" />
-            )}
-          </div>
-
-          {errorMsg && (
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2 text-xs text-amber-700 dark:text-amber-300">
-              {errorMsg}
-            </div>
-          )}
-
-          <div>
-            <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
-              Live Transcript / Spoken Notes
-            </label>
-            <textarea
-              value={transcript}
-              onChange={(e) => setTranscript(e.target.value)}
-              rows={4}
-              placeholder="Live speech-to-text appears here automatically while recording, or type/jot timestamps..."
-              className="w-full rounded-xl border border-black/12 bg-white px-3.5 py-2 text-xs leading-relaxed outline-none focus:border-blue-500 dark:border-white/15 dark:bg-[#22242C]"
-            />
-          </div>
-
-          {result && (
-            <div className="space-y-2 rounded-2xl border border-violet-500/25 bg-violet-50/70 p-4 text-xs dark:bg-violet-950/25">
-              <div className="font-bold text-violet-700 dark:text-violet-300">AI Study Notes Ready</div>
-              <ul className="list-disc space-y-1 pl-4 text-slate-700 dark:text-slate-200">
-                {result.summaryPoints.map((pt, i) => (
-                  <li key={i}>{pt}</li>
-                ))}
-              </ul>
-              {result.actionItems.length > 0 && (
-                <div className="pt-1 font-semibold text-blue-700 dark:text-blue-300">
-                  Action Items: {result.actionItems.join(' · ')}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="flex items-center justify-between border-t border-black/8 px-6 py-4 dark:border-white/10">
-          <button
-            type="button"
-            disabled={analyzing}
-            onClick={() => void synthesizeNotes()}
-            className="ios-stretch inline-flex items-center gap-1.5 rounded-xl bg-violet-600 px-4 py-2 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-45"
-          >
-            {analyzing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            AI Structure Notes
-          </button>
-
-          <button
-            type="button"
-            disabled={!result && !transcript.trim()}
-            onClick={() => {
-              const body = result
-                ? `${result.title} (${mins}:${secs})\n\nKey Takeaways:\n${result.summaryPoints.map((p) => `• ${p}`).join('\n')}\n\nAction Items:\n${result.actionItems.map((a) => `- [ ] ${a}`).join('\n')}`
-                : `${recTitle} (${mins}:${secs})\n\n${transcript.trim()}`;
-              onInsertNotesToPage(body);
-              onClose();
-            }}
-            className="ios-stretch inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
-          >
-            <Plus className="h-3.5 w-3.5" /> Insert into Page
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ================================================================
-// 4. Live Multi-User Collaborative Study Room Modal & Drawer
+// Live Multi-User Collaborative Study Room Modal
 // ================================================================
 
 export const CollabRoomModal: React.FC<{
@@ -987,70 +57,67 @@ export const CollabRoomModal: React.FC<{
   const [err, setErr] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[88vh] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl dark:border-white/12 dark:bg-[#191A1F] animate-stagger-in">
-        <div className="flex items-center justify-between border-b border-black/8 px-6 py-4 dark:border-white/10">
+    <LiquidModal open={open} onClose={onClose} maxWidthClass="max-w-lg">
+      <div className="flex max-h-[88vh] flex-col">
+        <div className="flex items-center justify-between border-b border-[#1F2421]/10 px-6 py-4 dark:border-[#EDE8DB]/10">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-sm">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#24483F] text-[#F5F2E8] shadow-sm dark:bg-[#8CC1AC] dark:text-[#151E1B]">
               <Users className="h-4.5 w-4.5" />
             </div>
             <div>
               <h2 className="text-base font-bold tracking-tight">Live Collaborative Notes</h2>
-              <p className="text-xs text-slate-500">
-                Draw, annotate &amp; chat together in real time via Firestore
+              <p className="text-xs text-[#5A5F58] dark:text-[#B1AC9F]">
+                Draw, annotate &amp; discuss together in real time
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="ios-stretch rounded-full p-1.5 text-slate-500 hover:bg-black/5 dark:hover:bg-white/10"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <LiquidButton onClick={onClose} className="!h-9 !w-9 !p-0">
+            <X className="h-4 w-4" />
+          </LiquidButton>
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-6">
           {!activeRoom ? (
             <div className="space-y-4">
               {err && (
-                <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3.5 py-2 text-xs text-red-600 dark:text-red-300">
+                <div className="rounded-2xl border border-[#9B3B3B]/30 bg-[#9B3B3B]/10 px-3.5 py-2 text-xs font-medium text-[#9B3B3B] dark:text-[#E58A8A]">
                   {err}
                 </div>
               )}
 
               {!isSignedIn && (
-                <div className="flex items-center justify-between gap-3 rounded-2xl border border-blue-500/25 bg-blue-500/8 p-3.5">
-                  <div className="text-xs text-slate-600 dark:text-slate-300">
-                    <span className="font-bold text-blue-600 dark:text-blue-400">Instant Room Codes Active:</span> Join or host with a 6-digit code below, or sign in with Google to sync your identity.
+                <LiquidGlassSurface variant="frost" radius={18} className="p-3.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs text-[#1F2421] dark:text-[#EDE8DB]">
+                      <span className="font-bold text-[#24483F] dark:text-[#8CC1AC]">Instant Room Codes:</span>{' '}
+                      Join or host with a room code below, or sign in with Google to sync your identity.
+                    </div>
+                    <LiquidButton
+                      tint="#24483F"
+                      onClick={() => void onSignInGoogle()}
+                      className="shrink-0 !px-3.5 !py-1.5 !text-[11px]"
+                    >
+                      Google Sign-In
+                    </LiquidButton>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void onSignInGoogle()}
-                    className="ios-stretch shrink-0 rounded-xl bg-blue-600 px-3 py-1.5 text-[11px] font-semibold text-white"
-                  >
-                    Google Sign-In
-                  </button>
-                </div>
+                </LiquidGlassSurface>
               )}
 
-              <div className="space-y-2.5 rounded-2xl border border-black/8 bg-slate-50/80 p-4 dark:border-white/10 dark:bg-[#20222A]">
-                <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Host a New Study Room (Generates Shareable Code)
+              <LiquidGlassSurface variant="frost" radius={20} className="space-y-2.5 p-4">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-[#5A5F58] dark:text-[#B1AC9F]">
+                  Host a New Study Room
                 </div>
                 <div className="flex gap-2">
-                  <input
+                  <LiquidInput
                     type="text"
                     value={roomTitle}
                     onChange={(e) => setRoomTitle(e.target.value)}
-                    placeholder="Room name (e.g. Organic Chem Exam Prep)"
-                    className="flex-1 rounded-xl border border-black/12 bg-white px-3 py-2 text-xs outline-none dark:border-white/15 dark:bg-[#191A1F]"
+                    placeholder="Room name (e.g. Organic Chem Prep)"
+                    wrapperClassName="flex-1"
                   />
-                  <button
-                    type="button"
+                  <LiquidButton
+                    tint="#24483F"
                     disabled={busy}
                     onClick={async () => {
                       setBusy(true);
@@ -1063,27 +130,28 @@ export const CollabRoomModal: React.FC<{
                         setBusy(false);
                       }
                     }}
-                    className="ios-stretch rounded-xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                    className="!px-4 !py-2 !text-xs"
                   >
-                    Generate Room Code
-                  </button>
+                    Create Room
+                  </LiquidButton>
                 </div>
-              </div>
+              </LiquidGlassSurface>
 
-              <div className="space-y-2.5 rounded-2xl border border-black/8 bg-slate-50/80 p-4 dark:border-white/10 dark:bg-[#20222A]">
-                <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              <LiquidGlassSurface variant="frost" radius={20} className="space-y-2.5 p-4">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-[#5A5F58] dark:text-[#B1AC9F]">
                   Join Existing Room by Code
                 </div>
                 <div className="flex gap-2">
-                  <input
+                  <LiquidInput
                     type="text"
                     value={joinCode}
                     onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                    placeholder="Enter code (e.g. 482-910 or BIO-101)"
-                    className="font-mono-num flex-1 rounded-xl border border-black/12 bg-white px-3 py-2 text-xs uppercase outline-none dark:border-white/15 dark:bg-[#191A1F]"
+                    placeholder="Enter code (e.g. BIO-101)"
+                    className="font-mono-num uppercase"
+                    wrapperClassName="flex-1"
                   />
-                  <button
-                    type="button"
+                  <LiquidButton
+                    tint="#2F6B4F"
                     disabled={busy || !joinCode.trim()}
                     onClick={async () => {
                       setBusy(true);
@@ -1096,84 +164,85 @@ export const CollabRoomModal: React.FC<{
                         setBusy(false);
                       }
                     }}
-                    className="ios-stretch rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                    className="!px-4 !py-2 !text-xs"
                   >
                     Join Room
-                  </button>
+                  </LiquidButton>
                 </div>
                 <div className="flex flex-wrap gap-1.5 pt-1">
                   {['BIO-101', 'CALC-202', 'PHYS-301', 'CHEM-LAB'].map((preset) => (
-                    <button
+                    <LiquidButton
                       key={preset}
-                      type="button"
                       onClick={() => setJoinCode(preset)}
-                      className="rounded-full bg-black/5 px-2.5 py-1 text-[10px] font-bold text-slate-600 hover:bg-blue-500/15 hover:text-blue-600 dark:bg-white/10 dark:text-slate-300"
+                      className="!px-2.5 !py-1 !text-[10px]"
                     >
                       #{preset}
-                    </button>
+                    </LiquidButton>
                   ))}
                 </div>
-              </div>
+              </LiquidGlassSurface>
             </div>
           ) : (
             <div className="space-y-4">
-              {/* Active Room Header */}
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
-                <div>
-                  <div className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
-                    Connected: {activeRoom.title}
+              <LiquidGlassSurface variant="frost" radius={20} className="p-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-bold text-[#24483F] dark:text-[#8CC1AC]">
+                      Connected: {activeRoom.title}
+                    </div>
+                    <div className="font-mono-num text-[11px] font-semibold text-[#5A5F58] dark:text-[#B1AC9F]">
+                      Code: {activeRoom.roomId} · {members.length} active
+                    </div>
                   </div>
-                  <div className="font-mono-num text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                    Code: {activeRoom.roomId} · {members.length} active
+                  <div className="flex items-center gap-1.5">
+                    <LiquidButton
+                      onClick={() => {
+                        navigator.clipboard?.writeText(activeRoom.roomId);
+                        setCopiedCode(true);
+                        window.setTimeout(() => setCopiedCode(false), 1600);
+                      }}
+                      className="!px-3 !py-1.5 !text-xs"
+                    >
+                      {copiedCode ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                      {copiedCode ? 'Copied' : 'Copy Code'}
+                    </LiquidButton>
+                    <LiquidButton
+                      onClick={onLeaveRoom}
+                      className="!px-3 !py-1.5 !text-xs text-[#9B3B3B] dark:text-[#E58A8A]"
+                    >
+                      Leave
+                    </LiquidButton>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard?.writeText(activeRoom.roomId);
-                      setCopiedCode(true);
-                      window.setTimeout(() => setCopiedCode(false), 1600);
-                    }}
-                    className="ios-stretch inline-flex items-center gap-1 rounded-xl bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-xs dark:bg-[#22242C] dark:text-slate-200"
-                  >
-                    {copiedCode ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
-                    {copiedCode ? 'Copied' : 'Copy Code'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onLeaveRoom}
-                    className="ios-stretch rounded-xl bg-red-500/15 px-3 py-1.5 text-xs font-semibold text-red-600 dark:text-red-300"
-                  >
-                    Leave
-                  </button>
-                </div>
-              </div>
+              </LiquidGlassSurface>
 
-              {/* Members */}
               <div className="flex flex-wrap gap-1.5">
                 {members.map((m) => (
-                  <span
+                  <LiquidGlassSurface
                     key={m.uid}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-white px-2.5 py-1 text-[11px] font-semibold dark:border-white/10 dark:bg-[#22242C]"
+                    variant="frost"
+                    radius={999}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold"
                   >
                     <span className="h-2 w-2 rounded-full" style={{ backgroundColor: m.color }} />
                     {m.displayName}
-                  </span>
+                  </LiquidGlassSurface>
                 ))}
               </div>
 
-              {/* Live Room Chat */}
-              <div className="flex h-52 flex-col overflow-hidden rounded-2xl border border-black/8 bg-slate-50/70 dark:border-white/10 dark:bg-[#20222A]">
+              <LiquidGlassSurface variant="frost" radius={20} className="flex h-52 flex-col overflow-hidden">
                 <div className="flex-1 space-y-2 overflow-y-auto p-3 text-xs">
                   {messages.length === 0 ? (
-                    <div className="py-10 text-center text-slate-400">
+                    <div className="py-10 text-center text-[#5A5F58] dark:text-[#B1AC9F]">
                       Everything drawn on the canvas syncs live! Say hello to your study group below.
                     </div>
                   ) : (
                     messages.map((msg) => (
-                      <div key={msg.id} className="rounded-xl bg-white px-3 py-2 shadow-2xs dark:bg-[#282B36]">
-                        <span className="font-bold text-blue-600 dark:text-blue-400">{msg.authorName}: </span>
+                      <div
+                        key={msg.id}
+                        className="rounded-xl border border-[#1F2421]/8 bg-white/70 px-3 py-2 dark:border-[#EDE8DB]/10 dark:bg-white/6"
+                      >
+                        <span className="font-bold text-[#24483F] dark:text-[#8CC1AC]">{msg.authorName}: </span>
                         <span>{msg.text}</span>
                       </div>
                     ))
@@ -1187,40 +256,37 @@ export const CollabRoomModal: React.FC<{
                     setChatText('');
                     await onSendMessage(txt);
                   }}
-                  className="flex gap-2 border-t border-black/8 bg-white p-2 dark:border-white/10 dark:bg-[#191A1F]"
+                  className="flex gap-2 border-t border-[#1F2421]/8 p-2 dark:border-[#EDE8DB]/10"
                 >
-                  <input
+                  <LiquidInput
                     type="text"
                     value={chatText}
                     onChange={(e) => setChatText(e.target.value)}
                     placeholder="Message study group..."
-                    className="flex-1 rounded-xl border border-black/10 px-3 py-1.5 text-xs outline-none dark:border-white/15 dark:bg-[#22242C]"
+                    wrapperClassName="flex-1 !py-1.5"
                   />
-                  <button
-                    type="submit"
-                    className="ios-stretch rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white"
-                  >
+                  <LiquidButton tint="#24483F" onClick={() => undefined} className="!px-3.5 !py-1.5 !text-xs">
                     Send
-                  </button>
+                  </LiquidButton>
                 </form>
-              </div>
+              </LiquidGlassSurface>
             </div>
           )}
         </div>
       </div>
-    </div>
+    </LiquidModal>
   );
 };
 
 // ================================================================
-// 5. v10 Quick Command Palette (Ctrl/Cmd+K)
+// Quick Command Palette (Ctrl/Cmd+K)
 // ================================================================
 
 export interface CommandPaletteAction {
   id: string;
   label: string;
   hint: string;
-  icon: 'ai' | 'mic' | 'image' | 'collab' | 'timer' | 'export' | 'slides';
+  icon: 'collab' | 'timer' | 'export' | 'slides';
   run: () => void;
 }
 
@@ -1230,7 +296,6 @@ export const CommandPaletteModal: React.FC<{
   onClose: () => void;
 }> = ({ open, actions, onClose }) => {
   const [q, setQ] = useState('');
-  if (!open) return null;
 
   const filtered = actions.filter(
     (a) =>
@@ -1240,53 +305,42 @@ export const CommandPaletteModal: React.FC<{
   );
 
   return (
-    <div
-      onClick={onClose}
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 p-4 pt-20 backdrop-blur-sm"
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl dark:border-white/12 dark:bg-[#191A1F] animate-stagger-in"
-      >
-        <div className="flex items-center gap-2 border-b border-black/8 px-4 py-3 dark:border-white/10">
-          <Command className="h-4 w-4 text-blue-600" />
-          <input
-            autoFocus
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Run a Pro Notes v10 action..."
-            className="flex-1 bg-transparent text-sm outline-none"
-          />
-          <button type="button" onClick={onClose} className="text-xs text-slate-400">
-            ESC
-          </button>
-        </div>
-        <div className="max-h-72 overflow-y-auto p-2 space-y-1">
-          {filtered.map((a) => (
-            <button
-              key={a.id}
-              type="button"
-              onClick={() => {
-                a.run();
-                onClose();
-              }}
-              className="ios-stretch flex w-full items-center justify-between rounded-2xl px-3.5 py-2.5 text-left hover:bg-blue-500/10"
-            >
-              <div className="flex items-center gap-2.5">
-                {a.icon === 'ai' && <MessageSquare className="h-4 w-4 text-violet-500" />}
-                {a.icon === 'mic' && <Mic className="h-4 w-4 text-rose-500" />}
-                {a.icon === 'image' && <ImagePlus className="h-4 w-4 text-fuchsia-500" />}
-                {a.icon === 'collab' && <Users className="h-4 w-4 text-emerald-500" />}
-                {a.icon === 'timer' && <Clock className="h-4 w-4 text-amber-500" />}
-                {a.icon === 'export' && <Download className="h-4 w-4 text-blue-500" />}
-                {a.icon === 'slides' && <Sparkles className="h-4 w-4 text-indigo-500" />}
-                <span className="text-xs font-semibold">{a.label}</span>
-              </div>
-              <span className="text-[11px] text-slate-400">{a.hint}</span>
-            </button>
-          ))}
-        </div>
+    <LiquidModal open={open} onClose={onClose} maxWidthClass="max-w-md">
+      <div className="flex items-center gap-2 border-b border-[#1F2421]/10 px-4 py-3 dark:border-[#EDE8DB]/10">
+        <Command className="h-4 w-4 text-[#24483F] dark:text-[#8CC1AC]" />
+        <input
+          autoFocus
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Run a Pro Notes action..."
+          className="flex-1 bg-transparent text-sm outline-none placeholder:text-[#5A5F58] dark:placeholder:text-[#B1AC9F]"
+        />
+        <LiquidButton onClick={onClose} className="!px-2.5 !py-1 !text-[10px]">
+          ESC
+        </LiquidButton>
       </div>
-    </div>
+      <div className="max-h-72 space-y-1 overflow-y-auto p-2">
+        {filtered.map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            onClick={() => {
+              a.run();
+              onClose();
+            }}
+            className="flex w-full items-center justify-between rounded-2xl px-3.5 py-2.5 text-left transition hover:bg-[#24483F]/10 dark:hover:bg-[#8CC1AC]/15"
+          >
+            <div className="flex items-center gap-2.5">
+              {a.icon === 'collab' && <Users className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />}
+              {a.icon === 'timer' && <Clock className="h-4 w-4 text-amber-600 dark:text-amber-400" />}
+              {a.icon === 'export' && <Download className="h-4 w-4 text-[#24483F] dark:text-[#8CC1AC]" />}
+              {a.icon === 'slides' && <Layers className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />}
+              <span className="text-xs font-semibold">{a.label}</span>
+            </div>
+            <span className="text-[11px] text-[#5A5F58] dark:text-[#B1AC9F]">{a.hint}</span>
+          </button>
+        ))}
+      </div>
+    </LiquidModal>
   );
 };

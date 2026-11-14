@@ -3,7 +3,6 @@ import { useProNotesStore } from './store/useProNotesStore';
 import { LibraryScreen } from './components/LibraryScreen';
 import { EditorScreen } from './components/EditorScreen';
 import { SettingsScreen } from './components/SettingsScreen';
-import { LocalAiModal } from './components/StudyModals';
 import { SetupWizardModal } from './components/SetupWizardModal';
 import { SupportModal } from './components/SupportBannerModal';
 import { CollabRoomModal } from './components/CollabAndAiModals';
@@ -100,7 +99,7 @@ export function App() {
   const [collabItems, setCollabItems] = useState<CollabItemDoc[]>([]);
   const [collabMessages, setCollabMessages] = useState<CollabChatMessage[]>([]);
 
-  // Sync light/dark theme class + Ultra typography & motion style on <html>
+  // Sync light/dark theme class + Ultra typography, motion style, and adaptive Liquid Glass CSS tokens on <html>
   useEffect(() => {
     const applyTheme = () => {
       const m = state.settings.themeMode;
@@ -112,10 +111,35 @@ export function App() {
     applyTheme();
     document.documentElement.dataset.font = state.settings.appFont;
     document.documentElement.dataset.motion = state.settings.motionStyle;
+
+    const glassOn = state.settings.liquidGlass !== false;
+    const rawT = Math.max(0.15, Math.min(0.95, state.settings.glassTransparency ?? 0.58));
+    const clarity = (rawT - 0.15) / 0.8; // 0 = solid frost, 1 = ultra clear glass
+    const rootStyle = document.documentElement.style;
+    if (!glassOn) {
+      rootStyle.setProperty('--lg-chrome-alpha', '0.96');
+      rootStyle.setProperty('--lg-surface-alpha', '0.96');
+      rootStyle.setProperty('--lg-frost-alpha', '0.96');
+      rootStyle.setProperty('--lg-menu-alpha', '0.98');
+      rootStyle.setProperty('--lg-blur', '0px');
+    } else {
+      rootStyle.setProperty('--lg-chrome-alpha', (0.88 - clarity * 0.44).toFixed(3));
+      rootStyle.setProperty('--lg-surface-alpha', (0.86 - clarity * 0.54).toFixed(3));
+      rootStyle.setProperty('--lg-frost-alpha', (0.94 - clarity * 0.28).toFixed(3));
+      rootStyle.setProperty('--lg-menu-alpha', (0.96 - clarity * 0.12).toFixed(3));
+      rootStyle.setProperty('--lg-blur', `${Math.round(12 + clarity * 16)}px`);
+    }
+
     const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
     mq?.addEventListener?.('change', applyTheme);
     return () => mq?.removeEventListener?.('change', applyTheme);
-  }, [state.settings.themeMode, state.settings.appFont, state.settings.motionStyle]);
+  }, [
+    state.settings.themeMode,
+    state.settings.appFont,
+    state.settings.motionStyle,
+    state.settings.liquidGlass,
+    state.settings.glassTransparency,
+  ]);
 
   const handleSyncNow = useCallback(
     async (explicitUser?: User | null) => {

@@ -9,11 +9,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,23 +33,18 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -74,10 +71,26 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.pronotes.app.data.AccentColor
 import com.pronotes.app.data.Flashcard
 import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.data.QuizQuestion
 import com.pronotes.app.library.PaperPreview
+import com.pronotes.app.ui.LiquidGlassCard
+import com.pronotes.app.ui.LiquidGlassChip
+import com.pronotes.app.ui.LiquidGlassDialog
+import com.pronotes.app.ui.LiquidGlassDialogSurface
+import com.pronotes.app.ui.LiquidSlider
+import com.pronotes.app.ui.LocalGlassTransparency
+import com.pronotes.app.ui.openLeafGlassColors
+import io.github.ntvien.liquidglass.GlassDefaults
+import io.github.ntvien.liquidglass.GlassLook
+import io.github.ntvien.liquidglass.LiquidGlassTheme
+import io.github.ntvien.liquidglass.component.LiquidMenuButton
+import io.github.ntvien.liquidglass.component.LiquidMenuDivider
+import io.github.ntvien.liquidglass.component.LiquidMenuItem
+import io.github.ntvien.liquidglass.component.LiquidSegmentedControl
+import io.github.ntvien.liquidglass.component.LiquidSurface
 import java.util.UUID
 
 private val Pill = CircleShape
@@ -87,9 +100,8 @@ fun CardEditorDialog(vm: EditorViewModel, draft: EditorViewModel.CardDraft) {
     var front by remember(draft) { mutableStateOf(draft.card.front) }
     var back by remember(draft) { mutableStateOf(draft.card.back) }
     val picture = remember(draft) { vm.cardImage(draft.card.frontImage) }
-    AlertDialog(
+    LiquidGlassDialog(
         onDismissRequest = { vm.cardDraft = null },
-        shape = RoundedCornerShape(28.dp),
         title = { Text(if (draft.isNew) "New flashcard" else "Edit flashcard") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -124,7 +136,6 @@ fun CardEditorDialog(vm: EditorViewModel, draft: EditorViewModel.CardDraft) {
 }
 
 /** Redesigned Flashcards Studio: 4-pill metrics, Study/Manage tabs, search & filter, and 4-grade StudyView. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
     var studying by remember { mutableStateOf(false) }
@@ -148,14 +159,25 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
         secondaryContainer = Color(0xFF172554),
         onSecondaryContainer = Color(0xFFBAE6FD),
     )
+    val transparency = LocalGlassTransparency.current
+    val cosmicGlass = remember(transparency) { openLeafGlassColors(dark = true, accent = AccentColor.BLUE, transparency = transparency) }
 
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(
-            shape = RoundedCornerShape(28.dp), color = Color(0xFF050916),
-            modifier = Modifier.padding(18.dp).widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 800.dp).statusBarsPadding(),
+        Box(
+            Modifier.fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.42f))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClose)
+                .padding(18.dp),
+            contentAlignment = Alignment.Center,
         ) {
-            MaterialTheme(colorScheme = cosmicScheme) {
-                Box {
+            LiquidGlassTheme(colors = cosmicGlass, look = GlassLook.Auto) {
+                LiquidGlassDialogSurface(
+                    shape = RoundedCornerShape(28.dp),
+                    modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 800.dp).statusBarsPadding()
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
+                ) {
+                    MaterialTheme(colorScheme = cosmicScheme) {
+                        Box(Modifier.background(Color(0xD9050916))) {
                     AiParticleBackdrop(
                         modifier = Modifier.matchParentSize(),
                         accentColors = listOf(Color(0xFF38BDF8), Color(0xFF6366F1)),
@@ -184,10 +206,12 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                     }
                     Spacer(Modifier.height(10.dp))
 
-                    PrimaryTabRow(selectedTabIndex = tab, containerColor = Color.Transparent) {
-                        Tab(tab == 0, { tab = 0 }, text = { Text("Study Deck") })
-                        Tab(tab == 1, { tab = 1 }, text = { Text("Manage Cards (${vm.cards.size})") })
-                    }
+                    LiquidSegmentedControl(
+                        options = listOf("Study Deck", "Manage Cards (${vm.cards.size})"),
+                        selectedIndex = tab,
+                        onSelect = { tab = it },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     Spacer(Modifier.height(12.dp))
 
                     if (vm.aiBusy) {
@@ -222,10 +246,10 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                         }
                         Spacer(Modifier.height(14.dp))
                         if (vm.cards.isEmpty()) {
-                            Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f), modifier = Modifier.fillMaxWidth()) {
+                            LiquidGlassCard(hero = false, shape = RoundedCornerShape(20.dp), contentPadding = PaddingValues(18.dp), modifier = Modifier.fillMaxWidth()) {
                                 Text(
                                     "Your deck is empty. Tap \"AI · This page\" to extract definitions & Q/A automatically, or cut any area directly from your notes.",
-                                    Modifier.padding(18.dp), color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         } else {
@@ -243,9 +267,9 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                             shape = Pill,
                             modifier = Modifier.fillMaxWidth(),
                         )
-                        Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             listOf("All", "Due", "Mastered").forEachIndexed { idx, label ->
-                                FilterChip(filter == idx, { filter = idx }, label = { Text(label) }, shape = Pill)
+                                LiquidGlassChip(filter == idx, { filter = idx }, label)
                             }
                             Spacer(Modifier.weight(1f))
                             if (vm.cards.isNotEmpty()) {
@@ -274,17 +298,20 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
             }
             }
         }
+        }
+        }
     }
 }
 
 @Composable
 private fun StatChip(label: String, value: String, tint: Color, modifier: Modifier = Modifier) {
-    Surface(
+    LiquidSurface(
+        style = GlassDefaults.frost().copy(fallbackSurface = tint.copy(alpha = 0.14f)),
         shape = RoundedCornerShape(16.dp),
-        color = tint.copy(alpha = 0.11f),
-        modifier = modifier.border(1.dp, tint.copy(alpha = 0.25f), RoundedCornerShape(16.dp)),
+        contentPadding = PaddingValues(vertical = 8.dp, horizontal = 10.dp),
+        modifier = modifier.border(1.dp, tint.copy(alpha = 0.28f), RoundedCornerShape(16.dp)),
     ) {
-        Column(Modifier.padding(vertical = 8.dp, horizontal = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(value, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = tint)
             Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -293,10 +320,14 @@ private fun StatChip(label: String, value: String, tint: Color, modifier: Modifi
 
 @Composable
 private fun CardRow(vm: EditorViewModel, c: Flashcard, onShow: () -> Unit) {
-    var menu by remember { mutableStateOf(false) }
     val pic = remember(c.frontImage) { vm.cardImage(c.frontImage) }
-    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+    LiquidGlassCard(
+        hero = false,
+        shape = RoundedCornerShape(18.dp),
+        contentPadding = PaddingValues(10.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(58.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
                 if (pic != null) Image(pic.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 else Text("Aa", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -309,13 +340,19 @@ private fun CardRow(vm: EditorViewModel, c: Flashcard, onShow: () -> Unit) {
                     if (c.lapses > 0) Text("· ${c.lapses} lapses", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                 }
             }
-            Box {
-                TextButton(onClick = { menu = true }) { Text("•••") }
-                DropdownMenu(menu, { menu = false }, shape = RoundedCornerShape(16.dp)) {
-                    DropdownMenuItem(text = { Text("Edit") }, onClick = { menu = false; vm.cardDraft = EditorViewModel.CardDraft(c, false) })
-                    if (c.pageId != null) DropdownMenuItem(text = { Text("Show in notebook") }, onClick = { menu = false; onShow() })
-                    DropdownMenuItem(text = { Text("Delete") }, onClick = { menu = false; vm.deleteCard(c.id) })
-                }
+            LiquidMenuButton(
+                items = buildList {
+                    add(LiquidMenuItem("Edit", Icons.Outlined.Edit) { vm.cardDraft = EditorViewModel.CardDraft(c, false) })
+                    if (c.pageId != null) add(LiquidMenuItem("Show in notebook", Icons.Outlined.Visibility) { onShow() })
+                    add(LiquidMenuDivider)
+                    add(LiquidMenuItem("Delete", Icons.Outlined.Delete, destructive = true) { vm.deleteCard(c.id) })
+                },
+                contentDescription = "Card options",
+                style = GlassDefaults.frost(),
+                shape = GlassDefaults.PillShape,
+                menuWidth = 210.dp,
+            ) {
+                Text("•••", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
             }
         }
     }
@@ -358,15 +395,17 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
 
         val turn by animateFloatAsState(if (flipped) 180f else 0f, tween(420), label = "flip")
         val pic = remember(card.id) { vm.cardImage(card.frontImage) }
-        Surface(
+        LiquidSurface(
+            style = GlassDefaults.frost().copy(
+                fallbackSurface = MaterialTheme.colorScheme.primaryContainer.copy(alpha = if (turn > 90f) 0.72f else 0.92f),
+            ),
             shape = RoundedCornerShape(26.dp),
-            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = if (turn > 90f) 0.72f else 1f),
-            shadowElevation = 6.dp,
+            contentPadding = PaddingValues(22.dp),
+            onClick = { flipped = !flipped },
             modifier = Modifier.fillMaxWidth().heightIn(min = 270.dp, max = 460.dp)
-                .graphicsLayer { rotationY = turn; cameraDistance = 12f * density }
-                .clickable { flipped = !flipped },
+                .graphicsLayer { rotationY = turn; cameraDistance = 12f * density },
         ) {
-            Box(Modifier.padding(22.dp).graphicsLayer { if (turn > 90f) rotationY = 180f }, contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxWidth().graphicsLayer { if (turn > 90f) rotationY = 180f }, contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(if (turn <= 90f) "QUESTION" else "ANSWER", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     if (turn <= 90f) {
@@ -408,51 +447,61 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
     }
 }
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun LinkSheet(vm: EditorViewModel) {
     var tab by remember { mutableIntStateOf(0) }
     var url by remember { mutableStateOf("") }
     Dialog(onDismissRequest = { vm.linkSheet = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(
-            shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.padding(24.dp).widthIn(max = 640.dp).fillMaxWidth().heightIn(max = 640.dp),
+        Box(
+            Modifier.fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.34f))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { vm.linkSheet = null }
+                .padding(24.dp),
+            contentAlignment = Alignment.Center,
         ) {
-            Column(Modifier.padding(20.dp)) {
-                Text("Add link", style = MaterialTheme.typography.headlineSmall)
-                Text("Tap the linked content with a finger to follow it. Long-press its blue badge to remove.", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(12.dp))
-                PrimaryTabRow(selectedTabIndex = tab) {
-                    Tab(tab == 0, { tab = 0 }, text = { Text("Page") })
-                    Tab(tab == 1, { tab = 1 }, text = { Text("Website") })
-                }
-                Spacer(Modifier.height(12.dp))
-                if (tab == 0) {
-                    androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-                        androidx.compose.foundation.lazy.grid.GridCells.Adaptive(96.dp),
-                        Modifier.weight(1f, fill = false),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        items(vm.pages.size) { i ->
-                            val thumb by produceState<android.graphics.Bitmap?>(null, i) { value = vm.thumbnail(i, 200) }
-                            val current = i == vm.pageIndex
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { vm.linkToPage(i) }) {
-                                Box(
-                                    Modifier.fillMaxWidth().heightIn(min = 120.dp).clip(RoundedCornerShape(10.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                                        .border(if (current) 2.dp else 1.dp, if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
-                                ) { thumb?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth()) } }
-                                Text("Page ${i + 1}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
+            LiquidGlassDialogSurface(
+                shape = RoundedCornerShape(28.dp),
+                modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth().heightIn(max = 640.dp)
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
+            ) {
+                Column(Modifier.padding(20.dp)) {
+                    Text("Add link", style = MaterialTheme.typography.headlineSmall)
+                    Text("Tap the linked content with a finger to follow it. Long-press its blue badge to remove.", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(12.dp))
+                    LiquidSegmentedControl(
+                        options = listOf("Page", "Website"),
+                        selectedIndex = tab,
+                        onSelect = { tab = it },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    if (tab == 0) {
+                        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                            androidx.compose.foundation.lazy.grid.GridCells.Adaptive(96.dp),
+                            Modifier.weight(1f, fill = false),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            items(vm.pages.size) { i ->
+                                val thumb by produceState<android.graphics.Bitmap?>(null, i) { value = vm.thumbnail(i, 200) }
+                                val current = i == vm.pageIndex
+                                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { vm.linkToPage(i) }) {
+                                    Box(
+                                        Modifier.fillMaxWidth().heightIn(min = 120.dp).clip(RoundedCornerShape(10.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                                            .border(if (current) 2.dp else 1.dp, if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
+                                    ) { thumb?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth()) } }
+                                    Text("Page ${i + 1}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
+                                }
                             }
                         }
+                    } else {
+                        OutlinedTextField(url, { url = it }, singleLine = true, shape = Pill, placeholder = { Text("example.com") }, modifier = Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { vm.linkToUrl(url) }, enabled = url.trim().contains('.'), shape = Pill) { Text("Add link") }
                     }
-                } else {
-                    OutlinedTextField(url, { url = it }, singleLine = true, shape = Pill, placeholder = { Text("example.com") }, modifier = Modifier.fillMaxWidth())
-                    Spacer(Modifier.height(12.dp))
-                    Button(onClick = { vm.linkToUrl(url) }, enabled = url.trim().contains('.'), shape = Pill) { Text("Add link") }
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = { vm.linkSheet = null }, modifier = Modifier.align(Alignment.End)) { Text("Cancel") }
                 }
-                Spacer(Modifier.height(8.dp))
-                TextButton(onClick = { vm.linkSheet = null }, modifier = Modifier.align(Alignment.End)) { Text("Cancel") }
             }
         }
     }
@@ -479,80 +528,94 @@ fun QuizDialog(vm: EditorViewModel, onClose: () -> Unit) {
         secondaryContainer = Color(0xFF172554),
         onSecondaryContainer = Color(0xFFBAE6FD),
     )
+    val transparency = LocalGlassTransparency.current
+    val cosmicGlass = remember(transparency) { openLeafGlassColors(dark = true, accent = AccentColor.BLUE, transparency = transparency) }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         val order = taking
         val isStartScreen = order == null
-        Surface(
-            shape = RoundedCornerShape(28.dp),
-            color = if (isStartScreen) Color(0xFF050916) else baseScheme.surface,
-            modifier = Modifier.padding(18.dp).widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 820.dp).statusBarsPadding(),
+        Box(
+            Modifier.fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.42f))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClose)
+                .padding(18.dp),
+            contentAlignment = Alignment.Center,
         ) {
-            Box {
-                AiParticleBackdrop(
-                    modifier = Modifier.matchParentSize(),
-                    accentColors = if (isStartScreen) listOf(Color(0xFF38BDF8), Color(0xFF6366F1)) else StudyColors.quiz,
-                    active = vm.aiBusy || order != null,
-                    variant = when {
-                        vm.aiBusy -> AiBackdropVariant.AI_WAVE
-                        order == null -> AiBackdropVariant.SPACE_NEBULA
-                        else -> AiBackdropVariant.QUIZ_CHALLENGE
-                    },
-                )
-                if (order != null) TakeQuiz(vm, order, onDone = { taking = null }, onRetry = { taking = it })
-                else MaterialTheme(colorScheme = cosmicScheme) {
-                    Column(Modifier.padding(20.dp)) {
-                        val best = vm.quizBest()
-                        StudyHero(
-                            "Quiz Studio",
-                            "${vm.quiz.size} questions" + (best?.let { " · best ${it.first}% in ${clock(it.second)}" } ?: " · ${vm.aiEngineLabel}"),
-                            StudyColors.quiz,
-                            "🎯",
-                        ) {
-                            TextButton(onClick = onClose) { Text("Close", color = Color.White) }
-                        }
-                        Spacer(Modifier.height(14.dp))
-                        Button(
-                            onClick = { taking = vm.quiz.shuffled().map { it.id } }, enabled = vm.quiz.isNotEmpty(), shape = Pill,
-                            modifier = Modifier.fillMaxWidth().height(52.dp),
-                        ) { Text(if (vm.quiz.isEmpty()) "Add or generate questions below" else "Start Timed Quiz · ${vm.quiz.size} Qs", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
-                        Spacer(Modifier.height(10.dp))
-                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { editing = QuizQuestion(UUID.randomUUID().toString(), "", listOf("", "", "", ""), 0) }, shape = Pill) { Text("✎ Write question") }
-                            FilledTonalButton(onClick = { onClose(); vm.captureForQuiz = true; vm.capturingCard = true }, shape = Pill) { Text("🖼 From picture") }
-                            OutlinedButton(onClick = { vm.generateQuiz(false) }, shape = Pill) { Text("✦ AI · This page") }
-                            OutlinedButton(onClick = { vm.generateQuiz(true) }, shape = Pill) { Text("✦ AI · Whole notebook") }
-                        }
-                        if (vm.aiBusy) {
-                            Spacer(Modifier.height(10.dp))
-                            AiScanBanner(vm.aiStage, vm.aiEngineLabel, StudyColors.quiz)
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        if (vm.quiz.isEmpty()) {
-                            Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), modifier = Modifier.fillMaxWidth()) {
-                                Text(
-                                    "Write your own multiple-choice questions, box a diagram, or let the on-device AI generate practice questions from your notes.",
-                                    Modifier.padding(18.dp), color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        } else {
-                            LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(vm.quiz, key = { it.id }) { q ->
-                                    val pic = remember(q.image) { vm.cardImage(q.image) }
-                                    Surface(
-                                        shape = RoundedCornerShape(18.dp),
-                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f),
-                                        modifier = Modifier.animateItem().fillMaxWidth().clickable { editing = q },
-                                    ) {
-                                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                            if (pic != null) {
-                                                Image(pic.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)))
-                                                Spacer(Modifier.width(12.dp))
-                                            }
-                                            Column(Modifier.weight(1f)) {
-                                                Text(q.question.ifBlank { "Picture question" }, maxLines = 2, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                                                val tries = q.right + q.wrong
-                                                val stats = if (tries == 0) "New" else "${q.right * 100 / tries}% accuracy ($tries tries)"
-                                                Text((if (q.generated) "✦ AI · " else "") + stats, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            LiquidGlassTheme(colors = if (isStartScreen) cosmicGlass else LiquidGlassTheme.colors, look = GlassLook.Auto) {
+                LiquidGlassDialogSurface(
+                    shape = RoundedCornerShape(28.dp),
+                    modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 820.dp).statusBarsPadding()
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
+                ) {
+                    Box(Modifier.then(if (isStartScreen) Modifier.background(Color(0xD9050916)) else Modifier)) {
+                        AiParticleBackdrop(
+                            modifier = Modifier.matchParentSize(),
+                            accentColors = if (isStartScreen) listOf(Color(0xFF38BDF8), Color(0xFF6366F1)) else StudyColors.quiz,
+                            active = vm.aiBusy || order != null,
+                            variant = when {
+                                vm.aiBusy -> AiBackdropVariant.AI_WAVE
+                                order == null -> AiBackdropVariant.SPACE_NEBULA
+                                else -> AiBackdropVariant.QUIZ_CHALLENGE
+                            },
+                        )
+                        if (order != null) TakeQuiz(vm, order, onDone = { taking = null }, onRetry = { taking = it })
+                        else MaterialTheme(colorScheme = cosmicScheme) {
+                            Column(Modifier.padding(20.dp)) {
+                                val best = vm.quizBest()
+                                StudyHero(
+                                    "Quiz Studio",
+                                    "${vm.quiz.size} questions" + (best?.let { " · best ${it.first}% in ${clock(it.second)}" } ?: " · ${vm.aiEngineLabel}"),
+                                    StudyColors.quiz,
+                                    "🎯",
+                                ) {
+                                    TextButton(onClick = onClose) { Text("Close", color = Color.White) }
+                                }
+                                Spacer(Modifier.height(14.dp))
+                                Button(
+                                    onClick = { taking = vm.quiz.shuffled().map { it.id } }, enabled = vm.quiz.isNotEmpty(), shape = Pill,
+                                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                                ) { Text(if (vm.quiz.isEmpty()) "Add or generate questions below" else "Start Timed Quiz · ${vm.quiz.size} Qs", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+                                Spacer(Modifier.height(10.dp))
+                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(onClick = { editing = QuizQuestion(UUID.randomUUID().toString(), "", listOf("", "", "", ""), 0) }, shape = Pill) { Text("✎ Write question") }
+                                    FilledTonalButton(onClick = { onClose(); vm.captureForQuiz = true; vm.capturingCard = true }, shape = Pill) { Text("🖼 From picture") }
+                                    OutlinedButton(onClick = { vm.generateQuiz(false) }, shape = Pill) { Text("✦ AI · This page") }
+                                    OutlinedButton(onClick = { vm.generateQuiz(true) }, shape = Pill) { Text("✦ AI · Whole notebook") }
+                                }
+                                if (vm.aiBusy) {
+                                    Spacer(Modifier.height(10.dp))
+                                    AiScanBanner(vm.aiStage, vm.aiEngineLabel, StudyColors.quiz)
+                                }
+                                Spacer(Modifier.height(10.dp))
+                                if (vm.quiz.isEmpty()) {
+                                    LiquidGlassCard(hero = false, shape = RoundedCornerShape(20.dp), contentPadding = PaddingValues(18.dp), modifier = Modifier.fillMaxWidth()) {
+                                        Text(
+                                            "Write your own multiple-choice questions, box a diagram, or let the on-device AI generate practice questions from your notes.",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                } else {
+                                    LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        items(vm.quiz, key = { it.id }) { q ->
+                                            val pic = remember(q.image) { vm.cardImage(q.image) }
+                                            LiquidGlassCard(
+                                                hero = false,
+                                                shape = RoundedCornerShape(18.dp),
+                                                contentPadding = PaddingValues(12.dp),
+                                                onClick = { editing = q },
+                                                modifier = Modifier.animateItem().fillMaxWidth(),
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    if (pic != null) {
+                                                        Image(pic.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)))
+                                                        Spacer(Modifier.width(12.dp))
+                                                    }
+                                                    Column(Modifier.weight(1f)) {
+                                                        Text(q.question.ifBlank { "Picture question" }, maxLines = 2, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                                                        val tries = q.right + q.wrong
+                                                        val stats = if (tries == 0) "New" else "${q.right * 100 / tries}% accuracy ($tries tries)"
+                                                        Text((if (q.generated) "✦ AI · " else "") + stats, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -579,8 +642,8 @@ private fun QuestionEditor(
     var why by remember { mutableStateOf(q.explanation) }
     val pic = remember(q.image) { vm.cardImage(q.image) }
     val exists = vm.quiz.any { it.id == q.id }
-    AlertDialog(
-        onDismissRequest = onDismiss, shape = RoundedCornerShape(28.dp),
+    LiquidGlassDialog(
+        onDismissRequest = onDismiss,
         title = { Text(if (exists) "Edit question" else "New question") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -631,8 +694,12 @@ private fun TakeQuiz(vm: EditorViewModel, order: List<String>, onDone: () -> Uni
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(if (!finished) "Question ${index + 1} of ${order.size}" else "Quiz Report", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             if (streak >= 2 && !finished) {
-                Surface(shape = Pill, color = Color(0xFFFFE7C2)) {
-                    Text("🔥 $streak streak", Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, color = Color(0xFFC25900), fontWeight = FontWeight.Bold)
+                LiquidSurface(
+                    style = GlassDefaults.frost().copy(fallbackSurface = Color(0xFFFFE7C2), contentColor = Color(0xFFC25900)),
+                    shape = GlassDefaults.PillShape,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                ) {
+                    Text("🔥 $streak streak", style = MaterialTheme.typography.labelMedium, color = Color(0xFFC25900), fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.width(8.dp))
             }
@@ -665,8 +732,8 @@ private fun TakeQuiz(vm: EditorViewModel, order: List<String>, onDone: () -> Uni
                 Text("MISSED REVIEW", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 14.dp, bottom = 6.dp))
                 wrong.forEach { id ->
                     val q = vm.quiz.firstOrNull { it.id == id } ?: return@forEach
-                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                        Column(Modifier.padding(12.dp)) {
+                    LiquidGlassCard(hero = false, shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(12.dp), modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                        Column {
                             Text(q.question.ifBlank { "Picture question" }, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                             Text("✓ " + (q.options.getOrNull(q.answer) ?: ""), color = Color(0xFF1BAF7A), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
                             if (q.explanation.isNotBlank()) Text(q.explanation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -696,19 +763,25 @@ private fun TakeQuiz(vm: EditorViewModel, order: List<String>, onDone: () -> Uni
                 else -> MaterialTheme.colorScheme.outlineVariant
             }
             val scale by animateFloatAsState(if (shown && i == picked) 1.02f else 1f, spring(dampingRatio = 0.45f), label = "opt")
-            Surface(
+            LiquidSurface(
+                style = GlassDefaults.frost().let { st ->
+                    if (shown && (i == q.answer || i == picked)) st.copy(fallbackSurface = color.copy(alpha = 0.16f)) else st
+                },
                 shape = RoundedCornerShape(18.dp),
-                color = if (shown && (i == q.answer || i == picked)) color.copy(alpha = 0.13f) else MaterialTheme.colorScheme.surface,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).graphicsLayer { scaleX = scale; scaleY = scale }
-                    .border(1.5.dp, color, RoundedCornerShape(18.dp)).clickable(enabled = !shown) {
+                contentPadding = PaddingValues(13.dp),
+                onClick = if (!shown) {
+                    {
                         picked = i
                         val right = i == q.answer
                         history += right
                         if (right) { score++; streak++; bestStreak = maxOf(bestStreak, streak) } else { streak = 0; wrong += q.id }
                         vm.answerQuestion(q.id, right)
-                    },
+                    }
+                } else null,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).graphicsLayer { scaleX = scale; scaleY = scale }
+                    .border(1.5.dp, color, RoundedCornerShape(18.dp)),
             ) {
-                Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(30.dp).clip(CircleShape).background(if (shown && (i == q.answer || i == picked)) color else MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
                         Text(if (shown && i == q.answer) "✓" else if (shown && i == picked) "✕" else "${'A' + i}", color = if (shown && (i == q.answer || i == picked)) Color.White else MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelLarge)
                     }
@@ -746,62 +819,69 @@ fun TemplateSheet(vm: EditorViewModel, onAiTemplate: () -> Unit = {}, onClose: (
     val groups = PaperStyle.pickerEntries.groupBy { it.group }
     var group by remember { mutableStateOf(style.group) }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(
-            shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.padding(20.dp).widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 820.dp).statusBarsPadding(),
+        Box(
+            Modifier.fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.34f))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClose)
+                .padding(20.dp),
+            contentAlignment = Alignment.Center,
         ) {
-            Column(Modifier.padding(20.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Templates", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-                    TextButton(onClick = onClose) { Text("Close") }
-                }
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    groups.keys.forEach { g -> FilterChip(group == g, { group = g }, label = { Text(g) }, shape = Pill) }
-                }
-                Spacer(Modifier.height(12.dp))
-                androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-                    androidx.compose.foundation.lazy.grid.GridCells.Adaptive(104.dp),
-                    Modifier.weight(1f, fill = false).heightIn(max = 380.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    items(groups[group].orEmpty().size) { i ->
-                        val p = groups[group].orEmpty()[i]
-                        val on = p == style
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { style = p }) {
-                            PaperPreview(
-                                p,
-                                Modifier.fillMaxWidth().height(140.dp).clip(RoundedCornerShape(10.dp))
-                                    .border(if (on) 3.dp else 1.dp, if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
-                                tint = paperColor ?: 0xFFFFFFFF.toInt(),
-                            )
-                            Text(p.label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
+            LiquidGlassDialogSurface(
+                shape = RoundedCornerShape(28.dp),
+                modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 820.dp).statusBarsPadding()
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
+            ) {
+                Column(Modifier.padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Templates", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+                        TextButton(onClick = onClose) { Text("Close") }
+                    }
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        groups.keys.forEach { g -> LiquidGlassChip(group == g, { group = g }, g) }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                        androidx.compose.foundation.lazy.grid.GridCells.Adaptive(104.dp),
+                        Modifier.weight(1f, fill = false).heightIn(max = 380.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        items(groups[group].orEmpty().size) { i ->
+                            val p = groups[group].orEmpty()[i]
+                            val on = p == style
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { style = p }) {
+                                PaperPreview(
+                                    p,
+                                    Modifier.fillMaxWidth().height(140.dp).clip(RoundedCornerShape(10.dp))
+                                        .border(if (on) 3.dp else 1.dp, if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
+                                    tint = paperColor ?: 0xFFFFFFFF.toInt(),
+                                )
+                                Text(p.label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
+                            }
                         }
                     }
-                }
-                Spacer(Modifier.height(12.dp))
-                Text("LINE SPACING  ${"%.1f".format(scale)}×", style = MaterialTheme.typography.labelSmall)
-                com.pronotes.app.ui.LiquidSlider(
-                    value = { scale },
-                    onValueChange = { scale = (it * 10).toInt() / 10f },
-                    valueRange = 0.6f..2f,
-                    visibilityThreshold = 0.01f,
-                    backdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop(),
-                )
-                Text("LINE COLOUR", style = MaterialTheme.typography.labelSmall)
-                Row(Modifier.horizontalScroll(rememberScrollState())) {
-                    val lines = listOf<Int?>(null, 0xFFB8C7DC.toInt(), 0xFF9AA4B2.toInt(), 0xFF7FB2F0.toInt(), 0xFFF4A3A3.toInt(), 0xFF9ED8B0.toInt(), 0xFFE0C48A.toInt(), 0xFF4A505A.toInt())
-                    lines.forEach { c -> ColorDot(c, c == lineColor) { lineColor = c } }
-                }
-                Text("PAPER", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 6.dp))
-                Row(Modifier.horizontalScroll(rememberScrollState())) {
-                    val papers = listOf<Int?>(null, 0xFFFFFFFF.toInt(), 0xFFFBF7EC.toInt(), 0xFFFFF4E0.toInt(), 0xFFEAF4FF.toInt(), 0xFFEFF8EC.toInt(), 0xFFFFFDE7.toInt(), 0xFF22252B.toInt())
-                    papers.forEach { c -> ColorDot(c, c == paperColor) { paperColor = c } }
-                }
-                Spacer(Modifier.height(14.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { vm.applyTemplate(style, scale, lineColor, paperColor, 0); onClose() }, shape = Pill) { Text("This page") }
-                    FilledTonalButton(onClick = { vm.applyTemplate(style, scale, lineColor, paperColor, 1); onClose() }, shape = Pill) { Text("New page") }
-                    OutlinedButton(onClick = { vm.applyTemplate(style, scale, lineColor, paperColor, 2); onClose() }, shape = Pill) { Text("All pages") }
+                    Spacer(Modifier.height(12.dp))
+                    Text("LINE SPACING  ${"%.1f".format(scale)}×", style = MaterialTheme.typography.labelSmall)
+                    LiquidSlider(
+                        value = { scale },
+                        onValueChange = { scale = (it * 10).toInt() / 10f },
+                        valueRange = 0.6f..2f,
+                    )
+                    Text("LINE COLOUR", style = MaterialTheme.typography.labelSmall)
+                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                        val lines = listOf<Int?>(null, 0xFFB8C7DC.toInt(), 0xFF9AA4B2.toInt(), 0xFF7FB2F0.toInt(), 0xFFF4A3A3.toInt(), 0xFF9ED8B0.toInt(), 0xFFE0C48A.toInt(), 0xFF4A505A.toInt())
+                        lines.forEach { c -> ColorDot(c, c == lineColor) { lineColor = c } }
+                    }
+                    Text("PAPER", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 6.dp))
+                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                        val papers = listOf<Int?>(null, 0xFFFFFFFF.toInt(), 0xFFFBF7EC.toInt(), 0xFFFFF4E0.toInt(), 0xFFEAF4FF.toInt(), 0xFFEFF8EC.toInt(), 0xFFFFFDE7.toInt(), 0xFF22252B.toInt())
+                        papers.forEach { c -> ColorDot(c, c == paperColor) { paperColor = c } }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { vm.applyTemplate(style, scale, lineColor, paperColor, 0); onClose() }, shape = Pill) { Text("This page") }
+                        FilledTonalButton(onClick = { vm.applyTemplate(style, scale, lineColor, paperColor, 1); onClose() }, shape = Pill) { Text("New page") }
+                        OutlinedButton(onClick = { vm.applyTemplate(style, scale, lineColor, paperColor, 2); onClose() }, shape = Pill) { Text("All pages") }
+                    }
                 }
             }
         }
@@ -833,6 +913,10 @@ fun TapePatternPicker(vm: EditorViewModel, onPickImage: () -> Unit) {
                     .clickable { vm.tapePattern = p },
             ) { Image(tile, TapePatterns.label(p), contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
         }
-        androidx.compose.material3.AssistChip(onClick = onPickImage, label = { Text(if (vm.tapePattern.startsWith("image:")) "Picture ✓" else "Your picture…") }, shape = Pill)
+        LiquidGlassChip(
+            selected = vm.tapePattern.startsWith("image:"),
+            onClick = onPickImage,
+            label = if (vm.tapePattern.startsWith("image:")) "Picture ✓" else "Your picture…",
+        )
     }
 }

@@ -36,17 +36,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -65,8 +63,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.pronotes.app.BuildConfig
+import com.pronotes.app.ui.BotanicalGlassBackground
 import com.pronotes.app.ui.GradientTitle
+import com.pronotes.app.ui.LiquidGlassCard
+import com.pronotes.app.ui.LiquidGlassChip
 import com.pronotes.app.ui.elasticStretch
+import io.github.ntvien.liquidglass.GlassDefaults
+import io.github.ntvien.liquidglass.LiquidGlassScene
+import io.github.ntvien.liquidglass.LiquidGlassTheme
+import io.github.ntvien.liquidglass.component.LiquidGlassToggle
+import io.github.ntvien.liquidglass.component.LiquidSurface
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
@@ -100,13 +106,23 @@ fun SupportScreen(onBack: () -> Unit) {
         }
     }
 
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    LiquidGlassScene(
+        background = { BotanicalGlassBackground() },
+    ) {
         Column(
             Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack, modifier = Modifier.elasticStretch()) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+                LiquidSurface(
+                    style = GlassDefaults.control(),
+                    shape = GlassDefaults.PillShape,
+                    contentPadding = PaddingValues(10.dp),
+                    onClick = onBack,
+                    onClickLabel = "Back",
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = LiquidGlassTheme.colors.content)
+                }
                 Spacer(Modifier.weight(1f))
             }
             Spacer(Modifier.height(14.dp))
@@ -121,29 +137,25 @@ fun SupportScreen(onBack: () -> Unit) {
             Spacer(Modifier.height(18.dp))
 
             // v10 Milestone Highlights Card
-            Surface(
-                shape = RoundedCornerShape(22.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            LiquidGlassCard(
+                hero = true,
                 modifier = Modifier.widthIn(max = 500.dp).fillMaxWidth(),
             ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("What's new in v10", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    Text("• AI Notes & PDF Chat + AI Lecture Recording notes", style = MaterialTheme.typography.bodySmall)
-                    Text("• AI Stickers, Covers & Templates + lightweight image models", style = MaterialTheme.typography.bodySmall)
-                    Text("• Google Sign-In Cloud Sync & Live Collaborative Study Rooms", style = MaterialTheme.typography.bodySmall)
+                    Text("• OpenLeaf botanical palette with whole-app Liquid Glass", style = MaterialTheme.typography.bodySmall)
+                    Text("• Resumable background updater & Google Cloud Sync", style = MaterialTheme.typography.bodySmall)
                     Text("• Writable Split Notes + free X/Y stretch on every canvas item", style = MaterialTheme.typography.bodySmall)
+                    Text("• Flashcards, Mind Maps, SlideShow & Study Timer", style = MaterialTheme.typography.bodySmall)
                 }
             }
             Spacer(Modifier.height(16.dp))
 
             // Community Feedback & Share Row (always visible)
-            Surface(
-                shape = RoundedCornerShape(22.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 2.dp,
+            LiquidGlassCard(
                 modifier = Modifier.widthIn(max = 500.dp).fillMaxWidth(),
             ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Send a cheer or feature idea", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     OutlinedTextField(
                         value = supportNote,
@@ -174,7 +186,7 @@ fun SupportScreen(onBack: () -> Unit) {
                                 val send = Intent(Intent.ACTION_SEND)
                                     .setType("text/plain")
                                     .putExtra(Intent.EXTRA_SUBJECT, "Pro Notes v10")
-                                    .putExtra(Intent.EXTRA_TEXT, "Check out Pro Notes v10 — AI study notebooks, handwritten math/diagrams, writable split view & live collab rooms!")
+                                    .putExtra(Intent.EXTRA_TEXT, "Check out Pro Notes v10 — study notebooks, handwritten diagrams, writable split view & live Liquid Glass UI!")
                                 context.startActivity(Intent.createChooser(send, "Share Pro Notes"))
                             },
                             shape = CircleShape,
@@ -200,13 +212,17 @@ fun SupportScreen(onBack: () -> Unit) {
                 Spacer(Modifier.height(12.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)) {
                     listOf("49", "99", "199", "499", "999").forEach { a ->
-                        FilterChip(amount == a && !chooseInApp, { amount = a; chooseInApp = false }, label = { Text("₹$a") }, shape = CircleShape)
+                        LiquidGlassChip(
+                            selected = amount == a && !chooseInApp,
+                            onClick = { amount = a; chooseInApp = false },
+                            label = "₹$a",
+                        )
                     }
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.widthIn(max = 360.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Type the amount in my UPI app", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                    androidx.compose.material3.Switch(chooseInApp, { chooseInApp = it })
+                    LiquidGlassToggle(checked = chooseInApp, onCheckedChange = { chooseInApp = it })
                 }
                 Spacer(Modifier.height(16.dp))
                 Button(

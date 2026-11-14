@@ -19,15 +19,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import io.github.ntvien.liquidglass.component.LiquidGlassToggle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -87,15 +85,14 @@ fun UpdateDialogHost() {
     val isDownloading = Updater.phase == Updater.Phase.DOWNLOADING
     val isPaused = Updater.phase == Updater.Phase.PAUSED
 
-    AlertDialog(
+    LiquidGlassDialog(
         onDismissRequest = { Updater.showDialog = false },
-        shape = RoundedCornerShape(28.dp),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Pro Notes ${rel.tag}", modifier = Modifier.weight(1f))
                 if (isPaused) {
-                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
-                        Text("Paused", Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
+                    LiquidGlassPill {
+                        Text("Paused", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }
@@ -110,8 +107,8 @@ fun UpdateDialogHost() {
                 )
                 if (isDownloading || isPaused) {
                     Spacer(Modifier.height(12.dp))
-                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)) {
-                        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                    LiquidGlassCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.fillMaxWidth()) {
                             val pct = (Updater.progress * 100).toInt().coerceIn(0, 100)
                             val doneMb = "%.1f".format(Updater.downloadedBytes / 1048576.0)
                             val totalMb = if (Updater.totalBytes > 0L) " / %.1f MB".format(Updater.totalBytes / 1048576.0) else " MB"
@@ -150,22 +147,25 @@ fun UpdateDialogHost() {
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
+                    Column(Modifier.weight(1f).padding(end = 10.dp)) {
                         Text("Open after updating")
                         Text(
                             "Needs “Display over other apps”. Otherwise you get a tap-to-open notification.",
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    Switch(autoOpen, { on ->
-                        autoOpen = on; Updater.setAutoOpen(context, on)
-                        if (on && !Settings.canDrawOverlays(context)) {
-                            context.startActivity(
-                                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
-                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                            )
-                        }
-                    })
+                    LiquidGlassToggle(
+                        checked = autoOpen,
+                        onCheckedChange = { on ->
+                            autoOpen = on; Updater.setAutoOpen(context, on)
+                            if (on && !Settings.canDrawOverlays(context)) {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                )
+                            }
+                        },
+                    )
                 }
             }
         },

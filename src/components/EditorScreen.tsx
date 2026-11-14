@@ -10,7 +10,6 @@ import {
   Columns2,
   Compass,
   Copy,
-  Cpu,
   Download,
   Eraser,
   ExternalLink,
@@ -20,15 +19,12 @@ import {
   Highlighter,
   Home,
   Image as ImageIcon,
-  ImagePlus,
   Lasso as LassoIcon,
   Layers,
   Link2,
   ListChecks,
   Lock,
   Maximize2,
-  MessageSquare,
-  Mic,
   Minimize2,
   MoreHorizontal,
   Move,
@@ -45,7 +41,6 @@ import {
   Settings,
   Shapes,
   Sliders,
-  Sparkles,
   Sticker,
   StickyNote,
   Timer,
@@ -62,7 +57,6 @@ import {
 } from 'lucide-react';
 import {
   ACCENT_COLORS,
-  AiImageCategory,
   AppSettings,
   CollabChatMessage,
   CollabItemDoc,
@@ -129,19 +123,23 @@ import { buildOutlineItemsFromMindNodes, parseImportedFiles } from '../utils/not
 import {
   extractNotebookText,
   generateMindMapFromText,
-  LOCAL_MODELS_CATALOG,
   RichSummaryResult,
-  runLocalExplain,
   runLocalFlashcards,
   runLocalQuiz,
   runLocalSlideShow,
   runLocalSummary,
-  runSemanticSearch,
 } from '../utils/localAi';
-import { AiParticleBackdrop, AiThinkingPill } from './AiVisuals';
 import { PaperPreviewCanvas } from './CoversAndPatterns';
 import { FlashcardsModal, QuizModal, SlideShowModal, SummaryModal } from './StudyModals';
-import { LiquidGlassSurface, LiquidSlider } from './LiquidGlassSurface';
+import {
+  LiquidButton,
+  LiquidGlassSurface,
+  LiquidInput,
+  LiquidMenuButton,
+  LiquidModal,
+  LiquidSegmentedControl,
+  LiquidSlider,
+} from './LiquidGlassSurface';
 import {
   CollabRoomModal,
   CommandPaletteAction,
@@ -274,8 +272,7 @@ const SplitNotebookPane: React.FC<{
   const [splitPageIdx, setSplitPageIdx] = useState(0);
   const [syncPage, setSyncPage] = useState(false);
   const [splitTool, setSplitTool] = useState<'pan' | 'pen' | 'highlighter' | 'eraser'>('pan');
-  const [splitInkColor, setSplitInkColor] = useState(penColor || '#2A78D6');
-  const [splitMoreOpen, setSplitMoreOpen] = useState(false);
+  const [splitInkColor, setSplitInkColor] = useState(penColor || '#24483F');
   const [viewport, setViewport] = useState<{ zoom: number; panX: number; panY: number }>({
     zoom: 0.5,
     panX: 16,
@@ -290,6 +287,8 @@ const SplitNotebookPane: React.FC<{
   viewportRef.current = viewport;
 
   const splitCanvasRef = useRef<HTMLCanvasElement>(null);
+  const splitLiveCanvasRef = useRef<HTMLCanvasElement>(null);
+  const splitLiveRafRef = useRef<number | null>(null);
   const splitWrapRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ active: boolean; lx: number; ly: number }>({ active: false, lx: 0, ly: 0 });
   const writeStrokeRef = useRef<{ active: boolean; pageIdx: number; pts: StrokePt[] }>({
@@ -297,7 +296,6 @@ const SplitNotebookPane: React.FC<{
     pageIdx: 0,
     pts: [],
   });
-  const [, setLiveStrokeTick] = useState(0);
   const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchRef = useRef<{
     initialDist: number;
@@ -492,25 +490,62 @@ const SplitNotebookPane: React.FC<{
         drawPaperTemplate(ctx, pg.width, pg.height, pg.paper, pBg, pg.lineScale ?? 1, pg.lineColor, false, pg.cover);
       }
       renderPageItems(ctx, pg, new Map(), new Set(), highlighterBehind);
-      if (writeStrokeRef.current.active && writeStrokeRef.current.pageIdx === idx && writeStrokeRef.current.pts.length > 0) {
-        const liveInk: InkItem = {
-          id: 'split-live',
-          kind: 'ink',
-          points: writeStrokeRef.current.pts,
-          color: splitTool === 'highlighter' ? hlColor : splitInkColor,
-          size: splitTool === 'highlighter' ? hlSize : penSize,
-          isHighlighter: splitTool === 'highlighter',
-          opacity: splitTool === 'highlighter' ? 0.55 : 1,
-          penKind: 'fountain',
-        };
-        renderPageItems(ctx, { ...pg, items: [liveInk] }, new Map(), new Set(), highlighterBehind);
-      }
       ctx.restore();
     });
 
     ctx.restore();
     ctx.restore();
-  });
+  }, [pageLayout, spPage, paperTintDefault, highlighterBehind, viewport]);
+
+  const scheduleSplitLiveOverlay = useCallback(() => {
+    if (splitLiveRafRef.current !== null) return;
+    splitLiveRafRef.current = requestAnimationFrame(() => {
+      splitLiveRafRef.current = null;
+      const overlay = splitLiveCanvasRef.current;
+      const wrap = splitWrapRef.current;
+      if (!overlay || !wrap) return;
+      const dpr = window.devicePixelRatio || 1;
+      const cw = wrap.clientWidth;
+      const ch = wrap.clientHeight;
+      if (cw <= 0 || ch <= 0) return;
+      if (overlay.width !== Math.round(cw * dpr) || overlay.height !== Math.round(ch * dpr)) {
+        overlay.width = Math.round(cw * dpr);
+        overlay.height = Math.round(ch * dpr);
+      }
+      const octx = overlay.getContext('2d');
+      if (!octx) return;
+      octx.clearRect(0, 0, overlay.width, overlay.height);
+      const st = writeStrokeRef.current;
+      if (!st.active || st.pts.length === 0) return;
+      const slot = pageLayout[st.pageIdx];
+      if (!slot) return;
+      const vp = viewportRef.current;
+      octx.save();
+      octx.scale(dpr, dpr);
+      octx.translate(vp.panX, vp.panY);
+      octx.scale(vp.zoom, vp.zoom);
+      octx.translate(slot.x, slot.y);
+      const liveInk: InkItem = {
+        id: 'split-live',
+        kind: 'ink',
+        points: st.pts,
+        color: splitTool === 'highlighter' ? hlColor : splitInkColor,
+        size: splitTool === 'highlighter' ? hlSize : penSize,
+        isHighlighter: splitTool === 'highlighter',
+        opacity: splitTool === 'highlighter' ? 0.55 : 1,
+        penKind: 'fountain',
+      };
+      renderPageItems(octx, { ...slot.page, items: [liveInk] }, new Map(), new Set(), highlighterBehind);
+      octx.restore();
+    });
+  }, [pageLayout, splitTool, hlColor, splitInkColor, hlSize, penSize, highlighterBehind]);
+
+  useEffect(
+    () => () => {
+      if (splitLiveRafRef.current !== null) cancelAnimationFrame(splitLiveRafRef.current);
+    },
+    []
+  );
 
   const splitSearchHits = useMemo(() => {
     const q = splitSearchQuery.trim().toLowerCase();
@@ -594,181 +629,137 @@ const SplitNotebookPane: React.FC<{
   return (
     <aside
       style={{ width }}
-      className="hidden shrink-0 flex-col border-l border-black/10 bg-white dark:border-white/10 dark:bg-[#18191E] md:flex"
+      className="liquid-glass-frost hidden shrink-0 flex-col border-l border-[#1F2421]/10 dark:border-[#EDE8DB]/10 md:flex"
     >
-      {/* Clean Single Top Header + Overflow Popover */}
-      <div className="relative flex items-center justify-between gap-1.5 border-b border-black/8 px-3 py-2 dark:border-white/10">
-        <select
-          value={splitNotebook.id}
-          onChange={(e) => onChangeNotebook(e.target.value)}
-          className="min-w-0 flex-1 truncate rounded-xl border border-black/10 bg-slate-50 px-2.5 py-1.5 text-xs font-bold outline-none dark:border-white/12 dark:bg-[#22242C]"
-        >
-          {allNotebooks
-            .filter((n) => n.deletedAt === null)
-            .map((n) => (
-              <option key={n.id} value={n.id}>
-                {n.title}
-              </option>
-            ))}
-        </select>
+      {/* Clean Single Top Header + LiquidMenuButton Dropdown */}
+      <LiquidGlassSurface
+        enabled
+        variant="chrome"
+        radius={0}
+        className="relative z-20 border-b border-[#1F2421]/10 px-3 py-2 dark:border-[#EDE8DB]/10"
+      >
+        <div className="flex items-center justify-between gap-1.5">
+          <LiquidMenuButton
+            align="left"
+            label={splitNotebook.title}
+            className="min-w-0 flex-1"
+            items={allNotebooks
+              .filter((n) => n.deletedAt === null)
+              .map((n) => ({
+                id: n.id,
+                label: n.title,
+                selected: n.id === splitNotebook.id,
+                onSelect: () => onChangeNotebook(n.id),
+              }))}
+          />
 
-        <button
-          type="button"
-          onClick={() => setSplitTool((t) => (t === 'pan' ? 'pen' : 'pan'))}
-          title={splitTool === 'pan' ? 'Switch to Write Ink in Split' : 'Switch to Read/Pan'}
-          className={`ios-stretch shrink-0 rounded-lg px-2 py-1 text-[11px] font-bold transition ${
-            splitTool !== 'pan'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-black/5 text-slate-600 hover:bg-black/10 dark:bg-white/10 dark:text-slate-300'
-          }`}
-        >
-          {splitTool === 'pan' ? 'Read' : 'Write'}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setSplitSearchOpen((v) => !v)}
-          title="Search in split notebook"
-          className={`ios-stretch shrink-0 rounded-lg p-1.5 transition ${
-            splitSearchOpen ? 'bg-blue-600/15 text-blue-600' : 'text-slate-500 hover:bg-black/5 dark:hover:bg-white/10'
-          }`}
-        >
-          <Search className="h-3.5 w-3.5" />
-        </button>
-
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setSplitMoreOpen((v) => !v)}
-            title="Split options"
-            className="ios-stretch shrink-0 rounded-lg p-1.5 text-slate-500 hover:bg-black/5 dark:hover:bg-white/10"
+          <LiquidButton
+            tint={splitTool !== 'pan' ? '#24483F' : undefined}
+            onClick={() => setSplitTool((t) => (t === 'pan' ? 'pen' : 'pan'))}
+            title={splitTool === 'pan' ? 'Switch to Write Ink in Split' : 'Switch to Read/Pan'}
+            className="!px-2.5 !py-1 !text-[11px]"
           >
-            <MoreHorizontal className="h-3.5 w-3.5" />
-          </button>
-          {splitMoreOpen && (
-            <div className="absolute right-0 top-full z-50 mt-1.5 w-52 rounded-2xl border border-black/10 bg-white/95 p-1.5 text-xs shadow-2xl backdrop-blur-xl dark:border-white/12 dark:bg-[#1F2128]/95">
-              <div className="px-2.5 pb-1 pt-0.5 text-[10px] font-bold uppercase text-slate-400">
-                Pane Width
-              </div>
-              <div className="mb-1.5 flex gap-1 px-1.5">
-                {[0.3, 0.5, 0.7].map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => {
-                      setActiveRatio(r);
-                      onSetRatio(r);
-                      setSplitMoreOpen(false);
-                    }}
-                    className={`flex-1 rounded-lg py-1 font-mono-num text-[10px] font-bold ${
-                      Math.abs(activeRatio - r) < 0.05
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-black/5 text-slate-600 dark:bg-white/10 dark:text-slate-300'
-                    }`}
-                  >
-                    {Math.round(r * 100)}/{Math.round((1 - r) * 100)}
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setSyncPage((s) => !s);
-                  setSplitMoreOpen(false);
-                }}
-                className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-              >
-                {syncPage ? <Lock className="h-3.5 w-3.5 text-emerald-600" /> : <Unlock className="h-3.5 w-3.5 text-slate-500" />}
-                {syncPage ? 'Unlock Page Sync' : 'Lock Page Sync'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onSwapWithPrimary(splitNotebook.id);
-                  setSplitMoreOpen(false);
-                }}
-                className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-              >
-                <ArrowLeftRight className="h-3.5 w-3.5 text-blue-600" /> Swap Primary &amp; Split
-              </button>
-              {pageText && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onCopyTextToPrimary(pageText);
-                      setSplitMoreOpen(false);
-                    }}
-                    className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-                  >
-                    <Copy className="h-3.5 w-3.5 text-violet-600" /> Clip Text as Sticky
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onInsertTextToActive(pageText);
-                      setSplitMoreOpen(false);
-                    }}
-                    className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-                  >
-                    <FileText className="h-3.5 w-3.5 text-emerald-600" /> Insert Text to Active
-                  </button>
-                </>
-              )}
-              <button
-                type="button"
-                onClick={() => {
+            {splitTool === 'pan' ? 'Read' : 'Write'}
+          </LiquidButton>
+
+          <LiquidButton
+            tint={splitSearchOpen ? '#24483F' : undefined}
+            onClick={() => setSplitSearchOpen((v) => !v)}
+            title="Search in split notebook"
+            className="!h-8 !w-8 !p-0"
+          >
+            <Search className="h-3.5 w-3.5" />
+          </LiquidButton>
+
+          <LiquidMenuButton
+            align="right"
+            title="Split options"
+            trigger={() => (
+              <span className="liquid-glass-frost flex h-8 w-8 items-center justify-center rounded-full">
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </span>
+            )}
+            items={[
+              ...[0.3, 0.5, 0.7].map((r) => ({
+                id: `ratio-${r}`,
+                label: `Width ${Math.round(r * 100)} / ${Math.round((1 - r) * 100)}`,
+                selected: Math.abs(activeRatio - r) < 0.05,
+                onSelect: () => {
+                  setActiveRatio(r);
+                  onSetRatio(r);
+                },
+              })),
+              {
+                id: 'sync-page',
+                dividerBefore: true,
+                label: syncPage ? 'Unlock Page Sync' : 'Lock Page Sync',
+                icon: syncPage ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />,
+                onSelect: () => setSyncPage((s) => !s),
+              },
+              {
+                id: 'swap-primary',
+                label: 'Swap Primary & Split',
+                icon: <ArrowLeftRight className="h-3.5 w-3.5" />,
+                onSelect: () => onSwapWithPrimary(splitNotebook.id),
+              },
+              ...(pageText
+                ? [
+                    {
+                      id: 'clip-sticky',
+                      label: 'Clip Text as Sticky',
+                      icon: <Copy className="h-3.5 w-3.5" />,
+                      onSelect: () => onCopyTextToPrimary(pageText),
+                    },
+                    {
+                      id: 'insert-text',
+                      label: 'Insert Text to Active',
+                      icon: <FileText className="h-3.5 w-3.5" />,
+                      onSelect: () => onInsertTextToActive(pageText),
+                    },
+                  ]
+                : []),
+              {
+                id: 'cross-link',
+                label: 'Insert Cross-Link Card',
+                icon: <Link2 className="h-3.5 w-3.5" />,
+                onSelect: () =>
                   onInsertWebLink(
                     `https://pronotes.app/notebook/${splitNotebook.id}?p=${sSafeIdx + 1}`,
                     `${splitNotebook.title} (p.${sSafeIdx + 1})`
-                  );
-                  setSplitMoreOpen(false);
-                }}
-                className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-              >
-                <Link2 className="h-3.5 w-3.5 text-sky-600" /> Insert Cross-Link Card
-              </button>
-            </div>
-          )}
+                  ),
+              },
+            ]}
+          />
+
+          <LiquidButton
+            onClick={onClose}
+            title="Close split pane"
+            className="!h-8 !w-8 !p-0"
+          >
+            <X className="h-3.5 w-3.5" />
+          </LiquidButton>
         </div>
+      </LiquidGlassSurface>
 
-        <button
-          type="button"
-          onClick={onClose}
-          title="Close split pane"
-          className="ios-stretch shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-black/5 dark:hover:bg-white/10"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      {/* Collapsible Write Tools Bar (Only when writing inside split pane) */}
+      {/* Collapsible Write Tools Bar */}
       {splitTool !== 'pan' && (
-        <div className="flex items-center justify-between gap-2 border-b border-black/8 bg-blue-50/75 px-3 py-1.5 text-[11px] dark:border-white/10 dark:bg-blue-950/25">
+        <LiquidGlassSurface
+          enabled
+          variant="frost"
+          radius={0}
+          className="flex items-center justify-between gap-2 border-b border-[#1F2421]/10 px-3 py-1.5 text-[11px] dark:border-[#EDE8DB]/10"
+        >
+          <LiquidSegmentedControl
+            value={splitTool}
+            onChange={(v) => setSplitTool(v)}
+            options={[
+              { value: 'pen', label: 'Pen' },
+              { value: 'highlighter', label: 'Hi-lite' },
+              { value: 'eraser', label: 'Erase' },
+            ]}
+          />
           <div className="flex items-center gap-1">
-            {(
-              [
-                { id: 'pen', label: 'Pen' },
-                { id: 'highlighter', label: 'Hi-lite' },
-                { id: 'eraser', label: 'Erase' },
-              ] as const
-            ).map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setSplitTool(t.id)}
-                className={`ios-stretch rounded-lg px-2 py-1 font-bold ${
-                  splitTool === t.id
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white/80 text-slate-600 dark:bg-white/10 dark:text-slate-300'
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-1">
-            {['#1B1F2A', '#2A78D6', '#E5484D', '#0F7E5C'].map((c) => (
+            {['#1F2421', '#24483F', '#2E4A7A', '#9B3B3B'].map((c) => (
               <button
                 key={c}
                 type="button"
@@ -777,13 +768,12 @@ const SplitNotebookPane: React.FC<{
                   if (splitTool === 'eraser') setSplitTool('pen');
                 }}
                 className={`h-4 w-4 rounded-full border border-black/20 ${
-                  splitInkColor === c ? 'ring-2 ring-blue-500' : ''
+                  splitInkColor === c ? 'ring-2 ring-[#24483F] dark:ring-[#8CC1AC]' : ''
                 }`}
                 style={{ backgroundColor: c }}
               />
             ))}
-            <button
-              type="button"
+            <LiquidButton
               onClick={() => {
                 onUpdateSplitNotebook(splitNotebook.id, (nb) => ({
                   ...nb,
@@ -793,35 +783,34 @@ const SplitNotebookPane: React.FC<{
                 }));
               }}
               title="Undo last split stroke"
-              className="ml-1 rounded-lg bg-white/80 p-1 text-slate-600 hover:bg-black/10 dark:bg-white/10 dark:text-slate-200"
+              className="ml-1 !h-7 !w-7 !p-0"
             >
               <Undo2 className="h-3.5 w-3.5" />
-            </button>
+            </LiquidButton>
           </div>
-        </div>
+        </LiquidGlassSurface>
       )}
 
       {/* Collapsible In-Split Search Bar */}
       {splitSearchOpen && (
-        <div className="flex items-center gap-1.5 border-b border-black/8 bg-slate-50/90 px-3 py-1.5 text-xs dark:border-white/10 dark:bg-[#14151A]">
-          <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-          <input
+        <div className="flex items-center gap-1.5 border-b border-[#1F2421]/10 px-3 py-1.5 text-xs dark:border-[#EDE8DB]/10">
+          <LiquidInput
             autoFocus
+            icon={<Search className="h-3.5 w-3.5" />}
             value={splitSearchQuery}
             onChange={(e) => {
               setSplitSearchQuery(e.target.value);
               setSplitHitIdx(0);
             }}
             placeholder="Find in reference..."
-            className="min-w-0 flex-1 bg-transparent text-xs outline-none"
+            wrapperClassName="flex-1 !py-1"
           />
           {splitSearchQuery && (
-            <span className="font-mono-num shrink-0 text-[10px] font-semibold text-slate-500">
+            <span className="font-mono-num shrink-0 text-[10px] font-semibold text-[#5A5F58] dark:text-[#B1AC9F]">
               {splitSearchHits.length > 0 ? `${Math.min(splitHitIdx + 1, splitSearchHits.length)}/${splitSearchHits.length}` : '0'}
             </span>
           )}
-          <button
-            type="button"
+          <LiquidButton
             disabled={splitSearchHits.length === 0}
             onClick={() => {
               if (splitSearchHits.length === 0) return;
@@ -829,12 +818,11 @@ const SplitNotebookPane: React.FC<{
               setSplitHitIdx(next);
               jumpToSplitPage(splitSearchHits[next].pageIdx, viewport.zoom);
             }}
-            className="rounded p-0.5 hover:bg-black/10 disabled:opacity-30"
+            className="!h-7 !w-7 !p-0"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
+          </LiquidButton>
+          <LiquidButton
             disabled={splitSearchHits.length === 0}
             onClick={() => {
               if (splitSearchHits.length === 0) return;
@@ -842,10 +830,10 @@ const SplitNotebookPane: React.FC<{
               setSplitHitIdx(next);
               jumpToSplitPage(splitSearchHits[next].pageIdx, viewport.zoom);
             }}
-            className="rounded p-0.5 hover:bg-black/10 disabled:opacity-30"
+            className="!h-7 !w-7 !p-0"
           >
             <ChevronRight className="h-3.5 w-3.5" />
-          </button>
+          </LiquidButton>
         </div>
       )}
 
@@ -946,7 +934,7 @@ const SplitNotebookPane: React.FC<{
                   pageIdx: targetIdx,
                   pts: [{ x: wx - slot.x, y: wy - slot.y, p: e.pressure || 0.65 }],
                 };
-                setLiveStrokeTick((t) => t + 1);
+                scheduleSplitLiveOverlay();
                 return;
               }
             }
@@ -984,7 +972,7 @@ const SplitNotebookPane: React.FC<{
                   y: wy - slot.y,
                   p: e.pressure || 0.65,
                 });
-                setLiveStrokeTick((t) => t + 1);
+                scheduleSplitLiveOverlay();
               }
               return;
             }
@@ -1041,7 +1029,7 @@ const SplitNotebookPane: React.FC<{
                   pages: nb.pages.map((pg, i) => (i === pIdx ? { ...pg, items: [...pg.items, ink] } : pg)),
                 }));
               }
-              setLiveStrokeTick((t) => t + 1);
+              scheduleSplitLiveOverlay();
             }
             if (pointersRef.current.size < 2) pinchRef.current = null;
             if (pointersRef.current.size === 1) {
@@ -1054,6 +1042,7 @@ const SplitNotebookPane: React.FC<{
           onPointerCancel={(e) => {
             pointersRef.current.delete(e.pointerId);
             writeStrokeRef.current.active = false;
+            scheduleSplitLiveOverlay();
             if (pointersRef.current.size < 2) pinchRef.current = null;
             dragRef.current.active = false;
           }}
@@ -1072,6 +1061,10 @@ const SplitNotebookPane: React.FC<{
             splitTool === 'pan' ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'
           }`}
         />
+        <canvas
+          ref={splitLiveCanvasRef}
+          className="pointer-events-none absolute inset-0 h-full w-full"
+        />
       </div>
     </aside>
   );
@@ -1088,7 +1081,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   settings,
   flashcards,
   bestQuizScore,
-  modelStates,
+  modelStates: _modelStates,
   isSignedIn = false,
   activeCollabRoom = null,
   collabMembers = [],
@@ -1115,10 +1108,9 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   onDeleteFlashcard,
   onRecordQuizScore,
   onOpenSettings,
-  onOpenLocalModels,
+  onOpenLocalModels: _onOpenLocalModels,
 }) => {
   const accent = ACCENT_COLORS[settings.accent];
-  const activeModel = LOCAL_MODELS_CATALOG.find((m) => m.id === settings.activeLocalModelId);
 
   const [pageIdx, setPageIdx] = useState(0);
   const [tool, setTool] = useState<ToolId>(notebook.isMindMap ? 'MINDMAP' : 'PEN');
@@ -1165,8 +1157,6 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   const [templateSheetOpen, setTemplateSheetOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [aiMenuOpen, setAiMenuOpen] = useState(false);
-  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [stickerOpen, setStickerOpen] = useState(false);
   const [hoveredToolId, setHoveredToolId] = useState<ToolId | null>(null);
   const [dragToolId, setDragToolId] = useState<ToolId | null>(null);
@@ -1194,16 +1184,8 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
 
   // Slide Show Revision modal state
   const [slideModalOpen, setSlideModalOpen] = useState(false);
-  const [slideEngineLabel, setSlideEngineLabel] = useState('AI + Manual Deck Studio');
+  const [slideEngineLabel, setSlideEngineLabel] = useState('Deck Studio');
   const [slideLoadingStage, setSlideLoadingStage] = useState<string | null>(null);
-
-  // AI Semantic Search state
-  const [semanticResult, setSemanticResult] = useState<{
-    answer: string;
-    expandedTerms: string[];
-    engineLabel: string;
-  } | null>(null);
-  const [semanticBusy, setSemanticBusy] = useState(false);
 
   // Resizable Split Workspace
   const [splitNoteId, setSplitNoteId] = useState<string | null>(null);
@@ -1214,20 +1196,10 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     startW: 360,
   });
 
-  // v10 Feature Modals & Focus Timer
-  const [aiChatOpen, setAiChatOpen] = useState(false);
-  const [aiRecordOpen, setAiRecordOpen] = useState(false);
-  const [aiAssetModal, setAiAssetModal] = useState<{ open: boolean; category: AiImageCategory }>({
-    open: false,
-    category: 'sticker',
-  });
   const [collabModalOpen, setCollabModalOpen] = useState(false);
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
   const [pomodoroActive, setPomodoroActive] = useState(false);
 
-  // Study & AI States with visible progress stages
-  const [aiBusyLabel, setAiBusyLabel] = useState<string | null>(null);
-  const [aiStageLabel, setAiStageLabel] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [summaryModal, setSummaryModal] = useState<{
     open: boolean;
@@ -2875,13 +2847,10 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   };
 
   // ================================================================
-  // AI Actions (Animated Stages) + Mind Map & Import Exports
+  // Study & Revision Tools (Local Note Digestion, Flashcards, Quiz, Slides)
   // ================================================================
 
   const handleAiSummary = async () => {
-    setAiMenuOpen(false);
-    setAiBusyLabel('Summarizing notes');
-    setAiStageLabel('Reading notebook pages');
     setSummaryModal({
       open: true,
       title: `Key Points · ${notebook.title}`,
@@ -2889,116 +2858,81 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       loadingStage: 'Reading notebook pages',
       explainText: null,
     });
-    try {
-      const txt = extractNotebookText(notebook.pages);
-      const res = await runLocalSummary(
-        txt,
-        settings.activeLocalModelId,
-        (stage) => {
-          setAiStageLabel(stage);
-          setSummaryModal((s) => ({ ...s, loadingStage: stage }));
-        },
-        settings
-      );
-      setSummaryModal({
-        open: true,
-        title: `Key Points · ${notebook.title}`,
-        summary: res,
-        loadingStage: null,
-        explainText: null,
-      });
-    } finally {
-      setAiBusyLabel(null);
-      setAiStageLabel(null);
-    }
+    const txt = extractNotebookText(notebook.pages);
+    const res = await runLocalSummary(
+      txt,
+      settings.activeLocalModelId,
+      (stage) => setSummaryModal((s) => ({ ...s, loadingStage: stage })),
+      settings
+    );
+    setSummaryModal({
+      open: true,
+      title: `Key Points · ${notebook.title}`,
+      summary: res,
+      loadingStage: null,
+      explainText: null,
+    });
   };
 
   const handleAiFlashcards = async () => {
-    setAiMenuOpen(false);
-    setAiBusyLabel('Crafting flashcards');
-    setAiStageLabel('Scanning definitions');
-    try {
-      const txt = extractNotebookText(notebook.pages);
-      const res = await runLocalFlashcards(
-        txt,
-        notebook.id,
-        settings.activeLocalModelId,
-        (stage) => setAiStageLabel(stage),
-        settings
-      );
-      if (res.cards.length > 0) {
-        onAddFlashcards(res.cards);
-        showToast(`Added ${res.cards.length} flashcards (${res.engineLabel})`);
-      } else {
-        showToast('Add definitions like "X is..." to auto-generate cards');
-      }
-      setFlashModalOpen(true);
-    } finally {
-      setAiBusyLabel(null);
-      setAiStageLabel(null);
+    const txt = extractNotebookText(notebook.pages);
+    const res = await runLocalFlashcards(
+      txt,
+      notebook.id,
+      settings.activeLocalModelId,
+      undefined,
+      settings
+    );
+    if (res.cards.length > 0) {
+      onAddFlashcards(res.cards);
+      showToast(`Added ${res.cards.length} flashcards`);
+    } else {
+      showToast('Add definitions like "X is..." to extract cards');
     }
+    setFlashModalOpen(true);
   };
 
   const handleAiQuiz = async () => {
-    setAiMenuOpen(false);
-    setAiBusyLabel('Building quiz');
-    setAiStageLabel('Extracting quiz concepts');
     setQuizModal({
       open: true,
       questions: [],
-      engineLabel: activeModel?.name || 'Built-in Study Engine',
+      engineLabel: 'Study Practice',
       loadingStage: 'Extracting quiz concepts',
     });
-    try {
-      const txt = extractNotebookText(notebook.pages);
-      const res = await runLocalQuiz(
-        txt,
-        settings.activeLocalModelId,
-        (stage) => {
-          setAiStageLabel(stage);
-          setQuizModal((q) => ({ ...q, loadingStage: stage }));
-        },
-        settings
-      );
-      setQuizModal({
-        open: true,
-        questions: res.questions,
-        engineLabel: res.engineLabel,
-        loadingStage: null,
-      });
-    } finally {
-      setAiBusyLabel(null);
-      setAiStageLabel(null);
-    }
+    const txt = extractNotebookText(notebook.pages);
+    const res = await runLocalQuiz(
+      txt,
+      settings.activeLocalModelId,
+      (stage) => setQuizModal((q) => ({ ...q, loadingStage: stage })),
+      settings
+    );
+    setQuizModal({
+      open: true,
+      questions: res.questions,
+      engineLabel: 'Study Practice',
+      loadingStage: null,
+    });
   };
 
   const handleAiGenerateMindMap = async () => {
-    setAiMenuOpen(false);
-    setAiBusyLabel('Mapping concepts');
-    setAiStageLabel('Structuring concept tree');
-    try {
-      const txt = extractNotebookText(notebook.pages) || notebook.title;
-      const center = screenToWorld(
-        (containerRef.current?.clientWidth || 800) / 2,
-        (containerRef.current?.clientHeight || 600) / 2
-      );
-      const res = await generateMindMapFromText(
-        txt,
-        center.x,
-        center.y,
-        settings.activeLocalModelId,
-        (stage) => setAiStageLabel(stage),
-        settings
-      );
-      commitPageItems((items) =>
-        clampMindNodesToPage([...items, ...res.nodes], page?.width || 1200, page?.height || 1697, isWhiteboard)
-      );
-      setTool('MINDMAP');
-      showToast(`Mind Map generated (${res.engineLabel})`);
-    } finally {
-      setAiBusyLabel(null);
-      setAiStageLabel(null);
-    }
+    const txt = extractNotebookText(notebook.pages) || notebook.title;
+    const center = screenToWorld(
+      (containerRef.current?.clientWidth || 800) / 2,
+      (containerRef.current?.clientHeight || 600) / 2
+    );
+    const res = await generateMindMapFromText(
+      txt,
+      center.x,
+      center.y,
+      settings.activeLocalModelId,
+      undefined,
+      settings
+    );
+    commitPageItems((items) =>
+      clampMindNodesToPage([...items, ...res.nodes], page?.width || 1200, page?.height || 1697, isWhiteboard)
+    );
+    setTool('MINDMAP');
+    showToast('Mind Map created from notes');
   };
 
   const handleGenerateSlides = async (
@@ -3014,9 +2948,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           ? notebook.pages.slice(Math.max(0, fromPage - 1), toPage)
           : notebook.pages;
     const text = extractNotebookText(pickedPages) || notebook.title;
-    setSlideLoadingStage('Synthesizing revision slides...');
-    setAiBusyLabel('Building Slide Show');
-    setAiStageLabel('Structuring chapter cards');
+    setSlideLoadingStage('Building revision slides...');
     try {
       const res = await runLocalSlideShow(
         notebook.title,
@@ -3024,85 +2956,17 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         slideCount,
         settings.activeLocalModelId,
         settings,
-        (stage) => {
-          setSlideLoadingStage(stage);
-          setAiStageLabel(stage);
-        }
+        (stage) => setSlideLoadingStage(stage)
       );
       if (onUpdateSlides) {
         onUpdateSlides(res.slides);
       } else {
         onUpdateNotebook(notebook.id, (nb) => ({ ...nb, slides: res.slides }));
       }
-      setSlideEngineLabel(res.engineLabel);
-      showToast(`Created ${res.slides.length} revision slides (${res.engineLabel})`);
+      setSlideEngineLabel('Deck Studio');
+      showToast(`Created ${res.slides.length} revision slides`);
     } finally {
       setSlideLoadingStage(null);
-      setAiBusyLabel(null);
-      setAiStageLabel(null);
-    }
-  };
-
-  const handleAiExplainSelection = async () => {
-    if (!page) return;
-    const selItems = page.items.filter((i) => selectedIds.has(i.id));
-    const selTxt = selItems
-      .map((i) =>
-        i.kind === 'text'
-          ? i.text
-          : i.kind === 'sticky'
-            ? i.text
-            : i.kind === 'weblink'
-              ? `${i.title} ${i.url}`
-              : i.kind === 'mindnode'
-                ? i.label
-                : ''
-      )
-      .filter(Boolean)
-      .join(' ');
-    if (!selTxt.trim()) {
-      showToast('Select text, a sticky note, or a mind map node to explain');
-      return;
-    }
-    setAiBusyLabel('Explaining selection');
-    setAiStageLabel('Reasoning with local context');
-    setSummaryModal({
-      open: true,
-      title: 'Simple Explanation',
-      summary: null,
-      loadingStage: 'Reasoning with local context',
-      explainText: null,
-    });
-    try {
-      const ctxTxt = extractNotebookText([page]);
-      const res = await runLocalExplain(
-        selTxt,
-        ctxTxt,
-        settings.activeLocalModelId,
-        (stage) => {
-          setAiStageLabel(stage);
-          setSummaryModal((s) => ({ ...s, loadingStage: stage }));
-        },
-        settings
-      );
-      setSummaryModal({
-        open: true,
-        title: 'Simple Explanation',
-        summary: {
-          headline: 'Concept Breakdown',
-          points: [],
-          definitions: [],
-          formulas: [],
-          keywords: [],
-          wordCount: selTxt.split(/\s+/).length,
-          engineLabel: res.engineLabel,
-        },
-        loadingStage: null,
-        explainText: res.explanation,
-      });
-    } finally {
-      setAiBusyLabel(null);
-      setAiStageLabel(null);
     }
   };
 
@@ -3257,43 +3121,10 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     showToast(`Switched to "${preset.name}"`);
   };
 
-  // Debounced Semantic Search using Downloaded Model / Custom AI
-  useEffect(() => {
-    if (!searchOpen) {
-      setSemanticResult(null);
-      return;
-    }
-    const q = searchQuery.trim();
-    if (q.length < 2) {
-      setSemanticResult(null);
-      return;
-    }
-    let cancelled = false;
-    setSemanticBusy(true);
-    const timer = window.setTimeout(async () => {
-      try {
-        const res = await runSemanticSearch(
-          q,
-          extractNotebookText(notebook.pages),
-          settings.activeLocalModelId,
-          settings
-        );
-        if (!cancelled) setSemanticResult(res);
-      } finally {
-        if (!cancelled) setSemanticBusy(false);
-      }
-    }, 300);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [searchOpen, searchQuery, notebook.pages, settings]);
-
   const searchHits = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return [];
-    const expanded = (semanticResult?.expandedTerms || []).map((t) => t.toLowerCase());
-    const hits: { pageIdx: number; preview: string; matchTag?: string }[] = [];
+    const hits: { pageIdx: number; preview: string }[] = [];
     notebook.pages.forEach((pg, idx) => {
       for (const it of pg.items) {
         const txt =
@@ -3306,20 +3137,16 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 : it.kind === 'mindnode'
                   ? `${it.label} ${it.notes || ''}`
                   : '';
-        if (!txt) continue;
-        const lower = txt.toLowerCase();
-        if (lower.includes(q)) {
+        if (txt && txt.toLowerCase().includes(q)) {
           hits.push({ pageIdx: idx, preview: txt.trim().slice(0, 72) });
-        } else {
-          const semHit = expanded.find((t) => lower.includes(t));
-          if (semHit) {
-            hits.push({ pageIdx: idx, preview: txt.trim().slice(0, 72), matchTag: `AI · ${semHit}` });
-          }
         }
+      }
+      if (pg.pdfText && pg.pdfText.toLowerCase().includes(q)) {
+        hits.push({ pageIdx: idx, preview: pg.pdfText.slice(0, 72) });
       }
     });
     return hits;
-  }, [notebook.pages, searchQuery, semanticResult]);
+  }, [notebook.pages, searchQuery]);
 
   const splitNotebook = splitNoteId ? allNotebooks.find((n) => n.id === splitNoteId && n.deletedAt === null) : null;
 
@@ -3372,50 +3199,56 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   }, [selectedWebLinkNode, camera]);
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#E7E9EF] text-[#1B1F2A] dark:bg-[#0F1013] dark:text-[#F3F4F6]">
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#EFEBE2] text-[#1F2421] dark:bg-[#111311] dark:text-[#EDE8DB]">
       {/* Open Tabs Strip */}
       {settings.showTabs && openTabIds.length > 0 && (
-        <div className="flex h-8 shrink-0 items-center gap-1 border-b border-black/8 bg-[#ECEEF3] px-2 dark:border-white/8 dark:bg-[#141518]">
-          {openTabIds.map((tid) => {
-            const nb = allNotebooks.find((n) => n.id === tid);
-            if (!nb) return null;
-            const active = tid === notebook.id;
-            return (
-              <div
-                key={tid}
-                className={`group flex max-w-[180px] items-center gap-1.5 rounded-t-lg px-2.5 py-1 text-xs font-medium transition ${
-                  active
-                    ? 'bg-white text-slate-900 shadow-sm dark:bg-[#212329] dark:text-white'
-                    : 'text-slate-500 hover:bg-black/5 dark:text-slate-400'
-                }`}
-              >
-                <button type="button" onClick={() => onSwitchNote(tid)} className="truncate">
-                  {nb.title}
-                </button>
-                {openTabIds.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => onCloseTab(tid)}
-                    className="rounded p-0.5 opacity-60 hover:bg-black/10 hover:opacity-100"
-                  >
-                    <X className="h-3 w-3" />
+        <LiquidGlassSurface
+          enabled={settings.liquidGlass}
+          variant="frost"
+          radius={0}
+          className="flex h-8 shrink-0 items-center gap-1 border-b border-[#1F2421]/10 px-2 dark:border-[#EDE8DB]/10"
+        >
+          <div className="flex h-full items-center gap-1 overflow-x-auto">
+            {openTabIds.map((tid) => {
+              const nb = allNotebooks.find((n) => n.id === tid);
+              if (!nb) return null;
+              const active = tid === notebook.id;
+              return (
+                <div
+                  key={tid}
+                  className={`group flex max-w-[180px] items-center gap-1.5 rounded-t-xl px-2.5 py-1 text-xs font-medium transition ${
+                    active
+                      ? 'bg-[#24483F] text-[#F5F2E8] shadow-sm dark:bg-[#8CC1AC] dark:text-[#151E1B]'
+                      : 'text-[#5A5F58] hover:bg-black/5 dark:text-[#B1AC9F]'
+                  }`}
+                >
+                  <button type="button" onClick={() => onSwitchNote(tid)} className="truncate">
+                    {nb.title}
                   </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                  {openTabIds.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => onCloseTab(tid)}
+                      className="rounded p-0.5 opacity-60 hover:bg-black/10 hover:opacity-100"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </LiquidGlassSurface>
       )}
 
       {/* Main Editor Header Bar */}
-      <header
-        className="relative z-30 flex shrink-0 items-center justify-between gap-2 border-b border-black/10 px-3 py-2 shadow-sm dark:border-white/10"
-        style={{
-          backgroundColor: document.documentElement.classList.contains('dark')
-            ? accent.softDarkBg
-            : accent.softBg,
-        }}
+      <LiquidGlassSurface
+        enabled={settings.liquidGlass}
+        variant="chrome"
+        radius={0}
+        className="relative z-30 shrink-0 border-b border-[#1F2421]/10 px-3 py-2 shadow-sm dark:border-[#EDE8DB]/10"
       >
+        <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -3585,274 +3418,219 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             </span>
           </button>
 
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => {
-                setAiMenuOpen((v) => !v);
-                setMoreMenuOpen(false);
-              }}
-              className="ios-stretch inline-flex items-center gap-1.5 rounded-xl bg-[#24483F] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:opacity-95"
-            >
-              <BookOpen className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Study Tools</span>
-            </button>
-            {aiMenuOpen && (
-              <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-2xl border border-black/10 bg-[#FBF9F4] p-1.5 shadow-2xl dark:border-white/10 dark:bg-[#1D1C18] animate-stagger-in">
-                <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Study &amp; Revision Tools
-                </div>
-                <button
-                  type="button"
-                  onClick={handleAiSummary}
-                  className="ios-stretch flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-                >
-                  <FileText className="h-4 w-4 text-[#2F6B4F]" /> Summarize Page Key Points
-                </button>
-                <button
-                  type="button"
-                  onClick={handleAiGenerateMindMap}
-                  className="ios-stretch flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-                >
-                  <Brain className="h-4 w-4 text-emerald-600" /> Turn Notes into Mind Map
-                </button>
-                <button
-                  type="button"
-                  onClick={handleAiFlashcards}
-                  className="ios-stretch flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-                >
-                  <BookOpen className="h-4 w-4 text-blue-600" /> Make Flashcards from Notes
-                </button>
-                <button
-                  type="button"
-                  onClick={handleAiQuiz}
-                  className="ios-stretch flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-                >
-                  <ListChecks className="h-4 w-4 text-amber-500" /> Take Study Quiz
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAiMenuOpen(false);
-                    setSlideModalOpen(true);
-                  }}
-                  className="ios-stretch flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-                >
-                  <Play className="h-4 w-4 text-fuchsia-600" /> Slide Show Revision Deck
-                </button>
-              </div>
+          <LiquidMenuButton
+            align="right"
+            menuWidthClass="w-64"
+            trigger={() => (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#24483F] px-3 py-1.5 text-xs font-semibold text-[#F5F2E8] shadow-sm dark:bg-[#8CC1AC] dark:text-[#151E1B]">
+                <BookOpen className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Study Tools</span>
+              </span>
             )}
-          </div>
+            items={[
+              {
+                id: 'summary',
+                label: 'Summarize Page Key Points',
+                icon: <FileText className="h-4 w-4 text-[#2F6B4F]" />,
+                onSelect: handleAiSummary,
+              },
+              {
+                id: 'mindmap',
+                label: 'Turn Notes into Mind Map',
+                icon: <Brain className="h-4 w-4 text-emerald-600" />,
+                onSelect: handleAiGenerateMindMap,
+              },
+              {
+                id: 'flashcards',
+                label: 'Make Flashcards from Notes',
+                icon: <BookOpen className="h-4 w-4 text-blue-600" />,
+                onSelect: handleAiFlashcards,
+              },
+              {
+                id: 'quiz',
+                label: 'Take Study Quiz',
+                icon: <ListChecks className="h-4 w-4 text-amber-500" />,
+                onSelect: handleAiQuiz,
+              },
+              {
+                id: 'slides',
+                label: 'Slide Show Revision Deck',
+                icon: <Play className="h-4 w-4 text-indigo-600" />,
+                onSelect: () => setSlideModalOpen(true),
+              },
+            ]}
+          />
 
           {isWhiteboard ? (
-            <button
-              type="button"
+            <LiquidButton
               onClick={() => setCamera({ panX: 80, panY: 60, zoom: 0.9 })}
               title="Reset whiteboard to origin"
-              className="hidden items-center gap-1 rounded-xl bg-black/[0.04] px-2 py-1 text-[11px] font-semibold hover:bg-black/8 dark:bg-white/[0.08] md:inline-flex"
+              className="hidden !px-2.5 !py-1 !text-[11px] md:inline-flex"
             >
               <Layers className="h-3.5 w-3.5 text-emerald-600" />
               <span>Board</span>
-            </button>
+            </LiquidButton>
           ) : (
-            <div className="hidden items-center gap-0.5 rounded-xl bg-black/[0.04] px-1.5 py-0.5 text-[11px] font-semibold dark:bg-white/[0.08] md:flex">
-              <button
-                type="button"
-                disabled={safeIdx === 0}
-                onClick={() => {
-                  const ni = Math.max(0, safeIdx - 1);
-                  setPageIdx(ni);
-                  fitPageToView(notebook.pages[ni]);
-                }}
-                className="rounded p-0.5 hover:bg-black/10 disabled:opacity-30"
-                title="Previous page"
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-              </button>
-              <span className="font-mono-num px-1">
-                {safeIdx + 1}/{notebook.pages.length}
-              </span>
-              <button
-                type="button"
-                disabled={safeIdx >= notebook.pages.length - 1}
-                onClick={() => {
-                  const ni = Math.min(notebook.pages.length - 1, safeIdx + 1);
-                  setPageIdx(ni);
-                  fitPageToView(notebook.pages[ni]);
-                }}
-                className="rounded p-0.5 hover:bg-black/10 disabled:opacity-30"
-                title="Next page"
-              >
-                <ChevronRight className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={addNewPage}
-            title="Add new page"
-            className="rounded-xl p-2 hover:bg-black/8 dark:hover:bg-white/10"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
-
-          {/* 3-Dots More Menu — Distinct Semantic Icons on Every Item */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => {
-                setMoreMenuOpen((v) => !v);
-                setAiMenuOpen(false);
-              }}
-              className="rounded-xl p-2 hover:bg-black/8 dark:hover:bg-white/10"
+            <LiquidGlassSurface
+              enabled={settings.liquidGlass}
+              variant="frost"
+              radius={999}
+              className="hidden items-center gap-0.5 px-1.5 py-0.5 text-[11px] font-semibold md:flex"
             >
-              <MoreHorizontal className="h-4 w-4" />
-            </button>
-            {moreMenuOpen && (
-              <div className="absolute right-0 top-full z-50 mt-2 w-68 rounded-2xl border border-black/10 bg-white/95 p-1.5 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#1E2027]/95 animate-stagger-in">
-                <div className="px-3 pb-1 pt-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Canvas &amp; Layout
-                </div>
+              <div className="flex items-center gap-0.5">
                 <button
                   type="button"
+                  disabled={safeIdx === 0}
                   onClick={() => {
-                    commitPages((pages) =>
-                      pages.map((pg, i) => (i === safeIdx ? { ...pg, isWhiteboard: !pg.isWhiteboard } : pg))
-                    );
-                    setMoreMenuOpen(false);
-                    showToast(isWhiteboard ? 'Switched to bounded page' : 'Switched to Infinite Whiteboard');
+                    const ni = Math.max(0, safeIdx - 1);
+                    setPageIdx(ni);
+                    fitPageToView(notebook.pages[ni]);
                   }}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                  className="rounded p-0.5 hover:bg-black/10 disabled:opacity-30"
+                  title="Previous page"
                 >
-                  <Layers className="h-4 w-4 text-emerald-600" />
-                  {isWhiteboard ? 'Use Standard Bounded Page' : 'Toggle Infinite Whiteboard'}
+                  <ChevronLeft className="h-3.5 w-3.5" />
                 </button>
+                <span className="font-mono-num px-1">
+                  {safeIdx + 1}/{notebook.pages.length}
+                </span>
                 <button
                   type="button"
+                  disabled={safeIdx >= notebook.pages.length - 1}
                   onClick={() => {
-                    setTemplateSheetOpen(true);
-                    setMoreMenuOpen(false);
+                    const ni = Math.min(notebook.pages.length - 1, safeIdx + 1);
+                    setPageIdx(ni);
+                    fitPageToView(notebook.pages[ni]);
                   }}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                  className="rounded p-0.5 hover:bg-black/10 disabled:opacity-30"
+                  title="Next page"
                 >
-                  <Palette className="h-4 w-4 text-blue-600" /> Paper Template &amp; Tint…
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const other = allNotebooks.find((n) => n.id !== notebook.id && n.deletedAt === null);
-                    setSplitNoteId((cur) => (cur ? null : other?.id || notebook.id));
-                    setMoreMenuOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-                >
-                  <Columns2 className="h-4 w-4 text-cyan-600" /> {splitNoteId ? 'Close Split View' : 'Open Split Notes'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMoreMenuOpen(false);
-                    const c = screenToWorld(
-                      (containerRef.current?.clientWidth || 800) / 2,
-                      (containerRef.current?.clientHeight || 600) / 2
-                    );
-                    setWebLinkModal({
-                      open: true,
-                      editId: null,
-                      x: c.x - 160,
-                      y: c.y - 48,
-                      url: 'https://',
-                      title: '',
-                      note: '',
-                      color: WEBLINK_COLORS[0],
-                    });
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-                >
-                  <Link2 className="h-4 w-4 text-sky-600" /> Add Web Link Card…
-                </button>
-
-                <div className="my-1 border-t border-black/8 dark:border-white/10" />
-                <div className="px-3 pb-1 pt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Study &amp; Revision
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSlideModalOpen(true);
-                    setMoreMenuOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-                >
-                  <Play className="h-4 w-4 text-fuchsia-600" /> Slide Show Revision ({notebook.slides?.length || 0})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFlashModalOpen(true);
-                    setMoreMenuOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-                >
-                  <BookOpen className="h-4 w-4 text-amber-500" /> Open Flashcards ({flashcards.length})
-                </button>
-
-                <div className="my-1 border-t border-black/8 dark:border-white/10" />
-                <div className="px-3 pb-1 pt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Import &amp; Export
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMoreMenuOpen(false);
-                    importFileRef.current?.click();
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-                >
-                  <Upload className="h-4 w-4 text-emerald-600" /> Import Files / Notes…
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleExportPng();
-                    setMoreMenuOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-                >
-                  <Download className="h-4 w-4 text-indigo-600" /> Export Current View as PNG
-                </button>
-                <input
-                  ref={importFileRef}
-                  type="file"
-                  multiple
-                  accept=".md,.markdown,.txt,.html,.htm,.csv,.json,.pdf,image/*"
-                  onChange={handleImportFilesIntoNotebook}
-                  className="hidden"
-                />
-
-                <div className="my-1 border-t border-black/8 dark:border-white/10" />
-                <div className="px-3 pb-1 pt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  System
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMoreMenuOpen(false);
-                    onOpenSettings();
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-                >
-                  <Settings className="h-4 w-4 text-slate-500" /> Studio Settings
+                  <ChevronRight className="h-3.5 w-3.5" />
                 </button>
               </div>
+            </LiquidGlassSurface>
+          )}
+
+          <LiquidButton
+            onClick={addNewPage}
+            title="Add new page"
+            className="!h-8 !w-8 !p-0"
+          >
+            <Plus className="h-4 w-4" />
+          </LiquidButton>
+
+          <LiquidMenuButton
+            align="right"
+            menuWidthClass="w-64"
+            title="More options"
+            trigger={() => (
+              <span className="liquid-glass-frost flex h-8 w-8 items-center justify-center rounded-full">
+                <MoreHorizontal className="h-4 w-4" />
+              </span>
             )}
-          </div>
+            items={[
+              {
+                id: 'toggle-wb',
+                label: isWhiteboard ? 'Use Standard Bounded Page' : 'Toggle Infinite Whiteboard',
+                icon: <Layers className="h-4 w-4 text-emerald-600" />,
+                onSelect: () => {
+                  commitPages((pages) =>
+                    pages.map((pg, i) => (i === safeIdx ? { ...pg, isWhiteboard: !pg.isWhiteboard } : pg))
+                  );
+                  showToast(isWhiteboard ? 'Switched to bounded page' : 'Switched to Infinite Whiteboard');
+                },
+              },
+              {
+                id: 'template',
+                label: 'Paper Template & Tint…',
+                icon: <Palette className="h-4 w-4 text-blue-600" />,
+                onSelect: () => setTemplateSheetOpen(true),
+              },
+              {
+                id: 'split',
+                label: splitNoteId ? 'Close Split View' : 'Open Split Notes',
+                icon: <Columns2 className="h-4 w-4 text-cyan-600" />,
+                onSelect: () => {
+                  const other = allNotebooks.find((n) => n.id !== notebook.id && n.deletedAt === null);
+                  setSplitNoteId((cur) => (cur ? null : other?.id || notebook.id));
+                },
+              },
+              {
+                id: 'weblink',
+                label: 'Add Web Link Card…',
+                icon: <Link2 className="h-4 w-4 text-sky-600" />,
+                onSelect: () => {
+                  const c = screenToWorld(
+                    (containerRef.current?.clientWidth || 800) / 2,
+                    (containerRef.current?.clientHeight || 600) / 2
+                  );
+                  setWebLinkModal({
+                    open: true,
+                    editId: null,
+                    x: c.x - 160,
+                    y: c.y - 48,
+                    url: 'https://',
+                    title: '',
+                    note: '',
+                    color: WEBLINK_COLORS[0],
+                  });
+                },
+              },
+              {
+                id: 'slides',
+                dividerBefore: true,
+                label: `Slide Show Revision (${notebook.slides?.length || 0})`,
+                icon: <Play className="h-4 w-4 text-indigo-600" />,
+                onSelect: () => setSlideModalOpen(true),
+              },
+              {
+                id: 'flashcards',
+                label: `Open Flashcards (${flashcards.length})`,
+                icon: <BookOpen className="h-4 w-4 text-amber-500" />,
+                onSelect: () => setFlashModalOpen(true),
+              },
+              {
+                id: 'import',
+                dividerBefore: true,
+                label: 'Import Files / Notes…',
+                icon: <Upload className="h-4 w-4 text-emerald-600" />,
+                onSelect: () => importFileRef.current?.click(),
+              },
+              {
+                id: 'export',
+                label: 'Export Current View as PNG',
+                icon: <Download className="h-4 w-4 text-indigo-600" />,
+                onSelect: handleExportPng,
+              },
+              {
+                id: 'settings',
+                dividerBefore: true,
+                label: 'Studio Settings',
+                icon: <Settings className="h-4 w-4" />,
+                onSelect: onOpenSettings,
+              },
+            ]}
+          />
+          <input
+            ref={importFileRef}
+            type="file"
+            multiple
+            accept=".md,.markdown,.txt,.html,.htm,.csv,.json,.pdf,image/*"
+            onChange={handleImportFilesIntoNotebook}
+            className="hidden"
+          />
         </div>
-      </header>
+        </div>
+      </LiquidGlassSurface>
 
       {/* Secondary Contextual Tool Options Bar */}
-      <div className="relative z-20 flex shrink-0 flex-wrap items-center justify-center gap-3 border-b border-black/6 bg-white/90 px-4 py-1.5 text-xs backdrop-blur-md dark:border-white/8 dark:bg-[#191A20]/90">
+      <LiquidGlassSurface
+        enabled={settings.liquidGlass}
+        variant="chrome"
+        radius={0}
+        className="relative z-20 shrink-0 border-b border-[#1F2421]/10 px-4 py-1.5 text-xs dark:border-[#EDE8DB]/10"
+      >
+        <div className="flex flex-wrap items-center justify-center gap-3">
         {(tool === 'PEN' || tool === 'SHAPE' || tool === 'TEXT') && (
           <>
             {tool === 'PEN' && (
@@ -3913,58 +3691,63 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
 
             {tool === 'TEXT' ? (
               <div className="flex items-center gap-2">
-                <select
-                  value={textFont}
-                  onChange={(e) => setTextFont(e.target.value as TextFont)}
-                  className="rounded-lg border border-black/10 bg-transparent px-2 py-0.5 text-[11px] font-semibold dark:border-white/15"
-                >
-                  <option value="SANS">Sans</option>
-                  <option value="SERIF">Serif</option>
-                  <option value="MONO">Mono</option>
-                  <option value="HAND">Handwriting</option>
-                </select>
-                <input
-                  type="range"
+                <LiquidMenuButton
+                  align="left"
+                  label={textFont === 'HAND' ? 'Handwriting' : textFont}
+                  items={(
+                    [
+                      { id: 'SANS', label: 'Sans' },
+                      { id: 'SERIF', label: 'Serif' },
+                      { id: 'MONO', label: 'Mono' },
+                      { id: 'HAND', label: 'Handwriting' },
+                    ] as const
+                  ).map((f) => ({
+                    id: f.id,
+                    label: f.label,
+                    selected: textFont === f.id,
+                    onSelect: () => setTextFont(f.id),
+                  }))}
+                />
+                <LiquidSlider
                   min={16}
                   max={64}
+                  step={1}
                   value={textSize}
-                  onChange={(e) => setTextSize(Number(e.target.value))}
-                  className="w-20 accent-blue-600"
+                  onChange={setTextSize}
+                  className="w-24"
                 />
                 <span className="font-mono-num text-[11px]">{textSize}px</span>
               </div>
             ) : (
               <div className="flex items-center gap-2">
-                <span className="text-[11px] text-slate-500">Size</span>
-                <input
-                  type="range"
+                <span className="text-[11px] text-[#5A5F58] dark:text-[#B1AC9F]">Size</span>
+                <LiquidSlider
                   min={1.5}
                   max={16}
                   step={0.5}
                   value={penSize}
-                  onChange={(e) => setPenSize(Number(e.target.value))}
-                  className="w-20 accent-blue-600"
+                  onChange={setPenSize}
+                  className="w-24"
                 />
                 <span className="font-mono-num text-[11px]">{penSize}</span>
               </div>
             )}
 
             {tool === 'SHAPE' && (
-              <select
-                value={shapeKind}
-                onChange={(e) => setShapeKind(e.target.value as ShapeKind)}
-                className="rounded-lg border border-black/10 bg-transparent px-2 py-0.5 text-[11px] font-semibold dark:border-white/15"
-              >
-                {SHAPE_KINDS.map((sk) => (
-                  <option key={sk.id} value={sk.id}>
-                    {sk.label}
-                  </option>
-                ))}
-              </select>
+              <LiquidMenuButton
+                align="left"
+                label={SHAPE_KINDS.find((sk) => sk.id === shapeKind)?.label || shapeKind}
+                items={SHAPE_KINDS.map((sk) => ({
+                  id: sk.id,
+                  label: sk.label,
+                  selected: shapeKind === sk.id,
+                  onSelect: () => setShapeKind(sk.id),
+                }))}
+              />
             )}
 
             {tool === 'PEN' && settings.liveScribbleErase && (
-              <span className="hidden text-[11px] font-medium text-emerald-600 dark:text-emerald-400 lg:inline">
+              <span className="hidden text-[11px] font-medium text-emerald-700 dark:text-emerald-300 lg:inline">
                 • Live scribble-erase ({settings.scribbleSensitivity})
               </span>
             )}
@@ -3980,19 +3763,20 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                   type="button"
                   onClick={() => setHlColor(c)}
                   className={`h-5 w-5 rounded-full border ${
-                    hlColor === c ? 'scale-115 ring-2 ring-blue-500' : 'border-black/15'
+                    hlColor === c ? 'scale-115 ring-2 ring-[#24483F] dark:ring-[#8CC1AC]' : 'border-black/15'
                   }`}
                   style={{ backgroundColor: c }}
                 />
               ))}
             </div>
-            <input
-              type="range"
+            <LiquidSlider
               min={12}
               max={44}
+              step={1}
               value={hlSize}
-              onChange={(e) => setHlSize(Number(e.target.value))}
-              className="w-24 accent-amber-500"
+              onChange={setHlSize}
+              accentColor="#D97706"
+              className="w-28"
             />
             <span className="font-mono-num text-[11px]">{hlSize}px</span>
           </>
@@ -4000,62 +3784,45 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
 
         {tool === 'ERASER' && (
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-1 rounded-xl bg-black/5 p-0.5 dark:bg-white/10">
-              {(
-                [
-                  { id: 'STROKE' as EraserMode, label: 'Stroke' },
-                  { id: 'PIXEL' as EraserMode, label: 'Precision' },
-                  { id: 'HIGHLIGHTER' as EraserMode, label: 'Highlighter' },
-                ]
-              ).map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => {
-                    setEraserMode(m.id);
-                    onUpdateSettings({ eraserMode: m.id });
-                  }}
-                  className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition ${
-                    eraserMode === m.id
-                      ? 'bg-red-500 text-white shadow-sm'
-                      : 'text-slate-600 hover:text-slate-900 dark:text-slate-300'
-                  }`}
-                >
-                  {m.label}
-                </button>
-              ))}
-            </div>
+            <LiquidSegmentedControl
+              value={eraserMode}
+              accentColor="#9B3B3B"
+              onChange={(m) => {
+                setEraserMode(m);
+                onUpdateSettings({ eraserMode: m });
+              }}
+              options={[
+                { value: 'STROKE', label: 'Stroke' },
+                { value: 'PIXEL', label: 'Precision' },
+                { value: 'HIGHLIGHTER', label: 'Highlighter' },
+              ]}
+            />
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-semibold">Size</span>
-              <input
-                type="range"
+              <LiquidSlider
                 min={8}
                 max={68}
+                step={1}
                 value={eraserSize}
-                onChange={(e) => setEraserSize(Number(e.target.value))}
-                className="w-24 accent-red-500"
+                onChange={setEraserSize}
+                accentColor="#9B3B3B"
+                className="w-28"
               />
               <span className="font-mono-num text-[11px]">{eraserSize}px</span>
             </div>
-            <div className="hidden items-center gap-1 sm:flex">
-              <span className="text-[11px] text-slate-500">Scribble:</span>
-              {(['gentle', 'balanced', 'instant'] as ScribbleSensitivity[]).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => onUpdateSettings({ scribbleSensitivity: s })}
-                  className={`rounded-lg px-2 py-0.5 text-[10px] font-semibold capitalize ${
-                    settings.scribbleSensitivity === s
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-black/5 text-slate-500 dark:bg-white/10'
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
+            <div className="hidden items-center gap-1.5 sm:flex">
+              <span className="text-[11px] text-[#5A5F58] dark:text-[#B1AC9F]">Scribble:</span>
+              <LiquidSegmentedControl
+                value={settings.scribbleSensitivity}
+                onChange={(s) => onUpdateSettings({ scribbleSensitivity: s })}
+                options={[
+                  { value: 'gentle', label: 'Gentle' },
+                  { value: 'balanced', label: 'Balanced' },
+                  { value: 'instant', label: 'Instant' },
+                ]}
+              />
             </div>
-            <button
-              type="button"
+            <LiquidButton
               onClick={() => {
                 const inkItems = page?.items.filter((i) => i.kind === 'ink') || [];
                 if (inkItems.length === 0) return;
@@ -4063,26 +3830,25 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 commitPageItems((items) => items.filter((i) => i.kind !== 'ink'));
                 showToast('Cleared all ink on page');
               }}
-              className="rounded-xl bg-red-500/12 px-2.5 py-1 text-[11px] font-bold text-red-600 hover:bg-red-500/20 dark:text-red-400"
+              className="!px-3 !py-1 !text-[11px] text-[#9B3B3B] dark:text-[#E58A8A]"
             >
               Clear Page Ink
-            </button>
+            </LiquidButton>
           </div>
         )}
 
         {tool === 'TAPE' && (
           <div className="flex items-center gap-2">
-            <select
-              value={tapePattern}
-              onChange={(e) => setTapePattern(e.target.value)}
-              className="rounded-lg border border-black/10 bg-transparent px-2 py-0.5 text-[11px] font-semibold dark:border-white/15"
-            >
-              {TAPE_PATTERNS.map((tp) => (
-                <option key={tp.id} value={tp.id}>
-                  {tp.label}
-                </option>
-              ))}
-            </select>
+            <LiquidMenuButton
+              align="left"
+              label={TAPE_PATTERNS.find((tp) => tp.id === tapePattern)?.label || tapePattern}
+              items={TAPE_PATTERNS.map((tp) => ({
+                id: tp.id,
+                label: tp.label,
+                selected: tapePattern === tp.id,
+                onSelect: () => setTapePattern(tp.id),
+              }))}
+            />
             {['#7161E0', '#2BB673', '#F2994A', '#EB5757', '#3D6CF4'].map((c) => (
               <button
                 key={c}
@@ -4203,34 +3969,38 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         )}
 
         {tool === 'LASSO' && (
-          <span className="text-[11px] text-slate-500">
-            Draw a loop around ink, text, stickies, links, or nodes to move, delete, or AI explain
+          <span className="text-[11px] text-[#5A5F58] dark:text-[#B1AC9F]">
+            Draw a loop around ink, text, stickies, links, or nodes to move or delete
           </span>
         )}
         {tool === 'PAN' && (
-          <span className="text-[11px] text-slate-500">
+          <span className="text-[11px] text-[#5A5F58] dark:text-[#B1AC9F]">
             Drag to pan canvas · Scroll or pinch to zoom freely
           </span>
         )}
 
-        {/* Redesigned Pen Customisation Studio Popover */}
+        {/* Pen Customisation Studio Popover */}
         {penStudioOpen && (
-          <div className="absolute left-1/2 top-full z-50 mt-2 w-[360px] -translate-x-1/2 rounded-3xl border border-black/10 bg-white p-4 shadow-2xl dark:border-white/12 dark:bg-[#1C1E26] animate-stagger-in">
+          <LiquidGlassSurface
+            enabled={settings.liquidGlass}
+            variant="card"
+            radius={24}
+            className="absolute left-1/2 top-full z-50 mt-2 w-[360px] -translate-x-1/2 p-4 shadow-2xl animate-stagger-in"
+          >
             <div className="mb-3 flex items-center justify-between">
               <span className="text-sm font-bold">Pen Studio</span>
-              <button type="button" onClick={() => setPenStudioOpen(false)}>
-                <X className="h-4 w-4 text-slate-400" />
-              </button>
+              <LiquidButton onClick={() => setPenStudioOpen(false)} className="!h-7 !w-7 !p-0">
+                <X className="h-3.5 w-3.5" />
+              </LiquidButton>
             </div>
 
-            {/* Live Stroke Preview with Pen Setup Opposite-Rotating Particles */}
-            <div className="relative mb-3 flex h-16 items-center justify-center overflow-hidden rounded-2xl border border-sky-500/25 bg-[#02040A]">
-              <AiParticleBackdrop variant="pen-setup" intensity="active" />
+            {/* Live Stroke Preview */}
+            <div className="relative mb-3 flex h-16 items-center justify-center overflow-hidden rounded-2xl border border-[#24483F]/25 bg-[#111513]">
               <svg viewBox="0 0 280 54" className="relative z-10 h-full w-full px-3">
                 <path
                   d="M 14 34 C 55 10, 95 46, 140 24 C 185 6, 225 44, 266 22"
                   fill="none"
-                  stroke={penColor === '#14171F' ? '#7DD3FC' : penColor}
+                  stroke={penColor === '#14171F' || penColor === '#1E2321' ? '#8CC1AC' : penColor}
                   strokeWidth={penSize}
                   strokeOpacity={penOpacity}
                   strokeLinecap={penKind === 'fineliner' ? 'butt' : 'round'}
@@ -4239,18 +4009,16 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               </svg>
             </div>
 
-            {/* Active Pen Name */}
             <div className="mb-3 flex items-center gap-2">
-              <span className="text-[11px] font-semibold text-slate-500">Pen Name</span>
-              <input
+              <span className="text-[11px] font-semibold text-[#5A5F58] dark:text-[#B1AC9F]">Pen Name</span>
+              <LiquidInput
                 type="text"
                 value={settings.penName}
                 onChange={(e) => onUpdateSettings({ penName: e.target.value })}
-                className="flex-1 rounded-xl border border-black/12 bg-slate-50 px-2.5 py-1 text-xs font-semibold outline-none focus:border-blue-500 dark:border-white/12 dark:bg-[#242630]"
+                wrapperClassName="flex-1 !py-1"
               />
             </div>
 
-            {/* Nib Selector */}
             <div className="mb-3 grid grid-cols-5 gap-1">
               {PEN_NIBS.map((n) => (
                 <button
@@ -4263,8 +4031,8 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                   }}
                   className={`rounded-xl py-1.5 text-[10px] font-bold transition ${
                     penKind === n.id
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'bg-black/5 text-slate-600 hover:bg-black/10 dark:bg-white/10 dark:text-slate-300'
+                      ? 'bg-[#24483F] text-[#F5F2E8] shadow-sm dark:bg-[#8CC1AC] dark:text-[#151E1B]'
+                      : 'liquid-glass-frost text-[#5A5F58] dark:text-[#B1AC9F]'
                   }`}
                 >
                   {n.label}
@@ -4272,10 +4040,9 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               ))}
             </div>
 
-            {/* Kyant0 LiquidSlider Controls */}
             <div className="space-y-2 text-xs">
               <div className="flex items-center justify-between gap-2">
-                <span className="w-20 text-slate-500">Thickness</span>
+                <span className="w-20 text-[#5A5F58] dark:text-[#B1AC9F]">Thickness</span>
                 <LiquidSlider
                   min={1.5}
                   max={16}
@@ -4287,7 +4054,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 <span className="font-mono-num w-10 text-right font-semibold">{penSize}px</span>
               </div>
               <div className="flex items-center justify-between gap-2">
-                <span className="w-20 text-slate-500">Opacity</span>
+                <span className="w-20 text-[#5A5F58] dark:text-[#B1AC9F]">Opacity</span>
                 <LiquidSlider
                   min={0.35}
                   max={1}
@@ -4301,7 +4068,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 </span>
               </div>
               <div className="flex items-center justify-between gap-2">
-                <span className="w-20 text-slate-500">Stabilizer</span>
+                <span className="w-20 text-[#5A5F58] dark:text-[#B1AC9F]">Stabilizer</span>
                 <LiquidSlider
                   min={0}
                   max={0.85}
@@ -4316,16 +4083,15 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               </div>
             </div>
 
-            {/* Save Favorite Preset */}
-            <div className="mt-3 border-t border-black/8 pt-3 dark:border-white/10">
-              <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            <div className="mt-3 border-t border-[#1F2421]/10 pt-3 dark:border-[#EDE8DB]/10">
+              <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-[#5A5F58] dark:text-[#B1AC9F]">
                 Favorite Presets
               </div>
               <div className="mb-2 flex flex-wrap gap-1.5">
                 {settings.penPresets.map((p) => (
                   <div
                     key={p.id}
-                    className="inline-flex items-center gap-1 rounded-xl border border-black/10 bg-slate-50 px-2 py-1 text-[11px] font-semibold dark:border-white/10 dark:bg-[#242630]"
+                    className="liquid-glass-frost inline-flex items-center gap-1 rounded-xl px-2 py-1 text-[11px] font-semibold"
                   >
                     <button
                       type="button"
@@ -4339,7 +4105,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                       <button
                         type="button"
                         onClick={() => onDeletePenPreset(p.id)}
-                        className="ml-0.5 text-slate-400 hover:text-red-500"
+                        className="ml-0.5 opacity-60 hover:text-red-500 hover:opacity-100"
                       >
                         <X className="h-3 w-3" />
                       </button>
@@ -4348,15 +4114,15 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 ))}
               </div>
               <div className="flex gap-1.5">
-                <input
+                <LiquidInput
                   type="text"
                   value={newPresetName}
                   onChange={(e) => setNewPresetName(e.target.value)}
                   placeholder="Preset name..."
-                  className="flex-1 rounded-xl border border-black/12 px-2.5 py-1 text-xs outline-none dark:border-white/12 dark:bg-[#242630]"
+                  wrapperClassName="flex-1 !py-1"
                 />
-                <button
-                  type="button"
+                <LiquidButton
+                  tint="#24483F"
                   onClick={() => {
                     const name = newPresetName.trim() || `${penKind} ${Math.round(penSize)}px`;
                     onSavePenPreset({
@@ -4371,20 +4137,26 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                     setNewPresetName('');
                     showToast(`Saved preset "${name}"`);
                   }}
-                  className="rounded-xl bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700"
+                  className="!px-3 !py-1 !text-xs"
                 >
                   Save
-                </button>
+                </LiquidButton>
               </div>
             </div>
-          </div>
+          </LiquidGlassSurface>
         )}
-      </div>
+        </div>
+      </LiquidGlassSurface>
 
       {/* Main Workspace Area */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {pagesOpen && (
-          <aside className="z-20 flex w-52 shrink-0 flex-col border-r border-black/8 bg-white/95 p-3 dark:border-white/10 dark:bg-[#18191E]">
+          <LiquidGlassSurface
+            enabled={settings.liquidGlass}
+            variant="chrome"
+            radius={0}
+            className="z-20 flex w-52 shrink-0 flex-col border-r border-[#1F2421]/10 p-3 dark:border-[#EDE8DB]/10"
+          >
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
                 Pages ({notebook.pages.length})
@@ -4438,7 +4210,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 </div>
               ))}
             </div>
-          </aside>
+          </LiquidGlassSurface>
         )}
 
         {/* Primary Canvas Container */}
@@ -4465,9 +4237,14 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
 
           {/* Floating Sticker Picker */}
           {stickerOpen && (
-            <div className="absolute left-1/2 top-3 z-40 w-72 -translate-x-1/2 rounded-2xl border border-black/10 bg-[#FBF9F4] p-3.5 shadow-2xl dark:border-white/10 dark:bg-[#1D1C18] animate-stagger-in">
+            <LiquidGlassSurface
+              enabled={settings.liquidGlass}
+              variant="card"
+              radius={22}
+              className="absolute left-1/2 top-3 z-40 w-72 -translate-x-1/2 p-3.5 shadow-2xl animate-stagger-in"
+            >
               <div className="mb-2 flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-500">Tap a sticker to place</span>
+                <span className="text-[11px] font-bold text-[#5A5F58] dark:text-[#B1AC9F]">Tap a sticker to place</span>
               </div>
               <div className="grid grid-cols-6 gap-1.5">
                 {STICKERS.map((s) => (
@@ -4491,17 +4268,20 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                   </button>
                 ))}
               </div>
-            </div>
+            </LiquidGlassSurface>
           )}
 
-          {/* Redesigned Contextual Floating Sticky Studio (Title, Style Pills, Interactive Checklist Tasks) */}
+          {/* Contextual Floating Sticky Studio */}
           {selectedStickyNode && selectedStickyScreen && (
-            <div
+            <LiquidGlassSurface
+              enabled={settings.liquidGlass}
+              variant="card"
+              radius={24}
               style={{
                 left: Math.max(185, Math.min((containerRef.current?.clientWidth || 800) - 185, selectedStickyScreen.left)),
                 top: Math.max(14, Math.min((containerRef.current?.clientHeight || 600) - 350, selectedStickyScreen.top)),
               }}
-              className="absolute z-40 w-84 -translate-x-1/2 rounded-3xl border border-black/12 bg-white/95 p-3.5 shadow-2xl backdrop-blur-md dark:border-white/12 dark:bg-[#1E2027]/95 animate-stagger-in"
+              className="absolute z-40 w-84 -translate-x-1/2 p-3.5 shadow-2xl animate-stagger-in"
             >
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-xs font-bold">Sticky Studio</span>
@@ -4674,34 +4454,31 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                     />
                   ))}
                 </div>
-                <select
-                  value={selectedStickyNode.font || 'SANS'}
-                  onChange={(e) => {
-                    const f = e.target.value as StickyFont;
-                    commitPageItems((items) =>
-                      items.map((it) =>
-                        it.id === selectedStickyNode.id && it.kind === 'sticky' ? { ...it, font: f } : it
-                      )
-                    );
-                  }}
-                  className="rounded-lg border border-black/10 bg-transparent px-2 py-0.5 text-[11px] font-semibold dark:border-white/15"
-                >
-                  <option value="SANS">Sans</option>
-                  <option value="SERIF">Serif</option>
-                  <option value="MONO">Mono</option>
-                  <option value="HAND">Hand</option>
-                </select>
+                <LiquidMenuButton
+                  align="right"
+                  label={selectedStickyNode.font || 'SANS'}
+                  items={(['SANS', 'SERIF', 'MONO', 'HAND'] as StickyFont[]).map((f) => ({
+                    id: f,
+                    label: f,
+                    selected: (selectedStickyNode.font || 'SANS') === f,
+                    onSelect: () =>
+                      commitPageItems((items) =>
+                        items.map((it) =>
+                          it.id === selectedStickyNode.id && it.kind === 'sticky' ? { ...it, font: f } : it
+                        )
+                      ),
+                  }))}
+                />
               </div>
 
               <div className="mt-2 flex items-center gap-2 text-[11px]">
-                <span className="text-slate-500">Font</span>
-                <input
-                  type="range"
+                <span className="text-[#5A5F58] dark:text-[#B1AC9F]">Font</span>
+                <LiquidSlider
                   min={14}
                   max={32}
+                  step={1}
                   value={selectedStickyNode.fontSize || 18}
-                  onChange={(e) => {
-                    const sz = Number(e.target.value);
+                  onChange={(sz) =>
                     commitPageItems(
                       (items) =>
                         items.map((it) =>
@@ -4710,63 +4487,71 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                             : it
                         ),
                       false
-                    );
-                  }}
-                  className="flex-1 accent-blue-600"
+                    )
+                  }
+                  className="flex-1"
                 />
                 <span className="font-mono-num w-9 text-right">{selectedStickyNode.fontSize || 18}px</span>
               </div>
-            </div>
+            </LiquidGlassSurface>
           )}
 
           {/* Contextual Floating WebLink Card Bar */}
           {selectedWebLinkNode && selectedWebLinkScreen && (
-            <div
+            <LiquidGlassSurface
+              enabled={settings.liquidGlass}
+              variant="card"
+              radius={18}
               style={{
                 left: Math.max(175, Math.min((containerRef.current?.clientWidth || 800) - 185, selectedWebLinkScreen.left)),
                 top: Math.max(12, selectedWebLinkScreen.top - 48),
               }}
-              className="absolute z-40 flex -translate-x-1/2 items-center gap-1.5 rounded-2xl border border-black/10 bg-white/95 px-2.5 py-1.5 shadow-xl backdrop-blur-md dark:border-white/10 dark:bg-[#20222A]/95 animate-stagger-in"
+              className="absolute z-40 -translate-x-1/2 px-2.5 py-1.5 shadow-xl animate-stagger-in"
             >
-              <a
-                href={/^https?:\/\//i.test(selectedWebLinkNode.url) ? selectedWebLinkNode.url : `https://${selectedWebLinkNode.url}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 rounded-xl bg-blue-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-blue-700"
-              >
-                <ExternalLink className="h-3 w-3" /> Open Link
-              </a>
-              <button
-                type="button"
-                onClick={() =>
-                  setWebLinkModal({
-                    open: true,
-                    editId: selectedWebLinkNode.id,
-                    x: selectedWebLinkNode.x,
-                    y: selectedWebLinkNode.y,
-                    url: selectedWebLinkNode.url,
-                    title: selectedWebLinkNode.title,
-                    note: selectedWebLinkNode.note || '',
-                    color: selectedWebLinkNode.color,
-                  })
-                }
-                className="rounded-xl px-2.5 py-1 text-[11px] font-semibold hover:bg-black/5 dark:hover:bg-white/10"
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                onClick={deleteSelected}
-                className="rounded-xl p-1 text-red-500 hover:bg-red-500/10"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
+              <div className="flex items-center gap-1.5">
+                <a
+                  href={/^https?:\/\//i.test(selectedWebLinkNode.url) ? selectedWebLinkNode.url : `https://${selectedWebLinkNode.url}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded-full bg-[#24483F] px-2.5 py-1 text-[11px] font-semibold text-[#F5F2E8] dark:bg-[#8CC1AC] dark:text-[#151E1B]"
+                >
+                  <ExternalLink className="h-3 w-3" /> Open Link
+                </a>
+                <LiquidButton
+                  onClick={() =>
+                    setWebLinkModal({
+                      open: true,
+                      editId: selectedWebLinkNode.id,
+                      x: selectedWebLinkNode.x,
+                      y: selectedWebLinkNode.y,
+                      url: selectedWebLinkNode.url,
+                      title: selectedWebLinkNode.title,
+                      note: selectedWebLinkNode.note || '',
+                      color: selectedWebLinkNode.color,
+                    })
+                  }
+                  className="!px-2.5 !py-1 !text-[11px]"
+                >
+                  Edit
+                </LiquidButton>
+                <LiquidButton
+                  onClick={deleteSelected}
+                  className="!h-7 !w-7 !p-0 text-[#9B3B3B] dark:text-[#E58A8A]"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </LiquidButton>
+              </div>
+            </LiquidGlassSurface>
           )}
 
           {/* Contextual Floating Text Editor */}
           {editingTextId && (
-            <div className="absolute left-1/2 top-16 z-40 w-80 -translate-x-1/2 rounded-2xl border border-blue-500/30 bg-white p-3.5 shadow-2xl dark:bg-[#1E2027] animate-stagger-in">
+            <LiquidGlassSurface
+              enabled={settings.liquidGlass}
+              variant="card"
+              radius={22}
+              className="absolute left-1/2 top-16 z-40 w-80 -translate-x-1/2 p-3.5 shadow-2xl animate-stagger-in"
+            >
               <div className="mb-1.5 flex items-center justify-between text-xs font-bold">
                 <span>Edit Text</span>
                 <button
@@ -4796,18 +4581,22 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 placeholder="Write notes..."
                 className="w-full rounded-xl border border-black/12 p-2 text-sm outline-none focus:border-blue-500 dark:border-white/15 dark:bg-[#14151A]"
               />
-            </div>
+            </LiquidGlassSurface>
           )}
 
           {/* Contextual Floating Mind Map Node Action Bar */}
           {selectedMindNode && selectedMindScreen && (
-            <div
+            <LiquidGlassSurface
+              enabled={settings.liquidGlass}
+              variant="card"
+              radius={18}
               style={{
                 left: Math.max(175, Math.min((containerRef.current?.clientWidth || 800) - 185, selectedMindScreen.left)),
                 top: Math.max(12, selectedMindScreen.top - 54),
               }}
-              className="absolute z-30 flex -translate-x-1/2 items-center gap-1 rounded-2xl border border-black/10 bg-white/95 px-2 py-1.5 shadow-xl backdrop-blur-md dark:border-white/10 dark:bg-[#20222A]/95 animate-stagger-in"
+              className="absolute z-30 -translate-x-1/2 px-2 py-1.5 shadow-xl animate-stagger-in"
             >
+              <div className="flex items-center gap-1">
               <button
                 type="button"
                 onClick={() => addMindNode(selectedMindNode, undefined, 'Child Idea')}
@@ -4882,11 +4671,17 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
             </div>
+            </LiquidGlassSurface>
           )}
 
           {/* Mind Node Full Studio Editor Modal */}
           {editingMindId && (
-            <div className="absolute left-1/2 top-20 z-40 w-80 -translate-x-1/2 rounded-2xl border border-black/10 bg-white p-4 shadow-2xl dark:border-white/10 dark:bg-[#1E2027] animate-stagger-in">
+            <LiquidGlassSurface
+              enabled={settings.liquidGlass}
+              variant="card"
+              radius={22}
+              className="absolute left-1/2 top-20 z-40 w-80 -translate-x-1/2 p-4 shadow-2xl animate-stagger-in"
+            >
               <div className="mb-2.5 flex items-center justify-between">
                 <span className="text-xs font-bold">Edit Mind Node</span>
                 <button type="button" onClick={() => setEditingMindId(null)}>
@@ -4994,53 +4789,66 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                   Save
                 </button>
               </div>
-            </div>
+            </LiquidGlassSurface>
           )}
 
           {/* Floating Lasso Selection Action Bar */}
           {selectedIds.size > 0 && !selectedMindNode && !selectedStickyNode && !selectedWebLinkNode && (
-            <div className="absolute bottom-16 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1.5 rounded-2xl border border-black/10 bg-white/95 px-3 py-2 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#1F2128]/95 animate-stagger-in">
-              <span className="font-mono-num pr-1 text-xs font-bold text-[#24483F] dark:text-[#8CC1AC]">
-                {selectedIds.size} selected
-              </span>
-              <button
-                type="button"
-                onClick={deleteSelected}
-                className="inline-flex items-center gap-1 rounded-xl bg-red-500/12 px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-500/20"
-              >
-                <Trash2 className="h-3.5 w-3.5" /> Delete
-              </button>
-            </div>
+            <LiquidGlassSurface
+              enabled={settings.liquidGlass}
+              variant="chrome"
+              radius={999}
+              className="absolute bottom-16 left-1/2 z-30 -translate-x-1/2 px-3 py-1.5 shadow-2xl animate-stagger-in"
+            >
+              <div className="flex items-center gap-2">
+                <span className="font-mono-num pr-1 text-xs font-bold text-[#24483F] dark:text-[#8CC1AC]">
+                  {selectedIds.size} selected
+                </span>
+                <LiquidButton
+                  onClick={deleteSelected}
+                  className="!px-2.5 !py-1 !text-xs text-[#9B3B3B] dark:text-[#E58A8A]"
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Delete
+                </LiquidButton>
+              </div>
+            </LiquidGlassSurface>
           )}
 
           {/* Bottom-Right Zoom Controls */}
-          <div className="absolute bottom-4 right-4 z-20 flex items-center gap-1 rounded-2xl border border-black/10 bg-white/90 p-1 shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-[#1D1F26]/90">
-            <button
-              type="button"
-              onClick={() => setCamera((c) => ({ ...c, zoom: Math.max(0.2, c.zoom * 0.85) }))}
-              className="rounded-xl p-1.5 hover:bg-black/5 dark:hover:bg-white/10"
-            >
-              <ZoomOut className="h-4 w-4" />
-            </button>
-            <span className="font-mono-num min-w-[44px] text-center text-xs font-semibold">
-              {Math.round(camera.zoom * 100)}%
-            </span>
-            <button
-              type="button"
-              onClick={() => setCamera((c) => ({ ...c, zoom: Math.min(3.5, c.zoom * 1.15) }))}
-              className="rounded-xl p-1.5 hover:bg-black/5 dark:hover:bg-white/10"
-            >
-              <ZoomIn className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => fitPageToView(page)}
-              title="Fit to view"
-              className="rounded-xl p-1.5 hover:bg-black/5 dark:hover:bg-white/10"
-            >
-              <Maximize2 className="h-4 w-4" />
-            </button>
-          </div>
+          <LiquidGlassSurface
+            enabled={settings.liquidGlass}
+            variant="chrome"
+            radius={18}
+            className="absolute bottom-4 right-4 z-20 p-1 shadow-lg"
+          >
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setCamera((c) => ({ ...c, zoom: Math.max(0.2, c.zoom * 0.85) }))}
+                className="rounded-xl p-1.5 hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                <ZoomOut className="h-4 w-4" />
+              </button>
+              <span className="font-mono-num min-w-[44px] text-center text-xs font-semibold">
+                {Math.round(camera.zoom * 100)}%
+              </span>
+              <button
+                type="button"
+                onClick={() => setCamera((c) => ({ ...c, zoom: Math.min(3.5, c.zoom * 1.15) }))}
+                className="rounded-xl p-1.5 hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                <ZoomIn className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => fitPageToView(page)}
+                title="Fit to view"
+                className="rounded-xl p-1.5 hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                <Maximize2 className="h-4 w-4" />
+              </button>
+            </div>
+          </LiquidGlassSurface>
         </div>
 
         {/* Draggable Split Resizer + Rewritten Scroll-Aware Split Notebook Workspace */}
@@ -5050,7 +4858,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               onMouseDown={(e) => {
                 splitResizeRef.current = { active: true, startX: e.clientX, startW: splitWidth };
               }}
-              className="hidden w-1.5 shrink-0 cursor-col-resize bg-black/5 transition hover:bg-blue-500/40 dark:bg-white/5 md:block"
+              className="hidden w-1.5 shrink-0 cursor-col-resize bg-black/5 transition hover:bg-[#24483F]/40 dark:bg-white/5 md:block"
               title="Drag to resize split workspace"
             />
             <SplitNotebookPane
@@ -5146,21 +4954,26 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
           </>
         )}
 
-        {/* AI-Enhanced Semantic Search Drawer */}
+        {/* In-Notebook Search Drawer */}
         {searchOpen && (
-          <aside className="absolute right-4 top-4 z-40 w-80 rounded-2xl border border-black/10 bg-white/95 p-3.5 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#1E2027]/95 animate-stagger-in">
+          <LiquidGlassSurface
+            enabled={settings.liquidGlass}
+            variant="card"
+            radius={22}
+            className="absolute right-4 top-4 z-40 w-80 p-3.5 shadow-2xl animate-stagger-in"
+          >
             <div className="mb-2 flex items-center gap-2">
-              <Search className="h-4 w-4 text-slate-400" />
-              <input
+              <LiquidInput
                 autoFocus
+                icon={<Search className="h-4 w-4" />}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search in notebook..."
-                className="flex-1 bg-transparent text-sm outline-none"
+                wrapperClassName="flex-1 !py-1.5"
               />
-              <button type="button" onClick={() => setSearchOpen(false)}>
-                <X className="h-4 w-4 text-slate-400" />
-              </button>
+              <LiquidButton onClick={() => setSearchOpen(false)} className="!h-8 !w-8 !p-0">
+                <X className="h-4 w-4" />
+              </LiquidButton>
             </div>
 
             <div className="max-h-60 space-y-1.5 overflow-y-auto">
@@ -5172,10 +4985,10 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                     setPageIdx(h.pageIdx);
                     fitPageToView(notebook.pages[h.pageIdx]);
                   }}
-                  className="flex w-full flex-col rounded-xl bg-black/[0.03] px-2.5 py-2 text-left text-xs hover:bg-blue-500/10 dark:bg-white/[0.04]"
+                  className="liquid-glass-frost flex w-full flex-col rounded-xl px-2.5 py-2 text-left text-xs transition hover:brightness-95"
                 >
                   <div className="flex w-full items-center justify-between gap-2">
-                    <span className="font-mono-num text-[10px] font-bold text-blue-600">
+                    <span className="font-mono-num text-[10px] font-bold text-[#24483F] dark:text-[#8CC1AC]">
                       Page {h.pageIdx + 1}
                     </span>
                   </div>
@@ -5183,26 +4996,26 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                 </button>
               ))}
               {searchQuery && searchHits.length === 0 && (
-                <div className="py-3 text-center text-xs text-slate-400">No text hits found</div>
+                <div className="py-3 text-center text-xs text-[#5A5F58] dark:text-[#B1AC9F]">No text hits found</div>
               )}
             </div>
-          </aside>
+          </LiquidGlassSurface>
         )}
       </div>
 
       {/* Template Sheet Modal */}
-      {templateSheetOpen && page && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-          <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-black/10 bg-[#FBF9F4] shadow-2xl dark:border-white/10 dark:bg-[#191814]">
-            <div className="flex items-center justify-between border-b border-black/8 px-6 py-4 dark:border-white/10">
+      {page && (
+        <LiquidModal open={templateSheetOpen} onClose={() => setTemplateSheetOpen(false)} maxWidthClass="max-w-2xl">
+          <div className="flex max-h-[85vh] flex-col">
+            <div className="flex items-center justify-between border-b border-[#1F2421]/10 px-6 py-4 dark:border-[#EDE8DB]/10">
               <h2 className="text-base font-bold">Page Template &amp; Tint</h2>
-              <button type="button" onClick={() => setTemplateSheetOpen(false)}>
-                <X className="h-5 w-5 text-slate-400" />
-              </button>
+              <LiquidButton onClick={() => setTemplateSheetOpen(false)} className="!h-8 !w-8 !p-0">
+                <X className="h-4 w-4" />
+              </LiquidButton>
             </div>
             <div className="flex-1 space-y-4 overflow-y-auto p-6">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-slate-500">Paper Tint:</span>
+                <span className="text-xs font-semibold text-[#5A5F58] dark:text-[#B1AC9F]">Paper Tint:</span>
                 {PAPER_TINTS.map((t) => (
                   <button
                     key={t.id}
@@ -5228,8 +5041,8 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
                       );
                       setTemplateSheetOpen(false);
                     }}
-                    className={`ios-stretch flex flex-col items-center rounded-xl border p-1.5 ${
-                      page.paper === ps.id && !page.cover ? 'border-blue-600 ring-2 ring-blue-500/20' : 'border-black/10'
+                    className={`liquid-glass-frost ios-stretch flex flex-col items-center rounded-xl p-1.5 ${
+                      page.paper === ps.id && !page.cover ? 'ring-2 ring-[#24483F] dark:ring-[#8CC1AC]' : ''
                     }`}
                   >
                     <PaperPreviewCanvas
@@ -5245,24 +5058,19 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
               </div>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* AI Thinking Looping Particle Overlay + Animated Pill */}
-      {aiBusyLabel && (
-        <>
-          <div className="pointer-events-none fixed inset-0 z-40">
-            <AiParticleBackdrop accent="blue" variant="ai-wave" intensity="active" />
-          </div>
-          <AiThinkingPill label={aiBusyLabel} stage={aiStageLabel} modelName={activeModel?.name} />
-        </>
+        </LiquidModal>
       )}
 
       {/* Toast Feedback */}
       {toast && (
-        <div className="pointer-events-none fixed bottom-20 left-1/2 z-50 -translate-x-1/2 rounded-full bg-[#1B1F2A]/95 px-4 py-2 text-xs font-semibold text-white shadow-xl backdrop-blur-md animate-stagger-in">
+        <LiquidGlassSurface
+          enabled={settings.liquidGlass}
+          variant="chrome"
+          radius={999}
+          className="pointer-events-none fixed bottom-20 left-1/2 z-50 -translate-x-1/2 px-4 py-2 text-xs font-semibold shadow-xl animate-stagger-in"
+        >
           {toast}
-        </div>
+        </LiquidGlassSurface>
       )}
 
       {/* Study Modals */}
@@ -5304,7 +5112,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         notebookTitle={notebook.title}
         notebookId={notebook.id}
         cards={flashcards}
-        loadingStage={aiBusyLabel === 'Crafting flashcards' ? aiStageLabel : null}
+        loadingStage={null}
         onClose={() => setFlashModalOpen(false)}
         onAddCard={(front, back) =>
           onAddFlashcards([
@@ -5354,126 +5162,123 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
       />
 
       {/* Web Link Card Modal */}
-      {webLinkModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const cleanUrl = webLinkModal.url.trim();
-              if (!cleanUrl || cleanUrl === 'https://') return;
-              const normalizedUrl = /^https?:\/\//i.test(cleanUrl) ? cleanUrl : `https://${cleanUrl}`;
-              const linkTitle = webLinkModal.title.trim() || normalizedUrl.replace(/^https?:\/\//i, '').split('/')[0];
-              if (webLinkModal.editId) {
-                commitPageItems((items) =>
-                  items.map((it) =>
-                    it.id === webLinkModal.editId && it.kind === 'weblink'
-                      ? {
-                          ...it,
-                          url: normalizedUrl,
-                          title: linkTitle,
-                          note: webLinkModal.note.trim() || undefined,
-                          color: webLinkModal.color,
-                        }
-                      : it
-                  )
-                );
-              } else {
-                const newCard: WebLinkItem = {
-                  id: `link-${Date.now()}`,
-                  kind: 'weblink',
-                  url: normalizedUrl,
-                  title: linkTitle,
-                  note: webLinkModal.note.trim() || undefined,
-                  x: webLinkModal.x,
-                  y: webLinkModal.y,
-                  w: 330,
-                  h: 88,
-                  color: webLinkModal.color,
-                };
-                commitPageItems((items) => [...items, newCard]);
-                setSelectedIds(new Set([newCard.id]));
-              }
-              setWebLinkModal((m) => ({ ...m, open: false }));
-            }}
-            className="w-full max-w-md space-y-3 rounded-3xl border border-black/10 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-[#191A1F] animate-stagger-in"
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="inline-flex items-center gap-2 text-sm font-bold">
-                <Link2 className="h-4 w-4 text-blue-600" />
-                {webLinkModal.editId ? 'Edit Web Link Card' : 'Add Web Link Card'}
-              </h3>
-              <button
-                type="button"
+      <LiquidModal
+        open={webLinkModal.open}
+        onClose={() => setWebLinkModal((m) => ({ ...m, open: false }))}
+        maxWidthClass="max-w-md"
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const cleanUrl = webLinkModal.url.trim();
+            if (!cleanUrl || cleanUrl === 'https://') return;
+            const normalizedUrl = /^https?:\/\//i.test(cleanUrl) ? cleanUrl : `https://${cleanUrl}`;
+            const linkTitle = webLinkModal.title.trim() || normalizedUrl.replace(/^https?:\/\//i, '').split('/')[0];
+            if (webLinkModal.editId) {
+              commitPageItems((items) =>
+                items.map((it) =>
+                  it.id === webLinkModal.editId && it.kind === 'weblink'
+                    ? {
+                        ...it,
+                        url: normalizedUrl,
+                        title: linkTitle,
+                        note: webLinkModal.note.trim() || undefined,
+                        color: webLinkModal.color,
+                      }
+                    : it
+                )
+              );
+            } else {
+              const newCard: WebLinkItem = {
+                id: `link-${Date.now()}`,
+                kind: 'weblink',
+                url: normalizedUrl,
+                title: linkTitle,
+                note: webLinkModal.note.trim() || undefined,
+                x: webLinkModal.x,
+                y: webLinkModal.y,
+                w: 330,
+                h: 88,
+                color: webLinkModal.color,
+              };
+              commitPageItems((items) => [...items, newCard]);
+              setSelectedIds(new Set([newCard.id]));
+            }
+            setWebLinkModal((m) => ({ ...m, open: false }));
+          }}
+          className="space-y-3 p-5"
+        >
+          <div className="flex items-center justify-between">
+            <h3 className="inline-flex items-center gap-2 text-sm font-bold">
+              <Link2 className="h-4 w-4 text-[#24483F] dark:text-[#8CC1AC]" />
+              {webLinkModal.editId ? 'Edit Web Link Card' : 'Add Web Link Card'}
+            </h3>
+            <LiquidButton
+              onClick={() => setWebLinkModal((m) => ({ ...m, open: false }))}
+              className="!h-8 !w-8 !p-0"
+            >
+              <X className="h-4 w-4" />
+            </LiquidButton>
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-bold uppercase text-[#5A5F58] dark:text-[#B1AC9F]">URL</label>
+            <LiquidInput
+              autoFocus
+              type="text"
+              value={webLinkModal.url}
+              onChange={(e) => setWebLinkModal((m) => ({ ...m, url: e.target.value }))}
+              placeholder="https://en.wikipedia.org/wiki/..."
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-bold uppercase text-[#5A5F58] dark:text-[#B1AC9F]">Display Title</label>
+            <LiquidInput
+              type="text"
+              value={webLinkModal.title}
+              onChange={(e) => setWebLinkModal((m) => ({ ...m, title: e.target.value }))}
+              placeholder="e.g. Lecture Video / Research Paper"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-bold uppercase text-[#5A5F58] dark:text-[#B1AC9F]">Quick Annotation</label>
+            <LiquidInput
+              type="text"
+              value={webLinkModal.note}
+              onChange={(e) => setWebLinkModal((m) => ({ ...m, note: e.target.value }))}
+              placeholder="Why this link matters..."
+            />
+          </div>
+          <div className="flex items-center justify-between pt-1">
+            <div className="flex gap-1.5">
+              {WEBLINK_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setWebLinkModal((m) => ({ ...m, color: c }))}
+                  className={`h-6 w-6 rounded-full border ${
+                    webLinkModal.color === c ? 'ring-2 ring-[#24483F] ring-offset-1 dark:ring-[#8CC1AC]' : 'border-black/15'
+                  }`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <LiquidButton
                 onClick={() => setWebLinkModal((m) => ({ ...m, open: false }))}
-                className="rounded-full p-1 text-slate-400 hover:bg-black/5"
+                className="!px-3.5 !py-2 !text-xs"
               >
-                <X className="h-4 w-4" />
+                Cancel
+              </LiquidButton>
+              <button
+                type="submit"
+                className="rounded-full bg-[#24483F] px-4 py-2 text-xs font-semibold text-[#F5F2E8] dark:bg-[#8CC1AC] dark:text-[#151E1B]"
+              >
+                Save Link
               </button>
             </div>
-            <div>
-              <label className="mb-1 block text-[11px] font-bold uppercase text-slate-500">URL</label>
-              <input
-                autoFocus
-                type="text"
-                value={webLinkModal.url}
-                onChange={(e) => setWebLinkModal((m) => ({ ...m, url: e.target.value }))}
-                placeholder="https://en.wikipedia.org/wiki/..."
-                className="w-full rounded-xl border border-black/12 bg-slate-50 px-3 py-2 text-xs outline-none focus:border-blue-500 dark:border-white/15 dark:bg-[#22242C]"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-[11px] font-bold uppercase text-slate-500">Display Title</label>
-              <input
-                type="text"
-                value={webLinkModal.title}
-                onChange={(e) => setWebLinkModal((m) => ({ ...m, title: e.target.value }))}
-                placeholder="e.g. Lecture Video / Research Paper"
-                className="w-full rounded-xl border border-black/12 bg-slate-50 px-3 py-2 text-xs outline-none focus:border-blue-500 dark:border-white/15 dark:bg-[#22242C]"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-[11px] font-bold uppercase text-slate-500">Quick Annotation</label>
-              <input
-                type="text"
-                value={webLinkModal.note}
-                onChange={(e) => setWebLinkModal((m) => ({ ...m, note: e.target.value }))}
-                placeholder="Why this link matters..."
-                className="w-full rounded-xl border border-black/12 bg-slate-50 px-3 py-2 text-xs outline-none focus:border-blue-500 dark:border-white/15 dark:bg-[#22242C]"
-              />
-            </div>
-            <div className="flex items-center justify-between pt-1">
-              <div className="flex gap-1.5">
-                {WEBLINK_COLORS.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => setWebLinkModal((m) => ({ ...m, color: c }))}
-                    className={`h-6 w-6 rounded-full border ${
-                      webLinkModal.color === c ? 'ring-2 ring-blue-600 ring-offset-1' : 'border-black/15'
-                    }`}
-                    style={{ backgroundColor: c }}
-                  />
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setWebLinkModal((m) => ({ ...m, open: false }))}
-                  className="rounded-xl px-3.5 py-2 text-xs font-semibold text-slate-500"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700"
-                >
-                  Save Link
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
-      )}
+          </div>
+        </form>
+      </LiquidModal>
       {/* Live Collaborative Study Room */}
       <CollabRoomModal
         open={collabModalOpen}
@@ -5497,33 +5302,12 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         onClose={() => setCollabModalOpen(false)}
       />
 
-      {/* v10 Command Palette (Ctrl/Cmd+K) */}
+      {/* Quick Command Palette (Ctrl/Cmd+K) */}
       <CommandPaletteModal
         open={cmdPaletteOpen}
         onClose={() => setCmdPaletteOpen(false)}
         actions={
           [
-            {
-              id: 'ai-chat',
-              label: 'AI Chat About Notes & PDFs',
-              hint: 'Ask local AI',
-              icon: 'ai',
-              run: () => setAiChatOpen(true),
-            },
-            {
-              id: 'ai-rec',
-              label: 'AI Lecture Recording Studio',
-              hint: 'Audio -> Notes',
-              icon: 'mic',
-              run: () => setAiRecordOpen(true),
-            },
-            {
-              id: 'ai-sticker',
-              label: 'AI Sticker, Cover & Template Studio',
-              hint: 'Image Gen',
-              icon: 'image',
-              run: () => setAiAssetModal({ open: true, category: 'sticker' }),
-            },
             {
               id: 'collab',
               label: 'Open Live Collaborative Study Room',
@@ -5534,7 +5318,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
             {
               id: 'slides',
               label: 'Open Revision Slide Show Deck',
-              hint: 'AI + Manual',
+              hint: 'Deck Studio',
               icon: 'slides',
               run: () => setSlideModalOpen(true),
             },

@@ -646,6 +646,7 @@ export interface AppSettings {
   toolbarDock: ToolbarDock;
   toolbarOrder: ToolId[];
   liquidGlass: boolean;
+  glassTransparency: number;
   showTabs: boolean;
   pageNumbers: boolean;
   showHoverTooltips: boolean;

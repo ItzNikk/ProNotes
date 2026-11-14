@@ -966,19 +966,15 @@ fun CloudSignInDialogHost() {
     }
 
     if (curUser != null) {
-        AlertDialog(
+        com.pronotes.app.ui.LiquidGlassDialog(
             onDismissRequest = { CloudSync.dismissSignInDialog() },
             title = {
                 Text("Google Account & Sync", fontWeight = FontWeight.Bold)
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    com.pronotes.app.ui.LiquidGlassCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("Signed in as", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                             Text(curUser!!.email, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             if (curUser!!.displayName.isNotBlank()) {
@@ -1023,20 +1019,16 @@ fun CloudSignInDialogHost() {
         return
     }
 
-    AlertDialog(
+    com.pronotes.app.ui.LiquidGlassDialog(
         onDismissRequest = { CloudSync.dismissSignInDialog() },
         title = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Sign in with Google", fontWeight = FontWeight.Bold)
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                ) {
+                com.pronotes.app.ui.LiquidGlassPill {
                     Text(
                         "100% Free Cloud · Zero Cost · Cross-Device Sync",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.primary,
                     )
                 }
             }

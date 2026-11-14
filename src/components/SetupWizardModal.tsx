@@ -3,29 +3,34 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
-  Cpu,
-  Download,
   Palette,
   PenTool,
   Sliders,
   Sparkles,
   Wand2,
   X,
-  Zap,
 } from 'lucide-react';
 import {
   ACCENT_COLORS,
   AccentColorId,
   AppFont,
   AppSettings,
-  CustomAiProvider,
   LocalModelState,
   MotionStyle,
   PAPER_STYLES,
   PAPER_TINTS,
+  PaperStyle,
   ThemeMode,
 } from '../types/models';
-import { LiquidToggle } from './LiquidGlassSurface';
+import {
+  LiquidButton,
+  LiquidGlassSurface,
+  LiquidMenuButton,
+  LiquidModal,
+  LiquidSegmentedControl,
+  LiquidSlider,
+  LiquidToggle,
+} from './LiquidGlassSurface';
 
 interface SetupWizardModalProps {
   open: boolean;
@@ -46,14 +51,10 @@ const STEPS = [
 export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
   open,
   settings,
-  modelStates,
   onUpdateSettings,
-  onDownloadModel,
   onFinish,
 }) => {
   const [step, setStep] = useState(0);
-  const [testStatus, setTestStatus] = useState<{ ok: boolean; msg: string } | null>(null);
-  const [testing, setTesting] = useState(false);
 
   // Mini pen test pad state
   const padRef = useRef<HTMLCanvasElement>(null);
@@ -64,6 +65,8 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
   if (!open) return null;
 
   const accent = ACCENT_COLORS[settings.accent];
+  const transparency = Math.max(0.15, Math.min(0.95, settings.glassTransparency ?? 0.58));
+  const activePaperMeta = PAPER_STYLES.find((p) => p.id === settings.defaultPaper);
 
   const handlePadDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = padRef.current;
@@ -108,38 +111,28 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-md">
-      <div className="relative flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-[28px] border border-white/15 bg-[#FBF9F4] shadow-2xl dark:bg-[#191814] animate-stagger-in">
-
+    <LiquidModal open={open} onClose={onFinish} maxWidthClass="max-w-3xl">
+      <div className="flex max-h-[92vh] flex-col">
         {/* Header + Progress Stepper */}
-        <div className="relative z-10 border-b border-black/8 bg-white/85 px-6 py-4 backdrop-blur-md dark:border-white/10 dark:bg-[#14161D]/90">
+        <div className="border-b border-black/8 px-6 py-4 dark:border-white/10">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div
-                className="flex h-10 w-10 items-center justify-center rounded-2xl text-white shadow-md"
+                className="flex h-10 w-10 items-center justify-center rounded-2xl text-[#F5F2E8] shadow-md"
                 style={{ background: `linear-gradient(135deg, ${accent.primary}, ${accent.secondary})` }}
               >
                 <Wand2 className="h-5 w-5" />
               </div>
               <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-base font-extrabold tracking-tight">Pro Notes Ultra Studio</h2>
-                  <span className="rounded-md bg-blue-600/12 px-2 py-0.5 font-mono-num text-[10px] font-bold text-blue-600 dark:text-blue-300">
-                    v9.11
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Craft your workspace, typography, motion, and AI study engine in 30 seconds
+                <h2 className="text-base font-extrabold tracking-tight">Pro Notes Setup Studio</h2>
+                <p className="text-xs text-[#5A5F58] dark:text-[#B1AC9F]">
+                  Tune your OpenLeaf theme, Liquid Glass transparency, typography, and pen feel
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={onFinish}
-              className="inline-flex items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-500 hover:bg-black/5 dark:hover:bg-white/10"
-            >
+            <LiquidButton onClick={onFinish} className="!px-3 !py-1.5 !text-xs">
               Skip <X className="h-3.5 w-3.5" />
-            </button>
+            </LiquidButton>
           </div>
 
           <div className="mt-4 grid grid-cols-4 gap-2">
@@ -152,12 +145,12 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
                   key={st.id}
                   type="button"
                   onClick={() => setStep(idx)}
-                  className={`flex items-center justify-center gap-1.5 rounded-xl px-2 py-1.5 text-[11px] font-bold transition ${
+                  className={`flex items-center justify-center gap-1.5 rounded-full px-2 py-1.5 text-[11px] font-bold transition ${
                     active
                       ? 'text-white shadow-sm'
                       : done
-                        ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'
-                        : 'bg-black/[0.04] text-slate-500 dark:bg-white/[0.06] dark:text-slate-400'
+                        ? 'bg-emerald-500/14 text-emerald-700 dark:text-emerald-300'
+                        : 'liquid-glass-frost text-[#5A5F58] dark:text-[#B1AC9F]'
                   }`}
                   style={active ? { backgroundColor: accent.primary } : undefined}
                 >
@@ -170,22 +163,22 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
         </div>
 
         {/* Step Body */}
-        <div className="relative z-10 flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-6">
           {step === 0 && (
             <div className="space-y-5 animate-stagger-in">
               <div
-                className="overflow-hidden rounded-3xl p-6 text-white shadow-xl"
-                style={{ background: `linear-gradient(135deg, ${accent.primary}, #4338CA)` }}
+                className="overflow-hidden rounded-3xl p-6 text-[#F5F2E8] shadow-xl"
+                style={{ background: `linear-gradient(135deg, ${accent.primary}, ${accent.secondary})` }}
               >
-                <span className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest">
-                  <Sparkles className="h-3 w-3" /> Welcome to v9.11 Ultra
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/18 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest">
+                  <Sparkles className="h-3 w-3" /> OpenLeaf &amp; Liquid Glass
                 </span>
                 <h3 className="mt-3 text-2xl font-extrabold tracking-tight">
-                  Your notes, slides, mind maps & AI tutor in one fluid canvas.
+                  Handwritten notes, mind maps, and writable split study in one fluid canvas.
                 </h3>
-                <p className="mt-2 max-w-xl text-xs leading-relaxed text-white/85">
-                  Pro Notes Ultra brings interactive checklist sticky notes, embeddable web link cards,
-                  animated AI chapter slide shows, semantic notebook search, custom AI APIs, and spring-physics toolbars.
+                <p className="mt-2 max-w-xl text-xs leading-relaxed text-white/88">
+                  Pro Notes brings smooth low-latency ink, interactive checklist sticky notes, embeddable web link cards,
+                  slide deck revision, writable split notebooks, and optical Liquid Glass controls.
                 </p>
               </div>
 
@@ -193,33 +186,31 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
                 {[
                   {
                     title: 'Slide Show Revision',
-                    desc: 'Turn any chapter into a colorful kinetic slide deck with 3D recall cards.',
-                    color: '#7C3AED',
+                    desc: 'Build colorful chapter slide decks with active recall cards for focused study.',
+                    color: accent.primary,
                   },
                   {
-                    title: 'Smart Sticky & Web Links',
-                    desc: 'Tap checkboxes directly on stickies and pin live URL reference cards.',
-                    color: '#0F7E5C',
+                    title: 'Interactive Sticky & Links',
+                    desc: 'Tap checklists directly on stickies and pin live URL reference cards.',
+                    color: accent.secondary,
                   },
                   {
-                    title: 'Local or Custom AI',
-                    desc: 'Run lightweight offline models or plug in OpenAI, Google AI, or Ollama.',
-                    color: '#3D6CF4',
+                    title: 'Offline Notebooks & Sync',
+                    desc: 'Fast offline storage on your device with optional Google Sync and live study rooms.',
+                    color: '#B98A2E',
                   },
                 ].map((card) => (
-                  <div
+                  <LiquidGlassSurface
                     key={card.title}
-                    className="rounded-2xl border border-black/8 bg-slate-50/80 p-4 dark:border-white/10 dark:bg-[#1C1E27]"
+                    enabled={settings.liquidGlass}
+                    variant="frost"
+                    radius={18}
+                    className="p-4"
                   >
-                    <div
-                      className="mb-2 h-2 w-10 rounded-full"
-                      style={{ backgroundColor: card.color }}
-                    />
+                    <div className="mb-2 h-1.5 w-10 rounded-full" style={{ backgroundColor: card.color }} />
                     <div className="text-sm font-bold">{card.title}</div>
-                    <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-                      {card.desc}
-                    </p>
-                  </div>
+                    <p className="mt-1 text-xs leading-relaxed text-[#5A5F58] dark:text-[#B1AC9F]">{card.desc}</p>
+                  </LiquidGlassSurface>
                 ))}
               </div>
             </div>
@@ -229,27 +220,23 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
             <div className="grid gap-5 md:grid-cols-2 animate-stagger-in">
               <div className="space-y-4">
                 <div>
-                  <div className="mb-1.5 text-xs font-bold uppercase tracking-wider text-slate-500">Theme</div>
-                  <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-black/5 p-1 dark:bg-white/8">
-                    {(['SYSTEM', 'LIGHT', 'DARK'] as ThemeMode[]).map((m) => (
-                      <button
-                        key={m}
-                        type="button"
-                        onClick={() => onUpdateSettings({ themeMode: m })}
-                        className={`rounded-lg py-2 text-xs font-bold transition ${
-                          settings.themeMode === m
-                            ? 'bg-white text-slate-900 shadow-sm dark:bg-[#2A2C34] dark:text-white'
-                            : 'text-slate-500'
-                        }`}
-                      >
-                        {m.charAt(0) + m.slice(1).toLowerCase()}
-                      </button>
-                    ))}
+                  <div className="mb-1.5 text-xs font-bold uppercase tracking-wider text-[#5A5F58] dark:text-[#B1AC9F]">
+                    Theme
                   </div>
+                  <LiquidSegmentedControl<ThemeMode>
+                    value={settings.themeMode}
+                    onChange={(m) => onUpdateSettings({ themeMode: m })}
+                    accentColor={accent.primary}
+                    options={[
+                      { value: 'SYSTEM', label: 'System' },
+                      { value: 'LIGHT', label: 'Light' },
+                      { value: 'DARK', label: 'Dark' },
+                    ]}
+                  />
                 </div>
 
                 <div>
-                  <div className="mb-1.5 text-xs font-bold uppercase tracking-wider text-slate-500">
+                  <div className="mb-1.5 text-xs font-bold uppercase tracking-wider text-[#5A5F58] dark:text-[#B1AC9F]">
                     Accent Color
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -261,7 +248,9 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
                           type="button"
                           onClick={() => onUpdateSettings({ accent: id })}
                           className={`h-8 w-10 rounded-xl border transition ${
-                            settings.accent === id ? 'scale-105 ring-2 ring-blue-500 ring-offset-2' : 'border-black/10'
+                            settings.accent === id
+                              ? 'scale-105 ring-2 ring-[#24483F] ring-offset-2 dark:ring-[#8CC1AC]'
+                              : 'border-black/15'
                           }`}
                           style={{ background: `linear-gradient(135deg, ${a.primary}, ${a.secondary})` }}
                           title={a.label}
@@ -272,7 +261,7 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
                 </div>
 
                 <div>
-                  <div className="mb-1.5 text-xs font-bold uppercase tracking-wider text-slate-500">
+                  <div className="mb-1.5 text-xs font-bold uppercase tracking-wider text-[#5A5F58] dark:text-[#B1AC9F]">
                     Typography Family
                   </div>
                   <div className="grid grid-cols-2 gap-1.5">
@@ -290,7 +279,7 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
                         onClick={() => onUpdateSettings({ appFont: f.id })}
                         className={`rounded-xl border px-3 py-2 text-left text-xs font-bold transition ${
                           settings.appFont === f.id
-                            ? 'border-blue-600 bg-blue-600/10 text-blue-700 dark:text-blue-300'
+                            ? 'border-[#24483F] bg-[#24483F]/12 text-[#24483F] dark:border-[#8CC1AC] dark:text-[#8CC1AC]'
                             : 'border-black/10 hover:bg-black/5 dark:border-white/10'
                         }`}
                       >
@@ -301,55 +290,45 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
                 </div>
 
                 <div>
-                  <div className="mb-1.5 text-xs font-bold uppercase tracking-wider text-slate-500">
+                  <div className="mb-1.5 text-xs font-bold uppercase tracking-wider text-[#5A5F58] dark:text-[#B1AC9F]">
                     Motion Style
                   </div>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {(
-                      [
-                        { id: 'ULTRA_SPRING' as MotionStyle, label: 'Ultra Spring' },
-                        { id: 'MINIMAL_CRISP' as MotionStyle, label: 'Minimal' },
-                        { id: 'REDUCED' as MotionStyle, label: 'Reduced' },
-                      ]
-                    ).map((ms) => (
-                      <button
-                        key={ms.id}
-                        type="button"
-                        onClick={() => onUpdateSettings({ motionStyle: ms.id })}
-                        className={`rounded-xl border px-2 py-2 text-xs font-bold transition ${
-                          settings.motionStyle === ms.id
-                            ? 'border-blue-600 bg-blue-600/10 text-blue-700 dark:text-blue-300'
-                            : 'border-black/10 dark:border-white/10'
-                        }`}
-                      >
-                        {ms.label}
-                      </button>
-                    ))}
-                  </div>
+                  <LiquidSegmentedControl<MotionStyle>
+                    value={settings.motionStyle}
+                    onChange={(ms) => onUpdateSettings({ motionStyle: ms })}
+                    accentColor={accent.primary}
+                    options={[
+                      { value: 'ULTRA_SPRING', label: 'Spring' },
+                      { value: 'MINIMAL_CRISP', label: 'Minimal' },
+                      { value: 'REDUCED', label: 'Reduced' },
+                    ]}
+                  />
                 </div>
               </div>
 
-              {/* Live Preview Card */}
-              <div className="flex flex-col justify-between rounded-3xl border border-black/10 bg-slate-50 p-5 dark:border-white/10 dark:bg-[#1B1D26]">
+              <LiquidGlassSurface
+                enabled={settings.liquidGlass}
+                variant="frost"
+                radius={24}
+                className="flex flex-col justify-between p-5"
+              >
                 <div>
                   <div className="flex items-center justify-between">
                     <span
-                      className="rounded-lg px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white"
+                      className="rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white"
                       style={{ backgroundColor: accent.primary }}
                     >
                       Live Preview
                     </span>
-                    <span className="font-mono-num text-[11px] text-slate-400">
+                    <span className="font-mono-num text-[11px] text-[#5A5F58] dark:text-[#B1AC9F]">
                       {settings.motionStyle.replace('_', ' ')}
                     </span>
                   </div>
-                  <h4 className="mt-4 text-lg font-extrabold tracking-tight">
-                    Thermodynamics · Ch. 4
-                  </h4>
-                  <p className="mt-1.5 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                  <h4 className="mt-4 text-lg font-extrabold tracking-tight">Thermodynamics · Ch. 4</h4>
+                  <p className="mt-1.5 text-xs leading-relaxed text-[#5A5F58] dark:text-[#B1AC9F]">
                     ΔU = Q − W. Entropy of an isolated system never decreases during spontaneous processes.
                   </p>
-                  <div className="mt-4 rounded-2xl border border-black/8 bg-[#FFF3B0] p-3 text-xs text-slate-800 shadow-sm">
+                  <div className="mt-4 rounded-2xl border border-black/8 bg-[#FFF3B0] p-3 text-xs text-[#1F2421] shadow-sm">
                     <div className="font-bold">Revision Tasks</div>
                     <div className="mt-1 space-y-1">
                       <div>☑ Review Carnot cycle efficiency</div>
@@ -367,7 +346,7 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
                         type="button"
                         onClick={() => onUpdateSettings({ paperTint: pt.color })}
                         className={`h-6 w-6 rounded-full border ${
-                          settings.paperTint === pt.color ? 'ring-2 ring-blue-600' : 'border-black/20'
+                          settings.paperTint === pt.color ? 'ring-2 ring-[#24483F] dark:ring-[#8CC1AC]' : 'border-black/20'
                         }`}
                         style={{ backgroundColor: pt.color }}
                         title={pt.label}
@@ -375,52 +354,81 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
                     ))}
                   </div>
                 </div>
-              </div>
+              </LiquidGlassSurface>
             </div>
           )}
 
           {step === 2 && (
             <div className="space-y-4 animate-stagger-in">
               <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-black/10 p-4 dark:border-white/10">
+                <LiquidGlassSurface enabled={settings.liquidGlass} variant="frost" radius={18} className="p-4">
                   <div className="text-sm font-bold">Page Flow Direction</div>
-                  <p className="mb-3 text-xs text-slate-500">Applies to editor & side-by-side Split View</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {(['VERTICAL', 'HORIZONTAL'] as const).map((dir) => (
-                      <button
-                        key={dir}
-                        type="button"
-                        onClick={() => onUpdateSettings({ scroll: dir })}
-                        className={`rounded-xl border py-2 text-xs font-bold transition ${
-                          settings.scroll === dir
-                            ? 'border-blue-600 bg-blue-600/12 text-blue-700 dark:text-blue-300'
-                            : 'border-black/10 dark:border-white/10'
-                        }`}
-                      >
-                        {dir === 'VERTICAL' ? 'Vertical Scroll' : 'Horizontal Pages'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                  <p className="mb-3 text-xs text-[#5A5F58] dark:text-[#B1AC9F]">
+                    Applies to editor &amp; side-by-side Split View
+                  </p>
+                  <LiquidSegmentedControl<'VERTICAL' | 'HORIZONTAL'>
+                    value={settings.scroll}
+                    onChange={(dir) => onUpdateSettings({ scroll: dir })}
+                    accentColor={accent.primary}
+                    options={[
+                      { value: 'VERTICAL', label: 'Vertical' },
+                      { value: 'HORIZONTAL', label: 'Horizontal' },
+                    ]}
+                  />
+                </LiquidGlassSurface>
 
-                <div className="rounded-2xl border border-black/10 p-4 dark:border-white/10">
+                <LiquidGlassSurface enabled={settings.liquidGlass} variant="frost" radius={18} className="p-4">
                   <div className="text-sm font-bold">Default Paper Template</div>
-                  <p className="mb-3 text-xs text-slate-500">Used when creating new quick notebooks</p>
-                  <select
-                    value={settings.defaultPaper}
-                    onChange={(e) => onUpdateSettings({ defaultPaper: e.target.value as AppSettings['defaultPaper'] })}
-                    className="w-full rounded-xl border border-black/12 bg-transparent px-3 py-2 text-xs font-semibold dark:border-white/15"
-                  >
-                    {PAPER_STYLES.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                  <p className="mb-3 text-xs text-[#5A5F58] dark:text-[#B1AC9F]">
+                    Used when creating new notebooks
+                  </p>
+                  <LiquidMenuButton
+                    label={activePaperMeta?.label || settings.defaultPaper}
+                    align="left"
+                    items={PAPER_STYLES.map((p) => ({
+                      id: p.id,
+                      label: p.label,
+                      subtitle: p.group,
+                      selected: settings.defaultPaper === p.id,
+                      onSelect: () => onUpdateSettings({ defaultPaper: p.id as PaperStyle }),
+                    }))}
+                  />
+                </LiquidGlassSurface>
               </div>
 
-              <div className="divide-y divide-black/6 overflow-hidden rounded-2xl border border-black/10 dark:divide-white/8 dark:border-white/10">
+              <LiquidGlassSurface
+                enabled={settings.liquidGlass}
+                variant="frost"
+                radius={18}
+                className="space-y-2.5 p-4"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-bold">Liquid Glass Transparency</div>
+                    <div className="text-xs text-[#5A5F58] dark:text-[#B1AC9F]">
+                      Adjust surface translucency across headers, menus, and toolbars
+                    </div>
+                  </div>
+                  <span className="font-mono-num text-xs font-bold text-[#24483F] dark:text-[#8CC1AC]">
+                    {Math.round(transparency * 100)}%
+                  </span>
+                </div>
+                <LiquidSlider
+                  min={0.15}
+                  max={0.95}
+                  step={0.01}
+                  value={transparency}
+                  onChange={(v) => onUpdateSettings({ liquidGlass: true, glassTransparency: v })}
+                  accentColor={accent.primary}
+                />
+              </LiquidGlassSurface>
+
+              <LiquidGlassSurface
+                enabled={settings.liquidGlass}
+                variant="frost"
+                radius={18}
+                className="divide-y divide-black/6 dark:divide-white/8"
+              >
                 {[
                   {
                     title: 'Stylus Hover Tooltips',
@@ -448,12 +456,12 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
                   >
                     <div>
                       <div className="text-sm font-semibold">{item.title}</div>
-                      <div className="text-xs text-slate-500">{item.sub}</div>
+                      <div className="text-xs text-[#5A5F58] dark:text-[#B1AC9F]">{item.sub}</div>
                     </div>
-                    <LiquidToggle selected={item.checked} onSelect={item.onChange} />
+                    <LiquidToggle selected={item.checked} onSelect={item.onChange} accentColor={accent.primary} />
                   </div>
                 ))}
-              </div>
+              </LiquidGlassSurface>
             </div>
           )}
 
@@ -461,18 +469,14 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
             <div className="space-y-4 animate-stagger-in">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-bold">Pen & Ink Feel Check</h3>
-                  <p className="text-xs text-slate-500">
+                  <h3 className="text-sm font-bold">Pen &amp; Ink Feel Check</h3>
+                  <p className="text-xs text-[#5A5F58] dark:text-[#B1AC9F]">
                     Sketch below to test latency and smooth ink curve response before jumping in
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={clearPad}
-                  className="rounded-xl bg-black/5 px-3 py-1.5 text-xs font-semibold hover:bg-black/10 dark:bg-white/10"
-                >
+                <LiquidButton onClick={clearPad} className="!px-3 !py-1.5 !text-xs">
                   Clear Pad
-                </button>
+                </LiquidButton>
               </div>
               <div
                 className="overflow-hidden rounded-2xl border border-black/10 shadow-inner dark:border-white/12"
@@ -489,12 +493,14 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
                   className="h-52 w-full cursor-crosshair touch-none"
                 />
               </div>
-              <div className="flex items-center justify-between text-xs text-slate-500">
+              <div className="flex items-center justify-between text-xs text-[#5A5F58] dark:text-[#B1AC9F]">
                 <span>
-                  {inkCount > 0 ? 'Smooth ink verified! Tip: drag toolbar icons to reorder anytime.' : 'Draw a quick loop or signature above.'}
+                  {inkCount > 0
+                    ? 'Smooth ink verified! Tip: drag toolbar icons to reorder anytime.'
+                    : 'Draw a quick loop or signature above.'}
                 </span>
-                <span className="font-mono-num font-semibold text-emerald-600 dark:text-emerald-400">
-                  Ultra Studio Ready
+                <span className="font-mono-num font-semibold text-emerald-700 dark:text-emerald-400">
+                  Studio Ready
                 </span>
               </div>
             </div>
@@ -502,35 +508,21 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
         </div>
 
         {/* Footer Nav */}
-        <div className="relative z-10 flex items-center justify-between border-t border-black/8 bg-white/85 px-6 py-4 backdrop-blur-md dark:border-white/10 dark:bg-[#14161D]/90">
-          <button
-            type="button"
-            disabled={step === 0}
-            onClick={() => setStep((s) => Math.max(0, s - 1))}
-            className="inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-black/5 disabled:opacity-35 dark:text-slate-300"
-          >
+        <div className="flex items-center justify-between border-t border-black/8 px-6 py-4 dark:border-white/10">
+          <LiquidButton disabled={step === 0} onClick={() => setStep((s) => Math.max(0, s - 1))}>
             <ArrowLeft className="h-3.5 w-3.5" /> Back
-          </button>
+          </LiquidButton>
           {step < STEPS.length - 1 ? (
-            <button
-              type="button"
-              onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}
-              className="inline-flex items-center gap-1.5 rounded-xl px-5 py-2 text-xs font-bold text-white shadow-sm transition hover:opacity-95"
-              style={{ backgroundColor: accent.primary }}
-            >
+            <LiquidButton tint={accent.primary} onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}>
               Next <ArrowRight className="h-3.5 w-3.5" />
-            </button>
+            </LiquidButton>
           ) : (
-            <button
-              type="button"
-              onClick={onFinish}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-6 py-2 text-xs font-bold text-white shadow-md hover:bg-emerald-700"
-            >
-              Launch Pro Notes Ultra <Sparkles className="h-3.5 w-3.5" />
-            </button>
+            <LiquidButton tint={accent.primary} onClick={onFinish}>
+              Launch Pro Notes <Sparkles className="h-3.5 w-3.5" />
+            </LiquidButton>
           )}
         </div>
       </div>
-    </div>
+    </LiquidModal>
   );
 };

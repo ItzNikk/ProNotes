@@ -38,11 +38,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.DragHandle
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,12 +46,9 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -77,7 +70,6 @@ import com.pronotes.app.data.AccentColor
 import com.pronotes.app.data.AppFont
 import com.pronotes.app.data.AppSettings
 import com.pronotes.app.data.CloudSync
-import com.pronotes.app.data.CustomAiProvider
 import com.pronotes.app.data.DeskColor
 import com.pronotes.app.data.MotionStyle
 import com.pronotes.app.data.PaperStyle
@@ -95,13 +87,21 @@ import com.pronotes.app.data.ToolbarDock
 import com.pronotes.app.data.ToolbarSize
 import com.pronotes.app.data.Updater.Phase as UPhase
 import com.pronotes.app.library.PaperPreview
+import com.pronotes.app.ui.BotanicalGlassBackground
 import com.pronotes.app.ui.GradientTitle
-import com.pronotes.app.ui.LiquidSlider
-import com.pronotes.app.ui.LiquidToggle
+import com.pronotes.app.ui.LiquidChoiceRow
+import com.pronotes.app.ui.LiquidGlassChip
+import com.pronotes.app.ui.LiquidGlassDialog
+import com.pronotes.app.ui.LiquidSliderRow
 import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.ProIconView
 import com.pronotes.app.ui.elasticStretch
-import com.pronotes.app.ui.rememberLayerBackdrop
+import io.github.ntvien.liquidglass.GlassDefaults
+import io.github.ntvien.liquidglass.LiquidGlassScene
+import io.github.ntvien.liquidglass.LiquidGlassTheme
+import io.github.ntvien.liquidglass.component.LiquidGlassToggle
+import io.github.ntvien.liquidglass.component.LiquidSegmentedControl
+import io.github.ntvien.liquidglass.component.LiquidSurface
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 
@@ -125,23 +125,35 @@ fun SettingsScreen(onBack: () -> Unit, onTour: () -> Unit = {}, onSupport: () ->
 
     BackHandler(enabled = !wide && selected != null) { selected = null }
 
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding()) {
-        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { if (!wide && selected != null) selected = null else onBack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
-            GradientTitle(if (!wide && selected != null) selected!!.label else "Settings", MaterialTheme.typography.headlineLarge)
-        }
-        if (wide) {
-            Row(Modifier.fillMaxSize()) {
-                CategoryList(selected, Modifier.width(300.dp).fillMaxHeight()) { selected = it }
-                AnimatedContent(
-                    targetState = selected ?: Category.STYLUS,
-                    transitionSpec = { (fadeIn() + slideInHorizontally { it / 12 }) togetherWith fadeOut() },
-                    label = "detail", modifier = Modifier.weight(1f),
-                ) { c -> Detail(c, s, store, onTour, onSupport) }
+    LiquidGlassScene(
+        background = { BotanicalGlassBackground() },
+    ) {
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                LiquidSurface(
+                    style = GlassDefaults.control(),
+                    shape = GlassDefaults.PillShape,
+                    contentPadding = PaddingValues(10.dp),
+                    onClick = { if (!wide && selected != null) selected = null else onBack() },
+                    onClickLabel = "Back",
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = LiquidGlassTheme.colors.content)
+                }
+                GradientTitle(if (!wide && selected != null) selected!!.label else "Settings", MaterialTheme.typography.headlineLarge)
             }
-        } else {
-            AnimatedContent(targetState = selected, label = "phone") { c ->
-                if (c == null) CategoryList(null, Modifier.fillMaxSize()) { selected = it } else Detail(c, s, store, onTour, onSupport)
+            if (wide) {
+                Row(Modifier.fillMaxSize()) {
+                    CategoryList(selected, Modifier.width(300.dp).fillMaxHeight()) { selected = it }
+                    AnimatedContent(
+                        targetState = selected ?: Category.STYLUS,
+                        transitionSpec = { (fadeIn() + slideInHorizontally { it / 12 }) togetherWith fadeOut() },
+                        label = "detail", modifier = Modifier.weight(1f),
+                    ) { c -> Detail(c, s, store, onTour, onSupport) }
+                }
+            } else {
+                AnimatedContent(targetState = selected, label = "phone") { c ->
+                    if (c == null) CategoryList(null, Modifier.fillMaxSize()) { selected = it } else Detail(c, s, store, onTour, onSupport)
+                }
             }
         }
     }
@@ -149,26 +161,40 @@ fun SettingsScreen(onBack: () -> Unit, onTour: () -> Unit = {}, onSupport: () ->
 
 @Composable
 private fun CategoryList(selected: Category?, modifier: Modifier, onPick: (Category) -> Unit) {
-    LazyColumn(modifier, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+    val colors = LiquidGlassTheme.colors
+    LazyColumn(
+        modifier,
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         items(Category.entries.size) { i ->
             val c = Category.entries[i]
             val sel = c == selected
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 2.dp).clip(CircleShape)
-                    .background(if (sel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                    .clickable { onPick(c) }.padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            LiquidSurface(
+                modifier = Modifier.fillMaxWidth(),
+                style = if (sel) GlassDefaults.frost().copy(fallbackSurface = colors.accentSoft) else GlassDefaults.frost(),
+                shape = GlassDefaults.CardShape,
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                onClick = { onPick(c) },
+                onClickLabel = c.label,
             ) {
-                Box(
-                    Modifier.size(38.dp).clip(CircleShape)
-                        .background(GBrush.linearGradient(listOf(Color(c.tint), Color(c.tint).copy(alpha = 0.78f)))),
-                    contentAlignment = Alignment.Center,
-                ) { ProIconView(c.icon, Color.White, Modifier.size(22.dp)) }
-                Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
-                    Text(c.label, style = MaterialTheme.typography.titleMedium)
-                    Text(c.sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.size(38.dp).clip(CircleShape)
+                            .background(GBrush.linearGradient(listOf(Color(c.tint), Color(c.tint).copy(alpha = 0.78f)))),
+                        contentAlignment = Alignment.Center,
+                    ) { ProIconView(c.icon, Color.White, Modifier.size(22.dp)) }
+                    Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+                        Text(
+                            c.label,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = if (sel) colors.accent else colors.content,
+                            fontWeight = if (sel) FontWeight.Bold else FontWeight.SemiBold,
+                        )
+                        Text(c.sub, style = MaterialTheme.typography.labelSmall, color = colors.contentMuted)
+                    }
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = if (sel) colors.accent else colors.contentMuted)
                 }
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -192,16 +218,13 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                     Section("Paper feel") {
                         Toggle("Writing sound", "A soft pencil-on-paper sound that follows your speed", s.paperSound) { v -> up { it.copy(paperSound = v) } }
                         if (s.paperSound) {
-                            val sliderBackdrop = rememberLayerBackdrop()
-                            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                                Text("Writing sound volume (${(s.paperVolume * 100).toInt()}%)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Spacer(Modifier.height(6.dp))
-                                LiquidSlider(
-                                    value = { s.paperVolume },
-                                    onValueChange = { v -> up { it.copy(paperVolume = v) } },
+                            Box(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+                                LiquidSliderRow(
+                                    label = "Writing sound volume",
+                                    valueText = "${(s.paperVolume * 100).toInt()}%",
+                                    value = s.paperVolume,
                                     valueRange = 0.05f..1f,
-                                    visibilityThreshold = 0.01f,
-                                    backdrop = sliderBackdrop,
+                                    onValueChange = { v -> up { it.copy(paperVolume = v) } },
                                 )
                             }
                         }
@@ -286,7 +309,18 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                     }
                     Section("Tabs & Study Timer") {
                         Toggle("Notebook tabs", "Keep several notebooks open and switch between them", s.showTabs) { v -> up { it.copy(showTabs = v) } }
-                        Toggle("Liquid glass", "See-through bars with a glassy edge", s.liquidGlass) { v -> up { it.copy(liquidGlass = v) } }
+                        Toggle("Liquid glass", "See-through bars and menus with real glass refraction", s.liquidGlass) { v -> up { it.copy(liquidGlass = v) } }
+                        if (s.liquidGlass) {
+                            Box(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+                                LiquidSliderRow(
+                                    label = "Glass transparency",
+                                    valueText = "${(s.glassTransparency * 100).toInt()}%",
+                                    value = s.glassTransparency,
+                                    valueRange = 0.15f..0.95f,
+                                    onValueChange = { v -> up { it.copy(glassTransparency = v) } },
+                                )
+                            }
+                        }
                         Toggle("Hide toolbar while recording", "When the screen is being recorded (Android 15 and newer)", s.hideToolsWhenRecording) { v -> up { it.copy(hideToolsWhenRecording = v) } }
                         Toggle("Study timer", "A stopwatch for each study session", s.studyTimer) { v -> up { it.copy(studyTimer = v) } }
                         if (s.studyTimer) {
@@ -300,13 +334,29 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                     }
                 }
                 Category.LOOK -> {
-                    Section("Theme") {
+                    Section("Theme & Liquid Glass") {
                         Segmented(ThemeMode.entries.map { it.label }, s.themeMode.ordinal) { i -> up { it.copy(themeMode = ThemeMode.entries[i]) } }
+                        Toggle("Liquid glass effects", "Live glass refraction and morphing menus across the UI", s.liquidGlass) { v -> up { it.copy(liquidGlass = v) } }
+                        if (s.liquidGlass) {
+                            Box(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+                                LiquidSliderRow(
+                                    label = "Glass transparency",
+                                    valueText = "${(s.glassTransparency * 100).toInt()}%",
+                                    value = s.glassTransparency,
+                                    valueRange = 0.15f..0.95f,
+                                    onValueChange = { v -> up { it.copy(glassTransparency = v) } },
+                                )
+                            }
+                        }
                     }
                     Section("Typography") {
                         FlowRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             AppFont.entries.forEach { f ->
-                                FilterChip(s.appFont == f, { up { it.copy(appFont = f) } }, label = { Text(f.label) }, shape = CircleShape)
+                                LiquidGlassChip(
+                                    selected = s.appFont == f,
+                                    onClick = { up { it.copy(appFont = f) } },
+                                    label = f.label,
+                                )
                             }
                         }
                         Info("Applies across titles, studio panels, and interface controls.")
@@ -397,65 +447,52 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
 @Composable
 private fun Section(title: String, content: @Composable () -> Unit) {
     Column(Modifier.widthIn(max = 720.dp).fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
-        Text(title.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 16.dp, bottom = 6.dp))
-        Surface(shape = RoundedCornerShape(26.dp), color = MaterialTheme.colorScheme.surface) {
-            Column { content() }
+        Text(
+            title.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            color = LiquidGlassTheme.colors.contentMuted,
+            modifier = Modifier.padding(start = 16.dp, bottom = 6.dp),
+        )
+        LiquidSurface(
+            style = GlassDefaults.frost(),
+            shape = GlassDefaults.CardShape,
+            contentPadding = PaddingValues(0.dp),
+        ) {
+            Column(Modifier.fillMaxWidth()) { content() }
         }
     }
 }
 
 @Composable
 private fun Toggle(title: String, sub: String, value: Boolean, onChange: (Boolean) -> Unit) {
-    val toggleBackdrop = rememberLayerBackdrop()
     Row(
         Modifier.fillMaxWidth().clickable { onChange(!value) }.padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f).padding(end = 14.dp)) {
-            Text(title)
-            Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(title, color = LiquidGlassTheme.colors.content)
+            Text(sub, style = MaterialTheme.typography.labelSmall, color = LiquidGlassTheme.colors.contentMuted)
         }
-        LiquidToggle(
-            selected = { value },
-            onSelect = onChange,
-            backdrop = toggleBackdrop,
+        LiquidGlassToggle(
+            checked = value,
+            onCheckedChange = onChange,
         )
     }
 }
 
 @Composable
 private fun Choice(title: String, value: String, options: List<String>, onPick: (Int) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    Box {
-        Row(
-            Modifier.fillMaxWidth().clickable { open = true }.padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(title, Modifier.weight(1f))
-            Text(value, color = MaterialTheme.colorScheme.primary)
-        }
-        DropdownMenu(open, { open = false }, modifier = Modifier.align(Alignment.CenterEnd)) {
-            options.forEachIndexed { i, o -> DropdownMenuItem(text = { Text(o) }, onClick = { open = false; onPick(i) }) }
-        }
-    }
+    LiquidChoiceRow(title = title, value = value, options = options, onPick = onPick)
 }
 
 @Composable
 private fun Segmented(options: List<String>, selected: Int, onPick: (Int) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().padding(12.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant).padding(3.dp),
-    ) {
-        options.forEachIndexed { i, o ->
-            val sel = i == selected
-            Box(
-                Modifier.weight(1f).height(36.dp).clip(RoundedCornerShape(10.dp))
-                    .background(if (sel) MaterialTheme.colorScheme.surface else Color.Transparent).clickable { onPick(i) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(o, style = MaterialTheme.typography.labelSmall, color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
+    Box(Modifier.fillMaxWidth().padding(12.dp)) {
+        LiquidSegmentedControl(
+            options = options,
+            selectedIndex = selected,
+            onSelect = onPick,
+        )
     }
 }
 
@@ -490,24 +527,22 @@ private fun ToolbarEditor(spec: String, onChange: (String) -> Unit) {
             ReorderableItem(reorder, key = tool.name) { dragging ->
                 Row(
                     Modifier.fillMaxWidth().height(56.dp)
-                        .background(if (dragging) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
+                        .background(if (dragging) LiquidGlassTheme.colors.accentSoft else Color.Transparent)
                         .padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Outlined.DragHandle, "Drag", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.longPressDraggableHandle())
+                    Icon(Icons.Outlined.DragHandle, "Drag", tint = LiquidGlassTheme.colors.contentMuted, modifier = Modifier.longPressDraggableHandle())
                     Spacer(Modifier.width(12.dp))
-                    ProIconView(com.pronotes.app.ui.iconFor(tool), MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp))
+                    ProIconView(com.pronotes.app.ui.iconFor(tool), LiquidGlassTheme.colors.content, Modifier.size(22.dp))
                     Spacer(Modifier.width(12.dp))
-                    Text(tool.name.lowercase().replaceFirstChar { it.uppercase() }, Modifier.weight(1f))
-                    val rowBackdrop = rememberLayerBackdrop()
-                    LiquidToggle(
-                        selected = { visible },
-                        onSelect = { v ->
-                            if (!v && list.count { it.second } <= 1) return@LiquidToggle
+                    Text(tool.name.lowercase().replaceFirstChar { it.uppercase() }, Modifier.weight(1f), color = LiquidGlassTheme.colors.content)
+                    LiquidGlassToggle(
+                        checked = visible,
+                        onCheckedChange = { v ->
+                            if (!v && list.count { it.second } <= 1) return@LiquidGlassToggle
                             list = list.toMutableList().also { it[i] = tool to v }
                             onChange(com.pronotes.app.editor.ToolbarOrder.encode(list))
                         },
-                        backdrop = rowBackdrop,
                     )
                 }
             }
@@ -638,9 +673,8 @@ private fun PensSection(store: SettingsStore) {
     if (showSetup) {
         var alias by remember { mutableStateOf("") }
         var brand by remember { mutableStateOf(PenBrands.manual.first()) }
-        AlertDialog(
+        LiquidGlassDialog(
             onDismissRequest = { showSetup = false },
-            shape = RoundedCornerShape(28.dp),
             title = { Text("Set up a pen") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -666,9 +700,8 @@ private fun PensSection(store: SettingsStore) {
 
     renameTarget?.let { target ->
         var nextAlias by remember(target) { mutableStateOf(target.alias.ifBlank { target.displayName() }) }
-        AlertDialog(
+        LiquidGlassDialog(
             onDismissRequest = { renameTarget = null },
-            shape = RoundedCornerShape(28.dp),
             title = { Text("Rename pen") },
             text = {
                 OutlinedTextField(nextAlias, { nextAlias = it }, singleLine = true, shape = RoundedCornerShape(16.dp), label = { Text("Pen name") }, modifier = Modifier.fillMaxWidth())
@@ -741,7 +774,7 @@ private fun CloudAccountSection(s: AppSettings) {
     }
 
     if (pasteTokenOpen) {
-        AlertDialog(
+        LiquidGlassDialog(
             onDismissRequest = { pasteTokenOpen = false },
             title = { Text("Sign in with Google ID Token") },
             text = {
@@ -762,6 +795,7 @@ private fun CloudAccountSection(s: AppSettings) {
                         pasteTokenOpen = false
                         scope.launch { CloudSync.signInWithGoogleIdToken(context, tok) }
                     },
+                    shape = CircleShape,
                 ) { Text("Sign In") }
             },
             dismissButton = { TextButton(onClick = { pasteTokenOpen = false }) { Text("Cancel") } },

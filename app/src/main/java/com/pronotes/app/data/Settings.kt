@@ -144,6 +144,7 @@ data class AppSettings(
     val paperHaptics: Boolean = true,
     val paperVolume: Float = 0.4f,
     val liquidGlass: Boolean = true,
+    val glassTransparency: Float = 0.58f,
     // pens
     val penName: String = "Pro Stylus",
     val hoverCursor: Boolean = true,
@@ -246,6 +247,7 @@ class SettingsStore private constructor(context: Context) {
             paperHaptics = b("paperHaptics", d.paperHaptics),
             paperVolume = prefs.getFloat("paperVol", d.paperVolume),
             liquidGlass = b("glassV10", true),
+            glassTransparency = prefs.getFloat("glassTransparency", d.glassTransparency).coerceIn(0.15f, 0.95f),
             penName = prefs.getString("penName", d.penName) ?: d.penName,
             hoverCursor = b("hoverCursor", d.hoverCursor),
             penClickDelay = enumOf("penClickDelay", d.penClickDelay),
@@ -331,6 +333,7 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("paperHaptics", s.paperHaptics)
             .putFloat("paperVol", s.paperVolume)
             .putBoolean("glassV10", s.liquidGlass)
+            .putFloat("glassTransparency", s.glassTransparency.coerceIn(0.15f, 0.95f))
             .putString("penName", s.penName)
             .putBoolean("hoverCursor", s.hoverCursor)
             .putString("penClickDelay", s.penClickDelay.name)

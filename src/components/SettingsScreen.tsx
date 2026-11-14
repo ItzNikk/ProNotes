@@ -4,10 +4,8 @@ import {
   Check,
   Clock,
   Cloud,
-  Cpu,
   Download,
   Eraser,
-  Globe,
   Heart,
   LogIn,
   LogOut,
@@ -20,14 +18,12 @@ import {
   Trash2,
   Upload,
   Wand2,
-  Zap,
 } from 'lucide-react';
 import {
   ACCENT_COLORS,
   AccentColorId,
   AppFont,
   AppSettings,
-  CustomAiProvider,
   EraserMode,
   MotionStyle,
   PAPER_STYLES,
@@ -39,7 +35,15 @@ import {
   ThemeMode,
   ToolbarDock,
 } from '../types/models';
-import { LiquidToggle } from './LiquidGlassSurface';
+import {
+  LiquidButton,
+  LiquidGlassSurface,
+  LiquidInput,
+  LiquidMenuButton,
+  LiquidSegmentedControl,
+  LiquidSlider,
+  LiquidToggle,
+} from './LiquidGlassSurface';
 
 interface SettingsScreenProps {
   settings: AppSettings;
@@ -75,7 +79,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   onSavePenPreset,
   onDeletePenPreset,
   onBack,
-  onOpenLocalModels,
   onOpenSetupWizard,
   onExportBackup,
   onImportBackup,
@@ -84,8 +87,16 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [editingPresetName, setEditingPresetName] = useState('');
   const [savedPenToast, setSavedPenToast] = useState(false);
-  const [testingApi, setTestingApi] = useState(false);
-  const [apiTestResult, setApiTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const accent = ACCENT_COLORS[settings.accent];
+  const transparency = Math.max(0.15, Math.min(0.95, settings.glassTransparency ?? 0.58));
+  const transparencyPct = Math.round(transparency * 100);
+  const activePaperMeta = PAPER_STYLES.find((p) => p.id === settings.defaultPaper);
+  const dockLabels: Record<ToolbarDock, string> = {
+    HEADER: 'Fixed top bar',
+    TOP: 'Floating top',
+    BOTTOM: 'Floating bottom',
+  };
 
   const handleDownloadBackup = () => {
     const json = onExportBackup();
@@ -123,56 +134,74 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   }> = ({ title, sub, checked, onChange }) => (
     <div
       onClick={() => onChange(!checked)}
-      className="flex cursor-pointer items-center justify-between gap-4 px-5 py-3.5 transition hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
+      className="flex cursor-pointer items-center justify-between gap-4 px-5 py-3.5 transition hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
     >
       <div>
         <div className="text-sm font-semibold">{title}</div>
-        <div className="text-xs text-slate-500 dark:text-slate-400">{sub}</div>
+        <div className="text-xs text-[#5A5F58] dark:text-[#B1AC9F]">{sub}</div>
       </div>
-      <LiquidToggle selected={checked} onSelect={onChange} />
+      <LiquidToggle selected={checked} onSelect={onChange} accentColor={accent.primary} />
     </div>
   );
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#EFEBE2] text-[#1D211E] dark:bg-[#141411] dark:text-[#ECE8DE]">
-      <header className="flex items-center justify-between gap-3 border-b border-black/8 bg-white/80 px-6 py-4 backdrop-blur-md dark:border-white/8 dark:bg-[#141415]/80">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={onBack}
-            className="rounded-xl p-2 hover:bg-black/5 dark:hover:bg-white/10"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </button>
-          <div>
-            <h1 className="text-lg font-bold tracking-tight">Settings</h1>
-            <p className="text-[11px] text-slate-500">Pro Notes v10.0.0 (Liquid &amp; Cloud)</p>
-          </div>
-        </div>
-        {onOpenSetupWizard && (
-          <button
-            type="button"
-            onClick={onOpenSetupWizard}
-            className="ios-stretch inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-95"
-          >
-            <Wand2 className="h-3.5 w-3.5" /> Open Ultra Setup Studio
-          </button>
-        )}
-      </header>
+    <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-[#EFEBE2] text-[#1F2421] dark:bg-[#141411] dark:text-[#EDE8DB]">
+      {/* OpenLeaf Ambient Botanical Mesh (refraction backdrop for Liquid Glass) */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div
+          className="absolute -left-24 -top-24 h-96 w-96 rounded-full opacity-35 blur-3xl dark:opacity-20"
+          style={{ background: `radial-gradient(circle, ${accent.primary}44, transparent 70%)` }}
+        />
+        <div
+          className="absolute -bottom-28 right-0 h-[420px] w-[420px] rounded-full opacity-30 blur-3xl dark:opacity-18"
+          style={{ background: `radial-gradient(circle, ${accent.secondary}44, transparent 70%)` }}
+        />
+      </div>
 
-      <div className="flex-1 overflow-y-auto px-6 py-6">
+      <LiquidGlassSurface
+        enabled={settings.liquidGlass}
+        variant="chrome"
+        radius={0}
+        className="relative z-20 shrink-0 border-b border-white/45 dark:border-[#EDE8DB]/12"
+      >
+        <header className="flex items-center justify-between gap-3 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <LiquidButton onClick={onBack} className="!h-10 !w-10 !p-0" title="Back to Library">
+              <ArrowLeft className="h-4.5 w-4.5" />
+            </LiquidButton>
+            <div>
+              <h1 className="text-lg font-bold tracking-tight">Settings</h1>
+              <p className="text-[11px] text-[#5A5F58] dark:text-[#B1AC9F]">
+                Pro Notes · OpenLeaf &amp; Liquid Glass
+              </p>
+            </div>
+          </div>
+          {onOpenSetupWizard && (
+            <LiquidButton onClick={onOpenSetupWizard} tint={accent.primary} className="whitespace-nowrap">
+              <Wand2 className="h-3.5 w-3.5" /> Open Setup Studio
+            </LiquidButton>
+          )}
+        </header>
+      </LiquidGlassSurface>
+
+      <div className="relative z-10 flex-1 overflow-y-auto px-6 py-6">
         <div className="mx-auto max-w-3xl space-y-6 pb-16">
           {/* Google Account & Cloud Sync */}
           <section className="space-y-2">
-            <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+            <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-[#5A5F58] dark:text-[#B1AC9F]">
               <Cloud className="h-3.5 w-3.5" /> Google Account &amp; Cloud Sync
             </h2>
-            <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
+            <LiquidGlassSurface
+              enabled={settings.liquidGlass}
+              variant="frost"
+              radius={24}
+              className="divide-y divide-[#1F2421]/8 dark:divide-[#EDE8DB]/10"
+            >
               {userEmail ? (
                 <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
                   <div>
                     <div className="text-sm font-semibold">{userName || 'Signed in with Google'}</div>
-                    <div className="text-xs text-slate-500">
+                    <div className="text-xs text-[#5A5F58] dark:text-[#B1AC9F]">
                       {userEmail}
                       {lastSyncAt
                         ? ` · Synced ${new Date(lastSyncAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
@@ -181,24 +210,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   </div>
                   <div className="flex items-center gap-2">
                     {onSyncNow && (
-                      <button
-                        type="button"
-                        disabled={syncBusy}
-                        onClick={onSyncNow}
-                        className="ios-stretch inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-                      >
+                      <LiquidButton disabled={syncBusy} onClick={onSyncNow} tint={accent.primary}>
                         <RefreshCw className={`h-3.5 w-3.5 ${syncBusy ? 'animate-spin' : ''}`} />
                         {syncBusy ? 'Syncing...' : 'Sync Now'}
-                      </button>
+                      </LiquidButton>
                     )}
                     {onSignOut && (
-                      <button
-                        type="button"
-                        onClick={onSignOut}
-                        className="ios-stretch inline-flex items-center gap-1 rounded-xl border border-black/10 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-black/5 dark:border-white/15 dark:text-slate-300"
-                      >
+                      <LiquidButton onClick={onSignOut}>
                         <LogOut className="h-3.5 w-3.5" /> Sign Out
-                      </button>
+                      </LiquidButton>
                     )}
                   </div>
                 </div>
@@ -206,48 +226,43 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
                   <div>
                     <div className="text-sm font-semibold">Sync notebooks across devices</div>
-                    <div className="text-xs text-slate-500">
+                    <div className="text-xs text-[#5A5F58] dark:text-[#B1AC9F]">
                       Sign in with Google to sync notes, folders, flashcards, and settings automatically
                     </div>
                   </div>
                   {onSignInGoogle && (
-                    <button
-                      type="button"
-                      onClick={onSignInGoogle}
-                      className="ios-stretch inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700"
-                    >
+                    <LiquidButton onClick={onSignInGoogle} tint={accent.primary}>
                       <LogIn className="h-3.5 w-3.5" /> Sign in with Google
-                    </button>
+                    </LiquidButton>
                   )}
                 </div>
               )}
-            </div>
+            </LiquidGlassSurface>
           </section>
 
-          {/* Ultra Look & Motion */}
+          {/* Appearance & Liquid Glass */}
           <section className="space-y-2">
-            <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
-              <Palette className="h-3.5 w-3.5" /> Appearance &amp; Ultra Aesthetics
+            <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-[#5A5F58] dark:text-[#B1AC9F]">
+              <Palette className="h-3.5 w-3.5" /> Appearance &amp; Liquid Glass
             </h2>
-            <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
+            <LiquidGlassSurface
+              enabled={settings.liquidGlass}
+              variant="frost"
+              radius={24}
+              className="divide-y divide-[#1F2421]/8 dark:divide-[#EDE8DB]/10"
+            >
               <div className="p-4">
                 <div className="mb-2 text-sm font-semibold">Theme</div>
-                <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-black/5 p-1 dark:bg-white/6">
-                  {(['SYSTEM', 'LIGHT', 'DARK'] as ThemeMode[]).map((mode) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => onUpdate({ themeMode: mode })}
-                      className={`rounded-lg py-1.5 text-xs font-semibold transition ${
-                        settings.themeMode === mode
-                          ? 'bg-white text-slate-900 shadow-sm dark:bg-[#2A2C34] dark:text-white'
-                          : 'text-slate-500'
-                      }`}
-                    >
-                      {mode.charAt(0) + mode.slice(1).toLowerCase()}
-                    </button>
-                  ))}
-                </div>
+                <LiquidSegmentedControl<ThemeMode>
+                  value={settings.themeMode}
+                  onChange={(mode) => onUpdate({ themeMode: mode })}
+                  accentColor={accent.primary}
+                  options={[
+                    { value: 'SYSTEM', label: 'System' },
+                    { value: 'LIGHT', label: 'Light' },
+                    { value: 'DARK', label: 'Dark' },
+                  ]}
+                />
               </div>
 
               <div className="p-4">
@@ -265,13 +280,17 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       >
                         <span
                           className={`h-8 w-11 rounded-xl border transition ${
-                            active ? 'scale-105 ring-2 ring-blue-600 ring-offset-2' : 'border-black/10'
+                            active
+                              ? 'scale-105 ring-2 ring-[#24483F] ring-offset-2 dark:ring-[#8CC1AC]'
+                              : 'border-black/15 dark:border-white/15'
                           }`}
                           style={{
                             background: `linear-gradient(135deg, ${a.primary}, ${a.secondary})`,
                           }}
                         />
-                        <span className="text-[11px] font-medium text-slate-500">{a.label}</span>
+                        <span className="text-[11px] font-medium text-[#5A5F58] dark:text-[#B1AC9F]">
+                          {a.label}
+                        </span>
                       </button>
                     );
                   })}
@@ -283,102 +302,126 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {(
                     [
-                      { id: 'MODERN_SANS', label: 'Modern Sans', sample: 'Inter UI' },
+                      { id: 'MODERN_SANS', label: 'Modern Sans', sample: 'Plus Jakarta' },
                       { id: 'EDITORIAL_SERIF', label: 'Editorial', sample: 'Fraunces' },
                       { id: 'STUDIO_MONO', label: 'Studio Mono', sample: 'JetBrains' },
                       { id: 'ROUNDED', label: 'Soft Rounded', sample: 'Quicksand' },
                     ] as { id: AppFont; label: string; sample: string }[]
-                  ).map((f) => (
-                    <button
-                      key={f.id}
-                      type="button"
-                      onClick={() => onUpdate({ appFont: f.id })}
-                      className={`rounded-2xl border p-2.5 text-left transition ${
-                        settings.appFont === f.id
-                          ? 'border-blue-600 bg-blue-500/10 text-blue-700 dark:text-blue-300'
-                          : 'border-black/10 hover:bg-black/[0.02] dark:border-white/10'
-                      }`}
-                    >
-                      <div className="text-xs font-bold">{f.label}</div>
-                      <div className="text-[10px] text-slate-500">{f.sample}</div>
-                    </button>
-                  ))}
+                  ).map((f) => {
+                    const active = settings.appFont === f.id;
+                    return (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => onUpdate({ appFont: f.id })}
+                        className={`rounded-2xl border p-2.5 text-left transition ${
+                          active
+                            ? 'border-[#24483F] bg-[#24483F]/12 text-[#24483F] dark:border-[#8CC1AC] dark:bg-[#8CC1AC]/16 dark:text-[#8CC1AC]'
+                            : 'border-[#1F2421]/10 hover:bg-black/[0.04] dark:border-[#EDE8DB]/12 dark:hover:bg-white/[0.05]'
+                        }`}
+                      >
+                        <div className="text-xs font-bold">{f.label}</div>
+                        <div className="text-[10px] opacity-70">{f.sample}</div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
               <div className="p-4">
                 <div className="mb-2 text-sm font-semibold">Motion &amp; Spring Feel</div>
-                <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-black/5 p-1 dark:bg-white/6">
-                  {(
-                    [
-                      { id: 'ULTRA_SPRING', label: 'Ultra Spring' },
-                      { id: 'MINIMAL_CRISP', label: 'Minimal Crisp' },
-                      { id: 'REDUCED', label: 'Reduced' },
-                    ] as { id: MotionStyle; label: string }[]
-                  ).map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => onUpdate({ motionStyle: m.id })}
-                      className={`rounded-lg py-1.5 text-xs font-semibold transition ${
-                        settings.motionStyle === m.id
-                          ? 'bg-white text-slate-900 shadow-sm dark:bg-[#2A2C34] dark:text-white'
-                          : 'text-slate-500'
-                      }`}
-                    >
-                      {m.label}
-                    </button>
-                  ))}
-                </div>
+                <LiquidSegmentedControl<MotionStyle>
+                  value={settings.motionStyle}
+                  onChange={(motionStyle) => onUpdate({ motionStyle })}
+                  accentColor={accent.primary}
+                  options={[
+                    { value: 'ULTRA_SPRING', label: 'Spring Fluid' },
+                    { value: 'MINIMAL_CRISP', label: 'Minimal Crisp' },
+                    { value: 'REDUCED', label: 'Reduced' },
+                  ]}
+                />
               </div>
 
               <ToggleRow
-                title="Liquid glass toolbars"
-                sub="Translucent frost with specular edge highlights and rubber-band toolbar icons"
+                title="Liquid glass toolbars & UI"
+                sub="Optical frost refraction, specular rims, and adaptive contrast across every control"
                 checked={settings.liquidGlass}
                 onChange={(v) => onUpdate({ liquidGlass: v })}
               />
+
+              <div className="space-y-2.5 px-5 py-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-1.5 text-sm font-semibold">
+                      <Sparkles className="h-3.5 w-3.5 text-[#24483F] dark:text-[#8CC1AC]" />
+                      Glass Transparency
+                    </div>
+                    <div className="text-xs text-[#5A5F58] dark:text-[#B1AC9F]">
+                      Adjust optical glass clarity while preserving crisp text contrast
+                    </div>
+                  </div>
+                  <span className="font-mono-num shrink-0 text-xs font-bold text-[#24483F] dark:text-[#8CC1AC]">
+                    {transparencyPct}% ·{' '}
+                    {transparency < 0.35 ? 'Frosted' : transparency < 0.72 ? 'Balanced' : 'Crystal Clear'}
+                  </span>
+                </div>
+                <LiquidSlider
+                  min={0.15}
+                  max={0.95}
+                  step={0.01}
+                  value={transparency}
+                  onChange={(v) => onUpdate({ liquidGlass: true, glassTransparency: v })}
+                  accentColor={accent.primary}
+                />
+                <div className="flex justify-between text-[10px] font-medium text-[#5A5F58] dark:text-[#B1AC9F]">
+                  <span>15% Frosted Solid</span>
+                  <span>58% Balanced</span>
+                  <span>95% Clear Glass</span>
+                </div>
+              </div>
+
               <ToggleRow
                 title="Stylus & pointer hover labels"
                 sub="Show tool name tooltip when hovering over stretched dock icons"
                 checked={settings.showHoverTooltips}
                 onChange={(v) => onUpdate({ showHoverTooltips: v })}
               />
-            </div>
+            </LiquidGlassSurface>
           </section>
 
           {/* Stylus & Pen Presets */}
           <section className="space-y-2">
-            <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+            <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-[#5A5F58] dark:text-[#B1AC9F]">
               <PenTool className="h-3.5 w-3.5" /> Stylus &amp; Pen Presets
             </h2>
-            <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
+            <LiquidGlassSurface
+              enabled={settings.liquidGlass}
+              variant="frost"
+              radius={24}
+              className="divide-y divide-[#1F2421]/8 dark:divide-[#EDE8DB]/10"
+            >
               <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
                 <span className="text-sm font-semibold">Default pen nib</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {(['ballpoint', 'fountain', 'brush', 'fineliner', 'pencil'] as PenKind[]).map((k) => (
-                    <button
-                      key={k}
-                      type="button"
-                      onClick={() => onUpdate({ penKind: k })}
-                      className={`rounded-xl px-3 py-1.5 text-xs font-semibold capitalize transition ${
-                        settings.penKind === k
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-black/5 text-slate-600 hover:bg-black/10 dark:bg-white/10 dark:text-slate-300'
-                      }`}
-                    >
-                      {k}
-                    </button>
-                  ))}
-                </div>
+                <LiquidSegmentedControl<PenKind>
+                  value={settings.penKind}
+                  onChange={(k) => onUpdate({ penKind: k })}
+                  accentColor={accent.primary}
+                  className="w-full sm:w-auto"
+                  options={[
+                    { value: 'ballpoint', label: 'Ballpoint' },
+                    { value: 'fountain', label: 'Fountain' },
+                    { value: 'brush', label: 'Brush' },
+                    { value: 'fineliner', label: 'Fineliner' },
+                    { value: 'pencil', label: 'Pencil' },
+                  ]}
+                />
               </div>
 
               <div className="space-y-2.5 p-5">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-semibold">Saved Pen Presets ({settings.penPresets.length})</span>
                   {onSavePenPreset && (
-                    <button
-                      type="button"
+                    <LiquidButton
                       onClick={() => {
                         const kindLabel = settings.penKind.charAt(0).toUpperCase() + settings.penKind.slice(1);
                         onSavePenPreset({
@@ -393,19 +436,22 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         setSavedPenToast(true);
                         window.setTimeout(() => setSavedPenToast(false), 1400);
                       }}
-                      className="inline-flex items-center gap-1 rounded-xl bg-blue-600/10 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-600/20 dark:text-blue-300"
+                      className="!px-3 !py-1.5 !text-xs"
                     >
                       {savedPenToast ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Plus className="h-3.5 w-3.5" />}
-                      {savedPenToast ? 'Saved Preset' : 'Save Current as Preset'}
-                    </button>
+                      {savedPenToast ? 'Saved Preset' : 'Save Current'}
+                    </LiquidButton>
                   )}
                 </div>
 
                 <div className="grid gap-2 sm:grid-cols-2">
                   {settings.penPresets.map((preset) => (
-                    <div
+                    <LiquidGlassSurface
                       key={preset.id}
-                      className="flex items-center justify-between gap-2 rounded-2xl border border-black/8 bg-slate-50/70 px-3 py-2 dark:border-white/10 dark:bg-[#22242C]"
+                      enabled={settings.liquidGlass}
+                      variant="frost"
+                      radius={16}
+                      className="flex items-center justify-between gap-2 px-3 py-2"
                     >
                       <div className="flex min-w-0 flex-1 items-center gap-2.5">
                         <span
@@ -413,7 +459,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                           style={{ backgroundColor: preset.color }}
                         />
                         {editingPresetId === preset.id ? (
-                          <input
+                          <LiquidInput
                             autoFocus
                             value={editingPresetName}
                             onChange={(e) => setEditingPresetName(e.target.value)}
@@ -431,7 +477,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                                 setEditingPresetId(null);
                               }
                             }}
-                            className="w-full rounded-lg border border-blue-500 bg-white px-2 py-0.5 text-xs font-semibold dark:bg-[#191A1F]"
+                            wrapperClassName="!py-1 !px-2.5 flex-1"
                           />
                         ) : (
                           <button
@@ -444,7 +490,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                             className="min-w-0 flex-1 text-left"
                           >
                             <div className="truncate text-xs font-bold">{preset.name}</div>
-                            <div className="text-[10px] capitalize text-slate-500">
+                            <div className="text-[10px] capitalize text-[#5A5F58] dark:text-[#B1AC9F]">
                               {preset.kind} · {preset.size}px
                             </div>
                           </button>
@@ -454,24 +500,29 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         <button
                           type="button"
                           onClick={() => onDeletePenPreset(preset.id)}
-                          className="rounded-lg p-1 text-slate-400 hover:bg-red-500/10 hover:text-red-500"
+                          className="rounded-lg p-1 text-[#5A5F58] hover:bg-red-500/10 hover:text-red-500"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       )}
-                    </div>
+                    </LiquidGlassSurface>
                   ))}
                 </div>
               </div>
-            </div>
+            </LiquidGlassSurface>
           </section>
 
           {/* Gestures, Eraser & Writing */}
           <section className="space-y-2">
-            <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+            <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-[#5A5F58] dark:text-[#B1AC9F]">
               <Eraser className="h-3.5 w-3.5" /> Scribble, Eraser &amp; Shapes
             </h2>
-            <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
+            <LiquidGlassSurface
+              enabled={settings.liquidGlass}
+              variant="frost"
+              radius={24}
+              className="divide-y divide-[#1F2421]/8 dark:divide-[#EDE8DB]/10"
+            >
               <ToggleRow
                 title="Scribble to erase"
                 sub="Zig-zag across strokes or text to erase them cleanly"
@@ -487,52 +538,38 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
                 <div>
                   <div className="text-sm font-semibold">Scribble sensitivity</div>
-                  <div className="text-xs text-slate-500">How eagerly tight zig-zags trigger erase</div>
+                  <div className="text-xs text-[#5A5F58] dark:text-[#B1AC9F]">
+                    How eagerly tight zig-zags trigger erase
+                  </div>
                 </div>
-                <div className="flex gap-1.5">
-                  {(['gentle', 'balanced', 'instant'] as ScribbleSensitivity[]).map((sens) => (
-                    <button
-                      key={sens}
-                      type="button"
-                      onClick={() => onUpdate({ scribbleSensitivity: sens })}
-                      className={`rounded-xl px-3 py-1.5 text-xs font-semibold capitalize transition ${
-                        settings.scribbleSensitivity === sens
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-black/5 text-slate-600 dark:bg-white/10 dark:text-slate-300'
-                      }`}
-                    >
-                      {sens}
-                    </button>
-                  ))}
-                </div>
+                <LiquidSegmentedControl<ScribbleSensitivity>
+                  value={settings.scribbleSensitivity}
+                  onChange={(sens) => onUpdate({ scribbleSensitivity: sens })}
+                  accentColor={accent.primary}
+                  options={[
+                    { value: 'gentle', label: 'Gentle' },
+                    { value: 'balanced', label: 'Balanced' },
+                    { value: 'instant', label: 'Instant' },
+                  ]}
+                />
               </div>
               <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
                 <div>
                   <div className="text-sm font-semibold">Default Eraser Mode</div>
-                  <div className="text-xs text-slate-500">Whole stroke, precision segment split, or highlighter only</div>
+                  <div className="text-xs text-[#5A5F58] dark:text-[#B1AC9F]">
+                    Whole stroke, precision segment split, or highlighter only
+                  </div>
                 </div>
-                <div className="flex gap-1.5">
-                  {(
-                    [
-                      { id: 'STROKE' as EraserMode, label: 'Stroke' },
-                      { id: 'PIXEL' as EraserMode, label: 'Precision' },
-                      { id: 'HIGHLIGHTER' as EraserMode, label: 'Highlight Only' },
-                    ]
-                  ).map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => onUpdate({ eraserMode: m.id })}
-                      className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
-                        settings.eraserMode === m.id
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-black/5 text-slate-600 dark:bg-white/10 dark:text-slate-300'
-                      }`}
-                    >
-                      {m.label}
-                    </button>
-                  ))}
-                </div>
+                <LiquidSegmentedControl<EraserMode>
+                  value={settings.eraserMode}
+                  onChange={(mode) => onUpdate({ eraserMode: mode })}
+                  accentColor={accent.primary}
+                  options={[
+                    { value: 'STROKE', label: 'Stroke' },
+                    { value: 'PIXEL', label: 'Precision' },
+                    { value: 'HIGHLIGHTER', label: 'Highlight' },
+                  ]}
+                />
               </div>
               <ToggleRow
                 title="Hold to snap shapes"
@@ -552,49 +589,46 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 checked={settings.highlighterBehind}
                 onChange={(v) => onUpdate({ highlighterBehind: v })}
               />
-            </div>
+            </LiquidGlassSurface>
           </section>
 
           {/* Paper, Whiteboard & Workspace */}
           <section className="space-y-2">
-            <h2 className="px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+            <h2 className="px-2 text-xs font-bold uppercase tracking-wider text-[#5A5F58] dark:text-[#B1AC9F]">
               Pages &amp; Workspace
             </h2>
-            <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
-              <div className="flex items-center justify-between px-5 py-3.5">
+            <LiquidGlassSurface
+              enabled={settings.liquidGlass}
+              variant="frost"
+              radius={24}
+              className="divide-y divide-[#1F2421]/8 dark:divide-[#EDE8DB]/10"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
                 <span className="text-sm font-semibold">Default page direction</span>
-                <div className="flex gap-1.5">
-                  {(['VERTICAL', 'HORIZONTAL'] as const).map((dir) => (
-                    <button
-                      key={dir}
-                      type="button"
-                      onClick={() => onUpdate({ scroll: dir })}
-                      className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
-                        settings.scroll === dir
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-black/5 text-slate-600 dark:bg-white/10 dark:text-slate-300'
-                      }`}
-                    >
-                      {dir === 'VERTICAL' ? 'Vertical' : 'Horizontal'}
-                    </button>
-                  ))}
-                </div>
+                <LiquidSegmentedControl<'VERTICAL' | 'HORIZONTAL'>
+                  value={settings.scroll}
+                  onChange={(dir) => onUpdate({ scroll: dir })}
+                  accentColor={accent.primary}
+                  options={[
+                    { value: 'VERTICAL', label: 'Vertical' },
+                    { value: 'HORIZONTAL', label: 'Horizontal' },
+                  ]}
+                />
               </div>
-              <div className="flex items-center justify-between px-5 py-3.5">
+              <div className="flex items-center justify-between gap-3 px-5 py-3.5">
                 <span className="text-sm font-semibold">Default paper pattern</span>
-                <select
-                  value={settings.defaultPaper}
-                  onChange={(e) => onUpdate({ defaultPaper: e.target.value as PaperStyle })}
-                  className="rounded-xl border border-black/10 bg-transparent px-3 py-1.5 text-sm font-medium dark:border-white/15"
-                >
-                  {PAPER_STYLES.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
+                <LiquidMenuButton
+                  label={activePaperMeta?.label || settings.defaultPaper}
+                  items={PAPER_STYLES.map((p) => ({
+                    id: p.id,
+                    label: p.label,
+                    subtitle: p.group,
+                    selected: settings.defaultPaper === p.id,
+                    onSelect: () => onUpdate({ defaultPaper: p.id as PaperStyle }),
+                  }))}
+                />
               </div>
-              <div className="flex items-center justify-between px-5 py-3.5">
+              <div className="flex items-center justify-between gap-3 px-5 py-3.5">
                 <span className="text-sm font-semibold">Default paper tint</span>
                 <div className="flex gap-2">
                   {PAPER_TINTS.map((t) => (
@@ -603,45 +637,42 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       type="button"
                       onClick={() => onUpdate({ paperTint: t.color })}
                       className={`h-6 w-6 rounded-full border ${
-                        settings.paperTint === t.color ? 'ring-2 ring-blue-600' : 'border-black/20'
+                        settings.paperTint === t.color
+                          ? 'ring-2 ring-[#24483F] ring-offset-1 dark:ring-[#8CC1AC]'
+                          : 'border-black/20'
                       }`}
                       style={{ backgroundColor: t.color }}
+                      title={t.label}
                     />
                   ))}
                 </div>
               </div>
-              <div className="flex items-center justify-between px-5 py-3.5">
+              <div className="flex items-center justify-between gap-3 px-5 py-3.5">
                 <span className="text-sm font-semibold">Toolbar placement</span>
-                <select
-                  value={settings.toolbarDock}
-                  onChange={(e) => onUpdate({ toolbarDock: e.target.value as ToolbarDock })}
-                  className="rounded-xl border border-black/10 bg-transparent px-3 py-1.5 text-sm font-medium dark:border-white/15"
-                >
-                  <option value="HEADER">Fixed top bar</option>
-                  <option value="TOP">Floating top</option>
-                  <option value="BOTTOM">Floating bottom</option>
-                </select>
+                <LiquidMenuButton
+                  label={dockLabels[settings.toolbarDock] || 'Fixed top bar'}
+                  items={(['HEADER', 'TOP', 'BOTTOM'] as ToolbarDock[]).map((dock) => ({
+                    id: dock,
+                    label: dockLabels[dock],
+                    selected: settings.toolbarDock === dock,
+                    onSelect: () => onUpdate({ toolbarDock: dock }),
+                  }))}
+                />
               </div>
-              <div className="flex items-center justify-between px-5 py-3.5">
+              <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
                 <span className="inline-flex items-center gap-2 text-sm font-semibold">
                   <Clock className="h-4 w-4 text-amber-500" /> Pomodoro Focus Duration
                 </span>
-                <div className="flex gap-1.5">
-                  {[15, 25, 45].map((mins) => (
-                    <button
-                      key={mins}
-                      type="button"
-                      onClick={() => onUpdate({ pomodoroMinutes: mins })}
-                      className={`ios-stretch rounded-xl px-3 py-1 text-xs font-semibold transition ${
-                        (settings.pomodoroMinutes || 25) === mins
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-black/5 text-slate-600 dark:bg-white/10 dark:text-slate-300'
-                      }`}
-                    >
-                      {mins}m
-                    </button>
-                  ))}
-                </div>
+                <LiquidSegmentedControl<string>
+                  value={String(settings.pomodoroMinutes || 25)}
+                  onChange={(v) => onUpdate({ pomodoroMinutes: Number(v) })}
+                  accentColor={accent.primary}
+                  options={[
+                    { value: '15', label: '15m' },
+                    { value: '25', label: '25m' },
+                    { value: '45', label: '45m' },
+                  ]}
+                />
               </div>
               <ToggleRow
                 title="Snap Mind Map nodes to grid"
@@ -649,15 +680,20 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 checked={settings.whiteboardGridSnap}
                 onChange={(v) => onUpdate({ whiteboardGridSnap: v })}
               />
-            </div>
+            </LiquidGlassSurface>
           </section>
 
           {/* Support Pro Notes & Reminders */}
           <section className="space-y-2">
-            <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+            <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-[#5A5F58] dark:text-[#B1AC9F]">
               <Heart className="h-3.5 w-3.5 text-rose-500" /> Community &amp; Support
             </h2>
-            <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
+            <LiquidGlassSurface
+              enabled={settings.liquidGlass}
+              variant="frost"
+              radius={24}
+              className="divide-y divide-[#1F2421]/8 dark:divide-[#EDE8DB]/10"
+            >
               <ToggleRow
                 title="Support appreciation reminders"
                 sub="Show gentle periodic support & release note highlights"
@@ -668,57 +704,65 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <button
                   type="button"
                   onClick={onOpenSupport}
-                  className="ios-stretch flex w-full items-center justify-between px-5 py-3.5 text-left hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
+                  className="flex w-full items-center justify-between px-5 py-3.5 text-left transition hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
                 >
                   <div>
                     <div className="text-sm font-semibold text-rose-600 dark:text-rose-400">
                       Open Support Note &amp; Share Pro Notes
                     </div>
-                    <div className="text-xs text-slate-500">
+                    <div className="text-xs text-[#5A5F58] dark:text-[#B1AC9F]">
                       Send appreciation, leave feature feedback, or share with classmates
                     </div>
                   </div>
                   <Heart className="h-4 w-4 text-rose-500" />
                 </button>
               )}
-            </div>
+            </LiquidGlassSurface>
           </section>
 
           {/* Library Backup */}
           <section className="space-y-2">
-            <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+            <h2 className="flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wider text-[#5A5F58] dark:text-[#B1AC9F]">
               <ShieldCheck className="h-3.5 w-3.5" /> Library &amp; Backup
             </h2>
-            <div className="divide-y divide-black/6 overflow-hidden rounded-3xl border border-black/8 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#1A1B20]">
+            <LiquidGlassSurface
+              enabled={settings.liquidGlass}
+              variant="frost"
+              radius={24}
+              className="divide-y divide-[#1F2421]/8 dark:divide-[#EDE8DB]/10"
+            >
               <button
                 type="button"
                 onClick={handleDownloadBackup}
-                className="flex w-full items-center gap-3 px-5 py-3.5 text-left hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
+                className="flex w-full items-center gap-3 px-5 py-3.5 text-left transition hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
               >
-                <Download className="h-4 w-4 text-blue-600" />
+                <Download className="h-4 w-4 text-[#24483F] dark:text-[#8CC1AC]" />
                 <div>
                   <div className="text-sm font-semibold">Export full library backup (JSON)</div>
-                  <div className="text-xs text-slate-500">Save notebooks, folders, flashcards &amp; settings</div>
+                  <div className="text-xs text-[#5A5F58] dark:text-[#B1AC9F]">
+                    Save notebooks, folders, flashcards &amp; settings
+                  </div>
                 </div>
               </button>
-              <label className="flex w-full cursor-pointer items-center gap-3 px-5 py-3.5 text-left hover:bg-black/[0.02] dark:hover:bg-white/[0.02]">
-                <Upload className="h-4 w-4 text-blue-600" />
+              <label className="flex w-full cursor-pointer items-center gap-3 px-5 py-3.5 text-left transition hover:bg-black/[0.03] dark:hover:bg-white/[0.04]">
+                <Upload className="h-4 w-4 text-[#24483F] dark:text-[#8CC1AC]" />
                 <div>
                   <div className="text-sm font-semibold">Restore from backup file</div>
-                  <div className="text-xs text-slate-500">Adds notebooks without overwriting existing work</div>
+                  <div className="text-xs text-[#5A5F58] dark:text-[#B1AC9F]">
+                    Adds notebooks without overwriting existing work
+                  </div>
                 </div>
                 <input type="file" accept=".json,application/json" onChange={handleRestoreFile} className="hidden" />
               </label>
               {backupMsg && (
-                <div className="px-5 py-2.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                <div className="px-5 py-2.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
                   {backupMsg}
                 </div>
               )}
-            </div>
+            </LiquidGlassSurface>
           </section>
         </div>
       </div>
     </div>
   );
 };
-

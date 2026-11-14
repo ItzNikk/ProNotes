@@ -51,6 +51,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   toolbarDock: 'HEADER',
   toolbarOrder: DEFAULT_TOOLBAR_ORDER,
   liquidGlass: true,
+  glassTransparency: 0.58,
   showTabs: true,
   pageNumbers: true,
   showHoverTooltips: true,
@@ -406,6 +407,7 @@ function loadInitialState(): ProNotesState {
         const mergedSettings: AppSettings = {
           ...DEFAULT_SETTINGS,
           ...(parsed.settings || {}),
+          glassTransparency: Math.max(0.15, Math.min(0.95, Number(parsed.settings?.glassTransparency ?? DEFAULT_SETTINGS.glassTransparency) || 0.58)),
           toolbarOrder: mergedOrder,
           penPresets:
             parsed.settings?.penPresets && parsed.settings.penPresets.length > 0

@@ -66,6 +66,7 @@ import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.CloudSync
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
@@ -87,19 +88,13 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.UploadFile
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -113,7 +108,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.CornerRadius
@@ -140,16 +134,31 @@ import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.data.Repository
 import com.pronotes.app.data.SettingsStore
 import com.pronotes.app.editor.LiveCollabRoomDialog
+import com.pronotes.app.ui.BotanicalGlassBackground
 import com.pronotes.app.ui.ColorEditorDialog
-import com.pronotes.app.ui.Ios26LiquidBottomNavBar
-import com.pronotes.app.ui.LiquidNavTab
+import com.pronotes.app.ui.LiquidGlassCard
+import com.pronotes.app.ui.LiquidGlassChip
+import com.pronotes.app.ui.LiquidGlassDialog
+import com.pronotes.app.ui.LiquidGlassPill
 import com.pronotes.app.ui.LiquidToggle
 import com.pronotes.app.ui.OptionalLiquidGlassBox
 import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.Swatch
 import com.pronotes.app.ui.elasticStretch
-import com.pronotes.app.ui.layerBackdrop
-import com.pronotes.app.ui.rememberLayerBackdrop
+import io.github.ntvien.liquidglass.GlassDefaults
+import io.github.ntvien.liquidglass.GlassKind
+import io.github.ntvien.liquidglass.LiquidGlassScene
+import io.github.ntvien.liquidglass.LiquidGlassTheme
+import io.github.ntvien.liquidglass.component.LiquidMenuButton
+import io.github.ntvien.liquidglass.component.LiquidMenuDivider
+import io.github.ntvien.liquidglass.component.LiquidMenuEntry
+import io.github.ntvien.liquidglass.component.LiquidMenuItem
+import io.github.ntvien.liquidglass.component.LiquidSegmentedControl
+import io.github.ntvien.liquidglass.component.LiquidSurface
+import io.github.ntvien.liquidglass.component.LiquidTab
+import io.github.ntvien.liquidglass.component.LiquidTabBar
+import io.github.ntvien.liquidglass.component.LiquidTabBarDefaults
+import io.github.ntvien.liquidglass.component.LiquidTabLabels
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.DateFormat
@@ -259,301 +268,316 @@ fun LibraryScreen(
     val currentFolder = lib.folders.firstOrNull { it.id == folderId }
     val title = if (section == Section.DOCUMENTS && currentFolder != null) currentFolder.name else section.label
 
-    // Real blur behind dialogs on Android 12+.
-    val dialogOpen = newNotebook || pasteImportOpen || newFolder || folderEdit != null || renaming != null || moving != null ||
-        deleting != null || coverFor != null || forever != null || emptyTrash
-    val blur by androidx.compose.animation.core.animateDpAsState(if (dialogOpen) 14.dp else 0.dp, label = "blur")
     val drag = remember { DragController() }
-    val libraryBackdrop = rememberLayerBackdrop()
+    val trashCount = lib.notebooks.count { it.deletedAt != null }
     androidx.compose.runtime.CompositionLocalProvider(LocalDragController provides drag) {
-    Box(Modifier.fillMaxSize()) {
-    Row(
-        Modifier.fillMaxSize()
-            .then(if (android.os.Build.VERSION.SDK_INT >= 31 && blur > 0.dp) Modifier.blur(blur) else Modifier)
-            .background(MaterialTheme.colorScheme.background),
-    ) {
-        AnimatedVisibility(sidebar, enter = expandHorizontally() + fadeIn(), exit = shrinkHorizontally() + fadeOut()) {
-            Sidebar(
-                section, trashCount = lib.notebooks.count { it.deletedAt != null },
-                onSelect = { section = it; folderId = null; if (!wide) sidebar = false },
-                onCollapse = { sidebar = false }, onSettings = onSettings,
-                onSupport = onSupport,
-                onOpenCollab = { collabOpen = true },
-                onDropTo = { s, payload ->
-                    when (s) {
-                        Section.DOCUMENTS -> dropInto(payload, null)
-                        Section.TRASH -> if (payload.startsWith("note:")) { scope.launch { repo.deleteNotebook(payload.substringAfter(':')) }; true } else false
-                        Section.FAVORITES -> if (payload.startsWith("note:")) {
-                            val nid = payload.substringAfter(':')
-                            if (lib.notebooks.firstOrNull { it.id == nid }?.favorite == false) scope.launch { repo.toggleFavorite(nid) }
-                            true
-                        } else false
-                        else -> false
-                    }
-                },
-            )
-        }
-
-        Column(Modifier.weight(1f).fillMaxHeight().statusBarsPadding()) {
-            // Top row wrapped in Liquid Glass
-            OptionalLiquidGlassBox(
-                backdrop = libraryBackdrop,
-                enabled = settings.liquidGlass,
-                shape = RoundedCornerShape(22.dp),
-                fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-            ) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (!sidebar) IconButton(onClick = { sidebar = true }) { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SIDEBAR, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) }
-                    // Open notebooks, like browser tabs.
-                    val store = remember { SettingsStore.get(context) }
-                    val tabs by store.tabs.collectAsState()
-                    val open = tabs.mapNotNull { id -> lib.notebooks.firstOrNull { it.id == id && it.deletedAt == null } }
-                    Row(
-                        Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        open.forEach { n ->
-                            Row(
-                                Modifier.widthIn(max = 200.dp).clip(CircleShape)
-                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
-                                    .clickable { onOpen(n.id) }.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(n.title, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                                Box(Modifier.size(22.dp).clip(CircleShape).clickable { store.closeTab(n.id) }, contentAlignment = Alignment.Center) {
-                                    com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.CLOSE, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.size(11.dp))
-                                }
-                            }
-                        }
-                    }
-                    Spacer(Modifier.width(4.dp))
-                    UpdatePill()
-                    IconButton(onClick = { collabOpen = true }) { Icon(Icons.Outlined.Groups, "Live Study Room") }
-                    IconButton(onClick = { searching = !searching; if (!searching) query = "" }) { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SEARCH, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) }
-                    IconButton(onClick = onSettings) { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SETTINGS, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) }
-                }
-            }
-            // Title row
-            Row(Modifier.fillMaxWidth().padding(start = 28.dp, end = 20.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (folderId != null && section == Section.DOCUMENTS) {
-                    // Drop here to move an item up one level.
-                    var upHot by remember { mutableStateOf(false) }
-                    Box(
-                        Modifier.clip(CircleShape)
-                            .libraryDropTarget(onHover = { upHot = it }) { payload -> dropInto(payload, currentFolder?.parentId) }
-                            .background(if (upHot) MaterialTheme.colorScheme.primary.copy(alpha = 0.22f) else Color.Transparent),
-                    ) {
-                        IconButton(onClick = { folderId = currentFolder?.parentId }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Up") }
-                    }
-                }
-                AnimatedContent(
-                    targetState = title,
-                    transitionSpec = { (fadeIn() + slideInHorizontally { it / 6 }) togetherWith (fadeOut() + slideOutHorizontally { -it / 6 }) },
-                    label = "title", modifier = Modifier.weight(1f),
-                ) { t -> com.pronotes.app.ui.GradientTitle(t, MaterialTheme.typography.headlineLarge) }
-
-                var newMenu by remember { mutableStateOf(false) }
-                if (section == Section.TRASH) {
-                    TextButton(onClick = { emptyTrash = true }, enabled = entries.isNotEmpty()) { Text("Empty trash", color = MaterialTheme.colorScheme.error) }
-                } else Box {
-                    Button(onClick = { newMenu = true }, shape = CircleShape, modifier = Modifier.elasticStretch(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)) {
-                        Icon(Icons.Filled.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("New")
-                        Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(18.dp))
-                    }
-                    DropdownMenu(newMenu, { newMenu = false }) {
-                        DropdownMenuItem(text = { Text("Notebook") }, leadingIcon = { Icon(Icons.Outlined.Description, null) }, onClick = { newMenu = false; newNotebook = true })
-                        DropdownMenuItem(text = { Text("Infinite whiteboard") }, leadingIcon = { Icon(Icons.Outlined.Draw, null) }, onClick = {
-                            newMenu = false
-                            scope.launch {
-                                val k = com.pronotes.app.data.PagePreset.UNITS_PER_MM
-                                val p = com.pronotes.app.data.PagePreset.WHITEBOARD
-                                val id = repo.createNotebook(
-                                    "Whiteboard", folderId, 0xFF3D6CF4.toInt(), PaperStyle.DOTTED,
-                                    width = p.wMm * k, height = p.hMm * k, isWhiteboard = true,
-                                )
-                                onOpen(id)
-                            }
-                        })
-                        DropdownMenuItem(text = { Text("Mind map canvas") }, leadingIcon = { Icon(Icons.Outlined.Hub, null) }, onClick = {
-                            newMenu = false
-                            scope.launch {
-                                val k = com.pronotes.app.data.PagePreset.UNITS_PER_MM
-                                val p = com.pronotes.app.data.PagePreset.WHITEBOARD
-                                val id = repo.createNotebook(
-                                    "Mind map", folderId, 0xFF9B51E0.toInt(), PaperStyle.DOTTED,
-                                    width = p.wMm * k, height = p.hMm * k, isWhiteboard = true,
-                                )
-                                val pages = repo.loadPages(id).toMutableList()
-                                if (pages.isNotEmpty()) {
-                                    val first = pages[0]
-                                    val root = com.pronotes.app.editor.MindNodeItem(
-                                        com.pronotes.app.editor.ItemIds.next(),
-                                        first.width / 2f - 130f, first.height / 2f - 44f, 260f, 88f,
-                                        "Central Topic", null, 0xFF3D6CF4.toInt(), "pill",
-                                    )
-                                    pages[0] = first.copy(items = listOf(root))
-                                    repo.savePages(id, pages)
-                                }
-                                SettingsStore.get(context).setPref("startTool_$id", com.pronotes.app.editor.Tool.MINDMAP.name)
-                                onOpen(id)
-                            }
-                        })
-                        DropdownMenuItem(text = { Text("Quick note") }, leadingIcon = { Icon(Icons.Outlined.Edit, null) }, onClick = {
-                            newMenu = false
-                            scope.launch {
-                                val k = com.pronotes.app.data.PagePreset.UNITS_PER_MM
-                                var w = settings.defaultPreset.wMm * k; var h = settings.defaultPreset.hMm * k
-                                if (!settings.defaultPreset.isWhiteboard && settings.defaultLandscape != (w > h)) { val t = w; w = h; h = t }
-                                onOpen(repo.createNotebook("Quick note", folderId, CoverColors.random(), settings.defaultPaper, width = w, height = h, isWhiteboard = settings.defaultPreset.isWhiteboard))
-                            }
-                        })
-                        DropdownMenuItem(text = { Text("Folder") }, leadingIcon = { Icon(Icons.Outlined.CreateNewFolder, null) }, onClick = { newMenu = false; newFolder = true })
-                        DropdownMenuItem(
-                            text = { Text("Import files (PDF, MD, TXT, Images)") },
-                            leadingIcon = { Icon(Icons.Outlined.UploadFile, null) },
-                            onClick = {
-                                newMenu = false
-                                importFilesLauncher.launch(arrayOf("application/pdf", "text/*", "image/*", "application/json", "application/octet-stream"))
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Paste notes from another app…") },
-                            leadingIcon = { Icon(Icons.Outlined.ContentPaste, null) },
-                            onClick = { newMenu = false; pasteImportOpen = true },
-                        )
-                    }
-                }
-                Spacer(Modifier.width(8.dp))
-                var sortMenu by remember { mutableStateOf(false) }
-                Box {
-                    TextButton(onClick = { sortMenu = true }) {
-                        Text("Sort by ${sort.label.substringAfter("Date ").lowercase()}", style = MaterialTheme.typography.labelSmall)
-                        Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(16.dp))
-                    }
-                    DropdownMenu(sortMenu, { sortMenu = false }) {
-                        SortBy.entries.forEach { s -> DropdownMenuItem(text = { Text(s.label) }, onClick = { sortMenu = false; sort = s }) }
-                    }
-                }
-                IconButton(onClick = { listView = false }) {
-                    Icon(Icons.Outlined.GridView, "Grid", tint = if (!listView) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                IconButton(onClick = { listView = true }) {
-                    Icon(Icons.AutoMirrored.Outlined.ViewList, "List", tint = if (listView) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            AnimatedVisibility(searching) {
-                OutlinedTextField(
-                    query, { query = it }, placeholder = { Text("Search notebooks and folders") }, singleLine = true,
-                    leadingIcon = { Icon(Icons.Outlined.Search, null) }, shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 4.dp),
-                )
-            }
-
-            val actions = TileActions(
-                onOpenFolder = { f -> section = Section.DOCUMENTS; query = ""; searching = false; folderId = f.id },
-                onOpenNote = { onOpen(it.id) },
-                onRename = { renaming = it }, onMove = { moving = it }, onDelete = { deleting = it },
-                onEditFolder = { folderEdit = it }, onCover = { coverFor = it },
-                onFavorite = { scope.launch { repo.toggleFavorite(it.id) } },
-                onDuplicate = { scope.launch { repo.duplicateNotebook(it.id) } },
-                onRestore = { scope.launch { repo.restoreNotebook(it.id) } },
-                onDeleteForever = { forever = it },
-                onDrop = { payload, target -> dropInto(payload, target) },
-            )
-
-            Box(Modifier.weight(1f).fillMaxWidth().layerBackdrop(libraryBackdrop)) {
-                if (entries.isEmpty()) {
-                    EmptyState(section, onNew = { newNotebook = true })
-                } else AnimatedContent(
-                    targetState = Triple(section, folderId, listView),
-                    transitionSpec = { (fadeIn() + slideInHorizontally { it / 12 }) togetherWith fadeOut() },
-                    label = "grid",
-                ) { (_, _, asList) ->
-                    if (asList) {
-                        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 110.dp)) {
-                            items(entries, key = { keyOf(it) }) { e -> Box(Modifier.animateItem()) { ListRow(e, repo, actions) } }
-                        }
-                    } else {
-                        LazyVerticalGrid(
-                            columns = GridCells.Adaptive(150.dp),
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(start = 28.dp, end = 28.dp, top = 12.dp, bottom = 110.dp),
-                            horizontalArrangement = Arrangement.spacedBy(28.dp),
-                            verticalArrangement = Arrangement.spacedBy(28.dp),
+        LiquidGlassScene(
+            modifier = Modifier.fillMaxSize(),
+            background = { BotanicalGlassBackground() },
+            overlay = {
+                LiquidTabBar(
+                    tabs = listOf(
+                        LiquidTab("DOCUMENTS", "Library", Icons.Outlined.Description),
+                        LiquidTab("RECENT", "Recent", Icons.Outlined.AccessTime),
+                        LiquidTab("FAVORITES", "Starred", Icons.Outlined.StarBorder),
+                        LiquidTab("TRASH", "Trash", Icons.Outlined.Delete, badge = trashCount > 0),
+                    ),
+                    selectedKey = section.name,
+                    onSelect = { tabId ->
+                        section = Section.valueOf(tabId)
+                        folderId = null
+                    },
+                    labels = LiquidTabLabels.Stacked,
+                    action = {
+                        LiquidSurface(
+                            style = GlassDefaults.accent(),
+                            shape = GlassDefaults.ContinuousPillShape,
+                            modifier = Modifier.size(LiquidTabBarDefaults.Height),
+                            contentPadding = PaddingValues(0.dp),
+                            onClick = { newNotebook = true },
+                            onClickLabel = "New notebook",
                         ) {
-                            items(entries, key = { keyOf(it) }) { e ->
-                                Box(Modifier.animateItem()) {
-                                    when (e) {
-                                        is Entry.F -> FolderTile(e, actions)
-                                        is Entry.N -> NotebookTile(e.note, repo, actions)
+                            Box(Modifier.fillMaxSize(), Alignment.Center) {
+                                Icon(Icons.Filled.Add, "New", tint = LiquidGlassTheme.colors.onAccent)
+                            }
+                        }
+                    },
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
+
+                // The tile that follows your finger or pen while dragging.
+                drag.payload?.let { p ->
+                    LiquidSurface(
+                        style = GlassDefaults.accent(),
+                        shape = GlassDefaults.PillShape,
+                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
+                        modifier = Modifier.offset {
+                            androidx.compose.ui.unit.IntOffset(
+                                (drag.position.x - 70.dp.toPx()).toInt(), (drag.position.y - 80.dp.toPx()).toInt(),
+                            )
+                        }.scale(if (drag.overTarget) 1.12f else 1f),
+                    ) {
+                        Text(
+                            drag.label.ifBlank { if (p.startsWith("folder")) "Folder" else "Notebook" },
+                            Modifier.widthIn(max = 220.dp),
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall,
+                            color = LiquidGlassTheme.colors.onAccent,
+                        )
+                    }
+                }
+
+                if (supportCard) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                        LiquidGlassCard(
+                            hero = true,
+                            shape = RoundedCornerShape(28.dp),
+                            contentPadding = PaddingValues(18.dp),
+                            modifier = Modifier.padding(20.dp).widthIn(max = 520.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                com.pronotes.app.ui.ProIconView(
+                                    com.pronotes.app.ui.ProIcon.HEART, Color(0xFFE5484D), Modifier.size(26.dp), ink = Color(0xFFE5484D),
+                                )
+                                Spacer(Modifier.width(14.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text("Enjoying Pro Notes?", style = MaterialTheme.typography.titleMedium)
+                                    Text("It is free and made by one developer. A small tip helps.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                TextButton(onClick = { supportCard = false }) { Text("Not now") }
+                                Button(onClick = { supportCard = false; onSupport() }, shape = CircleShape) { Text("Support") }
+                            }
+                        }
+                    }
+                }
+            },
+        ) {
+            Row(Modifier.fillMaxSize()) {
+                AnimatedVisibility(sidebar, enter = expandHorizontally() + fadeIn(), exit = shrinkHorizontally() + fadeOut()) {
+                    Sidebar(
+                        section, trashCount = trashCount,
+                        onSelect = { section = it; folderId = null; if (!wide) sidebar = false },
+                        onCollapse = { sidebar = false }, onSettings = onSettings,
+                        onSupport = onSupport,
+                        onOpenCollab = { collabOpen = true },
+                        onDropTo = { s, payload ->
+                            when (s) {
+                                Section.DOCUMENTS -> dropInto(payload, null)
+                                Section.TRASH -> if (payload.startsWith("note:")) { scope.launch { repo.deleteNotebook(payload.substringAfter(':')) }; true } else false
+                                Section.FAVORITES -> if (payload.startsWith("note:")) {
+                                    val nid = payload.substringAfter(':')
+                                    if (lib.notebooks.firstOrNull { it.id == nid }?.favorite == false) scope.launch { repo.toggleFavorite(nid) }
+                                    true
+                                } else false
+                                else -> false
+                            }
+                        },
+                    )
+                }
+
+                Column(Modifier.weight(1f).fillMaxHeight().statusBarsPadding()) {
+                    // Top row wrapped in Liquid Glass
+                    OptionalLiquidGlassBox(
+                        enabled = settings.liquidGlass,
+                        shape = GlassDefaults.CardShape,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (!sidebar) IconButton(onClick = { sidebar = true }) { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SIDEBAR, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) }
+                            // Open notebooks, like browser tabs.
+                            val store = remember { SettingsStore.get(context) }
+                            val tabs by store.tabs.collectAsState()
+                            val open = tabs.mapNotNull { id -> lib.notebooks.firstOrNull { it.id == id && it.deletedAt == null } }
+                            Row(
+                                Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                open.forEach { n ->
+                                    LiquidGlassPill(
+                                        selected = false,
+                                        onClick = { onOpen(n.id) },
+                                        contentPadding = PaddingValues(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                                        modifier = Modifier.widthIn(max = 200.dp),
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(n.title, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                                            Spacer(Modifier.width(4.dp))
+                                            Box(Modifier.size(22.dp).clip(CircleShape).clickable { store.closeTab(n.id) }, contentAlignment = Alignment.Center) {
+                                                com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.CLOSE, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.size(11.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.width(4.dp))
+                            UpdatePill()
+                            IconButton(onClick = { collabOpen = true }) { Icon(Icons.Outlined.Groups, "Live Study Room") }
+                            IconButton(onClick = { searching = !searching; if (!searching) query = "" }) { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SEARCH, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) }
+                            IconButton(onClick = onSettings) { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SETTINGS, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) }
+                        }
+                    }
+                    // Title row
+                    Row(Modifier.fillMaxWidth().padding(start = 28.dp, end = 20.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (folderId != null && section == Section.DOCUMENTS) {
+                            // Drop here to move an item up one level.
+                            var upHot by remember { mutableStateOf(false) }
+                            Box(
+                                Modifier.clip(CircleShape)
+                                    .libraryDropTarget(onHover = { upHot = it }) { payload -> dropInto(payload, currentFolder?.parentId) }
+                                    .background(if (upHot) MaterialTheme.colorScheme.primary.copy(alpha = 0.22f) else Color.Transparent),
+                            ) {
+                                IconButton(onClick = { folderId = currentFolder?.parentId }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Up") }
+                            }
+                        }
+                        AnimatedContent(
+                            targetState = title,
+                            transitionSpec = { (fadeIn() + slideInHorizontally { it / 6 }) togetherWith (fadeOut() + slideOutHorizontally { -it / 6 }) },
+                            label = "title", modifier = Modifier.weight(1f),
+                        ) { t -> com.pronotes.app.ui.GradientTitle(t, MaterialTheme.typography.headlineLarge) }
+
+                        if (section == Section.TRASH) {
+                            TextButton(onClick = { emptyTrash = true }, enabled = entries.isNotEmpty()) { Text("Empty trash", color = MaterialTheme.colorScheme.error) }
+                        } else {
+                            LiquidMenuButton(
+                                items = listOf(
+                                    LiquidMenuItem("Notebook", Icons.Outlined.Description) { newNotebook = true },
+                                    LiquidMenuItem("Infinite whiteboard", Icons.Outlined.Draw) {
+                                        scope.launch {
+                                            val k = com.pronotes.app.data.PagePreset.UNITS_PER_MM
+                                            val p = com.pronotes.app.data.PagePreset.WHITEBOARD
+                                            val id = repo.createNotebook(
+                                                "Whiteboard", folderId, 0xFF3D6CF4.toInt(), PaperStyle.DOTTED,
+                                                width = p.wMm * k, height = p.hMm * k, isWhiteboard = true,
+                                            )
+                                            onOpen(id)
+                                        }
+                                    },
+                                    LiquidMenuItem("Mind map canvas", Icons.Outlined.Hub) {
+                                        scope.launch {
+                                            val k = com.pronotes.app.data.PagePreset.UNITS_PER_MM
+                                            val p = com.pronotes.app.data.PagePreset.WHITEBOARD
+                                            val id = repo.createNotebook(
+                                                "Mind map", folderId, 0xFF9B51E0.toInt(), PaperStyle.DOTTED,
+                                                width = p.wMm * k, height = p.hMm * k, isWhiteboard = true,
+                                            )
+                                            val pages = repo.loadPages(id).toMutableList()
+                                            if (pages.isNotEmpty()) {
+                                                val first = pages[0]
+                                                val root = com.pronotes.app.editor.MindNodeItem(
+                                                    com.pronotes.app.editor.ItemIds.next(),
+                                                    first.width / 2f - 130f, first.height / 2f - 44f, 260f, 88f,
+                                                    "Central Topic", null, 0xFF3D6CF4.toInt(), "pill",
+                                                )
+                                                pages[0] = first.copy(items = listOf(root))
+                                                repo.savePages(id, pages)
+                                            }
+                                            SettingsStore.get(context).setPref("startTool_$id", com.pronotes.app.editor.Tool.MINDMAP.name)
+                                            onOpen(id)
+                                        }
+                                    },
+                                    LiquidMenuItem("Quick note", Icons.Outlined.Edit) {
+                                        scope.launch {
+                                            val k = com.pronotes.app.data.PagePreset.UNITS_PER_MM
+                                            var w = settings.defaultPreset.wMm * k; var h = settings.defaultPreset.hMm * k
+                                            if (!settings.defaultPreset.isWhiteboard && settings.defaultLandscape != (w > h)) { val t = w; w = h; h = t }
+                                            onOpen(repo.createNotebook("Quick note", folderId, CoverColors.random(), settings.defaultPaper, width = w, height = h, isWhiteboard = settings.defaultPreset.isWhiteboard))
+                                        }
+                                    },
+                                    LiquidMenuDivider,
+                                    LiquidMenuItem("Folder", Icons.Outlined.CreateNewFolder) { newFolder = true },
+                                    LiquidMenuItem("Import files (PDF, MD, TXT, Images)", Icons.Outlined.UploadFile) {
+                                        importFilesLauncher.launch(arrayOf("application/pdf", "text/*", "image/*", "application/json", "application/octet-stream"))
+                                    },
+                                    LiquidMenuItem("Paste notes from another app…", Icons.Outlined.ContentPaste) { pasteImportOpen = true },
+                                ),
+                                contentDescription = "Create new",
+                                style = GlassDefaults.accent().copy(kind = GlassKind.Frost),
+                                shape = GlassDefaults.PillShape,
+                                menuWidth = 280.dp,
+                                modifier = Modifier.elasticStretch(),
+                            ) {
+                                Row(Modifier.padding(horizontal = 16.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Filled.Add, null, Modifier.size(18.dp), tint = LiquidGlassTheme.colors.onAccent)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("New", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = LiquidGlassTheme.colors.onAccent)
+                                    Spacer(Modifier.width(2.dp))
+                                    Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(18.dp), tint = LiquidGlassTheme.colors.onAccent)
+                                }
+                            }
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        LiquidMenuButton(
+                            items = SortBy.entries.map { s -> LiquidMenuItem(s.label) { sort = s } },
+                            contentDescription = "Sort notebooks",
+                            style = GlassDefaults.frost(),
+                            shape = GlassDefaults.PillShape,
+                            menuWidth = 200.dp,
+                        ) {
+                            Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Sort by ${sort.label.substringAfter("Date ").lowercase()}", style = MaterialTheme.typography.labelSmall, color = LiquidGlassTheme.colors.content)
+                                Spacer(Modifier.width(2.dp))
+                                Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(16.dp), tint = LiquidGlassTheme.colors.contentMuted)
+                            }
+                        }
+                        IconButton(onClick = { listView = false }) {
+                            Icon(Icons.Outlined.GridView, "Grid", tint = if (!listView) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        IconButton(onClick = { listView = true }) {
+                            Icon(Icons.AutoMirrored.Outlined.ViewList, "List", tint = if (listView) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    AnimatedVisibility(searching) {
+                        OutlinedTextField(
+                            query, { query = it }, placeholder = { Text("Search notebooks and folders") }, singleLine = true,
+                            leadingIcon = { Icon(Icons.Outlined.Search, null) }, shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 4.dp),
+                        )
+                    }
+
+                    val actions = TileActions(
+                        onOpenFolder = { f -> section = Section.DOCUMENTS; query = ""; searching = false; folderId = f.id },
+                        onOpenNote = { onOpen(it.id) },
+                        onRename = { renaming = it }, onMove = { moving = it }, onDelete = { deleting = it },
+                        onEditFolder = { folderEdit = it }, onCover = { coverFor = it },
+                        onFavorite = { scope.launch { repo.toggleFavorite(it.id) } },
+                        onDuplicate = { scope.launch { repo.duplicateNotebook(it.id) } },
+                        onRestore = { scope.launch { repo.restoreNotebook(it.id) } },
+                        onDeleteForever = { forever = it },
+                        onDrop = { payload, target -> dropInto(payload, target) },
+                    )
+
+                    val listBottomPad = LiquidTabBarDefaults.contentBottomPadding()
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        if (entries.isEmpty()) {
+                            EmptyState(section, onNew = { newNotebook = true })
+                        } else AnimatedContent(
+                            targetState = Triple(section, folderId, listView),
+                            transitionSpec = { (fadeIn() + slideInHorizontally { it / 12 }) togetherWith fadeOut() },
+                            label = "grid",
+                        ) { (_, _, asList) ->
+                            if (asList) {
+                                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 8.dp, bottom = listBottomPad)) {
+                                    items(entries, key = { keyOf(it) }) { e -> Box(Modifier.animateItem()) { ListRow(e, repo, actions) } }
+                                }
+                            } else {
+                                LazyVerticalGrid(
+                                    columns = GridCells.Adaptive(150.dp),
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentPadding = PaddingValues(start = 28.dp, end = 28.dp, top = 12.dp, bottom = listBottomPad),
+                                    horizontalArrangement = Arrangement.spacedBy(28.dp),
+                                    verticalArrangement = Arrangement.spacedBy(28.dp),
+                                ) {
+                                    items(entries, key = { keyOf(it) }) { e ->
+                                        Box(Modifier.animateItem()) {
+                                            when (e) {
+                                                is Entry.F -> FolderTile(e, actions)
+                                                is Entry.N -> NotebookTile(e.note, repo, actions)
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-            }
-        }
-    }
-
-    // Kyant0/AndroidLiquidGlass Bottom Navigation Bar
-    Ios26LiquidBottomNavBar(
-        tabs = listOf(
-            LiquidNavTab("DOCUMENTS", "Library", ProIcon.DOCUMENT),
-            LiquidNavTab("RECENT", "Recent", ProIcon.RESTORE),
-            LiquidNavTab("FAVORITES", "Starred", ProIcon.STAR),
-            LiquidNavTab("TRASH", "Trash", ProIcon.TRASH),
-        ),
-        selectedId = section.name,
-        backdrop = libraryBackdrop,
-        liquidGlass = settings.liquidGlass,
-        onSelect = { tabId ->
-            section = Section.valueOf(tabId)
-            folderId = null
-        },
-        onPrimaryAction = { newNotebook = true },
-        modifier = Modifier.align(Alignment.BottomCenter),
-    )
-
-    // The tile that follows your finger or pen while dragging.
-    drag.payload?.let { p ->
-        Surface(
-            shape = CircleShape, color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary,
-            shadowElevation = 14.dp,
-            modifier = Modifier.offset {
-                androidx.compose.ui.unit.IntOffset(
-                    (drag.position.x - 70.dp.toPx()).toInt(), (drag.position.y - 80.dp.toPx()).toInt(),
-                )
-            }.scale(if (drag.overTarget) 1.12f else 1f),
-        ) {
-            Text(
-                drag.label.ifBlank { if (p.startsWith("folder")) "Folder" else "Notebook" },
-                Modifier.widthIn(max = 220.dp).padding(horizontal = 18.dp, vertical = 10.dp),
-                maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall,
-            )
-        }
-    }
-    }
-    }
-
-    if (supportCard) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-            Surface(
-                shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f), shadowElevation = 12.dp,
-                modifier = Modifier.padding(20.dp).widthIn(max = 520.dp),
-            ) {
-                Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                    com.pronotes.app.ui.ProIconView(
-                        com.pronotes.app.ui.ProIcon.HEART, Color(0xFFE5484D), Modifier.size(26.dp), ink = Color(0xFFE5484D),
-                    )
-                    Spacer(Modifier.width(14.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("Enjoying Pro Notes?", style = MaterialTheme.typography.titleMedium)
-                        Text("It is free and made by one developer. A small tip helps.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    TextButton(onClick = { supportCard = false }) { Text("Not now") }
-                    Button(onClick = { supportCard = false; onSupport() }, shape = CircleShape) { Text("Support") }
                 }
             }
         }
@@ -580,7 +604,7 @@ fun LibraryScreen(
     if (pasteImportOpen) {
         var importTitle by remember { mutableStateOf("") }
         var importBody by remember { mutableStateOf("") }
-        AlertDialog(
+        LiquidGlassDialog(
             onDismissRequest = { pasteImportOpen = false },
             title = { Text("Import notes from another app") },
             text = {
@@ -637,7 +661,7 @@ fun LibraryScreen(
     }
 
     forever?.let { n ->
-        AlertDialog(
+        LiquidGlassDialog(
             onDismissRequest = { forever = null },
             title = { Text("Delete \"${n.title}\" forever?") },
             text = { Text("This cannot be undone.") },
@@ -646,7 +670,7 @@ fun LibraryScreen(
         )
     }
     if (emptyTrash) {
-        AlertDialog(
+        LiquidGlassDialog(
             onDismissRequest = { emptyTrash = false },
             title = { Text("Empty trash?") },
             text = { Text("All notebooks in Trash will be deleted forever.") },
@@ -660,7 +684,6 @@ fun LibraryScreen(
             coverFor = null
             scope.launch {
                 val s = if (photo != null) repo.saveCoverImage(n.id, photo) else spec
-                // Notebooks with a cover page get the new design on that page.
                 if (s == "thumb" || !repo.setCoverPage(n.id, s)) repo.setCover(n.id, s)
             }
         }
@@ -676,7 +699,7 @@ fun LibraryScreen(
 
     moving?.let { e ->
         val selfId = (e as? Entry.F)?.folder?.id
-        AlertDialog(
+        LiquidGlassDialog(
             onDismissRequest = { moving = null },
             confirmButton = { TextButton(onClick = { moving = null }) { Text("Cancel") } },
             title = { Text("Move to") },
@@ -701,7 +724,7 @@ fun LibraryScreen(
 
     deleting?.let { e ->
         val name = if (e is Entry.F) e.folder.name else (e as Entry.N).note.title
-        AlertDialog(
+        LiquidGlassDialog(
             onDismissRequest = { deleting = null },
             title = { Text("Delete \"$name\"?") },
             text = { Text(if (e is Entry.F) "The folder will be deleted. Notebooks inside it move to Trash." else "The notebook moves to Trash. You can restore it for 30 days.") },
@@ -761,7 +784,12 @@ private fun Sidebar(
     val cloudUser by CloudSync.user.collectAsState()
     val syncing by CloudSync.syncing.collectAsState()
     val syncStatus by CloudSync.status.collectAsState()
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxHeight().width(232.dp)) {
+    LiquidSurface(
+        style = GlassDefaults.frost(),
+        shape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp),
+        contentPadding = PaddingValues(0.dp),
+        modifier = Modifier.fillMaxHeight().width(236.dp),
+    ) {
         Column(Modifier.statusBarsPadding().padding(horizontal = 14.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Spacer(Modifier.weight(1f))
@@ -775,10 +803,9 @@ private fun Sidebar(
                 Spacer(Modifier.width(10.dp))
                 Column {
                     Text("Pro Notes", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
-                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                    LiquidGlassPill(contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
                         Text(
                             "v10.0",
-                            Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.SemiBold,
@@ -795,7 +822,7 @@ private fun Sidebar(
                         .background(
                             when {
                                 hot -> MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
-                                sel -> MaterialTheme.colorScheme.primaryContainer
+                                sel -> LiquidGlassTheme.colors.tabSelectedFill
                                 else -> Color.Transparent
                             },
                         )
@@ -816,12 +843,13 @@ private fun Sidebar(
                 Spacer(Modifier.height(2.dp))
             }
             Spacer(Modifier.height(10.dp))
-            Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.72f),
+            LiquidGlassCard(
+                hero = false,
+                shape = GlassDefaults.CardShape,
+                contentPadding = PaddingValues(12.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Outlined.CloudSync, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(6.dp))
@@ -933,10 +961,39 @@ fun FolderArt(color: Int, emoji: String, modifier: Modifier = Modifier) {
     }
 }
 
+private fun folderMenuItems(e: Entry.F, a: TileActions): List<LiquidMenuEntry> = listOf(
+    LiquidMenuItem("Colour & icon", Icons.Outlined.Palette) { a.onEditFolder(e.folder) },
+    LiquidMenuItem("Rename", Icons.Outlined.Edit) { a.onRename(e) },
+    LiquidMenuItem("Move", Icons.Outlined.DriveFileMove) { a.onMove(e) },
+    LiquidMenuDivider,
+    LiquidMenuItem("Delete", Icons.Outlined.Delete, destructive = true) { a.onDelete(e) },
+)
+
+private fun noteMenuItems(note: NotebookMeta, a: TileActions): List<LiquidMenuEntry> =
+    if (note.deletedAt != null) {
+        listOf(
+            LiquidMenuItem("Restore", Icons.Outlined.Refresh) { a.onRestore(note) },
+            LiquidMenuDivider,
+            LiquidMenuItem("Delete forever", Icons.Outlined.Delete, destructive = true) { a.onDeleteForever(note) },
+        )
+    } else {
+        listOf(
+            LiquidMenuItem("Duplicate", Icons.Outlined.ContentCopy) { a.onDuplicate(note) },
+            LiquidMenuItem(
+                if (note.favorite) "Remove from favorites" else "Add to favorites",
+                if (note.favorite) Icons.Outlined.Star else Icons.Outlined.StarBorder,
+            ) { a.onFavorite(note) },
+            LiquidMenuItem("Change cover", Icons.Outlined.Palette) { a.onCover(note) },
+            LiquidMenuItem("Rename", Icons.Outlined.Edit) { a.onRename(Entry.N(note)) },
+            LiquidMenuItem("Move", Icons.Outlined.DriveFileMove) { a.onMove(Entry.N(note)) },
+            LiquidMenuDivider,
+            LiquidMenuItem("Delete", Icons.Outlined.Delete, destructive = true) { a.onDelete(Entry.N(note)) },
+        )
+    }
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FolderTile(e: Entry.F, a: TileActions) {
-    var menu by remember { mutableStateOf(false) }
     val src = remember { MutableInteractionSource() }
     var dropHover by remember { mutableStateOf(false) }
     val grow by animateFloatAsState(if (dropHover) 1.08f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "drop")
@@ -950,38 +1007,14 @@ private fun FolderTile(e: Entry.F, a: TileActions) {
         ) {
             FolderArt(e.folder.color, e.folder.emoji, Modifier.fillMaxWidth(0.88f).aspectRatio(1f))
         }
-        Caption(e.folder.name, "${e.count} items", onMenu = { menu = true })
-        Box {
-            DropdownMenu(menu, { menu = false }, shape = RoundedCornerShape(18.dp)) {
-                DropdownMenuItem(
-                    text = { Text("Colour & icon") },
-                    leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.PALETTE, MaterialTheme.colorScheme.primary, Modifier.size(19.dp)) },
-                    onClick = { menu = false; a.onEditFolder(e.folder) },
-                )
-                DropdownMenuItem(
-                    text = { Text("Rename") },
-                    leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.RENAME, MaterialTheme.colorScheme.onSurface, Modifier.size(19.dp)) },
-                    onClick = { menu = false; a.onRename(e) },
-                )
-                DropdownMenuItem(
-                    text = { Text("Move") },
-                    leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.FOLDER, MaterialTheme.colorScheme.onSurface, Modifier.size(19.dp)) },
-                    onClick = { menu = false; a.onMove(e) },
-                )
-                DropdownMenuItem(
-                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                    leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.TRASH, MaterialTheme.colorScheme.error, Modifier.size(19.dp)) },
-                    onClick = { menu = false; a.onDelete(e) },
-                )
-            }
-        }
+        Caption(e.folder.name, "${e.count} items", menuItems = remember(e) { folderMenuItems(e, a) })
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
-    var menu by remember { mutableStateOf(false) }
+    var trashPrompt by remember { mutableStateOf(false) }
     val src = remember { MutableInteractionSource() }
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.elasticStretch().scale(pressScale(src))) {
         Box(
@@ -989,123 +1022,123 @@ private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
                 .then(if (note.deletedAt == null) Modifier.libraryDragSource("note:${note.id}", note.title) else Modifier)
                 .combinedClickable(
                     interactionSource = src, indication = null,
-                    onClick = { if (note.deletedAt != null) menu = true else a.onOpenNote(note) },
-                    onLongClick = if (note.deletedAt != null) ({ menu = true }) else null,
+                    onClick = { if (note.deletedAt != null) trashPrompt = true else a.onOpenNote(note) },
+                    onLongClick = if (note.deletedAt != null) ({ trashPrompt = true }) else null,
                 ),
         ) {
             CoverArt(note.coverSpec, note.title, repo.noteDir(note.id), note.modified, Modifier.fillMaxSize())
             if (note.favorite) Icon(Icons.Filled.Star, null, tint = Color(0xFFF2C94C), modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(20.dp))
         }
-        Caption(note.title, DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(note.modified)), onMenu = { menu = true })
-        Box { NoteMenu(menu, { menu = false }, note, a) }
-    }
-}
-
-@Composable
-private fun NoteMenu(open: Boolean, onClose: () -> Unit, note: NotebookMeta, a: TileActions) {
-    if (note.deletedAt != null) {
-        DropdownMenu(open, onClose, shape = RoundedCornerShape(18.dp)) {
-            DropdownMenuItem(
-                text = { Text("Restore") },
-                leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.RESTORE, MaterialTheme.colorScheme.primary, Modifier.size(19.dp)) },
-                onClick = { onClose(); a.onRestore(note) },
-            )
-            DropdownMenuItem(
-                text = { Text("Delete forever", color = MaterialTheme.colorScheme.error) },
-                leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.TRASH, MaterialTheme.colorScheme.error, Modifier.size(19.dp)) },
-                onClick = { onClose(); a.onDeleteForever(note) },
-            )
-        }
-        return
-    }
-    DropdownMenu(open, onClose, shape = RoundedCornerShape(18.dp)) {
-        DropdownMenuItem(
-            text = { Text("Duplicate") },
-            leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.COPY, MaterialTheme.colorScheme.onSurface, Modifier.size(19.dp)) },
-            onClick = { onClose(); a.onDuplicate(note) },
+        Caption(
+            note.title,
+            DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(note.modified)),
+            menuItems = remember(note) { noteMenuItems(note, a) },
         )
-        DropdownMenuItem(
-            text = { Text(if (note.favorite) "Remove from favorites" else "Add to favorites") },
-            leadingIcon = {
-                com.pronotes.app.ui.ProIconView(
-                    com.pronotes.app.ui.ProIcon.STAR,
-                    if (note.favorite) Color(0xFFF59E0B) else MaterialTheme.colorScheme.onSurface,
-                    Modifier.size(19.dp),
-                    ink = if (note.favorite) Color(0xFFF59E0B) else null,
-                )
+    }
+    if (trashPrompt) {
+        LiquidGlassDialog(
+            onDismissRequest = { trashPrompt = false },
+            title = { Text(note.title) },
+            text = { Text("Restore this notebook from Trash or delete it forever?") },
+            confirmButton = {
+                TextButton(onClick = { trashPrompt = false; a.onRestore(note) }) { Text("Restore") }
             },
-            onClick = { onClose(); a.onFavorite(note) },
-        )
-        DropdownMenuItem(
-            text = { Text("Change cover") },
-            leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.PALETTE, MaterialTheme.colorScheme.primary, Modifier.size(19.dp)) },
-            onClick = { onClose(); a.onCover(note) },
-        )
-        DropdownMenuItem(
-            text = { Text("Rename") },
-            leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.RENAME, MaterialTheme.colorScheme.onSurface, Modifier.size(19.dp)) },
-            onClick = { onClose(); a.onRename(Entry.N(note)) },
-        )
-        DropdownMenuItem(
-            text = { Text("Move") },
-            leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.FOLDER, MaterialTheme.colorScheme.onSurface, Modifier.size(19.dp)) },
-            onClick = { onClose(); a.onMove(Entry.N(note)) },
-        )
-        DropdownMenuItem(
-            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-            leadingIcon = { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.TRASH, MaterialTheme.colorScheme.error, Modifier.size(19.dp)) },
-            onClick = { onClose(); a.onDelete(Entry.N(note)) },
+            dismissButton = {
+                TextButton(onClick = { trashPrompt = false; a.onDeleteForever(note) }) {
+                    Text("Delete forever", color = MaterialTheme.colorScheme.error)
+                }
+            },
         )
     }
 }
 
 @Composable
-private fun Caption(title: String, sub: String, onMenu: () -> Unit) {
+private fun Caption(title: String, sub: String, menuItems: List<LiquidMenuEntry>) {
     Spacer(Modifier.height(10.dp))
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable(onClick = onMenu)) {
-        Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-        Icon(Icons.Filled.KeyboardArrowDown, "Options", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    LiquidMenuButton(
+        items = menuItems,
+        contentDescription = "$title options",
+        style = GlassDefaults.frost().copy(
+            fallbackSurface = Color.Transparent,
+            fallbackSheen = 0f,
+            highlightWidth = 0.dp,
+            shadowRadius = 0.dp,
+            shadowColor = Color.Transparent,
+        ),
+        shape = GlassDefaults.PillShape,
+        menuWidth = 230.dp,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+            Icon(Icons.Filled.KeyboardArrowDown, "Options", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
     Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 @Composable
 private fun ListRow(e: Entry, repo: Repository, a: TileActions) {
-    var menu by remember { mutableStateOf(false) }
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-            .clickable {
-                if (e is Entry.F) a.onOpenFolder(e.folder)
-                else (e as Entry.N).note.let { n -> if (n.deletedAt == null) a.onOpenNote(n) else menu = true }
-            }
-            .padding(vertical = 8.dp, horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    var trashPrompt by remember { mutableStateOf(false) }
+    val items = remember(e) { if (e is Entry.N) noteMenuItems(e.note, a) else folderMenuItems(e as Entry.F, a) }
+    LiquidGlassCard(
+        hero = false,
+        shape = GlassDefaults.CardShape,
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
     ) {
-        Box(Modifier.size(width = 44.dp, height = 56.dp)) {
-            when (e) {
-                is Entry.F -> FolderArt(e.folder.color, e.folder.emoji, Modifier.fillMaxSize())
-                is Entry.N -> CoverArt(e.note.coverSpec, e.note.title, repo.noteDir(e.note.id), e.note.modified, Modifier.fillMaxSize(), showTitle = false)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable {
+                    if (e is Entry.F) a.onOpenFolder(e.folder)
+                    else (e as Entry.N).note.let { n -> if (n.deletedAt == null) a.onOpenNote(n) else trashPrompt = true }
+                }.padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(width = 44.dp, height = 56.dp)) {
+                    when (e) {
+                        is Entry.F -> FolderArt(e.folder.color, e.folder.emoji, Modifier.fillMaxSize())
+                        is Entry.N -> CoverArt(e.note.coverSpec, e.note.title, repo.noteDir(e.note.id), e.note.modified, Modifier.fillMaxSize(), showTitle = false)
+                    }
+                }
+                Spacer(Modifier.width(16.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(if (e is Entry.F) e.folder.name else (e as Entry.N).note.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                    Text(
+                        if (e is Entry.F) "${e.count} items" else (e as Entry.N).note.let { "${it.pageCount} pages · " + DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it.modified)) },
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            LiquidMenuButton(
+                items = items,
+                contentDescription = "Options",
+                style = GlassDefaults.frost(),
+                shape = GlassDefaults.PillShape,
+                menuWidth = 230.dp,
+            ) {
+                Box(Modifier.size(38.dp), Alignment.Center) {
+                    Icon(Icons.Filled.KeyboardArrowDown, "Options", tint = LiquidGlassTheme.colors.contentMuted)
+                }
             }
         }
-        Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) {
-            Text(if (e is Entry.F) e.folder.name else (e as Entry.N).note.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-            Text(
-                if (e is Entry.F) "${e.count} items" else (e as Entry.N).note.let { "${it.pageCount} pages · " + DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it.modified)) },
-                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Box {
-            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.KeyboardArrowDown, "Options") }
-            if (e is Entry.N) NoteMenu(menu, { menu = false }, e.note, a)
-            else DropdownMenu(menu, { menu = false }) {
-                val f = (e as Entry.F).folder
-                DropdownMenuItem(text = { Text("Colour & icon") }, onClick = { menu = false; a.onEditFolder(f) })
-                DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; a.onRename(e) })
-                DropdownMenuItem(text = { Text("Move") }, onClick = { menu = false; a.onMove(e) })
-                DropdownMenuItem(text = { Text("Delete") }, onClick = { menu = false; a.onDelete(e) })
-            }
-        }
+    }
+    if (trashPrompt && e is Entry.N) {
+        LiquidGlassDialog(
+            onDismissRequest = { trashPrompt = false },
+            title = { Text(e.note.title) },
+            text = { Text("Restore this notebook from Trash or delete it forever?") },
+            confirmButton = {
+                TextButton(onClick = { trashPrompt = false; a.onRestore(e.note) }) { Text("Restore") }
+            },
+            dismissButton = {
+                TextButton(onClick = { trashPrompt = false; a.onDeleteForever(e.note) }) {
+                    Text("Delete forever", color = MaterialTheme.colorScheme.error)
+                }
+            },
+        )
     }
 }
 
@@ -1123,7 +1156,7 @@ private fun MoveRow(label: String, folder: Folder?, onClick: () -> Unit) {
 @Composable
 private fun NameDialog(title: String, initial: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
     var name by remember { mutableStateOf(initial) }
-    AlertDialog(
+    LiquidGlassDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = { OutlinedTextField(name, { name = it }, singleLine = true) },
@@ -1141,7 +1174,7 @@ private fun FolderDialog(existing: Folder?, onDismiss: () -> Unit, onSave: (Stri
     var color by remember { mutableStateOf(existing?.color ?: FolderColors.first()) }
     var emoji by remember { mutableStateOf(existing?.emoji ?: "") }
     var custom by remember { mutableStateOf(false) }
-    AlertDialog(
+    LiquidGlassDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (existing == null) "New folder" else "Edit folder") },
         text = {
@@ -1217,7 +1250,7 @@ private fun CoverGallery(selected: String, onSelect: (String) -> Unit, onPhoto: 
 private fun CoverDialog(current: String, onDismiss: () -> Unit, onPick: (String, Uri?) -> Unit) {
     var spec by remember { mutableStateOf(current) }
     val photo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) onPick(spec, uri) }
-    AlertDialog(
+    LiquidGlassDialog(
         onDismissRequest = onDismiss,
         title = { Text("Cover") },
         text = { Column(Modifier.verticalScroll(rememberScrollState())) { CoverGallery(spec, { spec = it }) { photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) } } },
@@ -1235,7 +1268,7 @@ data class NewBook(
 
 private val PaperColors = listOf(0xFFFFFFFF, 0xFFFBF7EC, 0xFFF1F2F4, 0xFFFFF4E0, 0xFFEAF4FF, 0xFFEFF8EC, 0xFF22252B).map { it.toInt() }
 
-@OptIn(ExperimentalLayoutApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun NewNotebookDialog(
     defaultPaper: PaperStyle,
@@ -1258,7 +1291,7 @@ private fun NewNotebookDialog(
     var photo by remember { mutableStateOf<Uri?>(null) }
     var tab by remember { mutableStateOf(0) }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) { photo = uri; cover = "photo" } }
-    AlertDialog(
+    LiquidGlassDialog(
         onDismissRequest = onDismiss,
         title = { Text("New notebook") },
         text = {
@@ -1274,11 +1307,12 @@ private fun NewNotebookDialog(
                     Spacer(Modifier.width(14.dp))
                     OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Title") }, shape = CircleShape)
                 }
-                PrimaryTabRow(selectedTabIndex = tab) {
-                    Tab(tab == 0, { tab = 0 }, text = { Text("Cover") })
-                    Tab(tab == 1, { tab = 1 }, text = { Text("Paper") })
-                    Tab(tab == 2, { tab = 2 }, text = { Text("Size") })
-                }
+                LiquidSegmentedControl(
+                    options = listOf("Cover", "Paper", "Size"),
+                    selectedIndex = tab,
+                    onSelect = { tab = it },
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Box(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
                     when (tab) {
                         0 -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1288,22 +1322,21 @@ private fun NewNotebookDialog(
                                     Text("Cover as first page")
                                     Text("Write on your cover", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                val toggleBackdrop = com.pronotes.app.ui.rememberLayerBackdrop()
                                 LiquidToggle(
                                     selected = { coverPage },
                                     onSelect = { coverPage = it },
-                                    backdrop = toggleBackdrop,
                                 )
                             }
                         }
                         1 -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             val effectiveLandscape = if (preset.isWhiteboard) true else landscape
-                            Surface(
+                            LiquidGlassCard(
+                                hero = false,
                                 shape = RoundedCornerShape(14.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                contentPadding = PaddingValues(12.dp),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     PaperPreview(
                                         paper,
                                         Modifier.size(
@@ -1362,13 +1395,17 @@ private fun NewNotebookDialog(
                                         p.isWhiteboard -> "${p.label} · ∞"
                                         else -> p.label
                                     }
-                                    androidx.compose.material3.FilterChip(preset == p, {
-                                        preset = p
-                                        if (p != com.pronotes.app.data.PagePreset.CUSTOM) {
-                                            wMm = "%.0f".format(p.wMm); hMm = "%.0f".format(p.hMm)
-                                        }
-                                        if (p.isWhiteboard && paper == PaperStyle.BLANK) paper = PaperStyle.DOTTED
-                                    }, label = { Text(chipLabel) }, shape = CircleShape)
+                                    LiquidGlassChip(
+                                        selected = preset == p,
+                                        onClick = {
+                                            preset = p
+                                            if (p != com.pronotes.app.data.PagePreset.CUSTOM) {
+                                                wMm = "%.0f".format(p.wMm); hMm = "%.0f".format(p.hMm)
+                                            }
+                                            if (p.isWhiteboard && paper == PaperStyle.BLANK) paper = PaperStyle.DOTTED
+                                        },
+                                        label = chipLabel,
+                                    )
                                 }
                             }
                             if (preset.isWhiteboard) {
@@ -1380,11 +1417,9 @@ private fun NewNotebookDialog(
                             } else {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("Landscape", Modifier.weight(1f))
-                                    val landBackdrop = com.pronotes.app.ui.rememberLayerBackdrop()
                                     LiquidToggle(
                                         selected = { landscape },
                                         onSelect = { landscape = it },
-                                        backdrop = landBackdrop,
                                     )
                                 }
                             }
@@ -1421,11 +1456,9 @@ private fun NewNotebookDialog(
 @Composable
 private fun UpdatePill() {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val settings by SettingsStore.get(context).settings.collectAsState()
     androidx.compose.runtime.LaunchedEffect(settings.autoUpdateCheck) {
         if (settings.autoUpdateCheck || settings.updateReminders) com.pronotes.app.data.Updater.check(context, quiet = true)
-        // Launch reminder: show what is new once per app start while an update is waiting.
         val u0 = com.pronotes.app.data.Updater
         if (settings.updateReminders && u0.phase == com.pronotes.app.data.Updater.Phase.AVAILABLE && !u0.remindedThisLaunch) {
             u0.remindedThisLaunch = true
@@ -1444,19 +1477,22 @@ private fun UpdatePill() {
         com.pronotes.app.data.Updater.Phase.FAILED -> if (u.release != null) "Update failed · Retry" else null
         else -> null
     } ?: return
-    Surface(
-        shape = CircleShape,
-        color = when (u.phase) {
-            com.pronotes.app.data.Updater.Phase.FAILED -> MaterialTheme.colorScheme.error
-            com.pronotes.app.data.Updater.Phase.PAUSED -> MaterialTheme.colorScheme.secondaryContainer
-            else -> MaterialTheme.colorScheme.primary
-        },
-        contentColor = when (u.phase) {
-            com.pronotes.app.data.Updater.Phase.FAILED -> MaterialTheme.colorScheme.onError
-            com.pronotes.app.data.Updater.Phase.PAUSED -> MaterialTheme.colorScheme.onSecondaryContainer
-            else -> MaterialTheme.colorScheme.onPrimary
-        },
-        modifier = Modifier.padding(horizontal = 6.dp).clickable {
+    val colors = LiquidGlassTheme.colors
+    val style = when (u.phase) {
+        com.pronotes.app.data.Updater.Phase.FAILED -> GlassDefaults.frost().copy(fallbackSurface = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError)
+        com.pronotes.app.data.Updater.Phase.PAUSED -> GlassDefaults.frost()
+        else -> GlassDefaults.accent()
+    }
+    val textColor = when (u.phase) {
+        com.pronotes.app.data.Updater.Phase.FAILED -> MaterialTheme.colorScheme.onError
+        com.pronotes.app.data.Updater.Phase.PAUSED -> colors.content
+        else -> colors.onAccent
+    }
+    LiquidSurface(
+        style = style,
+        shape = GlassDefaults.PillShape,
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
+        onClick = {
             when (u.phase) {
                 com.pronotes.app.data.Updater.Phase.AVAILABLE,
                 com.pronotes.app.data.Updater.Phase.DOWNLOADING,
@@ -1466,5 +1502,8 @@ private fun UpdatePill() {
                 else -> Unit
             }
         },
-    ) { Text(label, Modifier.padding(horizontal = 14.dp, vertical = 7.dp), style = MaterialTheme.typography.labelSmall) }
+        modifier = Modifier.padding(horizontal = 6.dp),
+    ) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = textColor, fontWeight = FontWeight.SemiBold)
+    }
 }

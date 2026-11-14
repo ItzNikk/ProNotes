@@ -10,13 +10,17 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -32,9 +36,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import com.pronotes.app.ui.LiquidGlassCard
+import com.pronotes.app.ui.LiquidGlassDialogSurface
+import com.pronotes.app.ui.LiquidGlassPill
+import io.github.ntvien.liquidglass.GlassDefaults
+import io.github.ntvien.liquidglass.LiquidGlassTheme
+import io.github.ntvien.liquidglass.component.LiquidSurface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -92,9 +101,10 @@ fun StudyHero(title: String, subtitle: String, colors: List<Color>, glyph: Strin
 fun AiScanBanner(stage: String, engine: String, colors: List<Color> = StudyColors.cards) {
     val t = rememberInfiniteTransition(label = "scan")
     val sweep by t.animateFloat(-0.4f, 1.4f, infiniteRepeatable(tween(1300, easing = LinearEasing)), label = "sw")
-    Surface(
+    LiquidSurface(
+        style = GlassDefaults.frost().copy(fallbackSurface = colors.first().copy(alpha = 0.14f)),
         shape = RoundedCornerShape(16.dp),
-        color = colors.first().copy(alpha = 0.12f),
+        contentPadding = PaddingValues(0.dp),
         modifier = Modifier.fillMaxWidth().border(1.dp, colors.first().copy(alpha = 0.28f), RoundedCornerShape(16.dp)),
     ) {
         Column {
@@ -123,11 +133,11 @@ fun SessionClock(running: Boolean, onTick: (Long) -> Unit = {}) {
     LaunchedEffect(running) {
         while (running) { delay(1000); ms += 1000; onTick(ms) }
     }
-    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+    LiquidGlassPill(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text("⏱", fontSize = 13.sp)
             Spacer(Modifier.width(6.dp))
-            Text(clock(ms), style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"), color = MaterialTheme.colorScheme.onSecondaryContainer)
+            Text(clock(ms), style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"), color = LiquidGlassTheme.colors.content)
         }
     }
 }
@@ -173,100 +183,117 @@ fun SummarySheet(
     onBuildMindMap: () -> Unit = {},
 ) {
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(
-            shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.padding(18.dp).widthIn(max = 680.dp).fillMaxWidth(),
+        Box(
+            Modifier.fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.34f))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClose)
+                .padding(18.dp),
+            contentAlignment = Alignment.Center,
         ) {
-            Box {
-                AiParticleBackdrop(Modifier.matchParentSize(), StudyColors.summary, active = true, variant = AiBackdropVariant.AI_WAVE)
-                Column(Modifier.padding(20.dp)) {
-                    StudyHero(
-                        "AI Note Summary",
-                        "${result.wordCount} words · ${result.points.size} core takeaways · ${result.engineLabel}",
-                        StudyColors.summary,
-                        "✨",
-                    ) {
-                        TextButton(onClick = onClose) { Text("Close", color = Color.White) }
-                    }
-                Spacer(Modifier.height(12.dp))
-                Column(
-                    Modifier.heightIn(max = 470.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    // Headline synthesis card
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = StudyColors.summary.first().copy(alpha = 0.12f),
-                        modifier = Modifier.fillMaxWidth().border(1.dp, StudyColors.summary.first().copy(alpha = 0.28f), RoundedCornerShape(20.dp)),
-                    ) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("EXECUTIVE TAKEAWAY", style = MaterialTheme.typography.labelSmall, color = StudyColors.summary.first(), fontWeight = FontWeight.Bold)
-                            Text(result.headline, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-
-                    // Key takeaways with staggered slide-in reveal
-                    Text("CORE POINTS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    result.points.forEachIndexed { i, p ->
-                        val a = remember { Animatable(0f) }
-                        LaunchedEffect(result.points) { a.snapTo(0f); delay(90L * i); a.animateTo(1f, tween(380, easing = FastOutSlowInEasing)) }
-                        Surface(
-                            shape = RoundedCornerShape(18.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                            modifier = Modifier.fillMaxWidth().graphicsLayer { alpha = a.value; translationY = (1f - a.value) * 20.dp.toPx() },
+            LiquidGlassDialogSurface(
+                shape = RoundedCornerShape(28.dp),
+                modifier = Modifier.widthIn(max = 680.dp).fillMaxWidth()
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
+            ) {
+                Box {
+                    AiParticleBackdrop(Modifier.matchParentSize(), StudyColors.summary, active = true, variant = AiBackdropVariant.AI_WAVE)
+                    Column(Modifier.padding(20.dp)) {
+                        StudyHero(
+                            "AI Note Summary",
+                            "${result.wordCount} words · ${result.points.size} core takeaways · ${result.engineLabel}",
+                            StudyColors.summary,
+                            "✨",
                         ) {
-                            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
-                                Box(Modifier.size(26.dp).clip(CircleShape).background(Brush.linearGradient(StudyColors.summary)), contentAlignment = Alignment.Center) {
-                                    Text("${i + 1}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            TextButton(onClick = onClose) { Text("Close", color = Color.White) }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Column(
+                            Modifier.heightIn(max = 470.dp).verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            LiquidSurface(
+                                style = GlassDefaults.frost().copy(fallbackSurface = StudyColors.summary.first().copy(alpha = 0.14f)),
+                                shape = RoundedCornerShape(20.dp),
+                                contentPadding = PaddingValues(14.dp),
+                                modifier = Modifier.fillMaxWidth().border(1.dp, StudyColors.summary.first().copy(alpha = 0.28f), RoundedCornerShape(20.dp)),
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("EXECUTIVE TAKEAWAY", style = MaterialTheme.typography.labelSmall, color = StudyColors.summary.first(), fontWeight = FontWeight.Bold)
+                                    Text(result.headline, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                 }
-                                Spacer(Modifier.width(12.dp))
-                                Text(p, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                            }
+
+                            Text("CORE POINTS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            result.points.forEachIndexed { i, p ->
+                                val a = remember { Animatable(0f) }
+                                LaunchedEffect(result.points) { a.snapTo(0f); delay(90L * i); a.animateTo(1f, tween(380, easing = FastOutSlowInEasing)) }
+                                LiquidGlassCard(
+                                    hero = false,
+                                    shape = RoundedCornerShape(18.dp),
+                                    contentPadding = PaddingValues(14.dp),
+                                    modifier = Modifier.fillMaxWidth().graphicsLayer { alpha = a.value; translationY = (1f - a.value) * 20.dp.toPx() },
+                                ) {
+                                    Row(verticalAlignment = Alignment.Top) {
+                                        Box(Modifier.size(26.dp).clip(CircleShape).background(Brush.linearGradient(StudyColors.summary)), contentAlignment = Alignment.Center) {
+                                            Text("${i + 1}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        }
+                                        Spacer(Modifier.width(12.dp))
+                                        Text(p, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                                    }
+                                }
+                            }
+
+                            if (result.definitions.isNotEmpty()) {
+                                Text("KEY DEFINITIONS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                result.definitions.forEach { d ->
+                                    LiquidGlassCard(
+                                        hero = false,
+                                        shape = RoundedCornerShape(16.dp),
+                                        contentPadding = PaddingValues(12.dp),
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(d.term, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                            Text(d.meaning, style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (result.formulas.isNotEmpty()) {
+                                Text("FORMULAS & EQUATIONS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    result.formulas.forEach { f ->
+                                        LiquidSurface(
+                                            style = GlassDefaults.frost().copy(fallbackSurface = Color(0xFF181C28), contentColor = Color(0xFFFFD666)),
+                                            shape = RoundedCornerShape(12.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+                                        ) {
+                                            Text(f, color = Color(0xFFFFD666), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (result.keywords.isNotEmpty()) {
+                                Text("CONCEPTS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    result.keywords.forEach { k ->
+                                        LiquidGlassPill(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)) {
+                                            Text(k, style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
                             }
                         }
-                    }
-
-                    if (result.definitions.isNotEmpty()) {
-                        Text("KEY DEFINITIONS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        result.definitions.forEach { d ->
-                            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f), modifier = Modifier.fillMaxWidth()) {
-                                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text(d.term, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                    Text(d.meaning, style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                        }
-                    }
-
-                    if (result.formulas.isNotEmpty()) {
-                        Text("FORMULAS & EQUATIONS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(14.dp))
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            result.formulas.forEach { f ->
-                                Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF181C28)) {
-                                    Text(f, Modifier.padding(horizontal = 12.dp, vertical = 7.dp), color = Color(0xFFFFD666), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
-                                }
-                            }
+                            Button(onClick = onAdd, shape = CircleShape) { Text("Add to page") }
+                            FilledTonalButton(onClick = onAddSticky, shape = CircleShape) { Text("Pin as sticky") }
+                            FilledTonalButton(onClick = onBuildMindMap, shape = CircleShape) { Text("AI Mind Map") }
+                            OutlinedButton(onClick = onCopy, shape = CircleShape) { Text("Copy") }
                         }
                     }
-
-                    if (result.keywords.isNotEmpty()) {
-                        Text("CONCEPTS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            result.keywords.forEach { k ->
-                                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
-                                    Text(k, Modifier.padding(horizontal = 10.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(14.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onAdd, shape = CircleShape) { Text("Add to page") }
-                    FilledTonalButton(onClick = onAddSticky, shape = CircleShape) { Text("Pin as sticky") }
-                    FilledTonalButton(onClick = onBuildMindMap, shape = CircleShape) { Text("AI Mind Map") }
-                    OutlinedButton(onClick = onCopy, shape = CircleShape) { Text("Copy") }
-                }
                 }
             }
         }

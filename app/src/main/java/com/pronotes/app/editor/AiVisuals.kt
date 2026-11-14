@@ -18,9 +18,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import io.github.ntvien.liquidglass.component.LiquidSurface
+import io.github.ntvien.liquidglass.theme.LiquidGlassTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -364,10 +365,9 @@ fun ThinkingPill(engine: String = "", stage: String = "") {
     val shine by t.animateFloat(-0.6f, 1.8f, infiniteRepeatable(tween(1550, easing = LinearEasing)), label = "s")
     val spin by t.animateFloat(0f, 360f, infiniteRepeatable(tween(2100, easing = LinearEasing)), label = "spin")
     val pulse by t.animateFloat(0.8f, 1.08f, infiniteRepeatable(tween(820, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "pulse")
-    Surface(
+    LiquidSurface(
+        style = LiquidGlassTheme.styles.frost,
         shape = CircleShape,
-        color = Color(0xF5151926),
-        shadowElevation = 12.dp,
         modifier = Modifier.border(1.dp, Color(0x55B45CFF), CircleShape),
     ) {
         Box(Modifier.clip(CircleShape)) {

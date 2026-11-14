@@ -30,6 +30,7 @@ import com.pronotes.app.data.AppFont
 import com.pronotes.app.data.MotionStyle
 import com.pronotes.app.data.SettingsStore
 import com.pronotes.app.data.ThemeMode
+import io.github.ntvien.liquidglass.GlassColors
 
 /** OpenLeaf primary botanical leaf green (`Y.Light.accent`). */
 val Accent = Color(0xFF24483F)
@@ -37,6 +38,59 @@ val Accent = Color(0xFF24483F)
 /** The two accent colours used for gradient titles. Null when gradients are off. */
 val LocalTitleGradient = compositionLocalOf<List<Color>?> { null }
 val LocalMotionStyle = compositionLocalOf { MotionStyle.ULTRA_SPRING }
+val LocalGlassTransparency = compositionLocalOf { 0.58f }
+
+/** Builds adaptive OpenLeaf GlassColors responding to [transparency] (0.15f..0.95f) while preserving crisp readability. */
+fun openLeafGlassColors(dark: Boolean, accent: AccentColor, transparency: Float): GlassColors {
+    val t = ((transparency.coerceIn(0.15f, 0.95f) - 0.15f) / 0.80f).coerceIn(0f, 1f)
+    val primary = Color(accent.argb)
+    val darkPrimary = if (accent == AccentColor.GREEN) Color(0xFF8CC1AC) else lerp(primary, Color(0xFFEDE8DB), 0.38f)
+    return if (!dark) {
+        val base = Color(0xFFFBF9F4)
+        io.github.ntvien.liquidglass.GlassColors(
+            content = Color(0xFF1F2421),
+            contentMuted = Color(0xFF5A5F58),
+            accent = primary,
+            accentSoft = primary.copy(alpha = 0.16f),
+            onAccent = Color(0xFFF5F2E8),
+            selectedFill = primary,
+            selectedContent = Color(0xFFF5F2E8),
+            badge = Color(0xFF9B3B3B),
+            glassFill = base.copy(alpha = androidx.compose.ui.util.lerp(0.86f, 0.22f, t)),
+            glassFillStrong = base.copy(alpha = androidx.compose.ui.util.lerp(0.95f, 0.62f, t)),
+            glassFillOpaque = base.copy(alpha = androidx.compose.ui.util.lerp(0.98f, 0.88f, t)),
+            glassStroke = Color.White.copy(alpha = 0.78f),
+            glassHighlight = Color.White.copy(alpha = 0.96f),
+            glassShadow = Color(0x261F2421),
+            raisedFill = Color(0xFFFDFCF8),
+            chromeFill = base.copy(alpha = androidx.compose.ui.util.lerp(0.90f, 0.34f, t)),
+            tabSelectedFill = primary.copy(alpha = 0.18f),
+            tabSelectedContent = primary,
+        )
+    } else {
+        val base = Color(0xFF1D1C18)
+        io.github.ntvien.liquidglass.GlassColors(
+            content = Color(0xFFEDE8DB),
+            contentMuted = Color(0xFFB1AC9F),
+            accent = darkPrimary,
+            accentSoft = darkPrimary.copy(alpha = 0.22f),
+            onAccent = Color(0xFF0F1D18),
+            selectedFill = darkPrimary,
+            selectedContent = Color(0xFF0F1D18),
+            badge = Color(0xFFD67B7B),
+            glassFill = base.copy(alpha = androidx.compose.ui.util.lerp(0.88f, 0.24f, t)),
+            glassFillStrong = base.copy(alpha = androidx.compose.ui.util.lerp(0.96f, 0.66f, t)),
+            glassFillOpaque = base.copy(alpha = androidx.compose.ui.util.lerp(0.98f, 0.90f, t)),
+            glassStroke = Color(0x52EDE8DB),
+            glassHighlight = Color(0x8CEDE8DB),
+            glassShadow = Color(0x6E000000),
+            raisedFill = Color(0xFF2D2B25),
+            chromeFill = base.copy(alpha = androidx.compose.ui.util.lerp(0.92f, 0.40f, t)),
+            tabSelectedFill = darkPrimary.copy(alpha = 0.26f),
+            tabSelectedContent = darkPrimary,
+        )
+    }
+}
 
 private fun typographyFor(font: AppFont): Typography {
     val bodyFamily = when (font) {
@@ -123,11 +177,21 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
         if (dark) g.map { lerp(it, Color.White, 0.3f) } else g
     } else null
     val typography = remember(settings.appFont) { typographyFor(settings.appFont) }
+    val glassColors = remember(dark, accent, settings.glassTransparency) {
+        openLeafGlassColors(dark, accent, settings.glassTransparency)
+    }
     CompositionLocalProvider(
         LocalTitleGradient provides gradient,
         LocalMotionStyle provides settings.motionStyle,
+        LocalGlassTransparency provides settings.glassTransparency,
     ) {
-        MaterialTheme(
+        io.github.ntvien.liquidglass.LiquidGlassTheme(
+            colors = glassColors,
+            look = io.github.ntvien.liquidglass.GlassLook.Auto,
+            reduceEffects = !settings.liquidGlass,
+            overlaySamplesContent = if (settings.liquidGlass) null else false,
+        ) {
+            MaterialTheme(
             colorScheme = if (dark) darkScheme else light,
             typography = typography,
             shapes = Shapes(
@@ -137,6 +201,7 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
             ),
             content = content,
         )
+        }
     }
 }
 
