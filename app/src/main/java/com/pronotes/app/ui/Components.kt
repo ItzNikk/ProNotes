@@ -222,7 +222,7 @@ fun LiquidSlider(
 }
 
 /**
- * Botanical OpenLeaf background for ntvien LiquidGlassScene: rendered once into a 1/4-res bitmap for 120fps scrolling.
+ * Botanical OpenLeaf parchment background for LiquidGlassScene.
  */
 @Composable
 fun BotanicalGlassBackground(
@@ -238,24 +238,24 @@ fun BotanicalGlassBackground(
         baseColor = bg,
         blobColors = if (!dark) {
             listOf(
-                primary.copy(alpha = 0.24f),
-                Color(0xFFB98A2E).copy(alpha = 0.16f),
-                secondary.copy(alpha = 0.20f),
-                primary.copy(alpha = 0.14f),
+                primary.copy(alpha = 0.05f),
+                Color(0xFFB98A2E).copy(alpha = 0.03f),
+                secondary.copy(alpha = 0.04f),
+                primary.copy(alpha = 0.03f),
             )
         } else {
             listOf(
-                primary.copy(alpha = 0.26f),
-                Color(0xFFD99A4E).copy(alpha = 0.14f),
-                secondary.copy(alpha = 0.18f),
-                primary.copy(alpha = 0.14f),
+                primary.copy(alpha = 0.06f),
+                Color(0xFFD99A4E).copy(alpha = 0.03f),
+                secondary.copy(alpha = 0.05f),
+                primary.copy(alpha = 0.03f),
             )
         },
     )
 }
 
 /**
- * Prebuilt ntvien LiquidSurface wrapper preserving full-app transparency & readability.
+ * Prebuilt LiquidSurface wrapper preserving full-app transparency & readability.
  */
 @Composable
 fun OptionalLiquidGlassBox(
@@ -272,9 +272,9 @@ fun OptionalLiquidGlassBox(
     } else {
         GlassDefaults.chrome().copy(
             chromaticAberration = false,
-            blur = 10.dp,
-            lensHeight = 14.dp,
-            lensAmount = 24.dp,
+            blur = 14.dp,
+            lensHeight = 12.dp,
+            lensAmount = 22.dp,
             surface = colors.chromeFill,
             fallbackSurface = fallbackColor,
             shadowRadius = 12.dp,
@@ -290,7 +290,7 @@ fun OptionalLiquidGlassBox(
 }
 
 /**
- * Prebuilt ntvien/liquid-glass Dialog surface with high-contrast scrim for crisp modal legibility.
+ * Liquid Glass Dialog surface with high-contrast scrim for crisp modal legibility.
  */
 @Composable
 fun LiquidGlassDialogSurface(
@@ -332,59 +332,61 @@ fun LiquidGlassDialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.32f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismissRequest,
-                )
-                .padding(20.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            LiquidGlassDialogSurface(
-                shape = RoundedCornerShape(28.dp),
-                modifier = Modifier
-                    .widthIn(max = maxWidth)
-                    .fillMaxWidth()
+        io.github.ntvien.liquidglass.DisableGlassSceneBackdrop {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.32f))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        onClick = {},
-                    ),
+                        onClick = onDismissRequest,
+                    )
+                    .padding(20.dp),
+                contentAlignment = Alignment.Center,
             ) {
-                CompositionLocalProvider(LocalContentColor provides colors.content) {
-                    Column(Modifier.fillMaxWidth().padding(22.dp)) {
-                        if (title != null) {
-                            CompositionLocalProvider(
-                                androidx.compose.material3.LocalTextStyle provides MaterialTheme.typography.headlineSmall.copy(
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = colors.content,
-                                ),
-                            ) {
-                                Box(Modifier.fillMaxWidth()) { title() }
+                LiquidGlassDialogSurface(
+                    shape = RoundedCornerShape(28.dp),
+                    modifier = Modifier
+                        .widthIn(max = maxWidth)
+                        .fillMaxWidth()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {},
+                        ),
+                ) {
+                    CompositionLocalProvider(LocalContentColor provides colors.content) {
+                        Column(Modifier.fillMaxWidth().padding(22.dp)) {
+                            if (title != null) {
+                                CompositionLocalProvider(
+                                    androidx.compose.material3.LocalTextStyle provides MaterialTheme.typography.headlineSmall.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = colors.content,
+                                    ),
+                                ) {
+                                    Box(Modifier.fillMaxWidth()) { title() }
+                                }
+                                if (text != null) Spacer(Modifier.height(12.dp))
                             }
-                            if (text != null) Spacer(Modifier.height(12.dp))
-                        }
-                        if (text != null) {
-                            CompositionLocalProvider(
-                                androidx.compose.material3.LocalTextStyle provides MaterialTheme.typography.bodyMedium.copy(
-                                    color = colors.content,
-                                ),
-                            ) {
-                                Box(Modifier.fillMaxWidth().heightIn(max = 540.dp)) { text() }
+                            if (text != null) {
+                                CompositionLocalProvider(
+                                    androidx.compose.material3.LocalTextStyle provides MaterialTheme.typography.bodyMedium.copy(
+                                        color = colors.content,
+                                    ),
+                                ) {
+                                    Box(Modifier.fillMaxWidth().heightIn(max = 540.dp)) { text() }
+                                }
                             }
-                        }
-                        Spacer(Modifier.height(18.dp))
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            dismissButton?.invoke()
-                            confirmButton()
+                            Spacer(Modifier.height(18.dp))
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                dismissButton?.invoke()
+                                confirmButton()
+                            }
                         }
                     }
                 }
@@ -406,42 +408,44 @@ fun LiquidGlassSheet(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.28f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismissRequest,
-                ),
-            contentAlignment = Alignment.BottomCenter,
-        ) {
-            LiquidGlassDialogSurface(
-                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-                modifier = Modifier
-                    .widthIn(max = 640.dp)
-                    .fillMaxWidth()
+        io.github.ntvien.liquidglass.DisableGlassSceneBackdrop {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.28f))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        onClick = {},
+                        onClick = onDismissRequest,
                     ),
+                contentAlignment = Alignment.BottomCenter,
             ) {
-                CompositionLocalProvider(LocalContentColor provides colors.content) {
-                    Column(
-                        Modifier.fillMaxWidth().navigationBarsPadding().padding(top = 10.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Box(
-                            Modifier
-                                .width(38.dp)
-                                .height(4.dp)
-                                .clip(CircleShape)
-                                .background(colors.contentMuted.copy(alpha = 0.35f)),
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        content()
+                LiquidGlassDialogSurface(
+                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                    modifier = Modifier
+                        .widthIn(max = 640.dp)
+                        .fillMaxWidth()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {},
+                        ),
+                ) {
+                    CompositionLocalProvider(LocalContentColor provides colors.content) {
+                        Column(
+                            Modifier.fillMaxWidth().navigationBarsPadding().padding(top = 10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Box(
+                                Modifier
+                                    .width(38.dp)
+                                    .height(4.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.contentMuted.copy(alpha = 0.35f)),
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            content()
+                        }
                     }
                 }
             }
@@ -575,7 +579,7 @@ fun LiquidSliderRow(
 }
 
 /**
- * Option picker row backed by ntvien's morphing LiquidMenuButton.
+ * Option picker row backed by LiquidMenuButton.
  */
 @Composable
 fun LiquidChoiceRow(
@@ -603,18 +607,8 @@ fun LiquidChoiceRow(
     ) {
         Text(title, style = MaterialTheme.typography.bodyLarge, color = colors.content, modifier = Modifier.weight(1f))
         LiquidMenuButton(
-            items = entries,
-            contentDescription = title,
-            style = GlassDefaults.frost(),
-            shape = GlassDefaults.PillShape,
-            menuWidth = 230.dp,
-            modifier = Modifier.heightIn(min = 38.dp),
-        ) {
-            Row(
-                Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+            buttonContent = {
                 Text(
                     value,
                     style = MaterialTheme.typography.labelLarge,
@@ -624,14 +618,20 @@ fun LiquidChoiceRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.widthIn(max = 170.dp),
                 )
+                Spacer(Modifier.width(4.dp))
                 Icon(Icons.Outlined.KeyboardArrowDown, null, tint = colors.accent, modifier = Modifier.size(18.dp))
-            }
-        }
+            },
+            items = entries,
+            modifier = Modifier.heightIn(min = 38.dp),
+            style = GlassDefaults.frost(),
+            shape = GlassDefaults.PillShape,
+            menuWidth = 230.dp,
+        )
     }
 }
 
 /**
- * Long-press / programmatic Liquid Glass context menu styled to match ntvien's LiquidMenuButton.
+ * Long-press / programmatic Liquid Glass context menu anchored cleanly to its parent Box.
  */
 @Composable
 fun LiquidContextMenu(
@@ -640,60 +640,66 @@ fun LiquidContextMenu(
     items: List<io.github.ntvien.liquidglass.component.LiquidMenuEntry>,
     menuWidth: Dp = 240.dp,
 ) {
-    if (!expanded) return
     val colors = LiquidGlassTheme.colors
-    androidx.compose.ui.window.Popup(
+    androidx.compose.material3.DropdownMenu(
+        expanded = expanded,
         onDismissRequest = onDismissRequest,
-        properties = androidx.compose.ui.window.PopupProperties(focusable = true),
+        shape = RoundedCornerShape(22.dp),
+        containerColor = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+        modifier = Modifier.width(menuWidth),
     ) {
-        LiquidGlassDialogSurface(
-            shape = RoundedCornerShape(22.dp),
-            modifier = Modifier.width(menuWidth),
-        ) {
-            Column(Modifier.padding(vertical = 6.dp)) {
-                items.forEach { entry ->
-                    when (entry) {
-                        is LiquidMenuItem -> {
-                            val fg = when {
-                                !entry.enabled -> colors.contentMuted.copy(alpha = 0.5f)
-                                entry.destructive -> colors.badge
-                                else -> colors.content
-                            }
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .height(44.dp)
-                                    .clickable(enabled = entry.enabled) {
-                                        onDismissRequest()
-                                        entry.onClick()
-                                    }
-                                    .padding(horizontal = 16.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                if (entry.icon != null) {
-                                    Icon(entry.icon, null, tint = fg, modifier = Modifier.size(20.dp))
-                                } else if (entry.leadingContent != null) {
-                                    entry.leadingContent.invoke()
+        io.github.ntvien.liquidglass.DisableGlassSceneBackdrop {
+            LiquidGlassDialogSurface(
+                shape = RoundedCornerShape(22.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(vertical = 6.dp)) {
+                    items.forEach { entry ->
+                        when (entry) {
+                            is LiquidMenuItem -> {
+                                val fg = when {
+                                    !entry.enabled -> colors.contentMuted.copy(alpha = 0.5f)
+                                    entry.destructive -> colors.badge
+                                    else -> colors.content
                                 }
-                                Text(
-                                    entry.label,
-                                    color = fg,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f),
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .height(44.dp)
+                                        .clickable(enabled = entry.enabled) {
+                                            onDismissRequest()
+                                            entry.onClick()
+                                        }
+                                        .padding(horizontal = 16.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    if (entry.icon != null) {
+                                        Icon(entry.icon, null, tint = fg, modifier = Modifier.size(20.dp))
+                                    } else if (entry.leadingContent != null) {
+                                        entry.leadingContent.invoke()
+                                    }
+                                    Text(
+                                        entry.label,
+                                        color = fg,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            }
+                            io.github.ntvien.liquidglass.component.LiquidMenuDivider -> {
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .height(0.5.dp)
+                                        .background(colors.content.copy(alpha = 0.12f)),
                                 )
                             }
-                        }
-                        io.github.ntvien.liquidglass.component.LiquidMenuDivider -> {
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .height(0.5.dp)
-                                    .background(colors.content.copy(alpha = 0.12f)),
-                            )
                         }
                     }
                 }
@@ -701,4 +707,5 @@ fun LiquidContextMenu(
         }
     }
 }
+
 

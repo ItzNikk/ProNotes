@@ -288,20 +288,6 @@ fun LibraryScreen(
                         folderId = null
                     },
                     labels = LiquidTabLabels.Stacked,
-                    action = {
-                        LiquidSurface(
-                            style = GlassDefaults.accent(),
-                            shape = GlassDefaults.ContinuousPillShape,
-                            modifier = Modifier.size(LiquidTabBarDefaults.Height),
-                            contentPadding = PaddingValues(0.dp),
-                            onClick = { newNotebook = true },
-                            onClickLabel = "New notebook",
-                        ) {
-                            Box(Modifier.fillMaxSize(), Alignment.Center) {
-                                Icon(Icons.Filled.Add, "New", tint = LiquidGlassTheme.colors.onAccent)
-                            }
-                        }
-                    },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
 
@@ -382,7 +368,14 @@ fun LibraryScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                     ) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            if (!sidebar) IconButton(onClick = { sidebar = true }) { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SIDEBAR, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) }
+                            if (!sidebar) {
+                                LiquidGlassPill(
+                                    onClick = { sidebar = true },
+                                    contentPadding = PaddingValues(8.dp),
+                                ) {
+                                    com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SIDEBAR, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp))
+                                }
+                            }
                             // Open notebooks, like browser tabs.
                             val store = remember { SettingsStore.get(context) }
                             val tabs by store.tabs.collectAsState()
@@ -410,9 +403,31 @@ fun LibraryScreen(
                             }
                             Spacer(Modifier.width(4.dp))
                             UpdatePill()
-                            IconButton(onClick = { collabOpen = true }) { Icon(Icons.Outlined.Groups, "Live Study Room") }
-                            IconButton(onClick = { searching = !searching; if (!searching) query = "" }) { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SEARCH, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) }
-                            IconButton(onClick = onSettings) { com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SETTINGS, MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp)) }
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                LiquidGlassPill(
+                                    onClick = { collabOpen = true },
+                                    contentPadding = PaddingValues(8.dp),
+                                ) {
+                                    Icon(Icons.Outlined.Groups, "Live Study Room", Modifier.size(20.dp))
+                                }
+                                LiquidGlassPill(
+                                    selected = searching,
+                                    onClick = { searching = !searching; if (!searching) query = "" },
+                                    contentPadding = PaddingValues(8.dp),
+                                ) {
+                                    com.pronotes.app.ui.ProIconView(
+                                        com.pronotes.app.ui.ProIcon.SEARCH,
+                                        if (searching) LiquidGlassTheme.colors.onAccent else MaterialTheme.colorScheme.onSurface,
+                                        Modifier.size(20.dp),
+                                    )
+                                }
+                                LiquidGlassPill(
+                                    onClick = onSettings,
+                                    contentPadding = PaddingValues(8.dp),
+                                ) {
+                                    com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SETTINGS, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp))
+                                }
+                            }
                         }
                     }
                     // Title row
@@ -518,20 +533,49 @@ fun LibraryScreen(
                                 Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(16.dp), tint = LiquidGlassTheme.colors.contentMuted)
                             }
                         }
-                        IconButton(onClick = { listView = false }) {
-                            Icon(Icons.Outlined.GridView, "Grid", tint = if (!listView) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        IconButton(onClick = { listView = true }) {
-                            Icon(Icons.AutoMirrored.Outlined.ViewList, "List", tint = if (listView) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.width(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            LiquidGlassPill(
+                                selected = !listView,
+                                onClick = { listView = false },
+                                contentPadding = PaddingValues(8.dp),
+                            ) {
+                                Icon(
+                                    Icons.Outlined.GridView,
+                                    "Grid",
+                                    Modifier.size(18.dp),
+                                    tint = if (!listView) LiquidGlassTheme.colors.onAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            LiquidGlassPill(
+                                selected = listView,
+                                onClick = { listView = true },
+                                contentPadding = PaddingValues(8.dp),
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Outlined.ViewList,
+                                    "List",
+                                    Modifier.size(18.dp),
+                                    tint = if (listView) LiquidGlassTheme.colors.onAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                     AnimatedVisibility(searching) {
-                        OutlinedTextField(
-                            query, { query = it }, placeholder = { Text("Search notebooks and folders") }, singleLine = true,
-                            leadingIcon = { Icon(Icons.Outlined.Search, null) }, shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 4.dp),
-                        )
+                        LiquidGlassCard(
+                            hero = false,
+                            shape = RoundedCornerShape(18.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
+                        ) {
+                            OutlinedTextField(
+                                query, { query = it }, placeholder = { Text("Search notebooks and folders") }, singleLine = true,
+                                leadingIcon = { Icon(Icons.Outlined.Search, null) }, shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
+
 
                     val actions = TileActions(
                         onOpenFolder = { f -> section = Section.DOCUMENTS; query = ""; searching = false; folderId = f.id },

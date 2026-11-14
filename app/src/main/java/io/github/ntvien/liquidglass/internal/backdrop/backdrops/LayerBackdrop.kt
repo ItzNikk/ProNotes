@@ -43,7 +43,7 @@ internal class LayerBackdrop internal constructor(
 
     override val isCoordinatesDependent: Boolean = true
 
-    internal var layerCoordinates: LayoutCoordinates? by mutableStateOf(null)
+    internal var layerCoordinates: LayoutCoordinates? by mutableStateOf(null, androidx.compose.runtime.neverEqualPolicy())
 
     private var inverseLayerScope: InverseLayerScope? = null
 

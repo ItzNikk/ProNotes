@@ -969,21 +969,23 @@ private fun TabStrip(tabs: List<Pair<String, String>>, current: String, onSelect
     ) {
         tabs.forEach { (id, title) ->
             val sel = id == current
-            val bg by animateFloatAsState(if (sel) 1f else 0f, label = "tab")
-            Row(
-                Modifier.widthIn(min = 110.dp, max = 220.dp).clip(Pill)
-                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = bg))
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 1f - bg), Pill)
-                    .clickable { onSelect(id) }.padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            LiquidGlassPill(
+                selected = sel,
+                onClick = { onSelect(id) },
+                contentPadding = PaddingValues(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                modifier = Modifier.widthIn(min = 110.dp, max = 220.dp),
             ) {
-                Text(
-                    title, Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal),
-                    color = if (sel) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Box(Modifier.size(22.dp).clip(CircleShape).clickable { onClose(id) }, contentAlignment = Alignment.Center) {
-                    ProIconView(ProIcon.CLOSE, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.size(11.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val fg = if (sel) LiquidGlassTheme.colors.onAccent else MaterialTheme.colorScheme.onSurfaceVariant
+                    Text(
+                        title, Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal),
+                        color = fg,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Box(Modifier.size(22.dp).clip(CircleShape).clickable { onClose(id) }, contentAlignment = Alignment.Center) {
+                        ProIconView(ProIcon.CLOSE, fg, Modifier.size(11.dp))
+                    }
                 }
             }
         }
@@ -994,15 +996,27 @@ private fun TabStrip(tabs: List<Pair<String, String>>, current: String, onSelect
 private fun BarIcon(icon: ProIcon, label: String, enabled: Boolean = true, active: Boolean = false, onClick: () -> Unit) {
     val tint = when {
         !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-        active -> MaterialTheme.colorScheme.primary
+        active -> LiquidGlassTheme.colors.onAccent
         else -> MaterialTheme.colorScheme.onSurface
     }
-    Box(
-        Modifier.size(40.dp).elasticStretch().clip(Pill)
-            .background(if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) { ProIconView(icon, tint, Modifier.size(22.dp)) }
+    if (active) {
+        LiquidGlassPill(
+            selected = true,
+            onClick = if (enabled) onClick else null,
+            contentPadding = PaddingValues(0.dp),
+            modifier = Modifier.size(38.dp).elasticStretch(enabled),
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                ProIconView(icon, tint, Modifier.size(20.dp))
+            }
+        }
+    } else {
+        Box(
+            Modifier.size(40.dp).elasticStretch(enabled).clip(Pill)
+                .clickable(enabled = enabled, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) { ProIconView(icon, tint, Modifier.size(22.dp)) }
+    }
 }
 
 @Composable
@@ -1157,38 +1171,49 @@ private fun TopBar(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SearchBar(vm: EditorViewModel) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = vm.searchQuery, onValueChange = vm::search, singleLine = true,
-                placeholder = { Text(if (vm.isPdf) "Search in PDF and notes" else "Search across notes") },
-                leadingIcon = { ProIconView(ProIcon.SEARCH, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.size(20.dp)) },
-                shape = Pill, modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                when {
-                    vm.searching -> "Searching…"
-                    vm.searchQuery.isBlank() -> ""
-                    vm.searchHits.isEmpty() -> "No results"
-                    else -> "${vm.activeHit + 1} of ${vm.searchHits.size}"
-                },
-                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            IconButton(onClick = { vm.stepHit(-1) }, enabled = vm.searchHits.isNotEmpty()) { Icon(Icons.Filled.KeyboardArrowUp, "Previous") }
-            IconButton(onClick = { vm.stepHit(1) }, enabled = vm.searchHits.isNotEmpty()) { Icon(Icons.Filled.KeyboardArrowDown, "Next") }
-            IconButton(onClick = vm::clearSearch) { Icon(Icons.Filled.Close, "Clear") }
-        }
-        if (vm.searchHits.isNotEmpty()) {
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 160.dp)) {
-                itemsIndexed(vm.searchHits) { i, hit ->
-                    Row(
-                        Modifier.fillMaxWidth().clip(Pill)
-                            .background(if (i == vm.activeHit) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                            .clickable { vm.jumpToHit(i) }.padding(horizontal = 12.dp, vertical = 6.dp),
-                    ) {
-                        Text("p.${hit.page + 1}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(44.dp))
-                        Text(hit.snippet, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    LiquidGlassCard(
+        hero = false,
+        shape = RoundedCornerShape(18.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = vm.searchQuery, onValueChange = vm::search, singleLine = true,
+                    placeholder = { Text(if (vm.isPdf) "Search in PDF and notes" else "Search across notes") },
+                    leadingIcon = { ProIconView(ProIcon.SEARCH, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.size(20.dp)) },
+                    shape = Pill, modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    when {
+                        vm.searching -> "Searching…"
+                        vm.searchQuery.isBlank() -> ""
+                        vm.searchHits.isEmpty() -> "No results"
+                        else -> "${vm.activeHit + 1} of ${vm.searchHits.size}"
+                    },
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                IconButton(onClick = { vm.stepHit(-1) }, enabled = vm.searchHits.isNotEmpty()) { Icon(Icons.Filled.KeyboardArrowUp, "Previous") }
+                IconButton(onClick = { vm.stepHit(1) }, enabled = vm.searchHits.isNotEmpty()) { Icon(Icons.Filled.KeyboardArrowDown, "Next") }
+                IconButton(onClick = vm::clearSearch) { Icon(Icons.Filled.Close, "Clear") }
+            }
+            if (vm.searchHits.isNotEmpty()) {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 160.dp)) {
+                    itemsIndexed(vm.searchHits) { i, hit ->
+                        LiquidGlassPill(
+                            selected = i == vm.activeHit,
+                            onClick = { vm.jumpToHit(i) },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                val fg = if (i == vm.activeHit) LiquidGlassTheme.colors.onAccent else MaterialTheme.colorScheme.onSurface
+                                Text("p.${hit.page + 1}", style = MaterialTheme.typography.labelSmall, color = if (i == vm.activeHit) fg else MaterialTheme.colorScheme.primary, modifier = Modifier.width(44.dp))
+                                Text(hit.snippet, style = MaterialTheme.typography.bodyMedium, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
                     }
                 }
             }

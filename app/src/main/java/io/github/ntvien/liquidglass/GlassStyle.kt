@@ -102,45 +102,45 @@ internal class GlassStyles(
         fun from(c: GlassColors, rich: Boolean): GlassStyles = GlassStyles(
             chrome = GlassStyle(
                 kind = GlassKind.Liquid,
-                // iOS 26 look: a thick lens band (24/48 dp) with chromatic aberration at the edge and a 1 dp bright rim.
-                // The 8 dp blur applies only when the glass samples the content: text behind it softens so the tab
-                // labels stay readable, while the edge still bends.
-                blur = 8.dp, lensHeight = 24.dp, lensAmount = 48.dp,
-                chromaticAberration = true, depthEffect = true,
+                blur = 10.dp, lensHeight = 16.dp, lensAmount = 24.dp,
+                chromaticAberration = false, depthEffect = true,
                 surface = c.chromeFill,
                 fallbackSurface = c.glassFillOpaque,
                 highlightWidth = 1.dp,
-                shadowRadius = 24.dp, shadowColor = c.glassShadow,
+                shadowRadius = 16.dp, shadowColor = c.glassShadow,
                 contentColor = c.content,
             ),
             card = GlassStyle(
                 kind = GlassKind.Liquid,
-                blur = 6.dp, lensHeight = 12.dp, lensAmount = 20.dp,
+                blur = 8.dp, lensHeight = 10.dp, lensAmount = 18.dp,
                 surface = c.glassFill, fallbackSurface = c.glassFillStrong,
-                shadowRadius = if (rich) 24.dp else 0.dp, shadowColor = c.glassShadow,
+                highlightWidth = 0.8.dp,
+                shadowRadius = if (rich) 12.dp else 0.dp, shadowColor = c.glassShadow,
                 contentColor = c.content,
             ),
             control = GlassStyle(
                 kind = GlassKind.Liquid,
-                blur = 2.dp, lensHeight = 12.dp, lensAmount = 24.dp,
-                surface = c.glassFill, fallbackSurface = c.glassFillStrong,
-                shadowRadius = if (rich) 16.dp else 0.dp, shadowColor = c.glassShadow,
+                blur = 6.dp, lensHeight = 8.dp, lensAmount = 16.dp,
+                surface = c.glassFillStrong, fallbackSurface = c.glassFillStrong,
+                highlightWidth = 0.8.dp,
+                shadowRadius = if (rich) 8.dp else 0.dp, shadowColor = c.glassShadow,
                 contentColor = c.content,
             ),
-            // Real glass on every small button adds up: the optimized look draws a solid block with a sheen.
             accent = GlassStyle(
-                kind = if (rich) GlassKind.Liquid else GlassKind.Frost,
-                blur = 2.dp, lensHeight = 12.dp, lensAmount = 24.dp,
-                surface = c.accent.copy(alpha = 0.88f), fallbackSurface = c.accent,
-                highlightAlpha = 0.9f, fallbackSheen = 0.22f,
-                shadowRadius = 20.dp, shadowColor = c.accent.copy(alpha = 0.4f),
+                kind = GlassKind.Frost,
+                blur = 4.dp, lensHeight = 8.dp, lensAmount = 16.dp,
+                surface = c.accent.copy(alpha = 0.92f), fallbackSurface = c.accent,
+                highlightWidth = 0.8.dp,
+                highlightAlpha = 0.85f, fallbackSheen = 0.22f,
+                shadowRadius = 10.dp, shadowColor = c.accent.copy(alpha = 0.32f),
                 contentColor = c.onAccent,
             ),
             frost = GlassStyle(
                 kind = GlassKind.Frost,
                 vibrancy = false,
                 fallbackSurface = c.glassFillStrong,
-                fallbackSheen = 0.4f,
+                highlightWidth = 0.8.dp,
+                fallbackSheen = 0.35f,
                 contentColor = c.content,
             ),
         )

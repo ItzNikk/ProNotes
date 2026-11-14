@@ -98,3 +98,13 @@ public fun LiquidGlassScene(
         }
     }
 }
+
+/**
+ * Clears scene-level backdrops inside separate Windows (Dialog / Popup) so child controls use their
+ * own local track/surface backdrops instead of sampling main window coordinates.
+ */
+@Composable
+public fun DisableGlassSceneBackdrop(content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalGlassBackdrops provides null, content = content)
+}
+

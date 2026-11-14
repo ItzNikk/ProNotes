@@ -74,21 +74,14 @@ public fun Modifier.liquidGlass(
 
     val backdrop = if (layer == GlassLayer.Overlay) backdrops.overlay else backdrops.background
     val allowLens = quality == GlassQuality.Full
-    // The background is a smooth gradient: blurring it changes nothing but costs GPU time every frame while
-    // scrolling. Blur only when the glass samples scrolling content.
-    val samplesContent = backdrop !== backdrops.background
-    val blurRadius = if (samplesContent) style.blur else 0.dp
+    val blurRadius = style.blur
     val useLens = allowLens && style.lensHeight > 0.dp && style.lensAmount > 0.dp
     return this
-        // Glass gets its own layer: when something else on screen changes, idle glass keeps its recorded drawing.
-        // With an interaction, drawBackdrop adds graphicsLayer(layerBlock) itself.
         .then(if (interaction == null) Modifier.graphicsLayer() else Modifier)
         .drawBackdrop(
             backdrop = backdrop,
             shape = { shape },
             effects = {
-                // With a lens the saturation is applied by the lens shader: a separate color filter pass costs a full
-                // render pass of the backdrop on every frame the backdrop changes.
                 if (style.vibrancy && !useLens) vibrancy()
                 if (blurRadius > 0.dp) blur(blurRadius.toPx())
                 if (useLens) {

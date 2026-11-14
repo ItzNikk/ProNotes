@@ -262,19 +262,13 @@ private class DrawBackdropNode(
         compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
     }
 
-    // liquid-glass change: the original kept the coordinates in a neverEqualPolicy state, so EVERY relayout (screen
-    // transition, parent animation) re-recorded the backdrop of every glass element even when it had not moved.
-    // Now it redraws only when the position in the window actually changes.
-    private var layoutCoordinates: LayoutCoordinates? = null
-    private var windowPosition by mutableStateOf(Offset.Unspecified)
+    private var layoutCoordinates: LayoutCoordinates? by mutableStateOf(null, androidx.compose.runtime.neverEqualPolicy())
 
     private var padding by mutableFloatStateOf(0f)
 
     private val recordBackdropBlock: (DrawScope.() -> Unit) = {
         val canvas = drawContext.canvas
         val padding = padding
-        // Read so the layer redraws when the glass moves (see windowPosition).
-        windowPosition
 
         if (padding != 0f) {
             canvas.translate(padding, padding)
@@ -349,11 +343,9 @@ private class DrawBackdropNode(
         if (coordinates.isAttached) {
             if (backdrop.isCoordinatesDependent) {
                 layoutCoordinates = coordinates
-                windowPosition = coordinates.positionInWindow()
             } else {
                 if (layoutCoordinates != null) {
                     layoutCoordinates = null
-                    windowPosition = Offset.Unspecified
                 }
             }
             exportedBackdrop?.layerCoordinates = coordinates
@@ -396,7 +388,6 @@ private class DrawBackdropNode(
 
         effectScope.reset()
         layoutCoordinates = null
-        windowPosition = Offset.Unspecified
         exportedBackdrop?.layerCoordinates = null
     }
 }
