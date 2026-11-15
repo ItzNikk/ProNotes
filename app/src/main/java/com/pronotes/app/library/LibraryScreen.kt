@@ -174,6 +174,15 @@ private sealed interface Entry {
     data class N(val note: NotebookMeta) : Entry
 }
 
+@androidx.compose.runtime.Immutable
+private data class LibraryNewBookPrefs(
+    val defaultPreset: com.pronotes.app.data.PagePreset,
+    val defaultLandscape: Boolean,
+    val defaultPaper: PaperStyle,
+    val thumbCovers: Boolean,
+    val defaultCoverPage: Boolean,
+)
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LibraryScreen(
@@ -187,9 +196,15 @@ fun LibraryScreen(
     val context = LocalContext.current
     val repo = remember { Repository.get(context) }
     val store = remember { SettingsStore.get(context) }
-    val settings by remember(store) {
-        store.select { Triple(it.defaultPreset, it.defaultLandscape, it.defaultPaper) }
-    }.collectAsStateWithLifecycle(initialValue = store.settings.value.let { Triple(it.defaultPreset, it.defaultLandscape, it.defaultPaper) })
+    val newBookPrefs by remember(store) {
+        store.select {
+            LibraryNewBookPrefs(it.defaultPreset, it.defaultLandscape, it.defaultPaper, it.thumbCovers, it.defaultCoverPage)
+        }
+    }.collectAsStateWithLifecycle(
+        initialValue = store.settings.value.let {
+            LibraryNewBookPrefs(it.defaultPreset, it.defaultLandscape, it.defaultPaper, it.thumbCovers, it.defaultCoverPage)
+        },
+    )
     val smartFeatures = LocalSmartFeatures.current
     val lib by repo.library.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -522,7 +537,9 @@ fun LibraryScreen(
                                     GlassMenuItem("Quick note", Icons.Outlined.Edit) {
                                         scope.launch {
                                             val k = com.pronotes.app.data.PagePreset.UNITS_PER_MM
-                                            val (defaultPreset, defaultLandscape, defaultPaper) = settings
+                                            val defaultPreset = newBookPrefs.defaultPreset
+                                            val defaultLandscape = newBookPrefs.defaultLandscape
+                                            val defaultPaper = newBookPrefs.defaultPaper
                                             var w = defaultPreset.wMm * k; var h = defaultPreset.hMm * k
                                             if (!defaultPreset.isWhiteboard && defaultLandscape != (w > h)) { val t = w; w = h; h = t }
                                             onOpen(repo.createNotebook("Quick note", folderId, CoverColors.random(), defaultPaper, width = w, height = h, isWhiteboard = defaultPreset.isWhiteboard))
@@ -671,7 +688,7 @@ fun LibraryScreen(
     }
 
     // ---------------------------------------------------------------- dialogs
-    if (newNotebook) NewNotebookDialog(settings.defaultPaper, settings.thumbCovers, settings, onDismiss = { newNotebook = false }) { b ->
+    if (newNotebook) NewNotebookDialog(newBookPrefs, onDismiss = { newNotebook = false }) { b ->
         newNotebook = false
         scope.launch {
             val usePhotoPage = b.photo != null && b.coverPage
@@ -1375,17 +1392,15 @@ private val PaperColors = listOf(0xFFFFFFFF, 0xFFFBF7EC, 0xFFF1F2F4, 0xFFFFF4E0,
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun NewNotebookDialog(
-    defaultPaper: PaperStyle,
-    thumbCovers: Boolean,
-    defaults: com.pronotes.app.data.AppSettings,
+    defaults: LibraryNewBookPrefs,
     onDismiss: () -> Unit,
     onCreate: (NewBook) -> Unit,
 ) {
     var name by remember { mutableStateOf("Untitled notebook") }
     val startColor = remember { CoverColors.random() }
-    var cover by remember { mutableStateOf(if (thumbCovers) "thumb" else "solid:$startColor") }
+    var cover by remember { mutableStateOf(if (defaults.thumbCovers) "thumb" else "solid:$startColor") }
     var coverPage by remember { mutableStateOf(defaults.defaultCoverPage) }
-    var paper by remember { mutableStateOf(defaultPaper) }
+    var paper by remember { mutableStateOf(defaults.defaultPaper) }
     var paperColor by remember { mutableStateOf<Int?>(null) }
     var customPaper by remember { mutableStateOf(false) }
     var preset by remember { mutableStateOf(defaults.defaultPreset) }

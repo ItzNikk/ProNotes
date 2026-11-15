@@ -66,6 +66,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -348,6 +349,10 @@ private fun CardRow(vm: EditorViewModel, c: Flashcard, onShow: () -> Unit) {
                 }
             }
             GlassMenuButton(
+                contentPadding = PaddingValues(0.dp),
+                buttonContent = {
+                    Icon(Icons.Outlined.MoreHoriz, "Card options", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                },
                 items = buildList {
                     add(GlassMenuItem("Edit", Icons.Outlined.Edit) { vm.cardDraft = EditorViewModel.CardDraft(c, false) })
                     if (c.pageId != null) add(GlassMenuItem("Show in notebook", Icons.Outlined.Visibility) { onShow() })
@@ -356,9 +361,7 @@ private fun CardRow(vm: EditorViewModel, c: Flashcard, onShow: () -> Unit) {
                 },
                 contentDescription = "Card options",
                 menuWidth = 210.dp,
-            ) {
-                Icon(Icons.Outlined.MoreHoriz, "Card options", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
-            }
+            )
         }
     }
 }
@@ -543,7 +546,7 @@ fun QuizDialog(vm: EditorViewModel, onClose: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             MaterialTheme(colorScheme = if (isStartScreen) cosmicScheme else baseScheme) {
-                GlassThemeOverride(dark = if (isStartScreen) true else null) {
+                GlassThemeOverride(dark = if (isStartScreen) true else baseScheme.surface.luminance() < 0.4f) {
                     GlassDialogSurface(
                         shape = glassCardShape(),
                         modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 820.dp).statusBarsPadding()
@@ -706,7 +709,6 @@ private fun TakeQuiz(vm: EditorViewModel, order: List<String>, onDone: () -> Uni
                 GlassSurface(
                     role = GlassRole.Frost,
                     containerColor = Color(0xFFFFE7C2),
-                    contentColor = Color(0xFFC25900),
                     shape = glassPillShape(),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                 ) {
@@ -873,7 +875,7 @@ fun TemplateSheet(vm: EditorViewModel, onAiTemplate: () -> Unit = {}, onClose: (
                     Spacer(Modifier.height(12.dp))
                     Text("LINE SPACING  ${"%.1f".format(scale)}×", style = MaterialTheme.typography.labelSmall)
                     GlassSlider(
-                        value = { scale },
+                        value = scale,
                         onValueChange = { scale = (it * 10).toInt() / 10f },
                         valueRange = 0.6f..2f,
                     )

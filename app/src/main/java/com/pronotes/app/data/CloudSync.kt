@@ -27,8 +27,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -934,14 +934,14 @@ object CloudSync {
  */
 @Composable
 fun CloudSignInDialogHost() {
-    val open by androidx.lifecycle.compose.collectAsStateWithLifecycle(CloudSync.signInDialogOpen)
+    val open by CloudSync.signInDialogOpen.collectAsStateWithLifecycle()
     if (!open) return
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val curUser by androidx.lifecycle.compose.collectAsStateWithLifecycle(CloudSync.user)
-    val syncStatus by androidx.lifecycle.compose.collectAsStateWithLifecycle(CloudSync.status)
-    val isSyncing by androidx.lifecycle.compose.collectAsStateWithLifecycle(CloudSync.syncing)
+    val curUser by CloudSync.user.collectAsStateWithLifecycle()
+    val syncStatus by CloudSync.status.collectAsStateWithLifecycle()
+    val isSyncing by CloudSync.syncing.collectAsStateWithLifecycle()
 
     var email by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
