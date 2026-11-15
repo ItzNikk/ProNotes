@@ -1964,4 +1964,23 @@ object LocalAiManager {
             }
         }.trim()
     }
+
+    suspend fun transcribeHandwriting(
+        context: Context,
+        strokeSummary: String,
+        pageContext: String,
+    ): String = withContext(Dispatchers.Default) {
+        val summary = strokeSummary.trim()
+        if (summary.isEmpty()) return@withContext ""
+        if (!SettingsStore.get(context).settings.value.smartFeatures) return@withContext summary
+        if (hasCustomApi(context)) {
+            _stage.value = "Converting handwriting…"
+            val sys = "Cleanly format recognized handwritten line metrics and nearby note context into concise typed lines."
+            val usr = "Lines:\n$summary\n\nContext:\n${pageContext.take(2000)}"
+            val resp = callCustomApi(context, sys, usr).getOrNull()
+            _stage.value = ""
+            if (!resp.isNullOrBlank()) return@withContext resp.trim()
+        }
+        summary
+    }
 }

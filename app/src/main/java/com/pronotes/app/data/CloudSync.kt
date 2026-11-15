@@ -1057,7 +1057,7 @@ fun CloudSignInDialogHost() {
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         for (acc in deviceAccounts) {
-                            com.pronotes.app.ui.LiquidGlassChip(
+                            com.pronotes.app.ui.GlassChip(
                                 selected = email == acc,
                                 label = acc,
                                 onClick = {

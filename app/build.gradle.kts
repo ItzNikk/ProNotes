@@ -125,8 +125,8 @@ dependencies {
     implementation("androidx.compose.material3:material3-adaptive-navigation-suite")
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
 
-    // Upstream AndroidLiquidGlass backdrop engine (replaces local vendored copy).
-    implementation("io.github.kyant0:backdrop:2.0.1")
+    // Upstream AndroidLiquidGlass backdrop engine (1.0.2 targets compileSdk <= 36 / AGP 8.12 / Kotlin 2.2.21).
+    implementation("io.github.kyant0:backdrop:1.0.2")
 
     implementation("androidx.core:core-ktx:1.16.0")
     implementation("androidx.activity:activity-compose:1.10.1")
