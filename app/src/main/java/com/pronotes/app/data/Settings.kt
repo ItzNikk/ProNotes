@@ -1,8 +1,12 @@
 package com.pronotes.app.data
 
 import android.content.Context
+import androidx.compose.runtime.Immutable
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 enum class ScrollDirection(val label: String) { VERTICAL("Vertical"), HORIZONTAL("Horizontal") }
 enum class ToolbarDock(val label: String) { HEADER("Fixed top bar"), TOP("Floating top"), BOTTOM("Floating bottom"), LEFT("Floating left"), RIGHT("Floating right") }
@@ -17,6 +21,21 @@ enum class LassoMode(val label: String) { FREEFORM("Freeform"), RECT("Rectangle"
 enum class ThemeMode(val label: String) { SYSTEM("System"), LIGHT("Light"), DARK("Dark") }
 enum class AppFont(val label: String) { MODERN_SANS("Modern Sans"), EDITORIAL_SERIF("Editorial Serif"), STUDIO_MONO("Studio Mono"), ROUNDED("Soft Rounded") }
 enum class MotionStyle(val label: String) { ULTRA_SPRING("Ultra Spring"), MINIMAL_CRISP("Crisp"), REDUCED("Reduced") }
+enum class InterfaceStyle(val label: String) { LIQUID_GLASS("Liquid Glass"), CLASSIC("Classic") }
+enum class GlassQualitySetting(val label: String) { AUTO("Automatic"), FULL("Full glass"), BLUR_ONLY("Blur only"), FLAT("Flat") }
+enum class PerformanceMode(
+    val label: String,
+    val autosaveMs: Long,
+    val blurScale: Float,
+    val effectIntensity: Float,
+    val animationScale: Float,
+    val thumbWidthPx: Int,
+    val pdfPrefetchPages: Int,
+) {
+    BATTERY_SAVER("Battery saver", autosaveMs = 2400L, blurScale = 0f, effectIntensity = 0f, animationScale = 0f, thumbWidthPx = 240, pdfPrefetchPages = 1),
+    BALANCED("Balanced", autosaveMs = 1200L, blurScale = 1f, effectIntensity = 1f, animationScale = 1f, thumbWidthPx = 360, pdfPrefetchPages = 3),
+    MAXIMUM("Maximum", autosaveMs = 600L, blurScale = 1.15f, effectIntensity = 1.15f, animationScale = 1.1f, thumbWidthPx = 480, pdfPrefetchPages = 5),
+}
 enum class CustomAiProvider(val label: String, val defaultBaseUrl: String, val defaultModel: String) {
     OPENAI_COMPATIBLE("OpenAI / OpenRouter / Groq", "https://api.openai.com/v1", "gpt-4o-mini"),
     GEMINI("Google AI REST", "https://generativelanguage.googleapis.com/v1beta", "gemini-2.5-flash"),
@@ -46,10 +65,11 @@ enum class DeskColor(val label: String, val argb: Int) {
 
 /** What a pen button click (without touching the screen) does. */
 enum class PenAction(val label: String) {
-    QUICK_WHEEL("Tool wheel"), UNDO("Undo"), TOGGLE_ERASER("Pen ↔ eraser"), LAST_TOOL("Previous tool"), NONE("Nothing")
+    QUICK_WHEEL("Tool wheel"), UNDO("Undo"), TOGGLE_ERASER("Pen / eraser"), LAST_TOOL("Previous tool"), NONE("Nothing")
 }
 
 /** Per-pen settings, keyed by the pen's input device name. */
+@Immutable
 data class PenProfile(
     val name: String,
     val brand: String,
@@ -83,6 +103,7 @@ object PenBrands {
 }
 
 /** Which kinds of content the lasso picks up. */
+@Immutable
 data class LassoFilter(
     val ink: Boolean = true,
     val highlighter: Boolean = true,
@@ -91,6 +112,7 @@ data class LassoFilter(
     val other: Boolean = true,
 )
 
+@Immutable
 data class AppSettings(
     // stylus & input
     val stylusOnly: Boolean = true,
@@ -143,9 +165,18 @@ data class AppSettings(
     val paperSound: Boolean = true,
     val paperHaptics: Boolean = true,
     val paperVolume: Float = 0.4f,
-    val liquidGlass: Boolean = true,
-    val glassTransparency: Float = 0.58f,
-    val cornerRoundnessDp: Int = 24,
+    /** Device-specific UI style; never synced to the cloud. */
+    val interfaceStyle: InterfaceStyle = InterfaceStyle.LIQUID_GLASS,
+    /** Device-specific performance profile; never synced to the cloud. */
+    val performanceMode: PerformanceMode = PerformanceMode.BALANCED,
+    /** Master toggle for smart assistant features (default on). */
+    val smartFeatures: Boolean = true,
+    /** Device-specific glass rendering quality override; never synced to the cloud. */
+    val glassQuality: GlassQualitySetting = GlassQualitySetting.AUTO,
+    /** Device-specific corner roundness in dp (8 = soft rectangle, 36 = pill). */
+    val cornerRoundnessDp: Float = 24f,
+    /** Glass transparency (0.15f..0.75f to guarantee readable contrast). */
+    val glassTransparency: Float = 0.55f,
     // pens
     val penName: String = "Pro Stylus",
     val hoverCursor: Boolean = true,
@@ -165,7 +196,7 @@ data class AppSettings(
     val lassoMode: LassoMode = LassoMode.FREEFORM,
     val lassoFilter: LassoFilter = LassoFilter(),
     val lassoTouching: Boolean = false,
-    // look & ultra customization
+    // look & customization
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val accent: AccentColor = AccentColor.GREEN,
     val gradientTitles: Boolean = false,
@@ -176,7 +207,7 @@ data class AppSettings(
     val thumbCovers: Boolean = false,
     // on-device local models & Custom AI API
     val activeLocalModelId: String = "",
-    val activeImageModelId: String = "pronotes-studio-lite",
+    val activeImageModelId: String = "galaxy-sketch-lite",
     val imageLiteMode: Boolean = true,
     val pomodoroMinutes: Int = 25,
     val googleUid: String = "",
@@ -188,9 +219,12 @@ data class AppSettings(
     val customAiBaseUrl: String = CustomAiProvider.OPENAI_COMPATIBLE.defaultBaseUrl,
     val customAiApiKey: String = "",
     val customAiModel: String = CustomAiProvider.OPENAI_COMPATIBLE.defaultModel,
-)
+) {
+    val liquidGlass: Boolean get() = interfaceStyle == InterfaceStyle.LIQUID_GLASS
+}
 
 /** A saved pen: type, colour and thickness, one tap away, with an optional user label. */
+@Immutable
 data class PenPreset(val type: String, val color: Int, val size: Float, val name: String = "")
 
 /** Small key-value store; every screen observes [settings]. */
@@ -199,8 +233,12 @@ class SettingsStore private constructor(context: Context) {
     private val _settings = MutableStateFlow(load())
     val settings: StateFlow<AppSettings> = _settings
 
+    /** Narrow lifecycle-safe selector stream so composables recompose only when their slice changes. */
+    inline fun <T> select(crossinline mapper: (AppSettings) -> T): Flow<T> =
+        settings.map { mapper(it) }.distinctUntilChanged()
+
     private inline fun <reified E : Enum<E>> enumOf(key: String, def: E): E =
-        runCatching { enumValueOf<E>(prefs.getString(key, def.name)!!) }.getOrDefault(def)
+        runCatching { enumValueOf<E>(prefs.getString(key, def.name) ?: def.name) }.getOrDefault(def)
 
     private fun b(key: String, def: Boolean) = prefs.getBoolean(key, def)
 
@@ -208,6 +246,12 @@ class SettingsStore private constructor(context: Context) {
         val d = AppSettings()
         // v2.1 had a "straight" switch; carry it over.
         val legacyStraight = prefs.getBoolean("hlStraight", false)
+        // Migrate the legacy "glassV10" preference once while keeping existing users on Liquid Glass.
+        val migratedStyle = if (prefs.contains("interfaceStyle")) {
+            enumOf("interfaceStyle", d.interfaceStyle)
+        } else {
+            if (b("glassV10", true)) InterfaceStyle.LIQUID_GLASS else InterfaceStyle.CLASSIC
+        }
         return AppSettings(
             stylusOnly = b("stylusOnly", d.stylusOnly),
             sideButton = enumOf("sideButton", d.sideButton),
@@ -247,9 +291,12 @@ class SettingsStore private constructor(context: Context) {
             paperSound = b("paperSound", d.paperSound),
             paperHaptics = b("paperHaptics", d.paperHaptics),
             paperVolume = prefs.getFloat("paperVol", d.paperVolume),
-            liquidGlass = b("glassV10", true),
-            glassTransparency = prefs.getFloat("glassTransparency", d.glassTransparency).coerceIn(0.15f, 0.95f),
-            cornerRoundnessDp = prefs.getInt("cornerRoundness", d.cornerRoundnessDp).coerceIn(8, 36),
+            interfaceStyle = migratedStyle,
+            performanceMode = enumOf("performanceMode", d.performanceMode),
+            smartFeatures = b("smartFeatures", d.smartFeatures),
+            glassQuality = enumOf("glassQuality", d.glassQuality),
+            cornerRoundnessDp = prefs.getFloat("cornerRoundnessDp", d.cornerRoundnessDp).coerceIn(8f, 36f),
+            glassTransparency = prefs.getFloat("glassTransparency", d.glassTransparency).coerceIn(0.15f, 0.75f),
             penName = prefs.getString("penName", d.penName) ?: d.penName,
             hoverCursor = b("hoverCursor", d.hoverCursor),
             penClickDelay = enumOf("penClickDelay", d.penClickDelay),
@@ -334,9 +381,13 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("paperSound", s.paperSound)
             .putBoolean("paperHaptics", s.paperHaptics)
             .putFloat("paperVol", s.paperVolume)
+            .putString("interfaceStyle", s.interfaceStyle.name)
+            .putString("performanceMode", s.performanceMode.name)
+            .putBoolean("smartFeatures", s.smartFeatures)
+            .putString("glassQuality", s.glassQuality.name)
+            .putFloat("cornerRoundnessDp", s.cornerRoundnessDp.coerceIn(8f, 36f))
             .putBoolean("glassV10", s.liquidGlass)
-            .putFloat("glassTransparency", s.glassTransparency.coerceIn(0.15f, 0.95f))
-            .putInt("cornerRoundness", s.cornerRoundnessDp.coerceIn(8, 36))
+            .putFloat("glassTransparency", s.glassTransparency.coerceIn(0.15f, 0.75f))
             .putString("penName", s.penName)
             .putBoolean("hoverCursor", s.hoverCursor)
             .putString("penClickDelay", s.penClickDelay.name)

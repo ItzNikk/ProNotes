@@ -28,6 +28,16 @@ class PdfPages(private val file: File) {
         override fun sizeOf(key: Int, value: Bitmap) = value.allocationByteCount
     }
 
+    init {
+        com.pronotes.app.data.MemoryTrimRegistry.register { level ->
+            if (com.pronotes.app.data.MemoryTrimRegistry.isCriticalLevel(level)) {
+                cache.evictAll()
+            } else {
+                cache.trimToSize(cache.maxSize() / 2)
+            }
+        }
+    }
+
     val exists: Boolean get() = file.exists()
 
     @Synchronized
@@ -91,6 +101,21 @@ class PdfPages(private val file: File) {
 
 /** Shared drawing code for the live canvas, thumbnails, previews and PDF export. */
 class PageRenderer(private val noteDir: File?) {
+    init {
+        com.pronotes.app.data.MemoryTrimRegistry.register { level ->
+            if (com.pronotes.app.data.MemoryTrimRegistry.isCriticalLevel(level)) {
+                evictCaches()
+            } else {
+                images.trimToSize(images.maxSize() / 2)
+            }
+        }
+    }
+
+    fun evictCaches() {
+        images.evictAll()
+        tapeTiles.clear()
+        partsCache.clear()
+    }
     val strokeRenderer: CanvasStrokeRenderer = CanvasStrokeRenderer.create()
 
     var paperColor: Int = Color.WHITE
@@ -351,17 +376,20 @@ class PageRenderer(private val noteDir: File?) {
         }
     }
 
-    fun image(name: String): Bitmap? {
+    fun image(name: String, maxDimPx: Int = 2048): Bitmap? {
         val dir = noteDir ?: return null
+        val targetMax = maxDimPx.coerceIn(128, 2048)
+        val cacheKey = if (targetMax >= 2048) name else "$name@$targetMax"
+        images.get(cacheKey)?.let { return it }
         images.get(name)?.let { return it }
         val f = File(dir, name)
         if (!f.exists()) return null
         val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(f.path, opts)
         var sample = 1
-        while (opts.outWidth / sample > 2048 || opts.outHeight / sample > 2048) sample *= 2
+        while (opts.outWidth / sample > targetMax || opts.outHeight / sample > targetMax) sample *= 2
         val bmp = BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
-        images.put(name, bmp)
+        images.put(cacheKey, bmp)
         return bmp
     }
 
@@ -838,7 +866,7 @@ class PageRenderer(private val noteDir: File?) {
                     canvas.save(); canvas.translate(item.dx, item.dy); canvas.drawPath(item.path, fillPaint); canvas.restore()
                 }
                 is ImageItem -> {
-                    val bmp = image(item.file)
+                    val bmp = image(item.file, maxOf(item.w, item.h).toInt().coerceIn(256, 2048))
                     if (bmp != null) rotated(canvas, item.raw, item.rot) { canvas.drawBitmap(bmp, null, item.raw, bitmapPaint) }
                 }
                 is TapeItem -> {

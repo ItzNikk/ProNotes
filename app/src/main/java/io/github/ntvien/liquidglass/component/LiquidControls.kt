@@ -2,7 +2,6 @@ package io.github.ntvien.liquidglass.component
 
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -14,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,9 +28,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.lerp
@@ -51,22 +49,19 @@ import androidx.compose.ui.util.fastCoerceAtMost
 import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.fastRoundToInt
 import androidx.compose.ui.util.lerp
-import io.github.ntvien.liquidglass.GlassLayer
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.highlight.Highlight
+import com.kyant.backdrop.shadow.InnerShadow
+import com.kyant.backdrop.shadow.Shadow
+import io.github.ntvien.liquidglass.GlassDefaults
+import io.github.ntvien.liquidglass.GlassQuality
 import io.github.ntvien.liquidglass.LiquidGlassTheme
 import io.github.ntvien.liquidglass.LocalGlassBackdrops
-import io.github.ntvien.liquidglass.LocalGlassLayer
-import io.github.ntvien.liquidglass.internal.backdrop.backdrops.emptyBackdrop
-import io.github.ntvien.liquidglass.internal.backdrop.backdrops.layerBackdrop
-import io.github.ntvien.liquidglass.internal.backdrop.backdrops.rememberBackdrop
-import io.github.ntvien.liquidglass.internal.backdrop.backdrops.rememberCombinedBackdrop
-import io.github.ntvien.liquidglass.internal.backdrop.backdrops.rememberLayerBackdrop
-import io.github.ntvien.liquidglass.internal.backdrop.drawBackdrop
-import io.github.ntvien.liquidglass.internal.backdrop.effects.blur
-import io.github.ntvien.liquidglass.internal.backdrop.effects.lens
-import io.github.ntvien.liquidglass.internal.backdrop.effects.vibrancy
-import io.github.ntvien.liquidglass.internal.backdrop.highlight.Highlight
-import io.github.ntvien.liquidglass.internal.backdrop.shadow.InnerShadow
-import io.github.ntvien.liquidglass.internal.backdrop.shadow.Shadow
+import io.github.ntvien.liquidglass.LocalGlassShadows
+import io.github.ntvien.liquidglass.LocalInsideGlass
 import kotlinx.coroutines.flow.collectLatest
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -78,8 +73,8 @@ import kotlin.math.tanh
 private val ContinuousCapsule = RoundedCornerShape(percent = 50)
 
 /**
- * Prebuilt Kyant0/AndroidLiquidGlass LiquidSlider with DampedDragAnimation, trackBackdrop refraction,
- * and OpenLeaf theme integration.
+ * Slider using damped spring physics and at most the single shared window backdrop (never allocates its own LayerBackdrop
+ * and never stacks glass inside another glass surface).
  */
 @Composable
 public fun LiquidGlassSlider(
@@ -90,12 +85,13 @@ public fun LiquidGlassSlider(
     steps: Int = 0,
 ) {
     val colors = LiquidGlassTheme.colors
+    val quality = LiquidGlassTheme.quality
+    val insideGlass = LocalInsideGlass.current
+    val shadowsEnabled = LocalGlassShadows.current
     val accentColor = colors.accent
     val trackColor = colors.contentMuted.copy(alpha = 0.24f)
     val sceneBackdrops = LocalGlassBackdrops.current
-    val layer = LocalGlassLayer.current
-    val resolvedBackdrop = (if (layer == GlassLayer.Overlay) sceneBackdrops?.overlay else sceneBackdrops?.background)
-        ?: emptyBackdrop()
+    val sharedBackdrop = sceneBackdrops?.background
 
     val haptic = LocalHapticFeedback.current
     val currentOnValueChange by rememberUpdatedState(onValueChange)
@@ -110,8 +106,6 @@ public fun LiquidGlassSlider(
         val idx = round((clamped - currentValueRange.start) / stepSize)
         return (currentValueRange.start + idx * stepSize).coerceIn(currentValueRange.start, currentValueRange.endInclusive)
     }
-
-    val trackBackdrop = rememberLayerBackdrop()
 
     BoxWithConstraints(
         modifier.fillMaxWidth().height(32.dp),
@@ -130,7 +124,7 @@ public fun LiquidGlassSlider(
                 valueRange = valueRange,
                 visibilityThreshold = (span * 0.002f).coerceAtLeast(1e-4f),
                 initialScale = 1f,
-                pressedScale = 1.45f,
+                pressedScale = 1.35f,
                 onDragStarted = {},
                 onDragStopped = {
                     if (didDrag) {
@@ -160,7 +154,7 @@ public fun LiquidGlassSlider(
                 }
         }
 
-        Box(Modifier.layerBackdrop(trackBackdrop)) {
+        Box {
             Box(
                 Modifier
                     .clip(ContinuousCapsule)
@@ -196,77 +190,75 @@ public fun LiquidGlassSlider(
             )
         }
 
-        Box(
-            Modifier
-                .graphicsLayer {
-                    translationX =
-                        (-size.width / 2f + trackWidth * dampedDragAnimation.progress.fastCoerceIn(0f, 1f))
-                            .fastCoerceIn(-size.width / 4f, (trackWidth - size.width * 3f / 4f).coerceAtLeast(-size.width / 4f)) * if (isLtr) 1f else -1f
-                }
-                .then(dampedDragAnimation.modifier)
-                .drawBackdrop(
-                    backdrop = rememberCombinedBackdrop(
-                        resolvedBackdrop,
-                        rememberBackdrop(trackBackdrop) { drawBackdrop ->
+        val thumbMotion: Modifier = Modifier
+            .graphicsLayer {
+                translationX =
+                    (-size.width / 2f + trackWidth * dampedDragAnimation.progress.fastCoerceIn(0f, 1f))
+                        .fastCoerceIn(-size.width / 4f, (trackWidth - size.width * 3f / 4f).coerceAtLeast(-size.width / 4f)) * if (isLtr) 1f else -1f
+                scaleX = dampedDragAnimation.scaleX
+                scaleY = dampedDragAnimation.scaleY
+                val velocity = dampedDragAnimation.velocity / 10f
+                scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
+                scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
+            }
+            .then(dampedDragAnimation.modifier)
+
+        if (!insideGlass && quality != GlassQuality.Flat && sharedBackdrop != null) {
+            val allowLens = quality == GlassQuality.Full
+            Box(
+                thumbMotion
+                    .drawBackdrop(
+                        backdrop = sharedBackdrop,
+                        shape = { ContinuousCapsule },
+                        effects = {
                             val progress = dampedDragAnimation.pressProgress
-                            val scaleX = lerp(2f / 3f, 1f, progress)
-                            val scaleY = lerp(0f, 1f, progress)
-                            scale(scaleX, scaleY) {
-                                drawBackdrop()
+                            blur(8f.dp.toPx() * (1f - progress))
+                            if (allowLens) {
+                                lens(
+                                    10f.dp.toPx() * progress,
+                                    14f.dp.toPx() * progress,
+                                    chromaticAberration = true,
+                                )
                             }
                         },
-                    ),
-                    shape = { ContinuousCapsule },
-                    effects = {
-                        val progress = dampedDragAnimation.pressProgress
-                        blur(8f.dp.toPx() * (1f - progress))
-                        lens(
-                            10f.dp.toPx() * progress,
-                            14f.dp.toPx() * progress,
-                            chromaticAberration = true,
-                        )
-                    },
-                    highlight = {
-                        val progress = dampedDragAnimation.pressProgress
-                        Highlight.Ambient.copy(
-                            width = 0.35.dp,
-                            blurRadius = Highlight.Ambient.blurRadius / 1.5f,
-                            alpha = (0.28f + 0.35f * progress).coerceIn(0f, 0.65f),
-                        )
-                    },
-                    shadow = {
-                        Shadow(
-                            radius = 5f.dp,
-                            color = Color.Black.copy(alpha = 0.12f),
-                        )
-                    },
-                    innerShadow = {
-                        val progress = dampedDragAnimation.pressProgress
-                        InnerShadow(
-                            radius = 4f.dp * progress,
-                            alpha = progress * 0.7f,
-                        )
-                    },
-                    layerBlock = {
-                        scaleX = dampedDragAnimation.scaleX
-                        scaleY = dampedDragAnimation.scaleY
-                        val velocity = dampedDragAnimation.velocity / 10f
-                        scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
-                        scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
-                    },
-                    onDrawSurface = {
-                        val progress = dampedDragAnimation.pressProgress
-                        drawRect(colors.raisedFill.copy(alpha = (0.85f - progress * 0.70f).coerceIn(0.15f, 0.85f)))
-                    },
-                )
-                .size(40f.dp, 24f.dp),
-        )
+                        highlight = {
+                            val progress = dampedDragAnimation.pressProgress
+                            Highlight.Ambient.copy(
+                                width = 0.35.dp,
+                                blurRadius = Highlight.Ambient.blurRadius / 1.5f,
+                                alpha = (0.28f + 0.35f * progress).coerceIn(0f, 0.65f),
+                            )
+                        },
+                        shadow = if (shadowsEnabled) {
+                            { Shadow(radius = 5f.dp, color = Color.Black.copy(alpha = 0.12f)) }
+                        } else null,
+                        innerShadow = {
+                            val progress = dampedDragAnimation.pressProgress
+                            InnerShadow(radius = 4f.dp * progress, alpha = progress * 0.7f)
+                        },
+                        onDrawSurface = {
+                            val progress = dampedDragAnimation.pressProgress
+                            drawRect(colors.raisedFill.copy(alpha = (0.90f - progress * 0.60f).coerceIn(0.30f, 0.90f)))
+                        },
+                    )
+                    .size(40f.dp, 24f.dp),
+            )
+        } else {
+            Box(
+                thumbMotion
+                    .then(
+                        if (shadowsEnabled) Modifier.shadow(4.dp, ContinuousCapsule, clip = false) else Modifier,
+                    )
+                    .clip(ContinuousCapsule)
+                    .background(colors.raisedFill)
+                    .size(36f.dp, 22f.dp),
+            )
+        }
     }
 }
 
 /**
- * Prebuilt Kyant0/AndroidLiquidGlass LiquidToggle with DampedDragAnimation, trackBackdrop refraction,
- * and OpenLeaf theme integration.
+ * Toggle switch without per-component LayerBackdrop or glass-inside-glass stacking.
  */
 @Composable
 public fun LiquidGlassToggle(
@@ -275,12 +267,13 @@ public fun LiquidGlassToggle(
     modifier: Modifier = Modifier,
 ) {
     val colors = LiquidGlassTheme.colors
+    val quality = LiquidGlassTheme.quality
+    val insideGlass = LocalInsideGlass.current
+    val shadowsEnabled = LocalGlassShadows.current
     val accentColor = colors.accent
     val trackColor = colors.contentMuted.copy(alpha = 0.26f)
     val sceneBackdrops = LocalGlassBackdrops.current
-    val layer = LocalGlassLayer.current
-    val resolvedBackdrop = (if (layer == GlassLayer.Overlay) sceneBackdrops?.overlay else sceneBackdrops?.background)
-        ?: emptyBackdrop()
+    val sharedBackdrop = sceneBackdrops?.background
 
     val density = LocalDensity.current
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
@@ -297,7 +290,7 @@ public fun LiquidGlassToggle(
             valueRange = 0f..1f,
             visibilityThreshold = 0.001f,
             initialScale = 1f,
-            pressedScale = 1.5f,
+            pressedScale = 1.35f,
             onDragStarted = {},
             onDragStopped = {
                 if (didDrag) {
@@ -334,15 +327,12 @@ public fun LiquidGlassToggle(
         }
     }
 
-    val trackBackdrop = rememberLayerBackdrop()
-
     Box(
         modifier,
         contentAlignment = Alignment.CenterStart,
     ) {
         Box(
             Modifier
-                .layerBackdrop(trackBackdrop)
                 .clip(ContinuousCapsule)
                 .drawBehind {
                     val f = dampedDragAnimation.value.fastCoerceIn(0f, 1f)
@@ -351,81 +341,78 @@ public fun LiquidGlassToggle(
                 .size(64f.dp, 28f.dp),
         )
 
-        Box(
-            Modifier
-                .graphicsLayer {
-                    val f = dampedDragAnimation.value.fastCoerceIn(0f, 1f)
-                    val padding = 2f.dp.toPx()
-                    translationX =
-                        if (isLtr) lerp(padding, padding + dragWidth, f)
-                        else lerp(-padding, -(padding + dragWidth), f)
-                }
-                .semantics {
-                    role = Role.Switch
-                }
-                .then(dampedDragAnimation.modifier)
-                .drawBackdrop(
-                    backdrop = rememberCombinedBackdrop(
-                        resolvedBackdrop,
-                        rememberBackdrop(trackBackdrop) { drawBackdrop ->
+        val thumbBase = Modifier
+            .graphicsLayer {
+                val f = dampedDragAnimation.value.fastCoerceIn(0f, 1f)
+                val padding = 2f.dp.toPx()
+                translationX =
+                    if (isLtr) lerp(padding, padding + dragWidth, f)
+                    else lerp(-padding, -(padding + dragWidth), f)
+                scaleX = dampedDragAnimation.scaleX
+                scaleY = dampedDragAnimation.scaleY
+                val velocity = dampedDragAnimation.velocity / 50f
+                scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
+                scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
+            }
+            .semantics {
+                role = Role.Switch
+            }
+            .then(dampedDragAnimation.modifier)
+
+        if (!insideGlass && quality != GlassQuality.Flat && sharedBackdrop != null) {
+            val allowLens = quality == GlassQuality.Full
+            Box(
+                thumbBase
+                    .drawBackdrop(
+                        backdrop = sharedBackdrop,
+                        shape = { ContinuousCapsule },
+                        effects = {
                             val progress = dampedDragAnimation.pressProgress
-                            val scaleX = lerp(2f / 3f, 0.75f, progress)
-                            val scaleY = lerp(0f, 0.75f, progress)
-                            scale(scaleX, scaleY) {
-                                drawBackdrop()
+                            blur(8f.dp.toPx() * (1f - progress))
+                            if (allowLens) {
+                                lens(
+                                    5f.dp.toPx() * progress,
+                                    10f.dp.toPx() * progress,
+                                    chromaticAberration = true,
+                                )
                             }
                         },
-                    ),
-                    shape = { ContinuousCapsule },
-                    effects = {
-                        val progress = dampedDragAnimation.pressProgress
-                        blur(8f.dp.toPx() * (1f - progress))
-                        lens(
-                            5f.dp.toPx() * progress,
-                            10f.dp.toPx() * progress,
-                            chromaticAberration = true,
-                        )
-                    },
-                    highlight = {
-                        val progress = dampedDragAnimation.pressProgress
-                        Highlight.Ambient.copy(
-                            width = 0.35.dp,
-                            blurRadius = Highlight.Ambient.blurRadius / 1.5f,
-                            alpha = (0.28f + 0.35f * progress).coerceIn(0f, 0.65f),
-                        )
-                    },
-                    shadow = {
-                        Shadow(
-                            radius = 5f.dp,
-                            color = Color.Black.copy(alpha = 0.12f),
-                        )
-                    },
-                    innerShadow = {
-                        val progress = dampedDragAnimation.pressProgress
-                        InnerShadow(
-                            radius = 4f.dp * progress,
-                            alpha = progress * 0.7f,
-                        )
-                    },
-                    layerBlock = {
-                        scaleX = dampedDragAnimation.scaleX
-                        scaleY = dampedDragAnimation.scaleY
-                        val velocity = dampedDragAnimation.velocity / 50f
-                        scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
-                        scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
-                    },
-                    onDrawSurface = {
-                        val progress = dampedDragAnimation.pressProgress
-                        drawRect(colors.raisedFill.copy(alpha = (0.85f - progress * 0.70f).coerceIn(0.15f, 0.85f)))
-                    },
-                )
-                .size(40f.dp, 24f.dp),
-        )
+                        highlight = {
+                            val progress = dampedDragAnimation.pressProgress
+                            Highlight.Ambient.copy(
+                                width = 0.35.dp,
+                                blurRadius = Highlight.Ambient.blurRadius / 1.5f,
+                                alpha = (0.28f + 0.35f * progress).coerceIn(0f, 0.65f),
+                            )
+                        },
+                        shadow = if (shadowsEnabled) {
+                            { Shadow(radius = 5f.dp, color = Color.Black.copy(alpha = 0.12f)) }
+                        } else null,
+                        innerShadow = {
+                            val progress = dampedDragAnimation.pressProgress
+                            InnerShadow(radius = 4f.dp * progress, alpha = progress * 0.7f)
+                        },
+                        onDrawSurface = {
+                            val progress = dampedDragAnimation.pressProgress
+                            drawRect(colors.raisedFill.copy(alpha = (0.90f - progress * 0.60f).coerceIn(0.30f, 0.90f)))
+                        },
+                    )
+                    .size(40f.dp, 24f.dp),
+            )
+        } else {
+            Box(
+                thumbBase
+                    .then(if (shadowsEnabled) Modifier.shadow(3.dp, ContinuousCapsule, clip = false) else Modifier)
+                    .clip(ContinuousCapsule)
+                    .background(colors.raisedFill)
+                    .size(40f.dp, 24f.dp),
+            )
+        }
     }
 }
 
 /**
- * Prebuilt Kyant0/AndroidLiquidGlass LiquidButton with InteractiveHighlight shader and elastic tanh drag physics.
+ * Interactive button using the shared window backdrop and honoring [LocalInsideGlass] and [GlassQuality].
  */
 @Composable
 public fun LiquidButton(
@@ -437,66 +424,69 @@ public fun LiquidButton(
     content: @Composable RowScope.() -> Unit,
 ) {
     val colors = LiquidGlassTheme.colors
+    val quality = LiquidGlassTheme.quality
+    val insideGlass = LocalInsideGlass.current
     val sceneBackdrops = LocalGlassBackdrops.current
-    val layer = LocalGlassLayer.current
-    val resolvedBackdrop = (if (layer == GlassLayer.Overlay) sceneBackdrops?.overlay else sceneBackdrops?.background)
-        ?: emptyBackdrop()
+    val sharedBackdrop = sceneBackdrops?.background
     val resolvedSurface = if (surfaceColor.isSpecified) surfaceColor else colors.glassFillStrong
 
     val animationScope = rememberCoroutineScope()
     val interactiveHighlight = remember(animationScope) {
-        KyantInteractiveHighlight(
-            animationScope = animationScope,
+        KyantInteractiveHighlight(animationScope = animationScope)
+    }
+
+    val shape = GlassDefaults.pillShape()
+    val useBackdrop = !insideGlass && quality != GlassQuality.Flat && sharedBackdrop != null
+    val allowLens = quality == GlassQuality.Full
+
+    val visualModifier = if (useBackdrop && sharedBackdrop != null) {
+        Modifier.drawBackdrop(
+            backdrop = sharedBackdrop,
+            shape = { shape },
+            effects = {
+                vibrancy()
+                blur(4f.dp.toPx())
+                if (allowLens) {
+                    lens(10f.dp.toPx(), 20f.dp.toPx())
+                }
+            },
+            layerBlock = if (isInteractive) {
+                {
+                    val width = size.width.coerceAtLeast(1f)
+                    val height = size.height.coerceAtLeast(1f)
+                    val progress = interactiveHighlight.pressProgress
+                    val scale = lerp(1f, 1f + 4f.dp.toPx() / height, progress)
+
+                    val maxOffset = size.minDimension.coerceAtLeast(1f)
+                    val offset = interactiveHighlight.offset
+                    translationX = maxOffset * tanh(0.05f * offset.x / maxOffset)
+                    translationY = maxOffset * tanh(0.05f * offset.y / maxOffset)
+
+                    val maxDragScale = 4f.dp.toPx() / height
+                    val offsetAngle = atan2(offset.y, offset.x)
+                    scaleX = scale + maxDragScale * abs(cos(offsetAngle) * offset.x / size.maxDimension.coerceAtLeast(1f)) * (width / height).fastCoerceAtMost(1f)
+                    scaleY = scale + maxDragScale * abs(sin(offsetAngle) * offset.y / size.maxDimension.coerceAtLeast(1f)) * (height / width).fastCoerceAtMost(1f)
+                }
+            } else null,
+            onDrawSurface = {
+                if (tint.isSpecified) {
+                    drawRect(tint, blendMode = BlendMode.Hue)
+                    drawRect(tint.copy(alpha = 0.78f))
+                }
+                if (resolvedSurface.isSpecified) {
+                    drawRect(resolvedSurface)
+                }
+            },
         )
+    } else {
+        Modifier
+            .clip(shape)
+            .background(if (tint.isSpecified) tint.copy(alpha = 0.85f) else resolvedSurface)
     }
 
     Row(
         modifier
-            .drawBackdrop(
-                backdrop = resolvedBackdrop,
-                shape = { ContinuousCapsule },
-                effects = {
-                    vibrancy()
-                    blur(4f.dp.toPx())
-                    lens(10f.dp.toPx(), 20f.dp.toPx())
-                },
-                layerBlock = if (isInteractive) {
-                    {
-                        val width = size.width.coerceAtLeast(1f)
-                        val height = size.height.coerceAtLeast(1f)
-                        val progress = interactiveHighlight.pressProgress
-                        val scale = lerp(1f, 1f + 4f.dp.toPx() / height, progress)
-
-                        val maxOffset = size.minDimension.coerceAtLeast(1f)
-                        val initialDerivative = 0.05f
-                        val offset = interactiveHighlight.offset
-                        translationX = maxOffset * tanh(initialDerivative * offset.x / maxOffset)
-                        translationY = maxOffset * tanh(initialDerivative * offset.y / maxOffset)
-
-                        val maxDragScale = 4f.dp.toPx() / height
-                        val offsetAngle = atan2(offset.y, offset.x)
-                        scaleX =
-                            scale +
-                                maxDragScale * abs(cos(offsetAngle) * offset.x / size.maxDimension.coerceAtLeast(1f)) *
-                                (width / height).fastCoerceAtMost(1f)
-                        scaleY =
-                            scale +
-                                maxDragScale * abs(sin(offsetAngle) * offset.y / size.maxDimension.coerceAtLeast(1f)) *
-                                (height / width).fastCoerceAtMost(1f)
-                    }
-                } else {
-                    null
-                },
-                onDrawSurface = {
-                    if (tint.isSpecified) {
-                        drawRect(tint, blendMode = BlendMode.Hue)
-                        drawRect(tint.copy(alpha = 0.75f))
-                    }
-                    if (resolvedSurface.isSpecified) {
-                        drawRect(resolvedSurface)
-                    }
-                },
-            )
+            .then(visualModifier)
             .clickable(
                 interactionSource = null,
                 indication = if (isInteractive) null else LocalIndication.current,

@@ -34,12 +34,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -71,26 +74,25 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.pronotes.app.data.AccentColor
 import com.pronotes.app.data.Flashcard
 import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.data.QuizQuestion
 import com.pronotes.app.library.PaperPreview
-import com.pronotes.app.ui.LiquidGlassCard
-import com.pronotes.app.ui.LiquidGlassChip
-import com.pronotes.app.ui.LiquidGlassDialog
-import com.pronotes.app.ui.LiquidGlassDialogSurface
-import com.pronotes.app.ui.LiquidSlider
-import com.pronotes.app.ui.LocalGlassTransparency
-import com.pronotes.app.ui.openLeafGlassColors
-import io.github.ntvien.liquidglass.GlassDefaults
-import io.github.ntvien.liquidglass.GlassLook
-import io.github.ntvien.liquidglass.LiquidGlassTheme
-import io.github.ntvien.liquidglass.component.LiquidMenuButton
-import io.github.ntvien.liquidglass.component.LiquidMenuDivider
-import io.github.ntvien.liquidglass.component.LiquidMenuItem
-import io.github.ntvien.liquidglass.component.LiquidSegmentedControl
-import io.github.ntvien.liquidglass.component.LiquidSurface
+import com.pronotes.app.ui.GlassCard
+import com.pronotes.app.ui.GlassChip
+import com.pronotes.app.ui.GlassDialog
+import com.pronotes.app.ui.GlassDialogSurface
+import com.pronotes.app.ui.GlassMenuButton
+import com.pronotes.app.ui.GlassMenuDivider
+import com.pronotes.app.ui.GlassMenuItem
+import com.pronotes.app.ui.GlassRole
+import com.pronotes.app.ui.GlassSegmentedControl
+import com.pronotes.app.ui.GlassSlider
+import com.pronotes.app.ui.GlassSurface
+import com.pronotes.app.ui.GlassThemeOverride
+import com.pronotes.app.ui.LocalSmartFeatures
+import com.pronotes.app.ui.glassCardShape
+import com.pronotes.app.ui.glassPillShape
 import java.util.UUID
 
 private val Pill = CircleShape
@@ -100,7 +102,7 @@ fun CardEditorDialog(vm: EditorViewModel, draft: EditorViewModel.CardDraft) {
     var front by remember(draft) { mutableStateOf(draft.card.front) }
     var back by remember(draft) { mutableStateOf(draft.card.back) }
     val picture = remember(draft) { vm.cardImage(draft.card.frontImage) }
-    LiquidGlassDialog(
+    GlassDialog(
         onDismissRequest = { vm.cardDraft = null },
         title = { Text(if (draft.isNew) "New flashcard" else "Edit flashcard") },
         text = {
@@ -122,7 +124,7 @@ fun CardEditorDialog(vm: EditorViewModel, draft: EditorViewModel.CardDraft) {
                     Image(it.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp).clip(RoundedCornerShape(14.dp)))
                 }
                 OutlinedTextField(back, { back = it }, minLines = 3, shape = RoundedCornerShape(16.dp), placeholder = { Text("Answer") }, modifier = Modifier.fillMaxWidth())
-                TextButton(onClick = { vm.captureBack(draft.copy(card = draft.card.copy(front = front, back = back))) }) { Text("✂  Take the answer from the page") }
+                TextButton(onClick = { vm.captureBack(draft.copy(card = draft.card.copy(front = front, back = back))) }) { Text("Cut the answer from the page") }
             }
         },
         confirmButton = {
@@ -159,9 +161,6 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
         secondaryContainer = Color(0xFF172554),
         onSecondaryContainer = Color(0xFFBAE6FD),
     )
-    val transparency = LocalGlassTransparency.current
-    val cosmicGlass = remember(transparency) { openLeafGlassColors(dark = true, accent = AccentColor.BLUE, transparency = transparency) }
-
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(
             Modifier.fillMaxSize()
@@ -170,48 +169,48 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                 .padding(18.dp),
             contentAlignment = Alignment.Center,
         ) {
-            LiquidGlassTheme(colors = cosmicGlass, look = GlassLook.Auto) {
-                LiquidGlassDialogSurface(
-                    shape = RoundedCornerShape(28.dp),
-                    modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 800.dp).statusBarsPadding()
-                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
-                ) {
-                    MaterialTheme(colorScheme = cosmicScheme) {
+            MaterialTheme(colorScheme = cosmicScheme) {
+                GlassThemeOverride(dark = true) {
+                    GlassDialogSurface(
+                        shape = glassCardShape(),
+                        modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 800.dp).statusBarsPadding()
+                            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
+                    ) {
                         Box(Modifier.background(Color(0xD9050916))) {
-                    AiParticleBackdrop(
-                        modifier = Modifier.matchParentSize(),
-                        accentColors = listOf(Color(0xFF38BDF8), Color(0xFF6366F1)),
-                        active = vm.aiBusy || studying,
-                        variant = if (vm.aiBusy) AiBackdropVariant.AI_WAVE else AiBackdropVariant.SPACE_NEBULA,
-                    )
-                    if (studying) {
-                        val deck = if (studyAll) vm.cards else vm.dueCards()
-                        StudyView(vm, deck, onDone = { studying = false })
-                    } else {
-                        val due = vm.dueCards().size
-                        val mastered = vm.cards.count { it.box >= 4 }
-                        val learning = vm.cards.size - mastered
-                        Column(Modifier.padding(20.dp)) {
-                            StudyHero("Flashcards Studio", "${vm.cards.size} cards · powered by ${vm.aiEngineLabel}", StudyColors.cards, "🃏") {
-                                TextButton(onClick = onClose) { Text("Close", color = Color.White) }
-                            }
-                    Spacer(Modifier.height(12.dp))
+                            AiParticleBackdrop(
+                                modifier = Modifier.matchParentSize(),
+                                accentColors = listOf(Color(0xFF38BDF8), Color(0xFF6366F1)),
+                                active = vm.aiBusy || studying,
+                                variant = if (vm.aiBusy) AiBackdropVariant.AI_WAVE else AiBackdropVariant.SPACE_NEBULA,
+                            )
+                            if (studying) {
+                                val deck = if (studyAll) vm.cards else vm.dueCards()
+                                StudyView(vm, deck, onDone = { studying = false })
+                            } else {
+                                val due = vm.dueCards().size
+                                val mastered = vm.cards.count { it.box >= 4 }
+                                val learning = vm.cards.size - mastered
+                                Column(Modifier.padding(20.dp)) {
+                                    StudyHero("Flashcards Studio", "${vm.cards.size} cards · powered by ${vm.aiEngineLabel}", StudyColors.cards, "FC") {
+                                        TextButton(onClick = onClose) { Text("Close", color = Color.White) }
+                                    }
+                                    Spacer(Modifier.height(12.dp))
 
-                    // Stats Strip
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatChip("Total", "${vm.cards.size}", MaterialTheme.colorScheme.primary, Modifier.weight(1f))
-                        StatChip("Due", "$due", Color(0xFFD97706), Modifier.weight(1f))
-                        StatChip("Mastered", "$mastered", Color(0xFF1BAF7A), Modifier.weight(1f))
-                        StatChip("Learning", "$learning", Color(0xFF7161E0), Modifier.weight(1f))
-                    }
-                    Spacer(Modifier.height(10.dp))
+                                    // Stats Strip
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        StatChip("Total", "${vm.cards.size}", MaterialTheme.colorScheme.primary, Modifier.weight(1f))
+                                        StatChip("Due", "$due", Color(0xFFD97706), Modifier.weight(1f))
+                                        StatChip("Mastered", "$mastered", Color(0xFF1BAF7A), Modifier.weight(1f))
+                                        StatChip("Learning", "$learning", Color(0xFF7161E0), Modifier.weight(1f))
+                                    }
+                                    Spacer(Modifier.height(10.dp))
 
-                    LiquidSegmentedControl(
-                        options = listOf("Study Deck", "Manage Cards (${vm.cards.size})"),
-                        selectedIndex = tab,
-                        onSelect = { tab = it },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                                    GlassSegmentedControl(
+                                        options = listOf("Study Deck", "Manage Cards (${vm.cards.size})"),
+                                        selectedIndex = tab,
+                                        onSelect = { tab = it },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
                     Spacer(Modifier.height(12.dp))
 
                     if (vm.aiBusy) {
@@ -238,17 +237,24 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                         Spacer(Modifier.height(12.dp))
                         Text("CREATE OR GENERATE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(6.dp))
+                        val smartFeatures = LocalSmartFeatures.current
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilledTonalButton(onClick = { onClose(); vm.captureForQuiz = false; vm.capturingCard = true }, shape = Pill) { Text("✂ Cut from page") }
-                            OutlinedButton(onClick = { vm.newTextCard() }, shape = Pill) { Text("Aa Text card") }
-                            OutlinedButton(onClick = { vm.generateCards(false) }, shape = Pill) { Text("✦ AI · This page") }
-                            OutlinedButton(onClick = { vm.generateCards(true) }, shape = Pill) { Text("✦ AI · Whole notebook") }
+                            FilledTonalButton(onClick = { onClose(); vm.captureForQuiz = false; vm.capturingCard = true }, shape = Pill) { Text("Cut from page") }
+                            OutlinedButton(onClick = { vm.newTextCard() }, shape = Pill) { Text("Text card") }
+                            if (smartFeatures) {
+                                OutlinedButton(onClick = { vm.generateCards(false) }, shape = Pill) { Text("AI · This page") }
+                                OutlinedButton(onClick = { vm.generateCards(true) }, shape = Pill) { Text("AI · Whole notebook") }
+                            }
                         }
                         Spacer(Modifier.height(14.dp))
                         if (vm.cards.isEmpty()) {
-                            LiquidGlassCard(hero = false, shape = RoundedCornerShape(20.dp), contentPadding = PaddingValues(18.dp), modifier = Modifier.fillMaxWidth()) {
+                            GlassCard(hero = false, shape = glassCardShape(), contentPadding = PaddingValues(18.dp), modifier = Modifier.fillMaxWidth()) {
                                 Text(
-                                    "Your deck is empty. Tap \"AI · This page\" to extract definitions & Q/A automatically, or cut any area directly from your notes.",
+                                    if (smartFeatures) {
+                                        "Your deck is empty. Tap \"AI · This page\" to extract definitions & Q/A automatically, or cut any area directly from your notes."
+                                    } else {
+                                        "Your deck is empty. Cut any area directly from your notes or create a text card manually."
+                                    },
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
@@ -269,7 +275,7 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                         )
                         Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             listOf("All", "Due", "Mastered").forEachIndexed { idx, label ->
-                                LiquidGlassChip(filter == idx, { filter = idx }, label)
+                                GlassChip(filter == idx, { filter = idx }, label)
                             }
                             Spacer(Modifier.weight(1f))
                             if (vm.cards.isNotEmpty()) {
@@ -305,11 +311,12 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
 
 @Composable
 private fun StatChip(label: String, value: String, tint: Color, modifier: Modifier = Modifier) {
-    LiquidSurface(
-        style = GlassDefaults.frost().copy(fallbackSurface = tint.copy(alpha = 0.14f)),
-        shape = RoundedCornerShape(16.dp),
+    GlassSurface(
+        role = GlassRole.Frost,
+        containerColor = tint.copy(alpha = 0.14f),
+        shape = glassCardShape(),
         contentPadding = PaddingValues(vertical = 8.dp, horizontal = 10.dp),
-        modifier = modifier.border(1.dp, tint.copy(alpha = 0.28f), RoundedCornerShape(16.dp)),
+        modifier = modifier.border(1.dp, tint.copy(alpha = 0.28f), glassCardShape()),
     ) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(value, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = tint)
@@ -321,9 +328,9 @@ private fun StatChip(label: String, value: String, tint: Color, modifier: Modifi
 @Composable
 private fun CardRow(vm: EditorViewModel, c: Flashcard, onShow: () -> Unit) {
     val pic = remember(c.frontImage) { vm.cardImage(c.frontImage) }
-    LiquidGlassCard(
+    GlassCard(
         hero = false,
-        shape = RoundedCornerShape(18.dp),
+        shape = glassCardShape(),
         contentPadding = PaddingValues(10.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -340,19 +347,17 @@ private fun CardRow(vm: EditorViewModel, c: Flashcard, onShow: () -> Unit) {
                     if (c.lapses > 0) Text("· ${c.lapses} lapses", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                 }
             }
-            LiquidMenuButton(
+            GlassMenuButton(
                 items = buildList {
-                    add(LiquidMenuItem("Edit", Icons.Outlined.Edit) { vm.cardDraft = EditorViewModel.CardDraft(c, false) })
-                    if (c.pageId != null) add(LiquidMenuItem("Show in notebook", Icons.Outlined.Visibility) { onShow() })
-                    add(LiquidMenuDivider)
-                    add(LiquidMenuItem("Delete", Icons.Outlined.Delete, destructive = true) { vm.deleteCard(c.id) })
+                    add(GlassMenuItem("Edit", Icons.Outlined.Edit) { vm.cardDraft = EditorViewModel.CardDraft(c, false) })
+                    if (c.pageId != null) add(GlassMenuItem("Show in notebook", Icons.Outlined.Visibility) { onShow() })
+                    add(GlassMenuDivider)
+                    add(GlassMenuItem("Delete", Icons.Outlined.Delete, destructive = true) { vm.deleteCard(c.id) })
                 },
                 contentDescription = "Card options",
-                style = GlassDefaults.frost(),
-                shape = GlassDefaults.PillShape,
                 menuWidth = 210.dp,
             ) {
-                Text("•••", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+                Icon(Icons.Outlined.MoreHoriz, "Card options", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
             }
         }
     }
@@ -385,8 +390,8 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
             val pct = if (total == 0) 100 else known * 100 / total
             Spacer(Modifier.height(10.dp))
             ScoreRing(pct, StudyColors.cards)
-            val (emoji, line) = feedbackFor(pct)
-            Text("$emoji  Session done", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 14.dp))
+            val (grade, line) = feedbackFor(pct)
+            Text("$grade  Session done", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 14.dp))
             Text(line, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
             Text("$known of $total recalled · ${clock(elapsed)}", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp))
             Button(onClick = onDone, shape = Pill) { Text("Finish") }
@@ -395,11 +400,10 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
 
         val turn by animateFloatAsState(if (flipped) 180f else 0f, tween(420), label = "flip")
         val pic = remember(card.id) { vm.cardImage(card.frontImage) }
-        LiquidSurface(
-            style = GlassDefaults.frost().copy(
-                fallbackSurface = MaterialTheme.colorScheme.primaryContainer.copy(alpha = if (turn > 90f) 0.72f else 0.92f),
-            ),
-            shape = RoundedCornerShape(26.dp),
+        GlassSurface(
+            role = GlassRole.Frost,
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = if (turn > 90f) 0.72f else 0.92f),
+            shape = glassCardShape(),
             contentPadding = PaddingValues(22.dp),
             onClick = { flipped = !flipped },
             modifier = Modifier.fillMaxWidth().heightIn(min = 270.dp, max = 460.dp)
@@ -459,8 +463,8 @@ fun LinkSheet(vm: EditorViewModel) {
                 .padding(24.dp),
             contentAlignment = Alignment.Center,
         ) {
-            LiquidGlassDialogSurface(
-                shape = RoundedCornerShape(28.dp),
+            GlassDialogSurface(
+                shape = glassCardShape(),
                 modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth().heightIn(max = 640.dp)
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
             ) {
@@ -468,7 +472,7 @@ fun LinkSheet(vm: EditorViewModel) {
                     Text("Add link", style = MaterialTheme.typography.headlineSmall)
                     Text("Tap the linked content with a finger to follow it. Long-press its blue badge to remove.", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(12.dp))
-                    LiquidSegmentedControl(
+                    GlassSegmentedControl(
                         options = listOf("Page", "Website"),
                         selectedIndex = tab,
                         onSelect = { tab = it },
@@ -481,7 +485,7 @@ fun LinkSheet(vm: EditorViewModel) {
                             Modifier.weight(1f, fill = false),
                             horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            items(vm.pages.size) { i ->
+                            items(vm.pages.size, key = { vm.pages[it].id }) { i ->
                                 val thumb by produceState<android.graphics.Bitmap?>(null, i) { value = vm.thumbnail(i, 200) }
                                 val current = i == vm.pageIndex
                                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { vm.linkToPage(i) }) {
@@ -528,8 +532,6 @@ fun QuizDialog(vm: EditorViewModel, onClose: () -> Unit) {
         secondaryContainer = Color(0xFF172554),
         onSecondaryContainer = Color(0xFFBAE6FD),
     )
-    val transparency = LocalGlassTransparency.current
-    val cosmicGlass = remember(transparency) { openLeafGlassColors(dark = true, accent = AccentColor.BLUE, transparency = transparency) }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         val order = taking
         val isStartScreen = order == null
@@ -540,32 +542,32 @@ fun QuizDialog(vm: EditorViewModel, onClose: () -> Unit) {
                 .padding(18.dp),
             contentAlignment = Alignment.Center,
         ) {
-            LiquidGlassTheme(colors = if (isStartScreen) cosmicGlass else LiquidGlassTheme.colors, look = GlassLook.Auto) {
-                LiquidGlassDialogSurface(
-                    shape = RoundedCornerShape(28.dp),
-                    modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 820.dp).statusBarsPadding()
-                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
-                ) {
-                    Box(Modifier.then(if (isStartScreen) Modifier.background(Color(0xD9050916)) else Modifier)) {
-                        AiParticleBackdrop(
-                            modifier = Modifier.matchParentSize(),
-                            accentColors = if (isStartScreen) listOf(Color(0xFF38BDF8), Color(0xFF6366F1)) else StudyColors.quiz,
-                            active = vm.aiBusy || order != null,
-                            variant = when {
-                                vm.aiBusy -> AiBackdropVariant.AI_WAVE
-                                order == null -> AiBackdropVariant.SPACE_NEBULA
-                                else -> AiBackdropVariant.QUIZ_CHALLENGE
-                            },
-                        )
-                        if (order != null) TakeQuiz(vm, order, onDone = { taking = null }, onRetry = { taking = it })
-                        else MaterialTheme(colorScheme = cosmicScheme) {
-                            Column(Modifier.padding(20.dp)) {
+            MaterialTheme(colorScheme = if (isStartScreen) cosmicScheme else baseScheme) {
+                GlassThemeOverride(dark = if (isStartScreen) true else null) {
+                    GlassDialogSurface(
+                        shape = glassCardShape(),
+                        modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 820.dp).statusBarsPadding()
+                            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
+                    ) {
+                        Box(Modifier.then(if (isStartScreen) Modifier.background(Color(0xD9050916)) else Modifier)) {
+                            AiParticleBackdrop(
+                                modifier = Modifier.matchParentSize(),
+                                accentColors = if (isStartScreen) listOf(Color(0xFF38BDF8), Color(0xFF6366F1)) else StudyColors.quiz,
+                                active = vm.aiBusy || order != null,
+                                variant = when {
+                                    vm.aiBusy -> AiBackdropVariant.AI_WAVE
+                                    order == null -> AiBackdropVariant.SPACE_NEBULA
+                                    else -> AiBackdropVariant.QUIZ_CHALLENGE
+                                },
+                            )
+                            if (order != null) TakeQuiz(vm, order, onDone = { taking = null }, onRetry = { taking = it })
+                            else Column(Modifier.padding(20.dp)) {
                                 val best = vm.quizBest()
                                 StudyHero(
                                     "Quiz Studio",
                                     "${vm.quiz.size} questions" + (best?.let { " · best ${it.first}% in ${clock(it.second)}" } ?: " · ${vm.aiEngineLabel}"),
                                     StudyColors.quiz,
-                                    "🎯",
+                                    "QZ",
                                 ) {
                                     TextButton(onClick = onClose) { Text("Close", color = Color.White) }
                                 }
@@ -575,11 +577,14 @@ fun QuizDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                     modifier = Modifier.fillMaxWidth().height(52.dp),
                                 ) { Text(if (vm.quiz.isEmpty()) "Add or generate questions below" else "Start Timed Quiz · ${vm.quiz.size} Qs", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
                                 Spacer(Modifier.height(10.dp))
+                                val smartFeatures = LocalSmartFeatures.current
                                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    OutlinedButton(onClick = { editing = QuizQuestion(UUID.randomUUID().toString(), "", listOf("", "", "", ""), 0) }, shape = Pill) { Text("✎ Write question") }
-                                    FilledTonalButton(onClick = { onClose(); vm.captureForQuiz = true; vm.capturingCard = true }, shape = Pill) { Text("🖼 From picture") }
-                                    OutlinedButton(onClick = { vm.generateQuiz(false) }, shape = Pill) { Text("✦ AI · This page") }
-                                    OutlinedButton(onClick = { vm.generateQuiz(true) }, shape = Pill) { Text("✦ AI · Whole notebook") }
+                                    OutlinedButton(onClick = { editing = QuizQuestion(UUID.randomUUID().toString(), "", listOf("", "", "", ""), 0) }, shape = Pill) { Text("Write question") }
+                                    FilledTonalButton(onClick = { onClose(); vm.captureForQuiz = true; vm.capturingCard = true }, shape = Pill) { Text("From picture") }
+                                    if (smartFeatures) {
+                                        OutlinedButton(onClick = { vm.generateQuiz(false) }, shape = Pill) { Text("AI · This page") }
+                                        OutlinedButton(onClick = { vm.generateQuiz(true) }, shape = Pill) { Text("AI · Whole notebook") }
+                                    }
                                 }
                                 if (vm.aiBusy) {
                                     Spacer(Modifier.height(10.dp))
@@ -587,9 +592,13 @@ fun QuizDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                 }
                                 Spacer(Modifier.height(10.dp))
                                 if (vm.quiz.isEmpty()) {
-                                    LiquidGlassCard(hero = false, shape = RoundedCornerShape(20.dp), contentPadding = PaddingValues(18.dp), modifier = Modifier.fillMaxWidth()) {
+                                    GlassCard(hero = false, shape = glassCardShape(), contentPadding = PaddingValues(18.dp), modifier = Modifier.fillMaxWidth()) {
                                         Text(
-                                            "Write your own multiple-choice questions, box a diagram, or let the on-device AI generate practice questions from your notes.",
+                                            if (smartFeatures) {
+                                                "Write your own multiple-choice questions, box a diagram, or let the on-device AI generate practice questions from your notes."
+                                            } else {
+                                                "Write your own multiple-choice questions or box a diagram from your notes."
+                                            },
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }
@@ -597,9 +606,9 @@ fun QuizDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                     LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                         items(vm.quiz, key = { it.id }) { q ->
                                             val pic = remember(q.image) { vm.cardImage(q.image) }
-                                            LiquidGlassCard(
+                                            GlassCard(
                                                 hero = false,
-                                                shape = RoundedCornerShape(18.dp),
+                                                shape = glassCardShape(),
                                                 contentPadding = PaddingValues(12.dp),
                                                 onClick = { editing = q },
                                                 modifier = Modifier.animateItem().fillMaxWidth(),
@@ -613,7 +622,7 @@ fun QuizDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                                         Text(q.question.ifBlank { "Picture question" }, maxLines = 2, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                                                         val tries = q.right + q.wrong
                                                         val stats = if (tries == 0) "New" else "${q.right * 100 / tries}% accuracy ($tries tries)"
-                                                        Text((if (q.generated) "✦ AI · " else "") + stats, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                                        Text((if (q.generated) "AI · " else "") + stats, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                                     }
                                                 }
                                             }
@@ -642,7 +651,7 @@ private fun QuestionEditor(
     var why by remember { mutableStateOf(q.explanation) }
     val pic = remember(q.image) { vm.cardImage(q.image) }
     val exists = vm.quiz.any { it.id == q.id }
-    LiquidGlassDialog(
+    GlassDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (exists) "Edit question" else "New question") },
         text = {
@@ -654,7 +663,7 @@ private fun QuestionEditor(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(answer == i, { answer = i })
                         OutlinedTextField(o, { options[i] = it }, singleLine = true, shape = Pill, placeholder = { Text("Option ${'A' + i}") }, modifier = Modifier.weight(1f))
-                        if (options.size > 2) TextButton(onClick = { options.removeAt(i); if (answer >= options.size) answer = options.size - 1 }) { Text("✕") }
+                        if (options.size > 2) TextButton(onClick = { options.removeAt(i); if (answer >= options.size) answer = options.size - 1 }) { Icon(Icons.Outlined.Close, "Remove option", modifier = Modifier.size(18.dp)) }
                     }
                 }
                 if (options.size < 6) TextButton(onClick = { options.add("") }) { Text("+ Add option") }
@@ -694,12 +703,14 @@ private fun TakeQuiz(vm: EditorViewModel, order: List<String>, onDone: () -> Uni
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(if (!finished) "Question ${index + 1} of ${order.size}" else "Quiz Report", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             if (streak >= 2 && !finished) {
-                LiquidSurface(
-                    style = GlassDefaults.frost().copy(fallbackSurface = Color(0xFFFFE7C2), contentColor = Color(0xFFC25900)),
-                    shape = GlassDefaults.PillShape,
+                GlassSurface(
+                    role = GlassRole.Frost,
+                    containerColor = Color(0xFFFFE7C2),
+                    contentColor = Color(0xFFC25900),
+                    shape = glassPillShape(),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                 ) {
-                    Text("🔥 $streak streak", style = MaterialTheme.typography.labelMedium, color = Color(0xFFC25900), fontWeight = FontWeight.Bold)
+                    Text("$streak streak", style = MaterialTheme.typography.labelMedium, color = Color(0xFFC25900), fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.width(8.dp))
             }
@@ -722,20 +733,20 @@ private fun TakeQuiz(vm: EditorViewModel, order: List<String>, onDone: () -> Uni
             val pct = if (order.isEmpty()) 0 else score * 100 / order.size
             LaunchedEffect(Unit) { newBest = vm.recordQuiz(pct, elapsed) }
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { ScoreRing(pct, StudyColors.quiz) }
-            val (emoji, line) = feedbackFor(pct)
-            Text("$emoji  $line", style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 14.dp))
+            val (grade, line) = feedbackFor(pct)
+            Text("$grade  $line", style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 14.dp))
             Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                 Stat("$score/${order.size}", "correct"); Stat(clock(elapsed), "time"); Stat("$bestStreak", "best streak")
             }
-            if (newBest == true) Text("🏆 New personal best for this notebook!", color = StudyColors.quiz.last(), style = MaterialTheme.typography.labelLarge, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+            if (newBest == true) Text("New personal best for this notebook!", color = StudyColors.quiz.last(), style = MaterialTheme.typography.labelLarge, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
             if (wrong.isNotEmpty()) {
                 Text("MISSED REVIEW", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 14.dp, bottom = 6.dp))
                 wrong.forEach { id ->
                     val q = vm.quiz.firstOrNull { it.id == id } ?: return@forEach
-                    LiquidGlassCard(hero = false, shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(12.dp), modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    GlassCard(hero = false, shape = glassCardShape(), contentPadding = PaddingValues(12.dp), modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                         Column {
                             Text(q.question.ifBlank { "Picture question" }, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                            Text("✓ " + (q.options.getOrNull(q.answer) ?: ""), color = Color(0xFF1BAF7A), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
+                            Text("Answer: " + (q.options.getOrNull(q.answer) ?: ""), color = Color(0xFF1BAF7A), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
                             if (q.explanation.isNotBlank()) Text(q.explanation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
@@ -763,11 +774,10 @@ private fun TakeQuiz(vm: EditorViewModel, order: List<String>, onDone: () -> Uni
                 else -> MaterialTheme.colorScheme.outlineVariant
             }
             val scale by animateFloatAsState(if (shown && i == picked) 1.02f else 1f, spring(dampingRatio = 0.45f), label = "opt")
-            LiquidSurface(
-                style = GlassDefaults.frost().let { st ->
-                    if (shown && (i == q.answer || i == picked)) st.copy(fallbackSurface = color.copy(alpha = 0.16f)) else st
-                },
-                shape = RoundedCornerShape(18.dp),
+            GlassSurface(
+                role = GlassRole.Frost,
+                containerColor = if (shown && (i == q.answer || i == picked)) color.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                shape = glassCardShape(),
                 contentPadding = PaddingValues(13.dp),
                 onClick = if (!shown) {
                     {
@@ -779,11 +789,11 @@ private fun TakeQuiz(vm: EditorViewModel, order: List<String>, onDone: () -> Uni
                     }
                 } else null,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).graphicsLayer { scaleX = scale; scaleY = scale }
-                    .border(1.5.dp, color, RoundedCornerShape(18.dp)),
+                    .border(1.5.dp, color, glassCardShape()),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(30.dp).clip(CircleShape).background(if (shown && (i == q.answer || i == picked)) color else MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-                        Text(if (shown && i == q.answer) "✓" else if (shown && i == picked) "✕" else "${'A' + i}", color = if (shown && (i == q.answer || i == picked)) Color.White else MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelLarge)
+                        Text(if (shown && i == q.answer) "OK" else if (shown && i == picked) "X" else "${'A' + i}", color = if (shown && (i == q.answer || i == picked)) Color.White else MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelLarge)
                     }
                     Spacer(Modifier.width(12.dp))
                     Text(o, style = MaterialTheme.typography.bodyLarge)
@@ -826,8 +836,8 @@ fun TemplateSheet(vm: EditorViewModel, onAiTemplate: () -> Unit = {}, onClose: (
                 .padding(20.dp),
             contentAlignment = Alignment.Center,
         ) {
-            LiquidGlassDialogSurface(
-                shape = RoundedCornerShape(28.dp),
+            GlassDialogSurface(
+                shape = glassCardShape(),
                 modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 820.dp).statusBarsPadding()
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
             ) {
@@ -837,7 +847,7 @@ fun TemplateSheet(vm: EditorViewModel, onAiTemplate: () -> Unit = {}, onClose: (
                         TextButton(onClick = onClose) { Text("Close") }
                     }
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        groups.keys.forEach { g -> LiquidGlassChip(group == g, { group = g }, g) }
+                        groups.keys.forEach { g -> GlassChip(group == g, { group = g }, g) }
                     }
                     Spacer(Modifier.height(12.dp))
                     androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
@@ -845,8 +855,9 @@ fun TemplateSheet(vm: EditorViewModel, onAiTemplate: () -> Unit = {}, onClose: (
                         Modifier.weight(1f, fill = false).heightIn(max = 380.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        items(groups[group].orEmpty().size) { i ->
-                            val p = groups[group].orEmpty()[i]
+                        val templates = groups[group].orEmpty()
+                        items(templates.size, key = { templates[it].name }) { i ->
+                            val p = templates[i]
                             val on = p == style
                             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { style = p }) {
                                 PaperPreview(
@@ -861,7 +872,7 @@ fun TemplateSheet(vm: EditorViewModel, onAiTemplate: () -> Unit = {}, onClose: (
                     }
                     Spacer(Modifier.height(12.dp))
                     Text("LINE SPACING  ${"%.1f".format(scale)}×", style = MaterialTheme.typography.labelSmall)
-                    LiquidSlider(
+                    GlassSlider(
                         value = { scale },
                         onValueChange = { scale = (it * 10).toInt() / 10f },
                         valueRange = 0.6f..2f,
@@ -913,10 +924,10 @@ fun TapePatternPicker(vm: EditorViewModel, onPickImage: () -> Unit) {
                     .clickable { vm.tapePattern = p },
             ) { Image(tile, TapePatterns.label(p), contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
         }
-        LiquidGlassChip(
+        GlassChip(
             selected = vm.tapePattern.startsWith("image:"),
             onClick = onPickImage,
-            label = if (vm.tapePattern.startsWith("image:")) "Picture ✓" else "Your picture…",
+            label = if (vm.tapePattern.startsWith("image:")) "Picture Selected" else "Your picture…",
         )
     }
 }

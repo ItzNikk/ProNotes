@@ -41,7 +41,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -68,17 +68,20 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import com.pronotes.app.ui.LiquidGlassCard
-import com.pronotes.app.ui.LiquidGlassChip
-import com.pronotes.app.ui.LiquidGlassPill
-import com.pronotes.app.ui.LiquidSliderRow
-import com.pronotes.app.ui.LiquidToggle
-import io.github.ntvien.liquidglass.GlassDefaults
-import io.github.ntvien.liquidglass.LiquidGlassScene
-import io.github.ntvien.liquidglass.LiquidGlassTheme
-import io.github.ntvien.liquidglass.component.LiquidMenuButton
-import io.github.ntvien.liquidglass.component.LiquidMenuItem
-import io.github.ntvien.liquidglass.component.LiquidSurface
+import com.pronotes.app.data.InterfaceStyle
+import com.pronotes.app.ui.GlassCard
+import com.pronotes.app.ui.GlassChip
+import com.pronotes.app.ui.GlassMenuButton
+import com.pronotes.app.ui.GlassMenuItem
+import com.pronotes.app.ui.GlassPill
+import com.pronotes.app.ui.GlassRole
+import com.pronotes.app.ui.GlassScene
+import com.pronotes.app.ui.GlassSegmentedControl
+import com.pronotes.app.ui.GlassSliderRow
+import com.pronotes.app.ui.GlassSurface
+import com.pronotes.app.ui.GlassToggle
+import com.pronotes.app.ui.glassCardShape
+import com.pronotes.app.ui.glassPillShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -148,7 +151,7 @@ private val Brand1 = Color(0xFF7161E0)
 private val Brand2 = Color(0xFF2A78D6)
 private val Brand3 = Color(0xFFD55181)
 
-/** Ultra Setup Studio (v9.11): 5-step interactive onboarding for look, workspace, AI engine, and stylus check. */
+/** Setup Studio: 5-step interactive onboarding for look, workspace, study engine, and stylus check. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun WelcomeScreen(onDone: () -> Unit) {
@@ -169,7 +172,7 @@ fun WelcomeScreen(onDone: () -> Unit) {
         onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
     }
 
-    LiquidGlassScene(
+    GlassScene(
         modifier = Modifier.fillMaxSize(),
         background = {
             Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -197,24 +200,20 @@ fun WelcomeScreen(onDone: () -> Unit) {
                 }
             }
             val onVideo = pager.currentPage == 0
-            val barStyle = if (onVideo) {
-                GlassDefaults.frost().copy(fallbackSurface = Color.Black.copy(alpha = 0.36f), contentColor = Color.White)
-            } else {
-                GlassDefaults.control()
-            }
             if (pager.currentPage > 0) {
-                LiquidSurface(
-                    style = barStyle,
-                    shape = GlassDefaults.PillShape,
+                GlassSurface(
+                    role = GlassRole.Control,
+                    containerColor = if (onVideo) Color.Black.copy(alpha = 0.44f) else null,
+                    shape = glassPillShape(),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                     onClick = { back() },
                     modifier = Modifier.align(Alignment.TopStart).safeDrawingPadding().padding(8.dp),
                 ) {
                     Text(
-                        "← Back",
+                        "Back",
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (onVideo) Color.White else LiquidGlassTheme.colors.content,
+                        color = if (onVideo) Color.White else MaterialTheme.colorScheme.onSurface,
                     )
                 }
             }
@@ -234,9 +233,10 @@ fun WelcomeScreen(onDone: () -> Unit) {
                     )
                 }
             }
-            LiquidSurface(
-                style = barStyle,
-                shape = GlassDefaults.PillShape,
+            GlassSurface(
+                role = GlassRole.Control,
+                containerColor = if (onVideo) Color.Black.copy(alpha = 0.44f) else null,
+                shape = glassPillShape(),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                 onClick = { finish() },
                 modifier = Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(8.dp),
@@ -245,7 +245,7 @@ fun WelcomeScreen(onDone: () -> Unit) {
                     "Skip setup",
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
-                    color = if (onVideo) Color.White else LiquidGlassTheme.colors.accent,
+                    color = if (onVideo) Color.White else MaterialTheme.colorScheme.primary,
                 )
             }
         }
@@ -336,7 +336,7 @@ private fun Typewriter(text: String, style: TextStyle, active: Boolean, modifier
     }
     Box(modifier) {
         Text(text, style = style, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().graphicsLayer { alpha = 0f })   // reserves the space
-        Text(text.take(n) + if (n in 1 until text.length) "▍" else "", style = style, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+        Text(text.take(n) + if (n in 1 until text.length) "|" else "", style = style, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
     }
 }
 
@@ -471,13 +471,14 @@ private fun IntroPage(active: Boolean, onStart: () -> Unit) {
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             GlowingCircle(d, active)
             Spacer(Modifier.height(26.dp))
-            LiquidSurface(
-                style = GlassDefaults.frost().copy(fallbackSurface = Color.White.copy(alpha = 0.18f), contentColor = Color.White),
-                shape = GlassDefaults.PillShape,
+            GlassSurface(
+                role = GlassRole.Frost,
+                containerColor = Color.Black.copy(alpha = 0.36f),
+                shape = glassPillShape(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
             ) {
                 Text(
-                    "PRO NOTES · ULTRA v9.11",
+                    "PRO NOTES STUDIO",
                     style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp),
                     color = Color.White,
                 )
@@ -496,7 +497,7 @@ private fun IntroPage(active: Boolean, onStart: () -> Unit) {
             )
             Spacer(Modifier.height(10.dp))
             Typewriter(
-                "Slide show revision, interactive sticky checklists, elastic dock, and custom AI — shaped to your hand.",
+                "Slide show revision, interactive sticky checklists, elastic dock, and smart study tools — shaped to your hand.",
                 MaterialTheme.typography.bodyMedium.copy(color = Color.White.copy(alpha = 0.88f)),
                 active, Modifier.widthIn(max = 480.dp),
             )
@@ -509,7 +510,7 @@ private fun IntroPage(active: Boolean, onStart: () -> Unit) {
                 colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF0F172A)),
                 modifier = Modifier.widthIn(min = 240.dp).height(54.dp).scale(pulse),
             ) {
-                Text("Customize your Studio →", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("Customize your Studio", fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -743,9 +744,10 @@ private fun PenCheckPage(active: Boolean, store: SettingsStore, onNext: () -> Un
                         style = Stroke(w, cap = androidx.compose.ui.graphics.StrokeCap.Round),
                     )
                 }
-                LiquidSurface(
-                    style = GlassDefaults.frost().copy(fallbackSurface = Color(0xE6040B1A), contentColor = Color.White),
-                    shape = GlassDefaults.PillShape,
+                GlassSurface(
+                    role = GlassRole.Frost,
+                    containerColor = Color(0xE6040B1A),
+                    shape = glassPillShape(),
                     contentPadding = PaddingValues(horizontal = 18.dp, vertical = 6.dp),
                 ) {
                     Text("$pct%", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
@@ -792,8 +794,8 @@ private fun PenCheckPage(active: Boolean, store: SettingsStore, onNext: () -> Un
                 Spacer(Modifier.height(8.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
                     caps.forEach { c ->
-                        LiquidGlassPill(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)) {
-                            Text(c, style = MaterialTheme.typography.labelMedium, color = LiquidGlassTheme.colors.content)
+                        GlassPill(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)) {
+                            Text(c, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
                 }
@@ -815,24 +817,26 @@ private fun PenCheckPage(active: Boolean, store: SettingsStore, onNext: () -> Un
             }, shape = CircleShape) { Text("Try again") }
         }
         if (step != PenStep.SCAN && step != PenStep.BURST) {
-            LiquidMenuButton(
+            GlassMenuButton(
+                contentPadding = PaddingValues(0.dp),
                 items = PenBrands.manual.map { b ->
-                    LiquidMenuItem(b) {
+                    GlassMenuItem(b) {
                         brand = b
                         store.registerPen(device ?: "Stylus", b)
                     }
                 },
                 contentDescription = "Choose pen brand",
-                style = GlassDefaults.frost(),
-                shape = GlassDefaults.PillShape,
-            ) {
-                Text(
-                    brand?.let { "Brand: $it" } ?: "Choose manually",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = LiquidGlassTheme.colors.content,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                )
-            }
+                role = GlassRole.Frost,
+                shape = glassPillShape(),
+                buttonContent = {
+                    Text(
+                        brand?.let { "Brand: $it" } ?: "Choose manually",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    )
+                },
+            )
         }
     }
     Spacer(Modifier.height(14.dp))
@@ -845,7 +849,7 @@ private fun PenCheckPage(active: Boolean, store: SettingsStore, onNext: () -> Un
             shape = CircleShape,
             enabled = isFinal || done || brand != null,
         ) {
-            Text(if (isFinal) "Launch Pro Notes ✓" else "Continue")
+            Text(if (isFinal) "Launch Pro Notes" else "Continue")
         }
     }
 }
@@ -904,9 +908,9 @@ private fun TourPage(active: Boolean, onNext: () -> Unit) {
     HorizontalPager(inner, Modifier.widthIn(max = 560.dp).fillMaxWidth().height(380.dp), pageSpacing = 16.dp) { i ->
         val d = demos[i]
         val offset = (inner.currentPage - i) + inner.currentPageOffsetFraction
-        LiquidGlassCard(
+        GlassCard(
             hero = inner.currentPage == i,
-            shape = RoundedCornerShape(32.dp),
+            shape = glassCardShape(),
             contentPadding = PaddingValues(22.dp),
             modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp).graphicsLayer {
                 val k = 1f - 0.08f * kotlin.math.abs(offset).coerceAtMost(1f)
@@ -1100,7 +1104,7 @@ private fun DemoArt(d: Demo, playing: Boolean, modifier: Modifier) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun LookStudioPage(active: Boolean, store: SettingsStore, onNext: () -> Unit) {
-    val s by store.settings.collectAsState()
+    val s by store.settings.collectAsStateWithLifecycle()
     AnimatedWords(
         "Craft your aesthetic",
         TextStyle(fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = MaterialTheme.colorScheme.onBackground),
@@ -1117,9 +1121,9 @@ private fun LookStudioPage(active: Boolean, store: SettingsStore, onNext: () -> 
         AppFont.STUDIO_MONO -> FontFamily.Monospace
         else -> FontFamily.SansSerif
     }
-    LiquidGlassCard(
+    GlassCard(
         hero = true,
-        shape = RoundedCornerShape(24.dp),
+        shape = glassCardShape(),
         contentPadding = PaddingValues(16.dp),
         modifier = Modifier.widthIn(max = 620.dp).fillMaxWidth(),
     ) {
@@ -1135,9 +1139,9 @@ private fun LookStudioPage(active: Boolean, store: SettingsStore, onNext: () -> 
     }
 
     Spacer(Modifier.height(12.dp))
-    LiquidGlassCard(
+    GlassCard(
         hero = false,
-        shape = RoundedCornerShape(26.dp),
+        shape = glassCardShape(),
         contentPadding = PaddingValues(18.dp),
         modifier = Modifier.widthIn(max = 620.dp).fillMaxWidth(),
     ) {
@@ -1145,13 +1149,13 @@ private fun LookStudioPage(active: Boolean, store: SettingsStore, onNext: () -> 
             Text("THEME", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 ThemeMode.entries.forEach { t ->
-                    LiquidGlassChip(s.themeMode == t, { store.update { it.copy(themeMode = t) } }, t.label)
+                    GlassChip(s.themeMode == t, { store.update { it.copy(themeMode = t) } }, t.label)
                 }
             }
             Text("TYPOGRAPHY", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 AppFont.entries.forEach { f ->
-                    LiquidGlassChip(s.appFont == f, { store.update { it.copy(appFont = f) } }, f.label)
+                    GlassChip(s.appFont == f, { store.update { it.copy(appFont = f) } }, f.label)
                 }
             }
             Text("ACCENT GRADIENT", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1169,19 +1173,19 @@ private fun LookStudioPage(active: Boolean, store: SettingsStore, onNext: () -> 
             Text("MOTION ENGINE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 MotionStyle.entries.forEach { m ->
-                    LiquidGlassChip(s.motionStyle == m, { store.update { it.copy(motionStyle = m) } }, m.label)
+                    GlassChip(s.motionStyle == m, { store.update { it.copy(motionStyle = m) } }, m.label)
                 }
             }
         }
     }
     Spacer(Modifier.height(16.dp))
-    Button(onClick = onNext, shape = CircleShape, modifier = Modifier.widthIn(min = 210.dp)) { Text("Next: Workspace →") }
+    Button(onClick = onNext, shape = CircleShape, modifier = Modifier.widthIn(min = 210.dp)) { Text("Next: Workspace") }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun WorkspaceStudioPage(active: Boolean, store: SettingsStore, onNext: () -> Unit) {
-    val s by store.settings.collectAsState()
+    val s by store.settings.collectAsStateWithLifecycle()
     AnimatedWords(
         "Flow & dock",
         TextStyle(fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = MaterialTheme.colorScheme.onBackground),
@@ -1190,9 +1194,9 @@ private fun WorkspaceStudioPage(active: Boolean, store: SettingsStore, onNext: (
     )
     Text("Tune page scrolling, elastic draggable dock placement, default paper, and stylus hover labels.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
     Spacer(Modifier.height(14.dp))
-    LiquidGlassCard(
+    GlassCard(
         hero = false,
-        shape = RoundedCornerShape(26.dp),
+        shape = glassCardShape(),
         contentPadding = PaddingValues(18.dp),
         modifier = Modifier.widthIn(max = 620.dp).fillMaxWidth(),
     ) {
@@ -1200,7 +1204,7 @@ private fun WorkspaceStudioPage(active: Boolean, store: SettingsStore, onNext: (
             Text("SCROLL DIRECTION (MATCHES SPLIT VIEW TOO)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 ScrollDirection.entries.forEach { d ->
-                    LiquidGlassChip(
+                    GlassChip(
                         s.scroll == d,
                         { store.update { it.copy(scroll = d) } },
                         if (d == ScrollDirection.VERTICAL) "Vertical Continuous" else "Horizontal Page Snap",
@@ -1210,29 +1214,28 @@ private fun WorkspaceStudioPage(active: Boolean, store: SettingsStore, onNext: (
             Text("TOOLBAR POSITION", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 ToolbarDock.entries.forEach { d ->
-                    LiquidGlassChip(s.toolbarDock == d, { store.update { it.copy(toolbarDock = d) } }, d.label)
+                    GlassChip(s.toolbarDock == d, { store.update { it.copy(toolbarDock = d) } }, d.label)
                 }
             }
             Text("DEFAULT PAPER TEMPLATE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 PaperStyle.pickerEntries.forEach { p ->
-                    LiquidGlassChip(s.defaultPaper == p, { store.update { it.copy(defaultPaper = p) } }, p.label)
+                    GlassChip(s.defaultPaper == p, { store.update { it.copy(defaultPaper = p) } }, p.label)
                 }
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Liquid Glass bars")
-                    Text("Frosted translucent toolbars with specular highlight", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                LiquidToggle(selected = { s.liquidGlass }, onSelect = { v -> store.update { it.copy(liquidGlass = v) } })
-            }
-            if (s.liquidGlass) {
-                LiquidSliderRow(
+            Text("INTERFACE STYLE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            GlassSegmentedControl(
+                options = InterfaceStyle.entries.map { it.label },
+                selectedIndex = s.interfaceStyle.ordinal,
+                onSelect = { idx -> store.update { it.copy(interfaceStyle = InterfaceStyle.entries[idx]) } },
+            )
+            if (s.interfaceStyle == InterfaceStyle.LIQUID_GLASS) {
+                GlassSliderRow(
                     label = "GLASS TRANSPARENCY",
-                    valueText = "${(s.glassTransparency * 100).toInt()}%",
-                    value = s.glassTransparency,
-                    valueRange = 0.15f..0.95f,
-                    onValueChange = { v -> store.update { it.copy(glassTransparency = v) } },
+                    valueText = "${(s.glassTransparency.coerceIn(0.15f, 0.75f) * 100).toInt()}%",
+                    value = s.glassTransparency.coerceIn(0.15f, 0.75f),
+                    valueRange = 0.15f..0.75f,
+                    onValueChange = { v -> store.update { it.copy(glassTransparency = v.coerceIn(0.15f, 0.75f)) } },
                 )
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1240,75 +1243,84 @@ private fun WorkspaceStudioPage(active: Boolean, store: SettingsStore, onNext: (
                     Text("Hover tool name tooltips")
                     Text("Shows a floating name pill when hovering with your stylus", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                LiquidToggle(selected = { s.showHoverTooltips }, onSelect = { v -> store.update { it.copy(showHoverTooltips = v) } })
+                GlassToggle(checked = s.showHoverTooltips, onCheckedChange = { v -> store.update { it.copy(showHoverTooltips = v) } })
             }
         }
     }
     Spacer(Modifier.height(16.dp))
-    Button(onClick = onNext, shape = CircleShape, modifier = Modifier.widthIn(min = 210.dp)) { Text("Next: AI Studio →") }
+    Button(onClick = onNext, shape = CircleShape, modifier = Modifier.widthIn(min = 210.dp)) { Text("Next: Study Engine") }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AiStudioSetupPage(active: Boolean, store: SettingsStore, onNext: () -> Unit) {
     val context = LocalContext.current
-    val s by store.settings.collectAsState()
-    val modelStates by LocalAiManager.states.collectAsState()
-    val recSpec = LocalAiManager.catalog.firstOrNull { it.id == "smollm2-360m-q4" } ?: LocalAiManager.catalog.first()
-    val recRuntime = modelStates[recSpec.id]
+    val s by store.settings.collectAsStateWithLifecycle()
+    val modelStates by LocalAiManager.states.collectAsStateWithLifecycle()
+    val recSpec = LocalAiManager.catalog.firstOrNull()
+    val recRuntime = recSpec?.let { modelStates[it.id] }
     val scope = rememberCoroutineScope()
     var testStatus by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) { LocalAiManager.refresh(context) }
+    LaunchedEffect(s.smartFeatures) { if (s.smartFeatures) LocalAiManager.refresh(context) }
 
     AnimatedWords(
-        "Choose your AI engine",
+        "Choose your study engine",
         TextStyle(fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = MaterialTheme.colorScheme.onBackground),
         active,
         gradient = listOf(Color(0xFF38BDF8), Brand1, Brand3),
     )
-    Text("Power slide shows, semantic search, mind maps, and summaries — offline or via your own API.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+    Text("Power slide shows, search, mind maps, and summaries — offline or via your own endpoint.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
     Spacer(Modifier.height(14.dp))
 
-    LiquidGlassCard(
+    GlassCard(
         hero = false,
-        shape = RoundedCornerShape(26.dp),
+        shape = glassCardShape(),
         contentPadding = PaddingValues(18.dp),
         modifier = Modifier.widthIn(max = 620.dp).fillMaxWidth(),
     ) {
         Column(Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // Option 1: Lightweight On-device GGUF
-            LiquidGlassCard(hero = false, shape = RoundedCornerShape(20.dp), contentPadding = PaddingValues(14.dp)) {
-                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("On-Device Offline AI · ${recSpec.name} (${recSpec.sizeLabel})", fontWeight = FontWeight.Bold)
-                    Text(recSpec.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    when (recRuntime?.status) {
-                        LocalModelStatus.READY -> Text("✓ Downloaded & Ready for offline study", color = Color(0xFF10B981), fontWeight = FontWeight.SemiBold)
-                        LocalModelStatus.DOWNLOADING -> {
-                            LinearProgressIndicator(progress = { recRuntime.progress }, modifier = Modifier.fillMaxWidth())
-                            Text("Downloading ${(recRuntime.progress * 100).toInt()}%…", style = MaterialTheme.typography.labelSmall)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Smart features", fontWeight = FontWeight.Bold)
+                    Text("Turn off to hide all generative tools, summaries, and Creative Studio", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                GlassToggle(checked = s.smartFeatures, onCheckedChange = { v -> store.update { it.copy(smartFeatures = v) } })
+            }
+            if (s.smartFeatures && recSpec != null) {
+                GlassCard(hero = false, shape = glassCardShape(), contentPadding = PaddingValues(14.dp)) {
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("On-Device Offline Pack (${recSpec.sizeLabel})", fontWeight = FontWeight.Bold)
+                        Text(recSpec.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        when (recRuntime?.status) {
+                            LocalModelStatus.READY -> Text("Downloaded and ready for offline study", color = Color(0xFF10B981), fontWeight = FontWeight.SemiBold)
+                            LocalModelStatus.DOWNLOADING -> {
+                                LinearProgressIndicator(progress = { recRuntime.progress }, modifier = Modifier.fillMaxWidth())
+                                Text("Downloading ${(recRuntime.progress * 100).toInt()}%…", style = MaterialTheme.typography.labelSmall)
+                            }
+                            else -> OutlinedButton(
+                                onClick = { LocalAiManager.startDownload(context, recSpec.id) },
+                                shape = CircleShape,
+                            ) { Text("Download Offline Pack (${recSpec.sizeLabel})") }
                         }
-                        else -> OutlinedButton(
-                            onClick = { LocalAiManager.startDownload(context, recSpec.id) },
-                            shape = CircleShape,
-                        ) { Text("Download Offline Model (${recSpec.sizeLabel})") }
                     }
                 }
             }
 
-            // Option 2: Custom AI API
-            LiquidGlassCard(hero = false, shape = RoundedCornerShape(20.dp), contentPadding = PaddingValues(14.dp)) {
+            // Option 2: Custom external API
+            if (s.smartFeatures) {
+            GlassCard(hero = false, shape = glassCardShape(), contentPadding = PaddingValues(14.dp)) {
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("Custom AI API (OpenAI · Google AI · Ollama)", fontWeight = FontWeight.Bold)
-                            Text("Optional cloud or LAN endpoint for instant study generation", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Custom External Endpoint", fontWeight = FontWeight.Bold)
+                            Text("Optional cloud or LAN endpoint for study generation", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        LiquidToggle(selected = { s.customAiEnabled }, onSelect = { v -> store.update { it.copy(customAiEnabled = v) } })
+                        GlassToggle(checked = s.customAiEnabled, onCheckedChange = { v -> store.update { it.copy(customAiEnabled = v) } })
                     }
                     if (s.customAiEnabled) {
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             CustomAiProvider.entries.forEach { p ->
-                                LiquidGlassChip(
+                                GlassChip(
                                     s.customAiProvider == p,
                                     { store.update { cur -> cur.copy(customAiProvider = p, customAiBaseUrl = p.defaultBaseUrl, customAiModel = p.defaultModel) } },
                                     p.label,
@@ -1316,7 +1328,7 @@ private fun AiStudioSetupPage(active: Boolean, store: SettingsStore, onNext: () 
                             }
                         }
                         OutlinedTextField(s.customAiBaseUrl, { v -> store.update { it.copy(customAiBaseUrl = v) } }, label = { Text("Base URL") }, singleLine = true, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(s.customAiModel, { v -> store.update { it.copy(customAiModel = v) } }, label = { Text("Model") }, singleLine = true, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(s.customAiModel, { v -> store.update { it.copy(customAiModel = v) } }, label = { Text("Engine ID") }, singleLine = true, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(s.customAiApiKey, { v -> store.update { it.copy(customAiApiKey = v) } }, label = { Text("API Key") }, singleLine = true, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth())
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(
@@ -1324,7 +1336,7 @@ private fun AiStudioSetupPage(active: Boolean, store: SettingsStore, onNext: () 
                                     testStatus = "Testing…"
                                     scope.launch {
                                         val res = LocalAiManager.testCustomApi(context)
-                                        testStatus = res.fold({ "✓ Connected" }, { "✕ ${it.message}" })
+                                        testStatus = res.fold({ "Connected" }, { "Failed: ${it.message}" })
                                     }
                                 },
                                 shape = CircleShape,
@@ -1334,9 +1346,10 @@ private fun AiStudioSetupPage(active: Boolean, store: SettingsStore, onNext: () 
                     }
                 }
             }
+            }
         }
     }
     Spacer(Modifier.height(16.dp))
-    Button(onClick = onNext, shape = CircleShape, modifier = Modifier.widthIn(min = 210.dp)) { Text("Next: Stylus Check →") }
+    Button(onClick = onNext, shape = CircleShape, modifier = Modifier.widthIn(min = 210.dp)) { Text("Next: Stylus Check") }
 }
 

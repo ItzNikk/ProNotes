@@ -17,11 +17,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import io.github.ntvien.liquidglass.GlassDefaults
-import io.github.ntvien.liquidglass.component.LiquidSurface
+import com.pronotes.app.ui.GlassRole
+import com.pronotes.app.ui.GlassSurface
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -255,7 +256,7 @@ fun AiParticleBackdrop(
                         style = Stroke(width = 1.6.dp.toPx()),
                     )
                 }
-                val labels = listOf("A", "B", "C", "D", "?", "✓")
+                val labels = listOf("A", "B", "C", "D", "?", "!")
                 val bx = floatArrayOf(0.14f, 0.85f, 0.20f, 0.82f, 0.50f, 0.12f)
                 val by = floatArrayOf(0.22f, 0.25f, 0.78f, 0.74f, 0.14f, 0.50f)
                 val colors = listOf(Color(0xFF38BDF8), Color(0xFFFBBF24), Color(0xFF10B981), Color(0xFF60A5FA), Color(0xFF818CF8), Color(0xFF34D399))
@@ -365,9 +366,10 @@ fun ThinkingPill(engine: String = "", stage: String = "") {
     val shine by t.animateFloat(-0.6f, 1.8f, infiniteRepeatable(tween(1550, easing = LinearEasing)), label = "s")
     val spin by t.animateFloat(0f, 360f, infiniteRepeatable(tween(2100, easing = LinearEasing)), label = "spin")
     val pulse by t.animateFloat(0.8f, 1.08f, infiniteRepeatable(tween(820, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "pulse")
-    LiquidSurface(
-        style = GlassDefaults.frost(),
+    GlassSurface(
+        role = GlassRole.Frost,
         shape = CircleShape,
+        contentPadding = PaddingValues(0.dp),
         modifier = Modifier.border(1.dp, Color(0x55B45CFF), CircleShape),
     ) {
         Box(Modifier.clip(CircleShape)) {

@@ -396,7 +396,6 @@ object CloudSync {
                 put("accent", fsStr(s.accent.name))
                 put("appFont", fsStr(s.appFont.name))
                 put("motionStyle", fsStr(s.motionStyle.name))
-                put("liquidGlass", fsBool(s.liquidGlass))
                 put("paperTint", fsStr(s.paperTint.name))
                 put("defaultPaper", fsStr(s.defaultPaper.name))
                 put("scroll", fsStr(s.scroll.name))
@@ -449,8 +448,7 @@ object CloudSync {
             for (meta in localNotes) {
                 val r = remoteMod[meta.id]
                 if (r == null || meta.modified >= r.first) {
-                    val noteFile = File(repo.noteDir(meta.id), "note.json")
-                    val rawJson = if (noteFile.exists()) noteFile.readText() else "{}"
+                    val rawJson = repo.readSerializedNoteDoc(meta.id)
                     val payloadFields = buildJsonObject {
                         put("coverColor", fsInt(meta.coverColor.toLong()))
                         put("paper", fsStr(meta.paper.name))
@@ -491,7 +489,7 @@ object CloudSync {
                         } ?: PaperStyle.RULED
                         val coverColor = payload["coverColor"]?.jsonObject?.get("integerValue")?.jsonPrimitive?.content?.toIntOrNull() ?: CoverColors[0]
                         val newId = if (existing != null) existing.id else repo.createNotebook(title, null, coverColor, paper)
-                        File(repo.noteDir(newId), "note.json").writeText(rawJson)
+                        repo.writeSerializedNoteDoc(newId, rawJson)
                         pulled++
                     }
                 }
@@ -548,7 +546,7 @@ object CloudSync {
                         } ?: PaperStyle.RULED
                         val coverColor = pkt["coverColor"]?.jsonPrimitive?.content?.toIntOrNull() ?: CoverColors[0]
                         val targetId = existing?.id ?: repo.createNotebook(title, null, coverColor, paper)
-                        File(repo.noteDir(targetId), "note.json").writeText(rawJson)
+                        repo.writeSerializedNoteDoc(targetId, rawJson)
                         pulled++
                     }
                 }
@@ -557,9 +555,8 @@ object CloudSync {
             // 2. Push local notebooks that are newer or not yet in remote stream
             for (meta in localNotes) {
                 val rMod = remoteNotes[meta.id]?.get("modified")?.jsonPrimitive?.content?.toLongOrNull() ?: -1L
-                val noteFile = File(repo.noteDir(meta.id), "note.json")
-                val rawJson = if (noteFile.exists()) noteFile.readText() else "{}"
-                File(vaultDir, "${meta.id}.json").writeText(rawJson)
+                val rawJson = repo.readSerializedNoteDoc(meta.id)
+                AtomicFiles.writeTextAtomic(File(vaultDir, "${meta.id}.json"), rawJson)
                 if (meta.modified > rMod) {
                     val pkt = buildJsonObject {
                         put("kind", "note")
@@ -887,7 +884,7 @@ object CloudSync {
             val f = localRoomFile(context, roomId)
             val existing = if (f.exists()) f.readLines() else emptyList()
             val updated = (existing + pkt.toString()).takeLast(120)
-            f.writeText(updated.joinToString("\n"))
+            AtomicFiles.writeTextAtomic(f, updated.joinToString("\n"))
         }
     }
 
@@ -937,14 +934,14 @@ object CloudSync {
  */
 @Composable
 fun CloudSignInDialogHost() {
-    val open by CloudSync.signInDialogOpen.collectAsState()
+    val open by androidx.lifecycle.compose.collectAsStateWithLifecycle(CloudSync.signInDialogOpen)
     if (!open) return
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val curUser by CloudSync.user.collectAsState()
-    val syncStatus by CloudSync.status.collectAsState()
-    val isSyncing by CloudSync.syncing.collectAsState()
+    val curUser by androidx.lifecycle.compose.collectAsStateWithLifecycle(CloudSync.user)
+    val syncStatus by androidx.lifecycle.compose.collectAsStateWithLifecycle(CloudSync.status)
+    val isSyncing by androidx.lifecycle.compose.collectAsStateWithLifecycle(CloudSync.syncing)
 
     var email by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
@@ -975,14 +972,14 @@ fun CloudSignInDialogHost() {
     }
 
     if (curUser != null) {
-        com.pronotes.app.ui.LiquidGlassDialog(
+        com.pronotes.app.ui.GlassDialog(
             onDismissRequest = { CloudSync.dismissSignInDialog() },
             title = {
                 Text("Google Account & Sync", fontWeight = FontWeight.Bold)
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    com.pronotes.app.ui.LiquidGlassCard(modifier = Modifier.fillMaxWidth()) {
+                    com.pronotes.app.ui.GlassCard(modifier = Modifier.fillMaxWidth()) {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("Signed in as", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                             Text(curUser!!.email, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -1028,12 +1025,12 @@ fun CloudSignInDialogHost() {
         return
     }
 
-    com.pronotes.app.ui.LiquidGlassDialog(
+    com.pronotes.app.ui.GlassDialog(
         onDismissRequest = { CloudSync.dismissSignInDialog() },
         title = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Sign in with Google", fontWeight = FontWeight.Bold)
-                com.pronotes.app.ui.LiquidGlassPill {
+                com.pronotes.app.ui.GlassPill {
                     Text(
                         "100% Free Cloud · Zero Cost · Cross-Device Sync",
                         style = MaterialTheme.typography.labelSmall,
@@ -1096,7 +1093,7 @@ fun CloudSignInDialogHost() {
                     shape = CircleShape,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("🌐 Choose Google Account on Device")
+                    Text("Choose Google Account on Device")
                 }
                 OutlinedTextField(
                     value = email,

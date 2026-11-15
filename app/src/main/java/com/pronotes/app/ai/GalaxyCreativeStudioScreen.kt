@@ -48,13 +48,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AspectRatio
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.GridOn
 import androidx.compose.material.icons.outlined.PostAdd
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -92,13 +97,13 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.pronotes.app.ui.GlassButtonPalette
-import com.pronotes.app.ui.LiquidGlassDialogSurface
-import com.pronotes.app.ui.LiquidGlassPill
+import com.pronotes.app.ui.GlassDialogSurface
+import com.pronotes.app.ui.GlassPill
+import com.pronotes.app.ui.GlassRole
+import com.pronotes.app.ui.GlassScene
+import com.pronotes.app.ui.GlassSurface
 import com.pronotes.app.ui.elasticStretch
-import io.github.ntvien.liquidglass.DisableGlassSceneBackdrop
-import io.github.ntvien.liquidglass.GlassDefaults
-import io.github.ntvien.liquidglass.LiquidGlassScene
-import io.github.ntvien.liquidglass.component.LiquidSurface
+import com.pronotes.app.ui.glassCardShape
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -115,9 +120,9 @@ enum class AspectRatioChoice(val label: String, val ratio: Float) {
 }
 
 enum class StudioAssetMode(val label: String, val badge: String, val tint: Color) {
-    STICKER("Sticker", "⭐", GlassButtonPalette.StudioPurple),
-    COVER("Book Cover", "📖", GlassButtonPalette.OceanBlue),
-    TEMPLATE("Study Template", "📐", GlassButtonPalette.Emerald),
+    STICKER("Sticker", "ST", GlassButtonPalette.GalaxyPurple),
+    COVER("Book Cover", "CV", GlassButtonPalette.OceanBlue),
+    TEMPLATE("Study Template", "TM", GlassButtonPalette.Emerald),
 }
 
 @Composable
@@ -190,12 +195,11 @@ fun GalaxyCreativeStudioScreen(
         }
     }
 
-    fun handleGenerate(forceRefresh: Boolean = false) {
+    fun handleGenerate() {
         if (isGenerating) return
         val q = promptText.trim()
         isGenerating = true
         errorMessage = null
-        val seed = if (forceRefresh) kotlin.random.Random.nextInt(1, 9999999) else 0
 
         scope.launch {
             try {
@@ -206,7 +210,7 @@ fun GalaxyCreativeStudioScreen(
                             AspectRatioChoice.PORTRAIT -> 450 to 600
                             AspectRatioChoice.LANDSCAPE -> 640 to 360
                         }
-                        engine.generateSticker(prompt = q, style = selectedStyle, width = w, height = h, seedNonce = seed, forceRefresh = forceRefresh)
+                        engine.generateSticker(prompt = q, style = selectedStyle, width = w, height = h)
                     }
                     StudioAssetMode.COVER -> {
                         val (w, h) = when (aspectRatio) {
@@ -214,7 +218,7 @@ fun GalaxyCreativeStudioScreen(
                             AspectRatioChoice.PORTRAIT -> 900 to 1200
                             AspectRatioChoice.LANDSCAPE -> 1200 to 675
                         }
-                        engine.generateCover(title = q, theme = selectedCoverTheme, width = w, height = h, seedNonce = seed, forceRefresh = forceRefresh)
+                        engine.generateCover(title = q, theme = selectedCoverTheme, width = w, height = h)
                     }
                     StudioAssetMode.TEMPLATE -> {
                         val (w, h) = when (aspectRatio) {
@@ -272,19 +276,19 @@ fun GalaxyCreativeStudioScreen(
         }
     }
 
-    // Samsung Galaxy AI Cyan/Turquoise to Blue Radial Mesh Gradient
+    // Creative Studio Cyan/Turquoise to Blue Radial Mesh Gradient
     val backgroundBrush = remember {
         Brush.verticalGradient(
             colors = listOf(
                 Color(0xFF38BDF8), // Cyan
                 Color(0xFF4DE8D8), // Turquoise
-                Color(0xFF2A78D6), // Studio Blue
+                Color(0xFF2A78D6), // Deep Sky Blue
                 Color(0xFF1E3A8A), // Deep Blue
             ),
         )
     }
 
-    LiquidGlassScene(
+    GlassScene(
         modifier = modifier.fillMaxSize(),
         background = {
             Box(Modifier.fillMaxSize().background(backgroundBrush))
@@ -307,12 +311,9 @@ fun GalaxyCreativeStudioScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                LiquidSurface(
-                    style = GlassDefaults.chrome().copy(
-                        surface = Color.White.copy(alpha = 0.18f),
-                        fallbackSurface = Color.White.copy(alpha = 0.22f),
-                        highlightWidth = 0.dp,
-                    ),
+                GlassSurface(
+                    role = GlassRole.Chrome,
+                    containerColor = Color.White.copy(alpha = 0.22f),
                     shape = CircleShape,
                     contentPadding = PaddingValues(10.dp),
                     onClick = onBack,
@@ -334,12 +335,9 @@ fun GalaxyCreativeStudioScreen(
                     fontWeight = FontWeight.SemiBold,
                 )
 
-                LiquidSurface(
-                    style = GlassDefaults.chrome().copy(
-                        surface = Color.White.copy(alpha = 0.18f),
-                        fallbackSurface = Color.White.copy(alpha = 0.22f),
-                        highlightWidth = 0.dp,
-                    ),
+                GlassSurface(
+                    role = GlassRole.Chrome,
+                    containerColor = Color.White.copy(alpha = 0.22f),
                     shape = CircleShape,
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                     onClick = {
@@ -378,14 +376,10 @@ fun GalaxyCreativeStudioScreen(
                     .aspectRatio(aspectRatio.ratio, matchHeightConstraintsFirst = true),
                 contentAlignment = Alignment.Center,
             ) {
-                LiquidSurface(
-                    style = GlassDefaults.chrome().copy(
-                        surface = Color.White.copy(alpha = 0.14f),
-                        fallbackSurface = Color.White.copy(alpha = 0.18f),
-                        highlightWidth = 0.35.dp,
-                        highlightAlpha = 0.28f,
-                    ),
-                    shape = RoundedCornerShape(32.dp),
+                GlassSurface(
+                    role = GlassRole.Chrome,
+                    containerColor = Color.White.copy(alpha = 0.18f),
+                    shape = glassCardShape(),
                     contentPadding = PaddingValues(0.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
@@ -501,13 +495,15 @@ fun GalaxyCreativeStudioScreen(
                                                     ),
                                                 contentAlignment = Alignment.Center,
                                             ) {
-                                                Text(
-                                                    text = when (assetMode) {
-                                                        StudioAssetMode.STICKER -> selectedStyle.badge
-                                                        StudioAssetMode.COVER -> "📖"
-                                                        StudioAssetMode.TEMPLATE -> "📐"
+                                                Icon(
+                                                    imageVector = when (assetMode) {
+                                                        StudioAssetMode.STICKER -> Icons.Outlined.AutoAwesome
+                                                        StudioAssetMode.COVER -> Icons.Outlined.Book
+                                                        StudioAssetMode.TEMPLATE -> Icons.Outlined.GridOn
                                                     },
-                                                    fontSize = 30.sp,
+                                                    contentDescription = null,
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(30.dp),
                                                 )
                                             }
 
@@ -521,9 +517,9 @@ fun GalaxyCreativeStudioScreen(
                                             val p3X = (cos(radAngle + 4.188f) * orbitRadius.value).dp
                                             val p3Y = (sin(radAngle + 4.188f) * orbitRadius.value).dp
 
-                                            Text("✨", fontSize = 14.sp, modifier = Modifier.offset(x = p1X, y = p1Y))
-                                            Text("⭐", fontSize = 12.sp, modifier = Modifier.offset(x = p2X, y = p2Y))
-                                            Text("💫", fontSize = 13.sp, modifier = Modifier.offset(x = p3X, y = p3Y))
+                                            Icon(Icons.Outlined.AutoAwesome, null, tint = Color.White, modifier = Modifier.offset(x = p1X, y = p1Y).size(14.dp))
+                                            Icon(Icons.Outlined.Star, null, tint = Color(0xFFFDE047), modifier = Modifier.offset(x = p2X, y = p2Y).size(13.dp))
+                                            Icon(Icons.Outlined.Bolt, null, tint = Color(0xFF4DE8D8), modifier = Modifier.offset(x = p3X, y = p3Y).size(14.dp))
                                         }
 
                                         AnimatedContent(
@@ -541,7 +537,7 @@ fun GalaxyCreativeStudioScreen(
                                                 )
                                                 Spacer(Modifier.height(4.dp))
                                                 Text(
-                                                    text = "ProNotes Neural Engine · Studio v11",
+                                                    text = "FLUX.1 Neural Studio · Creative Engine",
                                                     color = Color.White.copy(alpha = 0.65f),
                                                     fontSize = 12.sp,
                                                     fontWeight = FontWeight.Normal,
@@ -593,7 +589,7 @@ fun GalaxyCreativeStudioScreen(
                                         modifier = Modifier.padding(24.dp),
                                     ) {
                                         Text(
-                                            text = "⚠️ $err",
+                                            text = err,
                                             color = Color(0xFFFFD1D1),
                                             fontSize = 14.sp,
                                             textAlign = TextAlign.Center,
@@ -616,12 +612,9 @@ fun GalaxyCreativeStudioScreen(
                     }
 
                     // Floating Style Badge Pill (Bottom Left of Card)
-                    LiquidSurface(
-                        style = GlassDefaults.chrome().copy(
-                            surface = Color(0xFF0F172A).copy(alpha = 0.62f),
-                            fallbackSurface = Color(0xFF0F172A).copy(alpha = 0.72f),
-                            highlightWidth = 0.dp,
-                        ),
+                    GlassSurface(
+                        role = GlassRole.Chrome,
+                        containerColor = Color(0xFF0F172A).copy(alpha = 0.72f),
                         shape = CircleShape,
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
                         onClick = { showStylePicker = true },
@@ -634,13 +627,15 @@ fun GalaxyCreativeStudioScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            Text(
-                                text = when (assetMode) {
-                                    StudioAssetMode.STICKER -> selectedStyle.badge
-                                    StudioAssetMode.COVER -> "📖"
-                                    StudioAssetMode.TEMPLATE -> "📐"
+                            Icon(
+                                imageVector = when (assetMode) {
+                                    StudioAssetMode.STICKER -> Icons.Outlined.AutoAwesome
+                                    StudioAssetMode.COVER -> Icons.Outlined.Book
+                                    StudioAssetMode.TEMPLATE -> Icons.Outlined.GridOn
                                 },
-                                fontSize = 16.sp,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp),
                             )
                             Text(
                                 text = when (assetMode) {
@@ -657,12 +652,9 @@ fun GalaxyCreativeStudioScreen(
 
                     // Background Transparency Mode Toggle (Top Right of Card when result exists)
                     if (generatedBitmap != null) {
-                        LiquidSurface(
-                            style = GlassDefaults.chrome().copy(
-                                surface = Color(0xFF0F172A).copy(alpha = 0.58f),
-                                fallbackSurface = Color(0xFF0F172A).copy(alpha = 0.70f),
-                                highlightWidth = 0.dp,
-                            ),
+                        GlassSurface(
+                            role = GlassRole.Chrome,
+                            containerColor = Color(0xFF0F172A).copy(alpha = 0.70f),
                             shape = CircleShape,
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                             onClick = { previewBgMode = (previewBgMode + 1) % 3 },
@@ -673,9 +665,9 @@ fun GalaxyCreativeStudioScreen(
                         ) {
                             Text(
                                 text = when (previewBgMode) {
-                                    0 -> "✨ Aura"
-                                    1 -> "🏁 Grid"
-                                    else -> "🌑 Dark"
+                                    0 -> "Aura"
+                                    1 -> "Grid"
+                                    else -> "Dark"
                                 },
                                 color = Color.White,
                                 fontSize = 11.5.sp,
@@ -698,12 +690,9 @@ fun GalaxyCreativeStudioScreen(
                 ) {
                     sessionHistory.forEachIndexed { idx, histBmp ->
                         val isCurrent = histBmp == generatedBitmap
-                        LiquidSurface(
-                            style = GlassDefaults.chrome().copy(
-                                surface = if (isCurrent) Color.White.copy(alpha = 0.36f) else Color.White.copy(alpha = 0.16f),
-                                fallbackSurface = Color.White.copy(alpha = 0.24f),
-                                highlightWidth = 0.dp,
-                            ),
+                        GlassSurface(
+                            role = GlassRole.Chrome,
+                            containerColor = if (isCurrent) Color.White.copy(alpha = 0.36f) else Color.White.copy(alpha = 0.22f),
                             shape = RoundedCornerShape(14.dp),
                             contentPadding = PaddingValues(4.dp),
                             onClick = {
@@ -740,7 +729,7 @@ fun GalaxyCreativeStudioScreen(
                 ) {
                     StudioAssetMode.entries.forEach { mode ->
                         val selected = assetMode == mode
-                        LiquidGlassPill(
+                        GlassPill(
                             selected = selected,
                             tint = if (selected) mode.tint else Color.White,
                             onClick = { assetMode = mode },
@@ -748,7 +737,16 @@ fun GalaxyCreativeStudioScreen(
                             modifier = Modifier.elasticStretch(),
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(mode.badge, fontSize = 13.sp)
+                                Icon(
+                                    imageVector = when (mode) {
+                                        StudioAssetMode.STICKER -> Icons.Outlined.AutoAwesome
+                                        StudioAssetMode.COVER -> Icons.Outlined.Book
+                                        StudioAssetMode.TEMPLATE -> Icons.Outlined.GridOn
+                                    },
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(14.dp),
+                                )
                                 Spacer(Modifier.width(5.dp))
                                 Text(
                                     text = mode.label,
@@ -770,7 +768,7 @@ fun GalaxyCreativeStudioScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        LiquidGlassPill(
+                        GlassPill(
                             selected = true,
                             tint = GlassButtonPalette.OceanBlue,
                             onClick = { generatedBitmap?.let { saveToGallery(it) } },
@@ -784,7 +782,7 @@ fun GalaxyCreativeStudioScreen(
                         }
 
                         if (onInsertBitmap != null || onApplyResult != null) {
-                            LiquidGlassPill(
+                            GlassPill(
                                 selected = true,
                                 tint = GlassButtonPalette.Emerald,
                                 onClick = {
@@ -812,10 +810,10 @@ fun GalaxyCreativeStudioScreen(
                             }
                         }
 
-                        LiquidGlassPill(
+                        GlassPill(
                             selected = true,
                             tint = GlassButtonPalette.WarmAmber,
-                            onClick = { handleGenerate(forceRefresh = true) },
+                            onClick = { handleGenerate() },
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
                             modifier = Modifier.elasticStretch(),
                         ) {
@@ -829,8 +827,8 @@ fun GalaxyCreativeStudioScreen(
 
                 // Quick Inspiration Chips Row
                 val suggestionChips = when (assetMode) {
-                    StudioAssetMode.STICKER -> listOf("Cute Shiba Astronaut 🐕", "Golden Trophy Award 🏆", "Coffee Cup Doodled ☕", "Brain Power Spark 🧠", "Retro Boombox ⚡", "Lofi Plant Pot 🌿")
-                    StudioAssetMode.COVER -> listOf("Deep Space Nebula 🌌", "Golden Ratio Minimal 📐", "Botanical Leaves 🌿", "Vintage Leather Book 📚", "Pastel Aura Mesh ✨")
+                    StudioAssetMode.STICKER -> listOf("Cute Shiba Astronaut", "Golden Trophy Award", "Coffee Cup Doodled", "Brain Power Spark", "Retro Boombox", "Lofi Plant Pot")
+                    StudioAssetMode.COVER -> listOf("Deep Space Nebula", "Golden Ratio Minimal", "Botanical Leaves", "Vintage Leather Book", "Pastel Aura Mesh")
                     StudioAssetMode.TEMPLATE -> listOf("Cornell Study Grid", "Weekly Habit Tracker", "Eisenhower Matrix", "Dot Grid Journal", "Sprint Meeting Minutes")
                 }
 
@@ -841,12 +839,9 @@ fun GalaxyCreativeStudioScreen(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     suggestionChips.forEach { chip ->
-                        LiquidSurface(
-                            style = GlassDefaults.chrome().copy(
-                                surface = Color.White.copy(alpha = 0.16f),
-                                fallbackSurface = Color.White.copy(alpha = 0.20f),
-                                highlightWidth = 0.dp,
-                            ),
+                        GlassSurface(
+                            role = GlassRole.Chrome,
+                            containerColor = Color.White.copy(alpha = 0.20f),
                             shape = CircleShape,
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                             onClick = { promptText = chip },
@@ -902,8 +897,8 @@ fun GalaxyCreativeStudioScreen(
                         .background(
                             Brush.horizontalGradient(
                                 listOf(
-                                    Color(0xFF8C65FF), // One UI 9 Purple
-                                    Color(0xFF38BDF8), // One UI 9 Cyan
+                                    Color(0xFF8C65FF),
+                                    Color(0xFF38BDF8),
                                 ),
                             ),
                         )
@@ -937,130 +932,124 @@ fun GalaxyCreativeStudioScreen(
                 onDismissRequest = { showStylePicker = false },
                 properties = DialogProperties(usePlatformDefaultWidth = false),
             ) {
-                DisableGlassSceneBackdrop {
-                    Box(
-                        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)).clickable { showStylePicker = false },
-                        contentAlignment = Alignment.Center,
+                Box(
+                    Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)).clickable { showStylePicker = false },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    GlassDialogSurface(
+                        shape = glassCardShape(),
+                        modifier = Modifier
+                            .fillMaxWidth(0.92f)
+                            .padding(16.dp)
+                            .clickable(enabled = false) {},
                     ) {
-                        LiquidGlassDialogSurface(
-                            shape = RoundedCornerShape(28.dp),
+                        Column(
                             modifier = Modifier
-                                .fillMaxWidth(0.92f)
-                                .padding(16.dp)
-                                .clickable(enabled = false) {},
+                                .padding(20.dp)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .padding(20.dp)
-                                    .verticalScroll(rememberScrollState()),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        text = "Select Artistic Style",
-                                        fontSize = 18.sp,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                    IconButton(onClick = { showStylePicker = false }) {
-                                        Icon(Icons.Outlined.Close, "Close")
+                                Text(
+                                    text = "Select Artistic Style",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                IconButton(onClick = { showStylePicker = false }) {
+                                    Icon(Icons.Outlined.Close, "Close")
+                                }
+                            }
+
+                            when (assetMode) {
+                                StudioAssetMode.STICKER -> {
+                                    StickerStyle.entries.forEach { style ->
+                                        val isSelected = selectedStyle == style
+                                        GlassPill(
+                                            selected = isSelected,
+                                            tint = if (isSelected) GlassButtonPalette.GalaxyPurple else null,
+                                            onClick = {
+                                                selectedStyle = style
+                                                showStylePicker = false
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                                            modifier = Modifier.fillMaxWidth().elasticStretch(),
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                            ) {
+                                                Text(
+                                                    style.label,
+                                                    fontSize = 15.sp,
+                                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                                )
+                                                if (isSelected) {
+                                                    Icon(Icons.Outlined.Check, "Selected", tint = Color.White)
+                                                }
+                                            }
+                                        }
                                     }
                                 }
-
-                                when (assetMode) {
-                                    StudioAssetMode.STICKER -> {
-                                        StickerStyle.entries.forEach { style ->
-                                            val isSelected = selectedStyle == style
-                                            LiquidGlassPill(
-                                                selected = isSelected,
-                                                tint = if (isSelected) GlassButtonPalette.GalaxyPurple else null,
-                                                onClick = {
-                                                    selectedStyle = style
-                                                    showStylePicker = false
-                                                },
-                                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                                                modifier = Modifier.fillMaxWidth().elasticStretch(),
+                                StudioAssetMode.COVER -> {
+                                    CoverTheme.entries.forEach { theme ->
+                                        val isSelected = selectedCoverTheme == theme
+                                        GlassPill(
+                                            selected = isSelected,
+                                            tint = if (isSelected) GlassButtonPalette.OceanBlue else null,
+                                            onClick = {
+                                                selectedCoverTheme = theme
+                                                showStylePicker = false
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                                            modifier = Modifier.fillMaxWidth().elasticStretch(),
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween,
                                             ) {
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                ) {
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        Text(style.badge, fontSize = 22.sp)
-                                                        Spacer(Modifier.width(12.dp))
-                                                        Text(
-                                                            style.label,
-                                                            fontSize = 15.sp,
-                                                            color = if (isSelected) Color.White else io.github.ntvien.liquidglass.LiquidGlassTheme.colors.content,
-                                                        )
-                                                    }
-                                                    if (isSelected) {
-                                                        Icon(Icons.Outlined.Check, "Selected", tint = Color.White)
-                                                    }
+                                                Text(
+                                                    theme.label,
+                                                    fontSize = 15.sp,
+                                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                                )
+                                                if (isSelected) {
+                                                    Icon(Icons.Outlined.Check, "Selected", tint = Color.White)
                                                 }
                                             }
                                         }
                                     }
-                                    StudioAssetMode.COVER -> {
-                                        CoverTheme.entries.forEach { theme ->
-                                            val isSelected = selectedCoverTheme == theme
-                                            LiquidGlassPill(
-                                                selected = isSelected,
-                                                tint = if (isSelected) GlassButtonPalette.OceanBlue else null,
-                                                onClick = {
-                                                    selectedCoverTheme = theme
-                                                    showStylePicker = false
-                                                },
-                                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                                                modifier = Modifier.fillMaxWidth().elasticStretch(),
+                                }
+                                StudioAssetMode.TEMPLATE -> {
+                                    TemplateType.entries.forEach { tmpl ->
+                                        val isSelected = selectedTemplateType == tmpl
+                                        GlassPill(
+                                            selected = isSelected,
+                                            tint = if (isSelected) GlassButtonPalette.Emerald else null,
+                                            onClick = {
+                                                selectedTemplateType = tmpl
+                                                showStylePicker = false
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                                            modifier = Modifier.fillMaxWidth().elasticStretch(),
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween,
                                             ) {
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                ) {
-                                                    Text(
-                                                        theme.label,
-                                                        fontSize = 15.sp,
-                                                        color = if (isSelected) Color.White else io.github.ntvien.liquidglass.LiquidGlassTheme.colors.content,
-                                                    )
-                                                    if (isSelected) {
-                                                        Icon(Icons.Outlined.Check, "Selected", tint = Color.White)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    StudioAssetMode.TEMPLATE -> {
-                                        TemplateType.entries.forEach { tmpl ->
-                                            val isSelected = selectedTemplateType == tmpl
-                                            LiquidGlassPill(
-                                                selected = isSelected,
-                                                tint = if (isSelected) GlassButtonPalette.Emerald else null,
-                                                onClick = {
-                                                    selectedTemplateType = tmpl
-                                                    showStylePicker = false
-                                                },
-                                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                                                modifier = Modifier.fillMaxWidth().elasticStretch(),
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                ) {
-                                                    Text(
-                                                        tmpl.label,
-                                                        fontSize = 15.sp,
-                                                        color = if (isSelected) Color.White else io.github.ntvien.liquidglass.LiquidGlassTheme.colors.content,
-                                                    )
-                                                    if (isSelected) {
-                                                        Icon(Icons.Outlined.Check, "Selected", tint = Color.White)
-                                                    }
+                                                Text(
+                                                    tmpl.label,
+                                                    fontSize = 15.sp,
+                                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                                )
+                                                if (isSelected) {
+                                                    Icon(Icons.Outlined.Check, "Selected", tint = Color.White)
                                                 }
                                             }
                                         }

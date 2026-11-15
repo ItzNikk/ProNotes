@@ -95,14 +95,14 @@ enum class AiAssetKind(val label: String) {
     TEMPLATE("Template"),
 }
 
-/** ProNotes Creative Studio artistic styles. */
+/** Creative Studio artistic styles. */
 enum class CreativeStyle(val label: String, val badge: String) {
-    CARTOON_3D("3D Cartoon", "🧸"),
-    WATERCOLOR("Watercolor", "🎨"),
-    SKETCH("Sketch to Art", "✏️"),
-    POP_ART("Pop Art", "⚡"),
-    ANIME("Anime Studio", "✨"),
-    MINIMAL("Minimal Vector", "📐"),
+    CARTOON_3D("3D Cartoon", "3D"),
+    WATERCOLOR("Watercolor", "Watercolor"),
+    SKETCH("Sketch to Art", "Sketch"),
+    POP_ART("Pop Art", "Pop Art"),
+    ANIME("Anime Studio", "Anime"),
+    MINIMAL("Minimal Vector", "Minimal"),
 }
 
 data class ImageModelSpec(
@@ -228,13 +228,13 @@ object LocalAiManager {
 
     val imageCatalog: List<ImageModelSpec> = listOf(
         ImageModelSpec(
-            id = "pronotes-studio-lite",
-            name = "ProNotes Creative Studio Lite",
-            backend = "Studio Creative Engine Lite",
+            id = "galaxy-sketch-lite",
+            name = "Creative Studio Lite",
+            backend = "Drawing Assist Lite",
             sizeLabel = "0 MB · Built-in Lite",
             approxBytes = 0L,
-            description = "ProNotes high-fidelity studio design engine with 3D Cartoon, Watercolor, Sketch to Art, Pop Art & Anime modes.",
-            tags = listOf("Studio Design", "Lite Mode", "Instant"),
+            description = "Built-in studio design engine with 3D Cartoon, Watercolor, Sketch to Art, Pop Art and Anime modes.",
+            tags = listOf("Studio", "Lite Mode", "Instant"),
             downloadUrl = "",
             fileName = "",
             builtInReady = true,
@@ -271,7 +271,7 @@ object LocalAiManager {
             backend = "Core Diffusion Lite Q4",
             sizeLabel = "~92 MB",
             approxBytes = 92L * 1024 * 1024,
-            description = "Stylized Samsung Creative Studio book covers, 3D badges, and watercolor planner headers.",
+            description = "Stylized Creative Studio book covers, 3D badges, and watercolor planner headers.",
             tags = listOf("Lite Mode", "Stylized Covers", "Recommended"),
             downloadUrl = "https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/main/SmolLM2-135M-Instruct-Q4_K_M.gguf",
             fileName = "sdxl-turbo-lite-q4.safetensors",
@@ -714,7 +714,7 @@ object LocalAiManager {
         val spec = imageCatalog.firstOrNull { it.id == modelId } ?: return
         if (!spec.builtInReady) imageModelFile(context, spec).delete()
         val store = SettingsStore.get(context)
-        if (store.settings.value.activeImageModelId == modelId) store.update { it.copy(activeImageModelId = "pronotes-studio-lite") }
+        if (store.settings.value.activeImageModelId == modelId) store.update { it.copy(activeImageModelId = "galaxy-sketch-lite") }
         refresh(context)
     }
 
@@ -966,7 +966,7 @@ object LocalAiManager {
                 it.sentence.contains(cleanSel, ignoreCase = true)
         }
         if (exactFact != null) {
-            return@withContext "✨ ${exactFact.term}\n\n${exactFact.meaning}\n\nKey Takeaway: ${exactFact.sentence}"
+            return@withContext "${exactFact.term}\n\n${exactFact.meaning}\n\nKey Takeaway: ${exactFact.sentence}"
         }
         val sentences = StudyGen.sentences(combined)
         val matching = sentences.filter { s ->
@@ -975,7 +975,7 @@ object LocalAiManager {
         }.take(3)
         val terms = StudyGen.keyTerms(combined, 5)
         buildString {
-            appendLine("✨ Concept Breakdown: ${cleanSel.take(80)}")
+            appendLine("Concept Breakdown: ${cleanSel.take(80)}")
             appendLine()
             if (matching.isNotEmpty()) {
                 matching.forEach { appendLine("• $it") }
@@ -989,20 +989,6 @@ object LocalAiManager {
                 appendLine("\nConnected terms: ${terms.joinToString(", ")}")
             }
         }.trim()
-    }
-
-    suspend fun transcribeHandwriting(context: Context, strokeSummary: String, pageContext: String): String = withContext(Dispatchers.Default) {
-        val sys = "You are an intelligent handwriting transcriber for a digital notebook. Convert the notes or line summaries into clean, concise handwritten transcription matching the user's notes. Do not include markdown codeblocks or chatter; return only the transcribed lines of text."
-        val usr = "Transcribe these handwritten note lines into readable text:\n$strokeSummary\nPage Context:\n${pageContext.take(2000)}"
-        if (hasCustomApi(context)) {
-            val ai = callCustomApi(context, sys, usr).getOrNull()
-            if (!ai.isNullOrBlank()) return@withContext ai.trim()
-        }
-        val freeAi = callFreePublicAi(sys, usr)
-        if (!freeAi.isNullOrBlank()) return@withContext freeAi.trim()
-        strokeSummary.lines().mapIndexed { i, l ->
-            if (l.startsWith("Line ")) "Note item ${i + 1}" else l
-        }.joinToString("\n")
     }
 
     // ---------------------------------------------------------------- Mind Map
@@ -1430,7 +1416,7 @@ object LocalAiManager {
             }
             if (matchingFact != null) {
                 return buildString {
-                    appendLine("✨ **${matchingFact.term}**")
+                    appendLine("**${matchingFact.term}**")
                     appendLine()
                     appendLine("• **Definition**: ${matchingFact.meaning}")
                     appendLine("• **Context**: ${matchingFact.sentence}")
@@ -1456,7 +1442,7 @@ object LocalAiManager {
 
         // 7. Direct Knowledge Explanation when notes don't have typed text
         return buildString {
-            appendLine("✨ **${conceptQuery.replaceFirstChar { it.uppercase() }}**")
+            appendLine("**${conceptQuery.replaceFirstChar { it.uppercase() }}**")
             appendLine()
             appendLine("• **Definition**: $conceptQuery is a fundamental concept in this study subject.")
             appendLine("• **Key Framework**: To master $conceptQuery, focus on its primary definition, governing formulas or mechanisms, and practical applications.")
@@ -1663,7 +1649,7 @@ object LocalAiManager {
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     textAlign = Paint.Align.CENTER
                 }
-                canvas.drawText("${style.badge} $label", cx, cy + tp.textSize * 0.34f, tp)
+                canvas.drawText(label, cx, cy + tp.textSize * 0.34f, tp)
             }
             AiAssetKind.COVER -> {
                 val base = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1963,7 +1949,7 @@ object LocalAiManager {
         val pts = StudyGen.summary(clean, 5).ifEmpty { StudyGen.sentences(clean).take(4) }
         val terms = StudyGen.keyTerms(clean, 6)
         buildString {
-            appendLine("🎙 ${title.ifBlank { "Lecture Recording" }} (${durationSec / 60}m ${durationSec % 60}s)")
+            appendLine("${title.ifBlank { "Lecture Recording" }} (${durationSec / 60}m ${durationSec % 60}s)")
             if (pts.isNotEmpty()) {
                 appendLine("\nKey Takeaways:")
                 pts.forEach { appendLine("• $it") }

@@ -60,15 +60,13 @@ import io.github.ntvien.liquidglass.GlassDefaults
 import io.github.ntvien.liquidglass.GlassStyle
 import io.github.ntvien.liquidglass.LiquidGlassTheme
 import io.github.ntvien.liquidglass.LocalGlassBackdrops
+import io.github.ntvien.liquidglass.LocalInsideGlass
 import io.github.ntvien.liquidglass.liquidGlass
 import io.github.ntvien.liquidglass.rememberGlassInteraction
 
 /** One entry of [LiquidMenuButton]: a [LiquidMenuItem] or a [LiquidMenuDivider]. */
 public sealed interface LiquidMenuEntry
 
-/**
- * A menu action with optional icon, custom leading content, and destructive / accent tinting.
- */
 @Stable
 public class LiquidMenuItem(
     public val label: String,
@@ -118,7 +116,7 @@ public fun LiquidMenuButton(
     items: List<LiquidMenuEntry>,
     modifier: Modifier = Modifier,
     style: GlassStyle = GlassDefaults.control(),
-    shape: Shape = GlassDefaults.PillShape,
+    shape: Shape = GlassDefaults.pillShape(),
     menuWidth: Dp = 256.dp,
     contentDescription: String = "Menu",
 ) {
@@ -144,7 +142,7 @@ public fun LiquidMenuButton(
     contentDescription: String,
     modifier: Modifier = Modifier,
     style: GlassStyle = GlassDefaults.control(),
-    shape: Shape = GlassDefaults.PillShape,
+    shape: Shape = GlassDefaults.pillShape(),
     menuWidth: Dp = 256.dp,
     textStyle: TextStyle = TextStyle(fontSize = 14.5.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium),
     content: @Composable BoxScope.() -> Unit,
@@ -153,6 +151,7 @@ public fun LiquidMenuButton(
     val haptic = LocalHapticFeedback.current
     val interaction = rememberGlassInteraction()
     val colors = LiquidGlassTheme.colors
+    val menuShape = GlassDefaults.cardShape()
 
     Box {
         Box(
@@ -178,12 +177,15 @@ public fun LiquidMenuButton(
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
-            shape = MENU_SHAPE,
+            shape = menuShape,
             containerColor = Color.Transparent,
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
         ) {
-            CompositionLocalProvider(LocalGlassBackdrops provides null) {
+            CompositionLocalProvider(
+                LocalGlassBackdrops provides null,
+                LocalInsideGlass provides true,
+            ) {
                 var appeared by remember { mutableStateOf(false) }
                 LaunchedEffect(Unit) { appeared = true }
                 val menuScale by animateFloatAsState(
@@ -206,14 +208,14 @@ public fun LiquidMenuButton(
                             alpha = menuAlpha
                             transformOrigin = TransformOrigin(0.5f, 0f)
                         }
-                        .shadow(22.dp, MENU_SHAPE, ambientColor = colors.glassShadow, spotColor = colors.glassShadow)
-                        .clip(MENU_SHAPE)
-                        .background(colors.glassFillOpaque.copy(alpha = 0.88f))
+                        .shadow(22.dp, menuShape, ambientColor = colors.glassShadow, spotColor = colors.glassShadow)
+                        .clip(menuShape)
+                        .background(colors.glassFillOpaque)
                         .background(
                             Brush.radialGradient(
                                 colors = listOf(
-                                    colors.glassHighlight.copy(alpha = 0.42f),
-                                    colors.accent.copy(alpha = 0.08f),
+                                    colors.glassHighlight.copy(alpha = 0.30f),
+                                    colors.accent.copy(alpha = 0.06f),
                                     Color.Transparent,
                                 ),
                                 center = Offset(40f, 0f),
@@ -301,13 +303,9 @@ private fun MenuRowItem(
                 this.scaleX = scaleX
                 this.scaleY = scaleY
             }
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(
-                if (glowAlpha > 0.01f) {
-                    badgeTint.copy(alpha = 0.16f * glowAlpha)
-                } else {
-                    Color.Transparent
-                },
+                if (glowAlpha > 0.01f) badgeTint.copy(alpha = 0.16f * glowAlpha) else Color.Transparent,
             )
             .pointerInput(entry.enabled) {
                 if (!entry.enabled) return@pointerInput
@@ -349,16 +347,15 @@ private fun MenuRowItem(
 }
 
 private val MENU_ACCENT_PALETTE = listOf(
-    Color(0xFF246A5B), // Botanical Emerald
-    Color(0xFF3B82F6), // Ocean Blue
-    Color(0xFF8B5CF6), // Galaxy Violet
-    Color(0xFFD97706), // Warm Amber
-    Color(0xFF0EA5E9), // Sky Cyan
-    Color(0xFFEC4899), // Rose Pink
-    Color(0xFF10B981), // Mint Leaf
+    Color(0xFF246A5B),
+    Color(0xFF3B82F6),
+    Color(0xFF8B5CF6),
+    Color(0xFFD97706),
+    Color(0xFF0EA5E9),
+    Color(0xFFEC4899),
+    Color(0xFF10B981),
 )
 
-private val MENU_SHAPE = RoundedCornerShape(24.dp)
 private val MENU_PADDING = 8.dp
-private val ITEM_HEIGHT = 44.dp
+private val ITEM_HEIGHT = 48.dp
 private val DIVIDER_HEIGHT = 9.dp

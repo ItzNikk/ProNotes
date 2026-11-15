@@ -131,12 +131,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -187,6 +189,8 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.pronotes.app.data.AppSettings
 import com.pronotes.app.data.EraserMode
 import com.pronotes.app.data.HighlighterMode
+import com.pronotes.app.data.InterfaceStyle
+import com.pronotes.app.data.LassoFilter
 import com.pronotes.app.data.LassoMode
 import com.pronotes.app.data.MotionStyle
 import com.pronotes.app.data.PaperStyle
@@ -201,18 +205,26 @@ import com.pronotes.app.ai.StudioAssetMode
 import com.pronotes.app.ui.BotanicalGlassBackground
 import com.pronotes.app.ui.ColorEditorDialog
 import com.pronotes.app.ui.GlassButtonPalette
-import com.pronotes.app.ui.LiquidContextMenu
-import com.pronotes.app.ui.LiquidGlassCard
-import com.pronotes.app.ui.LiquidGlassChip
-import com.pronotes.app.ui.LiquidGlassDialog
-import com.pronotes.app.ui.LiquidGlassDialogSurface
-import com.pronotes.app.ui.LiquidGlassPill
-import com.pronotes.app.ui.LiquidGlassSheet
-import com.pronotes.app.ui.LiquidSlider
-import com.pronotes.app.ui.LiquidSliderRow
-import com.pronotes.app.ui.LiquidToggle
+import com.pronotes.app.ui.GlassCard
+import com.pronotes.app.ui.GlassChip
+import com.pronotes.app.ui.GlassContextMenu
+import com.pronotes.app.ui.GlassDialog
+import com.pronotes.app.ui.GlassDialogSurface
+import com.pronotes.app.ui.GlassMenuButton
+import com.pronotes.app.ui.GlassMenuDivider
+import com.pronotes.app.ui.GlassMenuEntry
+import com.pronotes.app.ui.GlassMenuItem
+import com.pronotes.app.ui.GlassPill
+import com.pronotes.app.ui.GlassRole
+import com.pronotes.app.ui.GlassScene
+import com.pronotes.app.ui.GlassSegmentedControl
+import com.pronotes.app.ui.GlassSheet
+import com.pronotes.app.ui.GlassSliderRow
+import com.pronotes.app.ui.GlassSurface
+import com.pronotes.app.ui.GlassToggle
+import com.pronotes.app.ui.LocalInterfaceStyle
 import com.pronotes.app.ui.LocalMotionStyle
-import com.pronotes.app.ui.OptionalLiquidGlassBox
+import com.pronotes.app.ui.LocalSmartFeatures
 import com.pronotes.app.ui.PenGlyph
 import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.ProIconView
@@ -221,15 +233,8 @@ import com.pronotes.app.ui.StickerSet
 import com.pronotes.app.ui.Swatch
 import com.pronotes.app.ui.ToolGlyph
 import com.pronotes.app.ui.elasticStretch
-import io.github.ntvien.liquidglass.GlassDefaults
-import io.github.ntvien.liquidglass.LiquidGlassScene
-import io.github.ntvien.liquidglass.LiquidGlassTheme
-import io.github.ntvien.liquidglass.component.LiquidMenuButton
-import io.github.ntvien.liquidglass.component.LiquidMenuDivider
-import io.github.ntvien.liquidglass.component.LiquidMenuEntry
-import io.github.ntvien.liquidglass.component.LiquidMenuItem
-import io.github.ntvien.liquidglass.component.LiquidSegmentedControl
-import io.github.ntvien.liquidglass.component.LiquidSurface
+import com.pronotes.app.ui.glassCardShape
+import com.pronotes.app.ui.glassPillShape
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -242,19 +247,13 @@ import kotlin.math.roundToInt
 
 private val Pill = CircleShape
 
-/**
- * "Liquid glass": a see-through surface tint with a bright hairline edge and a soft
- * top highlight. Keeps the app's own colours; works on every Android version.
- */
 @Composable
-private fun glassOn(): Boolean = SettingsStore.get(LocalContext.current).settings.collectAsState().value.liquidGlass
-
-@Composable
-private fun glassColor(): Color = MaterialTheme.colorScheme.surface.copy(alpha = if (glassOn()) 0.78f else 1f)
+private fun glassColor(): Color =
+    MaterialTheme.colorScheme.surface.copy(alpha = if (LocalInterfaceStyle.current == InterfaceStyle.LIQUID_GLASS) 0.78f else 1f)
 
 @Composable
 private fun Modifier.glassEdge(shape: androidx.compose.ui.graphics.Shape): Modifier {
-    if (!glassOn()) return this
+    if (LocalInterfaceStyle.current != InterfaceStyle.LIQUID_GLASS) return this
     val dark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
     return this.background(
         Brush.verticalGradient(listOf(Color.White.copy(alpha = if (dark) 0.08f else 0.24f), Color.Transparent)),
@@ -278,11 +277,12 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     val context = LocalContext.current
     val app = context.applicationContext as Application
     val vm: EditorViewModel = viewModel(key = noteId, factory = viewModelFactory { initializer { EditorViewModel(app, noteId) } })
-    val settings by vm.settingsFlow.collectAsState()
+    val settings by vm.settingsFlow.collectAsStateWithLifecycle()
+    val smartFeatures = LocalSmartFeatures.current
     val store = remember { SettingsStore.get(context) }
     val repo = remember { Repository.get(context) }
-    val library by repo.library.collectAsState()
-    val tabs by store.tabs.collectAsState()
+    val library by repo.library.collectAsStateWithLifecycle()
+    val tabs by store.tabs.collectAsStateWithLifecycle()
     val density = LocalDensity.current.density
     val scope = rememberCoroutineScope()
     var canvas by remember { mutableStateOf<NoteCanvasView?>(null) }
@@ -327,26 +327,6 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
             focus -> focus = false
             showPages -> showPages = false
             else -> { vm.saveNow(); onBack() }
-        }
-    }
-    val activity = context as? androidx.activity.ComponentActivity
-    DisposableEffect(focus) {
-        val window = activity?.window
-        if (window != null) {
-            val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-            if (focus) {
-                insetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-            } else {
-                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-            }
-        }
-        onDispose {
-            val win = activity?.window
-            if (win != null && focus) {
-                val insetsController = androidx.core.view.WindowCompat.getInsetsController(win, win.decorView)
-                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-            }
         }
     }
     DisposableEffect(Unit) { onDispose { vm.saveNow(); vm.onPagesChanged = null; vm.onScrollTo = null; vm.onRedraw = null } }
@@ -432,15 +412,15 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     var showLectureRecorder by remember { mutableStateOf(false) }
     var showCollabRoom by remember { mutableStateOf(false) }
 
-    LiquidGlassScene(background = { BotanicalGlassBackground() }) {
+    GlassScene(background = { BotanicalGlassBackground() }) {
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         AnimatedVisibility(!focus, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-            // Fixed Top Bar wrapped in Liquid Glass
-            OptionalLiquidGlassBox(
-                enabled = settings.liquidGlass,
+            // Fixed Top Bar wrapped in GlassSurface
+            GlassSurface(
+                role = GlassRole.Chrome,
                 shape = RoundedCornerShape(0.dp),
-                fallbackColor = androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.primary, 0.14f),
+                contentPadding = PaddingValues(0.dp),
                 modifier = Modifier.shadow(2.dp),
             ) {
                 Column(Modifier.statusBarsPadding()) {
@@ -498,7 +478,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
             }
         }
 
-        Row(Modifier.weight(1f).fillMaxWidth().then(if (!focus) Modifier.navigationBarsPadding() else Modifier)) {
+        Row(Modifier.weight(1f).fillMaxWidth()) {
             // ------------------------------------------------------ pages panel (left)
             AnimatedVisibility(
                 showPages && !focus,
@@ -532,7 +512,6 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                                 override fun onStickyChecklistToggle(page: Int, sticky: StickyItem, lineIndex: Int) = vm.toggleStickyCheckLine(page, sticky, lineIndex)
                                 override fun onWebLinkTap(page: Int, x: Float, y: Float, existing: WebLinkItem?) = vm.openWebLink(page, x, y, existing)
                                 override fun onMindMapTap(page: Int, x: Float, y: Float, existing: MindNodeItem?) = vm.onMindMapTap(page, x, y, existing)
-                                override fun onWriteBoxDoubleTap(page: Int, item: WriteBoxItem) = vm.toggleWriteBox(page, item)
                                 override fun onCurrentPage(index: Int) = vm.onCurrentPage(index)
                                 override fun onPullAddPage() = vm.addPage(atEnd = true)
                                 override fun undo() = vm.undo()
@@ -597,21 +576,20 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 ) {
                     SelectionMenu(
                         vm = vm,
-                        liquidGlass = settings.liquidGlass,
                         onDuplicate = { val ids = vm.duplicateSelection(); canvas?.selectItems(vm.selectionPage, ids) },
                         onColor = { c -> val ids = vm.selection; val pg = vm.selectionPage; vm.recolorSelection(c); canvas?.selectItems(pg, ids) },
-                        onRainbow = { val ids = vm.selection; val pg = vm.selectionPage; vm.rainbowSelection(); canvas?.selectItems(pg, ids) },
                         keep = { block -> val ids = vm.selection; val pg = vm.selectionPage; block(); canvas?.selectItems(pg, ids) },
                         onShareImage = { scope.launch { vm.selectionImage()?.let { shareBitmap(context, it, vm.title + " selection") } } },
                     )
                 }
 
-                // Single Fixed Top Bar only — all tools, options, and the ✨ AI button live inside TopBar.
+                // Single Fixed Top Bar only — all tools, options, and the AI button live inside TopBar.
 
                 vm.zoomPercent?.let { z ->
-                    LiquidSurface(
-                        style = GlassDefaults.frost().copy(fallbackSurface = Color(0xCC1B1F2A), contentColor = Color.White),
-                        shape = Pill,
+                    GlassSurface(
+                        role = GlassRole.Frost,
+                        containerColor = Color(0xCC1B1F2A),
+                        shape = glassPillShape(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                         modifier = Modifier.align(Alignment.Center),
                     ) {
@@ -620,11 +598,11 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 }
 
                 if (focus) {
-                    LiquidGlassPill(
+                    GlassPill(
                         onClick = { focus = false },
                         contentPadding = PaddingValues(10.dp),
                         modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp),
-                    ) { ProIconView(ProIcon.CLOSE, LiquidGlassTheme.colors.content, Modifier.size(20.dp)) }
+                    ) { ProIconView(ProIcon.CLOSE, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp)) }
                 }
 
                 // Undo and redo sit at the top left, wherever the toolbar is (inside the bar on phones).
@@ -636,19 +614,17 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 // Long-press on PDF text: copy, highlight, flashcard, search.
                 vm.textMenu?.let { r ->
                     val clip = androidx.compose.ui.platform.LocalClipboardManager.current
-                    LiquidSurface(
-                        style = GlassDefaults.frost().copy(fallbackSurface = Color(0xE01B1F2A), contentColor = Color.White),
-                        shape = Pill,
+                    GlassSurface(
+                        role = GlassRole.Frost,
+                        containerColor = Color(0xE01B1F2A),
+                        shape = glassPillShape(),
                         contentPadding = PaddingValues(horizontal = 6.dp),
                         modifier = Modifier.offset {
                             val y = (r.top - 64 * density).let { if (it < 8) r.bottom + 12 * density else it }
-                            val maxBarW = minOf(640f * density, (areaSize.width - 16).coerceAtLeast(1).toFloat())
-                            val x = r.left.coerceIn(8f, (areaSize.width - maxBarW - 8f).coerceAtLeast(8f))
-                            IntOffset(x.roundToInt(), y.roundToInt())
+                            IntOffset(r.left.roundToInt().coerceIn(8, (areaSize.width - 360 * density).roundToInt().coerceAtLeast(8)), y.roundToInt())
                         },
                     ) {
-                        val maxAvailableDp = ((areaSize.width - 24) / density).coerceAtLeast(240f).dp
-                        Row(Modifier.widthIn(max = minOf(640.dp, maxAvailableDp)).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.widthIn(max = 640.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                             TextButton(onClick = { vm.textSel?.text?.let { clip.setText(androidx.compose.ui.text.AnnotatedString(it)) }; vm.clearTextSel() }) { Text("Copy", color = Color.White) }
                             // Highlight in one of four colours.
                             listOf(0xFFFFE066, 0xFF8CE99A, 0xFF74C0FC, 0xFFFFA8A8).forEach { c ->
@@ -667,16 +643,17 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 }
 
                 vm.toast?.let { msg ->
-                    LiquidSurface(
-                        style = GlassDefaults.frost().copy(fallbackSurface = Color(0xE01B1F2A), contentColor = Color.White),
-                        shape = Pill,
+                    GlassSurface(
+                        role = GlassRole.Frost,
+                        containerColor = Color(0xE01B1F2A),
+                        shape = glassPillShape(),
                         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
                         modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 120.dp),
                     ) { Text(msg, style = MaterialTheme.typography.labelLarge, color = Color.White) }
                 }
 
                 if (vm.currentPage?.isWhiteboard == true && !focus) {
-                    LiquidGlassPill(
+                    GlassPill(
                         contentPadding = PaddingValues(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
                         modifier = Modifier.align(Alignment.TopStart).padding(12.dp).graphicsLayer { alpha = overlayFade },
                     ) {
@@ -693,9 +670,9 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 if (!focus && !vm.readOnly && (vm.tool == Tool.MINDMAP || vm.activeMindNodeId != null)) {
                     val selNode = vm.selectedMindNode()
                     val hasKids = selNode != null && vm.currentPage?.items?.any { it is MindNodeItem && it.parentId == selNode.id } == true
-                    LiquidSurface(
-                        style = GlassDefaults.chrome(),
-                        shape = Pill,
+                    GlassSurface(
+                        role = GlassRole.Chrome,
+                        shape = glassPillShape(),
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                         modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
                             .padding(bottom = if (settings.toolbarDock == ToolbarDock.BOTTOM) 84.dp else 18.dp)
@@ -739,7 +716,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 }
 
                 if (vm.readOnly && !focus) {
-                    LiquidGlassPill(
+                    GlassPill(
                         onClick = { vm.toggleReadOnly() },
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                         modifier = Modifier.align(Alignment.TopCenter).padding(12.dp),
@@ -762,16 +739,16 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                     else -> null
                 }
                 if (banner != null) {
-                    LiquidSurface(
-                        style = GlassDefaults.accent(),
-                        shape = Pill,
+                    GlassSurface(
+                        role = GlassRole.Accent,
+                        shape = glassPillShape(),
                         contentPadding = PaddingValues(start = 18.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
                         modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 72.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(banner, style = MaterialTheme.typography.labelLarge, color = LiquidGlassTheme.colors.onAccent)
+                            Text(banner, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary)
                             Spacer(Modifier.width(8.dp))
-                            TextButton(onClick = { vm.capturingCard = false; vm.linkFrom = null }) { Text("Cancel", color = LiquidGlassTheme.colors.onAccent) }
+                            TextButton(onClick = { vm.capturingCard = false; vm.linkFrom = null }) { Text("Cancel", color = MaterialTheme.colorScheme.onPrimary) }
                         }
                     }
                 }
@@ -830,11 +807,12 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     if (showCards) FlashcardsDialog(vm, onClose = { showCards = false })
     if (showQuiz) QuizDialog(vm, onClose = { showQuiz = false })
     if (vm.showSlideShow) SlideShowDialog(vm, onClose = { vm.showSlideShow = false })
-    if (showTemplates) TemplateSheet(vm, onAiTemplate = { showTemplates = false; showAssetStudio = AiAssetKind.TEMPLATE }, onClose = { showTemplates = false })
-    if (showAiChat) {
+    if (showTemplates) TemplateSheet(vm, onAiTemplate = { showTemplates = false; if (smartFeatures) showAssetStudio = AiAssetKind.TEMPLATE }, onClose = { showTemplates = false })
+    if (showAiChat && smartFeatures) {
         AiNotesChatDialog(vm = vm, onClose = { showAiChat = false })
     }
-    showAssetStudio?.let { kind ->
+    if (smartFeatures) {
+        showAssetStudio?.let { kind ->
         val initialStudioMode = when (kind) {
             AiAssetKind.STICKER -> StudioAssetMode.STICKER
             AiAssetKind.COVER -> StudioAssetMode.COVER
@@ -866,9 +844,10 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                 },
             )
         }
+        }
     }
     vm.linkToDelete?.let { id ->
-        LiquidGlassDialog(
+        GlassDialog(
             onDismissRequest = { vm.linkToDelete = null },
             title = { Text("Remove this link?") },
             text = { Text("Both ends of the link will go away. Your ink stays.") },
@@ -888,7 +867,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
         var pinned by remember(edit) { mutableStateOf(edit.item.pinned) }
         val fonts = listOf("SANS" to "Sans", "SERIF" to "Serif", "MONO" to "Mono", "HAND" to "Hand")
         val styles = listOf("classic" to "Classic", "lined" to "Lined", "glass" to "Glass", "outline" to "Outline")
-        LiquidGlassDialog(
+        GlassDialog(
             onDismissRequest = { vm.stickyEdit = null },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -922,12 +901,12 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
                     }
                     SliderRow("TEXT SIZE", "%.0f pt".format(fontSize), fontSize, 18f..48f) { fontSize = it }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        LiquidGlassChip(
+                        GlassChip(
                             selected = pinned,
                             onClick = { pinned = !pinned },
                             label = if (pinned) "Pinned" else "Pin position",
                         )
-                        LiquidGlassChip(
+                        GlassChip(
                             selected = collapsed,
                             onClick = { collapsed = !collapsed },
                             label = if (collapsed) "Folded" else "Fold strip",
@@ -970,7 +949,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
 
     if (renaming) {
         var name by remember { mutableStateOf(vm.title) }
-        LiquidGlassDialog(
+        GlassDialog(
             onDismissRequest = { renaming = false },
             title = { Text("Rename notebook") },
             text = { OutlinedTextField(name, { name = it }, singleLine = true, shape = Pill) },
@@ -981,7 +960,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
 
     if (goTo) {
         var n by remember { mutableStateOf("${vm.pageIndex + 1}") }
-        LiquidGlassDialog(
+        GlassDialog(
             onDismissRequest = { goTo = false },
             title = { Text("Go to page") },
             text = {
@@ -996,7 +975,7 @@ fun EditorScreen(noteId: String, onBack: () -> Unit, onOpenSettings: () -> Unit,
     }
 
     if (showStickers) {
-        LiquidGlassSheet(onDismissRequest = { showStickers = false; vm.tool = Tool.LASSO }) {
+        GlassSheet(onDismissRequest = { showStickers = false; vm.tool = Tool.LASSO }) {
             StickerSheet(
                 vm = vm,
                 onOpenAiStudio = {
@@ -1031,14 +1010,14 @@ private fun TabStrip(tabs: List<Pair<String, String>>, current: String, onSelect
     ) {
         tabs.forEach { (id, title) ->
             val sel = id == current
-            LiquidGlassPill(
+            GlassPill(
                 selected = sel,
                 onClick = { onSelect(id) },
                 contentPadding = PaddingValues(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                 modifier = Modifier.widthIn(min = 110.dp, max = 220.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    val fg = if (sel) LiquidGlassTheme.colors.onAccent else MaterialTheme.colorScheme.onSurfaceVariant
+                    val fg = if (sel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                     Text(
                         title, Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal),
@@ -1058,11 +1037,11 @@ private fun TabStrip(tabs: List<Pair<String, String>>, current: String, onSelect
 private fun BarIcon(icon: ProIcon, label: String, enabled: Boolean = true, active: Boolean = false, onClick: () -> Unit) {
     val tint = when {
         !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-        active -> LiquidGlassTheme.colors.onAccent
+        active -> MaterialTheme.colorScheme.onPrimary
         else -> MaterialTheme.colorScheme.onSurface
     }
     if (active) {
-        LiquidGlassPill(
+        GlassPill(
             selected = true,
             onClick = if (enabled) onClick else null,
             contentPadding = PaddingValues(0.dp),
@@ -1109,7 +1088,7 @@ private fun TopBar(
         BarIcon(ProIcon.UNDO, "Undo", enabled = vm.canUndo, onClick = vm::undo)
         BarIcon(ProIcon.REDO, "Redo", enabled = vm.canRedo, onClick = vm::redo)
         if (!hideTools) {
-            // Single Fixed Top Bar: all tools, tool options, and the dedicated ✨ AI button live right in the bar.
+            // Single Fixed Top Bar: all tools, tool options, and the dedicated AI button live right in the bar.
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                     ToolbarOrder.visible(settings.toolbarTools).forEach { t ->
@@ -1142,7 +1121,7 @@ private fun TopBar(
             )
         }
         if (vm.pages.isNotEmpty()) {
-            LiquidGlassPill(contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp)) {
+            GlassPill(contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { vm.goToPage(vm.pageIndex - 1) }, enabled = vm.pageIndex > 0, modifier = Modifier.size(30.dp)) {
                         Icon(Icons.Filled.KeyboardArrowUp, "Previous page", Modifier.size(16.dp).graphicsLayer { rotationZ = -90f })
@@ -1167,97 +1146,102 @@ private fun TopBar(
             }
             Spacer(Modifier.width(4.dp))
         }
-        // Colorful Galaxy Studio & AI Tutor pills in TopBar
-        LiquidGlassPill(
-            selected = true,
-            tint = GlassButtonPalette.GalaxyPurple,
-            onClick = { onAssetStudio(AiAssetKind.STICKER) },
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-            modifier = Modifier.elasticStretch(),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Icon(Icons.Outlined.AutoAwesome, "Creative Studio", Modifier.size(15.dp), tint = Color.White)
-                Text("Studio", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
+        // Studio & AI Tutor pills in TopBar
+        val smartFeatures = LocalSmartFeatures.current
+        if (smartFeatures) {
+            GlassPill(
+                selected = true,
+                tint = GlassButtonPalette.GalaxyPurple,
+                onClick = { onAssetStudio(AiAssetKind.STICKER) },
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                modifier = Modifier.elasticStretch(),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(Icons.Outlined.AutoAwesome, "Creative Studio", Modifier.size(15.dp), tint = Color.White)
+                    Text("Studio", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
+                }
             }
-        }
-        Spacer(Modifier.width(4.dp))
-        LiquidGlassPill(
-            tint = GlassButtonPalette.OceanBlue,
-            onClick = onAiChat,
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-            modifier = Modifier.elasticStretch(),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Icon(Icons.Outlined.ChatBubbleOutline, "Study Assistant", Modifier.size(15.dp), tint = GlassButtonPalette.OceanBlue)
-                Text("AI", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = GlassButtonPalette.OceanBlue)
+            Spacer(Modifier.width(4.dp))
+            GlassPill(
+                tint = GlassButtonPalette.OceanBlue,
+                onClick = onAiChat,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                modifier = Modifier.elasticStretch(),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(Icons.Outlined.ChatBubbleOutline, "Study Assistant", Modifier.size(15.dp), tint = GlassButtonPalette.OceanBlue)
+                    Text("AI", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = GlassButtonPalette.OceanBlue)
+                }
             }
+            Spacer(Modifier.width(4.dp))
         }
-        Spacer(Modifier.width(4.dp))
-        LiquidMenuButton(
-            style = GlassDefaults.tinted(GlassButtonPalette.Emerald),
+        GlassMenuButton(
+            tint = GlassButtonPalette.Emerald,
             contentPadding = PaddingValues(8.dp),
             modifier = Modifier.elasticStretch(),
             buttonContent = { ProIconView(ProIcon.ADD, GlassButtonPalette.Emerald, Modifier.size(22.dp)) },
-            items = listOf(
-                LiquidMenuItem("New page after this") { vm.addPage() },
-                LiquidMenuItem("New page at the end") { vm.addPage(atEnd = true) },
-                LiquidMenuItem("Infinite whiteboard page") { vm.addPage(paper = PaperStyle.DOTTED, isWhiteboard = true) },
-                LiquidMenuItem("Add Writing Box", icon = { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)) }) { vm.addWriteBox(vm.pageIndex) },
-                LiquidMenuItem("Choose a template…") { onTemplates() },
-                LiquidMenuItem("✨ Create AI Template…", Icons.Outlined.AutoAwesome) { onAssetStudio(AiAssetKind.TEMPLATE) },
-            ),
+            items = buildList {
+                add(GlassMenuItem("New page after this") { vm.addPage() })
+                add(GlassMenuItem("New page at the end") { vm.addPage(atEnd = true) })
+                add(GlassMenuItem("Infinite whiteboard page") { vm.addPage(paper = PaperStyle.DOTTED, isWhiteboard = true) })
+                add(GlassMenuItem("Choose a template…") { onTemplates() })
+                if (smartFeatures) {
+                    add(GlassMenuItem("Create AI Template…", icon = Icons.Outlined.AutoAwesome) { onAssetStudio(AiAssetKind.TEMPLATE) })
+                }
+            },
         )
         Spacer(Modifier.width(4.dp))
-        LiquidMenuButton(
-            style = GlassDefaults.tinted(GlassButtonPalette.SkyCyan),
+        GlassMenuButton(
+            tint = GlassButtonPalette.SkyCyan,
             contentPadding = PaddingValues(8.dp),
             modifier = Modifier.elasticStretch(),
             buttonContent = { ProIconView(ProIcon.SHARE, GlassButtonPalette.SkyCyan, Modifier.size(22.dp)) },
             items = listOf(
-                LiquidMenuItem("Export as PDF…", icon = { Icon(Icons.Outlined.PictureAsPdf, null, Modifier.size(18.dp)) }) { onExport() },
-                LiquidMenuItem("Share PDF", icon = { Icon(Icons.Outlined.IosShare, null, Modifier.size(18.dp)) }) { onShare() },
-                LiquidMenuItem("Share this page as image", icon = { Icon(Icons.Outlined.Image, null, Modifier.size(18.dp)) }) { onSharePage() },
+                GlassMenuItem("Export as PDF…", leadingContent = { Icon(Icons.Outlined.PictureAsPdf, null, Modifier.size(18.dp)) }) { onExport() },
+                GlassMenuItem("Share PDF", leadingContent = { Icon(Icons.Outlined.IosShare, null, Modifier.size(18.dp)) }) { onShare() },
+                GlassMenuItem("Share this page as image", leadingContent = { Icon(Icons.Outlined.Image, null, Modifier.size(18.dp)) }) { onSharePage() },
             ),
         )
         Spacer(Modifier.width(4.dp))
-        val moreEntries = buildList<LiquidMenuEntry> {
-            add(LiquidMenuItem("✨ AI Creative Studio", icon = { Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(18.dp), tint = GlassButtonPalette.GalaxyPurple) }) { onAssetStudio(AiAssetKind.STICKER) })
-            add(LiquidMenuItem("🤖 Study Assistant & Math Solver", icon = { Icon(Icons.Outlined.ChatBubbleOutline, null, Modifier.size(18.dp), tint = GlassButtonPalette.OceanBlue) }) { onAiChat() })
-            add(LiquidMenuItem("🎨 Generate AI Notebook Cover", icon = { Icon(Icons.Outlined.Palette, null, Modifier.size(18.dp), tint = GlassButtonPalette.CoralRose) }) { onAssetStudio(AiAssetKind.COVER) })
-            add(LiquidMenuDivider)
-            add(LiquidMenuItem("Flashcards", icon = { ProIconView(ProIcon.FLASHCARDS, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp), ink = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)) }) { onCards() })
-            add(LiquidMenuItem("Flashcard from area", icon = { Icon(Icons.Outlined.Crop, null, Modifier.size(18.dp)) }) { vm.capturingCard = true })
-            add(LiquidMenuItem("Live Study Room", icon = { Icon(Icons.Outlined.Groups, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary) }) { onCollabRoom() })
-            add(LiquidMenuDivider)
-            add(LiquidMenuItem("Add web link card…", icon = { ProIconView(ProIcon.WEBLINK, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp), ink = MaterialTheme.colorScheme.primary) }) { onAddWebLink() })
-            add(LiquidMenuItem("Add Writing Box", icon = { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)) }) { vm.addWriteBox(vm.pageIndex) })
-            add(LiquidMenuItem("Link item to page/URL…", icon = { Icon(Icons.Outlined.Link, null, Modifier.size(18.dp)) }) { vm.beginLinkFlow() })
-            add(LiquidMenuItem("Split view", icon = { ProIconView(ProIcon.SPLIT, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) { onSplit() })
-            add(LiquidMenuItem("Page template…", icon = { ProIconView(ProIcon.TEMPLATE, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) { onTemplates() })
-            add(LiquidMenuItem(if (vm.currentPage?.isWhiteboard == true) "Switch to standard page" else "Infinite whiteboard", icon = { Icon(Icons.Outlined.AllInclusive, null, Modifier.size(18.dp)) }) { vm.toggleCurrentWhiteboard() })
-            add(LiquidMenuItem("Import files into notebook…", icon = { Icon(Icons.Outlined.UploadFile, null, Modifier.size(18.dp)) }) { onImportFiles() })
-            add(LiquidMenuItem("Page colour…", icon = { ProIconView(ProIcon.PALETTE, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) { onPageColor() })
-            add(LiquidMenuItem(if (vm.currentPage?.bgImage != null) "Remove page picture" else "Picture as page…", icon = { ProIconView(ProIcon.IMAGE, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) {
+        val moreEntries = buildList<GlassMenuEntry> {
+            if (smartFeatures) {
+                add(GlassMenuItem("AI Creative Studio", leadingContent = { Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(18.dp), tint = GlassButtonPalette.GalaxyPurple) }) { onAssetStudio(AiAssetKind.STICKER) })
+                add(GlassMenuItem("Study Assistant & Math Solver", leadingContent = { Icon(Icons.Outlined.ChatBubbleOutline, null, Modifier.size(18.dp), tint = GlassButtonPalette.OceanBlue) }) { onAiChat() })
+                add(GlassMenuItem("Generate AI Notebook Cover", leadingContent = { Icon(Icons.Outlined.Palette, null, Modifier.size(18.dp), tint = GlassButtonPalette.CoralRose) }) { onAssetStudio(AiAssetKind.COVER) })
+                add(GlassMenuDivider)
+            }
+            add(GlassMenuItem("Flashcards", leadingContent = { ProIconView(ProIcon.FLASHCARDS, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp), ink = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)) }) { onCards() })
+            add(GlassMenuItem("Flashcard from area", leadingContent = { Icon(Icons.Outlined.Crop, null, Modifier.size(18.dp)) }) { vm.capturingCard = true })
+            add(GlassMenuItem("Live Study Room", leadingContent = { Icon(Icons.Outlined.Groups, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary) }) { onCollabRoom() })
+            add(GlassMenuDivider)
+            add(GlassMenuItem("Add web link card…", leadingContent = { ProIconView(ProIcon.WEBLINK, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp), ink = MaterialTheme.colorScheme.primary) }) { onAddWebLink() })
+            add(GlassMenuItem("Link item to page/URL…", leadingContent = { Icon(Icons.Outlined.Link, null, Modifier.size(18.dp)) }) { vm.beginLinkFlow() })
+            add(GlassMenuItem("Split view", leadingContent = { ProIconView(ProIcon.SPLIT, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) { onSplit() })
+            add(GlassMenuItem("Page template…", leadingContent = { ProIconView(ProIcon.TEMPLATE, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) { onTemplates() })
+            add(GlassMenuItem(if (vm.currentPage?.isWhiteboard == true) "Switch to standard page" else "Infinite whiteboard", leadingContent = { Icon(Icons.Outlined.AllInclusive, null, Modifier.size(18.dp)) }) { vm.toggleCurrentWhiteboard() })
+            add(GlassMenuItem("Import files into notebook…", leadingContent = { Icon(Icons.Outlined.UploadFile, null, Modifier.size(18.dp)) }) { onImportFiles() })
+            add(GlassMenuItem("Page colour…", leadingContent = { ProIconView(ProIcon.PALETTE, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) { onPageColor() })
+            add(GlassMenuItem(if (vm.currentPage?.bgImage != null) "Remove page picture" else "Picture as page…", leadingContent = { ProIconView(ProIcon.IMAGE, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) {
                 if (vm.currentPage?.bgImage != null) vm.setPageBackground(null) else onPageImage()
             })
-            add(LiquidMenuItem(if (vm.currentPage?.bookmarked == true) "Remove bookmark" else "Bookmark page", icon = { ProIconView(ProIcon.BOOKMARK, Color(0xFFE34948), Modifier.size(18.dp), ink = if (vm.currentPage?.bookmarked == true) Color(0xFFE34948) else null) }) { vm.toggleBookmark() })
+            add(GlassMenuItem(if (vm.currentPage?.bookmarked == true) "Remove bookmark" else "Bookmark page", leadingContent = { ProIconView(ProIcon.BOOKMARK, Color(0xFFE34948), Modifier.size(18.dp), ink = if (vm.currentPage?.bookmarked == true) Color(0xFFE34948) else null) }) { vm.toggleBookmark() })
             if (vm.hasClipboard) {
-                add(LiquidMenuItem("Paste", icon = { Icon(Icons.Outlined.ContentPaste, null, Modifier.size(18.dp)) }) { onPaste() })
+                add(GlassMenuItem("Paste", leadingContent = { Icon(Icons.Outlined.ContentPaste, null, Modifier.size(18.dp)) }) { onPaste() })
             }
-            add(LiquidMenuItem("Duplicate page", icon = { ProIconView(ProIcon.COPY, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) { vm.duplicatePage() })
+            add(GlassMenuItem("Duplicate page", leadingContent = { ProIconView(ProIcon.COPY, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) { vm.duplicatePage() })
             if (vm.pages.size > 1) {
-                add(LiquidMenuItem("Delete page", isDestructive = true, icon = { ProIconView(ProIcon.TRASH, MaterialTheme.colorScheme.error, Modifier.size(18.dp)) }) { vm.deletePage() })
+                add(GlassMenuItem("Delete page", destructive = true, leadingContent = { ProIconView(ProIcon.TRASH, MaterialTheme.colorScheme.error, Modifier.size(18.dp)) }) { vm.deletePage() })
             }
-            add(LiquidMenuDivider)
-            add(LiquidMenuItem("Rename notebook", icon = { ProIconView(ProIcon.RENAME, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) { onRename() })
-            add(LiquidMenuItem(if (vm.readOnly) "Turn off read only" else "Read only", icon = { ProIconView(ProIcon.LOCK, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp), ink = if (vm.readOnly) MaterialTheme.colorScheme.primary else null) }) { vm.toggleReadOnly() })
-            add(LiquidMenuItem("Go to page…", icon = { ProIconView(ProIcon.PAGES, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) { onGoTo() })
-            add(LiquidMenuItem(if (settings.scroll == ScrollDirection.VERTICAL) "Scroll horizontally" else "Scroll vertically", icon = { Icon(Icons.Outlined.SwapVert, null, Modifier.size(18.dp)) }) { onScrollToggle() })
-            add(LiquidMenuItem("Focus mode", icon = { ProIconView(ProIcon.FOCUS, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) { onFocus() })
-            add(LiquidMenuItem("Settings", icon = { ProIconView(ProIcon.SETTINGS, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) { onSettings() })
+            add(GlassMenuDivider)
+            add(GlassMenuItem("Rename notebook", leadingContent = { ProIconView(ProIcon.RENAME, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) { onRename() })
+            add(GlassMenuItem(if (vm.readOnly) "Turn off read only" else "Read only", leadingContent = { ProIconView(ProIcon.LOCK, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp), ink = if (vm.readOnly) MaterialTheme.colorScheme.primary else null) }) { vm.toggleReadOnly() })
+            add(GlassMenuItem("Go to page…", leadingContent = { ProIconView(ProIcon.PAGES, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) { onGoTo() })
+            add(GlassMenuItem(if (settings.scroll == ScrollDirection.VERTICAL) "Scroll horizontally" else "Scroll vertically", leadingContent = { Icon(Icons.Outlined.SwapVert, null, Modifier.size(18.dp)) }) { onScrollToggle() })
+            add(GlassMenuItem("Focus mode", leadingContent = { ProIconView(ProIcon.FOCUS, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) { onFocus() })
+            add(GlassMenuItem("Settings", leadingContent = { ProIconView(ProIcon.SETTINGS, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) }) { onSettings() })
         }
-        LiquidMenuButton(
-            style = GlassDefaults.tinted(GlassButtonPalette.WarmAmber),
+        GlassMenuButton(
+            tint = GlassButtonPalette.WarmAmber,
             contentPadding = PaddingValues(8.dp),
             modifier = Modifier.elasticStretch(),
             buttonContent = { ProIconView(ProIcon.MORE, GlassButtonPalette.WarmAmber, Modifier.size(22.dp)) },
@@ -1271,9 +1255,9 @@ private fun TopBar(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SearchBar(vm: EditorViewModel) {
-    LiquidGlassCard(
+    GlassCard(
         hero = false,
-        shape = RoundedCornerShape(18.dp),
+        shape = glassCardShape(),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
@@ -1301,15 +1285,15 @@ private fun SearchBar(vm: EditorViewModel) {
             }
             if (vm.searchHits.isNotEmpty()) {
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 160.dp)) {
-                    itemsIndexed(vm.searchHits) { i, hit ->
-                        LiquidGlassPill(
+                    itemsIndexed(vm.searchHits, key = { idx, hit -> "${hit.page}:$idx:${hit.snippet.hashCode()}" }) { i, hit ->
+                        GlassPill(
                             selected = i == vm.activeHit,
                             onClick = { vm.jumpToHit(i) },
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                val fg = if (i == vm.activeHit) LiquidGlassTheme.colors.onAccent else MaterialTheme.colorScheme.onSurface
+                                val fg = if (i == vm.activeHit) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
                                 Text("p.${hit.page + 1}", style = MaterialTheme.typography.labelSmall, color = if (i == vm.activeHit) fg else MaterialTheme.colorScheme.primary, modifier = Modifier.width(44.dp))
                                 Text(hit.snippet, style = MaterialTheme.typography.bodyMedium, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
@@ -1327,14 +1311,19 @@ private fun SearchBar(vm: EditorViewModel) {
 @Composable
 private fun PagesPanel(vm: EditorViewModel, onJump: (Int) -> Unit, onClose: () -> Unit) {
     var tab by remember { mutableIntStateOf(0) }
-    LiquidSurface(style = GlassDefaults.frost(), shape = RoundedCornerShape(0.dp), modifier = Modifier.width(200.dp).fillMaxHeight()) {
+    GlassSurface(
+        role = GlassRole.Frost,
+        shape = RoundedCornerShape(0.dp),
+        contentPadding = PaddingValues(0.dp),
+        modifier = Modifier.width(200.dp).fillMaxHeight(),
+    ) {
         Column {
             Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Pages", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                 IconButton(onClick = { vm.addPage(atEnd = true) }) { Icon(Icons.Outlined.Add, "Add page") }
                 IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Close") }
             }
-            LiquidSegmentedControl(
+            GlassSegmentedControl(
                 options = listOf("All", "Bookmarks"),
                 selectedIndex = tab,
                 onSelect = { tab = it },
@@ -1360,7 +1349,7 @@ private fun PagesPanel(vm: EditorViewModel, onJump: (Int) -> Unit, onClose: () -
                     )
                 }
                 LazyColumn(contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    items(marks.size) { k -> PageThumb(vm, marks[k], vm.pages[marks[k]], Modifier, onJump) }
+                    items(marks.size, key = { vm.pages[marks[it]].id }) { k -> PageThumb(vm, marks[k], vm.pages[marks[k]], Modifier, onJump) }
                 }
             }
         }
@@ -1476,11 +1465,11 @@ private fun BoxScope.ToolDock(
         val limit = if (isVertical) Modifier.heightIn(max = (areaH - 150.dp).coerceAtLeast(160.dp))
             else Modifier.widthIn(max = (areaW - if (narrow) 24.dp else 300.dp).coerceAtLeast(220.dp))
         val bar = @Composable {
-            OptionalLiquidGlassBox(
-                enabled = settings.liquidGlass,
-                shape = Pill,
-                fallbackColor = glassColor(),
-                modifier = limit.shadow(if (dragging) 14.dp else 6.dp, Pill).graphicsLayer { alpha = fade },
+            GlassSurface(
+                role = GlassRole.Chrome,
+                shape = glassPillShape(),
+                contentPadding = PaddingValues(0.dp),
+                modifier = limit.shadow(if (dragging) 14.dp else 6.dp, glassPillShape()).graphicsLayer { alpha = fade },
             ) {
                 if (isVertical) Column(Modifier.padding(5.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
                     grip(); tools(); if (hasOptions) { divider(); ToolOptions(vm, true, settings) }
@@ -1498,13 +1487,13 @@ private fun BoxScope.ToolDock(
 @Composable
 private fun SidePanel(vm: EditorViewModel, settings: AppSettings, modifier: Modifier) {
     val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.TEXT, Tool.MINDMAP)
-    val shape = RoundedCornerShape(26.dp)
+    val shape = glassCardShape()
     AnimatedVisibility(
         hasOptions, modifier = modifier,
         enter = fadeIn() + androidx.compose.animation.slideInHorizontally { it / 2 },
         exit = fadeOut() + androidx.compose.animation.slideOutHorizontally { it / 2 },
     ) {
-        OptionalLiquidGlassBox(enabled = settings.liquidGlass, shape = shape, fallbackColor = glassColor(), modifier = Modifier.shadow(6.dp, shape)) {
+        GlassSurface(role = GlassRole.Chrome, shape = shape, contentPadding = PaddingValues(0.dp), modifier = Modifier.shadow(6.dp, shape)) {
             Column(
                 Modifier.padding(vertical = 8.dp, horizontal = 4.dp).verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -1570,7 +1559,7 @@ private fun toolDisplayName(t: Tool): String = when (t) {
 private fun OptionsBar(vm: EditorViewModel, vertical: Boolean, settings: AppSettings) {
     val hasOptions = vm.styleFor(vm.tool) != null || vm.tool in setOf(Tool.ERASER, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.TEXT, Tool.MINDMAP)
     AnimatedVisibility(hasOptions, enter = fadeIn() + scaleIn(initialScale = 0.9f), exit = fadeOut() + scaleOut(targetScale = 0.9f)) {
-        OptionalLiquidGlassBox(enabled = settings.liquidGlass, shape = Pill, fallbackColor = glassColor(), modifier = Modifier.shadow(4.dp, Pill)) {
+        GlassSurface(role = GlassRole.Chrome, shape = glassPillShape(), contentPadding = PaddingValues(0.dp), modifier = Modifier.shadow(4.dp, glassPillShape())) {
             if (vertical) Column(Modifier.padding(vertical = 6.dp, horizontal = 3.dp), horizontalAlignment = Alignment.CenterHorizontally) { ToolOptions(vm, true, settings) }
             else Row(Modifier.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) { ToolOptions(vm, false, settings) }
         }
@@ -1735,9 +1724,9 @@ private fun ToolButton(
                 else -> Alignment.BottomCenter to IntOffset(0, (38 * density).toInt())
             }
             Popup(alignment = align, offset = off, properties = PopupProperties(focusable = false)) {
-                LiquidSurface(
-                    style = GlassDefaults.frost(),
-                    shape = Pill,
+                GlassSurface(
+                    role = GlassRole.Frost,
+                    shape = glassPillShape(),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
                 ) {
                     Text(
@@ -1757,7 +1746,7 @@ private fun ToolButton(
                     Tool.HIGHLIGHTER -> HighlighterCard(vm)
                     Tool.SHAPE -> ShapeCard(vm)
                     Tool.ERASER -> EraserCard(vm)
-                    Tool.LASSO -> LassoCard(vm)
+                    Tool.LASSO -> LassoCard()
                     Tool.LASER -> LaserCard()
                     Tool.TEXT -> TextCard(vm)
                     Tool.TAPE -> Card("Tape") {
@@ -1826,7 +1815,7 @@ private fun ToolOptions(vm: EditorViewModel, vertical: Boolean, settings: AppSet
 
 @Composable
 private fun MiniChip(label: String, onClick: () -> Unit) {
-    LiquidGlassPill(
+    GlassPill(
         onClick = onClick,
         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
         modifier = Modifier.padding(3.dp).elasticStretch(),
@@ -1867,13 +1856,13 @@ private fun StyleOptions(vm: EditorViewModel, t: Tool, style: ToolStyle) {
         val selected = c == style.color
         Box {
             Swatch(c, selected, 18, onLongClick = { removeMenu = i }) { if (selected) editing = i else vm.updateStyle(t, style.copy(color = c)) }
-            LiquidContextMenu(
+            GlassContextMenu(
                 expanded = removeMenu == i,
                 onDismissRequest = { removeMenu = null },
                 items = buildList {
-                    add(LiquidMenuItem("Edit colour") { editing = i })
+                    add(GlassMenuItem("Edit colour") { editing = i })
                     if (style.colors.size > 1) {
-                        add(LiquidMenuItem("Remove", isDestructive = true) { vm.removeSwatch(t, i) })
+                        add(GlassMenuItem("Remove", destructive = true) { vm.removeSwatch(t, i) })
                     }
                 },
             )
@@ -1917,7 +1906,7 @@ private fun SizeDots(sizes: List<Float>, current: Float, ring: Boolean = false, 
 
 @Composable
 private fun Card(title: String, content: @Composable () -> Unit) {
-    LiquidGlassDialogSurface(shape = RoundedCornerShape(28.dp), modifier = Modifier.width(340.dp)) {
+    GlassDialogSurface(shape = glassCardShape(), modifier = Modifier.width(340.dp)) {
         Column(Modifier.padding(18.dp).heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.align(Alignment.CenterHorizontally))
             content()
@@ -1928,7 +1917,7 @@ private fun Card(title: String, content: @Composable () -> Unit) {
 /** Pill-shaped segmented control. */
 @Composable
 private fun Segments(options: List<String>, selected: Int, onPick: (Int) -> Unit) {
-    LiquidSegmentedControl(
+    GlassSegmentedControl(
         options = options,
         selectedIndex = selected.coerceIn(0, (options.size - 1).coerceAtLeast(0)),
         onSelect = onPick,
@@ -1948,22 +1937,58 @@ private fun StrokePreview(color: Color, width: Float, taper: Boolean) {
     }
 }
 
+@Immutable
+private data class PenCardSettings(
+    val penName: String,
+    val paperSound: Boolean,
+    val paperVolume: Float,
+    val paperHaptics: Boolean,
+)
+
+@Immutable
+private data class HighlighterCardSettings(
+    val highlighterOpacity: Float,
+    val highlighterMode: HighlighterMode,
+    val highlighterBehind: Boolean,
+)
+
+@Immutable
+private data class EraserCardSettings(
+    val eraserMode: EraserMode,
+    val scribbleSensitivity: ScribbleSensitivity,
+    val eraseHighlighterOnly: Boolean,
+    val eraserAutoSwitch: Boolean,
+    val scribbleToErase: Boolean,
+    val liveScribbleErase: Boolean,
+)
+
+@Immutable
+private data class LassoCardSettings(
+    val lassoMode: LassoMode,
+    val lassoFilter: LassoFilter,
+    val lassoTouching: Boolean,
+    val circleToLasso: Boolean,
+)
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PenCard(vm: EditorViewModel) {
     val style = vm.penStyle
-    val presets by vm.presets.collectAsState()
-    val store = SettingsStore.get(LocalContext.current)
-    val s by store.settings.collectAsState()
+    val presets by vm.presets.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val store = remember { SettingsStore.get(context) }
+    val s by remember(store) {
+        store.select { PenCardSettings(it.penName, it.paperSound, it.paperVolume, it.paperHaptics) }
+    }.collectAsStateWithLifecycle(initialValue = store.settings.value.let { PenCardSettings(it.penName, it.paperSound, it.paperVolume, it.paperHaptics) })
     var editingPenName by remember { mutableStateOf(false) }
     var savingPreset by remember { mutableStateOf(false) }
     var renamingPreset by remember { mutableStateOf<PenPreset?>(null) }
 
     Card("Pen Studio · ${vm.penType.label}") {
         // Active stylus badge with inline rename
-        LiquidGlassCard(
+        GlassCard(
             onClick = { editingPenName = true },
-            shape = RoundedCornerShape(18.dp),
+            shape = glassCardShape(),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -1979,8 +2004,8 @@ private fun PenCard(vm: EditorViewModel) {
         }
 
         // Framed curve preview
-        LiquidGlassCard(
-            shape = RoundedCornerShape(20.dp),
+        GlassCard(
+            shape = glassCardShape(),
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -2030,7 +2055,7 @@ private fun PenCard(vm: EditorViewModel) {
 
     if (editingPenName) {
         var name by remember(s.penName) { mutableStateOf(s.penName) }
-        LiquidGlassDialog(
+        GlassDialog(
             onDismissRequest = { editingPenName = false },
             title = { Text("Stylus name") },
             text = { OutlinedTextField(name, { name = it }, singleLine = true, shape = Pill, label = { Text("Pen display name") }) },
@@ -2041,7 +2066,7 @@ private fun PenCard(vm: EditorViewModel) {
 
     if (savingPreset) {
         var label by remember { mutableStateOf("${vm.penType.label} ${style.size.roundToInt()}") }
-        LiquidGlassDialog(
+        GlassDialog(
             onDismissRequest = { savingPreset = false },
             title = { Text("Name this pen preset") },
             text = { OutlinedTextField(label, { label = it }, singleLine = true, shape = Pill) },
@@ -2052,7 +2077,7 @@ private fun PenCard(vm: EditorViewModel) {
 
     renamingPreset?.let { p ->
         var label by remember(p) { mutableStateOf(p.name) }
-        LiquidGlassDialog(
+        GlassDialog(
             onDismissRequest = { renamingPreset = null },
             title = { Text("Rename preset") },
             text = { OutlinedTextField(label, { label = it }, singleLine = true, shape = Pill) },
@@ -2080,12 +2105,12 @@ private fun PresetChip(p: PenPreset, onClick: () -> Unit, onRename: () -> Unit, 
                 Text(p.name, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        LiquidContextMenu(
+        GlassContextMenu(
             expanded = menu,
             onDismissRequest = { menu = false },
             items = listOf(
-                LiquidMenuItem("Rename") { onRename() },
-                LiquidMenuItem("Remove", isDestructive = true) { onRemove() },
+                GlassMenuItem("Rename") { onRename() },
+                GlassMenuItem("Remove", destructive = true) { onRemove() },
             ),
         )
     }
@@ -2098,8 +2123,11 @@ private fun Modifier.combinedClickableCompat(onClick: () -> Unit, onLong: () -> 
 @Composable
 private fun HighlighterCard(vm: EditorViewModel) {
     val style = vm.highlighterStyle
-    val store = SettingsStore.get(LocalContext.current)
-    val s by store.settings.collectAsState()
+    val context = LocalContext.current
+    val store = remember { SettingsStore.get(context) }
+    val s by remember(store) {
+        store.select { HighlighterCardSettings(it.highlighterOpacity, it.highlighterMode, it.highlighterBehind) }
+    }.collectAsStateWithLifecycle(initialValue = store.settings.value.let { HighlighterCardSettings(it.highlighterOpacity, it.highlighterMode, it.highlighterBehind) })
     Card("Highlighter") {
         StrokePreview(Color(style.color).copy(alpha = s.highlighterOpacity), style.size * 1.2f, false)
         SliderRow("THICKNESS", "%.0f".format(style.size), style.size, 6f..70f) { v ->
@@ -2115,8 +2143,11 @@ private fun HighlighterCard(vm: EditorViewModel) {
 
 @Composable
 private fun EraserCard(vm: EditorViewModel) {
-    val store = SettingsStore.get(LocalContext.current)
-    val s by store.settings.collectAsState()
+    val context = LocalContext.current
+    val store = remember { SettingsStore.get(context) }
+    val s by remember(store) {
+        store.select { EraserCardSettings(it.eraserMode, it.scribbleSensitivity, it.eraseHighlighterOnly, it.eraserAutoSwitch, it.scribbleToErase, it.liveScribbleErase) }
+    }.collectAsStateWithLifecycle(initialValue = store.settings.value.let { EraserCardSettings(it.eraserMode, it.scribbleSensitivity, it.eraseHighlighterOnly, it.eraserAutoSwitch, it.scribbleToErase, it.liveScribbleErase) })
     Card("Eraser") {
         Segments(EraserMode.entries.map { it.label }, s.eraserMode.ordinal) { i -> store.update { it.copy(eraserMode = EraserMode.entries[i]) } }
         Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
@@ -2130,9 +2161,9 @@ private fun EraserCard(vm: EditorViewModel) {
         ToggleLine("Switch back after erasing", s.eraserAutoSwitch) { v -> store.update { it.copy(eraserAutoSwitch = v) } }
         ToggleLine("Scribble to erase with the pen", s.scribbleToErase) { v -> store.update { it.copy(scribbleToErase = v) } }
         ToggleLine("Erase mid-stroke while writing", s.liveScribbleErase) { v -> store.update { it.copy(liveScribbleErase = v) } }
-        LiquidGlassCard(
+        GlassCard(
             onClick = { vm.clearPageInk() },
-            shape = RoundedCornerShape(14.dp),
+            shape = glassCardShape(),
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -2147,57 +2178,37 @@ private fun EraserCard(vm: EditorViewModel) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun LassoCard(vm: EditorViewModel? = null) {
-    val store = SettingsStore.get(LocalContext.current)
-    val s by store.settings.collectAsState()
+private fun LassoCard() {
+    val context = LocalContext.current
+    val store = remember { SettingsStore.get(context) }
+    val s by remember(store) {
+        store.select { LassoCardSettings(it.lassoMode, it.lassoFilter, it.lassoTouching, it.circleToLasso) }
+    }.collectAsStateWithLifecycle(initialValue = store.settings.value.let { LassoCardSettings(it.lassoMode, it.lassoFilter, it.lassoTouching, it.circleToLasso) })
     Card("Lasso") {
         Segments(LassoMode.entries.map { it.label }, s.lassoMode.ordinal) { i -> store.update { it.copy(lassoMode = LassoMode.entries[i]) } }
         Text("SELECT", style = MaterialTheme.typography.labelSmall)
         val f = s.lassoFilter
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            LiquidGlassChip(f.ink, { store.update { it.copy(lassoFilter = f.copy(ink = !f.ink)) } }, label = "Ink")
-            LiquidGlassChip(f.highlighter, { store.update { it.copy(lassoFilter = f.copy(highlighter = !f.highlighter)) } }, label = "Highlighter")
-            LiquidGlassChip(f.text, { store.update { it.copy(lassoFilter = f.copy(text = !f.text)) } }, label = "Text")
-            LiquidGlassChip(f.images, { store.update { it.copy(lassoFilter = f.copy(images = !f.images)) } }, label = "Images & stickers")
-            LiquidGlassChip(f.other, { store.update { it.copy(lassoFilter = f.copy(other = !f.other)) } }, label = "Notes & tape")
+            GlassChip(f.ink, { store.update { it.copy(lassoFilter = f.copy(ink = !f.ink)) } }, label = "Ink")
+            GlassChip(f.highlighter, { store.update { it.copy(lassoFilter = f.copy(highlighter = !f.highlighter)) } }, label = "Highlighter")
+            GlassChip(f.text, { store.update { it.copy(lassoFilter = f.copy(text = !f.text)) } }, label = "Text")
+            GlassChip(f.images, { store.update { it.copy(lassoFilter = f.copy(images = !f.images)) } }, label = "Images & stickers")
+            GlassChip(f.other, { store.update { it.copy(lassoFilter = f.copy(other = !f.other)) } }, label = "Notes & tape")
         }
         ToggleLine("Select anything the lasso touches", s.lassoTouching) { v -> store.update { it.copy(lassoTouching = v) } }
         ToggleLine("Circle and hold with the pen", s.circleToLasso) { v -> store.update { it.copy(circleToLasso = v) } }
-        if (vm != null && vm.selection.isNotEmpty()) {
-            HorizontalDivider(Modifier.padding(vertical = 4.dp))
-            Row(
-                Modifier.fillMaxWidth().clickable { vm.rainbowSelection() }.padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Box(
-                    Modifier.size(22.dp).clip(CircleShape).background(
-                        Brush.sweepGradient(
-                            listOf(
-                                Color(0xFFFF1744),
-                                Color(0xFFFF9100),
-                                Color(0xFFFFEA00),
-                                Color(0xFF00E676),
-                                Color(0xFF00E5FF),
-                                Color(0xFF2979FF),
-                                Color(0xFFD500F9),
-                                Color(0xFFFF1744),
-                            )
-                        )
-                    ).border(1.dp, Color.White.copy(alpha = 0.85f), CircleShape)
-                )
-                Text("Rainbow Recolor Selection", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-            }
-        }
     }
 }
 
 @Composable
 private fun LaserCard() {
-    val store = SettingsStore.get(LocalContext.current)
-    val s by store.settings.collectAsState()
+    val context = LocalContext.current
+    val store = remember { SettingsStore.get(context) }
+    val laserSeconds by remember(store) {
+        store.select { it.laserSeconds }
+    }.collectAsStateWithLifecycle(initialValue = store.settings.value.laserSeconds)
     Card("Laser pointer") {
-        SliderRow("STAYS FOR", "%.0f s".format(s.laserSeconds), s.laserSeconds, 1f..8f) { v -> store.update { it.copy(laserSeconds = v) } }
+        SliderRow("STAYS FOR", "%.0f s".format(laserSeconds), laserSeconds, 1f..8f) { v -> store.update { it.copy(laserSeconds = v) } }
         Text("Keep the pen or a finger on the screen to hold the laser pointer active; trails fade smoothly after release.",
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -2267,7 +2278,7 @@ private fun MindNodeDialog(vm: EditorViewModel, edit: EditorViewModel.MindNodeEd
     var color by remember(edit) { mutableStateOf(edit.item.color) }
     var shape by remember(edit) { mutableStateOf(edit.item.shape) }
     val shapes = listOf("pill" to "Pill", "rect" to "Card", "diamond" to "Diamond", "circle" to "Oval")
-    LiquidGlassDialog(
+    GlassDialog(
         onDismissRequest = { vm.mindNodeEdit = null },
         title = { Text(if (edit.isNew) "New mind map node" else "Edit node") },
         text = {
@@ -2323,9 +2334,9 @@ private fun MindNodeDialog(vm: EditorViewModel, edit: EditorViewModel.MindNodeEd
 private fun ToggleLine(label: String, value: Boolean, onChange: (Boolean) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        LiquidToggle(
-            selected = { value },
-            onSelect = onChange,
+        GlassToggle(
+            checked = value,
+            onCheckedChange = onChange,
         )
     }
 }
@@ -2375,7 +2386,7 @@ private fun ShapeCard(vm: EditorViewModel) {
 
 @Composable
 private fun SliderRow(label: String, value: String, v: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit) {
-    LiquidSliderRow(
+    GlassSliderRow(
         label = label,
         valueText = value,
         value = v,
@@ -2402,19 +2413,21 @@ private fun StickerSheet(vm: EditorViewModel, onOpenAiStudio: () -> Unit = {}, o
     Column(Modifier.padding(horizontal = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Stickers", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f).padding(start = 8.dp))
-            LiquidGlassPill(
-                selected = true,
-                tint = GlassButtonPalette.GalaxyPurple,
-                onClick = onOpenAiStudio,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
-                modifier = Modifier.elasticStretch(),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp), tint = Color.White)
-                    Text("AI Sticker", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.White)
+            if (LocalSmartFeatures.current) {
+                GlassPill(
+                    selected = true,
+                    tint = GlassButtonPalette.GalaxyPurple,
+                    onClick = onOpenAiStudio,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+                    modifier = Modifier.elasticStretch(),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp), tint = Color.White)
+                        Text("AI Sticker", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
                 }
             }
-            LiquidGlassPill(
+            GlassPill(
                 tint = GlassButtonPalette.OceanBlue,
                 onClick = { importer.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
@@ -2426,7 +2439,7 @@ private fun StickerSheet(vm: EditorViewModel, onOpenAiStudio: () -> Unit = {}, o
                 }
             }
         }
-        LiquidSegmentedControl(
+        GlassSegmentedControl(
             options = listOf("Planner", "Emoji", "My stickers"),
             selectedIndex = tab,
             onSelect = { tab = it },
@@ -2442,7 +2455,13 @@ private fun StickerSheet(vm: EditorViewModel, onOpenAiStudio: () -> Unit = {}, o
                 Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         LazyVerticalGrid(GridCells.Adaptive(if (tab == 0) 96.dp else 64.dp), Modifier.fillMaxWidth().heightIn(max = 420.dp).padding(vertical = 12.dp)) {
-            items(list.size) { i ->
+            items(list.size, key = { idx ->
+                when (val item = list[idx]) {
+                    is Sticker.Builtin -> "b:${item.id}"
+                    is Sticker.Emoji -> "e:${item.text}"
+                    is Sticker.Custom -> "c:${item.file.name}"
+                }
+            }) { i ->
                 val st = list[i]
                 val preview by produceState<Bitmap?>(null, st) { value = withContext(Dispatchers.Default) { StickerLibrary.bitmap(st, 160) } }
                 Box(Modifier.padding(4.dp).aspectRatio(1f).clip(RoundedCornerShape(20.dp)).clickable { pick(st) }, contentAlignment = Alignment.Center) {
@@ -2473,7 +2492,7 @@ private fun TextDialog(vm: EditorViewModel, edit: EditorViewModel.TextEdit) {
     var color by remember(edit) { mutableStateOf(ex?.color ?: vm.textColor ?: vm.penStyle.color) }
     var style by remember(edit) { mutableStateOf(ex?.style ?: vm.textStyle) }
     var colorEdit by remember { mutableStateOf<Int?>(null) }
-    LiquidGlassDialog(
+    GlassDialog(
         onDismissRequest = { vm.textEdit = null },
         title = { Text(if (ex != null) "Edit text" else "Add text") },
         text = {
@@ -2491,8 +2510,8 @@ private fun TextDialog(vm: EditorViewModel, edit: EditorViewModel.TextEdit) {
                 }
                 OutlinedTextField(text, { text = it }, minLines = 3, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    LiquidMenuButton(
-                        style = GlassDefaults.control(),
+                    GlassMenuButton(
+                        role = GlassRole.Control,
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                         buttonContent = {
                             Text(style.font.label, style = MaterialTheme.typography.labelLarge)
@@ -2500,7 +2519,7 @@ private fun TextDialog(vm: EditorViewModel, edit: EditorViewModel.TextEdit) {
                             Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(16.dp))
                         },
                         items = TextFont.entries.map { f ->
-                            LiquidMenuItem(f.label) { style = style.copy(font = f) }
+                            GlassMenuItem(f.label) { style = style.copy(font = f) }
                         },
                     )
                     Spacer(Modifier.weight(1f))
@@ -2561,100 +2580,79 @@ private fun FmtToggle(icon: androidx.compose.ui.graphics.vector.ImageVector, on:
 @Composable
 private fun SelectionMenu(
     vm: EditorViewModel,
-    liquidGlass: Boolean = false,
     onDuplicate: () -> Unit,
     onColor: (Int) -> Unit,
-    onRainbow: () -> Unit,
     keep: (() -> Unit) -> Unit,
     onShareImage: () -> Unit,
 ) {
     var colors by remember { mutableStateOf(false) }
-    val fg = if (liquidGlass) MaterialTheme.colorScheme.onSurface else Color.White
-    OptionalLiquidGlassBox(
-        enabled = liquidGlass,
-        shape = Pill,
-        fallbackColor = Color(0xE01B1F2A),
-        modifier = Modifier.shadow(8.dp, Pill),
+    var moreOpen by remember { mutableStateOf(false) }
+    val fg = MaterialTheme.colorScheme.onSurface
+    GlassSurface(
+        role = GlassRole.Chrome,
+        shape = glassPillShape(),
+        contentPadding = PaddingValues(horizontal = 6.dp),
+        modifier = Modifier.shadow(8.dp, glassPillShape()),
     ) {
         androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides fg) {
-            Row(Modifier.padding(horizontal = 6.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                // Link button
-                LiquidGlassPill(
+            Row(Modifier.padding(horizontal = 2.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                // Solid primary action inside single glass bar (no nested glass pill inside glass bar)
+                Surface(
                     onClick = { vm.startLinkFromSelection() },
-                    style = GlassDefaults.accent(),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    shape = glassPillShape(),
+                    color = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier.padding(4.dp).elasticStretch(),
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Icon(Icons.Outlined.Link, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
                         Spacer(Modifier.width(6.dp))
                         Text("Link", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary)
                     }
                 }
-                val boxInSel = vm.selectedWriteBox()
-                if (boxInSel != null) {
-                    LiquidGlassPill(
-                        onClick = { vm.toggleWriteBox(vm.selectionPage, boxInSel) },
-                        style = GlassDefaults.accent(),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                        modifier = Modifier.padding(4.dp).elasticStretch(),
-                    ) {
-                        Text(if (boxInSel.isConverted) "Show Ink" else "Convert to Text", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary)
-                    }
-                }
-                // Linked content: a red Unlink right next to it.
                 if (vm.selectionLinks().isNotEmpty()) {
-                    LiquidGlassPill(
+                    Surface(
                         onClick = { vm.unlinkSelection() },
-                        style = GlassDefaults.accent().copy(surface = Color(0xFFE5484D), fallbackSurface = Color(0xFFE5484D)),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        shape = glassPillShape(),
+                        color = Color(0xFFE5484D),
+                        contentColor = Color.White,
                         modifier = Modifier.padding(4.dp).elasticStretch(),
                     ) {
-                        Text("Unlink", style = MaterialTheme.typography.labelLarge, color = Color.White)
+                        Text(
+                            "Unlink",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
                     }
                 }
                 IconButton(onClick = vm::cutSelection, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.ContentCut, "Cut") }
                 IconButton(onClick = vm::copySelection, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.ContentCopy, "Copy") }
                 IconButton(onClick = onDuplicate, modifier = Modifier.elasticStretch()) { ProIconView(ProIcon.ADD, fg, Modifier.size(22.dp)) }
                 IconButton(onClick = { colors = true }, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.Palette, "Colour") }
-                IconButton(onClick = onRainbow, modifier = Modifier.elasticStretch()) {
-                    Box(
-                        Modifier
-                            .size(22.dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.sweepGradient(
-                                    listOf(
-                                        Color(0xFFFF1744),
-                                        Color(0xFFFF9100),
-                                        Color(0xFFFFEA00),
-                                        Color(0xFF00E676),
-                                        Color(0xFF00E5FF),
-                                        Color(0xFF2979FF),
-                                        Color(0xFFD500F9),
-                                        Color(0xFFFF1744),
-                                    )
-                                )
-                            )
-                            .border(1.dp, Color.White.copy(alpha = 0.85f), CircleShape)
+                IconButton(onClick = { keep { vm.rotateSelection(90f) } }, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.RotateRight, "Rotate 90°") }
+                Box {
+                    IconButton(onClick = { moreOpen = true }, modifier = Modifier.elasticStretch()) {
+                        ProIconView(ProIcon.MORE, fg, Modifier.size(22.dp))
+                    }
+                    GlassContextMenu(
+                        expanded = moreOpen,
+                        onDismissRequest = { moreOpen = false },
+                        items = listOf(
+                            GlassMenuItem("Flip horizontally", leadingContent = { Icon(Icons.Outlined.Flip, null, Modifier.size(18.dp)) }) { keep { vm.flipSelection() } },
+                            GlassMenuItem("Bring to front", leadingContent = { Icon(Icons.Outlined.FlipToFront, null, Modifier.size(18.dp)) }) { keep { vm.arrange(true) } },
+                            GlassMenuItem("Send to back", leadingContent = { Icon(Icons.Outlined.FlipToBack, null, Modifier.size(18.dp)) }) { keep { vm.arrange(false) } },
+                            GlassMenuItem("Share as image", leadingContent = { Icon(Icons.Outlined.IosShare, null, Modifier.size(18.dp)) }) { onShareImage() },
+                            GlassMenuItem("Make flashcard", leadingContent = { Icon(Icons.Outlined.Style, null, Modifier.size(18.dp)) }) { vm.cardFromSelection() },
+                            GlassMenuItem("Add link…", leadingContent = { Icon(Icons.Outlined.Link, null, Modifier.size(18.dp)) }) { vm.startLinkFromSelection() },
+                            GlassMenuItem("Save as screenshot", leadingContent = { Icon(Icons.Outlined.Image, null, Modifier.size(18.dp)) }) { vm.saveSelectionScreenshot() },
+                        ),
                     )
                 }
-                IconButton(onClick = { keep { vm.rotateSelection(90f) } }, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.RotateRight, "Rotate 90°") }
-                LiquidMenuButton(
-                    style = GlassDefaults.control(),
-                    contentPadding = PaddingValues(8.dp),
-                    buttonContent = { ProIconView(ProIcon.MORE, fg, Modifier.size(22.dp)) },
-                    items = listOf(
-                        LiquidMenuItem("Flip horizontally", icon = { Icon(Icons.Outlined.Flip, null, Modifier.size(18.dp)) }) { keep { vm.flipSelection() } },
-                        LiquidMenuItem("Bring to front", icon = { Icon(Icons.Outlined.FlipToFront, null, Modifier.size(18.dp)) }) { keep { vm.arrange(true) } },
-                        LiquidMenuItem("Send to back", icon = { Icon(Icons.Outlined.FlipToBack, null, Modifier.size(18.dp)) }) { keep { vm.arrange(false) } },
-                        LiquidMenuItem("Share as image", icon = { Icon(Icons.Outlined.IosShare, null, Modifier.size(18.dp)) }) { onShareImage() },
-                        LiquidMenuItem("Make flashcard", icon = { Icon(Icons.Outlined.Style, null, Modifier.size(18.dp)) }) { vm.cardFromSelection() },
-                        LiquidMenuItem("Add link…", icon = { Icon(Icons.Outlined.Link, null, Modifier.size(18.dp)) }) { vm.startLinkFromSelection() },
-                        LiquidMenuItem("Save as screenshot", icon = { Icon(Icons.Outlined.Image, null, Modifier.size(18.dp)) }) { vm.saveSelectionScreenshot() },
-                    ),
-                )
-                IconButton(onClick = vm::deleteSelection, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.Delete, "Delete", tint = Color(0xFFFF8A80)) }
+                IconButton(onClick = vm::deleteSelection, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.Delete, "Delete", tint = MaterialTheme.colorScheme.error) }
             }
         }
     }
@@ -2738,11 +2736,11 @@ private fun StudyTimer(
                 ) { change, amount -> change.consume(); drag += amount }
             },
     ) {
-        OptionalLiquidGlassBox(
-            enabled = settings.liquidGlass,
-            shape = Pill,
-            fallbackColor = glassColor(),
-            modifier = Modifier.shadow(4.dp, Pill).elasticStretch().combinedClickableCompat({ running = !running }, { menu = true }),
+        GlassSurface(
+            role = GlassRole.Chrome,
+            shape = glassPillShape(),
+            contentPadding = PaddingValues(0.dp),
+            modifier = Modifier.shadow(4.dp, glassPillShape()).elasticStretch().combinedClickableCompat({ running = !running }, { menu = true }),
         ) {
             Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(
@@ -2751,7 +2749,7 @@ private fun StudyTimer(
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    if (pomoMode) "🍅 ${fmt(pomoRemMs, true)}" else fmt(session),
+                    if (pomoMode) "Pomo ${fmt(pomoRemMs, true)}" else fmt(session),
                     style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
                 )
                 val state = when { !running && session == 0L && !pomoMode -> "tap to start"; !running -> "paused"; idle -> "idle"; else -> null }
@@ -2759,25 +2757,25 @@ private fun StudyTimer(
             }
         }
         val total = vm.studyTotal() + unsaved
-        LiquidContextMenu(
+        GlassContextMenu(
             expanded = menu,
             onDismissRequest = { menu = false },
             items = listOf(
-                LiquidMenuItem("This session: ${fmt(session, true)}") {},
-                LiquidMenuItem("This notebook: ${fmt(total, true)}") {},
-                LiquidMenuDivider,
-                LiquidMenuItem(if (running) "Pause" else "Start") { running = !running },
-                LiquidMenuItem(if (pomoMode) "Switch to Stopwatch" else "Pomodoro (${settings.pomodoroMinutes}m)") {
+                GlassMenuItem("This session: ${fmt(session, true)}") {},
+                GlassMenuItem("This notebook: ${fmt(total, true)}") {},
+                GlassMenuDivider,
+                GlassMenuItem(if (running) "Pause" else "Start") { running = !running },
+                GlassMenuItem(if (pomoMode) "Switch to Stopwatch" else "Pomodoro (${settings.pomodoroMinutes}m)") {
                     pomoMode = !pomoMode
                     pomoRemMs = settings.pomodoroMinutes.coerceIn(5, 90) * 60_000L
                     running = true
                 },
-                LiquidMenuItem("Restart session") {
+                GlassMenuItem("Restart session") {
                     vm.addStudy(unsaved); unsaved = 0L; session = 0L
                     pomoRemMs = settings.pomodoroMinutes.coerceIn(5, 90) * 60_000L
                     running = true
                 },
-                LiquidMenuItem("Move back to the bottom") {
+                GlassMenuItem("Move back to the bottom") {
                     pos = 0.5f to 0.93f; vm.setTimerPos(0.5f, 0.93f)
                 },
             ),
@@ -2837,7 +2835,7 @@ private fun WebLinkDialog(vm: EditorViewModel, edit: EditorViewModel.WebLinkEdit
     var linkTitle by remember(edit) { mutableStateOf(edit.item.title) }
     var note by remember(edit) { mutableStateOf(edit.item.note) }
     var color by remember(edit) { mutableStateOf(edit.item.color) }
-    LiquidGlassDialog(
+    GlassDialog(
         onDismissRequest = { vm.webLinkEdit = null },
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2958,15 +2956,15 @@ private fun SplitPanel(
     fun extractPageText(pageIdx: Int): String = vm2.extractPageSummaryText(pageIdx)
 
     Column(modifier.background(MaterialTheme.colorScheme.surfaceContainerLow)) {
-        // Clean One UI 9 inspired Split View Header
+        // Split View Header
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Box(Modifier.weight(1f)) {
-                LiquidMenuButton(
-                    style = GlassDefaults.control(),
+                GlassMenuButton(
+                    role = GlassRole.Control,
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
                     buttonContent = {
                         Icon(Icons.Outlined.MenuBook, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
@@ -2976,7 +2974,7 @@ private fun SplitPanel(
                         Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(16.dp))
                     },
                     items = others.map { (id, t) ->
-                        LiquidMenuItem(t) { onPick(id) }
+                        GlassMenuItem(t) { onPick(id) }
                     },
                 )
             }
@@ -2998,9 +2996,9 @@ private fun SplitPanel(
             }
 
             // Write / Read Mode Toggle
-            LiquidGlassPill(
+            GlassPill(
+                selected = writeMode,
                 onClick = { writeMode = !writeMode },
-                style = if (writeMode) GlassDefaults.accent() else GlassDefaults.control(),
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
                 modifier = Modifier.elasticStretch(),
             ) {
@@ -3031,45 +3029,45 @@ private fun SplitPanel(
                 }
             }
 
-            LiquidMenuButton(
-                style = GlassDefaults.control(),
+            GlassMenuButton(
+                role = GlassRole.Control,
                 contentPadding = PaddingValues(6.dp),
                 buttonContent = { Icon(Icons.Outlined.MoreHoriz, "Split Options", Modifier.size(18.dp)) },
                 items = listOf(
-                    LiquidMenuItem(
+                    GlassMenuItem(
                         label = if (showSplitSearch) "Hide Search" else "Search in Note",
-                        icon = { Icon(Icons.Outlined.Search, null, Modifier.size(18.dp)) },
+                        leadingContent = { Icon(Icons.Outlined.Search, null, Modifier.size(18.dp)) },
                     ) {
                         showSplitSearch = !showSplitSearch
                         if (!showSplitSearch) vm2.clearSearch()
                     },
-                    LiquidMenuItem(
+                    GlassMenuItem(
                         label = "Insert Page Text to Note",
-                        icon = { Icon(Icons.Outlined.PostAdd, null, Modifier.size(18.dp)) },
+                        leadingContent = { Icon(Icons.Outlined.PostAdd, null, Modifier.size(18.dp)) },
                     ) {
                         val extracted = extractPageText(visiblePage)
                         onInsertToPage(extracted.ifBlank { "Notes from ${vm2.title} (Page ${visiblePage + 1})" }, vm2.title)
                     },
-                    LiquidMenuItem(
+                    GlassMenuItem(
                         label = "Clip Page as Sticky",
-                        icon = { Icon(Icons.Outlined.PushPin, null, Modifier.size(18.dp)) },
+                        leadingContent = { Icon(Icons.Outlined.PushPin, null, Modifier.size(18.dp)) },
                     ) {
                         val extracted = extractPageText(visiblePage)
                         onClipToSticky(extracted.ifBlank { "Reference from ${vm2.title} (Page ${visiblePage + 1})" }, vm2.title)
                     },
-                    LiquidMenuItem(
+                    GlassMenuItem(
                         label = if (syncPage) "Sync Page Scrolling: On" else "Sync Page Scrolling: Off",
-                        icon = { Icon(Icons.Outlined.SwapVert, null, Modifier.size(18.dp)) },
+                        leadingContent = { Icon(Icons.Outlined.SwapVert, null, Modifier.size(18.dp)) },
                     ) { syncPage = !syncPage },
-                    LiquidMenuDivider,
-                    LiquidMenuItem(
+                    GlassMenuDivider,
+                    GlassMenuItem(
                         label = "Open Fullscreen",
-                        icon = { Icon(Icons.Outlined.UnfoldMore, null, Modifier.size(18.dp)) },
+                        leadingContent = { Icon(Icons.Outlined.UnfoldMore, null, Modifier.size(18.dp)) },
                     ) { onOpen(noteId) },
-                    LiquidMenuItem(
+                    GlassMenuItem(
                         label = "Close Split View",
-                        isDestructive = true,
-                        icon = { Icon(Icons.Filled.Close, null, Modifier.size(18.dp)) },
+                        destructive = true,
+                        leadingContent = { Icon(Icons.Filled.Close, null, Modifier.size(18.dp)) },
                     ) { onClose() },
                 ),
             )
@@ -3084,7 +3082,7 @@ private fun SplitPanel(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 listOf("pen" to "Pen", "highlighter" to "Highlight", "eraser" to "Eraser").forEach { (k, label) ->
-                    LiquidGlassChip(
+                    GlassChip(
                         selected = inkKind == k,
                         onClick = { inkKind = k },
                         label = label,
@@ -3331,7 +3329,7 @@ private fun SplitPanel(
                         horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        items(vm2.pages.size) { i ->
+                        items(vm2.pages.size, key = { vm2.pages[it].id }) { i ->
                             SplitPageCard(i, vm2.pages[i], Modifier.fillParentMaxWidth(0.95f))
                         }
                     }
@@ -3343,7 +3341,7 @@ private fun SplitPanel(
                         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        items(vm2.pages.size) { i ->
+                        items(vm2.pages.size, key = { vm2.pages[it].id }) { i ->
                             SplitPageCard(i, vm2.pages[i], Modifier.fillMaxWidth())
                         }
                     }

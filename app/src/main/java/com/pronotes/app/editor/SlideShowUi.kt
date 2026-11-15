@@ -2,6 +2,7 @@ package com.pronotes.app.editor
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import com.pronotes.app.ui.LocalSmartFeatures
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -48,9 +49,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ArrowDownward
+import androidx.compose.material.icons.outlined.ArrowUpward
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -80,22 +87,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.pronotes.app.data.AccentColor
 import com.pronotes.app.data.SlideCard
 import com.pronotes.app.data.SlideKind
 import com.pronotes.app.data.SlideTheme
-import com.pronotes.app.ui.LiquidGlassCard
-import com.pronotes.app.ui.LiquidGlassChip
-import com.pronotes.app.ui.LiquidGlassDialog
-import com.pronotes.app.ui.LiquidGlassDialogSurface
-import com.pronotes.app.ui.LocalGlassTransparency
+import com.pronotes.app.ui.GlassCard
+import com.pronotes.app.ui.GlassChip
+import com.pronotes.app.ui.GlassDialog
+import com.pronotes.app.ui.GlassDialogSurface
+import com.pronotes.app.ui.GlassPill
+import com.pronotes.app.ui.GlassRole
+import com.pronotes.app.ui.GlassSurface
+import com.pronotes.app.ui.GlassThemeOverride
 import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.ProIconView
-import com.pronotes.app.ui.openLeafGlassColors
-import io.github.ntvien.liquidglass.GlassDefaults
-import io.github.ntvien.liquidglass.GlassLook
-import io.github.ntvien.liquidglass.LiquidGlassTheme
-import io.github.ntvien.liquidglass.component.LiquidSurface
+import com.pronotes.app.ui.glassCardShape
 import kotlinx.coroutines.delay
 import java.util.UUID
 import kotlin.math.PI
@@ -134,9 +139,6 @@ fun SlideShowDialog(vm: EditorViewModel, onClose: () -> Unit) {
         onPrimaryContainer = Color(0xFFE0F2FE),
     )
 
-    val transparency = LocalGlassTransparency.current
-    val cosmicGlass = remember(transparency) { openLeafGlassColors(dark = true, accent = AccentColor.BLUE, transparency = transparency) }
-
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         if (presenting && vm.slides.isNotEmpty()) {
             SlideShowPresenter(
@@ -152,13 +154,13 @@ fun SlideShowDialog(vm: EditorViewModel, onClose: () -> Unit) {
                     .padding(16.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                LiquidGlassTheme(colors = cosmicGlass, look = GlassLook.Auto) {
-                    LiquidGlassDialogSurface(
-                        shape = RoundedCornerShape(28.dp),
-                        modifier = Modifier.widthIn(max = 820.dp).fillMaxWidth().heightIn(max = 860.dp).statusBarsPadding()
-                            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
-                    ) {
-                        MaterialTheme(colorScheme = studioScheme) {
+                MaterialTheme(colorScheme = studioScheme) {
+                    GlassThemeOverride(dark = true) {
+                        GlassDialogSurface(
+                            shape = glassCardShape(),
+                            modifier = Modifier.widthIn(max = 820.dp).fillMaxWidth().heightIn(max = 860.dp).statusBarsPadding()
+                                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
+                        ) {
                             Box(Modifier.background(Color(0xD9070B18))) {
                                 AiParticleBackdrop(
                                     modifier = Modifier.matchParentSize(),
@@ -192,18 +194,19 @@ fun SlideShowDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                     Spacer(Modifier.height(14.dp))
 
                                     // Generation Source & Controls Card
-                                    LiquidSurface(
-                                        style = GlassDefaults.frost().copy(fallbackSurface = Color(0xAA111A33)),
-                                        shape = RoundedCornerShape(22.dp),
+                                    GlassSurface(
+                                        role = GlassRole.Frost,
+                                        shape = glassCardShape(),
+                                        containerColor = Color(0xAA111A33),
                                         contentPadding = PaddingValues(14.dp),
-                                        modifier = Modifier.fillMaxWidth().border(1.dp, Color(0x3360A5FA), RoundedCornerShape(22.dp)),
+                                        modifier = Modifier.fillMaxWidth().border(1.dp, Color(0x3360A5FA), glassCardShape()),
                                     ) {
                                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                                                Text("AI CHAPTER REVISION GENERATOR", style = MaterialTheme.typography.labelSmall, color = Color(0xFF93C5FD))
+                                                Text("CHAPTER REVISION GENERATOR", style = MaterialTheme.typography.labelSmall, color = Color(0xFF93C5FD))
                                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                                     listOf(5, 7, 10, 14).forEach { n ->
-                                                        LiquidGlassChip(
+                                                        GlassChip(
                                                             selected = slideCount == n,
                                                             onClick = { slideCount = n },
                                                             label = "$n slides",
@@ -213,9 +216,9 @@ fun SlideShowDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                             }
 
                                             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                LiquidGlassChip(scopeMode == 0, { scopeMode = 0 }, "Current Page (${vm.pageIndex + 1})")
-                                                LiquidGlassChip(scopeMode == 1, { scopeMode = 1 }, "Chapter Range")
-                                                LiquidGlassChip(scopeMode == 2, { scopeMode = 2 }, "Whole Notebook (${vm.pages.size}p)")
+                                                GlassChip(scopeMode == 0, { scopeMode = 0 }, "Current Page (${vm.pageIndex + 1})")
+                                                GlassChip(scopeMode == 1, { scopeMode = 1 }, "Chapter Range")
+                                                GlassChip(scopeMode == 2, { scopeMode = 2 }, "Whole Notebook (${vm.pages.size}p)")
                                             }
 
                                     AnimatedVisibility(visible = scopeMode == 1) {
@@ -248,21 +251,23 @@ fun SlideShowDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                     }
 
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        Button(
-                                            onClick = {
-                                                val range = when (scopeMode) {
-                                                    0 -> vm.pageIndex to vm.pageIndex
-                                                    1 -> (startPage - 1) to (endPage.coerceAtLeast(startPage) - 1)
-                                                    else -> 0 to (vm.pages.size - 1).coerceAtLeast(0)
-                                                }
-                                                vm.generateSlideShow(range.first, range.second, slideCount)
-                                            },
-                                            enabled = !vm.aiBusy,
-                                            shape = CircleShape,
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8), contentColor = Color(0xFF041224)),
-                                            modifier = Modifier.weight(1f).height(48.dp),
-                                        ) {
-                                            Text("✦ Generate Deck (${slideCount} Slides)", fontWeight = FontWeight.Bold)
+                                        if (LocalSmartFeatures.current) {
+                                            Button(
+                                                onClick = {
+                                                    val range = when (scopeMode) {
+                                                        0 -> vm.pageIndex to vm.pageIndex
+                                                        1 -> (startPage - 1) to (endPage.coerceAtLeast(startPage) - 1)
+                                                        else -> 0 to (vm.pages.size - 1).coerceAtLeast(0)
+                                                    }
+                                                    vm.generateSlideShow(range.first, range.second, slideCount)
+                                                },
+                                                enabled = !vm.aiBusy,
+                                                shape = CircleShape,
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8), contentColor = Color(0xFF041224)),
+                                                modifier = Modifier.weight(1f).height(48.dp),
+                                            ) {
+                                                Text("Generate Deck ($slideCount Slides)", fontWeight = FontWeight.Bold)
+                                            }
                                         }
                                         FilledTonalButton(
                                             onClick = {
@@ -298,21 +303,22 @@ fun SlideShowDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                     shape = CircleShape,
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEC4899), contentColor = Color.White),
                                 ) {
-                                    Text("▶  Present Slideshow", fontWeight = FontWeight.Bold)
+                                    Text("Present Slideshow", fontWeight = FontWeight.Bold)
                                 }
                             }
 
                             Spacer(Modifier.height(10.dp))
 
                             if (vm.slides.isEmpty()) {
-                                LiquidSurface(
-                                    style = GlassDefaults.frost().copy(fallbackSurface = Color(0x881E293B)),
-                                    shape = RoundedCornerShape(22.dp),
+                                GlassSurface(
+                                    role = GlassRole.Frost,
+                                    shape = glassCardShape(),
+                                    containerColor = Color(0x881E293B),
                                     contentPadding = PaddingValues(28.dp),
                                     modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                                 ) {
                                     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text("✨", fontSize = 34.sp)
+                                        Icon(Icons.Outlined.AutoAwesome, null, tint = Color(0xFF38BDF8), modifier = Modifier.size(34.dp))
                                         Spacer(Modifier.height(8.dp))
                                         Text("No slides yet", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                         Spacer(Modifier.height(4.dp))
@@ -330,13 +336,13 @@ fun SlideShowDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                 ) {
                                     itemsIndexed(vm.slides, key = { _, s -> s.id }) { idx, slide ->
                                         val cols = slide.theme.colors()
-                                        LiquidGlassCard(
-                                            shape = RoundedCornerShape(20.dp),
+                                        GlassCard(
+                                            shape = glassCardShape(),
                                             contentPadding = PaddingValues(12.dp),
                                             modifier = Modifier
                                                 .animateItem()
                                                 .fillMaxWidth()
-                                                .border(1.dp, cols.first().copy(alpha = 0.55f), RoundedCornerShape(20.dp)),
+                                                .border(1.dp, cols.first().copy(alpha = 0.55f), glassCardShape()),
                                             onClick = { editingSlide = slide },
                                         ) {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -378,13 +384,13 @@ fun SlideShowDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                                 }
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                                     IconButton(onClick = { vm.moveSlide(idx, idx - 1) }, enabled = idx > 0) {
-                                                        Text("↑", color = if (idx > 0) Color.White else Color.Gray)
+                                                        Icon(Icons.Outlined.ArrowUpward, "Move up", tint = if (idx > 0) Color.White else Color.Gray, modifier = Modifier.size(18.dp))
                                                     }
                                                     IconButton(onClick = { vm.moveSlide(idx, idx + 1) }, enabled = idx < vm.slides.lastIndex) {
-                                                        Text("↓", color = if (idx < vm.slides.lastIndex) Color.White else Color.Gray)
+                                                        Icon(Icons.Outlined.ArrowDownward, "Move down", tint = if (idx < vm.slides.lastIndex) Color.White else Color.Gray, modifier = Modifier.size(18.dp))
                                                     }
                                                     IconButton(onClick = { vm.deleteSlide(slide.id) }) {
-                                                        Text("✕", color = Color(0xFFF87171))
+                                                        Icon(Icons.Outlined.Close, "Delete slide", tint = Color(0xFFF87171), modifier = Modifier.size(18.dp))
                                                     }
                                                 }
                                             }
@@ -398,8 +404,8 @@ fun SlideShowDialog(vm: EditorViewModel, onClose: () -> Unit) {
             }
         }
     }
-}
-}
+        }
+    }
 
     editingSlide?.let { target ->
         SlideCardEditorDialog(
@@ -441,10 +447,7 @@ private fun SlideShowPresenter(
         label = "drift",
     )
 
-    val transparency = LocalGlassTransparency.current
-    val presenterGlass = remember(transparency) { openLeafGlassColors(dark = true, accent = AccentColor.BLUE, transparency = transparency) }
-
-    LiquidGlassTheme(colors = presenterGlass, look = GlassLook.Auto) {
+    GlassThemeOverride(dark = true) {
         Box(
             Modifier
                 .fillMaxSize()
@@ -505,21 +508,21 @@ private fun SlideShowPresenter(
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         listOf(0 to "Manual", 6 to "6s Auto", 10 to "10s Auto").forEach { (sec, label) ->
-                            com.pronotes.app.ui.LiquidGlassPill(
+                            GlassPill(
                                 selected = autoSec == sec,
                                 onClick = { autoSec = sec },
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                             ) {
                                 Text(
                                     label,
-                                    color = if (autoSec == sec) presenterGlass.onAccent else Color.White,
+                                    color = if (autoSec == sec) MaterialTheme.colorScheme.onPrimary else Color.White,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                 )
                             }
                         }
                         Spacer(Modifier.width(4.dp))
-                        com.pronotes.app.ui.LiquidGlassPill(
+                        GlassPill(
                             onClick = onExit,
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                         ) {
@@ -570,7 +573,7 @@ private fun SlideShowPresenter(
                         containerColor = Color.White.copy(alpha = 0.2f),
                         contentColor = Color.White,
                     ),
-                ) { Text("← Previous", modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) }
+                ) { Text("Previous", modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) }
 
                 if (current.kind == SlideKind.CHECK_QA) {
                     Button(
@@ -578,7 +581,7 @@ private fun SlideShowPresenter(
                         shape = CircleShape,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFDE047), contentColor = Color(0xFF0F172A)),
                     ) {
-                        Text(if (revealAnswer) "Hide Answer" else "✦ Reveal Answer", fontWeight = FontWeight.Bold)
+                        Text(if (revealAnswer) "Hide Answer" else "Reveal Answer", fontWeight = FontWeight.Bold)
                     }
                 }
 
@@ -590,7 +593,7 @@ private fun SlideShowPresenter(
                     colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF0F172A)),
                 ) {
                     Text(
-                        if (safeIndex < slides.lastIndex) "Next →" else "Finish ✓",
+                        if (safeIndex < slides.lastIndex) "Next" else "Finish",
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                     )
@@ -607,15 +610,16 @@ private fun PresenterSlideCard(
     revealAnswer: Boolean,
     onToggleReveal: () -> Unit,
 ) {
-    LiquidSurface(
-        style = GlassDefaults.frost().copy(fallbackSurface = Color(0xBB090D1A)),
-        shape = RoundedCornerShape(30.dp),
+    GlassSurface(
+        role = GlassRole.Frost,
+        shape = glassCardShape(),
+        containerColor = Color(0xBB090D1A),
         contentPadding = PaddingValues(28.dp),
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 760.dp)
             .heightIn(min = 320.dp, max = 600.dp)
-            .border(1.5.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(30.dp)),
+            .border(1.5.dp, Color.White.copy(alpha = 0.28f), glassCardShape()),
     ) {
         Column(
             Modifier.verticalScroll(rememberScrollState()),
@@ -623,7 +627,7 @@ private fun PresenterSlideCard(
         ) {
             // Badge + Kind Chip
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                com.pronotes.app.ui.LiquidGlassPill(
+                GlassPill(
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp),
                 ) {
                     Text(
@@ -650,11 +654,12 @@ private fun PresenterSlideCard(
 
             // Formula / Callout card
             if (slide.callout.isNotBlank()) {
-                LiquidSurface(
-                    style = GlassDefaults.frost().copy(fallbackSurface = Color(0x4438BDF8)),
-                    shape = RoundedCornerShape(18.dp),
+                GlassSurface(
+                    role = GlassRole.Frost,
+                    shape = glassCardShape(),
+                    containerColor = Color(0x4438BDF8),
                     contentPadding = PaddingValues(16.dp),
-                    modifier = Modifier.fillMaxWidth().border(1.dp, Color(0x7738BDF8), RoundedCornerShape(18.dp)),
+                    modifier = Modifier.fillMaxWidth().border(1.dp, Color(0x7738BDF8), glassCardShape()),
                 ) {
                     Text(
                         slide.callout,
@@ -702,16 +707,17 @@ private fun PresenterSlideCard(
             // Interactive Q&A flip reveal
             if (slide.kind == SlideKind.CHECK_QA && slide.question.isNotBlank()) {
                 val rot by animateFloatAsState(if (revealAnswer) 180f else 0f, spring(dampingRatio = 0.8f), label = "qa")
-                LiquidSurface(
-                    style = GlassDefaults.frost().copy(fallbackSurface = if (rot <= 90f) Color(0x336366F1) else Color(0x4410B981)),
-                    shape = RoundedCornerShape(22.dp),
+                GlassSurface(
+                    role = GlassRole.Frost,
+                    shape = glassCardShape(),
+                    containerColor = if (rot <= 90f) Color(0x336366F1) else Color(0x4410B981),
                     contentPadding = PaddingValues(0.dp),
+                    onClick = onToggleReveal,
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 130.dp)
                         .graphicsLayer { rotationY = rot; cameraDistance = 14f * density }
-                        .border(1.dp, if (rot <= 90f) Color(0x88818CF8) else Color(0xAA34D399), RoundedCornerShape(22.dp))
-                        .clickable { onToggleReveal() },
+                        .border(1.dp, if (rot <= 90f) Color(0x88818CF8) else Color(0xAA34D399), glassCardShape()),
                 ) {
                     Box(
                         Modifier.padding(20.dp).graphicsLayer { if (rot > 90f) rotationY = 180f },
@@ -753,7 +759,7 @@ private fun SlideCardEditorDialog(
     var question by remember { mutableStateOf(initial.question) }
     var answer by remember { mutableStateOf(initial.answer) }
 
-    LiquidGlassDialog(
+    GlassDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (isExisting) "Edit Slide" else "New Revision Slide") },
         text = {
@@ -761,7 +767,7 @@ private fun SlideCardEditorDialog(
                 Text("SLIDE TYPE", style = MaterialTheme.typography.labelSmall)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     SlideKind.entries.forEach { k ->
-                        LiquidGlassChip(selected = kind == k, onClick = { kind = k }, label = k.label)
+                        GlassChip(selected = kind == k, onClick = { kind = k }, label = k.label)
                     }
                 }
                 Text("COLOR THEME", style = MaterialTheme.typography.labelSmall)

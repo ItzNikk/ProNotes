@@ -4,6 +4,8 @@ import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.TextPaint
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
 import androidx.ink.strokes.Stroke
 import com.pronotes.app.data.PaperStyle
 import java.util.concurrent.atomic.AtomicLong
@@ -14,6 +16,7 @@ object ItemIds {
 }
 
 /** Everything that can live on a page. Coordinates are in page ("world") units. */
+@Immutable
 sealed interface PageItem {
     val id: Long
     val bounds: RectF
@@ -21,6 +24,7 @@ sealed interface PageItem {
     fun withId(newId: Long): PageItem
 }
 
+@Stable
 class InkItem(
     override val id: Long,
     val stroke: Stroke,
@@ -57,6 +61,7 @@ enum class TextFont(val label: String, val typeface: Typeface) {
 enum class TextAlign { LEFT, CENTER, RIGHT }
 
 /** Formatting for typed text. [gradient] is an optional second colour. */
+@Immutable
 data class TextStyleSpec(
     val font: TextFont = TextFont.SANS,
     val bold: Boolean = false,
@@ -66,6 +71,7 @@ data class TextStyleSpec(
     val align: TextAlign = TextAlign.LEFT,
 )
 
+@Immutable
 data class TextItem(
     override val id: Long,
     val text: String,
@@ -83,6 +89,7 @@ data class TextItem(
     override fun withId(newId: Long): PageItem = copy(id = newId)
 }
 
+@Immutable
 data class ImageItem(
     override val id: Long,
     val file: String,
@@ -99,6 +106,7 @@ data class ImageItem(
 }
 
 /** Washi tape that hides what is under it until tapped. [revealed] is not saved. */
+@Stable
 data class TapeItem(
     override val id: Long,
     val x: Float,
@@ -128,6 +136,7 @@ data class TapeItem(
     override fun withId(newId: Long): PageItem = copy(id = newId)
 }
 
+@Immutable
 data class StickyItem(
     override val id: Long,
     val x: Float,
@@ -151,6 +160,7 @@ data class StickyItem(
 }
 
 /** Solid fill inside a closed shape. Drawn under the shape's outline. */
+@Stable
 class FillItem(
     override val id: Long,
     val points: FloatArray,
@@ -175,6 +185,7 @@ class FillItem(
     fun recolored(c: Int) = FillItem(id, points, c, dx, dy)
 }
 
+@Immutable
 data class MindNodeItem(
     override val id: Long,
     val x: Float,
@@ -194,6 +205,7 @@ data class MindNodeItem(
     override fun withId(newId: Long): PageItem = copy(id = newId)
 }
 
+@Immutable
 data class WebLinkItem(
     override val id: Long,
     val url: String,
@@ -218,28 +230,7 @@ data class WebLinkItem(
     override fun withId(newId: Long): PageItem = copy(id = newId)
 }
 
-data class WriteBoxItem(
-    override val id: Long,
-    val x: Float,
-    val y: Float,
-    val w: Float = 640f,
-    val h: Float = 320f,
-    val lineSpacing: Float = 48f,
-    val strokeColor: Int = 0x884A70E2.toInt(),
-    val fillColor: Int = 0x144A70E2.toInt(),
-    val inkItemIds: List<Long> = emptyList(),
-    val convertedText: String = "",
-    val isConverted: Boolean = false,
-    val font: TextFont = TextFont.SANS,
-    val fontSize: Float = 24f,
-    val rot: Float = 0f,
-) : PageItem {
-    val raw: RectF get() = RectF(x, y, x + w, y + h)
-    override val bounds: RectF get() = rotatedBounds(raw, rot)
-    override fun translated(dx: Float, dy: Float): PageItem = copy(x = x + dx, y = y + dy)
-    override fun withId(newId: Long): PageItem = copy(id = newId)
-}
-
+@Immutable
 data class Page(
     val id: String,
     val width: Float,
@@ -327,7 +318,6 @@ fun PageItem.transformed(m: android.graphics.Matrix, s: Float, deg: Float): Page
         is StickyItem -> { val (cx, cy) = movedCenter(raw); copy(x = cx - w * s / 2f, y = cy - h * s / 2f, w = w * s, h = h * s, rot = (rot + deg) % 360f) }
         is MindNodeItem -> { val (cx, cy) = movedCenter(bounds); val nw = (w * s).coerceIn(110f, 520f); val nh = (h * s).coerceIn(48f, 220f); copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh) }
         is WebLinkItem -> { val (cx, cy) = movedCenter(raw); val nw = (w * s).coerceIn(220f, 760f); val nh = (h * s).coerceIn(96f, 340f); copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh, rot = (rot + deg) % 360f) }
-        is WriteBoxItem -> { val (cx, cy) = movedCenter(raw); copy(x = cx - w * s / 2f, y = cy - h * s / 2f, w = w * s, h = h * s, lineSpacing = lineSpacing * s, fontSize = fontSize * s, rot = (rot + deg) % 360f) }
         is TapeItem -> if (pts != null) {
             val abs = FloatArray(pts.size) { i -> pts[i] + if (i % 2 == 0) x else y }
             m.mapPoints(abs)
@@ -398,13 +388,6 @@ fun PageItem.stretched(oldBox: RectF, newBox: RectF): PageItem {
             val nw = (w * sx).coerceIn(200f, 1200f)
             val nh = (h * sy).coerceIn(90f, 600f)
             copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh)
-        }
-        is WriteBoxItem -> {
-            val (cx, cy) = mapPt(raw.centerX(), raw.centerY())
-            val nw = (w * sx).coerceIn(160f, 2400f)
-            val nh = (h * sy).coerceIn(100f, 2000f)
-            val avgS = ((sx + sy) / 2f).coerceIn(0.25f, 6f)
-            copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh, lineSpacing = (lineSpacing * sy).coerceIn(24f, 160f), fontSize = (fontSize * avgS).coerceIn(12f, 100f))
         }
         is TapeItem -> if (pts != null) {
             val abs = FloatArray(pts.size) { i -> pts[i] + if (i % 2 == 0) x else y }

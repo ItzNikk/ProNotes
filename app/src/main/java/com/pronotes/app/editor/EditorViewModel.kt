@@ -13,6 +13,8 @@ import androidx.ink.brush.Brush
 import androidx.ink.strokes.Stroke
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.pronotes.app.data.AtomicFiles
+import com.pronotes.app.data.MemoryTrimRegistry
 import com.pronotes.app.data.PageSize
 import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.data.Repository
@@ -25,6 +27,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.OutputStream
+import java.util.Collections
 import java.util.UUID
 
 data class ToolStyle(val colors: List<Int>, val sizes: List<Float>, val color: Int, val size: Float)
@@ -152,6 +155,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     private val undoStack = ArrayDeque<Pair<Int, List<PageItem>>>()
     private val redoStack = ArrayDeque<Pair<Int, List<PageItem>>>()
     private var saveJob: Job? = null
+    private val dirtyPageIds = Collections.synchronizedSet(HashSet<String>())
+    @Volatile private var structureDirty = false
     private var pdf: PdfPages? = null
     private val pendingPdf = HashSet<Int>()
     /** When each PDF page was last asked for by the canvas, and the width it wants now. */
@@ -188,6 +193,15 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         private set
 
     init {
+        MemoryTrimRegistry.register { level ->
+            if (MemoryTrimRegistry.isCriticalLevel(level)) {
+                thumbs.evictAll()
+                details = emptyList()
+                thumbRenderer?.evictCaches()
+            } else {
+                thumbs.trimToSize(thumbs.maxSize() / 2)
+            }
+        }
         // Remember tool choices as they change.
         viewModelScope.launch {
             androidx.compose.runtime.snapshotFlow {
@@ -216,7 +230,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             onPagesChanged?.invoke()
 
             // Secondary metadata & caches load in the background without delaying the canvas.
-            launch(Dispatchers.IO) { LocalAiManager.refresh(app) }
+            if (store.settings.value.smartFeatures) {
+                launch(Dispatchers.IO) { LocalAiManager.refresh(app) }
+            }
             launch(Dispatchers.IO) { loadStudy() }
             launch(Dispatchers.IO) { repo.markOpened(noteId) }
             prefetchPdf(startPage)
@@ -247,10 +263,16 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     /** Draws the pages around the current one ahead of time so they never flash white while you swipe. */
     private fun prefetchPdf(center: Int) {
         val src = pdf ?: return
+        val maxSpan = store.settings.value.performanceMode.pdfPrefetchPages
+        val offsets = when {
+            maxSpan <= 1 -> intArrayOf(0, 1)
+            maxSpan <= 3 -> intArrayOf(0, 1, -1, 2)
+            else -> intArrayOf(0, 1, -1, 2, 3, -2, 4)
+        }
         prefetchJob?.cancel()
         prefetchJob = viewModelScope.launch {
             kotlinx.coroutines.delay(90)
-            for (d in intArrayOf(0, 1, -1, 2, 3, -2, 4)) {
+            for (d in offsets) {
                 val page = pages.getOrNull(center + d) ?: continue
                 if (page.pdfPage < 0 || src.cached(page.pdfPage) != null) continue
                 // Do not compete with a page that is on screen right now.
@@ -378,6 +400,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         pages.add(to, p)
         undoStack.clear(); redoStack.clear(); refreshUndo()
         if (pageIndex == from) pageIndex = to
+        structureDirty = true
         scheduleSave(); onPagesChanged?.invoke()
     }
 
@@ -410,7 +433,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         viewModelScope.launch {
             val name = withContext(Dispatchers.IO) {
                 val n = "sticker_${UUID.randomUUID()}.png"
-                java.io.File(repo.noteDir(noteId), n).outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                AtomicFiles.writeBytesAtomic(File(repo.noteDir(noteId), n)) { out ->
+                    bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                }
                 n
             }
             val idx = pageIndex
@@ -438,6 +463,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun toggleBookmark() {
         val p = currentPage ?: return
         pages[pageIndex] = p.copy(bookmarked = !p.bookmarked)
+        dirtyPageIds += p.id
         scheduleSave(); onPagesChanged?.invoke()
     }
 
@@ -475,6 +501,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         touched()
         val p = pages.getOrNull(page) ?: return
         pages[page] = p.copy(items = items0)
+        dirtyPageIds += p.id
         scheduleSave()
     }
 
@@ -499,15 +526,27 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun applyTemplate(style: PaperStyle, scale: Float, lineColor: Int?, paperColor: Int?, target: Int) {
         fun styled(p: Page) = p.copy(paper = style, lineScale = scale, lineColor = lineColor, paperColor = paperColor ?: p.paperColor)
         when (target) {
-            0 -> { val p = currentPage ?: return; pages[pageIndex] = styled(p) }
+            0 -> {
+                val p = currentPage ?: return
+                pages[pageIndex] = styled(p)
+                dirtyPageIds += p.id
+            }
             1 -> {
-                val base = newPage()
-                pages.add(pageIndex + 1, styled(base))
+                val base = styled(newPage())
+                pages.add(pageIndex + 1, base)
+                dirtyPageIds += base.id
+                structureDirty = true
                 undoStack.clear(); redoStack.clear(); refreshUndo()
                 scheduleSave(); onPagesChanged?.invoke(); onScrollTo?.invoke(pageIndex + 1)
                 return
             }
-            else -> pages.indices.forEach { i -> val p = pages[i]; if (p.pdfPage < 0 && p.cover == null && p.bgImage == null) pages[i] = styled(p) }
+            else -> pages.indices.forEach { i ->
+                val p = pages[i]
+                if (p.pdfPage < 0 && p.cover == null && p.bgImage == null) {
+                    pages[i] = styled(p)
+                    dirtyPageIds += p.id
+                }
+            }
         }
         scheduleSave(); onPagesChanged?.invoke()
     }
@@ -525,6 +564,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val page = pages.getOrNull(idx) ?: return
         to.addLast(idx to page.items)
         pages[idx] = page.copy(items = items)
+        dirtyPageIds += page.id
         refreshUndo(); scheduleSave(); onPagesChanged?.invoke()
         if (idx != pageIndex) onScrollTo?.invoke(idx)
     }
@@ -1172,6 +1212,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     }
 
     fun generateMindMapFromNotes() {
+        if (!store.settings.value.smartFeatures) { say("Smart features are turned off"); return }
         val pageIdx = pageIndex
         val p = pages.getOrNull(pageIdx) ?: return
         viewModelScope.launch {
@@ -1266,6 +1307,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             val name = if (uri == null) null else runCatching { repo.saveImage(noteId, uri) }.getOrNull() ?: return@launch
             val p = pages.getOrNull(idx) ?: return@launch
             pages[idx] = p.copy(bgImage = name)
+            dirtyPageIds += p.id
             thumbs.evictAll()
             scheduleSave(); onPagesChanged?.invoke()
         }
@@ -1275,6 +1317,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun setPageColor(color: Int?) {
         val p = currentPage ?: return
         pages[pageIndex] = p.copy(paperColor = color)
+        dirtyPageIds += p.id
         scheduleSave(); onPagesChanged?.invoke()
     }
 
@@ -1283,6 +1326,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val nextWb = !p.isWhiteboard
         val nextPaper = if (nextWb && p.paper == PaperStyle.BLANK) PaperStyle.DOTTED else p.paper
         pages[pageIndex] = p.copy(isWhiteboard = nextWb, paper = nextPaper)
+        dirtyPageIds += p.id
         scheduleSave(); onPagesChanged?.invoke()
         say(if (nextWb) "Switched to ∞ Infinite Whiteboard" else "Switched to standard page")
     }
@@ -1296,6 +1340,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         }
         val at = if (atEnd) pages.size else pageIndex + 1
         pages.add(at, np)
+        dirtyPageIds += np.id
+        structureDirty = true
         undoStack.clear(); redoStack.clear(); refreshUndo()
         scheduleSave(); onPagesChanged?.invoke()
         onScrollTo?.invoke(at)
@@ -1304,6 +1350,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun deletePage() {
         if (pages.size <= 1) return
         pages.removeAt(pageIndex)
+        structureDirty = true
         undoStack.clear(); redoStack.clear(); refreshUndo()
         pageIndex = pageIndex.coerceAtMost(pages.size - 1)
         scheduleSave(); onPagesChanged?.invoke()
@@ -1313,6 +1360,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val p = currentPage ?: return
         val copy = p.copy(id = UUID.randomUUID().toString(), items = p.items.map { it.withId(ItemIds.next()) })
         pages.add(pageIndex + 1, copy)
+        dirtyPageIds += copy.id
+        structureDirty = true
         undoStack.clear(); redoStack.clear(); refreshUndo()
         scheduleSave(); onPagesChanged?.invoke()
         onScrollTo?.invoke(pageIndex + 1)
@@ -1321,6 +1370,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun setPaper(style: PaperStyle) {
         val p = currentPage ?: return
         pages[pageIndex] = p.copy(paper = style)
+        dirtyPageIds += p.id
         scheduleSave(); onPagesChanged?.invoke()
     }
 
@@ -1724,7 +1774,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                     }
                 }
             }
-            val aiRes = if (query.trim().length >= 3) {
+            val aiRes = if (store.settings.value.smartFeatures && query.trim().length >= 3) {
                 LocalAiManager.semanticSearch(getApplication(), query, corpusSb.toString())
             } else SearchAiResult()
             searchAiAnswer = aiRes.takeIf { it.answer.isNotBlank() || it.expandedTerms.isNotEmpty() }
@@ -1914,6 +1964,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var explanation by mutableStateOf<Pair<String, String>?>(null)
 
     fun explainTextSel() {
+        if (!store.settings.value.smartFeatures) { clearTextSel(); say("Smart features are turned off"); return }
         val s = textSel ?: return
         clearTextSel()
         viewModelScope.launch {
@@ -1933,6 +1984,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     /** Explains whatever items/strokes/text are currently selected by the Lasso tool using AI. */
     fun explainLassoSelection() {
+        if (!store.settings.value.smartFeatures) { say("Smart features are turned off"); return }
         val pgIdx = selectionPage
         val p = pages.getOrNull(pgIdx) ?: return
         val selectedItems = p.items.filter { it.id in selection }
@@ -1984,6 +2036,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     /** Explains the current page's concepts using AI. */
     fun explainCurrentPage() {
+        if (!store.settings.value.smartFeatures) { say("Smart features are turned off"); return }
         val pgIdx = pageIndex
         viewModelScope.launch {
             aiStage = "Explaining Page ${pgIdx + 1}…"
@@ -2003,6 +2056,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     /** Questions made from just the selected text. */
     fun quizFromTextSel() {
+        if (!store.settings.value.smartFeatures) { clearTextSel(); say("Smart features are turned off"); return }
         val s = textSel ?: return
         val pid = pages.getOrNull(s.page)?.id
         clearTextSel()
@@ -2070,6 +2124,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     /** Makes flashcards from this page (or all pages). Returns how many were added. */
     fun generateCards(allPages: Boolean) {
+        if (!store.settings.value.smartFeatures) { say("Smart features are turned off"); return }
         viewModelScope.launch {
             aiStage = "Reading page notes…"
             aiBusy = true
@@ -2101,6 +2156,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var summary by mutableStateOf<RichSummaryResult?>(null)
 
     fun summarize() {
+        if (!store.settings.value.smartFeatures) { say("Smart features are turned off"); return }
         viewModelScope.launch {
             aiStage = "Reading page notes…"
             aiBusy = true
@@ -2186,6 +2242,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             if (built.isEmpty()) { say("Could not read any pages from those files"); return@launch }
             val insertAt = (pageIndex + 1).coerceIn(0, pages.size)
             pages.addAll(insertAt, built)
+            built.forEach { dirtyPageIds += it.id }
+            structureDirty = true
             undoStack.clear(); redoStack.clear(); refreshUndo()
             scheduleSave(); onPagesChanged?.invoke()
             onScrollTo?.invoke(insertAt)
@@ -2194,6 +2252,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     }
 
     fun generateQuiz(allPages: Boolean) {
+        if (!store.settings.value.smartFeatures) { say("Smart features are turned off"); return }
         viewModelScope.launch {
             aiStage = "Scanning notes for quiz concepts…"
             aiBusy = true
@@ -2220,6 +2279,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     // ---------------------------------------------------------------- Slide Show Chapter Revision
 
     fun generateSlideShow(startPage: Int = pageIndex, endPage: Int = pageIndex, slideCount: Int = 7) {
+        if (!store.settings.value.smartFeatures) { say("Smart features are turned off"); return }
         val lo = startPage.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
         val hi = endPage.coerceIn(lo, (pages.size - 1).coerceAtLeast(0))
         viewModelScope.launch {
@@ -2323,11 +2383,14 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         viewModelScope.launch {
             val name = withContext(Dispatchers.IO) {
                 val n = "bg_ai_${System.currentTimeMillis()}.png"
-                File(repo.noteDir(noteId), n).outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 96, it) }
+                AtomicFiles.writeBytesAtomic(File(repo.noteDir(noteId), n)) { out ->
+                    bmp.compress(Bitmap.CompressFormat.PNG, 96, out)
+                }
                 n
             }
             val p = pages.getOrNull(idx) ?: return@launch
             pages[idx] = p.copy(bgImage = name)
+            dirtyPageIds += p.id
             thumbs.evictAll()
             scheduleSave()
             onPagesChanged?.invoke()
@@ -2339,13 +2402,16 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         viewModelScope.launch {
             val name = withContext(Dispatchers.IO) {
                 val n = "cover_ai_${System.currentTimeMillis()}.png"
-                File(repo.noteDir(noteId), n).outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 96, it) }
+                AtomicFiles.writeBytesAtomic(File(repo.noteDir(noteId), n)) { out ->
+                    bmp.compress(Bitmap.CompressFormat.PNG, 96, out)
+                }
                 n
             }
             val spec = "image:$name"
             val hasCoverPage = repo.setCoverPage(noteId, spec)
             if (hasCoverPage && pages.isNotEmpty() && pages[0].cover != null) {
                 pages[0] = pages[0].copy(cover = spec)
+                dirtyPageIds += pages[0].id
                 scheduleSave()
             } else if (!hasCoverPage) {
                 repo.setCover(noteId, spec)
@@ -2359,6 +2425,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun applySplitItems(page: Int, items: List<PageItem>) {
         val p = pages.getOrNull(page) ?: return
         pages[page] = p.copy(items = items)
+        dirtyPageIds += p.id
         thumbs.evictAll()
         scheduleSave()
         onPagesChanged?.invoke()
@@ -2368,9 +2435,22 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     private fun scheduleSave() {
         saveJob?.cancel()
+        val debounceMs = store.settings.value.performanceMode.autosaveMs
         saveJob = viewModelScope.launch {
-            delay(1200)
-            repo.savePages(noteId, pages.toList())
+            delay(debounceMs)
+            val snapshot = pages.toList()
+            val dirtySnap = synchronized(dirtyPageIds) {
+                HashSet(dirtyPageIds).also { dirtyPageIds.clear() }
+            }
+            val structSnap = structureDirty
+            structureDirty = false
+            repo.savePages(
+                id = noteId,
+                pages = snapshot,
+                dirtyPageIds = dirtySnap,
+                structureChanged = structSnap,
+                writeFullSnapshot = false,
+            )
         }
     }
 
@@ -2378,7 +2458,19 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         if (!loaded) return
         saveJob?.cancel()
         val snapshot = pages.toList()
-        repo.appScope.launch { repo.savePages(noteId, snapshot) }
+        val dirtySnap = synchronized(dirtyPageIds) {
+            HashSet(dirtyPageIds).also { dirtyPageIds.clear() }
+        }
+        structureDirty = false
+        repo.appScope.launch {
+            repo.savePages(
+                id = noteId,
+                pages = snapshot,
+                dirtyPageIds = dirtySnap,
+                structureChanged = true,
+                writeFullSnapshot = true,
+            )
+        }
     }
 
     suspend fun exportPdf(out: OutputStream) = repo.exportPdf(noteId, pages.toList(), out)
@@ -2480,9 +2572,12 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     }
 
     override fun onCleared() {
-        if (saveJob?.isActive == true) saveNow()
+        if (saveJob?.isActive == true || synchronized(dirtyPageIds) { dirtyPageIds.isNotEmpty() } || structureDirty) {
+            saveNow()
+        }
         pdf?.close()
         thumbPdfInstance?.close()
+        detailPdfInstance?.close()
         super.onCleared()
     }
 }

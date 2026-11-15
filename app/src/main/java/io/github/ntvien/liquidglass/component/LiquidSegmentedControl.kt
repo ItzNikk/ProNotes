@@ -1,5 +1,6 @@
 package io.github.ntvien.liquidglass.component
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
@@ -21,6 +22,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -41,13 +43,14 @@ import androidx.compose.ui.unit.sp
 import io.github.ntvien.liquidglass.DropletState
 import io.github.ntvien.liquidglass.GlassDefaults
 import io.github.ntvien.liquidglass.LiquidGlassTheme
+import io.github.ntvien.liquidglass.LocalGlassShadows
 import io.github.ntvien.liquidglass.droplet
-import io.github.ntvien.liquidglass.liquidGlass
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * In-screen segmented control with Kyant0 droplet indicator and immediate BoxWithConstraints layout.
+ * In-screen segmented control with droplet indicator and immediate BoxWithConstraints layout.
+ * Renders track as a clean tonal container so the active droplet never creates glass-inside-glass.
  */
 @Composable
 public fun LiquidSegmentedControl(
@@ -61,6 +64,7 @@ public fun LiquidSegmentedControl(
     textStyle: TextStyle = TextStyle(fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.Medium),
 ) {
     val colors = LiquidGlassTheme.colors
+    val shadowsEnabled = LocalGlassShadows.current
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
     val currentSelected by rememberUpdatedState(selectedIndex)
@@ -78,12 +82,14 @@ public fun LiquidSegmentedControl(
             currentOnSelect(i)
         }
     }
+    val trackShape = GlassDefaults.pillShape()
 
     BoxWithConstraints(
         modifier
             .fillMaxWidth()
             .height(SEGMENTED_HEIGHT)
-            .liquidGlass(GlassDefaults.frost().copy(fallbackSurface = colors.glassFill, fallbackSheen = 0.25f), GlassDefaults.PillShape)
+            .clip(trackShape)
+            .background(colors.contentMuted.copy(alpha = 0.14f))
             .padding(3.dp)
             .selectableGroup(),
         contentAlignment = Alignment.CenterStart,
@@ -104,13 +110,13 @@ public fun LiquidSegmentedControl(
                     .width(slotDp)
                     .fillMaxHeight()
                     .then(
-                        if (indicatorColor.alpha >= 0.9f) {
-                            Modifier.shadow(2.dp, GlassDefaults.PillShape, clip = false, ambientColor = colors.glassShadow, spotColor = colors.glassShadow)
+                        if (indicatorColor.alpha >= 0.9f && shadowsEnabled) {
+                            Modifier.shadow(2.dp, trackShape, clip = false, ambientColor = colors.glassShadow, spotColor = colors.glassShadow)
                         } else {
                             Modifier
                         }
                     )
-                    .droplet(droplet, GlassDefaults.PillShape, idleColor = indicatorColor),
+                    .droplet(droplet, trackShape, idleColor = indicatorColor),
             )
             Row(Modifier.fillMaxSize()) {
                 options.forEachIndexed { index, label ->
@@ -150,5 +156,5 @@ public fun LiquidSegmentedControl(
     }
 }
 
-private val SEGMENTED_HEIGHT = 40.dp
+private val SEGMENTED_HEIGHT = 44.dp
 private const val PRESS_SCALE = 1.06f

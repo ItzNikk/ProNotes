@@ -22,18 +22,28 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.OutputStream
 import java.util.UUID
 
+@Serializable
+private data class PagesManifest(
+    val version: Int = 2,
+    val updatedAt: Long = 0L,
+    val pageIds: List<String> = emptyList(),
+)
+
 /**
  * File-based storage:
- *   files/library.json            folders + notebook metadata
- *   files/notes/<id>/note.json    pages and items
- *   files/notes/<id>/source.pdf   imported PDF (optional)
- *   files/notes/<id>/thumb.png    first-page thumbnail
- *   files/notes/<id>/img_*.png    inserted images
+ *   files/library.json                   folders + notebook metadata
+ *   files/notes/<id>/note.json           consolidated pages snapshot
+ *   files/notes/<id>/pages.index.json    ordered page IDs for incremental loading
+ *   files/notes/<id>/pages/<pid>.json    single-page document for fast incremental saves
+ *   files/notes/<id>/source.pdf          imported PDF (optional)
+ *   files/notes/<id>/thumb.png           first-page thumbnail
+ *   files/notes/<id>/img_*.png           inserted images
  */
 class Repository private constructor(private val context: Context) {
 
@@ -41,6 +51,7 @@ class Repository private constructor(private val context: Context) {
     private val root = File(context.filesDir, "notes").apply { mkdirs() }
     private val indexFile = File(context.filesDir, "library.json")
     private val lock = Mutex()
+    private val saveLock = Mutex()
     private val thumbSeen = HashMap<String, Page>()
 
     /** Outlives screens, so a save started on exit still finishes. */
@@ -60,14 +71,15 @@ class Repository private constructor(private val context: Context) {
     private suspend fun updateIndex(block: (LibraryIndex) -> LibraryIndex) = withContext(Dispatchers.IO) {
         lock.withLock {
             val next = block(_library.value)
-            val tmp = File(indexFile.path + ".tmp")
-            tmp.writeText(json.encodeToString(LibraryIndex.serializer(), next))
-            tmp.renameTo(indexFile)
+            AtomicFiles.writeTextAtomic(indexFile, json.encodeToString(LibraryIndex.serializer(), next))
             _library.value = next
         }
     }
 
     fun noteDir(id: String) = File(root, id).apply { mkdirs() }
+    private fun pagesDir(id: String) = File(noteDir(id), "pages").apply { mkdirs() }
+    private fun manifestFile(id: String) = File(noteDir(id), "pages.index.json")
+    private fun pageFile(id: String, pageId: String) = File(pagesDir(id), "$pageId.json")
     fun pdfFile(id: String) = File(noteDir(id), "source.pdf")
     fun thumbFile(id: String) = File(noteDir(id), "thumb.png")
 
@@ -89,10 +101,13 @@ class Repository private constructor(private val context: Context) {
         it.copy(notebooks = it.notebooks.map { n -> if (n.id == id) n.copy(opened = System.currentTimeMillis()) else n })
     }
 
-    /** Copies a picked photo into the notebook folder and returns its cover spec. */
+    /** Copies a picked photo into the notebook folder atomically and returns its cover spec. */
     suspend fun saveCoverImage(id: String, uri: Uri): String = withContext(Dispatchers.IO) {
         val name = "cover_${System.currentTimeMillis()}.img"
-        context.contentResolver.openInputStream(uri)!!.use { input -> File(noteDir(id), name).outputStream().use { input.copyTo(it) } }
+        val target = File(noteDir(id), name)
+        context.contentResolver.openInputStream(uri)!!.use { input ->
+            AtomicFiles.writeBytesAtomic(target) { out -> input.copyTo(out) }
+        }
         "image:$name"
     }
 
@@ -142,7 +157,9 @@ class Repository private constructor(private val context: Context) {
             if (coverPage && !isWhiteboard) add(PageDoc(UUID.randomUUID().toString(), width, height, PaperStyle.BLANK, cover = coverSpec.ifBlank { "solid:$cover" }))
             add(PageDoc(UUID.randomUUID().toString(), width, height, paper, paperColor = paperColor, isWhiteboard = isWhiteboard))
         }
-        withContext(Dispatchers.IO) { File(noteDir(id), "note.json").writeText(json.encodeToString(NoteDoc.serializer(), NoteDoc(pages = pages))) }
+        withContext(Dispatchers.IO) {
+            writePageDocsIncremental(id, pages, dirtyIds = null, structureChanged = true, writeFullSnapshot = true)
+        }
         updateIndex {
             it.copy(notebooks = it.notebooks + NotebookMeta(id, title, folderId, cover, paper, now, now, pages.size, cover = if (coverPage && !isWhiteboard) "thumb" else coverSpec, isWhiteboard = isWhiteboard))
         }
@@ -152,13 +169,13 @@ class Repository private constructor(private val context: Context) {
 
     /** Changes the design of a notebook's cover page, if it has one. */
     suspend fun setCoverPage(id: String, spec: String): Boolean = withContext(Dispatchers.IO) {
-        val f = File(noteDir(id), "note.json")
-        val doc = runCatching { json.decodeFromString(NoteDoc.serializer(), f.readText()) }.getOrNull() ?: return@withContext false
-        val first = doc.pages.firstOrNull() ?: return@withContext false
+        val docs = loadPageDocsSync(id) ?: return@withContext false
+        val first = docs.firstOrNull() ?: return@withContext false
         if (first.cover == null) return@withContext false
-        val next = doc.copy(pages = listOf(first.copy(cover = spec)) + doc.pages.drop(1))
-        f.writeText(json.encodeToString(NoteDoc.serializer(), next))
-        runCatching { writeThumbnail(id, next.pages.map { InkCodec.fromDoc(it) }) }
+        val updatedFirst = first.copy(cover = spec)
+        val nextPages = listOf(updatedFirst) + docs.drop(1)
+        writePageDocsIncremental(id, nextPages, dirtyIds = setOf(updatedFirst.id), structureChanged = false, writeFullSnapshot = true)
+        runCatching { writeThumbnail(id, nextPages.map { InkCodec.fromDoc(it) }) }
         updateIndex { it.copy(notebooks = it.notebooks.map { n -> if (n.id == id) n.copy(modified = System.currentTimeMillis(), cover = "thumb") else n }) }
         true
     }
@@ -166,7 +183,9 @@ class Repository private constructor(private val context: Context) {
     suspend fun importPdf(uri: Uri, folderId: String?): String = withContext(Dispatchers.IO) {
         val id = UUID.randomUUID().toString()
         val target = pdfFile(id)
-        context.contentResolver.openInputStream(uri)!!.use { input -> target.outputStream().use { input.copyTo(it) } }
+        context.contentResolver.openInputStream(uri)!!.use { input ->
+            AtomicFiles.writeBytesAtomic(target) { out -> input.copyTo(out) }
+        }
         val pages = ArrayList<PageDoc>()
         PdfRenderer(ParcelFileDescriptor.open(target, ParcelFileDescriptor.MODE_READ_ONLY)).use { r ->
             for (i in 0 until r.pageCount) {
@@ -178,7 +197,7 @@ class Repository private constructor(private val context: Context) {
                 }
             }
         }
-        File(noteDir(id), "note.json").writeText(json.encodeToString(NoteDoc.serializer(), NoteDoc(pages = pages)))
+        writePageDocsIncremental(id, pages, dirtyIds = null, structureChanged = true, writeFullSnapshot = true)
         val title = displayName(uri)?.removeSuffix(".pdf")?.removeSuffix(".PDF") ?: "Imported PDF"
         val now = System.currentTimeMillis()
         updateIndex {
@@ -278,7 +297,7 @@ class Repository private constructor(private val context: Context) {
         if (pageDocs.isEmpty()) {
             pageDocs += PageDoc(UUID.randomUUID().toString(), PageSize.WIDTH, PageSize.HEIGHT, PaperStyle.RULED)
         }
-        File(noteDir(id), "note.json").writeText(json.encodeToString(NoteDoc.serializer(), NoteDoc(pages = pageDocs)))
+        writePageDocsIncremental(id, pageDocs, dirtyIds = null, structureChanged = true, writeFullSnapshot = true)
         val now = System.currentTimeMillis()
         updateIndex {
             it.copy(notebooks = it.notebooks + NotebookMeta(id, importedTitle, folderId, coverColor, PaperStyle.RULED, now, now, pageDocs.size))
@@ -295,7 +314,7 @@ class Repository private constructor(private val context: Context) {
         val pageDocs = textToPageDocs(cleanTitle, normalized).ifEmpty {
             listOf(PageDoc(UUID.randomUUID().toString(), PageSize.WIDTH, PageSize.HEIGHT, PaperStyle.RULED))
         }
-        File(noteDir(id), "note.json").writeText(json.encodeToString(NoteDoc.serializer(), NoteDoc(pages = pageDocs)))
+        writePageDocsIncremental(id, pageDocs, dirtyIds = null, structureChanged = true, writeFullSnapshot = true)
         val now = System.currentTimeMillis()
         updateIndex {
             it.copy(notebooks = it.notebooks + NotebookMeta(id, cleanTitle, folderId, CoverColors[1], PaperStyle.RULED, now, now, pageDocs.size))
@@ -525,19 +544,136 @@ class Repository private constructor(private val context: Context) {
 
     fun meta(id: String): NotebookMeta? = _library.value.notebooks.firstOrNull { it.id == id }
 
+    private fun loadPageDocsSync(id: String): List<PageDoc>? {
+        val manifestF = manifestFile(id)
+        if (manifestF.exists()) {
+            val manifest = runCatching {
+                json.decodeFromString(PagesManifest.serializer(), manifestF.readText())
+            }.getOrNull()
+            if (manifest != null && manifest.pageIds.isNotEmpty()) {
+                val pDir = pagesDir(id)
+                val loaded = ArrayList<PageDoc>(manifest.pageIds.size)
+                var complete = true
+                for (pid in manifest.pageIds) {
+                    val pf = File(pDir, "$pid.json")
+                    val pd = if (pf.exists()) {
+                        runCatching { json.decodeFromString(PageDoc.serializer(), pf.readText()) }.getOrNull()
+                    } else null
+                    if (pd == null) {
+                        complete = false
+                        break
+                    }
+                    loaded += pd
+                }
+                if (complete) return loaded
+            }
+        }
+        val legacyFile = File(noteDir(id), "note.json")
+        if (!legacyFile.exists()) return null
+        return runCatching { json.decodeFromString(NoteDoc.serializer(), legacyFile.readText()).pages }.getOrNull()
+    }
+
+    private fun writePageDocsIncremental(
+        id: String,
+        docs: List<PageDoc>,
+        dirtyIds: Set<String>?,
+        structureChanged: Boolean,
+        writeFullSnapshot: Boolean,
+    ) {
+        val pDir = pagesDir(id)
+        val mf = manifestFile(id)
+        val writeAllPages = dirtyIds == null || !mf.exists()
+        for (doc in docs) {
+            val pf = File(pDir, "${doc.id}.json")
+            if (writeAllPages || doc.id in dirtyIds || !pf.exists()) {
+                AtomicFiles.writeTextAtomic(pf, json.encodeToString(PageDoc.serializer(), doc))
+            }
+        }
+        if (structureChanged || !mf.exists()) {
+            val keepIds = docs.map { it.id }.toSet()
+            pDir.listFiles()?.forEach { child ->
+                if (child.isFile && child.name.endsWith(".json")) {
+                    val pid = child.name.removeSuffix(".json")
+                    if (pid !in keepIds) child.delete()
+                }
+            }
+            AtomicFiles.writeTextAtomic(
+                mf,
+                json.encodeToString(
+                    PagesManifest.serializer(),
+                    PagesManifest(updatedAt = System.currentTimeMillis(), pageIds = docs.map { it.id }),
+                ),
+            )
+        }
+        val noteFile = File(noteDir(id), "note.json")
+        if (writeFullSnapshot || !noteFile.exists()) {
+            AtomicFiles.writeTextAtomic(noteFile, json.encodeToString(NoteDoc.serializer(), NoteDoc(pages = docs)))
+        }
+    }
+
+    /** Returns up-to-date serialized NoteDoc JSON for sync/export without stale snapshot drift. */
+    fun readSerializedNoteDoc(id: String): String {
+        val docs = loadPageDocsSync(id)
+        return if (docs != null) {
+            json.encodeToString(NoteDoc.serializer(), NoteDoc(pages = docs))
+        } else {
+            val f = File(noteDir(id), "note.json")
+            if (f.exists()) f.readText() else "{}"
+        }
+    }
+
+    /** Atomically imports a serialized NoteDoc JSON from cloud sync into both snapshot & per-page storage. */
+    fun writeSerializedNoteDoc(id: String, rawJson: String) {
+        val target = File(noteDir(id), "note.json")
+        AtomicFiles.writeTextAtomic(target, rawJson)
+        val parsed = runCatching { json.decodeFromString(NoteDoc.serializer(), rawJson) }.getOrNull()
+        if (parsed != null && parsed.pages.isNotEmpty()) {
+            writePageDocsIncremental(id, parsed.pages, dirtyIds = null, structureChanged = true, writeFullSnapshot = false)
+        }
+    }
+
     suspend fun loadPages(id: String): List<Page> = withContext(Dispatchers.IO) {
-        val f = File(noteDir(id), "note.json")
-        val doc = runCatching { json.decodeFromString(NoteDoc.serializer(), f.readText()) }.getOrNull()
-        doc?.pages?.map { InkCodec.fromDoc(it) }
+        val docs = loadPageDocsSync(id)
+        docs?.map { InkCodec.fromDoc(it) }
             ?: listOf(Page(UUID.randomUUID().toString(), PageSize.WIDTH, PageSize.HEIGHT, PaperStyle.RULED))
     }
 
-    suspend fun savePages(id: String, pages: List<Page>) = withContext(Dispatchers.IO) {
-        val doc = NoteDoc(pages = pages.map { InkCodec.toDoc(it) })
-        val f = File(noteDir(id), "note.json")
-        val tmp = File(f.path + ".tmp")
-        tmp.writeText(json.encodeToString(NoteDoc.serializer(), doc))
-        tmp.renameTo(f)
+    suspend fun savePages(
+        id: String,
+        pages: List<Page>,
+        dirtyPageIds: Set<String>? = null,
+        structureChanged: Boolean = true,
+        writeFullSnapshot: Boolean = false,
+    ) = withContext(Dispatchers.IO) {
+        saveLock.withLock {
+            val pDir = pagesDir(id)
+            val mf = manifestFile(id)
+            val needFullManifest = structureChanged || !mf.exists()
+            val idsToWrite = dirtyPageIds
+            val docs = if (writeFullSnapshot || idsToWrite == null || !File(noteDir(id), "note.json").exists()) {
+                pages.map { InkCodec.toDoc(it) }
+            } else {
+                // Only serialize pages that actually changed when performing an incremental debounced write.
+                val manifestOnly = PagesManifest(updatedAt = System.currentTimeMillis(), pageIds = pages.map { it.id })
+                for (page in pages) {
+                    val pf = File(pDir, "${page.id}.json")
+                    if (page.id in idsToWrite || !pf.exists()) {
+                        AtomicFiles.writeTextAtomic(pf, json.encodeToString(PageDoc.serializer(), InkCodec.toDoc(page)))
+                    }
+                }
+                if (needFullManifest) {
+                    val keep = pages.map { it.id }.toSet()
+                    pDir.listFiles()?.forEach { f ->
+                        if (f.isFile && f.name.endsWith(".json") && f.name.removeSuffix(".json") !in keep) f.delete()
+                    }
+                    AtomicFiles.writeTextAtomic(mf, json.encodeToString(PagesManifest.serializer(), manifestOnly))
+                }
+                null
+            }
+            if (docs != null) {
+                writePageDocsIncremental(id, docs, dirtyIds = idsToWrite, structureChanged = needFullManifest, writeFullSnapshot = true)
+            }
+        }
         // The library thumbnail shows page 1, so only redraw it when page 1 itself changed.
         val first = pages.firstOrNull()
         if (first != null && (thumbSeen[id] !== first || !thumbFile(id).exists())) {
@@ -553,8 +689,10 @@ class Repository private constructor(private val context: Context) {
 
     private fun writeThumbnail(id: String, pages: List<Page>) {
         val page = pages.firstOrNull() ?: return
-        val scale = 360f / page.width
-        val w = (page.width * scale).toInt(); val h = (page.height * scale).toInt()
+        val targetWidth = SettingsStore.get(context).settings.value.performanceMode.thumbWidthPx.toFloat()
+        val scale = (targetWidth / page.width).coerceAtLeast(0.05f)
+        val w = (page.width * scale).toInt().coerceAtLeast(1)
+        val h = (page.height * scale).toInt().coerceAtLeast(1)
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         bmp.eraseColor(Color.WHITE)
         val pdf = if (page.pdfPage >= 0) PdfPages(pdfFile(id)).let { pp ->
@@ -563,7 +701,10 @@ class Repository private constructor(private val context: Context) {
         // Render the PDF bitmap at thumbnail size, so draw it with scale 1.
         val canvas = Canvas(bmp)
         PageRenderer(noteDir(id)).renderPage(canvas, page, scale, pdf)
-        thumbFile(id).outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 90, it) }
+        AtomicFiles.writeBytesAtomic(thumbFile(id)) { out ->
+            bmp.compress(Bitmap.CompressFormat.PNG, 90, out)
+        }
+        bmp.recycle()
     }
 
     /** Writes the notebook as a PDF: original PDF pages as backgrounds, ink on top. */
@@ -590,8 +731,9 @@ class Repository private constructor(private val context: Context) {
 
     suspend fun saveImage(noteId: String, uri: Uri): String = withContext(Dispatchers.IO) {
         val name = "img_${UUID.randomUUID()}.img"
+        val target = File(noteDir(noteId), name)
         context.contentResolver.openInputStream(uri)!!.use { input ->
-            File(noteDir(noteId), name).outputStream().use { input.copyTo(it) }
+            AtomicFiles.writeBytesAtomic(target) { out -> input.copyTo(out) }
         }
         name
     }

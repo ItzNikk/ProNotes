@@ -99,7 +99,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -136,30 +136,31 @@ import com.pronotes.app.data.SettingsStore
 import com.pronotes.app.editor.LiveCollabRoomDialog
 import com.pronotes.app.ui.BotanicalGlassBackground
 import com.pronotes.app.ui.ColorEditorDialog
+import com.pronotes.app.ui.GlassBottomBar
 import com.pronotes.app.ui.GlassButtonPalette
-import com.pronotes.app.ui.LiquidGlassCard
-import com.pronotes.app.ui.LiquidGlassChip
-import com.pronotes.app.ui.LiquidGlassDialog
-import com.pronotes.app.ui.LiquidGlassPill
-import com.pronotes.app.ui.LiquidToggle
-import com.pronotes.app.ui.OptionalLiquidGlassBox
+import com.pronotes.app.ui.GlassCard
+import com.pronotes.app.ui.GlassChip
+import com.pronotes.app.ui.GlassContentBottomPadding
+import com.pronotes.app.ui.GlassDialog
+import com.pronotes.app.ui.GlassMenuButton
+import com.pronotes.app.ui.GlassMenuDivider
+import com.pronotes.app.ui.GlassMenuEntry
+import com.pronotes.app.ui.GlassMenuItem
+import com.pronotes.app.ui.GlassPill
+import com.pronotes.app.ui.GlassRole
+import com.pronotes.app.ui.GlassScene
+import com.pronotes.app.ui.GlassSegmentedControl
+import com.pronotes.app.ui.GlassSurface
+import com.pronotes.app.ui.GlassTabItem
+import com.pronotes.app.ui.GlassToggle
+import com.pronotes.app.ui.LocalSmartFeatures
 import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.Swatch
 import com.pronotes.app.ui.elasticStretch
-import io.github.ntvien.liquidglass.GlassDefaults
-import io.github.ntvien.liquidglass.GlassKind
-import io.github.ntvien.liquidglass.LiquidGlassScene
-import io.github.ntvien.liquidglass.LiquidGlassTheme
-import io.github.ntvien.liquidglass.component.LiquidMenuButton
-import io.github.ntvien.liquidglass.component.LiquidMenuDivider
-import io.github.ntvien.liquidglass.component.LiquidMenuEntry
-import io.github.ntvien.liquidglass.component.LiquidMenuItem
-import io.github.ntvien.liquidglass.component.LiquidSegmentedControl
-import io.github.ntvien.liquidglass.component.LiquidSurface
-import io.github.ntvien.liquidglass.component.LiquidTab
-import io.github.ntvien.liquidglass.component.LiquidTabBar
-import io.github.ntvien.liquidglass.component.LiquidTabBarDefaults
-import io.github.ntvien.liquidglass.component.LiquidTabLabels
+import com.pronotes.app.ui.glassCardShape
+import com.pronotes.app.ui.glassPillShape
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.DateFormat
@@ -185,8 +186,12 @@ fun LibraryScreen(
 ) {
     val context = LocalContext.current
     val repo = remember { Repository.get(context) }
-    val settings by SettingsStore.get(context).settings.collectAsState()
-    val lib by repo.library.collectAsState()
+    val store = remember { SettingsStore.get(context) }
+    val settings by remember(store) {
+        store.select { Triple(it.defaultPreset, it.defaultLandscape, it.defaultPaper) }
+    }.collectAsStateWithLifecycle(initialValue = store.settings.value.let { Triple(it.defaultPreset, it.defaultLandscape, it.defaultPaper) })
+    val smartFeatures = LocalSmartFeatures.current
+    val lib by repo.library.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val wide = LocalConfiguration.current.screenWidthDp >= 720
 
@@ -246,7 +251,7 @@ fun LibraryScreen(
 
     BackHandler(enabled = folderId != null) { folderId = lib.folders.firstOrNull { it.id == folderId }?.parentId }
 
-    val entries: List<Entry> = remember(lib, section, folderId, query, sort) {
+    val entries: ImmutableList<Entry> = remember(lib, section, folderId, query, sort) {
         val q = query.trim().lowercase()
         val live = lib.notebooks.filter { it.deletedAt == null }
         fun sortNotes(l: List<NotebookMeta>) = when (sort) {
@@ -264,7 +269,7 @@ fun LibraryScreen(
             else -> lib.folders.filter { it.parentId == folderId }.let { fs ->
                 if (sort == SortBy.NAME) fs.sortedBy { it.name.lowercase() } else fs.sortedByDescending { it.modified }
             }.map(::folderEntry) + sortNotes(live.filter { it.folderId == folderId }).map { Entry.N(it) }
-        }
+        }.toImmutableList()
     }
 
     val currentFolder = lib.folders.firstOrNull { it.id == folderId }
@@ -272,44 +277,33 @@ fun LibraryScreen(
 
     val drag = remember { DragController() }
     val trashCount = lib.notebooks.count { it.deletedAt != null }
+    var bottomBarHeight by remember { mutableStateOf(0.dp) }
     androidx.compose.runtime.CompositionLocalProvider(LocalDragController provides drag) {
-        LiquidGlassScene(
+        GlassScene(
             modifier = Modifier.fillMaxSize(),
             background = { BotanicalGlassBackground() },
             overlay = {
-                LiquidTabBar(
+                GlassBottomBar(
                     tabs = listOf(
-                        LiquidTab("DOCUMENTS", "Library", Icons.Outlined.Description),
-                        LiquidTab("RECENT", "Recent", Icons.Outlined.AccessTime),
-                        LiquidTab("SEARCH", "Search", Icons.Outlined.Search),
-                        LiquidTab("FAVORITES", "Starred", Icons.Outlined.StarBorder),
-                        LiquidTab("TRASH", "Trash", Icons.Outlined.Delete, badge = trashCount > 0),
+                        GlassTabItem("DOCUMENTS", "Library", Icons.Outlined.Description),
+                        GlassTabItem("RECENT", "Recent", Icons.Outlined.AccessTime),
+                        GlassTabItem("FAVORITES", "Starred", Icons.Outlined.StarBorder),
+                        GlassTabItem("TRASH", "Trash", Icons.Outlined.Delete, badge = trashCount > 0),
                     ),
-                    selectedKey = if (searching) "SEARCH" else section.name,
+                    selectedKey = section.name,
                     onSelect = { tabId ->
-                        if (tabId == "SEARCH") {
-                            searching = true
-                        } else {
-                            searching = false
-                            section = Section.valueOf(tabId)
-                            folderId = null
-                        }
+                        section = Section.valueOf(tabId)
+                        folderId = null
                     },
-                    onReselect = { tabId ->
-                        if (tabId == "SEARCH") {
-                            searching = !searching
-                            if (!searching) query = ""
-                        }
-                    },
-                    labels = LiquidTabLabels.Stacked,
+                    onMeasuredHeight = { bottomBarHeight = it },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
 
                 // The tile that follows your finger or pen while dragging.
                 drag.payload?.let { p ->
-                    LiquidSurface(
-                        style = GlassDefaults.accent(),
-                        shape = GlassDefaults.PillShape,
+                    GlassSurface(
+                        role = GlassRole.Accent,
+                        shape = glassPillShape(),
                         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
                         modifier = Modifier.offset {
                             androidx.compose.ui.unit.IntOffset(
@@ -321,16 +315,16 @@ fun LibraryScreen(
                             drag.label.ifBlank { if (p.startsWith("folder")) "Folder" else "Notebook" },
                             Modifier.widthIn(max = 220.dp),
                             maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall,
-                            color = LiquidGlassTheme.colors.onAccent,
+                            color = MaterialTheme.colorScheme.onPrimary,
                         )
                     }
                 }
 
                 if (supportCard) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-                        LiquidGlassCard(
+                        GlassCard(
                             hero = true,
-                            shape = RoundedCornerShape(28.dp),
+                            shape = glassCardShape(),
                             contentPadding = PaddingValues(18.dp),
                             modifier = Modifier.padding(20.dp).widthIn(max = 520.dp),
                         ) {
@@ -376,15 +370,16 @@ fun LibraryScreen(
                 }
 
                 Column(Modifier.weight(1f).fillMaxHeight().statusBarsPadding()) {
-                    // Top row wrapped in Liquid Glass
-                    OptionalLiquidGlassBox(
-                        enabled = settings.liquidGlass,
-                        shape = GlassDefaults.CardShape,
+                    // Top row wrapped in GlassSurface
+                    GlassSurface(
+                        role = GlassRole.Frost,
+                        shape = glassCardShape(),
+                        contentPadding = PaddingValues(0.dp),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                     ) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             if (!sidebar) {
-                                LiquidGlassPill(
+                                GlassPill(
                                     onClick = { sidebar = true },
                                     contentPadding = PaddingValues(8.dp),
                                 ) {
@@ -392,15 +387,14 @@ fun LibraryScreen(
                                 }
                             }
                             // Open notebooks, like browser tabs.
-                            val store = remember { SettingsStore.get(context) }
-                            val tabs by store.tabs.collectAsState()
+                            val tabs by store.tabs.collectAsStateWithLifecycle()
                             val open = tabs.mapNotNull { id -> lib.notebooks.firstOrNull { it.id == id && it.deletedAt == null } }
                             Row(
                                 Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 open.forEach { n ->
-                                    LiquidGlassPill(
+                                    GlassPill(
                                         selected = false,
                                         onClick = { onOpen(n.id) },
                                         contentPadding = PaddingValues(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
@@ -419,19 +413,21 @@ fun LibraryScreen(
                             Spacer(Modifier.width(4.dp))
                             UpdatePill()
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                LiquidGlassPill(
-                                    selected = true,
-                                    tint = GlassButtonPalette.GalaxyPurple,
-                                    onClick = onOpenStudio,
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
-                                    modifier = Modifier.elasticStretch(),
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                                        Icon(Icons.Outlined.AutoAwesome, "Creative Studio", Modifier.size(16.dp), tint = Color.White)
-                                        Text("Studio", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                                if (smartFeatures) {
+                                    GlassPill(
+                                        selected = true,
+                                        tint = GlassButtonPalette.GalaxyPurple,
+                                        onClick = onOpenStudio,
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+                                        modifier = Modifier.elasticStretch(),
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                            Icon(Icons.Outlined.AutoAwesome, "Creative Studio", Modifier.size(16.dp), tint = Color.White)
+                                            Text("Studio", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                                        }
                                     }
                                 }
-                                LiquidGlassPill(
+                                GlassPill(
                                     tint = GlassButtonPalette.OceanBlue,
                                     onClick = { collabOpen = true },
                                     contentPadding = PaddingValues(8.dp),
@@ -439,7 +435,7 @@ fun LibraryScreen(
                                 ) {
                                     Icon(Icons.Outlined.Groups, "Live Study Room", Modifier.size(20.dp), tint = GlassButtonPalette.OceanBlue)
                                 }
-                                LiquidGlassPill(
+                                GlassPill(
                                     selected = searching,
                                     tint = GlassButtonPalette.WarmAmber,
                                     onClick = { searching = !searching; if (!searching) query = "" },
@@ -452,7 +448,7 @@ fun LibraryScreen(
                                         Modifier.size(20.dp),
                                     )
                                 }
-                                LiquidGlassPill(
+                                GlassPill(
                                     tint = GlassButtonPalette.MintTeal,
                                     onClick = onSettings,
                                     contentPadding = PaddingValues(8.dp),
@@ -485,10 +481,11 @@ fun LibraryScreen(
                         if (section == Section.TRASH) {
                             TextButton(onClick = { emptyTrash = true }, enabled = entries.isNotEmpty()) { Text("Empty trash", color = MaterialTheme.colorScheme.error) }
                         } else {
-                            LiquidMenuButton(
+                            GlassMenuButton(
+                                contentPadding = PaddingValues(0.dp),
                                 items = listOf(
-                                    LiquidMenuItem("Notebook", Icons.Outlined.Description) { newNotebook = true },
-                                    LiquidMenuItem("Infinite whiteboard", Icons.Outlined.Draw) {
+                                    GlassMenuItem("Notebook", Icons.Outlined.Description) { newNotebook = true },
+                                    GlassMenuItem("Infinite whiteboard", Icons.Outlined.Draw) {
                                         scope.launch {
                                             val k = com.pronotes.app.data.PagePreset.UNITS_PER_MM
                                             val p = com.pronotes.app.data.PagePreset.WHITEBOARD
@@ -499,7 +496,7 @@ fun LibraryScreen(
                                             onOpen(id)
                                         }
                                     },
-                                    LiquidMenuItem("Mind map canvas", Icons.Outlined.Hub) {
+                                    GlassMenuItem("Mind map canvas", Icons.Outlined.Hub) {
                                         scope.launch {
                                             val k = com.pronotes.app.data.PagePreset.UNITS_PER_MM
                                             val p = com.pronotes.app.data.PagePreset.WHITEBOARD
@@ -522,54 +519,62 @@ fun LibraryScreen(
                                             onOpen(id)
                                         }
                                     },
-                                    LiquidMenuItem("Quick note", Icons.Outlined.Edit) {
+                                    GlassMenuItem("Quick note", Icons.Outlined.Edit) {
                                         scope.launch {
                                             val k = com.pronotes.app.data.PagePreset.UNITS_PER_MM
-                                            var w = settings.defaultPreset.wMm * k; var h = settings.defaultPreset.hMm * k
-                                            if (!settings.defaultPreset.isWhiteboard && settings.defaultLandscape != (w > h)) { val t = w; w = h; h = t }
-                                            onOpen(repo.createNotebook("Quick note", folderId, CoverColors.random(), settings.defaultPaper, width = w, height = h, isWhiteboard = settings.defaultPreset.isWhiteboard))
+                                            val (defaultPreset, defaultLandscape, defaultPaper) = settings
+                                            var w = defaultPreset.wMm * k; var h = defaultPreset.hMm * k
+                                            if (!defaultPreset.isWhiteboard && defaultLandscape != (w > h)) { val t = w; w = h; h = t }
+                                            onOpen(repo.createNotebook("Quick note", folderId, CoverColors.random(), defaultPaper, width = w, height = h, isWhiteboard = defaultPreset.isWhiteboard))
                                         }
                                     },
-                                    LiquidMenuDivider,
-                                    LiquidMenuItem("✨ AI Creative Studio (Stickers & Covers)", Icons.Outlined.AutoAwesome) { onOpenStudio() },
-                                    LiquidMenuItem("Folder", Icons.Outlined.CreateNewFolder) { newFolder = true },
-                                    LiquidMenuItem("Import files (PDF, MD, TXT, Images)", Icons.Outlined.UploadFile) {
+                                    GlassMenuDivider,
+                                    *if (smartFeatures) {
+                                        arrayOf<GlassMenuEntry>(GlassMenuItem("Creative Studio (Stickers & Covers)", Icons.Outlined.AutoAwesome) { onOpenStudio() })
+                                    } else {
+                                        emptyArray()
+                                    },
+                                    GlassMenuItem("Folder", Icons.Outlined.CreateNewFolder) { newFolder = true },
+                                    GlassMenuItem("Import files (PDF, MD, TXT, Images)", Icons.Outlined.UploadFile) {
                                         importFilesLauncher.launch(arrayOf("application/pdf", "text/*", "image/*", "application/json", "application/octet-stream"))
                                     },
-                                    LiquidMenuItem("Paste notes from another app…", Icons.Outlined.ContentPaste) { pasteImportOpen = true },
+                                    GlassMenuItem("Paste notes from another app…", Icons.Outlined.ContentPaste) { pasteImportOpen = true },
                                 ),
                                 contentDescription = "Create new",
-                                style = GlassDefaults.accent(),
-                                shape = GlassDefaults.PillShape,
+                                role = GlassRole.Accent,
+                                shape = glassPillShape(),
                                 menuWidth = 290.dp,
                                 modifier = Modifier.elasticStretch(),
-                            ) {
-                                Row(Modifier.padding(horizontal = 16.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Filled.Add, null, Modifier.size(18.dp), tint = LiquidGlassTheme.colors.onAccent)
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("New", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = LiquidGlassTheme.colors.onAccent)
-                                    Spacer(Modifier.width(2.dp))
-                                    Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(18.dp), tint = LiquidGlassTheme.colors.onAccent)
-                                }
-                            }
+                                buttonContent = {
+                                    Row(Modifier.padding(horizontal = 16.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Filled.Add, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("New", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onPrimary)
+                                        Spacer(Modifier.width(2.dp))
+                                        Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                                    }
+                                },
+                            )
                         }
                         Spacer(Modifier.width(8.dp))
-                        LiquidMenuButton(
-                            items = SortBy.entries.map { s -> LiquidMenuItem(s.label) { sort = s } },
+                        GlassMenuButton(
+                            contentPadding = PaddingValues(0.dp),
+                            items = SortBy.entries.map { s -> GlassMenuItem(s.label) { sort = s } },
                             contentDescription = "Sort notebooks",
-                            style = GlassDefaults.frost(),
-                            shape = GlassDefaults.PillShape,
+                            role = GlassRole.Frost,
+                            shape = glassPillShape(),
                             menuWidth = 200.dp,
-                        ) {
-                            Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text("Sort by ${sort.label.substringAfter("Date ").lowercase()}", style = MaterialTheme.typography.labelSmall, color = LiquidGlassTheme.colors.content)
-                                Spacer(Modifier.width(2.dp))
-                                Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(16.dp), tint = LiquidGlassTheme.colors.contentMuted)
-                            }
-                        }
+                            buttonContent = {
+                                Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Sort by ${sort.label.substringAfter("Date ").lowercase()}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface)
+                                    Spacer(Modifier.width(2.dp))
+                                    Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            },
+                        )
                         Spacer(Modifier.width(6.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            LiquidGlassPill(
+                            GlassPill(
                                 selected = !listView,
                                 tint = GlassButtonPalette.Emerald,
                                 onClick = { listView = false },
@@ -583,7 +588,7 @@ fun LibraryScreen(
                                     tint = if (!listView) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            LiquidGlassPill(
+                            GlassPill(
                                 selected = listView,
                                 tint = GlassButtonPalette.OceanBlue,
                                 onClick = { listView = true },
@@ -600,9 +605,9 @@ fun LibraryScreen(
                         }
                     }
                     AnimatedVisibility(searching) {
-                        LiquidGlassCard(
+                        GlassCard(
                             hero = false,
-                            shape = RoundedCornerShape(18.dp),
+                            shape = glassCardShape(),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
                         ) {
@@ -627,7 +632,7 @@ fun LibraryScreen(
                         onDrop = { payload, target -> dropInto(payload, target) },
                     )
 
-                    val listBottomPad = LiquidTabBarDefaults.contentBottomPadding()
+                    val listBottomPad = GlassContentBottomPadding(bottomBarHeight)
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         if (entries.isEmpty()) {
                             EmptyState(section, onNew = { newNotebook = true })
@@ -686,7 +691,7 @@ fun LibraryScreen(
     if (pasteImportOpen) {
         var importTitle by remember { mutableStateOf("") }
         var importBody by remember { mutableStateOf("") }
-        LiquidGlassDialog(
+        GlassDialog(
             onDismissRequest = { pasteImportOpen = false },
             title = { Text("Import notes from another app") },
             text = {
@@ -743,7 +748,7 @@ fun LibraryScreen(
     }
 
     forever?.let { n ->
-        LiquidGlassDialog(
+        GlassDialog(
             onDismissRequest = { forever = null },
             title = { Text("Delete \"${n.title}\" forever?") },
             text = { Text("This cannot be undone.") },
@@ -752,7 +757,7 @@ fun LibraryScreen(
         )
     }
     if (emptyTrash) {
-        LiquidGlassDialog(
+        GlassDialog(
             onDismissRequest = { emptyTrash = false },
             title = { Text("Empty trash?") },
             text = { Text("All notebooks in Trash will be deleted forever.") },
@@ -781,7 +786,7 @@ fun LibraryScreen(
 
     moving?.let { e ->
         val selfId = (e as? Entry.F)?.folder?.id
-        LiquidGlassDialog(
+        GlassDialog(
             onDismissRequest = { moving = null },
             confirmButton = { TextButton(onClick = { moving = null }) { Text("Cancel") } },
             title = { Text("Move to") },
@@ -793,7 +798,7 @@ fun LibraryScreen(
                             scope.launch { if (e is Entry.F) repo.moveFolder(e.folder.id, null) else repo.moveNotebook((e as Entry.N).note.id, null) }
                         }
                     }
-                    items(lib.folders.filter { it.id != selfId }) { f ->
+                    items(lib.folders.filter { it.id != selfId }, key = { it.id }) { f ->
                         MoveRow(f.name, f) {
                             moving = null
                             scope.launch { if (e is Entry.F) repo.moveFolder(e.folder.id, f.id) else repo.moveNotebook((e as Entry.N).note.id, f.id) }
@@ -806,7 +811,7 @@ fun LibraryScreen(
 
     deleting?.let { e ->
         val name = if (e is Entry.F) e.folder.name else (e as Entry.N).note.title
-        LiquidGlassDialog(
+        GlassDialog(
             onDismissRequest = { deleting = null },
             title = { Text("Delete \"$name\"?") },
             text = { Text(if (e is Entry.F) "The folder will be deleted. Notebooks inside it move to Trash." else "The notebook moves to Trash. You can restore it for 30 days.") },
@@ -864,11 +869,11 @@ private fun Sidebar(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val cloudUser by CloudSync.user.collectAsState()
-    val syncing by CloudSync.syncing.collectAsState()
-    val syncStatus by CloudSync.status.collectAsState()
-    LiquidSurface(
-        style = GlassDefaults.frost(),
+    val cloudUser by CloudSync.user.collectAsStateWithLifecycle()
+    val syncing by CloudSync.syncing.collectAsStateWithLifecycle()
+    val syncStatus by CloudSync.status.collectAsStateWithLifecycle()
+    GlassSurface(
+        role = GlassRole.Frost,
         shape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp),
         contentPadding = PaddingValues(0.dp),
         modifier = Modifier.fillMaxHeight().width(236.dp),
@@ -886,9 +891,9 @@ private fun Sidebar(
                 Spacer(Modifier.width(10.dp))
                 Column {
                     Text("Pro Notes", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
-                    LiquidGlassPill(contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
+                    GlassPill(contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
                         Text(
-                            "v10.0",
+                            "Studio",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.SemiBold,
@@ -905,7 +910,7 @@ private fun Sidebar(
                         .background(
                             when {
                                 hot -> MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
-                                sel -> LiquidGlassTheme.colors.tabSelectedFill
+                                sel -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
                                 else -> Color.Transparent
                             },
                         )
@@ -926,9 +931,9 @@ private fun Sidebar(
                 Spacer(Modifier.height(2.dp))
             }
             Spacer(Modifier.height(10.dp))
-            LiquidGlassCard(
+            GlassCard(
                 hero = false,
-                shape = GlassDefaults.CardShape,
+                shape = glassCardShape(),
                 contentPadding = PaddingValues(12.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -948,7 +953,7 @@ private fun Sidebar(
                         Text(syncStatus, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
                     }
                     if (cloudUser == null) {
-                        LiquidGlassPill(
+                        GlassPill(
                             selected = true,
                             tint = GlassButtonPalette.OceanBlue,
                             onClick = { runCatching { context.startActivity(CloudSync.buildGoogleAuthIntent()) } },
@@ -960,7 +965,7 @@ private fun Sidebar(
                             }
                         }
                     } else {
-                        LiquidGlassPill(
+                        GlassPill(
                             selected = true,
                             tint = GlassButtonPalette.Emerald,
                             onClick = { if (!syncing) scope.launch { CloudSync.syncAll(context) } },
@@ -975,13 +980,15 @@ private fun Sidebar(
                 }
             }
             Spacer(Modifier.height(6.dp))
-            Row(
-                Modifier.fillMaxWidth().elasticStretch().clip(CircleShape).clickable(onClick = onOpenStudio).padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Outlined.AutoAwesome, null, tint = GlassButtonPalette.GalaxyPurple)
-                Spacer(Modifier.width(12.dp))
-                Text("Creative Studio", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+            if (LocalSmartFeatures.current) {
+                Row(
+                    Modifier.fillMaxWidth().elasticStretch().clip(CircleShape).clickable(onClick = onOpenStudio).padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Outlined.AutoAwesome, null, tint = GlassButtonPalette.GalaxyPurple)
+                    Spacer(Modifier.width(12.dp))
+                    Text("Creative Studio", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+                }
             }
             Row(
                 Modifier.fillMaxWidth().elasticStretch().clip(CircleShape).clickable(onClick = onOpenCollab).padding(horizontal = 12.dp, vertical = 10.dp),
@@ -1061,33 +1068,33 @@ fun FolderArt(color: Int, emoji: String, modifier: Modifier = Modifier) {
     }
 }
 
-private fun folderMenuItems(e: Entry.F, a: TileActions): List<LiquidMenuEntry> = listOf(
-    LiquidMenuItem("Colour & icon", Icons.Outlined.Palette) { a.onEditFolder(e.folder) },
-    LiquidMenuItem("Rename", Icons.Outlined.Edit) { a.onRename(e) },
-    LiquidMenuItem("Move", Icons.Outlined.DriveFileMove) { a.onMove(e) },
-    LiquidMenuDivider,
-    LiquidMenuItem("Delete", Icons.Outlined.Delete, destructive = true) { a.onDelete(e) },
+private fun folderMenuItems(e: Entry.F, a: TileActions): List<GlassMenuEntry> = listOf(
+    GlassMenuItem("Colour & label", Icons.Outlined.Palette) { a.onEditFolder(e.folder) },
+    GlassMenuItem("Rename", Icons.Outlined.Edit) { a.onRename(e) },
+    GlassMenuItem("Move", Icons.Outlined.DriveFileMove) { a.onMove(e) },
+    GlassMenuDivider,
+    GlassMenuItem("Delete", Icons.Outlined.Delete, destructive = true) { a.onDelete(e) },
 )
 
-private fun noteMenuItems(note: NotebookMeta, a: TileActions): List<LiquidMenuEntry> =
+private fun noteMenuItems(note: NotebookMeta, a: TileActions): List<GlassMenuEntry> =
     if (note.deletedAt != null) {
         listOf(
-            LiquidMenuItem("Restore", Icons.Outlined.Refresh) { a.onRestore(note) },
-            LiquidMenuDivider,
-            LiquidMenuItem("Delete forever", Icons.Outlined.Delete, destructive = true) { a.onDeleteForever(note) },
+            GlassMenuItem("Restore", Icons.Outlined.Refresh) { a.onRestore(note) },
+            GlassMenuDivider,
+            GlassMenuItem("Delete forever", Icons.Outlined.Delete, destructive = true) { a.onDeleteForever(note) },
         )
     } else {
         listOf(
-            LiquidMenuItem("Duplicate", Icons.Outlined.ContentCopy) { a.onDuplicate(note) },
-            LiquidMenuItem(
+            GlassMenuItem("Duplicate", Icons.Outlined.ContentCopy) { a.onDuplicate(note) },
+            GlassMenuItem(
                 if (note.favorite) "Remove from favorites" else "Add to favorites",
                 if (note.favorite) Icons.Outlined.Star else Icons.Outlined.StarBorder,
             ) { a.onFavorite(note) },
-            LiquidMenuItem("Change cover", Icons.Outlined.Palette) { a.onCover(note) },
-            LiquidMenuItem("Rename", Icons.Outlined.Edit) { a.onRename(Entry.N(note)) },
-            LiquidMenuItem("Move", Icons.Outlined.DriveFileMove) { a.onMove(Entry.N(note)) },
-            LiquidMenuDivider,
-            LiquidMenuItem("Delete", Icons.Outlined.Delete, destructive = true) { a.onDelete(Entry.N(note)) },
+            GlassMenuItem("Change cover", Icons.Outlined.Palette) { a.onCover(note) },
+            GlassMenuItem("Rename", Icons.Outlined.Edit) { a.onRename(Entry.N(note)) },
+            GlassMenuItem("Move", Icons.Outlined.DriveFileMove) { a.onMove(Entry.N(note)) },
+            GlassMenuDivider,
+            GlassMenuItem("Delete", Icons.Outlined.Delete, destructive = true) { a.onDelete(Entry.N(note)) },
         )
     }
 
@@ -1136,7 +1143,7 @@ private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
         )
     }
     if (trashPrompt) {
-        LiquidGlassDialog(
+        GlassDialog(
             onDismissRequest = { trashPrompt = false },
             title = { Text(note.title) },
             text = { Text("Restore this notebook from Trash or delete it forever?") },
@@ -1153,29 +1160,25 @@ private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
 }
 
 @Composable
-private fun Caption(title: String, sub: String, menuItems: List<LiquidMenuEntry>) {
+private fun Caption(title: String, sub: String, menuItems: List<GlassMenuEntry>) {
     Spacer(Modifier.height(10.dp))
-    LiquidMenuButton(
+    GlassMenuButton(
+        contentPadding = PaddingValues(0.dp),
         items = menuItems,
         contentDescription = "$title options",
-        style = GlassDefaults.frost().copy(
-            fallbackSurface = Color.Transparent,
-            fallbackSheen = 0f,
-            highlightWidth = 0.dp,
-            shadowRadius = 0.dp,
-            shadowColor = Color.Transparent,
-        ),
-        shape = GlassDefaults.PillShape,
+        role = GlassRole.Frost,
+        shape = glassPillShape(),
         menuWidth = 230.dp,
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-        ) {
-            Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-            Icon(Icons.Filled.KeyboardArrowDown, "Options", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
+        buttonContent = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            ) {
+                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                Icon(Icons.Filled.KeyboardArrowDown, "Options", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+    )
     Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
@@ -1183,9 +1186,9 @@ private fun Caption(title: String, sub: String, menuItems: List<LiquidMenuEntry>
 private fun ListRow(e: Entry, repo: Repository, a: TileActions) {
     var trashPrompt by remember { mutableStateOf(false) }
     val items = remember(e) { if (e is Entry.N) noteMenuItems(e.note, a) else folderMenuItems(e as Entry.F, a) }
-    LiquidGlassCard(
+    GlassCard(
         hero = false,
-        shape = GlassDefaults.CardShape,
+        shape = glassCardShape(),
         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
     ) {
@@ -1212,21 +1215,23 @@ private fun ListRow(e: Entry, repo: Repository, a: TileActions) {
                     )
                 }
             }
-            LiquidMenuButton(
+            GlassMenuButton(
+                contentPadding = PaddingValues(0.dp),
                 items = items,
                 contentDescription = "Options",
-                style = GlassDefaults.frost(),
-                shape = GlassDefaults.PillShape,
+                role = GlassRole.Frost,
+                shape = glassPillShape(),
                 menuWidth = 230.dp,
-            ) {
-                Box(Modifier.size(38.dp), Alignment.Center) {
-                    Icon(Icons.Filled.KeyboardArrowDown, "Options", tint = LiquidGlassTheme.colors.contentMuted)
-                }
-            }
+                buttonContent = {
+                    Box(Modifier.size(38.dp), Alignment.Center) {
+                        Icon(Icons.Filled.KeyboardArrowDown, "Options", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                },
+            )
         }
     }
     if (trashPrompt && e is Entry.N) {
-        LiquidGlassDialog(
+        GlassDialog(
             onDismissRequest = { trashPrompt = false },
             title = { Text(e.note.title) },
             text = { Text("Restore this notebook from Trash or delete it forever?") },
@@ -1256,7 +1261,7 @@ private fun MoveRow(label: String, folder: Folder?, onClick: () -> Unit) {
 @Composable
 private fun NameDialog(title: String, initial: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
     var name by remember { mutableStateOf(initial) }
-    LiquidGlassDialog(
+    GlassDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = { OutlinedTextField(name, { name = it }, singleLine = true) },
@@ -1265,7 +1270,7 @@ private fun NameDialog(title: String, initial: String, onDismiss: () -> Unit, on
     )
 }
 
-private val FolderEmojis = listOf("", "📚", "📝", "🎓", "💼", "🧪", "🎨", "💡", "📅", "❤️", "⭐", "🏠", "✈️", "🎵", "🧠", "📈")
+private val FolderTags = listOf("", "Study", "Work", "Lab", "Art", "Math", "Bio", "Code", "Plan", "Read", "Idea", "Star")
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -1274,7 +1279,7 @@ private fun FolderDialog(existing: Folder?, onDismiss: () -> Unit, onSave: (Stri
     var color by remember { mutableStateOf(existing?.color ?: FolderColors.first()) }
     var emoji by remember { mutableStateOf(existing?.emoji ?: "") }
     var custom by remember { mutableStateOf(false) }
-    LiquidGlassDialog(
+    GlassDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (existing == null) "New folder" else "Edit folder") },
         text = {
@@ -1289,15 +1294,14 @@ private fun FolderDialog(existing: Folder?, onDismiss: () -> Unit, onSave: (Stri
                         contentAlignment = Alignment.Center,
                     ) { Icon(Icons.Filled.Add, "Custom colour", Modifier.size(16.dp)) }
                 }
-                Text("Icon", style = MaterialTheme.typography.labelSmall)
-                FlowRow {
-                    FolderEmojis.forEach { em ->
-                        Box(
-                            Modifier.padding(2.dp).size(38.dp).clip(RoundedCornerShape(10.dp))
-                                .background(if (em == emoji) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                                .clickable { emoji = em },
-                            contentAlignment = Alignment.Center,
-                        ) { Text(em.ifEmpty { "∅" }) }
+                Text("Label", style = MaterialTheme.typography.labelSmall)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FolderTags.forEach { tag ->
+                        GlassChip(
+                            selected = tag == emoji,
+                            onClick = { emoji = tag },
+                            label = tag.ifEmpty { "None" },
+                        )
                     }
                 }
             }
@@ -1350,7 +1354,7 @@ private fun CoverGallery(selected: String, onSelect: (String) -> Unit, onPhoto: 
 private fun CoverDialog(current: String, onDismiss: () -> Unit, onPick: (String, Uri?) -> Unit) {
     var spec by remember { mutableStateOf(current) }
     val photo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) onPick(spec, uri) }
-    LiquidGlassDialog(
+    GlassDialog(
         onDismissRequest = onDismiss,
         title = { Text("Cover") },
         text = { Column(Modifier.verticalScroll(rememberScrollState())) { CoverGallery(spec, { spec = it }) { photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) } } },
@@ -1391,7 +1395,7 @@ private fun NewNotebookDialog(
     var photo by remember { mutableStateOf<Uri?>(null) }
     var tab by remember { mutableStateOf(0) }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) { photo = uri; cover = "photo" } }
-    LiquidGlassDialog(
+    GlassDialog(
         onDismissRequest = onDismiss,
         title = { Text("New notebook") },
         text = {
@@ -1407,7 +1411,7 @@ private fun NewNotebookDialog(
                     Spacer(Modifier.width(14.dp))
                     OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Title") }, shape = CircleShape)
                 }
-                LiquidSegmentedControl(
+                GlassSegmentedControl(
                     options = listOf("Cover", "Paper", "Size"),
                     selectedIndex = tab,
                     onSelect = { tab = it },
@@ -1422,17 +1426,17 @@ private fun NewNotebookDialog(
                                     Text("Cover as first page")
                                     Text("Write on your cover", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                LiquidToggle(
-                                    selected = { coverPage },
-                                    onSelect = { coverPage = it },
+                                GlassToggle(
+                                    checked = coverPage,
+                                    onCheckedChange = { coverPage = it },
                                 )
                             }
                         }
                         1 -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             val effectiveLandscape = if (preset.isWhiteboard) true else landscape
-                            LiquidGlassCard(
+                            GlassCard(
                                 hero = false,
-                                shape = RoundedCornerShape(14.dp),
+                                shape = glassCardShape(),
                                 contentPadding = PaddingValues(12.dp),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
@@ -1454,7 +1458,7 @@ private fun NewNotebookDialog(
                                             buildString {
                                                 append(preset.label)
                                                 if (preset.recommended) append(" · Recommended")
-                                                if (preset.isWhiteboard) append(" · ∞ Canvas")
+                                                if (preset.isWhiteboard) append(" · Infinite Canvas")
                                                 else append(if (effectiveLandscape) " · Landscape" else " · Portrait")
                                             },
                                             style = MaterialTheme.typography.labelSmall,
@@ -1492,10 +1496,10 @@ private fun NewNotebookDialog(
                                 com.pronotes.app.data.PagePreset.entries.forEach { p ->
                                     val chipLabel = when {
                                         p.recommended -> "${p.label} · Recommended"
-                                        p.isWhiteboard -> "${p.label} · ∞"
+                                        p.isWhiteboard -> "${p.label} · Infinite"
                                         else -> p.label
                                     }
-                                    LiquidGlassChip(
+                                    GlassChip(
                                         selected = preset == p,
                                         onClick = {
                                             preset = p
@@ -1517,9 +1521,9 @@ private fun NewNotebookDialog(
                             } else {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("Landscape", Modifier.weight(1f))
-                                    LiquidToggle(
-                                        selected = { landscape },
-                                        onSelect = { landscape = it },
+                                    GlassToggle(
+                                        checked = landscape,
+                                        onCheckedChange = { landscape = it },
                                     )
                                 }
                             }
@@ -1556,11 +1560,15 @@ private fun NewNotebookDialog(
 @Composable
 private fun UpdatePill() {
     val context = LocalContext.current
-    val settings by SettingsStore.get(context).settings.collectAsState()
-    androidx.compose.runtime.LaunchedEffect(settings.autoUpdateCheck) {
-        if (settings.autoUpdateCheck || settings.updateReminders) com.pronotes.app.data.Updater.check(context, quiet = true)
+    val store = remember { SettingsStore.get(context) }
+    val updatePrefs by remember(store) {
+        store.select { it.autoUpdateCheck to it.updateReminders }
+    }.collectAsStateWithLifecycle(initialValue = store.settings.value.let { it.autoUpdateCheck to it.updateReminders })
+    val (autoUpdateCheck, updateReminders) = updatePrefs
+    androidx.compose.runtime.LaunchedEffect(autoUpdateCheck) {
+        if (autoUpdateCheck || updateReminders) com.pronotes.app.data.Updater.check(context, quiet = true)
         val u0 = com.pronotes.app.data.Updater
-        if (settings.updateReminders && u0.phase == com.pronotes.app.data.Updater.Phase.AVAILABLE && !u0.remindedThisLaunch) {
+        if (updateReminders && u0.phase == com.pronotes.app.data.Updater.Phase.AVAILABLE && !u0.remindedThisLaunch) {
             u0.remindedThisLaunch = true
             kotlinx.coroutines.delay(1200)
             u0.showDialog = true
@@ -1577,20 +1585,20 @@ private fun UpdatePill() {
         com.pronotes.app.data.Updater.Phase.FAILED -> if (u.release != null) "Update failed · Retry" else null
         else -> null
     } ?: return
-    val colors = LiquidGlassTheme.colors
-    val style = when (u.phase) {
-        com.pronotes.app.data.Updater.Phase.FAILED -> GlassDefaults.frost().copy(fallbackSurface = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError)
-        com.pronotes.app.data.Updater.Phase.PAUSED -> GlassDefaults.frost()
-        else -> GlassDefaults.accent()
+    val role = when (u.phase) {
+        com.pronotes.app.data.Updater.Phase.FAILED -> GlassRole.Frost
+        com.pronotes.app.data.Updater.Phase.PAUSED -> GlassRole.Frost
+        else -> GlassRole.Accent
     }
     val textColor = when (u.phase) {
         com.pronotes.app.data.Updater.Phase.FAILED -> MaterialTheme.colorScheme.onError
-        com.pronotes.app.data.Updater.Phase.PAUSED -> colors.content
-        else -> colors.onAccent
+        com.pronotes.app.data.Updater.Phase.PAUSED -> MaterialTheme.colorScheme.onSurface
+        else -> MaterialTheme.colorScheme.onPrimary
     }
-    LiquidSurface(
-        style = style,
-        shape = GlassDefaults.PillShape,
+    GlassSurface(
+        role = role,
+        containerColor = if (u.phase == com.pronotes.app.data.Updater.Phase.FAILED) MaterialTheme.colorScheme.error else null,
+        shape = glassPillShape(),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
         onClick = {
             when (u.phase) {

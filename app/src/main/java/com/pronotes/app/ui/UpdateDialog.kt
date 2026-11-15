@@ -25,7 +25,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import io.github.ntvien.liquidglass.component.LiquidGlassToggle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -85,13 +84,13 @@ fun UpdateDialogHost() {
     val isDownloading = Updater.phase == Updater.Phase.DOWNLOADING
     val isPaused = Updater.phase == Updater.Phase.PAUSED
 
-    LiquidGlassDialog(
+    GlassDialog(
         onDismissRequest = { Updater.showDialog = false },
         title = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Pro Notes ${rel.tag}", modifier = Modifier.weight(1f))
                 if (isPaused) {
-                    LiquidGlassPill {
+                    GlassPill {
                         Text("Paused", style = MaterialTheme.typography.labelSmall)
                     }
                 }
@@ -107,7 +106,7 @@ fun UpdateDialogHost() {
                 )
                 if (isDownloading || isPaused) {
                     Spacer(Modifier.height(12.dp))
-                    LiquidGlassCard(modifier = Modifier.fillMaxWidth()) {
+                    GlassCard(modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.fillMaxWidth()) {
                             val pct = (Updater.progress * 100).toInt().coerceIn(0, 100)
                             val doneMb = "%.1f".format(Updater.downloadedBytes / 1048576.0)
@@ -154,7 +153,7 @@ fun UpdateDialogHost() {
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    LiquidGlassToggle(
+                    GlassToggle(
                         checked = autoOpen,
                         onCheckedChange = { on ->
                             autoOpen = on; Updater.setAutoOpen(context, on)

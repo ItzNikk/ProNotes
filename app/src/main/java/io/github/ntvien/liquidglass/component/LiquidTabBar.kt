@@ -27,16 +27,20 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -53,14 +57,13 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
@@ -74,10 +77,10 @@ import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -90,22 +93,17 @@ import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.fastFirstOrNull
 import androidx.compose.ui.util.fastRoundToInt
 import androidx.compose.ui.util.lerp
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.highlight.Highlight
 import io.github.ntvien.liquidglass.GlassDefaults
-import io.github.ntvien.liquidglass.GlassLayer
+import io.github.ntvien.liquidglass.GlassQuality
 import io.github.ntvien.liquidglass.LiquidGlassTheme
 import io.github.ntvien.liquidglass.LocalGlassBackdrops
-import io.github.ntvien.liquidglass.LocalGlassLayer
-import io.github.ntvien.liquidglass.internal.backdrop.backdrops.emptyBackdrop
-import io.github.ntvien.liquidglass.internal.backdrop.backdrops.layerBackdrop
-import io.github.ntvien.liquidglass.internal.backdrop.backdrops.rememberCombinedBackdrop
-import io.github.ntvien.liquidglass.internal.backdrop.backdrops.rememberLayerBackdrop
-import io.github.ntvien.liquidglass.internal.backdrop.drawBackdrop
-import io.github.ntvien.liquidglass.internal.backdrop.effects.blur
-import io.github.ntvien.liquidglass.internal.backdrop.effects.lens
-import io.github.ntvien.liquidglass.internal.backdrop.effects.vibrancy
-import io.github.ntvien.liquidglass.internal.backdrop.highlight.Highlight
-import io.github.ntvien.liquidglass.internal.backdrop.shadow.InnerShadow
-import io.github.ntvien.liquidglass.internal.backdrop.shadow.Shadow
+import io.github.ntvien.liquidglass.LocalGlassShadows
+import io.github.ntvien.liquidglass.LocalInsideGlass
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.android.awaitFrame
 import kotlinx.coroutines.flow.collectLatest
@@ -150,8 +148,8 @@ public fun RowScope.LiquidBottomTab(
 }
 
 /**
- * Prebuilt Kyant0/AndroidLiquidGlass LiquidBottomTabs with dual-layer tinted tab refraction,
- * InteractiveHighlight shader, and DampedDragAnimation droplet lens.
+ * Floating bottom tab bar using ONLY the single shared window backdrop (zero per-component LayerBackdrop,
+ * zero nested glass inside glass) and cached ShaderBrush interactive highlights.
  */
 @Composable
 public fun LiquidBottomTabs(
@@ -163,15 +161,13 @@ public fun LiquidBottomTabs(
 ) {
     val isLightTheme = !isSystemInDarkTheme()
     val colors = LiquidGlassTheme.colors
+    val quality = LiquidGlassTheme.quality
+    val shadowsEnabled = LocalGlassShadows.current
     val accentColor = colors.accent
     val containerColor = colors.chromeFill
     val sceneBackdrops = LocalGlassBackdrops.current
-    val layer = LocalGlassLayer.current
-    val resolvedBackdrop = sceneBackdrops?.background
-        ?: (if (layer == GlassLayer.Overlay) sceneBackdrops?.overlay else sceneBackdrops?.background)
-        ?: emptyBackdrop()
-
-    val tabsBackdrop = rememberLayerBackdrop()
+    val sharedBackdrop = sceneBackdrops?.background
+    val pillShape = GlassDefaults.pillShape()
 
     BoxWithConstraints(
         modifier,
@@ -211,10 +207,7 @@ public fun LiquidBottomTabs(
                     currentIndex = targetIndex
                     animateToValue(targetIndex.toFloat())
                     animationScope.launch {
-                        offsetAnimation.animateTo(
-                            0f,
-                            spring(1f, 300f, 0.5f),
-                        )
+                        offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f))
                     }
                 },
                 onDrag = { _, dragAmount ->
@@ -258,135 +251,81 @@ public fun LiquidBottomTabs(
             )
         }
 
-        Row(
+        val barVisualModifier = if (quality != GlassQuality.Flat && sharedBackdrop != null) {
+            val allowLens = quality == GlassQuality.Full
             Modifier
-                .graphicsLayer {
-                    translationX = panelOffset
-                }
+                .graphicsLayer { translationX = panelOffset }
                 .drawBackdrop(
-                    backdrop = resolvedBackdrop,
-                    shape = { ContinuousCapsule },
+                    backdrop = sharedBackdrop,
+                    shape = { pillShape },
                     effects = {
                         vibrancy()
-                        blur(8f.dp.toPx())
-                        lens(24f.dp.toPx(), 24f.dp.toPx())
+                        blur(10f.dp.toPx())
+                        if (allowLens) {
+                            lens(20f.dp.toPx(), 20f.dp.toPx())
+                        }
                     },
+                    highlight = { Highlight.Ambient.copy(width = 0.35.dp, alpha = 0.25f) },
                     layerBlock = {
                         val progress = dampedDragAnimation.pressProgress
-                        val scale = lerp(1f, 1f + 16f.dp.toPx() / size.width.coerceAtLeast(1f), progress)
+                        val scale = lerp(1f, 1f + 12f.dp.toPx() / size.width.coerceAtLeast(1f), progress)
                         scaleX = scale
                         scaleY = scale
                     },
                     onDrawSurface = { drawRect(containerColor) },
                 )
+        } else {
+            Modifier
+                .graphicsLayer { translationX = panelOffset }
+                .then(if (shadowsEnabled) Modifier.shadow(8.dp, pillShape, clip = false) else Modifier)
+                .clip(pillShape)
+                .background(colors.glassFillOpaque)
+        }
+
+        // Outer glass shell + tab content (provided LocalInsideGlass = true so children never double-draw glass)
+        Box(
+            barVisualModifier
                 .then(interactiveHighlight.modifier)
                 .height(64f.dp)
                 .fillMaxWidth()
                 .padding(4f.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            content = content,
-        )
-
-        CompositionLocalProvider(
-            LocalLiquidBottomTabScale provides {
-                lerp(1f, 1.2f, dampedDragAnimation.pressProgress)
-            },
+            contentAlignment = Alignment.CenterStart,
         ) {
-            Row(
+            // Sliding active pill inside the bar (pure vector/tonal pill + spring physics, no nested backdrop!)
+            Box(
                 Modifier
-                    .clearAndSetSemantics {}
-                    .alpha(0f)
-                    .layerBackdrop(tabsBackdrop)
                     .graphicsLayer {
-                        translationX = panelOffset
-                    }
-                    .drawBackdrop(
-                        backdrop = resolvedBackdrop,
-                        shape = { ContinuousCapsule },
-                        effects = {
-                            val progress = dampedDragAnimation.pressProgress
-                            vibrancy()
-                            blur(8f.dp.toPx())
-                            lens(
-                                24f.dp.toPx() * progress,
-                                24f.dp.toPx() * progress,
-                            )
-                        },
-                        highlight = {
-                            val progress = dampedDragAnimation.pressProgress
-                            Highlight.Default.copy(alpha = progress)
-                        },
-                        onDrawSurface = { drawRect(containerColor) },
-                    )
-                    .then(interactiveHighlight.modifier)
-                    .height(56f.dp)
-                    .fillMaxWidth()
-                    .padding(horizontal = 4f.dp)
-                    .graphicsLayer(colorFilter = ColorFilter.tint(accentColor)),
-                verticalAlignment = Alignment.CenterVertically,
-                content = content,
-            )
-        }
-
-        Box(
-            Modifier
-                .padding(horizontal = 4f.dp)
-                .graphicsLayer {
-                    translationX =
-                        if (isLtr) dampedDragAnimation.value * tabWidth + panelOffset
-                        else size.width - (dampedDragAnimation.value + 1f) * tabWidth + panelOffset
-                }
-                .then(interactiveHighlight.gestureModifier)
-                .then(dampedDragAnimation.modifier)
-                .drawBackdrop(
-                    backdrop = rememberCombinedBackdrop(resolvedBackdrop, tabsBackdrop),
-                    shape = { ContinuousCapsule },
-                    effects = {
-                        val progress = dampedDragAnimation.pressProgress
-                        lens(
-                            10f.dp.toPx() * progress,
-                            14f.dp.toPx() * progress,
-                            chromaticAberration = true,
-                        )
-                    },
-                    highlight = {
-                        val progress = dampedDragAnimation.pressProgress
-                        Highlight.Ambient.copy(
-                            width = 0.35.dp,
-                            alpha = (0.18f + 0.32f * progress).coerceIn(0f, 0.5f),
-                        )
-                    },
-                    shadow = {
-                        val progress = dampedDragAnimation.pressProgress
-                        Shadow(alpha = progress * 0.65f)
-                    },
-                    innerShadow = {
-                        val progress = dampedDragAnimation.pressProgress
-                        InnerShadow(
-                            radius = 8f.dp * progress,
-                            alpha = progress * 0.75f,
-                        )
-                    },
-                    layerBlock = {
+                        translationX =
+                            if (isLtr) dampedDragAnimation.value * tabWidth
+                            else size.width - (dampedDragAnimation.value + 1f) * tabWidth
                         scaleX = dampedDragAnimation.scaleX
                         scaleY = dampedDragAnimation.scaleY
                         val velocity = dampedDragAnimation.velocity / 10f
                         scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
                         scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
-                    },
-                    onDrawSurface = {
-                        val progress = dampedDragAnimation.pressProgress
-                        drawRect(
-                            if (isLightTheme) accentColor.copy(alpha = 0.14f)
-                            else Color.White.copy(alpha = 0.14f),
-                            alpha = 1f - progress * 0.6f,
-                        )
-                        drawRect(Color.White.copy(alpha = 0.08f * progress))
-                    },
+                    }
+                    .then(interactiveHighlight.gestureModifier)
+                    .then(dampedDragAnimation.modifier)
+                    .clip(pillShape)
+                    .background(
+                        if (isLightTheme) accentColor.copy(alpha = 0.16f)
+                        else Color.White.copy(alpha = 0.16f),
+                    )
+                    .height(56f.dp)
+                    .fillMaxWidth(1f / tabsCount.coerceAtLeast(1)),
+            )
+
+            CompositionLocalProvider(
+                LocalInsideGlass provides true,
+                LocalLiquidBottomTabScale provides { lerp(1f, 1.12f, dampedDragAnimation.pressProgress) },
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().fillMaxHeight(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    content = content,
                 )
-                .height(56f.dp)
-                .fillMaxWidth(1f / tabsCount.coerceAtLeast(1)),
-        )
+            }
+        }
     }
 }
 
@@ -418,12 +357,17 @@ public fun LiquidTabBar(
     labels: LiquidTabLabels = LiquidTabLabels.Stacked,
     onReselect: (String) -> Unit = {},
     hideWhenImeVisible: Boolean = true,
+    onMeasuredHeight: (Dp) -> Unit = {},
     labelStyle: TextStyle = TextStyle(fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold),
     selectedLabelStyle: TextStyle = TextStyle(fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold),
     action: (@Composable () -> Unit)? = null,
 ) {
     val selectedIndex = tabs.indexOfFirst { it.key == selectedKey }.coerceAtLeast(0)
     val colors = LiquidGlassTheme.colors
+    val density = LocalDensity.current
+    val bottomInsets = WindowInsets.navigationBars.union(
+        WindowInsets.displayCutout.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
+    )
 
     AnimatedVisibility(
         visible = !(hideWhenImeVisible && WindowInsets.isImeVisible),
@@ -434,7 +378,10 @@ public fun LiquidTabBar(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
+                .onSizeChanged { size ->
+                    onMeasuredHeight(with(density) { size.height.toDp() })
+                }
+                .windowInsetsPadding(bottomInsets)
                 .padding(horizontal = 24.dp, vertical = 12.dp),
             contentAlignment = Alignment.Center,
         ) {
@@ -462,7 +409,7 @@ public fun LiquidTabBar(
                                 Box(
                                     Modifier
                                         .size(7.dp)
-                                        .background(colors.badge, GlassDefaults.PillShape)
+                                        .background(colors.badge, ContinuousCapsule)
                                         .align(Alignment.TopEnd),
                                 )
                             }
@@ -487,12 +434,13 @@ public object LiquidTabBarDefaults {
     public val Height: Dp = 64.dp
 
     @Composable
-    public fun contentBottomPadding(): Dp =
-        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + Height + 28.dp
+    public fun contentBottomPadding(measuredBarHeight: Dp = 0.dp): Dp =
+        if (measuredBarHeight > 0.dp) measuredBarHeight + 8.dp
+        else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + Height + 24.dp
 }
 
 // ===========================================================================
-// Exact Kyant0/AndroidLiquidGlass DampedDragAnimation & InteractiveHighlight
+// DampedDragAnimation & Cached-Shader InteractiveHighlight
 // ===========================================================================
 
 internal class KyantDampedDragAnimation(
@@ -594,10 +542,7 @@ internal class KyantDampedDragAnimation(
     }
 
     private fun updateVelocity() {
-        velocityTracker.addPosition(
-            System.currentTimeMillis(),
-            Offset(value, 0f),
-        )
+        velocityTracker.addPosition(System.currentTimeMillis(), Offset(value, 0f))
         val span = (valueRange.endInclusive - valueRange.start).coerceAtLeast(1e-4f)
         val targetVelocity = velocityTracker.calculateVelocity().x / span
         animationScope.launch { velocityAnimation.animateTo(targetVelocity, velocityAnimationSpec) }
@@ -618,10 +563,9 @@ internal class KyantInteractiveHighlight(
     val pressProgress: Float get() = pressProgressAnimation.value
     val offset: Offset get() = positionAnimation.value - startPosition
 
-    private val shader =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            RuntimeShader(
-                """
+    private val shader = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        RuntimeShader(
+            """
 uniform float2 size;
 layout(color) uniform half4 color;
 uniform float radius;
@@ -632,71 +576,81 @@ half4 main(float2 coord) {
     float intensity = smoothstep(radius, radius * 0.5, dist);
     return color * intensity;
 }""",
-            )
-        } else {
-            null
-        }
+        )
+    } else {
+        null
+    }
 
-    val modifier: Modifier =
-        Modifier.drawWithContent {
-            val progress = pressProgressAnimation.value
-            if (progress > 0f) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && shader != null) {
-                    drawRect(
-                        Color.White.copy(0.12f * progress),
-                        blendMode = BlendMode.Plus,
-                    )
-                    shader.apply {
-                        val pos = position(size, positionAnimation.value)
-                        setFloatUniform("size", size.width, size.height)
-                        setColorUniform("color", Color.White.copy(0.32f * progress).toArgb())
-                        setFloatUniform("radius", size.minDimension * 1.8f)
-                        setFloatUniform(
-                            "position",
-                            pos.x.fastCoerceIn(0f, size.width),
-                            pos.y.fastCoerceIn(0f, size.height),
-                        )
-                    }
-                    drawRect(
-                        ShaderBrush(shader),
-                        blendMode = BlendMode.Plus,
-                    )
-                } else {
-                    drawRect(
-                        Color.White.copy(0.30f * progress),
-                        blendMode = BlendMode.Plus,
-                    )
+    // Cached once so drawWithContent allocates 0 objects per frame.
+    private val cachedBrush: ShaderBrush? = shader?.let { ShaderBrush(it) }
+    private var lastW = Float.NaN
+    private var lastH = Float.NaN
+    private var lastRadius = Float.NaN
+    private var lastPx = Float.NaN
+    private var lastPy = Float.NaN
+    private var lastColorArgb = 0
+
+    val modifier: Modifier = Modifier.drawWithContent {
+        val progress = pressProgressAnimation.value
+        if (progress > 0f) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && shader != null && cachedBrush != null) {
+                drawRect(Color.White.copy(0.12f * progress), blendMode = BlendMode.Plus)
+                val pos = position(size, positionAnimation.value)
+                val px = pos.x.fastCoerceIn(0f, size.width)
+                val py = pos.y.fastCoerceIn(0f, size.height)
+                val radius = size.minDimension * 1.8f
+                val colorArgb = Color.White.copy(0.32f * progress).toArgb()
+                if (size.width != lastW || size.height != lastH) {
+                    shader.setFloatUniform("size", size.width, size.height)
+                    lastW = size.width
+                    lastH = size.height
                 }
+                if (colorArgb != lastColorArgb) {
+                    shader.setColorUniform("color", colorArgb)
+                    lastColorArgb = colorArgb
+                }
+                if (radius != lastRadius) {
+                    shader.setFloatUniform("radius", radius)
+                    lastRadius = radius
+                }
+                if (px != lastPx || py != lastPy) {
+                    shader.setFloatUniform("position", px, py)
+                    lastPx = px
+                    lastPy = py
+                }
+                drawRect(cachedBrush, blendMode = BlendMode.Plus)
+            } else {
+                drawRect(Color.White.copy(0.30f * progress), blendMode = BlendMode.Plus)
             }
-            drawContent()
         }
+        drawContent()
+    }
 
-    val gestureModifier: Modifier =
-        Modifier.pointerInput(animationScope) {
-            kyantInspectDragGestures(
-                onDragStart = { down ->
-                    startPosition = down.position
-                    animationScope.launch {
-                        launch { pressProgressAnimation.animateTo(1f, pressProgressAnimationSpec) }
-                        launch { positionAnimation.snapTo(startPosition) }
-                    }
-                },
-                onDragEnd = {
-                    animationScope.launch {
-                        launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
-                        launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
-                    }
-                },
-                onDragCancel = {
-                    animationScope.launch {
-                        launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
-                        launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
-                    }
-                },
-            ) { change, _ ->
-                animationScope.launch { positionAnimation.snapTo(change.position) }
-            }
+    val gestureModifier: Modifier = Modifier.pointerInput(animationScope) {
+        kyantInspectDragGestures(
+            onDragStart = { down ->
+                startPosition = down.position
+                animationScope.launch {
+                    launch { pressProgressAnimation.animateTo(1f, pressProgressAnimationSpec) }
+                    launch { positionAnimation.snapTo(startPosition) }
+                }
+            },
+            onDragEnd = {
+                animationScope.launch {
+                    launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
+                    launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
+                }
+            },
+            onDragCancel = {
+                animationScope.launch {
+                    launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
+                    launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
+                }
+            },
+        ) { change, _ ->
+            animationScope.launch { positionAnimation.snapTo(change.position) }
         }
+    }
 }
 
 internal suspend fun PointerInputScope.kyantInspectDragGestures(
@@ -711,16 +665,8 @@ internal suspend fun PointerInputScope.kyantInspectDragGestures(
         val drag = initialDown
         onDragStart(down)
         onDrag(drag, Offset.Zero)
-        val upEvent =
-            kyantDrag(
-                pointerId = drag.id,
-                onDrag = { onDrag(it, it.positionChange()) },
-            )
-        if (upEvent == null) {
-            onDragCancel()
-        } else {
-            onDragEnd(upEvent)
-        }
+        val upEvent = kyantDrag(pointerId = drag.id) { onDrag(it, it.positionChange()) }
+        if (upEvent == null) onDragCancel() else onDragEnd(upEvent)
     }
 }
 
@@ -729,18 +675,12 @@ private suspend inline fun AwaitPointerEventScope.kyantDrag(
     onDrag: (PointerInputChange) -> Unit,
 ): PointerInputChange? {
     val isPointerUp = currentEvent.changes.fastFirstOrNull { it.id == pointerId }?.pressed != true
-    if (isPointerUp) {
-        return null
-    }
+    if (isPointerUp) return null
     var pointer = pointerId
     while (true) {
         val change = kyantAwaitDragOrUp(pointer) ?: return null
-        if (change.isConsumed) {
-            return null
-        }
-        if (change.changedToUpIgnoreConsumed()) {
-            return change
-        }
+        if (change.isConsumed) return null
+        if (change.changedToUpIgnoreConsumed()) return change
         onDrag(change)
         pointer = change.id
     }
@@ -755,16 +695,9 @@ private suspend inline fun AwaitPointerEventScope.kyantAwaitDragOrUp(
         val dragEvent = event.changes.fastFirstOrNull { it.id == pointer } ?: return null
         if (dragEvent.changedToUpIgnoreConsumed()) {
             val otherDown = event.changes.fastFirstOrNull { it.pressed }
-            if (otherDown == null) {
-                return dragEvent
-            } else {
-                pointer = otherDown.id
-            }
+            if (otherDown == null) return dragEvent else pointer = otherDown.id
         } else {
-            val hasDragged = dragEvent.previousPosition != dragEvent.position
-            if (hasDragged) {
-                return dragEvent
-            }
+            if (dragEvent.previousPosition != dragEvent.position) return dragEvent
         }
     }
 }

@@ -1,10 +1,3 @@
-/*
- * Water-droplet indicator for tabs (iOS 26 style): on touch/drag the droplet rises into clear glass with lens and
- * chromatic aberration, stretches with velocity while moving and bounces back when it stops.
- * Ported from Kyant0/AndroidLiquidGlass (catalog: DampedDragAnimation.kt, LiquidBottomTabs.kt),
- * Copyright Kyant, Apache License 2.0. https://github.com/Kyant0/AndroidLiquidGlass
- * Modified for liquid-glass: SystemClock-based velocity, wrapped into DropletState + Modifier.droplet, optional blur.
- */
 package io.github.ntvien.liquidglass
 
 import android.os.SystemClock
@@ -35,12 +28,12 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastFirstOrNull
-import io.github.ntvien.liquidglass.internal.backdrop.drawBackdrop
-import io.github.ntvien.liquidglass.internal.backdrop.effects.blur
-import io.github.ntvien.liquidglass.internal.backdrop.effects.lens
-import io.github.ntvien.liquidglass.internal.backdrop.highlight.Highlight
-import io.github.ntvien.liquidglass.internal.backdrop.shadow.InnerShadow
-import io.github.ntvien.liquidglass.internal.backdrop.shadow.Shadow
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.highlight.Highlight
+import com.kyant.backdrop.shadow.InnerShadow
+import com.kyant.backdrop.shadow.Shadow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -48,10 +41,6 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.ceil
 
-/**
- * Droplet state: position (0..n-1 in tabs), press "lift", stretch and velocity.
- * Every value is read in graphicsLayer/draw, so animating it does not recompose.
- */
 @Stable
 internal class DropletState(
     private val scope: CoroutineScope,
@@ -77,14 +66,9 @@ internal class DropletState(
     val targetValue: Float get() = valueAnim.targetValue
     val pressProgress: Float get() = pressAnim.value
 
-    /**
-     * [pressProgress] cut to 0 below [LIFT_CUTOFF]: the spring's last ~12 frames towards 0 are invisible but would
-     * still draw the whole glass stack.
-     */
     val lift: Float get() = pressAnim.value.let { if (it < LIFT_CUTOFF) 0f else it }
     val velocity: Float get() = velocityAnim.value
 
-    /** Droplet stretch: swells on press, elongates along the motion and flattens across it. */
     internal val layerBlock: GraphicsLayerScope.() -> Unit = {
         val v = velocityAnim.value / 10f
         scaleX = scaleXAnim.value / (1f - (v * 0.75f).coerceIn(-0.2f, 0.2f))
@@ -113,13 +97,11 @@ internal class DropletState(
         }
     }
 
-    /** Follows the finger while dragging. */
     fun dragTo(newValue: Float) {
         val target = newValue.coerceIn(valueRange)
         scope.launch { valueAnim.animateTo(target, valueSpec) { trackVelocity() } }
     }
 
-    /** Tab change by tap: lift → slide → bounce back. */
     fun animateTo(newValue: Float) {
         scope.launch {
             mutex.mutate {
@@ -138,12 +120,6 @@ internal class DropletState(
         scope.launch { velocityAnim.animateTo(target, velocitySpec) }
     }
 
-    /**
-     * Drag the droplet across the whole bar (does not consume events, so tabs stay clickable).
-     * @param slotWidthPx width of one tab in px, to convert drag distance into tabs.
-     * @param onSettle called with the nearest tab index on release.
-     */
-    // Internal helper bound to this state (pointerInput keyed on it), not a public Modifier factory.
     @Suppress("ModifierFactoryExtensionFunction")
     fun dragModifier(slotWidthPx: () -> Float, onSettle: (Int) -> Unit): Modifier = Modifier.pointerInput(this) {
         awaitEachGesture {
@@ -184,40 +160,30 @@ internal class DropletState(
 }
 
 /**
- * Draws the droplet. At rest it is a pill of [idleColor]; while pressed/dragged it becomes clear glass with lens and
- * chromatic aberration. Without real glass (GlassQuality.Off) it keeps the stretch motion, without the lens.
+ * Draws the droplet. Never uses a nested backdrop when inside another glass surface or in Flat mode.
  */
 @Composable
 internal fun Modifier.droplet(state: DropletState, shape: Shape, idleColor: Color, blur: Dp = 0.dp): Modifier {
     val quality = LocalGlassQuality.current
     val backdrops = LocalGlassBackdrops.current
-    val layer = LocalGlassLayer.current
-    if (quality == GlassQuality.Off || backdrops == null) {
+    val insideGlass = LocalInsideGlass.current
+    if (quality == GlassQuality.Flat || backdrops == null || insideGlass) {
         return this.graphicsLayer(state.layerBlock).background(idleColor, shape)
     }
-    val backdrop = if (layer == GlassLayer.Overlay) backdrops.overlay else backdrops.background
-    // When the droplet samples scrolling content (tab bar refracting content) it must be blurred like the glass
-    // around it, otherwise sharp text behind it shows through over the tab label.
-    val blurRadius = if (backdrop !== backdrops.background) blur else 0.dp
-    // At rest (lift 0) the rim and shadows have alpha 0, and a (nearly) opaque pill hides the backdrop under it:
-    // skip them, so a resting or sliding droplet does not record the backdrop and three extra layers every frame.
-    // 0.9 like the segmented control's shadow: its light pill (raisedFill) is 97 % opaque.
+    val backdrop = backdrops.background
     val opaqueAtRest = idleColor.alpha >= 0.9f
-    // The lens is a new RenderEffect whenever its size changes: grow it in LENS_STEPS steps, not every frame. The
-    // effects block reads only this step (0 exactly when lift is 0), so the blur + lens chain is rebuilt ~8 times per
-    // press instead of on every frame of the press spring.
+    val allowLens = quality == GlassQuality.Full
     val lensStep = remember(state) { derivedStateOf { ceil(state.lift * LENS_STEPS) / LENS_STEPS } }
     return this.drawBackdrop(
         backdrop = backdrop,
         shape = { shape },
         effects = {
             val q = lensStep.value
-            if (blurRadius > 0.dp && (q > 0f || !opaqueAtRest)) blur(blurRadius.toPx())
-            if (q > 0f) lens(10.dp.toPx() * q, 14.dp.toPx() * q, chromaticAberration = true)
+            if (blur > 0.dp && (q > 0f || !opaqueAtRest)) blur(blur.toPx())
+            if (allowLens && q > 0f) lens(10.dp.toPx() * q, 14.dp.toPx() * q, chromaticAberration = true)
         },
         highlight = { state.lift.takeIf { it > 0f }?.let { Highlight.Default.copy(alpha = it) } },
         shadow = { state.lift.takeIf { it > 0f }?.let { Shadow(alpha = it) } },
-        // Fixed radius, only alpha animates: alpha is set on the recorded layer, a new radius re-records and re-blurs it.
         innerShadow = { state.lift.takeIf { it > 0f }?.let { InnerShadow(radius = 8.dp, alpha = it) } },
         layerBlock = state.layerBlock,
         onDrawBackdrop = { drawBackdrop -> if (state.lift > 0f || !opaqueAtRest) drawBackdrop() },

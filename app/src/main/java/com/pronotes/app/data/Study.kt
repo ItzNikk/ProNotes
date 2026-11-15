@@ -1,5 +1,6 @@
 package com.pronotes.app.data
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -8,6 +9,7 @@ import java.io.File
  * A flashcard. Either side can hold text, a picture cut from a page, or both.
  * [box] is the Leitner box (0 = new / forgotten, 5 = well known); [due] is when it should be shown again.
  */
+@Immutable
 @Serializable
 data class Flashcard(
     val id: String,
@@ -25,6 +27,7 @@ data class Flashcard(
 )
 
 /** An ink link: a tap on one end jumps to the other, across pages. Points are in page space. */
+@Immutable
 @Serializable
 data class InkLink(
     val id: String,
@@ -37,6 +40,7 @@ data class InkLink(
 )
 
 /** A multiple-choice question. [answer] is the index of the right option. */
+@Immutable
 @Serializable
 data class QuizQuestion(
     val id: String,
@@ -71,6 +75,7 @@ enum class SlideTheme(val label: String, val gradA: Long, val gradB: Long, val a
     ROSE_VELVET("Rose Velvet", 0xFF881337, 0xFFE11D48, 0xFFFDA4AF),
 }
 
+@Immutable
 @Serializable
 data class SlideCard(
     val id: String,
@@ -85,6 +90,7 @@ data class SlideCard(
     val badge: String = "",
 )
 
+@Immutable
 @Serializable
 data class StudyData(
     val cards: List<Flashcard> = emptyList(),
@@ -101,9 +107,7 @@ class StudyStore(private val dir: File) {
     fun load(): StudyData = runCatching { json.decodeFromString(StudyData.serializer(), file.readText()) }.getOrDefault(StudyData())
 
     fun save(data: StudyData) {
-        val tmp = File(dir, "study.json.tmp")
-        tmp.writeText(json.encodeToString(StudyData.serializer(), data))
-        if (!tmp.renameTo(file)) { file.delete(); tmp.renameTo(file) }
+        AtomicFiles.writeTextAtomic(file, json.encodeToString(StudyData.serializer(), data))
     }
 
     fun cardDir(): File = File(dir, "cards").apply { mkdirs() }

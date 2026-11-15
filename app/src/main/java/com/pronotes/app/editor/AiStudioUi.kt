@@ -8,6 +8,7 @@ import android.media.MediaRecorder
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -47,15 +48,19 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.PostAdd
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Stop
+import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.Button
@@ -92,7 +97,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -107,7 +111,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
-import com.pronotes.app.data.AccentColor
 import com.pronotes.app.data.CloudSync
 import com.pronotes.app.data.CollabChatMsg
 import com.pronotes.app.data.CollabMemberInfo
@@ -115,20 +118,17 @@ import com.pronotes.app.data.CollabRoomInfo
 import com.pronotes.app.data.CollabSharedNote
 import com.pronotes.app.data.Repository
 import com.pronotes.app.data.SettingsStore
-import com.pronotes.app.ui.LiquidGlassCard
-import com.pronotes.app.ui.LiquidGlassChip
-import com.pronotes.app.ui.LiquidGlassDialogSurface
-import com.pronotes.app.ui.LiquidGlassPill
-import com.pronotes.app.ui.LiquidToggle
-import com.pronotes.app.ui.LocalGlassTransparency
-import com.pronotes.app.ui.Swatch
+import com.pronotes.app.ui.GlassCard
+import com.pronotes.app.ui.GlassChip
+import com.pronotes.app.ui.GlassDialogSurface
+import com.pronotes.app.ui.GlassPill
+import com.pronotes.app.ui.GlassRole
+import com.pronotes.app.ui.GlassSegmentedControl
+import com.pronotes.app.ui.GlassSurface
+import com.pronotes.app.ui.GlassToggle
 import com.pronotes.app.ui.elasticStretch
-import com.pronotes.app.ui.openLeafGlassColors
-import io.github.ntvien.liquidglass.GlassDefaults
-import io.github.ntvien.liquidglass.GlassLook
-import io.github.ntvien.liquidglass.LiquidGlassTheme
-import io.github.ntvien.liquidglass.component.LiquidSegmentedControl
-import io.github.ntvien.liquidglass.component.LiquidSurface
+import com.pronotes.app.ui.glassCardShape
+import com.pronotes.app.ui.glassPillShape
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -143,16 +143,7 @@ private val StudioGradientBrush = Brush.linearGradient(
     ),
 )
 
-private val OneUi9Purple = Color(0xFF8C65FF)
-
-private val OneUi9GradientBrush = Brush.linearGradient(
-    colors = listOf(
-        Color(0xFF66D7E6),
-        Color(0xFF5FA8F8),
-        Color(0xFF8C65FF),
-        Color(0xFF9BECE4),
-    ),
-)
+private val StudioPurple = Color(0xFF8C65FF)
 
 private val CreativeStageBackdropBrush = Brush.verticalGradient(
     colors = listOf(
@@ -197,14 +188,14 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                     val eq = q.substringAfter("solve", q).trim()
                     val sol = aiEngine.solveMath(eq.ifBlank { q })
                     buildString {
-                        appendLine("📐 **Symbolic Solution**: `${sol.result}`")
+                        appendLine("**Symbolic Solution**: `${sol.result}`")
                         sol.steps.forEach { appendLine("• $it") }
                     }.trim()
                 }
                 qLower.contains("summarize") && fullNotesText.isNotBlank() -> {
                     val sum = aiEngine.summarize(fullNotesText, maxPoints = 6)
                     buildString {
-                        appendLine("✨ **${sum.headline}**")
+                        appendLine("**${sum.headline}**")
                         appendLine()
                         sum.bulletPoints.forEach { appendLine("• $it") }
                         if (sum.keyTerms.isNotEmpty()) {
@@ -237,8 +228,8 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                 .padding(14.dp),
             contentAlignment = Alignment.Center,
         ) {
-            LiquidGlassDialogSurface(
-                shape = RoundedCornerShape(32.dp),
+            GlassDialogSurface(
+                shape = glassCardShape(),
                 modifier = Modifier
                     .widthIn(max = 760.dp)
                     .fillMaxWidth()
@@ -268,7 +259,7 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                         fontWeight = FontWeight.ExtraBold,
                                     ),
                                 )
-                                LiquidGlassPill(contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
+                                GlassPill(contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
                                     Text(
                                         "CONTEXT",
                                         style = MaterialTheme.typography.labelSmall,
@@ -294,29 +285,38 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                         Modifier.horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        LiquidGlassPill(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)) {
-                            Text(
-                                "📄 Current: Page ${vm.pageIndex + 1}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFF2A78D6),
-                                fontWeight = FontWeight.SemiBold,
-                            )
+                        GlassPill(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Icon(Icons.Outlined.Description, null, tint = Color(0xFF2A78D6), modifier = Modifier.size(14.dp))
+                                Text(
+                                    "Current: Page ${vm.pageIndex + 1}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFF2A78D6),
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
                         }
-                        LiquidGlassPill(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)) {
-                            Text(
-                                "📚 ${vm.pages.size} Pages Indexed",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFF8C65FF),
-                                fontWeight = FontWeight.SemiBold,
-                            )
+                        GlassPill(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Icon(Icons.Outlined.LibraryBooks, null, tint = Color(0xFF8C65FF), modifier = Modifier.size(14.dp))
+                                Text(
+                                    "${vm.pages.size} Pages Indexed",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFF8C65FF),
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
                         }
-                        LiquidGlassPill(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)) {
-                            Text(
-                                "✨ Direct Q&A + Equations",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFF0EA5E9),
-                                fontWeight = FontWeight.SemiBold,
-                            )
+                        GlassPill(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Icon(Icons.Outlined.AutoAwesome, null, tint = Color(0xFF0EA5E9), modifier = Modifier.size(14.dp))
+                                Text(
+                                    "Direct Q&A + Equations",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFF0EA5E9),
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
                         }
                     }
 
@@ -359,8 +359,8 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
                                     quickPrompts.forEach { qp ->
-                                        LiquidGlassCard(
-                                            shape = RoundedCornerShape(18.dp),
+                                        GlassCard(
+                                            shape = glassCardShape(),
                                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                                             modifier = Modifier.elasticStretch(),
                                             onClick = { send(qp) },
@@ -389,7 +389,7 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 quickPrompts.forEach { qp ->
-                                    LiquidGlassChip(
+                                    GlassChip(
                                         selected = false,
                                         onClick = { send(qp) },
                                         label = qp,
@@ -400,7 +400,8 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                         }
                     }
 
-                    items(messages) { (role, body) ->
+                    items(messages.size, key = { idx -> "${idx}:${messages[idx].first}" }) { idx ->
+                        val (role, body) = messages[idx]
                         val isUser = role == "user"
                         Row(
                             Modifier.fillMaxWidth(),
@@ -419,11 +420,9 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                     Icon(Icons.Outlined.AutoAwesome, null, tint = Color.White, modifier = Modifier.size(15.dp))
                                 }
                             }
-                            LiquidSurface(
-                                style = GlassDefaults.frost().copy(
-                                    fallbackSurface = if (isUser) Color(0xFF2A78D6) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.82f),
-                                    contentColor = if (isUser) Color.White else MaterialTheme.colorScheme.onSurface,
-                                ),
+                            GlassSurface(
+                                role = GlassRole.Frost,
+                                containerColor = if (isUser) Color(0xFF2A78D6) else MaterialTheme.colorScheme.surfaceVariant,
                                 shape = RoundedCornerShape(
                                     topStart = if (isUser) 22.dp else 6.dp,
                                     topEnd = if (isUser) 6.dp else 22.dp,
@@ -470,9 +469,9 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
                 }
 
                 // Floating Prompt Pill Composer
-                LiquidSurface(
-                    style = GlassDefaults.frost(),
-                    shape = PillShape,
+                GlassSurface(
+                    role = GlassRole.Frost,
+                    shape = glassPillShape(),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
@@ -516,7 +515,13 @@ fun AiNotesChatDialog(vm: EditorViewModel, onClose: () -> Unit) {
     }
 }
 
-// ========================================================================= 2. Samsung Creative Studio (Drawing Assist + Lite Models + Pause/Resume)
+// ========================================================================= 2. Creative Studio (Drawing Assist + Lite Models + Pause/Resume)
+
+@androidx.compose.runtime.Immutable
+private data class StudioImagePrefs(
+    val imageLiteMode: Boolean,
+    val activeImageModelId: String,
+)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -531,8 +536,10 @@ fun AiAssetStudioDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val settingsStore = remember { SettingsStore.get(context) }
-    val settings by settingsStore.settings.collectAsState()
-    val imgStates by LocalAiManager.imageStates.collectAsState()
+    val settings by remember(settingsStore) {
+        settingsStore.select { StudioImagePrefs(it.imageLiteMode, it.activeImageModelId) }
+    }.collectAsStateWithLifecycle(initialValue = settingsStore.settings.value.let { StudioImagePrefs(it.imageLiteMode, it.activeImageModelId) })
+    val imgStates by LocalAiManager.imageStates.collectAsStateWithLifecycle()
 
     var kind by remember(initialKind) { mutableStateOf(initialKind) }
     var style by remember { mutableStateOf(CreativeStyle.WATERCOLOR) }
@@ -623,14 +630,14 @@ fun AiAssetStudioDialog(
                 .padding(14.dp),
             contentAlignment = Alignment.Center,
         ) {
-            LiquidGlassDialogSurface(
-                shape = RoundedCornerShape(32.dp),
+            GlassDialogSurface(
+                shape = glassCardShape(),
                 modifier = Modifier
                     .widthIn(max = 760.dp)
                     .fillMaxWidth()
                     .heightIn(max = 880.dp)
                     .statusBarsPadding()
-                    .border(1.2.dp, Color.White.copy(alpha = 0.55f), RoundedCornerShape(32.dp))
+                    .border(1.2.dp, Color.White.copy(alpha = 0.55f), glassCardShape())
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
             ) {
                 Box(Modifier.background(CreativeStageBackdropBrush)) {
@@ -638,19 +645,20 @@ fun AiAssetStudioDialog(
                         Modifier.padding(18.dp).verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        // Sleek One UI 9 Creative Studio Top Header
+                        // Creative Studio Top Header
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            LiquidSurface(
-                                style = GlassDefaults.frost().copy(fallbackSurface = Color.White.copy(alpha = 0.24f), contentColor = Color.White),
+                            GlassSurface(
+                                role = GlassRole.Control,
+                                containerColor = Color.White.copy(alpha = 0.24f),
                                 shape = CircleShape,
-                                contentPadding = PaddingValues(horizontal = 11.dp, vertical = 6.dp),
+                                contentPadding = PaddingValues(8.dp),
                                 onClick = onClose,
                             ) {
-                                Text("✕", color = Color.White, fontWeight = FontWeight.Bold)
+                                Icon(Icons.Outlined.Close, "Close", tint = Color.White, modifier = Modifier.size(18.dp))
                             }
                             Column(Modifier.weight(1f)) {
                                 Text(
@@ -667,9 +675,10 @@ fun AiAssetStudioDialog(
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }
-                            // Aspect badge matching studio screenshot (1:1 / 3:4 / A4)
-                            LiquidSurface(
-                                style = GlassDefaults.frost().copy(fallbackSurface = Color.White.copy(alpha = 0.22f), contentColor = Color.White),
+                            // Aspect badge (1:1 / 3:4 / A4)
+                            GlassSurface(
+                                role = GlassRole.Control,
+                                containerColor = Color.White.copy(alpha = 0.22f),
                                 shape = RoundedCornerShape(10.dp),
                                 contentPadding = PaddingValues(horizontal = 9.dp, vertical = 5.dp),
                                 modifier = Modifier.border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(10.dp)),
@@ -682,12 +691,10 @@ fun AiAssetStudioDialog(
                                 )
                             }
                             // Lite Mode toggle chip
-                            LiquidSurface(
-                                style = GlassDefaults.frost().copy(
-                                    fallbackSurface = if (settings.imageLiteMode) Color.White else Color.White.copy(alpha = 0.24f),
-                                    contentColor = if (settings.imageLiteMode) OneUi9Purple else Color.White,
-                                ),
-                                shape = PillShape,
+                            GlassSurface(
+                                role = GlassRole.Control,
+                                containerColor = if (settings.imageLiteMode) Color.White else Color.White.copy(alpha = 0.24f),
+                                shape = glassPillShape(),
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                                 modifier = Modifier.elasticStretch(),
                                 onClick = { settingsStore.update { it.copy(imageLiteMode = !it.imageLiteMode) } },
@@ -699,31 +706,28 @@ fun AiAssetStudioDialog(
                                     Icon(
                                         Icons.Outlined.Bolt,
                                         null,
-                                        tint = if (settings.imageLiteMode) OneUi9Purple else Color.White,
+                                        tint = if (settings.imageLiteMode) StudioPurple else Color.White,
                                         modifier = Modifier.size(15.dp),
                                     )
                                     Text(
                                         if (settings.imageLiteMode) "Lite" else "HD",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (settings.imageLiteMode) OneUi9Purple else Color.White,
+                                        color = if (settings.imageLiteMode) StudioPurple else Color.White,
                                     )
                                 }
                             }
                         }
 
                         // Asset Type Selector Pill Bar (Sticker / Cover / Template)
-                        LiquidSegmentedControl(
+                        GlassSegmentedControl(
                             options = AiAssetKind.entries.map { it.label },
                             selectedIndex = AiAssetKind.entries.indexOf(kind),
                             onSelect = { kind = AiAssetKind.entries[it] },
-                            indicatorColor = Color.White,
-                            selectedTextColor = Color(0xFF1E293B),
-                            textColor = Color.White,
                             modifier = Modifier.fillMaxWidth(),
                         )
 
-                // Center Frosted Squircle Preview Stage (matching One UI Creative Studio reference)
+                // Center Frosted Squircle Preview Stage
                 val centerStageGlow = Brush.radialGradient(
                     colors = listOf(
                         Color(0xFFD946EF).copy(alpha = 0.42f),
@@ -797,10 +801,11 @@ fun AiAssetStudioDialog(
                         }
                     }
 
-                    // Bottom-left style badge pill (matching studio reference card)
-                    LiquidSurface(
-                        style = GlassDefaults.frost().copy(fallbackSurface = Color.Black.copy(alpha = 0.50f), contentColor = Color.White),
-                        shape = PillShape,
+                    // Bottom-left style badge pill
+                    GlassSurface(
+                        role = GlassRole.Control,
+                        containerColor = Color.Black.copy(alpha = 0.50f),
+                        shape = glassPillShape(),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
                         modifier = Modifier.align(Alignment.BottomStart).padding(12.dp),
                     ) {
@@ -808,7 +813,7 @@ fun AiAssetStudioDialog(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(5.dp),
                         ) {
-                            Text(style.badge, fontSize = 13.sp)
+                            Icon(Icons.Outlined.AutoAwesome, null, tint = Color.White, modifier = Modifier.size(13.dp))
                             Text(
                                 style.label,
                                 style = MaterialTheme.typography.labelSmall,
@@ -819,9 +824,10 @@ fun AiAssetStudioDialog(
                     }
 
                     // Bottom-right Lite Models toggle pill
-                    LiquidSurface(
-                        style = GlassDefaults.frost().copy(fallbackSurface = Color.White.copy(alpha = 0.26f), contentColor = Color.White),
-                        shape = PillShape,
+                    GlassSurface(
+                        role = GlassRole.Control,
+                        containerColor = Color.White.copy(alpha = 0.26f),
+                        shape = glassPillShape(),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
                         modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
                         onClick = { showModelDrawer = !showModelDrawer },
@@ -843,8 +849,8 @@ fun AiAssetStudioDialog(
 
                 // Inline Lite Image Models Manager with Pause / Resume / Cancel
                 if (showModelDrawer) {
-                    LiquidGlassDialogSurface(
-                        shape = RoundedCornerShape(22.dp),
+                    GlassDialogSurface(
+                        shape = glassCardShape(),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -857,16 +863,16 @@ fun AiAssetStudioDialog(
                                 )
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Text("Lite", style = MaterialTheme.typography.labelSmall)
-                                    LiquidToggle(
-                                        selected = { settings.imageLiteMode },
-                                        onSelect = { v -> settingsStore.update { it.copy(imageLiteMode = v) } },
+                                    GlassToggle(
+                                        checked = settings.imageLiteMode,
+                                        onCheckedChange = { v -> settingsStore.update { it.copy(imageLiteMode = v) } },
                                     )
                                 }
                             }
                             LocalAiManager.imageCatalog.forEach { m ->
                                 val st = imgStates[m.id] ?: LocalModelRuntime()
                                 val isActive = settings.activeImageModelId == m.id
-                                LiquidGlassCard(
+                                GlassCard(
                                     shape = RoundedCornerShape(14.dp),
                                     contentPadding = PaddingValues(10.dp),
                                     modifier = Modifier.fillMaxWidth().let {
@@ -943,28 +949,20 @@ fun AiAssetStudioDialog(
                 ) {
                     CreativeStyle.entries.forEach { cs ->
                         val selected = style == cs
-                        LiquidSurface(
-                            style = GlassDefaults.frost().copy(
-                                fallbackSurface = if (selected) Color.White else Color.Black.copy(alpha = 0.28f),
-                                contentColor = if (selected) Color(0xFF1E293B) else Color.White,
-                            ),
-                            shape = PillShape,
+                        GlassSurface(
+                            role = GlassRole.Control,
+                            containerColor = if (selected) Color.White else Color.Black.copy(alpha = 0.28f),
+                            shape = glassPillShape(),
                             contentPadding = PaddingValues(horizontal = 13.dp, vertical = 8.dp),
                             modifier = Modifier.elasticStretch(),
                             onClick = { style = cs },
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Text(cs.badge, fontSize = 15.sp)
-                                Text(
-                                    cs.label,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (selected) Color(0xFF1E293B) else Color.White,
-                                )
-                            }
+                            Text(
+                                cs.label,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = if (selected) Color(0xFF1E293B) else Color.White,
+                            )
                         }
                     }
                 }
@@ -977,12 +975,10 @@ fun AiAssetStudioDialog(
                 ) {
                     presets.forEach { p ->
                         val sel = prompt == p
-                        LiquidSurface(
-                            style = GlassDefaults.frost().copy(
-                                fallbackSurface = if (sel) Color.White.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.22f),
-                                contentColor = if (sel) Color(0xFF1E293B) else Color.White,
-                            ),
-                            shape = PillShape,
+                        GlassSurface(
+                            role = GlassRole.Control,
+                            containerColor = if (sel) Color.White.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.22f),
+                            shape = glassPillShape(),
                             contentPadding = PaddingValues(horizontal = 11.dp, vertical = 6.dp),
                             onClick = {
                                 prompt = p
@@ -999,14 +995,15 @@ fun AiAssetStudioDialog(
                     }
                 }
 
-                // Translucent Dark Prompt Box (matching uploaded screenshot bottom composer)
-                LiquidSurface(
-                    style = GlassDefaults.frost().copy(fallbackSurface = Color.Black.copy(alpha = 0.34f), contentColor = Color.White),
-                    shape = RoundedCornerShape(24.dp),
+                // Translucent Dark Prompt Box
+                GlassSurface(
+                    role = GlassRole.Control,
+                    containerColor = Color.Black.copy(alpha = 0.34f),
+                    shape = glassCardShape(),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(24.dp)),
+                        .border(1.dp, Color.White.copy(alpha = 0.28f), glassCardShape()),
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -1046,9 +1043,9 @@ fun AiAssetStudioDialog(
                             modifier = Modifier.height(44.dp).elasticStretch(),
                         ) {
                             if (busy) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = OneUi9Purple, strokeWidth = 2.dp)
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = StudioPurple, strokeWidth = 2.dp)
                             } else {
-                                Icon(Icons.Outlined.AutoAwesome, null, modifier = Modifier.size(16.dp), tint = OneUi9Purple)
+                                Icon(Icons.Outlined.AutoAwesome, null, modifier = Modifier.size(16.dp), tint = StudioPurple)
                                 Spacer(Modifier.width(5.dp))
                                 Text("Generate", fontWeight = FontWeight.Bold)
                             }
@@ -1199,8 +1196,8 @@ fun AiLectureRecorderDialog(vm: EditorViewModel, onClose: () -> Unit) {
                 .padding(16.dp),
             contentAlignment = Alignment.Center,
         ) {
-            LiquidGlassDialogSurface(
-                shape = RoundedCornerShape(28.dp),
+            GlassDialogSurface(
+                shape = glassCardShape(),
                 modifier = Modifier.widthIn(max = 680.dp).fillMaxWidth().heightIn(max = 800.dp).statusBarsPadding()
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
             ) {
@@ -1221,8 +1218,8 @@ fun AiLectureRecorderDialog(vm: EditorViewModel, onClose: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                     )
 
-                    LiquidGlassCard(
-                        shape = RoundedCornerShape(22.dp),
+                    GlassCard(
+                        shape = glassCardShape(),
                         contentPadding = PaddingValues(14.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
@@ -1340,8 +1337,8 @@ fun AiLectureRecorderDialog(vm: EditorViewModel, onClose: () -> Unit) {
                 }
 
                 if (structuredOut.isNotBlank()) {
-                    LiquidGlassCard(
-                        shape = RoundedCornerShape(16.dp),
+                    GlassCard(
+                        shape = glassCardShape(),
                         contentPadding = PaddingValues(12.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
@@ -1377,7 +1374,7 @@ fun LiveCollabRoomDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val clip = LocalClipboardManager.current
-    val cloudUser by CloudSync.user.collectAsState()
+    val cloudUser by CloudSync.user.collectAsStateWithLifecycle()
     var roomCode by remember { mutableStateOf(CloudSync.generateRoomCode()) }
     var scholarName by remember { mutableStateOf(cloudUser?.displayName.orEmpty().ifBlank { "Scholar" }) }
     var roomTitle by remember { mutableStateOf(vm?.title?.let { "$it Study Room" } ?: "Live Study Room") }
@@ -1413,8 +1410,8 @@ fun LiveCollabRoomDialog(
                 .padding(16.dp),
             contentAlignment = Alignment.Center,
         ) {
-            LiquidGlassDialogSurface(
-                shape = RoundedCornerShape(28.dp),
+            GlassDialogSurface(
+                shape = glassCardShape(),
                 modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 840.dp).statusBarsPadding()
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
             ) {
@@ -1452,8 +1449,8 @@ fun LiveCollabRoomDialog(
 
                     if (activeRoom == null) {
                         // Instant 6-Digit Room Code Card
-                        LiquidGlassCard(
-                            shape = RoundedCornerShape(22.dp),
+                        GlassCard(
+                            shape = glassCardShape(),
                             contentPadding = PaddingValues(16.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
@@ -1472,7 +1469,9 @@ fun LiveCollabRoomDialog(
                                         onClick = { roomCode = CloudSync.generateRoomCode() },
                                         shape = PillShape,
                                     ) {
-                                        Text("🎲 New Code")
+                                        Icon(Icons.Outlined.Refresh, null, Modifier.size(15.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("New Code")
                                     }
                                     OutlinedButton(
                                         onClick = {
@@ -1529,7 +1528,7 @@ fun LiveCollabRoomDialog(
                     // Quick Preset Room Codes
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf("BIO-101", "CALC-202", "PHYS-301", "CHEM-LAB", "EXAM-PREP").forEach { preset ->
-                            LiquidGlassChip(
+                            GlassChip(
                                 selected = roomCode == preset,
                                 onClick = { roomCode = preset },
                                 label = "Join #$preset",
@@ -1575,8 +1574,11 @@ fun LiveCollabRoomDialog(
                     val activeUid = CloudSync.ensureRoomParticipant(context, scholarName).uid
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         members.forEach { m ->
-                            LiquidGlassPill(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)) {
-                                Text("🟢 ${m.displayName}", style = MaterialTheme.typography.labelSmall)
+                            GlassPill(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    Box(Modifier.size(7.dp).clip(CircleShape).background(Color(0xFF22C55E)))
+                                    Text(m.displayName, style = MaterialTheme.typography.labelSmall)
+                                }
                             }
                         }
                     }
@@ -1599,7 +1601,11 @@ fun LiveCollabRoomDialog(
                                 },
                                 shape = PillShape,
                                 modifier = Modifier.weight(1f).elasticStretch(),
-                            ) { Text("📤 Share Current Page to Room") }
+                            ) {
+                                Icon(Icons.Outlined.Upload, null, Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Share Current Page to Room")
+                            }
                         }
                     }
 
@@ -1614,8 +1620,8 @@ fun LiveCollabRoomDialog(
                         if (sharedItems.isNotEmpty()) {
                             item { Text("SHARED NOTES IN #$rid", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) }
                             items(sharedItems, key = { it.id }) { sn ->
-                                LiquidGlassCard(
-                                    shape = RoundedCornerShape(16.dp),
+                                GlassCard(
+                                    shape = glassCardShape(),
                                     contentPadding = PaddingValues(12.dp),
                                     modifier = Modifier.fillMaxWidth(),
                                 ) {
@@ -1647,11 +1653,10 @@ fun LiveCollabRoomDialog(
 
                         item { Text("LIVE STUDY CHAT (#$rid)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) }
                         items(msgs, key = { it.id }) { m ->
-                            LiquidSurface(
-                                style = GlassDefaults.frost().copy(
-                                    fallbackSurface = if (m.authorId == activeUid) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                                ),
-                                shape = RoundedCornerShape(16.dp),
+                            GlassSurface(
+                                role = GlassRole.Frost,
+                                containerColor = if (m.authorId == activeUid) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                shape = glassCardShape(),
                                 contentPadding = PaddingValues(10.dp),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {

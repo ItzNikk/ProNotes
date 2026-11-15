@@ -1,5 +1,6 @@
 package com.pronotes.app.data
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -49,6 +50,7 @@ enum class PaperStyle(val label: String) {
     }
 }
 
+@Immutable
 @Serializable
 data class Folder(
     val id: String,
@@ -67,6 +69,7 @@ data class Folder(
  *   "image:<file>"            photo stored in the notebook folder
  *   "thumb"                   live thumbnail of the first page
  */
+@Immutable
 @Serializable
 data class NotebookMeta(
     val id: String,
@@ -88,21 +91,26 @@ data class NotebookMeta(
     val coverSpec: String get() = cover.ifBlank { if (fromPdf) "thumb" else "solid:$coverColor" }
 }
 
+@Immutable
 @Serializable
 data class LibraryIndex(
     val folders: List<Folder> = emptyList(),
     val notebooks: List<NotebookMeta> = emptyList(),
 )
 
+@Immutable
 @Serializable
 data class BrushDoc(val family: String, val color: Int, val size: Float, val epsilon: Float)
 
+@Immutable
 @Serializable
 sealed class ItemDoc {
+    @Immutable
     @Serializable
     @SerialName("ink")
     data class Ink(val inputs: String, val brush: BrushDoc, val dx: Float = 0f, val dy: Float = 0f) : ItemDoc()
 
+    @Immutable
     @Serializable
     @SerialName("text")
     data class Text(
@@ -112,14 +120,17 @@ sealed class ItemDoc {
         val rot: Float = 0f,
     ) : ItemDoc()
 
+    @Immutable
     @Serializable
     @SerialName("fill")
     data class Fill(val points: List<Float>, val color: Int, val dx: Float = 0f, val dy: Float = 0f) : ItemDoc()
 
+    @Immutable
     @Serializable
     @SerialName("image")
     data class Image(val file: String, val x: Float, val y: Float, val w: Float, val h: Float, val rot: Float = 0f) : ItemDoc()
 
+    @Immutable
     @Serializable
     @SerialName("tape")
     data class Tape(
@@ -130,6 +141,7 @@ sealed class ItemDoc {
         val pattern: String = "stripes",
     ) : ItemDoc()
 
+    @Immutable
     @Serializable
     @SerialName("sticky")
     data class Sticky(
@@ -138,6 +150,7 @@ sealed class ItemDoc {
         val title: String = "", val style: String = "classic",
     ) : ItemDoc()
 
+    @Immutable
     @Serializable
     @SerialName("mindnode")
     data class MindNode(
@@ -155,6 +168,7 @@ sealed class ItemDoc {
         val tag: String = "",
     ) : ItemDoc()
 
+    @Immutable
     @Serializable
     @SerialName("weblink")
     data class WebLink(
@@ -188,6 +202,7 @@ sealed class ItemDoc {
     ) : ItemDoc()
 }
 
+@Immutable
 @Serializable
 data class PageDoc(
     val id: String,
@@ -209,6 +224,7 @@ data class PageDoc(
     val isWhiteboard: Boolean = false,
 )
 
+@Immutable
 @Serializable
 data class NoteDoc(val version: Int = 2, val pages: List<PageDoc>)
 

@@ -96,7 +96,7 @@ jobs:
           SUPPORT_UPI: ${{ secrets.SUPPORT_UPI }}
           SUPPORT_UPI_NAME: Pro Notes
         run: |
-          gradle assembleRelease --stacktrace
+          gradle :app:assembleRelease --stacktrace
           mkdir -p release-assets
           APK="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | head -n 1)"
           if [ -z "$APK" ]; then

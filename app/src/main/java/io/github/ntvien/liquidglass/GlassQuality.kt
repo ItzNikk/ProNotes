@@ -18,35 +18,79 @@ public enum class GlassQuality {
     BlurOnly,
 
     /**
-     * Android 11 and lower, low-RAM devices, Battery Saver, or `reduceEffects = true`: frosted fallback
-     * (translucent fill, sheen and stroke) that never samples the background. Cheap and always readable.
+     * Android 11 and lower, low-RAM devices, Classic mode, or throttled conditions:
+     * flat/frosted fallback without runtime shaders or backdrop capture layers.
      */
-    Off,
+    Flat,
 }
 
-internal val LocalGlassQuality = staticCompositionLocalOf { GlassQuality.Off }
+/** Manual or automatic glass tier selection from Settings. */
+public enum class GlassQualityOverride(public val label: String) {
+    Auto("Automatic"),
+    Full("Full glass"),
+    BlurOnly("Blur only"),
+    Flat("Flat"),
+}
+
+internal val LocalGlassQuality = staticCompositionLocalOf { GlassQuality.Flat }
+internal val LocalGlassQualityOverride = staticCompositionLocalOf { GlassQualityOverride.Auto }
+
+/** True inside a parent glass surface so child components never render glass-inside-glass. */
+public val LocalInsideGlass = staticCompositionLocalOf { false }
+
+/** Whether glass draws shadows. Off in Battery Saver or thermal throttling. */
+internal val LocalGlassShadows = staticCompositionLocalOf { true }
+
+/** Blur radius multiplier controlled by Performance mode (0f..1.25f). */
+internal val LocalGlassBlurScale = staticCompositionLocalOf { 1f }
+
+/** Refraction/highlight intensity multiplier controlled by Performance mode (0f..1.25f). */
+internal val LocalGlassEffectIntensity = staticCompositionLocalOf { 1f }
+
+/** Whether floating glass samples scrolling content. Kept false per window-single-backdrop architecture. */
+internal val LocalGlassOverlaySamplesContent = staticCompositionLocalOf { false }
+
+internal fun isRuntimeShaderSupported(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+
+internal fun isRenderEffectSupported(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
 @Composable
-internal fun rememberDeviceGlassQuality(reduceEffects: Boolean): GlassQuality {
+internal fun rememberDeviceGlassQuality(
+    reduceEffects: Boolean,
+    throttled: Boolean,
+    manualOverride: GlassQualityOverride = GlassQualityOverride.Auto,
+): GlassQuality {
     val context = LocalContext.current
-    return remember(context, reduceEffects) {
+    return remember(context, reduceEffects, throttled, manualOverride) {
+        if (reduceEffects) return@remember GlassQuality.Flat
         val activityManager = context.getSystemService(ActivityManager::class.java)
-        when {
-            reduceEffects -> GlassQuality.Off
-            activityManager?.isLowRamDevice == true -> GlassQuality.Off
+        val hardwareCeiling = when {
+            activityManager?.isLowRamDevice == true -> GlassQuality.Flat
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> GlassQuality.Full
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> GlassQuality.BlurOnly
-            else -> GlassQuality.Off
+            else -> GlassQuality.Flat
         }
+        val effective = when (manualOverride) {
+            GlassQualityOverride.Auto -> {
+                if (!throttled) hardwareCeiling
+                else when (hardwareCeiling) {
+                    GlassQuality.Full -> GlassQuality.BlurOnly
+                    GlassQuality.BlurOnly -> GlassQuality.Flat
+                    GlassQuality.Flat -> GlassQuality.Flat
+                }
+            }
+            GlassQualityOverride.Full -> hardwareCeiling
+            GlassQualityOverride.BlurOnly -> when (hardwareCeiling) {
+                GlassQuality.Full -> GlassQuality.BlurOnly
+                GlassQuality.BlurOnly -> GlassQuality.BlurOnly
+                GlassQuality.Flat -> GlassQuality.Flat
+            }
+            GlassQualityOverride.Flat -> GlassQuality.Flat
+        }
+        effective
     }
 }
 
-/** High-end device by Google's definition: Media Performance Class ≥ Android 13. */
+/** High-end device by Google's definition: Media Performance Class >= Android 13. */
 internal fun isHighEndDevice(): Boolean =
     Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && Build.VERSION.MEDIA_PERFORMANCE_CLASS >= Build.VERSION_CODES.TIRAMISU
-
-/** Whether floating glass (tab bar, menus) samples the scrolling content as well as the background. The most expensive part of the glass. */
-internal val LocalGlassOverlaySamplesContent = staticCompositionLocalOf { false }
-
-/** Whether glass draws shadows. Off in Battery Saver. */
-internal val LocalGlassShadows = staticCompositionLocalOf { true }

@@ -4,6 +4,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
@@ -11,10 +12,10 @@ import androidx.compose.ui.unit.dp
 
 /** Kind of glass. */
 public enum class GlassKind {
-    /** Real glass: samples what is behind it, lens refraction at the edge, subtle specular highlight, blur. */
+    /** Real glass: samples the single shared window background, lens refraction at the edge, highlight, blur. */
     Liquid,
 
-    /** Frosted glass: translucent fill + soft specular sheen, never samples the background. */
+    /** Frosted glass: translucent fill + soft specular sheen, never samples a backdrop. */
     Frost,
 }
 
@@ -67,6 +68,9 @@ public class GlassStyle(
     override fun hashCode(): Int = values().hashCode()
 }
 
+/** Corner roundness from user preference (8 dp = soft rectangle, 36 dp = pill). */
+public val LocalGlassCornerRoundness = staticCompositionLocalOf { 24.dp }
+
 /** Presets built from the theme colors, cached per theme. */
 @Immutable
 internal class GlassStyles(
@@ -110,7 +114,7 @@ internal class GlassStyles(
             accent = GlassStyle(
                 kind = GlassKind.Liquid,
                 blur = 8.dp, lensHeight = 10.dp, lensAmount = 18.dp,
-                surface = c.accent.copy(alpha = 0.82f), fallbackSurface = c.accent.copy(alpha = 0.88f),
+                surface = c.accent.copy(alpha = 0.86f), fallbackSurface = c.accent.copy(alpha = 0.92f),
                 highlightWidth = 0.3.dp,
                 highlightAlpha = 0.30f, fallbackSheen = 0.32f,
                 shadowRadius = 8.dp, shadowColor = c.accent.copy(alpha = 0.26f),
@@ -156,11 +160,23 @@ public object GlassDefaults {
     public fun tinted(color: Color, onColor: Color = Color.White): GlassStyle =
         LocalGlassStyles.current.accent.copy(
             kind = GlassKind.Liquid,
-            surface = color.copy(alpha = 0.78f),
-            fallbackSurface = color.copy(alpha = 0.84f),
+            surface = color.copy(alpha = 0.84f),
+            fallbackSurface = color.copy(alpha = 0.90f),
             shadowColor = color.copy(alpha = 0.28f),
             contentColor = onColor,
         )
+
+    @Composable
+    @ReadOnlyComposable
+    public fun cardShape(): Shape = RoundedCornerShape(LocalGlassCornerRoundness.current.coerceIn(8.dp, 36.dp))
+
+    @Composable
+    @ReadOnlyComposable
+    public fun controlShape(): Shape = RoundedCornerShape((LocalGlassCornerRoundness.current * 0.7f).coerceIn(8.dp, 28.dp))
+
+    @Composable
+    @ReadOnlyComposable
+    public fun pillShape(): Shape = RoundedCornerShape(LocalGlassCornerRoundness.current.coerceIn(8.dp, 36.dp))
 
     public val CardShape: Shape = RoundedCornerShape(24.dp)
     public val ControlShape: Shape = RoundedCornerShape(16.dp)

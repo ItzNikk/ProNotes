@@ -16,4 +16,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "ProNotes"
-include(":app")
+include(":app", ":lint", ":benchmark")

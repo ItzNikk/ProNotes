@@ -175,6 +175,17 @@ object CoverCache {
         override fun sizeOf(key: String, value: android.graphics.Bitmap) = value.byteCount
     }
 
+    init {
+        com.pronotes.app.data.MemoryTrimRegistry.register { level ->
+            if (com.pronotes.app.data.MemoryTrimRegistry.isCriticalLevel(level)) {
+                cache.evictAll()
+                renderer.evictCaches()
+            } else {
+                cache.trimToSize(cache.maxSize() / 2)
+            }
+        }
+    }
+
     fun get(spec: String, w: Int, h: Int): android.graphics.Bitmap? {
         if (w <= 0 || h <= 0) return null
         val key = "c:$spec:$w:$h"

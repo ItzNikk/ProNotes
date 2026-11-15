@@ -1,5 +1,7 @@
 package io.github.ntvien.liquidglass
 
+import android.graphics.RuntimeShader
+import android.os.Build
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.VisibilityThreshold
@@ -18,6 +20,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerId
@@ -25,14 +28,10 @@ import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceAtMost
 import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.fastFirstOrNull
 import androidx.compose.ui.util.lerp
-import io.github.ntvien.liquidglass.internal.backdrop.RuntimeShader
-import io.github.ntvien.liquidglass.internal.backdrop.asComposeShader
-import io.github.ntvien.liquidglass.internal.backdrop.isRuntimeShaderSupported
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -44,7 +43,7 @@ import kotlin.math.tanh
 
 /**
  * Interactive press, directional elastic stretch, and luminous radial touch glow for Liquid Glass elements.
- * Never consumes pointer events, so child or parent clickables always receive taps cleanly.
+ * Caches [ShaderBrush] and dirty-checks shader uniforms so zero allocations occur inside draw frames.
  */
 @Stable
 public class GlassInteraction internal constructor(
@@ -59,13 +58,10 @@ public class GlassInteraction internal constructor(
     private val position = Animatable(Offset.Zero, Offset.VectorConverter, Offset.VisibilityThreshold)
     private var start = Offset.Zero
 
-    /** 0 = released, 1 = fully pressed. */
     public val pressProgress: Float get() = press.value
-
-    /** Finger offset from where the press started. */
     public val dragOffset: Offset get() = position.value - start
 
-    private val shader = if (isRuntimeShaderSupported()) {
+    private val shader: RuntimeShader? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         RuntimeShader(
             """
 uniform float2 size;
@@ -78,13 +74,24 @@ half4 main(float2 coord) {
     float core = smoothstep(radius * 0.55, 0.0, dist);
     float aura = smoothstep(radius, radius * 0.15, dist);
     return coreColor * core + auraColor * aura;
-}"""
+}""",
         )
     } else {
         null
     }
 
-    /** Elastic spring swell + directional drag stretch toward the finger. */
+    // Cached once — zero per-frame ShaderBrush allocations.
+    private val cachedShaderBrush: ShaderBrush? = shader?.let { ShaderBrush(it) }
+
+    // Dirty-check cache so uniforms only update when values actually change.
+    private var lastW = Float.NaN
+    private var lastH = Float.NaN
+    private var lastRadius = Float.NaN
+    private var lastPx = Float.NaN
+    private var lastPy = Float.NaN
+    private var lastCoreArgb = 0
+    private var lastAuraArgb = 0
+
     internal val layerBlock: GraphicsLayerScope.() -> Unit = {
         val w = size.width
         val h = size.height
@@ -104,24 +111,40 @@ half4 main(float2 coord) {
         }
     }
 
-    /** Luminous dual-tone radial touch glow at the pointer position. */
     internal val highlightModifier: Modifier = Modifier.drawWithContent {
         drawContent()
         val progress = press.value
         if (progress > 0.005f) {
-            val p = Offset(
-                position.value.x.fastCoerceIn(0f, size.width),
-                position.value.y.fastCoerceIn(0f, size.height),
-            )
+            val px = position.value.x.fastCoerceIn(0f, size.width)
+            val py = position.value.y.fastCoerceIn(0f, size.height)
             val radius = max(size.width, size.height).coerceAtLeast(64f) * 0.85f
-            if (shader != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && shader != null && cachedShaderBrush != null) {
                 drawRect(Color.White.copy(alpha = 0.06f * progress), blendMode = BlendMode.Plus)
-                shader.setFloatUniform("size", size.width, size.height)
-                shader.setColorUniform("coreColor", Color.White.copy(alpha = 0.34f * progress))
-                shader.setColorUniform("auraColor", glowColor.copy(alpha = 0.24f * progress))
-                shader.setFloatUniform("radius", radius)
-                shader.setFloatUniform("position", p.x, p.y)
-                drawRect(ShaderBrush(shader.asComposeShader()), blendMode = BlendMode.Plus)
+                if (size.width != lastW || size.height != lastH) {
+                    shader.setFloatUniform("size", size.width, size.height)
+                    lastW = size.width
+                    lastH = size.height
+                }
+                if (radius != lastRadius) {
+                    shader.setFloatUniform("radius", radius)
+                    lastRadius = radius
+                }
+                if (px != lastPx || py != lastPy) {
+                    shader.setFloatUniform("position", px, py)
+                    lastPx = px
+                    lastPy = py
+                }
+                val coreArgb = Color.White.copy(alpha = 0.34f * progress).toArgb()
+                if (coreArgb != lastCoreArgb) {
+                    shader.setColorUniform("coreColor", coreArgb)
+                    lastCoreArgb = coreArgb
+                }
+                val auraArgb = glowColor.copy(alpha = 0.24f * progress).toArgb()
+                if (auraArgb != lastAuraArgb) {
+                    shader.setColorUniform("auraColor", auraArgb)
+                    lastAuraArgb = auraArgb
+                }
+                drawRect(cachedShaderBrush, blendMode = BlendMode.Plus)
             } else {
                 drawRect(
                     brush = Brush.radialGradient(
@@ -130,7 +153,7 @@ half4 main(float2 coord) {
                             glowColor.copy(alpha = 0.18f * progress),
                             Color.Transparent,
                         ),
-                        center = p,
+                        center = Offset(px, py),
                         radius = radius,
                     ),
                     blendMode = BlendMode.Plus,
@@ -161,9 +184,6 @@ half4 main(float2 coord) {
     }
 }
 
-/**
- * Remembers a [GlassInteraction] for a pressable glass element.
- */
 @Composable
 public fun rememberGlassInteraction(
     dampingRatio: Float = 0.48f,
@@ -176,7 +196,6 @@ public fun rememberGlassInteraction(
     }
 }
 
-/** Tracks press and drag WITHOUT consuming events, so a clickable on the same element still gets the tap. */
 private suspend fun PointerInputScope.inspectDragGestures(
     onDragStart: (down: PointerInputChange) -> Unit,
     onDragEnd: () -> Unit,

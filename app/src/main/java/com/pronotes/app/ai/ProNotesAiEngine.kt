@@ -81,12 +81,12 @@ data class MathSolution(
 )
 
 enum class StickerStyle(val label: String, val badge: String) {
-    CARTOON_3D("3D Cartoon", "🧸"),
-    WATERCOLOR("Watercolor", "🎨"),
-    POP_ART("Pop Art", "⚡"),
-    ANIME("Anime Studio", "✨"),
-    SKETCH("Sketch Art", "✏️"),
-    MINIMAL("Minimal Vector", "📐"),
+    CARTOON_3D("3D Cartoon", "3D"),
+    WATERCOLOR("Watercolor", "Watercolor"),
+    POP_ART("Pop Art", "Pop Art"),
+    ANIME("Anime Studio", "Anime"),
+    SKETCH("Sketch Art", "Sketch"),
+    MINIMAL("Minimal Vector", "Minimal"),
 }
 
 enum class CoverTheme(val label: String) {
@@ -878,7 +878,7 @@ class ProNotesAiEngine(private val context: Context) {
                 val mathExpr = q.replace(Regex("(?i)^(solve|calculate|evaluate)\\s+"), "").trim()
                 val sol = solveMath(mathExpr)
                 val formattedAnswer = buildString {
-                    appendLine("🔢 **Math Solution: ${sol.input}**")
+                    appendLine("**Math Solution: ${sol.input}**")
                     appendLine("• **Result:** `${sol.result}`")
                     appendLine()
                     appendLine("**Step-by-step reasoning:**")
@@ -891,7 +891,7 @@ class ProNotesAiEngine(private val context: Context) {
                 val questions = generateQuiz(documentContext, 3)
                 if (questions.isNotEmpty()) {
                     val qText = buildString {
-                        appendLine("🎯 **Here is a quick concept quiz from your notes:**\n")
+                        appendLine("**Here is a quick concept quiz from your notes:**\n")
                         questions.forEachIndexed { i, item ->
                             appendLine("**Q${i + 1}: ${item.question}**")
                             item.options.forEachIndexed { oi, opt ->
@@ -923,7 +923,7 @@ class ProNotesAiEngine(private val context: Context) {
                 val topAnswer = rankedPassages.first().first
                 val citations = rankedPassages.mapIndexed { idx, _ -> "Section #${idx + 1}" }
                 val reply = buildString {
-                    appendLine("✨ **Relevant note context:**")
+                    appendLine("**Relevant note context:**")
                     appendLine()
                     appendLine(topAnswer)
                     if (rankedPassages.size > 1) {

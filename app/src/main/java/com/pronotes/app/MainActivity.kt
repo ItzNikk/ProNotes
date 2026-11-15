@@ -68,7 +68,37 @@ class MainActivity : ComponentActivity() {
                 ) {
                     composable("support") { com.pronotes.app.support.SupportScreen(onBack = { nav.popBackStack() }) }
                     composable("studio") {
-                        com.pronotes.app.ai.GalaxyCreativeStudioScreen(onBack = { nav.popBackStack() })
+                        val smartEnabled = com.pronotes.app.ui.LocalSmartFeatures.current
+                        if (smartEnabled) {
+                            com.pronotes.app.ai.GalaxyCreativeStudioScreen(onBack = { nav.popBackStack() })
+                        } else {
+                            androidx.compose.foundation.layout.Box(
+                                modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                                contentAlignment = androidx.compose.ui.Alignment.Center,
+                            ) {
+                                com.pronotes.app.ui.GlassCard(
+                                    modifier = androidx.compose.ui.Modifier.padding(24.dp),
+                                ) {
+                                    androidx.compose.foundation.layout.Column(
+                                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
+                                        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                                    ) {
+                                        androidx.compose.material3.Text(
+                                            "Smart features are turned off",
+                                            style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
+                                        )
+                                        androidx.compose.material3.Text(
+                                            "Turn on Smart features in Settings to use Creative Studio.",
+                                            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                                            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        com.pronotes.app.ui.GlassPill(onClick = { nav.popBackStack() }, selected = true) {
+                                            androidx.compose.material3.Text("Go back")
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     composable("library") {
                         LibraryScreen(
@@ -109,6 +139,17 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         com.pronotes.app.data.Updater.resumeIfWaiting(this)
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        com.pronotes.app.data.MemoryTrimRegistry.dispatch(level)
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onLowMemory() {
+        super.onLowMemory()
+        com.pronotes.app.data.MemoryTrimRegistry.dispatch(android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
     }
 
     override fun onNewIntent(intent: Intent) {

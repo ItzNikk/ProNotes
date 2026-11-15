@@ -38,12 +38,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import com.pronotes.app.ui.LiquidGlassCard
-import com.pronotes.app.ui.LiquidGlassDialogSurface
-import com.pronotes.app.ui.LiquidGlassPill
-import io.github.ntvien.liquidglass.GlassDefaults
-import io.github.ntvien.liquidglass.LiquidGlassTheme
-import io.github.ntvien.liquidglass.component.LiquidSurface
+import com.pronotes.app.ui.GlassCard
+import com.pronotes.app.ui.GlassDialogSurface
+import com.pronotes.app.ui.GlassPill
+import com.pronotes.app.ui.GlassRole
+import com.pronotes.app.ui.GlassSurface
+import com.pronotes.app.ui.LocalSmartFeatures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -101,17 +101,16 @@ fun StudyHero(title: String, subtitle: String, colors: List<Color>, glyph: Strin
 fun AiScanBanner(stage: String, engine: String, colors: List<Color> = StudyColors.cards) {
     val t = rememberInfiniteTransition(label = "scan")
     val sweep by t.animateFloat(-0.4f, 1.4f, infiniteRepeatable(tween(1300, easing = LinearEasing)), label = "sw")
-    LiquidSurface(
-        style = GlassDefaults.frost().copy(fallbackSurface = colors.first().copy(alpha = 0.14f)),
+    GlassSurface(
+        role = GlassRole.Frost,
+        containerColor = colors.first().copy(alpha = 0.14f),
         shape = RoundedCornerShape(16.dp),
         contentPadding = PaddingValues(0.dp),
         modifier = Modifier.fillMaxWidth().border(1.dp, colors.first().copy(alpha = 0.28f), RoundedCornerShape(16.dp)),
     ) {
         Column {
             Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("✦", color = colors.last(), fontWeight = FontWeight.Bold)
-                Spacer(Modifier.width(8.dp))
-                Text(stage.ifBlank { "Synthesising with local AI…" }, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+                Text(stage.ifBlank { "Synthesising locally..." }, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
                 if (engine.isNotBlank()) Text(engine, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Box(Modifier.fillMaxWidth().height(3.dp).background(colors.first().copy(alpha = 0.15f))) {
@@ -133,12 +132,12 @@ fun SessionClock(running: Boolean, onTick: (Long) -> Unit = {}) {
     LaunchedEffect(running) {
         while (running) { delay(1000); ms += 1000; onTick(ms) }
     }
-    LiquidGlassPill(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("⏱", fontSize = 13.sp)
-            Spacer(Modifier.width(6.dp))
-            Text(clock(ms), style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"), color = LiquidGlassTheme.colors.content)
-        }
+    GlassPill(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)) {
+        Text(
+            "Time ${clock(ms)}",
+            style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
+            color = MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 
@@ -164,11 +163,11 @@ fun ScoreRing(percent: Int, colors: List<Color>, modifier: Modifier = Modifier.s
 }
 
 fun feedbackFor(percent: Int): Pair<String, String> = when {
-    percent >= 95 -> "🏆" to "Outstanding! You really know this."
-    percent >= 80 -> "🎉" to "Great work. Just a few to polish."
-    percent >= 60 -> "👍" to "Good progress. Review the ones you missed."
-    percent >= 40 -> "📚" to "Getting there. Another round will help."
-    else -> "🌱" to "A fresh start. Go through the notes and try again."
+    percent >= 95 -> "A+" to "Outstanding! You really know this."
+    percent >= 80 -> "A" to "Great work. Just a few to polish."
+    percent >= 60 -> "B" to "Good progress. Review the ones you missed."
+    percent >= 40 -> "C" to "Getting there. Another round will help."
+    else -> "Go" to "A fresh start. Go through the notes and try again."
 }
 
 /** Redesigned structured Summary Studio sheet. */
@@ -190,7 +189,7 @@ fun SummarySheet(
                 .padding(18.dp),
             contentAlignment = Alignment.Center,
         ) {
-            LiquidGlassDialogSurface(
+            GlassDialogSurface(
                 shape = RoundedCornerShape(28.dp),
                 modifier = Modifier.widthIn(max = 680.dp).fillMaxWidth()
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
@@ -199,10 +198,10 @@ fun SummarySheet(
                     AiParticleBackdrop(Modifier.matchParentSize(), StudyColors.summary, active = true, variant = AiBackdropVariant.AI_WAVE)
                     Column(Modifier.padding(20.dp)) {
                         StudyHero(
-                            "AI Note Summary",
+                            "Note Summary",
                             "${result.wordCount} words · ${result.points.size} core takeaways · ${result.engineLabel}",
                             StudyColors.summary,
-                            "✨",
+                            "S",
                         ) {
                             TextButton(onClick = onClose) { Text("Close", color = Color.White) }
                         }
@@ -211,8 +210,9 @@ fun SummarySheet(
                             Modifier.heightIn(max = 470.dp).verticalScroll(rememberScrollState()),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            LiquidSurface(
-                                style = GlassDefaults.frost().copy(fallbackSurface = StudyColors.summary.first().copy(alpha = 0.14f)),
+                            GlassSurface(
+                                role = GlassRole.Frost,
+                                containerColor = StudyColors.summary.first().copy(alpha = 0.14f),
                                 shape = RoundedCornerShape(20.dp),
                                 contentPadding = PaddingValues(14.dp),
                                 modifier = Modifier.fillMaxWidth().border(1.dp, StudyColors.summary.first().copy(alpha = 0.28f), RoundedCornerShape(20.dp)),
@@ -227,7 +227,7 @@ fun SummarySheet(
                             result.points.forEachIndexed { i, p ->
                                 val a = remember { Animatable(0f) }
                                 LaunchedEffect(result.points) { a.snapTo(0f); delay(90L * i); a.animateTo(1f, tween(380, easing = FastOutSlowInEasing)) }
-                                LiquidGlassCard(
+                                GlassCard(
                                     hero = false,
                                     shape = RoundedCornerShape(18.dp),
                                     contentPadding = PaddingValues(14.dp),
@@ -246,7 +246,7 @@ fun SummarySheet(
                             if (result.definitions.isNotEmpty()) {
                                 Text("KEY DEFINITIONS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 result.definitions.forEach { d ->
-                                    LiquidGlassCard(
+                                    GlassCard(
                                         hero = false,
                                         shape = RoundedCornerShape(16.dp),
                                         contentPadding = PaddingValues(12.dp),
@@ -264,8 +264,9 @@ fun SummarySheet(
                                 Text("FORMULAS & EQUATIONS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     result.formulas.forEach { f ->
-                                        LiquidSurface(
-                                            style = GlassDefaults.frost().copy(fallbackSurface = Color(0xFF181C28), contentColor = Color(0xFFFFD666)),
+                                        GlassSurface(
+                                            role = GlassRole.Frost,
+                                            containerColor = Color(0xFF181C28),
                                             shape = RoundedCornerShape(12.dp),
                                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
                                         ) {
@@ -279,7 +280,7 @@ fun SummarySheet(
                                 Text("CONCEPTS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     result.keywords.forEach { k ->
-                                        LiquidGlassPill(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)) {
+                                        GlassPill(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)) {
                                             Text(k, style = MaterialTheme.typography.labelSmall)
                                         }
                                     }
@@ -290,7 +291,9 @@ fun SummarySheet(
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(onClick = onAdd, shape = CircleShape) { Text("Add to page") }
                             FilledTonalButton(onClick = onAddSticky, shape = CircleShape) { Text("Pin as sticky") }
-                            FilledTonalButton(onClick = onBuildMindMap, shape = CircleShape) { Text("AI Mind Map") }
+                            if (LocalSmartFeatures.current) {
+                                FilledTonalButton(onClick = onBuildMindMap, shape = CircleShape) { Text("AI Mind Map") }
+                            }
                             OutlinedButton(onClick = onCopy, shape = CircleShape) { Text("Copy") }
                         }
                     }
