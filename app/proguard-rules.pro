@@ -42,6 +42,9 @@
 # PdfBox Android & BouncyCastle
 -keep class com.tom_roush.pdfbox.** { *; }
 -keep class com.tom_roush.fontbox.** { *; }
+# PdfBox references this optional codec for JPX images, but it is not bundled.
+# Suppress R8 missing-class errors; JPX image decoding requires the codec at runtime.
+-dontwarn com.gemalto.jp2.**
 -dontwarn org.bouncycastle.**
 -dontwarn java.awt.**
 -dontwarn javax.imageio.**
