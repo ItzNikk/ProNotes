@@ -23,6 +23,8 @@ jobs:
   build-android:
     name: Build Android APK
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.apk.outputs.version }}
 
     steps:
       - name: Check out repository
@@ -90,9 +92,11 @@ jobs:
           if [ -n "$APK_Signed" ]; then
             TARGET="dist-android/ProNotes-v${VERSION_NAME}.apk"
             cp "$APK_Signed" "$TARGET"
+            cp "$APK_Signed" "dist-android/ProNotes.apk"
           elif [ -n "$APK_Unsigned" ]; then
             TARGET="dist-android/ProNotes-v${VERSION_NAME}-unsigned.apk"
             cp "$APK_Unsigned" "$TARGET"
+            cp "$APK_Unsigned" "dist-android/ProNotes.apk"
           else
             echo "::error::No release APK found under app/build/outputs/apk/release"
             ls -la app/build/outputs/apk/release || true
@@ -107,7 +111,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pronotes-android
-          path: ${{ steps.apk.outputs.apk_path }}
+          path: dist-android/*.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -117,7 +121,7 @@ jobs:
   release:
     name: Publish GitHub Release
     needs: [build-android]
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
 
     steps:
@@ -135,18 +139,32 @@ jobs:
         env:
           INPUT_TAG: ${{ inputs.release_tag }}
           REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          APP_VERSION: ${{ needs.build-android.outputs.version }}
         run: |
-          TAG="${INPUT_TAG:-$REF_NAME}"
+          if [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          elif [ "$REF_TYPE" = "tag" ]; then
+            TAG="$REF_NAME"
+          else
+            TAG="v${APP_VERSION:-12.0.0}"
+          fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           mkdir -p publish-assets
-          cp artifacts/pronotes-android/*.apk publish-assets/ || true
+          cp artifacts/pronotes-android/*.apk publish-assets/
           ls -lh publish-assets/
+
+          awk '/^## /{if (f) exit; f=1; next} f' CHANGELOG.md > release-notes.md || true
+          if [ ! -s release-notes.md ]; then
+            echo "Pro Notes $TAG release." > release-notes.md
+          fi
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.prep.outputs.tag }}
           name: Pro Notes ${{ steps.prep.outputs.tag }}
+          body_path: release-notes.md
           generate_release_notes: true
           files: |
             publish-assets/*.apk
