@@ -284,7 +284,7 @@ private fun MovingLettersCore(
                                 }
                                 LetterMotionMode.JUMP -> {
                                     alpha = p.coerceIn(0f, 1f)
-                                    translationY = -(kotlin.math.sin((p.coerceIn(0f, 1f) * PI).toFloat()) * 16.dp.toPx())
+                                    translationY = -(kotlin.math.sin((p.coerceIn(0f, 1f) * kotlin.math.PI).toFloat()) * 16.dp.toPx())
                                 }
                                 LetterMotionMode.ROTATE -> {
                                     alpha = p.coerceIn(0f, 1f)

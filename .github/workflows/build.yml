@@ -1,220 +1,155 @@
-name: Build and release Pro Notes (Android & Windows)
+name: Build and release Pro Notes (Android)
 
 on:
   push:
-    branches: [main]
+    branches: [ main, master ]
+    tags: [ 'v*' ]
   pull_request:
+    branches: [ main, master ]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional tag to publish as a GitHub Release (e.g. v12.0.0). Leave empty for a build-only run.'
+        required: false
+        default: ''
 
 permissions:
   contents: write
 
-concurrency:
-  group: pronotes-release-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
+  # ============================================================================
+  # 1. Android APK Build
+  # ============================================================================
   build-android:
     name: Build Android APK
     runs-on: ubuntu-latest
-    outputs:
-      version_name: ${{ steps.version.outputs.version_name }}
-      release_tag: ${{ steps.version.outputs.release_tag }}
+
     steps:
-      - name: Check out source
+      - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Java 17
+      - name: Verify Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v3
+
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Set up Android SDK & Licenses
-        run: |
-          mkdir -p "$ANDROID_HOME/licenses"
-          printf "\n24333f8a63b6825ea9c5514f83c2829b004d1fee" >> "$ANDROID_HOME/licenses/android-sdk-license"
-          printf "\n84831b9409646a918e30573bab4c9c91346d8abd" >> "$ANDROID_HOME/licenses/android-sdk-preview-license"
-          printf "\n89377a6dd597979a4b735e82f0250a435b0f4dd4" >> "$ANDROID_HOME/licenses/android-sdk-preview-license"
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platform-tools" "platforms;android-36" "build-tools;36.0.0" || true
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          distribution: 'temurin'
+          java-version: '17'
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.13"
+          gradle-version: '8.9'
 
-      # Ensure a valid signing key is always ready (production secret, decoded fallback, or generated).
-      - name: Prepare signing keys
+      - name: Decode signing keystore (if configured)
+        id: keystore
         env:
-          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          mkdir -p ~/.android
-          if [ -f debug.keystore.base64 ]; then
-            base64 -d debug.keystore.base64 > ~/.android/debug.keystore 2>/dev/null || base64 --decode debug.keystore.base64 > ~/.android/debug.keystore
-          fi
-          if [ ! -s ~/.android/debug.keystore ]; then
-            keytool -genkey -v -keystore ~/.android/debug.keystore \
-              -storepass android -alias androiddebugkey -keypass android \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
-          test -s ~/.android/debug.keystore
-
-          if [ -n "$KEYSTORE_B64" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/pronotes-release.p12" 2>/dev/null || echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/pronotes-release.p12"
-            echo "SIGNING_KEYSTORE_PATH=$RUNNER_TEMP/pronotes-release.p12" >> "$GITHUB_ENV"
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.keystore"
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "Signing keystore loaded from repository secrets."
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Android signing secrets not configured — APK will be signed with the fallback key so it is installable."
           fi
 
-      - name: Calculate version
-        id: version
-        shell: bash
+      - name: Build release APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          PRONOTES_UPI: ${{ vars.PRONOTES_UPI }}
+          PRONOTES_UPI_NAME: ${{ vars.PRONOTES_UPI_NAME }}
+          CLOUD_PROJECT_ID: ${{ secrets.CLOUD_PROJECT_ID }}
+          CLOUD_DB_ID: ${{ secrets.CLOUD_DB_ID }}
+          CLOUD_API_KEY: ${{ secrets.CLOUD_API_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
         run: |
-          set -euo pipefail
-          BASE_VERSION="$(grep -m1 -oE '^## v[0-9]+(\.[0-9]+)*' CHANGELOG.md | sed 's/^## v//')"
-          if [ -z "$BASE_VERSION" ]; then
-            echo "No semantic version heading found in CHANGELOG.md" >&2
+          EXTRA=""
+          if [ -n "$PRONOTES_UPI" ]; then
+            EXTRA="$EXTRA -Ppronotes.upi=$PRONOTES_UPI"
+          fi
+          if [ -n "$PRONOTES_UPI_NAME" ]; then
+            EXTRA="$EXTRA -Ppronotes.upiName=$PRONOTES_UPI_NAME"
+          fi
+          gradle :app:assembleRelease --stacktrace $EXTRA
+
+      - name: Collect APK
+        id: apk
+        run: |
+          mkdir -p dist-android
+          APK_Signed=$(find app/build/outputs/apk/release -name "*-release.apk" | head -n 1)
+          APK_Unsigned=$(find app/build/outputs/apk/release -name "*-release-unsigned.apk" | head -n 1)
+          VERSION_NAME=$(grep -E 'versionName\s*=' app/build.gradle.kts | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+          VERSION_NAME=${VERSION_NAME:-12.0.0}
+
+          if [ -n "$APK_Signed" ]; then
+            TARGET="dist-android/ProNotes-v${VERSION_NAME}.apk"
+            cp "$APK_Signed" "$TARGET"
+          elif [ -n "$APK_Unsigned" ]; then
+            TARGET="dist-android/ProNotes-v${VERSION_NAME}-unsigned.apk"
+            cp "$APK_Unsigned" "$TARGET"
+          else
+            echo "::error::No release APK found under app/build/outputs/apk/release"
+            ls -la app/build/outputs/apk/release || true
             exit 1
           fi
-          VERSION_CODE="${GITHUB_RUN_NUMBER:-1}"
-          VERSION_NAME="${BASE_VERSION}.${VERSION_CODE}"
-          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
-          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
-          echo "RELEASE_TAG=v$VERSION_NAME" >> "$GITHUB_ENV"
-          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
-          echo "release_tag=v$VERSION_NAME" >> "$GITHUB_OUTPUT"
-          echo "Building Pro Notes $VERSION_NAME (versionCode $VERSION_CODE)"
 
-      - name: Build Android release APK
-        env:
-          VERSION_NAME: ${{ env.VERSION_NAME }}
-          VERSION_CODE: ${{ env.VERSION_CODE }}
-          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
-          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
-          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
-          SUPPORT_UPI: ${{ secrets.SUPPORT_UPI }}
-          SUPPORT_UPI_NAME: Pro Notes
-        run: |
-          gradle :app:assembleRelease --stacktrace
-          mkdir -p release-assets
-          APK="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | head -n 1)"
-          if [ -z "$APK" ]; then
-            echo "Release APK was not produced" >&2
-            exit 1
-          fi
-          cp "$APK" release-assets/ProNotes.apk
-          cp "$APK" "release-assets/ProNotes-v${{ env.VERSION_NAME }}.apk"
-          test -s release-assets/ProNotes.apk
+          echo "apk_path=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          ls -lh dist-android/
 
       - name: Upload Android APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: pronotes-android
-          path: release-assets/*.apk
+          path: ${{ steps.apk.outputs.apk_path }}
           if-no-files-found: error
           retention-days: 30
 
-  build-windows:
-    name: Build Windows Installer (.exe)
-    runs-on: windows-latest
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-
-      - name: Calculate Windows version
-        shell: bash
-        run: |
-          set -euo pipefail
-          BASE_VERSION="$(grep -m1 -oE '^## v[0-9]+(\.[0-9]+)*' CHANGELOG.md | sed 's/^## v//')"
-          VERSION_CODE="${GITHUB_RUN_NUMBER:-1}"
-          VERSION_NAME="${BASE_VERSION}.${VERSION_CODE}"
-          echo "BASE_VERSION=$BASE_VERSION" >> "$GITHUB_ENV"
-          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
-
-      - name: Set up Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust dependencies
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - name: Install frontend dependencies & build web bundle
-        shell: bash
-        run: |
-          npm ci || npm install --no-audit --no-fund
-          npm run build
-
-      - name: Build Tauri Windows NSIS Installer
-        shell: bash
-        run: |
-          npx --yes @tauri-apps/cli@2 build --bundles nsis
-          mkdir -p release-assets
-          EXE="$(find src-tauri/target/release/bundle/nsis -maxdepth 1 -type f -name '*.exe' | head -n 1)"
-          if [ -z "$EXE" ]; then
-            echo "Windows NSIS installer (.exe) was not produced" >&2
-            exit 1
-          fi
-          cp "$EXE" release-assets/ProNotes-Setup.exe
-          cp "$EXE" "release-assets/ProNotes-Setup-v${{ env.VERSION_NAME }}.exe"
-          test -s release-assets/ProNotes-Setup.exe
-
-      - name: Upload Windows EXE artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: pronotes-windows
-          path: release-assets/*.exe
-          if-no-files-found: error
-          retention-days: 30
-
+  # ============================================================================
+  # 2. Combined GitHub Release (Android APK)
+  # ============================================================================
   release:
-    name: Publish Cross-Platform GitHub Release
-    needs: [build-android, build-windows]
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    name: Publish GitHub Release
+    needs: [build-android]
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     runs-on: ubuntu-latest
+
     steps:
-      - name: Check out source
+      - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Download Android & Windows artifacts
+      - name: Download Android artifact
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          name: pronotes-android
+          path: artifacts/pronotes-android
 
-      - name: Prepare release notes & staging folder
-        shell: bash
-        run: |
-          set -euo pipefail
-          awk '/^## v/{if (found) exit; found=1; next} found {print}' CHANGELOG.md > RELEASE_NOTES.md
-          if [ ! -s RELEASE_NOTES.md ]; then
-            echo "Pro Notes cross-platform improvements and fixes." > RELEASE_NOTES.md
-          fi
-          mkdir -p publish-assets
-          cp artifacts/pronotes-android/*.apk publish-assets/
-          cp artifacts/pronotes-windows/*.exe publish-assets/
-          ls -lh publish-assets
-
-      - name: Clean up existing release tag if re-running
+      - name: Prepare release assets
+        id: prep
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          gh release delete "${{ needs.build-android.outputs.release_tag }}" --cleanup-tag --yes || true
+          TAG="${INPUT_TAG:-$REF_NAME}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          mkdir -p publish-assets
+          cp artifacts/pronotes-android/*.apk publish-assets/ || true
+          ls -lh publish-assets/
 
-      - name: Publish GitHub Release (APK + Windows Setup EXE)
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.build-android.outputs.release_tag }}
-          target_commitish: ${{ github.sha }}
-          name: Pro Notes ${{ needs.build-android.outputs.version_name }}
-          make_latest: true
+          tag_name: ${{ steps.prep.outputs.tag }}
+          name: Pro Notes ${{ steps.prep.outputs.tag }}
+          generate_release_notes: true
           files: |
             publish-assets/*.apk
-            publish-assets/*.exe
-          body_path: RELEASE_NOTES.md

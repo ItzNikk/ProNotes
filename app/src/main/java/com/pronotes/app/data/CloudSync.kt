@@ -152,6 +152,10 @@ object CloudSync {
         _signInDialogOpen.value = true
     }
 
+    fun requestSignIn() {
+        _signInDialogOpen.value = true
+    }
+
     fun dismissSignInDialog() {
         _signInDialogOpen.value = false
     }
@@ -971,7 +975,8 @@ fun CloudSignInDialogHost() {
         }
     }
 
-    if (curUser != null) {
+    val activeUser = curUser
+    if (activeUser != null) {
         com.pronotes.app.ui.AppDialog(
             onDismissRequest = { CloudSync.dismissSignInDialog() },
             title = {
@@ -982,9 +987,9 @@ fun CloudSignInDialogHost() {
                     com.pronotes.app.ui.AppCard(modifier = Modifier.fillMaxWidth()) {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("Signed in as", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                            Text(curUser!!.email, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            if (curUser!!.displayName.isNotBlank()) {
-                                Text(curUser!!.displayName, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(activeUser.email, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            if (activeUser.displayName.isNotBlank()) {
+                                Text(activeUser.displayName, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }

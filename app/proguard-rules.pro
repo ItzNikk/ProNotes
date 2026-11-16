@@ -1,9 +1,12 @@
-# Preserve source file & line numbers for readable crash reports
--keepattributes SourceFile,LineNumberTable
--renamesourcefileattribute SourceFile
+# Keep ProNotes data and serialization models
+-keep class com.pronotes.app.data.** { *; }
+-keep class com.pronotes.app.editor.PageDoc { *; }
+-keep class com.pronotes.app.editor.PageItem { *; }
+-keep class com.pronotes.app.editor.PageItem$* { *; }
+-keep class com.pronotes.app.editor.StrokePoint { *; }
 
-# kotlinx.serialization
--keepattributes *Annotation*, InnerClasses
+# Kotlinx Serialization
+-keepattributes *Annotation*, InnerClasses, Signature
 -dontnote kotlinx.serialization.AnnotationsKt
 -keepclassmembers class kotlinx.serialization.json.** {
     *** Companion;
@@ -19,42 +22,40 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
-# Serialized data models & ItemDoc hierarchy
--keep class com.pronotes.app.data.** { *; }
--keep class com.pronotes.app.editor.ItemDoc* { *; }
--keep class com.pronotes.app.editor.BrushDoc { *; }
--keep class com.pronotes.app.editor.PageDoc { *; }
--keep class com.pronotes.app.editor.NoteDoc { *; }
--keep class com.pronotes.app.editor.PagesManifest { *; }
-
-# Jetpack Ink JNI & Stroke/Brush classes
+# Jetpack Ink native bridge & JNI classes
 -keep class androidx.ink.** { *; }
--keepclassmembers class androidx.ink.** {
-    native <methods>;
-    <init>(...);
-}
--keep class androidx.input.motionprediction.** { *; }
+-dontwarn androidx.ink.**
+-keep class androidx.graphics.** { *; }
+-dontwarn androidx.graphics.**
 
-# PdfBox Android & BouncyCastle
+# PdfBox-Android internal font & cmap reflection
 -keep class com.tom_roush.pdfbox.** { *; }
 -keep class com.tom_roush.fontbox.** { *; }
-# PdfBox references this optional codec for JPX images, but it is not bundled.
-# Suppress R8 missing-class errors; JPX image decoding requires the codec at runtime.
--dontwarn com.gemalto.jp2.**
+-keep class com.tom_roush.harmony.** { *; }
+-dontwarn com.tom_roush.**
 -dontwarn org.bouncycastle.**
 -dontwarn java.awt.**
 -dontwarn javax.imageio.**
 -dontwarn javax.swing.**
+-dontwarn java.beans.**
+-dontwarn javax.naming.**
+-dontwarn javax.jai.**
+-dontwarn javax.media.**
+-dontwarn org.slf4j.**
 -dontwarn org.apache.commons.logging.**
+-dontwarn org.apache.harmony.**
+-dontwarn org.levigo.**
+-dontwarn dalvik.system.**
+-dontwarn sun.misc.**
+-dontwarn java.lang.instrument.**
+-dontwarn kotlinx.coroutines.debug.**
 
-# Coil 3 image loader
--keep class coil3.** { *; }
--dontwarn coil3.**
+# Fix missing JP2 classes error in R8
+-dontwarn com.gemalto.jp2.**
+-ignorewarnings
 
-# Kotlin coroutines
--keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
--keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
--dontwarn kotlinx.coroutines.flow.**
-
-# Baseline Profile installer
--keep class androidx.profileinstaller.** { *; }
+# BroadcastReceivers & Services referenced in AndroidManifest
+-keep public class com.pronotes.app.UpdatedReceiver
+-keep public class com.pronotes.app.InstallResultReceiver
+-keep public class com.pronotes.app.UpdateCheckReceiver
+-keep public class com.pronotes.app.data.UpdateDownloadService
