@@ -1,5 +1,13 @@
 # Changelog
 
+## v12.0.0
+- **Kindle Book Reading Mode**: Distraction-free book reader with Paper, Sepia, and Night themes, single-page and wide-tablet two-page spread toggle, interactive 3D page-turn curl animations, edge-tap turning, and a bottom page scrubber.
+- **Animated Moving Gradient & Fanned Card Stack**: Continuously shifting ambient color gradient paired with an interactive fanned card deck that auto-cycles through core workflows on the preview screen and switches on tap in the library header.
+- **Kinetic Typography (`MovingLetters`)**: Expressive letter-by-letter scale, bounce, fade, and rotation reveal animations across headings, study slides, onboarding titles, and workspace prompts.
+- **Obsidian & Paper Light Editor Chrome**: Redesigned connected notebook tab strip, compact Undo/Redo dock pill, clean floating tool dock (`Pen`, `Highlighter`, `Shapes`, `Eraser`, `Lasso`, `Laser`, `Text`, `Tape`, `Mind Map`), and anchored caret tool popovers aligned for tablet multitasking.
+- **Borderless `AppSurface` Architecture & Color Palette**: Solid high-contrast Material 3 surfaces with customizable corner roundness (`8dp`–`32dp`), tactile elastic touch physics, and signature vibrant control accents without heavy optical blur layers.
+- **Streamlined Native Android Workspace**: Focused purely on fast Android handwriting, PDF annotation, Flashcards, Mind Maps, SlideShow presentations, Ink Links, Live Study Rooms, and Writable Split View — removing AI generation suites, quizzes, Liquid Glass shaders, and standalone web shells for lighter APK size and predictable performance.
+
 ## v11.0.0
 - **Liquid Glass Overhaul & Transparency Fix**: Redesigned floating navigation bar and editor toolbar with true optical translucency, customizable glass corner roundness (8dp to 36dp), and one-tap Liquid Glass toggle.
 - **Reworked High-Contrast Controls & Icons**: Redesigned all action buttons and icons with vibrant high-contrast accents, clear labels, and spring touch physics.

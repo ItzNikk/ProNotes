@@ -57,7 +57,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var title by mutableStateOf(repo.meta(noteId)?.title ?: "Notebook")
         private set
     val isPdf: Boolean get() = repo.pdfFile(noteId).exists()
-    val aiEngineLabel: String get() = LocalAiManager.activeEngineLabel(getApplication())
 
     // ---------------------------------------------------------------- tools
     /** Last session's choices: tool, pen type, colours, sizes. */
@@ -143,8 +142,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var searchQuery by mutableStateOf("")
     var searchHits by mutableStateOf<List<SearchHit>>(emptyList())
         private set
-    var searchAiAnswer by mutableStateOf<SearchAiResult?>(null)
-        private set
     var activeHit by mutableStateOf(-1)
         private set
     var searching by mutableStateOf(false)
@@ -179,8 +176,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     /** Where the study timer sits, as fractions of the canvas (shared by all notebooks). */
     fun timerPos(): Pair<Float, Float> {
-        val p = store.pref("timerPos", "0.5,0.93").split(',')
-        return (p.getOrNull(0)?.toFloatOrNull() ?: 0.5f) to (p.getOrNull(1)?.toFloatOrNull() ?: 0.93f)
+        val p = store.pref("timerPos", "0.86,0.92").split(',')
+        return (p.getOrNull(0)?.toFloatOrNull() ?: 0.86f) to (p.getOrNull(1)?.toFloatOrNull() ?: 0.92f)
     }
     fun setTimerPos(x: Float, y: Float) = store.setPref("timerPos", "$x,$y")
 
@@ -217,11 +214,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         }
         if (initTool != null) _tool = initTool
         viewModelScope.launch {
-            LocalAiManager.stage.collect { st ->
-                if (st.isNotBlank()) aiStage = st
-            }
-        }
-        viewModelScope.launch {
             val loadedPages = withContext(Dispatchers.IO) { repo.loadPages(noteId) }
             startPage = store.pref("page_$noteId", "0").toIntOrNull()?.coerceIn(0, (loadedPages.size - 1).coerceAtLeast(0)) ?: 0
             pages.clear(); pages.addAll(loadedPages)
@@ -230,9 +222,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             onPagesChanged?.invoke()
 
             // Secondary metadata & caches load in the background without delaying the canvas.
-            if (store.settings.value.smartFeatures) {
-                launch(Dispatchers.IO) { LocalAiManager.refresh(app) }
-            }
             launch(Dispatchers.IO) { loadStudy() }
             launch(Dispatchers.IO) { repo.markOpened(noteId) }
             prefetchPdf(startPage)
@@ -1211,21 +1200,18 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         }
     }
 
-    fun generateMindMapFromNotes() {
-        if (!store.settings.value.smartFeatures) { say("Smart features are turned off"); return }
+    fun buildMindMapFromNotes() {
         val pageIdx = pageIndex
-        val p = pages.getOrNull(pageIdx) ?: return
+        pages.getOrNull(pageIdx) ?: return
         viewModelScope.launch {
-            aiStage = "Building mind map branches…"
-            aiBusy = true
-            val (rootTitle, branches) = try {
-                val (text, _) = studyText(pageIdx..pageIdx)
-                runCatching { Nano.mindMap(title, text) }.getOrNull()
-                    ?: LocalAiManager.buildMindMap(getApplication(), title, text)
-            } finally {
-                aiBusy = false
-                aiStage = ""
-            }
+            val (rawText, _) = studyText(pageIdx..pageIdx)
+            val lines = rawText.split('\n', '.', '•', ';')
+                .map { it.trim().trim('-', '*', ' ') }
+                .filter { it.length >= 3 }
+                .distinct()
+            val rootTitle = title.ifBlank { "Central Topic" }.take(36)
+            val branchSeeds = lines.take(6).ifEmpty { listOf("Key Concepts", "Examples", "Questions", "Summary") }
+
             val nowPage = pages.getOrNull(pageIdx) ?: return@launch
             val outNodes = ArrayList<MindNodeItem>()
             val (rw, rh) = mindBoxSize(rootTitle, "pill")
@@ -1241,12 +1227,16 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 color = MindPalette[0],
                 shape = "pill",
             )
-            branches.forEachIndexed { bIdx, (branchTitle, children) ->
+            val remaining = lines.drop(branchSeeds.size)
+            branchSeeds.forEachIndexed { bIdx, branchRaw ->
                 val branchColor = MindPalette[(bIdx + 1) % MindPalette.size]
+                val branchTitle = branchRaw.take(32)
                 val (bw, bh) = mindBoxSize(branchTitle, "rect")
                 val bid = ItemIds.next()
                 outNodes += MindNodeItem(bid, 0f, 0f, bw, bh, branchTitle, rootId, branchColor, "rect")
-                children.forEach { childLabel ->
+                val childIdx = bIdx
+                remaining.getOrNull(childIdx)?.let { childRaw ->
+                    val childLabel = childRaw.take(30)
                     val (cw, ch) = mindBoxSize(childLabel, "pill")
                     outNodes += MindNodeItem(ItemIds.next(), 0f, 0f, cw, ch, childLabel, bid, branchColor, "pill")
                 }
@@ -1257,7 +1247,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             val kept = nowPage.items.filterNot { it is MindNodeItem }
             applyItems(pageIdx, kept + outNodes)
             autoLayoutMindMap(MindLayout.RADIAL)
-            say("Generated mind map (${outNodes.size} nodes)")
+            say("Built mind map (${outNodes.size} nodes)")
         }
     }
 
@@ -1455,6 +1445,11 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         return renderThumb(page, width)?.also { thumbs.put(key, it) }
     }
 
+    suspend fun renderReaderPage(index: Int, width: Int): Bitmap? {
+        val clampedW = width.coerceIn(640, 1480)
+        return thumbnail(index, clampedW)
+    }
+
     private suspend fun renderThumb(page: Page, width: Int): Bitmap? = withContext(Dispatchers.Default) {
         val scale = width / page.width
         val h = (page.height * scale).toInt().coerceAtLeast(1)
@@ -1496,9 +1491,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var linkFrom by mutableStateOf<Triple<String, Float, Float>?>(null)
     var linkToDelete by mutableStateOf<String?>(null)
 
-    private fun loadStudy() { val d = study.load(); cards = d.cards; links = d.links; quiz = d.quiz; slides = d.slides }
+    private fun loadStudy() { val d = study.load(); cards = d.cards; links = d.links; slides = d.slides }
     private fun saveStudy() {
-        val d = com.pronotes.app.data.StudyData(cards, links, quiz, slides)
+        val d = com.pronotes.app.data.StudyData(cards, links, slides)
         viewModelScope.launch(Dispatchers.IO) { runCatching { study.save(d) } }
     }
 
@@ -1506,15 +1501,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     fun cardImage(name: String?): Bitmap? = name?.let { runCatching { android.graphics.BitmapFactory.decodeFile(java.io.File(study.cardDir(), it).path) }.getOrNull() }
 
-    /** What the next dragged box is for: a flashcard (false) or a quiz question (true). */
-    var captureForQuiz by mutableStateOf(false)
-    /** A question waiting in the quiz editor (opened from outside the quiz sheet). */
-    var quizDraft by mutableStateOf<com.pronotes.app.data.QuizQuestion?>(null)
-
     /** Card waiting for its answer to be cut from the page. */
     var backFor by mutableStateOf<CardDraft?>(null)
 
-    fun captureBack(d: CardDraft) { backFor = d; cardDraft = null; captureForQuiz = false; capturingCard = true }
+    fun captureBack(d: CardDraft) { backFor = d; cardDraft = null; capturingCard = true }
 
     fun onAreaPicked(pageIdx: Int, r: RectF) {
         capturingCard = false
@@ -1534,46 +1524,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             }
             return
         }
-        if (captureForQuiz) { captureForQuiz = false; startQuizFromArea(pageIdx, r) } else startCardFromArea(pageIdx, r)
-    }
-
-    /**
-     * Picture quiz: the boxed area becomes the question's picture. With the on-device model it reads
-     * the picture and writes questions; otherwise you get an editor with the picture to write your own.
-     */
-    private fun startQuizFromArea(pageIdx: Int, r: RectF) {
-        val page = pages.getOrNull(pageIdx) ?: return
-        viewModelScope.launch {
-            val bmp = regionImage(page, r) ?: return@launch
-            val name = "q-${UUID.randomUUID()}.png"
-            withContext(Dispatchers.IO) { java.io.File(study.cardDir(), name).outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) } }
-            aiBusy = true
-            val made = try { runCatching { Nano.quizFromImage(bmp, 3) }.getOrNull() } finally { aiBusy = false }
-            if (made.isNullOrEmpty()) {
-                quizDraft = com.pronotes.app.data.QuizQuestion(UUID.randomUUID().toString(), "", listOf("", "", "", ""), 0, pageId = page.id, image = name)
-                showQuizRequest++
-            } else {
-                quiz = quiz + made.map { com.pronotes.app.data.QuizQuestion(UUID.randomUUID().toString(), it.question, it.options, it.answer, it.explanation, page.id, generated = true, image = name) }
-                saveStudy()
-                say("Added ${made.size} picture questions")
-                showQuizRequest++
-            }
-        }
-    }
-
-    /** Bumped to ask the editor to open the quiz sheet. */
-    var showQuizRequest by mutableStateOf(0)
-
-    /** Best score (percent) and its time, per notebook. */
-    fun quizBest(): Pair<Int, Long>? = store.pref("quizBest_$noteId").split(',').let { p ->
-        val s = p.getOrNull(0)?.toIntOrNull() ?: return null
-        s to (p.getOrNull(1)?.toLongOrNull() ?: 0L)
-    }
-    fun recordQuiz(percent: Int, ms: Long): Boolean {
-        val b = quizBest()
-        val better = b == null || percent > b.first || (percent == b.first && ms < b.second)
-        if (better) store.setPref("quizBest_$noteId", "$percent,$ms")
-        return better
+        startCardFromArea(pageIdx, r)
     }
 
     /** Cuts a picture of [r] on page [pageIdx] (paper, PDF and ink) and opens the card editor. */
@@ -1742,23 +1693,18 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun search(query: String) {
         searchQuery = query
         searchJob?.cancel()
-        if (query.isBlank()) { searchHits = emptyList(); searchAiAnswer = null; activeHit = -1; return }
+        if (query.isBlank()) { searchHits = emptyList(); activeHit = -1; return }
         searchJob = viewModelScope.launch {
             delay(250)
             searching = true
             val hits = ArrayList<SearchHit>()
-            val corpusSb = StringBuilder()
             if (isPdf) {
                 val index = textIndex()
                 val map = pages.withIndex().filter { it.value.pdfPage >= 0 }.associate { it.value.pdfPage to it.index }
                 if (index != null) hits += withContext(Dispatchers.Default) { index.search(query) { map[it] } }
             }
-            // Typed text, sticky notes, web links, and mind map nodes are searchable.
+            // Typed text, sticky notes, web links, write boxes, and mind map nodes are searchable.
             pages.forEachIndexed { i, p ->
-                if (isPdf && p.pdfPage >= 0) {
-                    val pageTxt = indexFor(p.pdfPage)?.pageText(p.pdfPage).orEmpty()
-                    if (pageTxt.isNotBlank()) corpusSb.append(pageTxt.take(1200)).append('\n')
-                }
                 p.items.forEach { item ->
                     val text = when (item) {
                         is TextItem -> item.text
@@ -1768,36 +1714,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                         is WriteBoxItem -> item.convertedText
                         else -> ""
                     }
-                    if (text.isNotEmpty()) {
-                        corpusSb.append(text).append('\n')
-                        if (text.contains(query, ignoreCase = true)) hits += SearchHit(i, listOf(item.bounds), text.take(64))
-                    }
-                }
-            }
-            val aiRes = if (store.settings.value.smartFeatures && query.trim().length >= 3) {
-                LocalAiManager.semanticSearch(getApplication(), query, corpusSb.toString())
-            } else SearchAiResult()
-            searchAiAnswer = aiRes.takeIf { it.answer.isNotBlank() || it.expandedTerms.isNotEmpty() }
-
-            // Semantic concept matches from downloaded local model / Nano / Custom AI
-            if (aiRes.expandedTerms.isNotEmpty()) {
-                val seenPages = hits.map { it.page to it.snippet }.toHashSet()
-                pages.forEachIndexed { i, p ->
-                    p.items.forEach { item ->
-                        val text = when (item) {
-                            is TextItem -> item.text
-                            is StickyItem -> listOf(item.title, item.text).filter { it.isNotBlank() }.joinToString(" · ")
-                            is WebLinkItem -> listOf(item.title, item.note).filter { it.isNotBlank() }.joinToString(" · ")
-                            is MindNodeItem -> listOf(item.label, item.tag, item.notes).filter { it.isNotBlank() }.joinToString(" · ")
-                            is WriteBoxItem -> item.convertedText
-                            else -> ""
-                        }
-                        if (text.isNotEmpty() && !text.contains(query, ignoreCase = true)) {
-                            val term = aiRes.expandedTerms.firstOrNull { text.contains(it, ignoreCase = true) }
-                            if (term != null && seenPages.add(i to text.take(64))) {
-                                hits += SearchHit(i, listOf(item.bounds), "AI · $term: ${text.take(52)}")
-                            }
-                        }
+                    if (text.isNotEmpty() && text.contains(query, ignoreCase = true)) {
+                        hits += SearchHit(i, listOf(item.bounds), text.take(64))
                     }
                 }
             }
@@ -1837,7 +1755,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         searchJob?.cancel()
         searchQuery = ""
         searchHits = emptyList()
-        searchAiAnswer = null
         activeHit = -1
         onPagesChanged?.invoke()
     }
@@ -1852,9 +1769,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         toast = msg
         viewModelScope.launch { delay(2600); if (toast == msg) toast = null }
     }
-    var aiBusy by mutableStateOf(false)
-        private set
-    var aiStage by mutableStateOf("")
+    var pdfTextBusy by mutableStateOf(false)
         private set
 
     /** Lasso -> save the selection as a picture in Photos. */
@@ -1896,11 +1811,11 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         if (idx == null) {
             // Read just this page, then finish the long-press.
             if (pageTextJob?.isActive != true) pageTextJob = viewModelScope.launch {
-                aiBusy = true
+                pdfTextBusy = true
                 val one = withContext(Dispatchers.IO) {
                     runCatching { PdfTextIndex.build(getApplication(), repo.pdfFile(noteId), only = setOf(pg.pdfPage)) { if (it == pg.pdfPage) pg.width else null } }.getOrNull()
                 }
-                aiBusy = false
+                pdfTextBusy = false
                 if (one == null) { say("This PDF has no selectable text (it may be a scan)"); return@launch }
                 pageTextIdx[pg.pdfPage] = one
                 if (!textPress(page, x, y)) say("No text here. Long-press on a word.")
@@ -1960,137 +1875,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         clearTextSel()
     }
 
-    /** Explanation of the selected text, from on-device model when available. */
-    var explanation by mutableStateOf<Pair<String, String>?>(null)
-
-    fun explainTextSel() {
-        if (!store.settings.value.smartFeatures) { clearTextSel(); say("Smart features are turned off"); return }
-        val s = textSel ?: return
-        clearTextSel()
-        viewModelScope.launch {
-            aiStage = "Analyzing selected concept…"
-            aiBusy = true
-            val ctx = try { indexFor(s.pdfPage)?.pageText(s.pdfPage) ?: "" } finally { }
-            val ans = try {
-                runCatching { Nano.explain(s.text, ctx) }.getOrNull()
-                    ?: LocalAiManager.explain(getApplication(), s.text, ctx)
-            } finally {
-                aiBusy = false
-                aiStage = ""
-            }
-            explanation = s.text to ans
-        }
-    }
-
-    /** Explains whatever items/strokes/text are currently selected by the Lasso tool using AI. */
-    fun explainLassoSelection() {
-        if (!store.settings.value.smartFeatures) { say("Smart features are turned off"); return }
-        val pgIdx = selectionPage
-        val p = pages.getOrNull(pgIdx) ?: return
-        val selectedItems = p.items.filter { it.id in selection }
-        if (selectedItems.isEmpty()) return
-
-        val extractedParts = mutableListOf<String>()
-        selectedItems.forEach { item ->
-            when (item) {
-                is TextItem -> if (item.text.isNotBlank()) extractedParts += item.text.trim()
-                is StickyItem -> {
-                    val t = listOfNotNull(item.title.takeIf { it.isNotBlank() }, item.text.takeIf { it.isNotBlank() }).joinToString(": ")
-                    if (t.isNotBlank()) extractedParts += t
-                }
-                is WebLinkItem -> {
-                    val linkTxt = listOf(item.title, item.url, item.note).filter { it.isNotBlank() }.joinToString(" · ")
-                    if (linkTxt.isNotBlank()) extractedParts += linkTxt
-                }
-                is MindNodeItem -> {
-                    val mindTxt = listOf(item.tag, item.label, item.notes).filter { it.isNotBlank() }.joinToString(" — ")
-                    if (mindTxt.isNotBlank()) extractedParts += mindTxt
-                }
-                else -> Unit
-            }
-        }
-
-        viewModelScope.launch {
-            aiStage = "Explaining selection…"
-            aiBusy = true
-            val pageCtx = extractPageSummaryText(pgIdx).ifBlank {
-                p.pdfPage?.let { pdfPg -> indexFor(pdfPg)?.pageText(pdfPg) }.orEmpty()
-            }
-            val selectedText = if (extractedParts.isNotEmpty()) {
-                extractedParts.joinToString("\n")
-            } else {
-                val nearbyText = p.items.filterIsInstance<TextItem>().map { it.text.trim() }.filter { it.isNotBlank() }.take(3)
-                val headings = pageCtx.lines().map { it.trim() }.filter { it.length >= 4 }.take(2)
-                (nearbyText + headings).firstOrNull()?.take(80) ?: title.ifBlank { "Study Concept" }
-            }
-            val ans = try {
-                runCatching { Nano.explain(selectedText, pageCtx) }.getOrNull()
-                    ?: LocalAiManager.explain(getApplication(), selectedText, pageCtx)
-            } finally {
-                aiBusy = false
-                aiStage = ""
-            }
-            explanation = selectedText to ans
-        }
-    }
-
-    /** Explains the current page's concepts using AI. */
-    fun explainCurrentPage() {
-        if (!store.settings.value.smartFeatures) { say("Smart features are turned off"); return }
-        val pgIdx = pageIndex
-        viewModelScope.launch {
-            aiStage = "Explaining Page ${pgIdx + 1}…"
-            aiBusy = true
-            val pageCtx = extractPageSummaryText(pgIdx).ifBlank {
-                pages.getOrNull(pgIdx)?.pdfPage?.let { pdfPg -> indexFor(pdfPg)?.pageText(pdfPg) }.orEmpty()
-            }.ifBlank { "Notebook \"$title\" · Page ${pgIdx + 1}" }
-            val ans = try {
-                LocalAiManager.explain(getApplication(), pageCtx.take(600), pageCtx)
-            } finally {
-                aiBusy = false
-                aiStage = ""
-            }
-            explanation = "Page ${pgIdx + 1} · $title" to ans
-        }
-    }
-
-    /** Questions made from just the selected text. */
-    fun quizFromTextSel() {
-        if (!store.settings.value.smartFeatures) { clearTextSel(); say("Smart features are turned off"); return }
-        val s = textSel ?: return
-        val pid = pages.getOrNull(s.page)?.id
-        clearTextSel()
-        viewModelScope.launch {
-            aiBusy = true
-            val ctx = indexFor(s.pdfPage)?.pageText(s.pdfPage) ?: s.text
-            val made = try {
-                runCatching { Nano.quiz(s.text, 3) }.getOrNull() ?: withContext(Dispatchers.Default) { StudyGen.quiz(s.text + "\n" + ctx, 3) }
-            } finally { aiBusy = false }
-            val add = made.map { com.pronotes.app.data.QuizQuestion(UUID.randomUUID().toString(), it.question, it.options, it.answer, it.explanation, pid, generated = true) }
-            quiz = quiz + add
-            saveStudy()
-            say(if (add.isEmpty()) "Select a longer passage to make questions" else "Added ${add.size} quiz questions")
-        }
-    }
-
     fun cardFromTextSel() {
         val s = textSel ?: return
         cardDraft = CardDraft(com.pronotes.app.data.Flashcard(UUID.randomUUID().toString(), front = s.text, pageId = pages.getOrNull(s.page)?.id, created = System.currentTimeMillis()), true)
         clearTextSel()
-    }
-
-    // ---------------------------------------------------------------- quiz + generation
-    var quiz by mutableStateOf<List<com.pronotes.app.data.QuizQuestion>>(emptyList())
-        private set
-
-    fun saveQuestion(q: com.pronotes.app.data.QuizQuestion) {
-        quiz = if (quiz.any { it.id == q.id }) quiz.map { if (it.id == q.id) q else it } else quiz + q
-        saveStudy()
-    }
-    fun deleteQuestion(id: String) { quiz = quiz.filterNot { it.id == id }; saveStudy() }
-    fun answerQuestion(id: String, right: Boolean) {
-        quiz = quiz.map { if (it.id == id) (if (right) it.copy(right = it.right + 1) else it.copy(wrong = it.wrong + 1)) else it }
-        saveStudy()
     }
 
     /** Text to learn from: PDF text, typed text, sticky notes, web links, and mind map nodes. */
@@ -2122,92 +1910,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         return sb.toString() to firstPage
     }
 
-    /** Makes flashcards from this page (or all pages). Returns how many were added. */
-    fun generateCards(allPages: Boolean) {
-        if (!store.settings.value.smartFeatures) { say("Smart features are turned off"); return }
-        viewModelScope.launch {
-            aiStage = "Reading page notes…"
-            aiBusy = true
-            val (text, pid) = studyText(if (allPages) pages.indices else pageIndex..pageIndex)
-            if (text.isBlank()) {
-                aiBusy = false; aiStage = ""
-                say("No text found. Write or import something first."); return@launch
-            }
-            val max = if (allPages) 40 else 15
-            aiStage = "Generating flashcards with ${aiEngineLabel}…"
-            val made = try {
-                runCatching { Nano.flashcards(text, max) }.getOrNull()
-                    ?: LocalAiManager.generateFlashcards(getApplication(), text, max)
-            } finally {
-                aiBusy = false
-                aiStage = ""
-            }
-            val have = cards.map { it.front.lowercase() }.toHashSet()
-            val add = made.filter { it.front.lowercase() !in have }.map {
-                com.pronotes.app.data.Flashcard(UUID.randomUUID().toString(), front = it.front, back = it.back, pageId = pid, created = System.currentTimeMillis())
-            }
-            cards = cards + add
-            saveStudy()
-            say(if (add.isEmpty()) "No new cards found on ${if (allPages) "these pages" else "this page"}" else "Added ${add.size} cards")
-        }
-    }
-
-    /** Structured AI summary of this page, shown in Summary Studio; null = hidden. */
-    var summary by mutableStateOf<RichSummaryResult?>(null)
-
-    fun summarize() {
-        if (!store.settings.value.smartFeatures) { say("Smart features are turned off"); return }
-        viewModelScope.launch {
-            aiStage = "Reading page notes…"
-            aiBusy = true
-            val res = try {
-                val (text, _) = studyText(pageIndex..pageIndex)
-                if (text.isBlank()) null
-                else {
-                    val nanoPts = runCatching { Nano.summary(text) }.getOrNull()
-                    LocalAiManager.summarizeRich(getApplication(), text, nanoPts)
-                }
-            } finally {
-                aiBusy = false
-                aiStage = ""
-            }
-            if (res == null || (res.points.isEmpty() && res.definitions.isEmpty())) {
-                say("Not enough text on this page to summarise")
-            } else {
-                summary = res
-            }
-        }
-    }
-
-    /** Puts the key points on the page as typed text, top left. */
-    fun summaryToPage() {
-        val res = summary ?: return
-        val p = pages.getOrNull(pageIndex) ?: return
-        summary = null
-        beginEdit(pageIndex)
-        val body = buildString {
-            appendLine(res.headline)
-            res.points.forEach { appendLine("• $it") }
-        }.trim()
-        applyItems(pageIndex, p.items + TextItem(ItemIds.next(), body, 60f, 60f, 26f, penStyle.color))
-    }
-
-    /** Places the summary as a colorful sticky note on the active page. */
-    fun summaryToSticky() {
-        val res = summary ?: return
-        val p = pages.getOrNull(pageIndex) ?: return
-        summary = null
-        val text = buildString {
-            appendLine(res.headline)
-            res.points.take(4).forEach { appendLine("• $it") }
-        }.trim()
-        beginEdit(pageIndex)
-        applyItems(
-            pageIndex,
-            p.items + StickyItem(ItemIds.next(), 80f, 90f, 340f, 320f, stickyColor, text, fontSize = 24f),
-        )
-        say("Added summary as sticky note")
-    }
+    // Local note text helpers (for search, slide deck builder, mind maps, and split clip)
 
     /** Clips text (e.g. from Split Notes) directly onto the active page as a sticky note. */
     fun clipTextAsSticky(rawText: String, sourceTitle: String = "") {
@@ -2251,51 +1954,86 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         }
     }
 
-    fun generateQuiz(allPages: Boolean) {
-        if (!store.settings.value.smartFeatures) { say("Smart features are turned off"); return }
-        viewModelScope.launch {
-            aiStage = "Scanning notes for quiz concepts…"
-            aiBusy = true
-            val (text, pid) = studyText(if (allPages) pages.indices else pageIndex..pageIndex)
-            val max = if (allPages) 30 else 12
-            aiStage = "Drafting quiz questions…"
-            val made = try {
-                runCatching { Nano.quiz(text, max) }.getOrNull()
-                    ?: LocalAiManager.generateQuiz(getApplication(), text, max)
-            } finally {
-                aiBusy = false
-                aiStage = ""
-            }
-            val have = quiz.map { it.question }.toHashSet()
-            val add = made.filter { it.question !in have }.map {
-                com.pronotes.app.data.QuizQuestion(UUID.randomUUID().toString(), it.question, it.options, it.answer, it.explanation, pid, generated = true)
-            }
-            quiz = quiz + add
-            saveStudy()
-            say(if (add.isEmpty()) "Not enough text to make questions here" else "Added ${add.size} questions")
-        }
-    }
-
     // ---------------------------------------------------------------- Slide Show Chapter Revision
 
-    fun generateSlideShow(startPage: Int = pageIndex, endPage: Int = pageIndex, slideCount: Int = 7) {
-        if (!store.settings.value.smartFeatures) { say("Smart features are turned off"); return }
+    fun buildSlideShow(startPage: Int = pageIndex, endPage: Int = pageIndex, slideCount: Int = 7) {
         val lo = startPage.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
         val hi = endPage.coerceIn(lo, (pages.size - 1).coerceAtLeast(0))
+        val count = slideCount.coerceIn(3, 15)
         viewModelScope.launch {
-            aiStage = "Building revision slide deck…"
-            aiBusy = true
             val (text, _) = studyText(lo..hi)
-            val chapterLabel = if (lo == 0 && hi == pages.size - 1) title else if (lo == hi) "$title · Page ${lo + 1}" else "$title · Pages ${lo + 1}-${hi + 1}"
-            val (made, engine) = try {
-                LocalAiManager.generateSlideShow(getApplication(), chapterLabel, text, slideCount)
-            } finally {
-                aiBusy = false
-                aiStage = ""
+            val chapterLabel = when {
+                lo == 0 && hi == pages.size - 1 -> title
+                lo == hi -> "$title · Page ${lo + 1}"
+                else -> "$title · Pages ${lo + 1}-${hi + 1}"
             }
-            slides = made
+            val segments = withContext(Dispatchers.Default) {
+                text.split('\n', '.', ';')
+                    .map { it.trim().trim('-', '*', '•', ' ') }
+                    .filter { it.length >= 4 }
+                    .distinct()
+            }
+            val themes = com.pronotes.app.data.SlideTheme.entries
+            val built = ArrayList<com.pronotes.app.data.SlideCard>(count)
+            built += com.pronotes.app.data.SlideCard(
+                id = UUID.randomUUID().toString(),
+                kind = com.pronotes.app.data.SlideKind.TITLE,
+                theme = themes[0],
+                title = chapterLabel.ifBlank { "Revision Deck" },
+                subtitle = "Structured review · ${hi - lo + 1} page${if (hi == lo) "" else "s"}",
+                bullets = segments.take(3),
+                badge = "Overview",
+            )
+            val middleSlots = (count - 2).coerceAtLeast(1)
+            for (slot in 0 until middleSlots) {
+                val baseIdx = slot * 2
+                val primaryLine = segments.getOrNull(baseIdx)
+                val secondLine = segments.getOrNull(baseIdx + 1)
+                val thirdLine = segments.getOrNull(baseIdx + 2)
+                val theme = themes[(slot + 1) % themes.size]
+                val kind = when {
+                    primaryLine != null && ('=' in primaryLine || '≈' in primaryLine || '→' in primaryLine) -> com.pronotes.app.data.SlideKind.FORMULA
+                    slot % 3 == 2 -> com.pronotes.app.data.SlideKind.CHECK_QA
+                    else -> com.pronotes.app.data.SlideKind.CONCEPT
+                }
+                val bullets = listOfNotNull(primaryLine, secondLine, thirdLine).take(3)
+                built += if (kind == com.pronotes.app.data.SlideKind.CHECK_QA) {
+                    val topic = primaryLine?.take(56) ?: "Key concept ${slot + 1}"
+                    com.pronotes.app.data.SlideCard(
+                        id = UUID.randomUUID().toString(),
+                        kind = kind,
+                        theme = theme,
+                        title = "Recall Check",
+                        subtitle = chapterLabel,
+                        question = "Explain: $topic",
+                        answer = secondLine ?: primaryLine ?: "Review page ${lo + 1} notes",
+                        badge = "Check Q&A",
+                    )
+                } else {
+                    com.pronotes.app.data.SlideCard(
+                        id = UUID.randomUUID().toString(),
+                        kind = kind,
+                        theme = theme,
+                        title = primaryLine?.take(44) ?: "Key Point ${slot + 1}",
+                        subtitle = chapterLabel,
+                        bullets = bullets,
+                        callout = if (kind == com.pronotes.app.data.SlideKind.FORMULA) (primaryLine ?: "") else "",
+                        badge = kind.label,
+                    )
+                }
+            }
+            built += com.pronotes.app.data.SlideCard(
+                id = UUID.randomUUID().toString(),
+                kind = com.pronotes.app.data.SlideKind.SUMMARY,
+                theme = themes[(count - 1) % themes.size],
+                title = "Chapter Recap",
+                subtitle = chapterLabel,
+                bullets = segments.takeLast(4).ifEmpty { listOf("Review key definitions", "Practice with Flashcards") },
+                badge = "Recap",
+            )
+            slides = built.take(count)
             saveStudy()
-            say("Generated ${made.size} revision slides via $engine")
+            say("Built ${slides.size} revision slides")
         }
     }
 
@@ -2318,42 +2056,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         saveStudy()
     }
 
-    // --------------------------------------------------------------- v10 AI & collab helpers
+    // --------------------------------------------------------------- collab & reader helpers
 
     fun noteDirFile(): File = repo.noteDir(noteId)
-
-    suspend fun extractPagesCorpus(): List<Pair<Int, String>> {
-        val idx = textIndex()
-        val out = ArrayList<Pair<Int, String>>()
-        pages.forEachIndexed { i, p ->
-            val sb = StringBuilder()
-            if (p.pdfPage >= 0 && idx != null) {
-                val pdfTxt = idx.pageText(p.pdfPage)
-                if (pdfTxt.isNotBlank()) sb.append(pdfTxt).append('\n')
-            }
-            p.items.forEach { item ->
-                when (item) {
-                    is TextItem -> if (item.text.isNotBlank()) sb.append(item.text).append('\n')
-                    is StickyItem -> {
-                        val txt = listOf(item.title, item.text).filter { it.isNotBlank() }.joinToString(": ")
-                        if (txt.isNotBlank()) sb.append(txt).append('\n')
-                    }
-                    is WebLinkItem -> {
-                        val txt = listOf(item.title, item.url, item.note).filter { it.isNotBlank() }.joinToString(" · ")
-                        if (txt.isNotBlank()) sb.append(txt).append('\n')
-                    }
-                    is MindNodeItem -> {
-                        val txt = listOf(item.tag, item.label, item.notes).filter { it.isNotBlank() }.joinToString(" — ")
-                        if (txt.isNotBlank()) sb.append(txt).append('\n')
-                    }
-                    else -> Unit
-                }
-            }
-            val clean = sb.toString().trim()
-            if (clean.isNotEmpty()) out += i to clean
-        }
-        return out
-    }
 
     fun extractPageSummaryText(pageIdx: Int): String {
         val p = pages.getOrNull(pageIdx) ?: return ""
@@ -2368,7 +2073,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         }.joinToString("\n").trim()
     }
 
-    fun insertAiTextToPage(text: String) {
+    fun insertTextToPage(text: String) {
         val clean = text.trim().take(2400)
         if (clean.isBlank()) return
         val idx = pageIndex
@@ -2376,50 +2081,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         beginEdit(idx)
         applyItems(idx, p.items + TextItem(ItemIds.next(), clean, 72f, 96f, 26f, penStyle.color))
         say("Inserted onto page ${idx + 1}")
-    }
-
-    fun applyGeneratedTemplateBitmap(bmp: Bitmap) {
-        val idx = pageIndex
-        viewModelScope.launch {
-            val name = withContext(Dispatchers.IO) {
-                val n = "bg_ai_${System.currentTimeMillis()}.png"
-                AtomicFiles.writeBytesAtomic(File(repo.noteDir(noteId), n)) { out ->
-                    bmp.compress(Bitmap.CompressFormat.PNG, 96, out)
-                }
-                n
-            }
-            val p = pages.getOrNull(idx) ?: return@launch
-            pages[idx] = p.copy(bgImage = name)
-            dirtyPageIds += p.id
-            thumbs.evictAll()
-            scheduleSave()
-            onPagesChanged?.invoke()
-            say("Applied AI template")
-        }
-    }
-
-    fun applyGeneratedCoverBitmap(bmp: Bitmap) {
-        viewModelScope.launch {
-            val name = withContext(Dispatchers.IO) {
-                val n = "cover_ai_${System.currentTimeMillis()}.png"
-                AtomicFiles.writeBytesAtomic(File(repo.noteDir(noteId), n)) { out ->
-                    bmp.compress(Bitmap.CompressFormat.PNG, 96, out)
-                }
-                n
-            }
-            val spec = "image:$name"
-            val hasCoverPage = repo.setCoverPage(noteId, spec)
-            if (hasCoverPage && pages.isNotEmpty() && pages[0].cover != null) {
-                pages[0] = pages[0].copy(cover = spec)
-                dirtyPageIds += pages[0].id
-                scheduleSave()
-            } else if (!hasCoverPage) {
-                repo.setCover(noteId, spec)
-            }
-            thumbs.evictAll()
-            onPagesChanged?.invoke()
-            say("Updated notebook cover")
-        }
     }
 
     fun applySplitItems(page: Int, items: List<PageItem>) {
@@ -2515,11 +2176,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             scheduleSave()
             toast = "Restored handwritten ink"
         } else {
-            // Convert ink inside the ruled box to typed text line-by-line
             val boxBounds = writeBox.raw
             val insideStrokes = p.items.filterIsInstance<InkItem>().filter { ink ->
                 boxBounds.contains(ink.bounds.centerX(), ink.bounds.centerY()) ||
-                boxBounds.intersects(ink.bounds.left, ink.bounds.top, ink.bounds.right, ink.bounds.bottom)
+                    boxBounds.intersects(ink.bounds.left, ink.bounds.top, ink.bounds.right, ink.bounds.bottom)
             }
             if (insideStrokes.isEmpty()) {
                 toast = "Write inside the ruled box first"
@@ -2533,41 +2193,26 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 val lineIdx = ((cy - 8f) / writeBox.lineSpacing).toInt().coerceIn(0, lineCount - 1)
                 lineBuckets[lineIdx].add(ink)
             }
-
-            viewModelScope.launch {
-                aiStage = "Converting handwriting to text…"
-                aiBusy = true
-                val recognizedLines = mutableListOf<String>()
-                try {
-                    for (lineIdx in 0 until lineCount) {
-                        val lineStrokes = lineBuckets[lineIdx].sortedBy { it.bounds.left }
-                        if (lineStrokes.isNotEmpty()) {
-                            val lineStrokeCount = lineStrokes.size
-                            val lineW = (lineStrokes.maxOf { it.bounds.right } - lineStrokes.minOf { it.bounds.left }).toInt()
-                            recognizedLines.add("Line ${lineIdx + 1} ($lineStrokeCount strokes, ${lineW}px)")
-                        }
+            val formattedLines = buildList {
+                for (lineIdx in 0 until lineCount) {
+                    val lineStrokes = lineBuckets[lineIdx].sortedBy { it.bounds.left }
+                    if (lineStrokes.isNotEmpty()) {
+                        add("Line ${lineIdx + 1} (${lineStrokes.size} strokes)")
                     }
-                    val pageContext = extractPageSummaryText(pageIndex)
-                    val transcribed = runCatching {
-                        LocalAiManager.transcribeHandwriting(getApplication(), recognizedLines.joinToString("\n"), pageContext)
-                    }.getOrNull()?.ifBlank { null } ?: recognizedLines.joinToString("\n")
-
-                    val updated = writeBox.copy(
-                        isConverted = true,
-                        convertedText = transcribed,
-                        inkItemIds = strokeIds,
-                    )
-                    beginEdit(pageIndex)
-                    pages[pageIndex] = p.copy(items = p.items.map { if (it.id == writeBox.id) updated else it })
-                    onPagesChanged?.invoke()
-                    onRedraw?.invoke()
-                    scheduleSave()
-                    toast = "Converted to text · Double-tap again to restore ink"
-                } finally {
-                    aiBusy = false
-                    aiStage = ""
                 }
             }
+            val updated = writeBox.copy(
+                isConverted = true,
+                convertedText = formattedLines.joinToString("\n"),
+                inkItemIds = strokeIds,
+            )
+            beginEdit(pageIndex)
+            pages[pageIndex] = p.copy(items = p.items.map { if (it.id == writeBox.id) updated else it })
+            dirtyPageIds += p.id
+            onPagesChanged?.invoke()
+            onRedraw?.invoke()
+            scheduleSave()
+            toast = "Box folded · Double-tap again to restore ink"
         }
     }
 

@@ -22,29 +22,27 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
-import com.pronotes.app.ai.GalaxyCreativeStudioScreen
 import com.pronotes.app.data.AtomicFiles
-import com.pronotes.app.data.InterfaceStyle
+import com.pronotes.app.data.PerformanceMode
 import com.pronotes.app.data.SettingsStore
+import com.pronotes.app.data.ThemeMode
+import com.pronotes.app.editor.KindleTheme
 import com.pronotes.app.library.LibraryScreen
 import com.pronotes.app.onboarding.WelcomeScreen
 import com.pronotes.app.settings.SettingsScreen
 import com.pronotes.app.support.SupportScreen
-import com.pronotes.app.ui.GlassCard
-import com.pronotes.app.ui.GlassPill
-import com.pronotes.app.ui.GlassRole
-import com.pronotes.app.ui.GlassScene
-import com.pronotes.app.ui.GlassSurface
+import com.pronotes.app.ui.AppCard
+import com.pronotes.app.ui.AppPill
+import com.pronotes.app.ui.AppSurface
 import com.pronotes.app.ui.LocalCornerRoundness
-import com.pronotes.app.ui.LocalInterfaceStyle
+import com.pronotes.app.ui.LocalPerformanceMode
 import com.pronotes.app.ui.ProNotesTheme
-import com.pronotes.app.ui.glassCardShape
-import io.github.ntvien.liquidglass.GlassQuality
-import io.github.ntvien.liquidglass.LocalGlassCapabilities
+import com.pronotes.app.ui.SurfaceRole
+import com.pronotes.app.ui.appCardShape
+import com.pronotes.app.ui.contrastRatio
 import java.io.File
 import java.io.FileOutputStream
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -53,8 +51,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Screenshot and theme-parity tests rendering main screens in both
- * [InterfaceStyle.LIQUID_GLASS] and [InterfaceStyle.CLASSIC].
+ * Screenshot, theme-parity, contrast, and persistence checks across Pro Notes v12 screens.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w1280dp-h800dp-xhdpi")
@@ -65,13 +62,17 @@ class ThemeStyleScreenshotTest {
 
     private fun appContext(): Context = ApplicationProvider.getApplicationContext()
 
-    private fun setStyle(style: InterfaceStyle, cornerRoundnessDp: Float = 24f) {
+    private fun configureAppearance(
+        themeMode: ThemeMode,
+        cornerRoundnessDp: Float = 20f,
+        performanceMode: PerformanceMode = PerformanceMode.BALANCED,
+    ) {
         val store = SettingsStore.get(appContext())
         store.update {
             it.copy(
-                interfaceStyle = style,
+                themeMode = themeMode,
                 cornerRoundnessDp = cornerRoundnessDp,
-                smartFeatures = true,
+                performanceMode = performanceMode,
             )
         }
     }
@@ -82,7 +83,6 @@ class ThemeStyleScreenshotTest {
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         rootView.draw(Canvas(bmp))
 
-        // Verify frame rendered non-uniform visual pixels.
         val center = bmp.getPixel(w / 2, h / 2)
         val corner = bmp.getPixel(4, 4)
         val quarter = bmp.getPixel(w / 4, h / 4)
@@ -98,24 +98,23 @@ class ThemeStyleScreenshotTest {
         bmp.recycle()
     }
 
-    private fun renderInStyle(
+    private fun renderScreen(
         screenName: String,
-        style: InterfaceStyle,
-        roundnessDp: Float = 24f,
+        themeMode: ThemeMode,
+        roundnessDp: Float = 20f,
+        performanceMode: PerformanceMode = PerformanceMode.BALANCED,
         assertUi: () -> Unit,
     ) {
-        setStyle(style, roundnessDp)
+        configureAppearance(themeMode, roundnessDp, performanceMode)
         var capturedView: View? = null
-        var resolvedStyle: InterfaceStyle? = null
-        var resolvedQuality: GlassQuality? = null
         var resolvedRoundnessDp: Float? = null
+        var resolvedPerformanceMode: PerformanceMode? = null
 
         rule.setContent {
             ProNotesTheme {
                 capturedView = LocalView.current
-                resolvedStyle = LocalInterfaceStyle.current
-                resolvedQuality = LocalGlassCapabilities.current.effective
                 resolvedRoundnessDp = LocalCornerRoundness.current.value
+                resolvedPerformanceMode = LocalPerformanceMode.current
                 when (screenName) {
                     "library" -> LibraryScreen(
                         onOpen = {},
@@ -126,82 +125,88 @@ class ThemeStyleScreenshotTest {
                     "settings" -> SettingsScreen(onBack = {})
                     "welcome" -> WelcomeScreen(onDone = {})
                     "support" -> SupportScreen(onBack = {})
-                    "studio" -> GalaxyCreativeStudioScreen(onBack = {})
                     "editor_chrome" -> EditorChromeHarness()
                 }
             }
         }
         rule.waitForIdle()
 
-        assertEquals(style, resolvedStyle)
         assertEquals(roundnessDp, resolvedRoundnessDp ?: -1f, 0.01f)
-        if (style == InterfaceStyle.CLASSIC) {
-            assertEquals(
-                "Classic mode must disable shader/blur quality tiers completely",
-                GlassQuality.Flat,
-                resolvedQuality,
-            )
-        }
+        assertEquals(performanceMode, resolvedPerformanceMode)
         assertUi()
         val view = requireNotNull(capturedView)
-        captureViewScreenshot(view, "${screenName}_${style.name.lowercase()}")
+        captureViewScreenshot(view, "${screenName}_${themeMode.name.lowercase()}")
     }
 
     @Test
-    fun libraryScreen_rendersBothStyles() {
-        for (style in InterfaceStyle.entries) {
-            renderInStyle("library", style) {
-                rule.onAllNodesWithText("Documents")[0].assertIsDisplayed()
+    fun libraryScreen_rendersLightAndDark() {
+        for (theme in listOf(ThemeMode.LIGHT, ThemeMode.DARK)) {
+            renderScreen("library", theme) {
+                rule.onAllNodesWithText("Pro Notes")[0].assertIsDisplayed()
+                rule.onNodeWithText("+ New Notebook").assertIsDisplayed()
             }
         }
     }
 
     @Test
-    fun settingsScreen_rendersBothStyles() {
-        for (style in InterfaceStyle.entries) {
-            renderInStyle("settings", style) {
+    fun settingsScreen_rendersLightAndDark() {
+        for (theme in listOf(ThemeMode.LIGHT, ThemeMode.DARK)) {
+            renderScreen("settings", theme) {
                 rule.onAllNodesWithText("Settings")[0].assertIsDisplayed()
-                rule.onAllNodesWithText("Smart features")[0].assertIsDisplayed()
             }
         }
     }
 
     @Test
-    fun welcomeScreen_rendersBothStyles() {
-        for (style in InterfaceStyle.entries) {
-            renderInStyle("welcome", style) {
-                rule.onNodeWithText("Skip setup").assertIsDisplayed()
+    fun welcomeScreen_rendersPreviewAndDeck() {
+        for (theme in listOf(ThemeMode.LIGHT, ThemeMode.DARK)) {
+            renderScreen("welcome", theme) {
+                rule.onNodeWithText("Open Library").assertIsDisplayed()
+                rule.onNodeWithText("Customize your Studio").assertIsDisplayed()
             }
         }
     }
 
     @Test
-    fun supportScreen_rendersBothStyles() {
-        for (style in InterfaceStyle.entries) {
-            renderInStyle("support", style) {
-                rule.onNodeWithText("Support Pro Notes").assertIsDisplayed()
+    fun supportScreen_rendersCleanly() {
+        for (theme in listOf(ThemeMode.LIGHT, ThemeMode.DARK)) {
+            renderScreen("support", theme) {
+                rule.onNodeWithText("Highlights").assertIsDisplayed()
+                rule.onNodeWithText("Send Applause").assertIsDisplayed()
             }
         }
     }
 
     @Test
-    fun creativeStudioScreen_rendersBothStyles() {
-        for (style in InterfaceStyle.entries) {
-            renderInStyle("studio", style) {
-                rule.onNodeWithText("Creative Studio").assertIsDisplayed()
-            }
-        }
-    }
-
-    @Test
-    fun editorChromeShell_rendersBothStylesAndCornerRoundness() {
-        renderInStyle("editor_chrome", InterfaceStyle.LIQUID_GLASS, roundnessDp = 36f) {
+    fun editorChromeHarness_appliesCornerRoundnessAndPerformanceMode() {
+        renderScreen(
+            screenName = "editor_chrome",
+            themeMode = ThemeMode.DARK,
+            roundnessDp = 8f,
+            performanceMode = PerformanceMode.BATTERY_SAVER,
+        ) {
             rule.onNodeWithText("Lecture Notes").assertIsDisplayed()
             rule.onNodeWithText("Pen").assertIsDisplayed()
         }
-        renderInStyle("editor_chrome", InterfaceStyle.CLASSIC, roundnessDp = 8f) {
+        renderScreen(
+            screenName = "editor_chrome",
+            themeMode = ThemeMode.LIGHT,
+            roundnessDp = 28f,
+            performanceMode = PerformanceMode.MAXIMUM,
+        ) {
             rule.onNodeWithText("Lecture Notes").assertIsDisplayed()
             rule.onNodeWithText("Pen").assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun kindleThemes_haveReadableContrast() {
+        for (theme in KindleTheme.entries) {
+            val ratio = contrastRatio(theme.inkText, theme.pageBg)
+            assertTrue(
+                "Kindle theme ${theme.label} failed 4.5:1 contrast: $ratio",
+                ratio >= 4.5f,
+            )
         }
     }
 
@@ -215,38 +220,35 @@ class ThemeStyleScreenshotTest {
         val leftoverTmps = dir.listFiles()?.filter { it.name.endsWith(".tmp") }.orEmpty()
         assertTrue("Unexpected leftover temp files: $leftoverTmps", leftoverTmps.isEmpty())
     }
-
-    @Test
-    fun smartFeatures_defaultsOnAndClassicStyleIsDeviceLocal() {
-        val store = SettingsStore.get(appContext())
-        store.update { it.copy(interfaceStyle = InterfaceStyle.CLASSIC, smartFeatures = false) }
-        assertEquals(InterfaceStyle.CLASSIC, store.settings.value.interfaceStyle)
-        assertFalse(store.settings.value.smartFeatures)
-    }
 }
 
 @Composable
 private fun EditorChromeHarness() {
-    GlassScene(modifier = Modifier.fillMaxSize()) {
+    AppSurface(
+        modifier = Modifier.fillMaxSize(),
+        role = SurfaceRole.Chrome,
+    ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(16.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            GlassSurface(
-                role = GlassRole.Chrome,
-                shape = glassCardShape(),
+            AppSurface(
+                role = SurfaceRole.Frost,
+                shape = appCardShape(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Lecture Notes", style = MaterialTheme.typography.titleMedium)
-                    GlassPill(selected = true) { Text("Pen") }
-                    GlassPill(selected = false) { Text("Highlighter") }
+                    AppPill(selected = true) { Text("Pen") }
+                    AppPill(selected = false) { Text("Highlighter") }
                 }
             }
-            GlassCard(
+            AppCard(
                 hero = true,
-                shape = glassCardShape(),
+                shape = appCardShape(),
                 contentPadding = PaddingValues(18.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {

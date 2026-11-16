@@ -52,10 +52,10 @@ Install the APK from a release, then check **Settings → About** for in-app upd
 
 Pro Notes brings handwriting, PDF study and notebook organisation together in a native Android workspace.
 
-| Write | Study | Organise |
+| Write | Study & Read | Organise |
 |:--|:--|:--|
-| Natural, pressure-aware ink and a range of pen styles | Import, mark up, search and export PDFs | Folders, notebook covers, bookmarks and page templates |
-| Stylus buttons, hover preview and gesture shortcuts | Flashcards cut from PDFs, ink links and a study timer | Customisable toolbar, themes and library backup |
+| Natural, pressure-aware ink and a range of pen styles | Kindle Book Mode with Paper, Sepia and Night themes and 3D page turns | Folders, notebook covers, bookmarks and page templates |
+| Stylus buttons, hover preview and anchored tool popovers | Flashcards, Mind Maps, SlideShow decks, ink links and a study timer | Obsidian & Paper Light workspace, customisable toolbar and library backup |
 
 ## Features
 
@@ -104,11 +104,12 @@ A few useful gestures make editing feel more direct. Bring a compatible pen clos
 - Picture pages, bookmarks and drag-to-reorder page management.
 - Large PDFs open fast: a light first pass appears at once, then sharpens, and nearby pages load ahead.
 
-### Study tools
-- Flashcards: drag a box over any part of a PDF or your notes, or turn a selection into a card. Spaced review with Again / Good / Easy, a jump back to the source page and CSV export.
-- Ink links: connect any two spots in a notebook. Tap the chain badge at one end to jump to the other.
-- A study stopwatch you can drag anywhere, with auto-start, idle pause and notebook totals.
-- Read-only mode to revise without accidental marks.
+### Book reading & study tools
+- **Kindle Book Mode:** read any notebook or PDF like a book with **Paper**, **Sepia**, and **Night** themes, optional tablet **2-page spread**, interactive **3D page-turn curl animations**, and a bottom progress scrubber.
+- **Flashcards:** drag a box over any part of a PDF or your notes, or turn a selection into a card. Spaced review with Again / Good / Easy, a jump back to the source page, and CSV export.
+- **Mind Maps & SlideShow:** build node-and-branch mind maps from your notes or manually, and present pages or summary cards in an animated SlideShow viewer.
+- **Ink links & Live Study Rooms:** connect any two spots in a notebook with a jump badge, study side by side in Writable Split View, or share a Live Study Room code.
+- **Study timer & Read-only mode:** draggable study stopwatch/Pomodoro timer with idle pause and one-tap Read-only lock.
 
 <div align="center">
   <table>
@@ -122,16 +123,6 @@ A few useful gestures make editing feel more direct. Bring a compatible pen clos
         <sub><strong>Flashcards</strong><br />Turn selected PDF content into study cards.</sub>
       </td>
     </tr>
-    <tr>
-      <td align="center" width="50%">
-        <img src="docs/screenshots/IMG_0569.jpeg" alt="Handwritten mathematics recognition and answer" width="100%" />
-        <sub><strong>Write maths, get answers</strong><br />Work through handwritten sums with answer assistance.</sub>
-      </td>
-      <td align="center" width="50%">
-        <img src="docs/screenshots/IMG_0570.jpeg" alt="Quiz yourself study feature" width="100%" />
-        <sub><strong>Quiz yourself</strong><br />Create quizzes from PDFs, pictures or your own questions.</sub>
-      </td>
-    </tr>
   </table>
 </div>
 
@@ -142,17 +133,16 @@ A few useful gestures make editing feel more direct. Bring a compatible pen clos
 - Library backup and restore, themes, accent colours and a customisable toolbar.
 
 ### Small details for focused work
-- In-app updates with release notes and system-installer handoff.
-- Pen setup that helps identify and configure your stylus.
-- Floating toolbar that can dock to any edge, or an alternate top-bar and side-panel layout.
-- Option to hide the toolbar while screen recording.
-- Defaults for new notebooks: page size, orientation and cover page.
+- Obsidian & Paper Light editor chrome with connected notebook tabs and anchored tool popovers.
+- Animated ambient color gradient, auto-cycling preview card stack, and kinetic moving-letter headings.
+- In-app updates with resumable downloads, release notes, and system-installer handoff.
+- Pen setup that helps identify and configure your stylus, plus optional toolbar hiding while screen recording.
+- Performance modes (**Battery saver**, **Balanced**, **Maximum**) and customizable corner roundness (`8dp`–`32dp`).
 
 ## Compatibility
 
 - **Android:** 8.0 (API 26) or newer.
-- **Devices:** designed with tablets in mind; also works on phones.
-- **Background blur:** requires Android 12 or newer for the real blur effect.
+- **Devices:** designed with tablets and styluses in mind; also works on phones.
 - **Build environment:** JDK 17 and Android SDK API 36.
 
 ## Build from source
@@ -163,7 +153,7 @@ cd ProNotes
 gradle assembleRelease
 ```
 
-CI builds on pushes to the repository. Version tags such as `v6.0.0` publish a GitHub Release, using [CHANGELOG.md](CHANGELOG.md) for release notes.
+CI builds on pushes to the repository. Version tags such as `v12.0.0` publish a GitHub Release, using [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 Optional: set `pronotes.upi` in `gradle.properties` (or `SUPPORT_UPI` in CI) to enable the in-app support screen.
 

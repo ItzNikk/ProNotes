@@ -70,39 +70,7 @@ class MainActivity : ComponentActivity() {
                     popExitTransition = { fadeOut() + scaleOut(targetScale = 0.96f) },
                 ) {
                     composable("support") { com.pronotes.app.support.SupportScreen(onBack = { nav.popBackStack() }) }
-                    composable("studio") {
-                        val smartEnabled = com.pronotes.app.ui.LocalSmartFeatures.current
-                        if (smartEnabled) {
-                            com.pronotes.app.ai.GalaxyCreativeStudioScreen(onBack = { nav.popBackStack() })
-                        } else {
-                            androidx.compose.foundation.layout.Box(
-                                modifier = androidx.compose.ui.Modifier.fillMaxSize(),
-                                contentAlignment = androidx.compose.ui.Alignment.Center,
-                            ) {
-                                com.pronotes.app.ui.GlassCard(
-                                    modifier = androidx.compose.ui.Modifier.padding(24.dp),
-                                ) {
-                                    androidx.compose.foundation.layout.Column(
-                                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
-                                        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-                                    ) {
-                                        androidx.compose.material3.Text(
-                                            "Smart features are turned off",
-                                            style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
-                                        )
-                                        androidx.compose.material3.Text(
-                                            "Turn on Smart features in Settings to use Creative Studio.",
-                                            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-                                            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                        com.pronotes.app.ui.GlassPill(onClick = { nav.popBackStack() }, selected = true) {
-                                            androidx.compose.material3.Text("Go back")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    composable("welcome") { com.pronotes.app.onboarding.WelcomeScreen(onDone = { nav.popBackStack() }) }
                     composable("library") {
                         LibraryScreen(
                             onOpen = { id -> nav.navigate("editor/$id") },
@@ -110,7 +78,7 @@ class MainActivity : ComponentActivity() {
                             pendingImport = pendingImport,
                             onImportConsumed = { pendingImport = null },
                             onSupport = { nav.navigate("support") },
-                            onOpenStudio = { nav.navigate("studio") },
+                            onOpenPreview = { nav.navigate("welcome") },
                         )
                     }
                     composable("editor/{id}") { entry ->

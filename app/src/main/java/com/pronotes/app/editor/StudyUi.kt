@@ -1,9 +1,10 @@
 package com.pronotes.app.editor
 
 import android.content.Intent
+import android.graphics.Bitmap
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,13 +30,15 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.MoreHoriz
@@ -47,12 +51,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -62,39 +65,41 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.pronotes.app.data.Flashcard
+import com.pronotes.app.data.PageSize
 import com.pronotes.app.data.PaperStyle
-import com.pronotes.app.data.QuizQuestion
-import com.pronotes.app.library.PaperPreview
-import com.pronotes.app.ui.GlassCard
-import com.pronotes.app.ui.GlassChip
-import com.pronotes.app.ui.GlassDialog
-import com.pronotes.app.ui.GlassDialogSurface
-import com.pronotes.app.ui.GlassMenuButton
-import com.pronotes.app.ui.GlassMenuDivider
-import com.pronotes.app.ui.GlassMenuItem
-import com.pronotes.app.ui.GlassRole
-import com.pronotes.app.ui.GlassSegmentedControl
-import com.pronotes.app.ui.GlassSlider
-import com.pronotes.app.ui.GlassSurface
-import com.pronotes.app.ui.GlassThemeOverride
-import com.pronotes.app.ui.LocalSmartFeatures
-import com.pronotes.app.ui.glassCardShape
-import com.pronotes.app.ui.glassPillShape
-import java.util.UUID
+import com.pronotes.app.ui.AppCard
+import com.pronotes.app.ui.AppChip
+import com.pronotes.app.ui.AppDialog
+import com.pronotes.app.ui.AppDialogSurface
+import com.pronotes.app.ui.AppMenuButton
+import com.pronotes.app.ui.AppMenuItem
+import com.pronotes.app.ui.AppPill
+import com.pronotes.app.ui.AppSegmentedControl
+import com.pronotes.app.ui.AppSheet
+import com.pronotes.app.ui.AppSliderRow
+import com.pronotes.app.ui.AppSurface
+import com.pronotes.app.ui.MovingColorfulGradientBackground
+import com.pronotes.app.ui.ProButtonPalette
+import com.pronotes.app.ui.ScaleInAnimatedText
+import com.pronotes.app.ui.SurfaceRole
+import com.pronotes.app.ui.Swatch
+import com.pronotes.app.ui.appCardShape
+import com.pronotes.app.ui.elasticStretch
 
 private val Pill = CircleShape
 
@@ -103,7 +108,7 @@ fun CardEditorDialog(vm: EditorViewModel, draft: EditorViewModel.CardDraft) {
     var front by remember(draft) { mutableStateOf(draft.card.front) }
     var back by remember(draft) { mutableStateOf(draft.card.back) }
     val picture = remember(draft) { vm.cardImage(draft.card.frontImage) }
-    GlassDialog(
+    AppDialog(
         onDismissRequest = { vm.cardDraft = null },
         title = { Text(if (draft.isNew) "New flashcard" else "Edit flashcard") },
         text = {
@@ -111,213 +116,260 @@ fun CardEditorDialog(vm: EditorViewModel, draft: EditorViewModel.CardDraft) {
                 Text("FRONT", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 picture?.let {
                     Image(
-                        it.asImageBitmap(), null, contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(RoundedCornerShape(14.dp))
-                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp)),
+                        it.asImageBitmap(),
+                        null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 220.dp)
+                            .clip(RoundedCornerShape(14.dp)),
                     )
                 }
                 OutlinedTextField(
-                    front, { front = it }, minLines = if (picture == null) 2 else 1, shape = RoundedCornerShape(16.dp),
-                    placeholder = { Text(if (picture == null) "Question" else "Question (optional)") }, modifier = Modifier.fillMaxWidth(),
+                    front,
+                    { front = it },
+                    minLines = if (picture == null) 2 else 1,
+                    shape = RoundedCornerShape(16.dp),
+                    placeholder = { Text(if (picture == null) "Question" else "Question (optional)") },
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 Text("BACK", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 remember(draft) { vm.cardImage(draft.card.backImage) }?.let {
-                    Image(it.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp).clip(RoundedCornerShape(14.dp)))
+                    Image(
+                        it.asImageBitmap(),
+                        null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 200.dp)
+                            .clip(RoundedCornerShape(14.dp)),
+                    )
                 }
-                OutlinedTextField(back, { back = it }, minLines = 3, shape = RoundedCornerShape(16.dp), placeholder = { Text("Answer") }, modifier = Modifier.fillMaxWidth())
-                TextButton(onClick = { vm.captureBack(draft.copy(card = draft.card.copy(front = front, back = back))) }) { Text("Cut the answer from the page") }
+                OutlinedTextField(
+                    back,
+                    { back = it },
+                    minLines = 3,
+                    shape = RoundedCornerShape(16.dp),
+                    placeholder = { Text("Answer") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                TextButton(
+                    onClick = { vm.captureBack(draft.copy(card = draft.card.copy(front = front, back = back))) },
+                ) { Text("Cut the answer from the page") }
             }
         },
         confirmButton = {
             Button(
                 onClick = { vm.saveCard(draft.card.copy(front = front.trim(), back = back.trim())) },
-                enabled = front.isNotBlank() || picture != null, shape = Pill,
+                enabled = front.isNotBlank() || picture != null,
+                shape = Pill,
+                colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
+                modifier = Modifier.elasticStretch(),
             ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = { vm.cardDraft = null }) { Text("Cancel") } },
     )
 }
 
-/** Redesigned Flashcards Studio: 4-pill metrics, Study/Manage tabs, search & filter, and 4-grade StudyView. */
+/** Flashcards Studio: 4-metric chips, Study/Manage tabs, search & filter, and 4-grade SM-2 StudyView. */
 @Composable
 fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
     var studying by remember { mutableStateOf(false) }
     var studyAll by remember { mutableStateOf(false) }
-    var tab by remember { mutableIntStateOf(0) } // 0 = Study Deck, 1 = Manage Cards
+    var tab by remember { mutableIntStateOf(0) }
     var query by remember { mutableStateOf("") }
-    var filter by remember { mutableIntStateOf(0) } // 0 = All, 1 = Due, 2 = Mastered
+    var filter by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
 
-    val cosmicScheme = MaterialTheme.colorScheme.copy(
-        background = Color(0xFF050916),
-        surface = Color(0xFF0D1429),
-        surfaceVariant = Color(0xFF172242),
-        onSurface = Color(0xFFF1F5F9),
-        onSurfaceVariant = Color(0xFFCBD5E1),
-        outlineVariant = Color(0xFF334155),
-        primary = Color(0xFF38BDF8),
-        onPrimary = Color(0xFF041224),
-        primaryContainer = Color(0xFF1E3A8A),
-        onPrimaryContainer = Color(0xFFE0F2FE),
-        secondaryContainer = Color(0xFF172554),
-        onSecondaryContainer = Color(0xFFBAE6FD),
-    )
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(
-            Modifier.fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.42f))
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.50f))
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClose)
                 .padding(18.dp),
             contentAlignment = Alignment.Center,
         ) {
-            MaterialTheme(colorScheme = cosmicScheme) {
-                GlassThemeOverride(dark = true) {
-                    GlassDialogSurface(
-                        shape = glassCardShape(),
-                        modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 800.dp).statusBarsPadding()
-                            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
-                    ) {
-                        Box(Modifier.background(Color(0xD9050916))) {
-                            AiParticleBackdrop(
-                                modifier = Modifier.matchParentSize(),
-                                accentColors = listOf(Color(0xFF38BDF8), Color(0xFF6366F1)),
-                                active = vm.aiBusy || studying,
-                                variant = if (vm.aiBusy) AiBackdropVariant.AI_WAVE else AiBackdropVariant.SPACE_NEBULA,
-                            )
-                            if (studying) {
-                                val deck = if (studyAll) vm.cards else vm.dueCards()
-                                StudyView(vm, deck, onDone = { studying = false })
-                            } else {
-                                val due = vm.dueCards().size
-                                val mastered = vm.cards.count { it.box >= 4 }
-                                val learning = vm.cards.size - mastered
-                                Column(Modifier.padding(20.dp)) {
-                                    StudyHero("Flashcards Studio", "${vm.cards.size} cards · powered by ${vm.aiEngineLabel}", StudyColors.cards, "FC") {
-                                        TextButton(onClick = onClose) { Text("Close", color = Color.White) }
-                                    }
-                                    Spacer(Modifier.height(12.dp))
-
-                                    // Stats Strip
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        StatChip("Total", "${vm.cards.size}", MaterialTheme.colorScheme.primary, Modifier.weight(1f))
-                                        StatChip("Due", "$due", Color(0xFFD97706), Modifier.weight(1f))
-                                        StatChip("Mastered", "$mastered", Color(0xFF1BAF7A), Modifier.weight(1f))
-                                        StatChip("Learning", "$learning", Color(0xFF7161E0), Modifier.weight(1f))
-                                    }
-                                    Spacer(Modifier.height(10.dp))
-
-                                    GlassSegmentedControl(
-                                        options = listOf("Study Deck", "Manage Cards (${vm.cards.size})"),
-                                        selectedIndex = tab,
-                                        onSelect = { tab = it },
-                                        modifier = Modifier.fillMaxWidth(),
-                                    )
-                    Spacer(Modifier.height(12.dp))
-
-                    if (vm.aiBusy) {
-                        AiScanBanner(vm.aiStage, vm.aiEngineLabel, StudyColors.cards)
-                        Spacer(Modifier.height(10.dp))
-                    }
-
-                    if (tab == 0) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Button(
-                                onClick = { studyAll = false; studying = true },
-                                enabled = due > 0,
-                                shape = Pill,
-                                modifier = Modifier.weight(1f).height(52.dp),
-                            ) { Text(if (due > 0) "Study $due due cards" else "Due deck caught up", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
-                            if (vm.cards.isNotEmpty()) {
-                                FilledTonalButton(
-                                    onClick = { studyAll = true; studying = true },
-                                    shape = Pill,
-                                    modifier = Modifier.height(52.dp),
-                                ) { Text("Practice all (${vm.cards.size})") }
-                            }
-                        }
-                        Spacer(Modifier.height(12.dp))
-                        Text("CREATE OR GENERATE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(6.dp))
-                        val smartFeatures = LocalSmartFeatures.current
-                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilledTonalButton(onClick = { onClose(); vm.captureForQuiz = false; vm.capturingCard = true }, shape = Pill) { Text("Cut from page") }
-                            OutlinedButton(onClick = { vm.newTextCard() }, shape = Pill) { Text("Text card") }
-                            if (smartFeatures) {
-                                OutlinedButton(onClick = { vm.generateCards(false) }, shape = Pill) { Text("AI · This page") }
-                                OutlinedButton(onClick = { vm.generateCards(true) }, shape = Pill) { Text("AI · Whole notebook") }
-                            }
-                        }
-                        Spacer(Modifier.height(14.dp))
-                        if (vm.cards.isEmpty()) {
-                            GlassCard(hero = false, shape = glassCardShape(), contentPadding = PaddingValues(18.dp), modifier = Modifier.fillMaxWidth()) {
-                                Text(
-                                    if (smartFeatures) {
-                                        "Your deck is empty. Tap \"AI · This page\" to extract definitions & Q/A automatically, or cut any area directly from your notes."
-                                    } else {
-                                        "Your deck is empty. Cut any area directly from your notes or create a text card manually."
-                                    },
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        } else {
-                            LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(vm.cards.take(6), key = { it.id }) { c ->
-                                    CardRow(vm, c, onShow = { onClose(); vm.showCardSource(c) })
-                                }
-                            }
-                        }
+            AppDialogSurface(
+                shape = appCardShape(4f),
+                modifier = Modifier
+                    .widthIn(max = 760.dp)
+                    .fillMaxWidth()
+                    .heightIn(max = 800.dp)
+                    .statusBarsPadding()
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
+            ) {
+                Box(Modifier.fillMaxWidth()) {
+                    MovingColorfulGradientBackground(Modifier.matchParentSize(), intensity = 0.42f)
+                    if (studying) {
+                        val deck = if (studyAll) vm.cards else vm.dueCards()
+                        StudyView(vm, deck, onDone = { studying = false })
                     } else {
-                        OutlinedTextField(
-                            query, { query = it },
-                            placeholder = { Text("Search cards front & back…") },
-                            singleLine = true,
-                            shape = Pill,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            listOf("All", "Due", "Mastered").forEachIndexed { idx, label ->
-                                GlassChip(filter == idx, { filter = idx }, label)
+                        val due = vm.dueCards().size
+                        val mastered = vm.cards.count { it.box >= 4 }
+                        val learning = vm.cards.size - mastered
+                        Column(Modifier.padding(20.dp)) {
+                            StudyHero(
+                                title = "Flashcards Studio",
+                                subtitle = "${vm.cards.size} cards · spaced recall deck",
+                                colors = StudyColors.cards,
+                                glyph = "FC",
+                            ) {
+                                TextButton(onClick = onClose) { Text("Close", color = Color.White) }
                             }
-                            Spacer(Modifier.weight(1f))
-                            if (vm.cards.isNotEmpty()) {
-                                TextButton(onClick = {
-                                    val send = Intent(Intent.ACTION_SEND).setType("text/csv")
-                                        .putExtra(Intent.EXTRA_SUBJECT, vm.title + " flashcards")
-                                        .putExtra(Intent.EXTRA_TEXT, vm.cardsCsv())
-                                    context.startActivity(Intent.createChooser(send, "Export flashcards"))
-                                }) { Text("Export CSV") }
+                            Spacer(Modifier.height(12.dp))
+
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                StatChip("Total", "${vm.cards.size}", ProButtonPalette.SkyCyan, Modifier.weight(1f))
+                                StatChip("Due", "$due", ProButtonPalette.VibrantOrange, Modifier.weight(1f))
+                                StatChip("Mastered", "$mastered", ProButtonPalette.Emerald, Modifier.weight(1f))
+                                StatChip("Learning", "$learning", ProButtonPalette.Violet, Modifier.weight(1f))
                             }
-                        }
-                        val now = System.currentTimeMillis()
-                        val shown = vm.cards.filter { c ->
-                            val matchesQ = query.isBlank() || c.front.contains(query, true) || c.back.contains(query, true)
-                            val matchesF = when (filter) { 1 -> c.due <= now; 2 -> c.box >= 4; else -> true }
-                            matchesQ && matchesF
-                        }
-                        LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(shown, key = { it.id }) { c ->
-                                Box(Modifier.animateItem()) { CardRow(vm, c, onShow = { onClose(); vm.showCardSource(c) }) }
+                            Spacer(Modifier.height(10.dp))
+
+                            AppSegmentedControl(
+                                options = listOf("Study Deck", "Manage Cards (${vm.cards.size})"),
+                                selectedIndex = tab,
+                                onSelect = { tab = it },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Spacer(Modifier.height(12.dp))
+
+                            if (tab == 0) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Button(
+                                        onClick = { studyAll = false; studying = true },
+                                        enabled = due > 0,
+                                        shape = Pill,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = ProButtonPalette.ElectricBlue,
+                                            contentColor = Color.White,
+                                        ),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(52.dp)
+                                            .elasticStretch(),
+                                    ) {
+                                        Text(
+                                            if (due > 0) "Study $due due cards" else "Due deck caught up",
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                    }
+                                    if (vm.cards.isNotEmpty()) {
+                                        AppPill(
+                                            selected = true,
+                                            tint = ProButtonPalette.VibrantOrange,
+                                            onClick = { studyAll = true; studying = true },
+                                            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+                                        ) {
+                                            Text("Practice all (${vm.cards.size})", fontWeight = FontWeight.SemiBold)
+                                        }
+                                    }
+                                }
+                                Spacer(Modifier.height(12.dp))
+                                Text("CREATE CARD", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.height(6.dp))
+                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    AppPill(
+                                        selected = true,
+                                        tint = ProButtonPalette.SkyCyan,
+                                        onClick = { onClose(); vm.capturingCard = true },
+                                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                                    ) {
+                                        Text("Cut from page", fontWeight = FontWeight.SemiBold)
+                                    }
+                                    AppPill(
+                                        tint = ProButtonPalette.Violet,
+                                        onClick = { vm.newTextCard() },
+                                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                                    ) {
+                                        Text("Text card", fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                                Spacer(Modifier.height(14.dp))
+                                if (vm.cards.isEmpty()) {
+                                    AppCard(hero = false, shape = appCardShape(), contentPadding = PaddingValues(18.dp), modifier = Modifier.fillMaxWidth()) {
+                                        Text(
+                                            "Your deck is empty. Cut any diagram or note directly from a page, or create a text card manually.",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                } else {
+                                    LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        items(vm.cards.take(6), key = { it.id }) { c ->
+                                            CardRow(vm, c, onShow = { onClose(); vm.showCardSource(c) })
+                                        }
+                                    }
+                                }
+                            } else {
+                                OutlinedTextField(
+                                    query,
+                                    { query = it },
+                                    placeholder = { Text("Search cards front & back…") },
+                                    singleLine = true,
+                                    shape = Pill,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Row(
+                                    Modifier.padding(vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    listOf("All", "Due", "Mastered").forEachIndexed { idx, label ->
+                                        AppChip(
+                                            selected = filter == idx,
+                                            onClick = { filter = idx },
+                                            label = label,
+                                            tint = when (idx) {
+                                                1 -> ProButtonPalette.VibrantOrange
+                                                2 -> ProButtonPalette.Emerald
+                                                else -> ProButtonPalette.ElectricBlue
+                                            },
+                                        )
+                                    }
+                                    Spacer(Modifier.weight(1f))
+                                    if (vm.cards.isNotEmpty()) {
+                                        TextButton(onClick = {
+                                            val send = Intent(Intent.ACTION_SEND).setType("text/csv")
+                                                .putExtra(Intent.EXTRA_SUBJECT, vm.title + " flashcards")
+                                                .putExtra(Intent.EXTRA_TEXT, vm.cardsCsv())
+                                            context.startActivity(Intent.createChooser(send, "Export flashcards"))
+                                        }) { Text("Export CSV") }
+                                    }
+                                }
+                                val now = System.currentTimeMillis()
+                                val shown = vm.cards.filter { c ->
+                                    val matchesQ = query.isBlank() || c.front.contains(query, true) || c.back.contains(query, true)
+                                    val matchesF = when (filter) {
+                                        1 -> c.due <= now
+                                        2 -> c.box >= 4
+                                        else -> true
+                                    }
+                                    matchesQ && matchesF
+                                }
+                                LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    items(shown, key = { it.id }) { c ->
+                                        Box(Modifier.animateItem()) { CardRow(vm, c, onShow = { onClose(); vm.showCardSource(c) }) }
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
-            }
-            }
-        }
-        }
         }
     }
 }
 
 @Composable
 private fun StatChip(label: String, value: String, tint: Color, modifier: Modifier = Modifier) {
-    GlassSurface(
-        role = GlassRole.Frost,
+    AppSurface(
+        role = SurfaceRole.Frost,
         containerColor = tint.copy(alpha = 0.14f),
-        shape = glassCardShape(),
+        shape = appCardShape(),
         contentPadding = PaddingValues(vertical = 8.dp, horizontal = 10.dp),
-        modifier = modifier.border(1.dp, tint.copy(alpha = 0.28f), glassCardShape()),
+        modifier = modifier,
     ) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(value, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = tint)
@@ -329,14 +381,20 @@ private fun StatChip(label: String, value: String, tint: Color, modifier: Modifi
 @Composable
 private fun CardRow(vm: EditorViewModel, c: Flashcard, onShow: () -> Unit) {
     val pic = remember(c.frontImage) { vm.cardImage(c.frontImage) }
-    GlassCard(
+    AppCard(
         hero = false,
-        shape = glassCardShape(),
+        shape = appCardShape(),
         contentPadding = PaddingValues(10.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(58.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier
+                    .size(58.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) {
                 if (pic != null) Image(pic.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 else Text("Aa", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
@@ -348,20 +406,38 @@ private fun CardRow(vm: EditorViewModel, c: Flashcard, onShow: () -> Unit) {
                     if (c.lapses > 0) Text("· ${c.lapses} lapses", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                 }
             }
-            GlassMenuButton(
+            AppMenuButton(
                 contentPadding = PaddingValues(0.dp),
-                buttonContent = {
-                    Icon(Icons.Outlined.MoreHoriz, "Card options", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
-                },
-                items = buildList {
-                    add(GlassMenuItem("Edit", Icons.Outlined.Edit) { vm.cardDraft = EditorViewModel.CardDraft(c, false) })
-                    if (c.pageId != null) add(GlassMenuItem("Show in notebook", Icons.Outlined.Visibility) { onShow() })
-                    add(GlassMenuDivider)
-                    add(GlassMenuItem("Delete", Icons.Outlined.Delete, destructive = true) { vm.deleteCard(c.id) })
-                },
                 contentDescription = "Card options",
-                menuWidth = 210.dp,
-            )
+                items = buildList {
+                    add(
+                        AppMenuItem(
+                            label = "Edit",
+                            icon = { Icon(Icons.Outlined.Edit, null, modifier = Modifier.size(18.dp)) },
+                            onClick = { vm.cardDraft = EditorViewModel.CardDraft(c, false) },
+                        ),
+                    )
+                    if (c.pageId != null) {
+                        add(
+                            AppMenuItem(
+                                label = "Show in notebook",
+                                icon = { Icon(Icons.Outlined.Visibility, null, modifier = Modifier.size(18.dp)) },
+                                onClick = onShow,
+                            ),
+                        )
+                    }
+                    add(
+                        AppMenuItem(
+                            label = "Delete",
+                            destructive = true,
+                            icon = { Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(18.dp)) },
+                            onClick = { vm.deleteCard(c.id) },
+                        ),
+                    )
+                },
+            ) {
+                Icon(Icons.Outlined.MoreHoriz, "Card options", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+            }
         }
     }
 }
@@ -379,13 +455,21 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
 
     Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(if (index < total) "Card ${index + 1} of $total" else "Session complete", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            Text(
+                if (index < total) "Card ${index + 1} of $total" else "Session complete",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
             SessionClock(running = index < total) { elapsed = it }
             TextButton(onClick = onDone) { Text("Back") }
         }
         LinearProgressIndicator(
             progress = { if (total == 0) 1f else index / total.toFloat() },
-            modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp).height(6.dp).clip(Pill),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 10.dp)
+                .height(6.dp)
+                .clip(Pill),
             color = StudyColors.cards.last(),
         )
         val card = queue.getOrNull(index)?.let { id -> vm.cards.firstOrNull { it.id == id } }
@@ -394,34 +478,57 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
             Spacer(Modifier.height(10.dp))
             ScoreRing(pct, StudyColors.cards)
             val (grade, line) = feedbackFor(pct)
-            Text("$grade  Session done", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 14.dp))
+            Text("$grade · Session done", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 14.dp))
             Text(line, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
             Text("$known of $total recalled · ${clock(elapsed)}", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp))
-            Button(onClick = onDone, shape = Pill) { Text("Finish") }
+            Button(
+                onClick = onDone,
+                shape = Pill,
+                colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
+                modifier = Modifier.elasticStretch(),
+            ) { Text("Finish") }
             return@Column
         }
 
         val turn by animateFloatAsState(if (flipped) 180f else 0f, tween(420), label = "flip")
         val pic = remember(card.id) { vm.cardImage(card.frontImage) }
-        GlassSurface(
-            role = GlassRole.Frost,
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = if (turn > 90f) 0.72f else 0.92f),
-            shape = glassCardShape(),
+        AppSurface(
+            role = SurfaceRole.Frost,
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = if (turn > 90f) 0.78f else 0.96f),
+            shape = appCardShape(4f),
             contentPadding = PaddingValues(22.dp),
             onClick = { flipped = !flipped },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 270.dp, max = 460.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 270.dp, max = 460.dp)
                 .graphicsLayer { rotationY = turn; cameraDistance = 12f * density },
         ) {
             Box(Modifier.fillMaxWidth().graphicsLayer { if (turn > 90f) rotationY = 180f }, contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(if (turn <= 90f) "QUESTION" else "ANSWER", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     if (turn <= 90f) {
-                        pic?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp).clip(RoundedCornerShape(12.dp))) }
+                        pic?.let {
+                            Image(
+                                it.asImageBitmap(),
+                                null,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp).clip(RoundedCornerShape(12.dp)),
+                            )
+                        }
                         if (card.front.isNotBlank()) Text(card.front, fontSize = 22.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
                         Text("Tap card to reveal answer", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
-                        remember(card.id) { vm.cardImage(card.backImage) }?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp).clip(RoundedCornerShape(12.dp))) }
-                        if (card.back.isNotBlank() || card.backImage == null) Text(card.back.ifBlank { "No answer written" }, fontSize = 22.sp, textAlign = TextAlign.Center)
+                        remember(card.id) { vm.cardImage(card.backImage) }?.let {
+                            Image(
+                                it.asImageBitmap(),
+                                null,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp).clip(RoundedCornerShape(12.dp)),
+                            )
+                        }
+                        if (card.back.isNotBlank() || card.backImage == null) {
+                            Text(card.back.ifBlank { "No answer written" }, fontSize = 22.sp, textAlign = TextAlign.Center)
+                        }
                     }
                 }
             }
@@ -435,18 +542,28 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
                     flipped = false
                     index++
                 }
-                OutlinedButton(onClick = { grade(0) }, shape = Pill, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFE5484D))) {
-                    Text("Again\n10m", textAlign = TextAlign.Center, fontSize = 12.sp)
-                }
-                FilledTonalButton(onClick = { grade(1) }, shape = Pill, modifier = Modifier.weight(1f)) {
-                    Text("Hard\n12h", textAlign = TextAlign.Center, fontSize = 12.sp)
-                }
-                FilledTonalButton(onClick = { grade(2) }, shape = Pill, modifier = Modifier.weight(1f)) {
-                    Text("Good\n1d+", textAlign = TextAlign.Center, fontSize = 12.sp)
-                }
-                Button(onClick = { grade(3) }, shape = Pill, modifier = Modifier.weight(1f)) {
-                    Text("Easy\n3d+", textAlign = TextAlign.Center, fontSize = 12.sp)
-                }
+                OutlinedButton(
+                    onClick = { grade(0) },
+                    shape = Pill,
+                    modifier = Modifier.weight(1f).elasticStretch(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ProButtonPalette.CoralRose),
+                ) { Text("Again\n10m", textAlign = TextAlign.Center, fontSize = 12.sp) }
+                FilledTonalButton(
+                    onClick = { grade(1) },
+                    shape = Pill,
+                    modifier = Modifier.weight(1f).elasticStretch(),
+                ) { Text("Hard\n12h", textAlign = TextAlign.Center, fontSize = 12.sp) }
+                FilledTonalButton(
+                    onClick = { grade(2) },
+                    shape = Pill,
+                    modifier = Modifier.weight(1f).elasticStretch(),
+                ) { Text("Good\n1d+", textAlign = TextAlign.Center, fontSize = 12.sp) }
+                Button(
+                    onClick = { grade(3) },
+                    shape = Pill,
+                    colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.Emerald, contentColor = Color.White),
+                    modifier = Modifier.weight(1f).elasticStretch(),
+                ) { Text("Easy\n3d+", textAlign = TextAlign.Center, fontSize = 12.sp) }
             }
         } else {
             Text("Think of the answer, then tap the card to flip.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -460,22 +577,30 @@ fun LinkSheet(vm: EditorViewModel) {
     var url by remember { mutableStateOf("") }
     Dialog(onDismissRequest = { vm.linkSheet = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(
-            Modifier.fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.34f))
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.42f))
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { vm.linkSheet = null }
                 .padding(24.dp),
             contentAlignment = Alignment.Center,
         ) {
-            GlassDialogSurface(
-                shape = glassCardShape(),
-                modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth().heightIn(max = 640.dp)
+            AppDialogSurface(
+                shape = appCardShape(4f),
+                modifier = Modifier
+                    .widthIn(max = 640.dp)
+                    .fillMaxWidth()
+                    .heightIn(max = 640.dp)
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
             ) {
                 Column(Modifier.padding(20.dp)) {
-                    Text("Add link", style = MaterialTheme.typography.headlineSmall)
-                    Text("Tap the linked content with a finger to follow it. Long-press its blue badge to remove.", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Add link", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Tap linked content with a finger to follow it. Long-press its blue badge to remove.",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     Spacer(Modifier.height(12.dp))
-                    GlassSegmentedControl(
+                    AppSegmentedControl(
                         options = listOf("Page", "Website"),
                         selectedIndex = tab,
                         onSelect = { tab = it },
@@ -483,28 +608,61 @@ fun LinkSheet(vm: EditorViewModel) {
                     )
                     Spacer(Modifier.height(12.dp))
                     if (tab == 0) {
-                        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-                            androidx.compose.foundation.lazy.grid.GridCells.Adaptive(96.dp),
+                        LazyVerticalGrid(
+                            GridCells.Adaptive(96.dp),
                             Modifier.weight(1f, fill = false),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             items(vm.pages.size, key = { vm.pages[it].id }) { i ->
                                 val thumb by produceState<android.graphics.Bitmap?>(null, i) { value = vm.thumbnail(i, 200) }
                                 val current = i == vm.pageIndex
-                                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { vm.linkToPage(i) }) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .elasticStretch()
+                                        .clickable { vm.linkToPage(i) }
+                                        .padding(2.dp),
+                                ) {
                                     Box(
-                                        Modifier.fillMaxWidth().heightIn(min = 120.dp).clip(RoundedCornerShape(10.dp))
-                                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                                            .border(if (current) 2.dp else 1.dp, if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
-                                    ) { thumb?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth()) } }
-                                    Text("Page ${i + 1}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 120.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(
+                                                if (current) ProButtonPalette.ElectricBlue.copy(alpha = 0.20f)
+                                                else MaterialTheme.colorScheme.surfaceVariant,
+                                            ),
+                                    ) {
+                                        thumb?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth()) }
+                                    }
+                                    Text(
+                                        "Page ${i + 1}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (current) ProButtonPalette.ElectricBlue else MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.padding(top = 4.dp),
+                                    )
                                 }
                             }
                         }
                     } else {
-                        OutlinedTextField(url, { url = it }, singleLine = true, shape = Pill, placeholder = { Text("example.com") }, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(
+                            url,
+                            { url = it },
+                            singleLine = true,
+                            shape = Pill,
+                            placeholder = { Text("example.com") },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                         Spacer(Modifier.height(12.dp))
-                        Button(onClick = { vm.linkToUrl(url) }, enabled = url.trim().contains('.'), shape = Pill) { Text("Add link") }
+                        Button(
+                            onClick = { vm.linkToUrl(url) },
+                            enabled = url.trim().contains('.'),
+                            shape = Pill,
+                            colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
+                            modifier = Modifier.elasticStretch(),
+                        ) { Text("Add link") }
                     }
                     Spacer(Modifier.height(8.dp))
                     TextButton(onClick = { vm.linkSheet = null }, modifier = Modifier.align(Alignment.End)) { Text("Cancel") }
@@ -514,422 +672,218 @@ fun LinkSheet(vm: EditorViewModel) {
     }
 }
 
-/** Redesigned Quiz Studio: live AI generation bar, segmented question indicators, streak flame, & ScoreRing report. */
-@Composable
-fun QuizDialog(vm: EditorViewModel, onClose: () -> Unit) {
-    var taking by remember { mutableStateOf<List<String>?>(null) }
-    var editing by remember { mutableStateOf<QuizQuestion?>(null) }
-    LaunchedEffect(vm.quizDraft) { vm.quizDraft?.let { editing = it; vm.quizDraft = null } }
-    val baseScheme = MaterialTheme.colorScheme
-    val cosmicScheme = baseScheme.copy(
-        background = Color(0xFF050916),
-        surface = Color(0xFF0D1429),
-        surfaceVariant = Color(0xFF172242),
-        onSurface = Color(0xFFF1F5F9),
-        onSurfaceVariant = Color(0xFFCBD5E1),
-        outlineVariant = Color(0xFF334155),
-        primary = Color(0xFF38BDF8),
-        onPrimary = Color(0xFF041224),
-        primaryContainer = Color(0xFF1E3A8A),
-        onPrimaryContainer = Color(0xFFE0F2FE),
-        secondaryContainer = Color(0xFF172554),
-        onSecondaryContainer = Color(0xFFBAE6FD),
-    )
-    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        val order = taking
-        val isStartScreen = order == null
-        Box(
-            Modifier.fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.42f))
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClose)
-                .padding(18.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            MaterialTheme(colorScheme = if (isStartScreen) cosmicScheme else baseScheme) {
-                GlassThemeOverride(dark = if (isStartScreen) true else baseScheme.surface.luminance() < 0.4f) {
-                    GlassDialogSurface(
-                        shape = glassCardShape(),
-                        modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 820.dp).statusBarsPadding()
-                            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
-                    ) {
-                        Box(Modifier.then(if (isStartScreen) Modifier.background(Color(0xD9050916)) else Modifier)) {
-                            AiParticleBackdrop(
-                                modifier = Modifier.matchParentSize(),
-                                accentColors = if (isStartScreen) listOf(Color(0xFF38BDF8), Color(0xFF6366F1)) else StudyColors.quiz,
-                                active = vm.aiBusy || order != null,
-                                variant = when {
-                                    vm.aiBusy -> AiBackdropVariant.AI_WAVE
-                                    order == null -> AiBackdropVariant.SPACE_NEBULA
-                                    else -> AiBackdropVariant.QUIZ_CHALLENGE
-                                },
-                            )
-                            if (order != null) TakeQuiz(vm, order, onDone = { taking = null }, onRetry = { taking = it })
-                            else Column(Modifier.padding(20.dp)) {
-                                val best = vm.quizBest()
-                                StudyHero(
-                                    "Quiz Studio",
-                                    "${vm.quiz.size} questions" + (best?.let { " · best ${it.first}% in ${clock(it.second)}" } ?: " · ${vm.aiEngineLabel}"),
-                                    StudyColors.quiz,
-                                    "QZ",
-                                ) {
-                                    TextButton(onClick = onClose) { Text("Close", color = Color.White) }
-                                }
-                                Spacer(Modifier.height(14.dp))
-                                Button(
-                                    onClick = { taking = vm.quiz.shuffled().map { it.id } }, enabled = vm.quiz.isNotEmpty(), shape = Pill,
-                                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                                ) { Text(if (vm.quiz.isEmpty()) "Add or generate questions below" else "Start Timed Quiz · ${vm.quiz.size} Qs", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
-                                Spacer(Modifier.height(10.dp))
-                                val smartFeatures = LocalSmartFeatures.current
-                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    OutlinedButton(onClick = { editing = QuizQuestion(UUID.randomUUID().toString(), "", listOf("", "", "", ""), 0) }, shape = Pill) { Text("Write question") }
-                                    FilledTonalButton(onClick = { onClose(); vm.captureForQuiz = true; vm.capturingCard = true }, shape = Pill) { Text("From picture") }
-                                    if (smartFeatures) {
-                                        OutlinedButton(onClick = { vm.generateQuiz(false) }, shape = Pill) { Text("AI · This page") }
-                                        OutlinedButton(onClick = { vm.generateQuiz(true) }, shape = Pill) { Text("AI · Whole notebook") }
-                                    }
-                                }
-                                if (vm.aiBusy) {
-                                    Spacer(Modifier.height(10.dp))
-                                    AiScanBanner(vm.aiStage, vm.aiEngineLabel, StudyColors.quiz)
-                                }
-                                Spacer(Modifier.height(10.dp))
-                                if (vm.quiz.isEmpty()) {
-                                    GlassCard(hero = false, shape = glassCardShape(), contentPadding = PaddingValues(18.dp), modifier = Modifier.fillMaxWidth()) {
-                                        Text(
-                                            if (smartFeatures) {
-                                                "Write your own multiple-choice questions, box a diagram, or let the on-device AI generate practice questions from your notes."
-                                            } else {
-                                                "Write your own multiple-choice questions or box a diagram from your notes."
-                                            },
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                } else {
-                                    LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        items(vm.quiz, key = { it.id }) { q ->
-                                            val pic = remember(q.image) { vm.cardImage(q.image) }
-                                            GlassCard(
-                                                hero = false,
-                                                shape = glassCardShape(),
-                                                contentPadding = PaddingValues(12.dp),
-                                                onClick = { editing = q },
-                                                modifier = Modifier.animateItem().fillMaxWidth(),
-                                            ) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    if (pic != null) {
-                                                        Image(pic.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)))
-                                                        Spacer(Modifier.width(12.dp))
-                                                    }
-                                                    Column(Modifier.weight(1f)) {
-                                                        Text(q.question.ifBlank { "Picture question" }, maxLines = 2, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                                                        val tries = q.right + q.wrong
-                                                        val stats = if (tries == 0) "New" else "${q.right * 100 / tries}% accuracy ($tries tries)"
-                                                        Text((if (q.generated) "AI · " else "") + stats, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    editing?.let { q ->
-        QuestionEditor(vm, q, onDismiss = { editing = null }, onDelete = { vm.deleteQuestion(q.id); editing = null }) { vm.saveQuestion(it); editing = null }
-    }
-}
-
-@Composable
-private fun QuestionEditor(
-    vm: EditorViewModel, q: QuizQuestion, onDismiss: () -> Unit, onDelete: () -> Unit, onSave: (QuizQuestion) -> Unit,
-) {
-    var question by remember { mutableStateOf(q.question) }
-    val options = remember { mutableStateListOf(*(q.options.ifEmpty { listOf("", "") }).toTypedArray()) }
-    var answer by remember { mutableIntStateOf(q.answer.coerceIn(0, (q.options.size - 1).coerceAtLeast(0))) }
-    var why by remember { mutableStateOf(q.explanation) }
-    val pic = remember(q.image) { vm.cardImage(q.image) }
-    val exists = vm.quiz.any { it.id == q.id }
-    GlassDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (exists) "Edit question" else "New question") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                pic?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(RoundedCornerShape(14.dp))) }
-                OutlinedTextField(question, { question = it }, minLines = 2, shape = RoundedCornerShape(16.dp), label = { Text("Question") }, modifier = Modifier.fillMaxWidth())
-                Text("Select the correct answer", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                options.forEachIndexed { i, o ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(answer == i, { answer = i })
-                        OutlinedTextField(o, { options[i] = it }, singleLine = true, shape = Pill, placeholder = { Text("Option ${'A' + i}") }, modifier = Modifier.weight(1f))
-                        if (options.size > 2) TextButton(onClick = { options.removeAt(i); if (answer >= options.size) answer = options.size - 1 }) { Icon(Icons.Outlined.Close, "Remove option", modifier = Modifier.size(18.dp)) }
-                    }
-                }
-                if (options.size < 6) TextButton(onClick = { options.add("") }) { Text("+ Add option") }
-                OutlinedTextField(why, { why = it }, shape = RoundedCornerShape(16.dp), label = { Text("Explanation (optional)") }, modifier = Modifier.fillMaxWidth())
-            }
-        },
-        confirmButton = {
-            val ok = (question.isNotBlank() || pic != null) && options.count { it.isNotBlank() } >= 2 && options.getOrNull(answer)?.isNotBlank() == true
-            Button(onClick = {
-                val filled = options.mapIndexedNotNull { i, s -> if (s.isNotBlank()) i to s.trim() else null }
-                onSave(q.copy(question = question.trim(), options = filled.map { it.second }, answer = filled.indexOfFirst { it.first == answer }.coerceAtLeast(0), explanation = why.trim()))
-            }, enabled = ok, shape = Pill) { Text("Save") }
-        },
-        dismissButton = {
-            Row {
-                if (exists) TextButton(onClick = onDelete) { Text("Delete") }
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-            }
-        },
-    )
-}
-
-@Composable
-private fun TakeQuiz(vm: EditorViewModel, order: List<String>, onDone: () -> Unit, onRetry: (List<String>) -> Unit) {
-    var index by remember(order) { mutableIntStateOf(0) }
-    var picked by remember(order) { mutableStateOf<Int?>(null) }
-    var score by remember(order) { mutableIntStateOf(0) }
-    var streak by remember(order) { mutableIntStateOf(0) }
-    var bestStreak by remember(order) { mutableIntStateOf(0) }
-    val history = remember(order) { mutableStateListOf<Boolean>() }
-    val wrong = remember(order) { mutableStateListOf<String>() }
-    var elapsed by remember(order) { mutableStateOf(0L) }
-    var newBest by remember(order) { mutableStateOf<Boolean?>(null) }
-    val finished = index >= order.size
-
-    Column(Modifier.padding(20.dp).verticalScroll(rememberScrollState())) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (!finished) "Question ${index + 1} of ${order.size}" else "Quiz Report", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            if (streak >= 2 && !finished) {
-                GlassSurface(
-                    role = GlassRole.Frost,
-                    containerColor = Color(0xFFFFE7C2),
-                    shape = glassPillShape(),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                ) {
-                    Text("$streak streak", style = MaterialTheme.typography.labelMedium, color = Color(0xFFC25900), fontWeight = FontWeight.Bold)
-                }
-                Spacer(Modifier.width(8.dp))
-            }
-            SessionClock(running = !finished) { elapsed = it }
-            TextButton(onClick = onDone) { Text("Back") }
-        }
-        // Segmented per-question progress strip
-        Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            order.indices.forEach { i ->
-                val c = when {
-                    i < history.size -> if (history[i]) Color(0xFF1BAF7A) else Color(0xFFE5484D)
-                    i == index && !finished -> StudyColors.quiz.first()
-                    else -> MaterialTheme.colorScheme.surfaceVariant
-                }
-                Box(Modifier.weight(1f).height(6.dp).clip(Pill).background(c))
-            }
-        }
-
-        if (finished) {
-            val pct = if (order.isEmpty()) 0 else score * 100 / order.size
-            LaunchedEffect(Unit) { newBest = vm.recordQuiz(pct, elapsed) }
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { ScoreRing(pct, StudyColors.quiz) }
-            val (grade, line) = feedbackFor(pct)
-            Text("$grade  $line", style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 14.dp))
-            Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                Stat("$score/${order.size}", "correct"); Stat(clock(elapsed), "time"); Stat("$bestStreak", "best streak")
-            }
-            if (newBest == true) Text("New personal best for this notebook!", color = StudyColors.quiz.last(), style = MaterialTheme.typography.labelLarge, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-            if (wrong.isNotEmpty()) {
-                Text("MISSED REVIEW", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 14.dp, bottom = 6.dp))
-                wrong.forEach { id ->
-                    val q = vm.quiz.firstOrNull { it.id == id } ?: return@forEach
-                    GlassCard(hero = false, shape = glassCardShape(), contentPadding = PaddingValues(12.dp), modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                        Column {
-                            Text(q.question.ifBlank { "Picture question" }, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                            Text("Answer: " + (q.options.getOrNull(q.answer) ?: ""), color = Color(0xFF1BAF7A), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
-                            if (q.explanation.isNotBlank()) Text(q.explanation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            }
-            Spacer(Modifier.height(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onDone, shape = Pill) { Text("Done") }
-                if (wrong.isNotEmpty()) FilledTonalButton(onClick = { onRetry(wrong.toList().shuffled()) }, shape = Pill) { Text("Retry ${wrong.size} missed") }
-                OutlinedButton(onClick = { onRetry(order.shuffled()) }, shape = Pill) { Text("Play again") }
-            }
-            return@Column
-        }
-
-        val q = vm.quiz.firstOrNull { it.id == order[index] }
-        if (q == null) { LaunchedEffect(index) { index++ }; return@Column }
-        val pic = remember(q.image) { vm.cardImage(q.image) }
-        pic?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp).clip(RoundedCornerShape(16.dp))) }
-        Text(q.question.ifBlank { "What does this picture show?" }, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(vertical = 12.dp))
-        q.options.forEachIndexed { i, o ->
-            val shown = picked != null
-            val color = when {
-                shown && i == q.answer -> Color(0xFF1BAF7A)
-                shown && i == picked -> Color(0xFFE5484D)
-                else -> MaterialTheme.colorScheme.outlineVariant
-            }
-            val scale by animateFloatAsState(if (shown && i == picked) 1.02f else 1f, spring(dampingRatio = 0.45f), label = "opt")
-            GlassSurface(
-                role = GlassRole.Frost,
-                containerColor = if (shown && (i == q.answer || i == picked)) color.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                shape = glassCardShape(),
-                contentPadding = PaddingValues(13.dp),
-                onClick = if (!shown) {
-                    {
-                        picked = i
-                        val right = i == q.answer
-                        history += right
-                        if (right) { score++; streak++; bestStreak = maxOf(bestStreak, streak) } else { streak = 0; wrong += q.id }
-                        vm.answerQuestion(q.id, right)
-                    }
-                } else null,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).graphicsLayer { scaleX = scale; scaleY = scale }
-                    .border(1.5.dp, color, glassCardShape()),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(30.dp).clip(CircleShape).background(if (shown && (i == q.answer || i == picked)) color else MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-                        Text(if (shown && i == q.answer) "OK" else if (shown && i == picked) "X" else "${'A' + i}", color = if (shown && (i == q.answer || i == picked)) Color.White else MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelLarge)
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Text(o, style = MaterialTheme.typography.bodyLarge)
-                }
-            }
-        }
-        if (picked != null) {
-            val right = picked == q.answer
-            Text(if (right) "Correct!" else "Not quite.", color = if (right) Color(0xFF1BAF7A) else Color(0xFFE5484D), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 10.dp))
-            if (q.explanation.isNotBlank()) Text(q.explanation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(14.dp))
-            Button(onClick = { picked = null; index++ }, shape = Pill) { Text(if (index + 1 < order.size) "Next question" else "See quiz report") }
-        }
-    }
-}
-
-@Composable
-private fun Stat(value: String, label: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun TemplateSheet(vm: EditorViewModel, onAiTemplate: () -> Unit = {}, onClose: () -> Unit) {
+fun TemplateSheet(vm: EditorViewModel, onClose: () -> Unit) {
     val cur = vm.currentPage
-    var style by remember { mutableStateOf(cur?.paper ?: PaperStyle.RULED) }
-    var scale by remember { mutableStateOf(cur?.lineScale ?: 1f) }
+    var pickedStyle by remember { mutableStateOf(cur?.paper ?: PaperStyle.RULED) }
+    var lineScale by remember { mutableFloatStateOf(cur?.lineScale ?: 1f) }
     var lineColor by remember { mutableStateOf(cur?.lineColor) }
     var paperColor by remember { mutableStateOf(cur?.paperColor) }
-    val groups = PaperStyle.pickerEntries.groupBy { it.group }
-    var group by remember { mutableStateOf(style.group) }
-    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Box(
-            Modifier.fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.34f))
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClose)
-                .padding(20.dp),
-            contentAlignment = Alignment.Center,
+    var target by remember { mutableIntStateOf(0) }
+    val groups = remember { listOf("Writing", "Grids", "Planning", "Study", "Music") }
+    var activeGroup by remember { mutableStateOf(pickedStyle.group) }
+    val byGroup = remember { PaperStyle.pickerEntries.groupBy { it.group } }
+    val previewRenderer = remember { vm.renderer() }
+
+    AppSheet(onDismissRequest = onClose) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 24.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            GlassDialogSurface(
-                shape = glassCardShape(),
-                modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 820.dp).statusBarsPadding()
-                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
+            ScaleInAnimatedText(
+                text = "Page Templates",
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Column(Modifier.padding(20.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Templates", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-                        TextButton(onClick = onClose) { Text("Close") }
-                    }
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        groups.keys.forEach { g -> GlassChip(group == g, { group = g }, g) }
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-                        androidx.compose.foundation.lazy.grid.GridCells.Adaptive(104.dp),
-                        Modifier.weight(1f, fill = false).heightIn(max = 380.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
+                groups.forEach { g ->
+                    AppChip(
+                        selected = activeGroup == g,
+                        onClick = { activeGroup = g },
+                        label = g,
+                        tint = ProButtonPalette.ElectricBlue,
+                    )
+                }
+            }
+            val styles = byGroup[activeGroup].orEmpty()
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                styles.forEach { style ->
+                    val selected = style == pickedStyle
+                    AppCard(
+                        onClick = { pickedStyle = style },
+                        containerColor = if (selected) ProButtonPalette.ElectricBlue.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                        contentPadding = PaddingValues(8.dp),
+                        modifier = Modifier
+                            .width(104.dp)
+                            .border(
+                                width = if (selected) 2.dp else 0.dp,
+                                color = if (selected) ProButtonPalette.ElectricBlue else Color.Transparent,
+                                shape = appCardShape(),
+                            ),
                     ) {
-                        val templates = groups[group].orEmpty()
-                        items(templates.size, key = { templates[it].name }) { i ->
-                            val p = templates[i]
-                            val on = p == style
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { style = p }) {
-                                PaperPreview(
-                                    p,
-                                    Modifier.fillMaxWidth().height(140.dp).clip(RoundedCornerShape(10.dp))
-                                        .border(if (on) 3.dp else 1.dp, if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
-                                    tint = paperColor ?: 0xFFFFFFFF.toInt(),
-                                )
-                                Text(p.label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
+                        val previewPage = remember(style, lineScale, lineColor, paperColor) {
+                            Page(
+                                id = "preview-${style.name}",
+                                width = PageSize.WIDTH,
+                                height = PageSize.HEIGHT,
+                                paper = style,
+                                paperColor = paperColor,
+                                lineScale = lineScale,
+                                lineColor = lineColor,
+                            )
+                        }
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(0.72f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(paperColor ?: 0xFFFFFFFF.toInt())),
+                        ) {
+                            Canvas(Modifier.fillMaxSize()) {
+                                val sx = size.width / previewPage.width
+                                val sy = size.height / previewPage.height
+                                drawIntoCanvas { c ->
+                                    c.nativeCanvas.save()
+                                    c.nativeCanvas.scale(sx, sy)
+                                    previewRenderer.drawPaper(c.nativeCanvas, previewPage, null, false)
+                                    c.nativeCanvas.restore()
+                                }
                             }
                         }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            style.label,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.align(Alignment.CenterHorizontally),
+                        )
                     }
-                    Spacer(Modifier.height(12.dp))
-                    Text("LINE SPACING  ${"%.1f".format(scale)}×", style = MaterialTheme.typography.labelSmall)
-                    GlassSlider(
-                        value = scale,
-                        onValueChange = { scale = (it * 10).toInt() / 10f },
-                        valueRange = 0.6f..2f,
-                    )
-                    Text("LINE COLOUR", style = MaterialTheme.typography.labelSmall)
-                    Row(Modifier.horizontalScroll(rememberScrollState())) {
-                        val lines = listOf<Int?>(null, 0xFFB8C7DC.toInt(), 0xFF9AA4B2.toInt(), 0xFF7FB2F0.toInt(), 0xFFF4A3A3.toInt(), 0xFF9ED8B0.toInt(), 0xFFE0C48A.toInt(), 0xFF4A505A.toInt())
-                        lines.forEach { c -> ColorDot(c, c == lineColor) { lineColor = c } }
-                    }
-                    Text("PAPER", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 6.dp))
-                    Row(Modifier.horizontalScroll(rememberScrollState())) {
-                        val papers = listOf<Int?>(null, 0xFFFFFFFF.toInt(), 0xFFFBF7EC.toInt(), 0xFFFFF4E0.toInt(), 0xFFEAF4FF.toInt(), 0xFFEFF8EC.toInt(), 0xFFFFFDE7.toInt(), 0xFF22252B.toInt())
-                        papers.forEach { c -> ColorDot(c, c == paperColor) { paperColor = c } }
-                    }
-                    Spacer(Modifier.height(14.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { vm.applyTemplate(style, scale, lineColor, paperColor, 0); onClose() }, shape = Pill) { Text("This page") }
-                        FilledTonalButton(onClick = { vm.applyTemplate(style, scale, lineColor, paperColor, 1); onClose() }, shape = Pill) { Text("New page") }
-                        OutlinedButton(onClick = { vm.applyTemplate(style, scale, lineColor, paperColor, 2); onClose() }, shape = Pill) { Text("All pages") }
-                    }
+                }
+            }
+
+            AppSliderRow(
+                title = "LINE SPACING",
+                valueText = "%.0f%%".format(lineScale * 100f),
+                value = lineScale,
+                valueRange = 0.6f..1.6f,
+                onValueChange = { lineScale = it },
+            )
+
+            Text("LINE COLOUR", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                AppChip(selected = lineColor == null, onClick = { lineColor = null }, label = "Auto")
+                Spacer(Modifier.width(6.dp))
+                listOf(0xFFD5DEEA, 0xFFB0BEC5, 0xFF93C5FD, 0xFFA7F3D0, 0xFFFCA5A5, 0xFF475569).forEach { c ->
+                    val ci = c.toInt()
+                    Swatch(ci, lineColor == ci, 20) { lineColor = ci }
+                }
+            }
+
+            Text("PAPER TINT", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                AppChip(selected = paperColor == null, onClick = { paperColor = null }, label = "Default")
+                Spacer(Modifier.width(6.dp))
+                listOf(0xFFFFFFFF, 0xFFFBF7EC, 0xFFF5F4E6, 0xFFF1F2F4, 0xFFEAF4FF, 0xFF22252B).forEach { c ->
+                    val ci = c.toInt()
+                    Swatch(ci, paperColor == ci, 20) { paperColor = ci }
+                }
+            }
+
+            AppSegmentedControl(
+                options = listOf("This page", "New page", "All pages"),
+                selectedIndex = target,
+                onSelect = { target = it },
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+            ) {
+                TextButton(onClick = onClose) { Text("Cancel") }
+                Button(
+                    onClick = {
+                        vm.applyTemplate(pickedStyle, lineScale, lineColor, paperColor, target)
+                        onClose()
+                    },
+                    shape = Pill,
+                    colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
+                    modifier = Modifier.elasticStretch(),
+                ) {
+                    Text("Apply template")
                 }
             }
         }
     }
-}
-
-@Composable
-private fun ColorDot(c: Int?, on: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier.padding(4.dp).size(30.dp).clip(CircleShape)
-            .background(if (c == null) MaterialTheme.colorScheme.surfaceVariant else Color(c))
-            .border(if (on) 3.dp else 1.dp, if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) { if (c == null) Text("A", style = MaterialTheme.typography.labelSmall) }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TapePatternPicker(vm: EditorViewModel, onPickImage: () -> Unit) {
-    Text("PATTERN", style = MaterialTheme.typography.labelSmall)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        TapePatterns.names.forEach { p ->
-            val tile = remember(p, vm.tapeColor) { TapePatterns.tile(p, vm.tapeColor).asImageBitmap() }
-            val on = vm.tapePattern == p
-            Box(
-                Modifier.size(width = 54.dp, height = 26.dp).clip(RoundedCornerShape(6.dp))
-                    .border(if (on) 2.dp else 0.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
-                    .clickable { vm.tapePattern = p },
-            ) { Image(tile, TapePatterns.label(p), contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        TapePatterns.names.forEach { name ->
+            val selected = vm.tapePattern == name
+            val tileBmp by produceState<Bitmap?>(null, name, vm.tapeColor) {
+                value = TapePatterns.tile(name, vm.tapeColor)
+            }
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .width(58.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .border(
+                        width = if (selected) 2.dp else 1.dp,
+                        color = if (selected) ProButtonPalette.ElectricBlue else MaterialTheme.colorScheme.outlineVariant,
+                        shape = RoundedCornerShape(10.dp),
+                    )
+                    .elasticStretch()
+                    .clickable { vm.tapePattern = name }
+                    .padding(4.dp),
+            ) {
+                tileBmp?.let { bmp ->
+                    Image(
+                        bmp.asImageBitmap(),
+                        contentDescription = TapePatterns.label(name),
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(26.dp)
+                            .clip(RoundedCornerShape(6.dp)),
+                    )
+                }
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    TapePatterns.label(name),
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
-        GlassChip(
+        AppChip(
             selected = vm.tapePattern.startsWith("image:"),
             onClick = onPickImage,
-            label = if (vm.tapePattern.startsWith("image:")) "Picture Selected" else "Your picture…",
+            label = "Custom image",
+            leadingIcon = { Icon(Icons.Outlined.Add, null, Modifier.size(15.dp)) },
+            tint = ProButtonPalette.SkyCyan,
         )
     }
 }

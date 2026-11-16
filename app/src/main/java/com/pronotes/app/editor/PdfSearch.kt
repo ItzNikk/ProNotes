@@ -38,7 +38,7 @@ class PdfTextIndex private constructor(private val pages: Map<Int, PageText>) {
         return out
     }
 
-    /** All text of one PDF page (for flashcard and quiz generation). */
+    /** All text of one PDF page (for reading and flashcard study). */
     fun pageText(pdfPage: Int): String = pages[pdfPage]?.text ?: ""
 
     /** Character under (x, y) in page units, or the nearest one on that line. */

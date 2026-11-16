@@ -84,13 +84,13 @@ fun UpdateDialogHost() {
     val isDownloading = Updater.phase == Updater.Phase.DOWNLOADING
     val isPaused = Updater.phase == Updater.Phase.PAUSED
 
-    GlassDialog(
+    AppDialog(
         onDismissRequest = { Updater.showDialog = false },
         title = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Pro Notes ${rel.tag}", modifier = Modifier.weight(1f))
                 if (isPaused) {
-                    GlassPill {
+                    AppPill {
                         Text("Paused", style = MaterialTheme.typography.labelSmall)
                     }
                 }
@@ -106,7 +106,7 @@ fun UpdateDialogHost() {
                 )
                 if (isDownloading || isPaused) {
                     Spacer(Modifier.height(12.dp))
-                    GlassCard(modifier = Modifier.fillMaxWidth()) {
+                    AppCard(modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.fillMaxWidth()) {
                             val pct = (Updater.progress * 100).toInt().coerceIn(0, 100)
                             val doneMb = "%.1f".format(Updater.downloadedBytes / 1048576.0)
@@ -153,7 +153,7 @@ fun UpdateDialogHost() {
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    GlassToggle(
+                    AppToggle(
                         checked = autoOpen,
                         onCheckedChange = { on ->
                             autoOpen = on; Updater.setAutoOpen(context, on)

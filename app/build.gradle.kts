@@ -16,8 +16,8 @@ android {
         applicationId = "com.pronotes.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = (System.getenv("VERSION_CODE") ?: "11").toInt()
-        versionName = System.getenv("VERSION_NAME") ?: "11.0.0"
+        versionCode = (System.getenv("VERSION_CODE") ?: "12").toInt()
+        versionName = System.getenv("VERSION_NAME") ?: "12.0.0"
         // Developer support: set pronotes.upi / pronotes.upiName in gradle.properties
         // (or SUPPORT_UPI / SUPPORT_UPI_NAME in CI). Empty hides UPI payment button, while support messages remain visible.
         val upi = System.getenv("SUPPORT_UPI") ?: (project.findProperty("pronotes.upi") as String? ?: "")
@@ -114,8 +114,6 @@ kotlin {
 }
 
 dependencies {
-    lintChecks(project(":lint"))
-
     val composeBom = platform("androidx.compose:compose-bom:2025.08.00")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
@@ -124,9 +122,6 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material3:material3-adaptive-navigation-suite")
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
-
-    // Upstream AndroidLiquidGlass backdrop engine (1.0.2 targets compileSdk <= 36 / AGP 8.12 / Kotlin 2.2.21).
-    implementation("io.github.kyant0:backdrop:1.0.2")
 
     implementation("androidx.core:core-ktx:1.16.0")
     implementation("androidx.activity:activity-compose:1.10.1")

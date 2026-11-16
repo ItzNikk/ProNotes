@@ -33,27 +33,10 @@ data class InkLink(
     val id: String,
     val aPage: String, val ax: Float, val ay: Float,
     val bPage: String = "", val bx: Float = 0f, val by: Float = 0f,
-    /** Linked content box (left, top, right, bottom), like GoodNotes links. Empty for old point links. */
+    /** Linked content box (left, top, right, bottom). Empty for old point links. */
     val box: List<Float> = emptyList(),
     /** Web address, when the link goes to a website instead of a page. */
     val url: String? = null,
-)
-
-/** A multiple-choice question. [answer] is the index of the right option. */
-@Immutable
-@Serializable
-data class QuizQuestion(
-    val id: String,
-    val question: String,
-    val options: List<String>,
-    val answer: Int,
-    val explanation: String = "",
-    val pageId: String? = null,
-    val generated: Boolean = false,
-    val right: Int = 0,
-    val wrong: Int = 0,
-    /** Picture shown with the question (file in the notebook's cards folder). */
-    val image: String? = null,
 )
 
 @Serializable
@@ -67,12 +50,12 @@ enum class SlideKind(val label: String) {
 
 @Serializable
 enum class SlideTheme(val label: String, val gradA: Long, val gradB: Long, val accent: Long) {
-    AURORA_INDIGO("Aurora Indigo", 0xFF1E1B4B, 0xFF4338CA, 0xFF818CF8),
-    SUNSET_CORAL("Sunset Coral", 0xFF7C2D12, 0xFFEA580C, 0xFFFDBA74),
-    EMERALD_MINT("Emerald Mint", 0xFF064E3B, 0xFF059669, 0xFF6EE7B7),
-    COSMIC_GOLD("Cosmic Gold", 0xFF78350F, 0xFFD97706, 0xFFFDE68A),
-    MIDNIGHT_PRISM("Midnight Prism", 0xFF0F172A, 0xFF1E40AF, 0xFF38BDF8),
-    ROSE_VELVET("Rose Velvet", 0xFF881337, 0xFFE11D48, 0xFFFDA4AF),
+    AURORA_INDIGO("Royal Blue", 0xFF002D9C, 0xFF0044EA, 0xFF60A5FA),
+    SUNSET_CORAL("Vibrant Orange", 0xFF9A3412, 0xFFFF8C00, 0xFFFDE047),
+    EMERALD_MINT("Sky Cyan", 0xFF0369A1, 0xFF00A3F5, 0xFF7DD3FC),
+    COSMIC_GOLD("Amber Gold", 0xFF78350F, 0xFFD97706, 0xFFFDE68A),
+    MIDNIGHT_PRISM("Obsidian Blue", 0xFF0F172A, 0xFF1E40AF, 0xFF38BDF8),
+    ROSE_VELVET("Magenta Rose", 0xFF831843, 0xFFF01E6B, 0xFFFDA4AF),
 }
 
 @Immutable
@@ -95,11 +78,10 @@ data class SlideCard(
 data class StudyData(
     val cards: List<Flashcard> = emptyList(),
     val links: List<InkLink> = emptyList(),
-    val quiz: List<QuizQuestion> = emptyList(),
     val slides: List<SlideCard> = emptyList(),
 )
 
-/** Flashcards and ink links of one notebook, kept in `study.json` next to its pages. */
+/** Flashcards, ink links, and revision slides of one notebook, kept in `study.json` next to its pages. */
 class StudyStore(private val dir: File) {
     private val file = File(dir, "study.json")
     private val json = Json { ignoreUnknownKeys = true }
@@ -114,7 +96,6 @@ class StudyStore(private val dir: File) {
 
     companion object {
         private const val DAY = 24L * 60 * 60 * 1000
-        /** Days until the next review for each box. */
         private val gaps = longArrayOf(0, 1, 3, 7, 16, 35)
 
         /** Spaced repetition (4 grades): 0 = Again, 1 = Hard, 2 = Good, 3 = Easy. */

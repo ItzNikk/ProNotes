@@ -972,14 +972,14 @@ fun CloudSignInDialogHost() {
     }
 
     if (curUser != null) {
-        com.pronotes.app.ui.GlassDialog(
+        com.pronotes.app.ui.AppDialog(
             onDismissRequest = { CloudSync.dismissSignInDialog() },
             title = {
                 Text("Google Account & Sync", fontWeight = FontWeight.Bold)
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    com.pronotes.app.ui.GlassCard(modifier = Modifier.fillMaxWidth()) {
+                    com.pronotes.app.ui.AppCard(modifier = Modifier.fillMaxWidth()) {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("Signed in as", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                             Text(curUser!!.email, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -1025,12 +1025,12 @@ fun CloudSignInDialogHost() {
         return
     }
 
-    com.pronotes.app.ui.GlassDialog(
+    com.pronotes.app.ui.AppDialog(
         onDismissRequest = { CloudSync.dismissSignInDialog() },
         title = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Sign in with Google", fontWeight = FontWeight.Bold)
-                com.pronotes.app.ui.GlassPill {
+                com.pronotes.app.ui.AppPill {
                     Text(
                         "100% Free Cloud · Zero Cost · Cross-Device Sync",
                         style = MaterialTheme.typography.labelSmall,
@@ -1057,7 +1057,7 @@ fun CloudSignInDialogHost() {
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         for (acc in deviceAccounts) {
-                            com.pronotes.app.ui.GlassChip(
+                            com.pronotes.app.ui.AppChip(
                                 selected = email == acc,
                                 label = acc,
                                 onClick = {

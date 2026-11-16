@@ -21,40 +21,34 @@ enum class LassoMode(val label: String) { FREEFORM("Freeform"), RECT("Rectangle"
 enum class ThemeMode(val label: String) { SYSTEM("System"), LIGHT("Light"), DARK("Dark") }
 enum class AppFont(val label: String) { MODERN_SANS("Modern Sans"), EDITORIAL_SERIF("Editorial Serif"), STUDIO_MONO("Studio Mono"), ROUNDED("Soft Rounded") }
 enum class MotionStyle(val label: String) { ULTRA_SPRING("Ultra Spring"), MINIMAL_CRISP("Crisp"), REDUCED("Reduced") }
-enum class InterfaceStyle(val label: String) { LIQUID_GLASS("Liquid Glass"), CLASSIC("Classic") }
-enum class GlassQualitySetting(val label: String) { AUTO("Automatic"), FULL("Full glass"), BLUR_ONLY("Blur only"), FLAT("Flat") }
 enum class PerformanceMode(
     val label: String,
     val autosaveMs: Long,
-    val blurScale: Float,
-    val effectIntensity: Float,
     val animationScale: Float,
     val thumbWidthPx: Int,
     val pdfPrefetchPages: Int,
 ) {
-    BATTERY_SAVER("Battery saver", autosaveMs = 2400L, blurScale = 0f, effectIntensity = 0f, animationScale = 0f, thumbWidthPx = 240, pdfPrefetchPages = 1),
-    BALANCED("Balanced", autosaveMs = 1200L, blurScale = 1f, effectIntensity = 1f, animationScale = 1f, thumbWidthPx = 360, pdfPrefetchPages = 3),
-    MAXIMUM("Maximum", autosaveMs = 600L, blurScale = 1.15f, effectIntensity = 1.15f, animationScale = 1.1f, thumbWidthPx = 480, pdfPrefetchPages = 5),
+    BATTERY_SAVER("Battery saver", autosaveMs = 2400L, animationScale = 0f, thumbWidthPx = 240, pdfPrefetchPages = 1),
+    BALANCED("Balanced", autosaveMs = 1200L, animationScale = 1f, thumbWidthPx = 360, pdfPrefetchPages = 3),
+    MAXIMUM("Maximum", autosaveMs = 600L, animationScale = 1.1f, thumbWidthPx = 480, pdfPrefetchPages = 5),
 }
-enum class CustomAiProvider(val label: String, val defaultBaseUrl: String, val defaultModel: String) {
-    OPENAI_COMPATIBLE("OpenAI / OpenRouter / Groq", "https://api.openai.com/v1", "gpt-4o-mini"),
-    GEMINI("Google AI REST", "https://generativelanguage.googleapis.com/v1beta", "gemini-2.5-flash"),
-    OLLAMA("Ollama / Local Server", "http://127.0.0.1:11434/v1", "llama3.2"),
-}
+
 enum class AccentColor(val label: String, val argb: Long, val argb2: Long) {
     GREEN("Leaf", 0xFF24483F, 0xFF35655A),
-    BLUE("Indigo", 0xFF2E4A7A, 0xFF3D6CF4),
-    PINK("Wine", 0xFF7A2E42, 0xFFC04873),
-    ORANGE("Ochre", 0xFFB98A2E, 0xFFD95926),
+    BLUE("Cobalt", 0xFF1A84FF, 0xFF00A3F5),
+    PINK("Magenta", 0xFFF01E6B, 0xFFFB7185),
+    ORANGE("Amber", 0xFFFF8C00, 0xFFD95926),
     VIOLET("Violet", 0xFF6250D6, 0xFFD55181),
     GRAPHITE("Ink", 0xFF1F2421, 0xFF5A5F58),
 }
+
 enum class PaperTint(val label: String, val argb: Int) {
     WHITE("White", 0xFFFFFFFF.toInt()),
     CREAM("Cream", 0xFFFBF7EC.toInt()),
     GRAY("Gray", 0xFFF1F2F4.toInt()),
     DARK("Dark", 0xFF22252B.toInt()),
 }
+
 enum class DeskColor(val label: String, val argb: Int) {
     AUTO("Match system", 0),
     MIST("Mist", 0xFFE9ECF1.toInt()),
@@ -165,18 +159,10 @@ data class AppSettings(
     val paperSound: Boolean = true,
     val paperHaptics: Boolean = true,
     val paperVolume: Float = 0.4f,
-    /** Device-specific UI style; never synced to the cloud. */
-    val interfaceStyle: InterfaceStyle = InterfaceStyle.LIQUID_GLASS,
     /** Device-specific performance profile; never synced to the cloud. */
     val performanceMode: PerformanceMode = PerformanceMode.BALANCED,
-    /** Master toggle for smart assistant features (default on). */
-    val smartFeatures: Boolean = true,
-    /** Device-specific glass rendering quality override; never synced to the cloud. */
-    val glassQuality: GlassQualitySetting = GlassQualitySetting.AUTO,
-    /** Device-specific corner roundness in dp (8 = soft rectangle, 36 = pill). */
-    val cornerRoundnessDp: Float = 24f,
-    /** Glass transparency (0.15f..0.75f to guarantee readable contrast). */
-    val glassTransparency: Float = 0.55f,
+    /** Corner roundness in dp (8 = soft rectangle, 28 = rounded studio). */
+    val cornerRoundnessDp: Float = 20f,
     // pens
     val penName: String = "Pro Stylus",
     val hoverCursor: Boolean = true,
@@ -198,30 +184,19 @@ data class AppSettings(
     val lassoTouching: Boolean = false,
     // look & customization
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
-    val accent: AccentColor = AccentColor.GREEN,
+    val accent: AccentColor = AccentColor.BLUE,
     val gradientTitles: Boolean = false,
-    val appFont: AppFont = AppFont.EDITORIAL_SERIF,
+    val appFont: AppFont = AppFont.MODERN_SANS,
     val motionStyle: MotionStyle = MotionStyle.ULTRA_SPRING,
     val showHoverTooltips: Boolean = true,
     // library
     val thumbCovers: Boolean = false,
-    // on-device local models & Custom AI API
-    val activeLocalModelId: String = "",
-    val activeImageModelId: String = "galaxy-sketch-lite",
-    val imageLiteMode: Boolean = true,
     val pomodoroMinutes: Int = 25,
     val googleUid: String = "",
     val googleEmail: String = "",
     val googleName: String = "",
     val lastCloudSyncMs: Long = 0L,
-    val customAiEnabled: Boolean = false,
-    val customAiProvider: CustomAiProvider = CustomAiProvider.OPENAI_COMPATIBLE,
-    val customAiBaseUrl: String = CustomAiProvider.OPENAI_COMPATIBLE.defaultBaseUrl,
-    val customAiApiKey: String = "",
-    val customAiModel: String = CustomAiProvider.OPENAI_COMPATIBLE.defaultModel,
-) {
-    val liquidGlass: Boolean get() = interfaceStyle == InterfaceStyle.LIQUID_GLASS
-}
+)
 
 /** A saved pen: type, colour and thickness, one tap away, with an optional user label. */
 @Immutable
@@ -244,14 +219,7 @@ class SettingsStore private constructor(context: Context) {
 
     private fun load(): AppSettings {
         val d = AppSettings()
-        // v2.1 had a "straight" switch; carry it over.
         val legacyStraight = prefs.getBoolean("hlStraight", false)
-        // Migrate the legacy "glassV10" preference once while keeping existing users on Liquid Glass.
-        val migratedStyle = if (prefs.contains("interfaceStyle")) {
-            enumOf("interfaceStyle", d.interfaceStyle)
-        } else {
-            if (b("glassV10", true)) InterfaceStyle.LIQUID_GLASS else InterfaceStyle.CLASSIC
-        }
         return AppSettings(
             stylusOnly = b("stylusOnly", d.stylusOnly),
             sideButton = enumOf("sideButton", d.sideButton),
@@ -272,7 +240,6 @@ class SettingsStore private constructor(context: Context) {
             pageNumbers = b("pageNumbers", d.pageNumbers),
             keepScreenOn = b("keepScreenOn", d.keepScreenOn),
             darkPdf = b("darkPdf", d.darkPdf),
-            // Fixed top bar only (tools, options, and AI button all inside the fixed header).
             toolbarDock = ToolbarDock.HEADER,
             hideToolsWhenRecording = b("hideRec", d.hideToolsWhenRecording),
             studyTimer = b("studyTimer", d.studyTimer),
@@ -291,12 +258,8 @@ class SettingsStore private constructor(context: Context) {
             paperSound = b("paperSound", d.paperSound),
             paperHaptics = b("paperHaptics", d.paperHaptics),
             paperVolume = prefs.getFloat("paperVol", d.paperVolume),
-            interfaceStyle = migratedStyle,
             performanceMode = enumOf("performanceMode", d.performanceMode),
-            smartFeatures = b("smartFeatures", d.smartFeatures),
-            glassQuality = enumOf("glassQuality", d.glassQuality),
-            cornerRoundnessDp = prefs.getFloat("cornerRoundnessDp", d.cornerRoundnessDp).coerceIn(8f, 36f),
-            glassTransparency = prefs.getFloat("glassTransparency", d.glassTransparency).coerceIn(0.15f, 0.75f),
+            cornerRoundnessDp = prefs.getFloat("cornerRoundnessDp", d.cornerRoundnessDp).coerceIn(8f, 32f),
             penName = prefs.getString("penName", d.penName) ?: d.penName,
             hoverCursor = b("hoverCursor", d.hoverCursor),
             penClickDelay = enumOf("penClickDelay", d.penClickDelay),
@@ -323,19 +286,11 @@ class SettingsStore private constructor(context: Context) {
             motionStyle = enumOf("motionStyle", d.motionStyle),
             showHoverTooltips = b("showHoverTooltips", d.showHoverTooltips),
             thumbCovers = b("thumbCovers", d.thumbCovers),
-            activeLocalModelId = prefs.getString("activeLocalModelId", d.activeLocalModelId) ?: "",
-            activeImageModelId = prefs.getString("activeImageModelId", d.activeImageModelId) ?: d.activeImageModelId,
-            imageLiteMode = b("imageLiteMode", d.imageLiteMode),
             pomodoroMinutes = prefs.getInt("pomodoroMinutes", d.pomodoroMinutes),
             googleUid = prefs.getString("googleUid", "") ?: "",
             googleEmail = prefs.getString("googleEmail", "") ?: "",
             googleName = prefs.getString("googleName", "") ?: "",
             lastCloudSyncMs = prefs.getLong("lastCloudSyncMs", 0L),
-            customAiEnabled = b("customAiEnabled", d.customAiEnabled),
-            customAiProvider = enumOf("customAiProvider", d.customAiProvider),
-            customAiBaseUrl = prefs.getString("customAiBaseUrl", d.customAiBaseUrl) ?: d.customAiBaseUrl,
-            customAiApiKey = prefs.getString("customAiApiKey", d.customAiApiKey) ?: "",
-            customAiModel = prefs.getString("customAiModel", d.customAiModel) ?: d.customAiModel,
         )
     }
 
@@ -381,13 +336,8 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("paperSound", s.paperSound)
             .putBoolean("paperHaptics", s.paperHaptics)
             .putFloat("paperVol", s.paperVolume)
-            .putString("interfaceStyle", s.interfaceStyle.name)
             .putString("performanceMode", s.performanceMode.name)
-            .putBoolean("smartFeatures", s.smartFeatures)
-            .putString("glassQuality", s.glassQuality.name)
-            .putFloat("cornerRoundnessDp", s.cornerRoundnessDp.coerceIn(8f, 36f))
-            .putBoolean("glassV10", s.liquidGlass)
-            .putFloat("glassTransparency", s.glassTransparency.coerceIn(0.15f, 0.75f))
+            .putFloat("cornerRoundnessDp", s.cornerRoundnessDp.coerceIn(8f, 32f))
             .putString("penName", s.penName)
             .putBoolean("hoverCursor", s.hoverCursor)
             .putString("penClickDelay", s.penClickDelay.name)
@@ -415,19 +365,11 @@ class SettingsStore private constructor(context: Context) {
             .putString("motionStyle", s.motionStyle.name)
             .putBoolean("showHoverTooltips", s.showHoverTooltips)
             .putBoolean("thumbCovers", s.thumbCovers)
-            .putString("activeLocalModelId", s.activeLocalModelId)
-            .putString("activeImageModelId", s.activeImageModelId)
-            .putBoolean("imageLiteMode", s.imageLiteMode)
             .putInt("pomodoroMinutes", s.pomodoroMinutes)
             .putString("googleUid", s.googleUid)
             .putString("googleEmail", s.googleEmail)
             .putString("googleName", s.googleName)
             .putLong("lastCloudSyncMs", s.lastCloudSyncMs)
-            .putBoolean("customAiEnabled", s.customAiEnabled)
-            .putString("customAiProvider", s.customAiProvider.name)
-            .putString("customAiBaseUrl", s.customAiBaseUrl)
-            .putString("customAiApiKey", s.customAiApiKey)
-            .putString("customAiModel", s.customAiModel)
             .apply()
     }
 
@@ -504,7 +446,6 @@ class SettingsStore private constructor(context: Context) {
     fun forgetPen(name: String) = savePens(_pens.value.filterNot { it.name == name })
 
     // ------------------------------------------------------------ support
-    /** Counts launches; true when it is a good moment for a gentle support reminder. */
     fun shouldRemindSupport(): Boolean {
         if (!_settings.value.supportReminders) return false
         val launches = prefs.getInt("launches", 0) + 1
@@ -536,7 +477,6 @@ class SettingsStore private constructor(context: Context) {
     }
 
     // ------------------------------------------------------------------ tabs
-    /** Open notebook tabs, most recent last. */
     private val _tabs = MutableStateFlow(prefs.getString("tabs", "")!!.split(',').filter { it.isNotBlank() })
     val tabs: StateFlow<List<String>> = _tabs
 

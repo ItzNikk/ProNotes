@@ -63,16 +63,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.pronotes.app.BuildConfig
-import com.pronotes.app.ui.BotanicalGlassBackground
-import com.pronotes.app.ui.GlassCard
-import com.pronotes.app.ui.GlassChip
-import com.pronotes.app.ui.GlassRole
-import com.pronotes.app.ui.GlassScene
-import com.pronotes.app.ui.GlassSurface
-import com.pronotes.app.ui.GlassToggle
+import com.pronotes.app.ui.AppCard
+import com.pronotes.app.ui.AppChip
+import com.pronotes.app.ui.AppSurface
+import com.pronotes.app.ui.AppToggle
 import com.pronotes.app.ui.GradientTitle
+import com.pronotes.app.ui.MovingColorfulGradientBackground
+import com.pronotes.app.ui.ProButtonPalette
+import com.pronotes.app.ui.ScaleInAnimatedText
+import com.pronotes.app.ui.SurfaceRole
+import com.pronotes.app.ui.appPillShape
 import com.pronotes.app.ui.elasticStretch
-import com.pronotes.app.ui.glassPillShape
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
@@ -106,17 +107,16 @@ fun SupportScreen(onBack: () -> Unit) {
         }
     }
 
-    GlassScene(
-        background = { BotanicalGlassBackground() },
-    ) {
+    Box(Modifier.fillMaxSize()) {
+        MovingColorfulGradientBackground(Modifier.fillMaxSize(), intensity = 0.55f)
         Column(
             Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                GlassSurface(
-                    role = GlassRole.Control,
-                    shape = glassPillShape(),
+                AppSurface(
+                    role = SurfaceRole.Control,
+                    shape = appPillShape(),
                     contentPadding = PaddingValues(10.dp),
                     onClick = onBack,
                     onClickLabel = "Back",
@@ -128,7 +128,13 @@ fun SupportScreen(onBack: () -> Unit) {
             Spacer(Modifier.height(14.dp))
             BeatingHeart(Modifier.size(96.dp))
             Spacer(Modifier.height(18.dp))
-            GradientTitle("Support Pro Notes", MaterialTheme.typography.headlineLarge)
+            ScaleInAnimatedText(
+                "Support Pro Notes",
+                style = MaterialTheme.typography.headlineLarge.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                ),
+            )
             Spacer(Modifier.height(10.dp))
             Text(
                 "Pro Notes is free, ad-free, and built by one independent developer. If it helps your studies or work, sharing it or sending a note keeps updates shipping.",
@@ -136,22 +142,21 @@ fun SupportScreen(onBack: () -> Unit) {
             )
             Spacer(Modifier.height(18.dp))
 
-            GlassCard(
+            AppCard(
                 hero = true,
                 modifier = Modifier.widthIn(max = 500.dp).fillMaxWidth(),
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Highlights", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    Text("- OpenLeaf botanical palette with Liquid Glass and Classic themes", style = MaterialTheme.typography.bodySmall)
-                    Text("- Resumable background updater and cloud sync", style = MaterialTheme.typography.bodySmall)
+                    Text("Highlights", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = ProButtonPalette.ElectricBlue)
+                    Text("- Clean Obsidian & Paper themes with colorful interactive controls", style = MaterialTheme.typography.bodySmall)
+                    Text("- Kindle Book Reading mode with smooth 3D page-turn animations", style = MaterialTheme.typography.bodySmall)
                     Text("- Writable split notes and flexible item transforms", style = MaterialTheme.typography.bodySmall)
                     Text("- Flashcards, Mind Maps, SlideShow, and Study Timer", style = MaterialTheme.typography.bodySmall)
                 }
             }
             Spacer(Modifier.height(16.dp))
 
-            // Community Feedback & Share Row (always visible)
-            GlassCard(
+            AppCard(
                 modifier = Modifier.widthIn(max = 500.dp).fillMaxWidth(),
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -211,7 +216,7 @@ fun SupportScreen(onBack: () -> Unit) {
                 Spacer(Modifier.height(12.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)) {
                     listOf("49", "99", "199", "499", "999").forEach { a ->
-                        GlassChip(
+                        AppChip(
                             selected = amount == a && !chooseInApp,
                             onClick = { amount = a; chooseInApp = false },
                             label = "₹$a",
@@ -221,7 +226,7 @@ fun SupportScreen(onBack: () -> Unit) {
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.widthIn(max = 360.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Type the amount in my UPI app", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                    GlassToggle(checked = chooseInApp, onCheckedChange = { chooseInApp = it })
+                    AppToggle(checked = chooseInApp, onCheckedChange = { chooseInApp = it })
                 }
                 Spacer(Modifier.height(16.dp))
                 Button(

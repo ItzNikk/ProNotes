@@ -35,10 +35,6 @@
 }
 -keep class androidx.input.motionprediction.** { *; }
 
-# Liquid Glass backdrop library & RenderEffect / AGSL helpers
--keep class io.github.kyant0.backdrop.** { *; }
--keep class io.github.ntvien.liquidglass.** { *; }
-
 # PdfBox Android & BouncyCastle
 -keep class com.tom_roush.pdfbox.** { *; }
 -keep class com.tom_roush.fontbox.** { *; }

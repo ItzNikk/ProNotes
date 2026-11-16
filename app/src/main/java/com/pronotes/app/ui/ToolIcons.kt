@@ -105,9 +105,10 @@ enum class ProIcon(internal val parts: List<Part>) {
         P("M4 8.5V5a1 1 0 0 1 1-1h3.5M15.5 4H19a1 1 0 0 1 1 1v3.5M20 15.5V19a1 1 0 0 1-1 1h-3.5M8.5 20H5a1 1 0 0 1-1-1v-3.5"),
         Rr(8.5f, 8.5f, 7f, 7f, 2f, body = true),
     )),
-    CUSTOM_AI(listOf(
-        P("M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z", body = true),
-        P("M18.5 16l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"),
+    BOOK(listOf(
+        P("M12 6.2c-1.8-1.4-4.2-1.9-7-1.4a1 1 0 0 0-.8 1v12.5a1 1 0 0 0 1.2 1c2.5-.5 4.7 0 6.6 1.3"),
+        P("M12 6.2c1.8-1.4 4.2-1.9 7-1.4a1 1 0 0 1 .8 1v12.5a1 1 0 0 1-1.2 1c-2.5-.5-4.7 0-6.6 1.3"),
+        P("M12 6.2v14.4"),
     )),
     HOVER_LABEL(listOf(
         Rr(4f, 4.5f, 16f, 8f, 4f, body = true),
@@ -118,16 +119,6 @@ enum class ProIcon(internal val parts: List<Part>) {
         Rr(4f, 6.5f, 13f, 14f, 2.5f, body = true),
         P("M8 4h10a2 2 0 0 1 2 2v11"),
         P("M8.5 11.5h4M8.5 15h3"),
-    )),
-    QUIZ(listOf(
-        C(12f, 12f, 8.5f),
-        P("M9.4 9.5a2.8 2.8 0 0 1 5.2 1.1c0 1.9-2.6 2.3-2.6 3.9"),
-        C(12f, 17.2f, 0.8f, filled = true),
-    )),
-    SUMMARY(listOf(
-        Rr(4.5f, 3.5f, 15f, 17f, 2.5f),
-        P("M8 8.5h5M8 12h8M8 15.5h6"),
-        C(16.5f, 7.5f, 1.5f, filled = true, body = true),
     )),
     TEMPLATE(listOf(
         Rr(4f, 4f, 16f, 16f, 2.5f),

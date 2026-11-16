@@ -19,14 +19,11 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -43,12 +40,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -63,7 +63,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.AccessTime
-import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.CloudSync
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -79,9 +78,7 @@ import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Palette
-import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
@@ -89,17 +86,16 @@ import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -115,14 +111,16 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pronotes.app.PendingImport
 import com.pronotes.app.R
 import com.pronotes.app.data.CloudSync
 import com.pronotes.app.data.CoverColors
@@ -130,44 +128,59 @@ import com.pronotes.app.data.CoverPatterns
 import com.pronotes.app.data.Folder
 import com.pronotes.app.data.FolderColors
 import com.pronotes.app.data.NotebookMeta
+import com.pronotes.app.data.PagePreset
 import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.data.Repository
 import com.pronotes.app.data.SettingsStore
+import com.pronotes.app.data.Updater
+import com.pronotes.app.editor.ItemIds
 import com.pronotes.app.editor.LiveCollabRoomDialog
-import com.pronotes.app.ui.BotanicalGlassBackground
+import com.pronotes.app.editor.MindNodeItem
+import com.pronotes.app.editor.Tool
+import com.pronotes.app.support.Support
+import com.pronotes.app.ui.AppBottomBar
+import com.pronotes.app.ui.AppCard
+import com.pronotes.app.ui.AppChip
+import com.pronotes.app.ui.AppDialog
+import com.pronotes.app.ui.AppMenuButton
+import com.pronotes.app.ui.AppMenuItem
+import com.pronotes.app.ui.AppPill
+import com.pronotes.app.ui.AppSegmentedControl
+import com.pronotes.app.ui.AppSurface
+import com.pronotes.app.ui.AppTabItem
+import com.pronotes.app.ui.AppToggle
 import com.pronotes.app.ui.ColorEditorDialog
-import com.pronotes.app.ui.GlassBottomBar
-import com.pronotes.app.ui.GlassButtonPalette
-import com.pronotes.app.ui.GlassCard
-import com.pronotes.app.ui.GlassChip
-import com.pronotes.app.ui.GlassContentBottomPadding
-import com.pronotes.app.ui.GlassDialog
-import com.pronotes.app.ui.GlassMenuButton
-import com.pronotes.app.ui.GlassMenuDivider
-import com.pronotes.app.ui.GlassMenuEntry
-import com.pronotes.app.ui.GlassMenuItem
-import com.pronotes.app.ui.GlassPill
-import com.pronotes.app.ui.GlassRole
-import com.pronotes.app.ui.GlassScene
-import com.pronotes.app.ui.GlassSegmentedControl
-import com.pronotes.app.ui.GlassSurface
-import com.pronotes.app.ui.GlassTabItem
-import com.pronotes.app.ui.GlassToggle
-import com.pronotes.app.ui.LocalSmartFeatures
+import com.pronotes.app.ui.FannedColorfulCardsDeck
+import com.pronotes.app.ui.MovingColorfulGradientBackground
+import com.pronotes.app.ui.ProButtonPalette
 import com.pronotes.app.ui.ProIcon
+import com.pronotes.app.ui.ProIconView
+import com.pronotes.app.ui.ScaleInAnimatedText
+import com.pronotes.app.ui.SurfaceRole
 import com.pronotes.app.ui.Swatch
+import com.pronotes.app.ui.appCardShape
+import com.pronotes.app.ui.appContentBottomPadding
+import com.pronotes.app.ui.appPillShape
 import com.pronotes.app.ui.elasticStretch
-import com.pronotes.app.ui.glassCardShape
-import com.pronotes.app.ui.glassPillShape
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.io.File
 import java.text.DateFormat
 import java.util.Date
 
-private enum class Section(val label: String) { DOCUMENTS("Documents"), FAVORITES("Favorites"), RECENT("Recent"), TRASH("Trash") }
-private enum class SortBy(val label: String) { MODIFIED("Date modified"), CREATED("Date created"), NAME("Name") }
+private enum class Section(val label: String) {
+    DOCUMENTS("Documents"),
+    FAVORITES("Favorites"),
+    RECENT("Recent"),
+    TRASH("Trash"),
+}
+
+private enum class SortBy(val label: String) {
+    MODIFIED("Date modified"),
+    CREATED("Date created"),
+    NAME("Name"),
+}
 
 private sealed interface Entry {
     data class F(val folder: Folder, val count: Int) : Entry
@@ -176,7 +189,7 @@ private sealed interface Entry {
 
 @androidx.compose.runtime.Immutable
 private data class LibraryNewBookPrefs(
-    val defaultPreset: com.pronotes.app.data.PagePreset,
+    val defaultPreset: PagePreset,
     val defaultLandscape: Boolean,
     val defaultPaper: PaperStyle,
     val thumbCovers: Boolean,
@@ -188,10 +201,10 @@ private data class LibraryNewBookPrefs(
 fun LibraryScreen(
     onOpen: (String) -> Unit,
     onSettings: () -> Unit,
-    pendingImport: com.pronotes.app.PendingImport?,
+    pendingImport: PendingImport?,
     onImportConsumed: () -> Unit,
     onSupport: () -> Unit = {},
-    onOpenStudio: () -> Unit = {},
+    onOpenPreview: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val repo = remember { Repository.get(context) }
@@ -205,10 +218,10 @@ fun LibraryScreen(
             LibraryNewBookPrefs(it.defaultPreset, it.defaultLandscape, it.defaultPaper, it.thumbCovers, it.defaultCoverPage)
         },
     )
-    val smartFeatures = LocalSmartFeatures.current
     val lib by repo.library.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val wide = LocalConfiguration.current.screenWidthDp >= 720
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.45f
 
     var section by rememberSaveable { mutableStateOf(Section.DOCUMENTS) }
     var folderId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -230,7 +243,10 @@ fun LibraryScreen(
     var supportCard by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         val st = SettingsStore.get(context)
-        if (com.pronotes.app.support.Support.enabled && st.shouldRemindSupport()) { supportCard = true; st.markSupportShown() }
+        if (Support.enabled && st.shouldRemindSupport()) {
+            supportCard = true
+            st.markSupportShown()
+        }
     }
     var emptyTrash by remember { mutableStateOf(false) }
 
@@ -249,16 +265,22 @@ fun LibraryScreen(
         }
     }
 
-    /** Moves a dragged notebook or folder. A folder cannot go inside itself or its own subfolders. */
     fun dropInto(payload: String, target: String?): Boolean {
         val id = payload.substringAfter(':')
         return when {
-            payload.startsWith("note:") -> { scope.launch { repo.moveNotebook(id, target) }; true }
+            payload.startsWith("note:") -> {
+                scope.launch { repo.moveNotebook(id, target) }
+                true
+            }
             payload.startsWith("folder:") -> {
                 if (id == target) return false
                 var p = target
-                while (p != null) { if (p == id) return false; p = lib.folders.firstOrNull { it.id == p }?.parentId }
-                scope.launch { repo.moveFolder(id, target) }; true
+                while (p != null) {
+                    if (p == id) return false
+                    p = lib.folders.firstOrNull { it.id == p }?.parentId
+                }
+                scope.launch { repo.moveFolder(id, target) }
+                true
             }
             else -> false
         }
@@ -292,87 +314,33 @@ fun LibraryScreen(
 
     val drag = remember { DragController() }
     val trashCount = lib.notebooks.count { it.deletedAt != null }
-    var bottomBarHeight by remember { mutableStateOf(0.dp) }
+    val deskBg = if (dark) Color(0xFF1C1C1C) else MaterialTheme.colorScheme.background
+    val topStripBg = if (dark) Color(0xFF000000) else Color(0xFFE6E3DA)
+
     androidx.compose.runtime.CompositionLocalProvider(LocalDragController provides drag) {
-        GlassScene(
-            modifier = Modifier.fillMaxSize(),
-            background = { BotanicalGlassBackground() },
-            overlay = {
-                GlassBottomBar(
-                    tabs = listOf(
-                        GlassTabItem("DOCUMENTS", "Library", Icons.Outlined.Description),
-                        GlassTabItem("RECENT", "Recent", Icons.Outlined.AccessTime),
-                        GlassTabItem("FAVORITES", "Starred", Icons.Outlined.StarBorder),
-                        GlassTabItem("TRASH", "Trash", Icons.Outlined.Delete, badge = trashCount > 0),
-                    ),
-                    selectedKey = section.name,
-                    onSelect = { tabId ->
-                        section = Section.valueOf(tabId)
-                        folderId = null
-                    },
-                    onMeasuredHeight = { bottomBarHeight = it },
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                )
-
-                // The tile that follows your finger or pen while dragging.
-                drag.payload?.let { p ->
-                    GlassSurface(
-                        role = GlassRole.Accent,
-                        shape = glassPillShape(),
-                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
-                        modifier = Modifier.offset {
-                            androidx.compose.ui.unit.IntOffset(
-                                (drag.position.x - 70.dp.toPx()).toInt(), (drag.position.y - 80.dp.toPx()).toInt(),
-                            )
-                        }.scale(if (drag.overTarget) 1.12f else 1f),
-                    ) {
-                        Text(
-                            drag.label.ifBlank { if (p.startsWith("folder")) "Folder" else "Notebook" },
-                            Modifier.widthIn(max = 220.dp),
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                        )
-                    }
-                }
-
-                if (supportCard) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-                        GlassCard(
-                            hero = true,
-                            shape = glassCardShape(),
-                            contentPadding = PaddingValues(18.dp),
-                            modifier = Modifier.padding(20.dp).widthIn(max = 520.dp),
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                com.pronotes.app.ui.ProIconView(
-                                    com.pronotes.app.ui.ProIcon.HEART, Color(0xFFE5484D), Modifier.size(26.dp), ink = Color(0xFFE5484D),
-                                )
-                                Spacer(Modifier.width(14.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text("Enjoying Pro Notes?", style = MaterialTheme.typography.titleMedium)
-                                    Text("It is free and made by one developer. A small tip helps.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                TextButton(onClick = { supportCard = false }) { Text("Not now") }
-                                Button(onClick = { supportCard = false; onSupport() }, shape = CircleShape) { Text("Support") }
-                            }
-                        }
-                    }
-                }
-            },
-        ) {
+        Box(Modifier.fillMaxSize().background(deskBg)) {
             Row(Modifier.fillMaxSize()) {
                 AnimatedVisibility(sidebar, enter = expandHorizontally() + fadeIn(), exit = shrinkHorizontally() + fadeOut()) {
                     Sidebar(
-                        section, trashCount = trashCount,
-                        onSelect = { section = it; folderId = null; if (!wide) sidebar = false },
-                        onCollapse = { sidebar = false }, onSettings = onSettings,
+                        section = section,
+                        trashCount = trashCount,
+                        onSelect = {
+                            section = it
+                            folderId = null
+                            if (!wide) sidebar = false
+                        },
+                        onCollapse = { sidebar = false },
+                        onSettings = onSettings,
                         onSupport = onSupport,
                         onOpenCollab = { collabOpen = true },
-                        onOpenStudio = onOpenStudio,
+                        onOpenPreview = onOpenPreview,
                         onDropTo = { s, payload ->
                             when (s) {
                                 Section.DOCUMENTS -> dropInto(payload, null)
-                                Section.TRASH -> if (payload.startsWith("note:")) { scope.launch { repo.deleteNotebook(payload.substringAfter(':')) }; true } else false
+                                Section.TRASH -> if (payload.startsWith("note:")) {
+                                    scope.launch { repo.deleteNotebook(payload.substringAfter(':')) }
+                                    true
+                                } else false
                                 Section.FAVORITES -> if (payload.startsWith("note:")) {
                                     val nid = payload.substringAfter(':')
                                     if (lib.notebooks.firstOrNull { it.id == nid }?.favorite == false) scope.launch { repo.toggleFavorite(nid) }
@@ -384,126 +352,155 @@ fun LibraryScreen(
                     )
                 }
 
-                Column(Modifier.weight(1f).fillMaxHeight().statusBarsPadding()) {
-                    // Top row wrapped in GlassSurface
-                    GlassSurface(
-                        role = GlassRole.Frost,
-                        shape = glassCardShape(),
-                        contentPadding = PaddingValues(0.dp),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                Column(Modifier.weight(1f).fillMaxHeight()) {
+                    // Browser-style dark/paper top tab strip aligned with home.svg
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(topStripBg)
+                            .statusBarsPadding()
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            if (!sidebar) {
-                                GlassPill(
-                                    onClick = { sidebar = true },
-                                    contentPadding = PaddingValues(8.dp),
-                                ) {
-                                    com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SIDEBAR, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp))
-                                }
-                            }
-                            // Open notebooks, like browser tabs.
-                            val tabs by store.tabs.collectAsStateWithLifecycle()
-                            val open = tabs.mapNotNull { id -> lib.notebooks.firstOrNull { it.id == id && it.deletedAt == null } }
-                            Row(
-                                Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
+                        if (!sidebar) {
+                            AppPill(
+                                onClick = { sidebar = true },
+                                contentPadding = PaddingValues(8.dp),
                             ) {
-                                open.forEach { n ->
-                                    GlassPill(
-                                        selected = false,
-                                        onClick = { onOpen(n.id) },
-                                        contentPadding = PaddingValues(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-                                        modifier = Modifier.widthIn(max = 200.dp),
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(n.title, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                                            Spacer(Modifier.width(4.dp))
-                                            Box(Modifier.size(22.dp).clip(CircleShape).clickable { store.closeTab(n.id) }, contentAlignment = Alignment.Center) {
-                                                com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.CLOSE, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.size(11.dp))
-                                            }
-                                        }
-                                    }
-                                }
+                                ProIconView(ProIcon.SIDEBAR, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp))
                             }
-                            Spacer(Modifier.width(4.dp))
-                            UpdatePill()
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                if (smartFeatures) {
-                                    GlassPill(
-                                        selected = true,
-                                        tint = GlassButtonPalette.GalaxyPurple,
-                                        onClick = onOpenStudio,
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
-                                        modifier = Modifier.elasticStretch(),
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                                            Icon(Icons.Outlined.AutoAwesome, "Creative Studio", Modifier.size(16.dp), tint = Color.White)
-                                            Text("Studio", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                            Spacer(Modifier.width(6.dp))
+                        }
+
+                        // Active Home tab indicator
+                        AppSurface(
+                            role = SurfaceRole.Frost,
+                            containerColor = if (dark) Color(0xFF1C1C1C) else MaterialTheme.colorScheme.surface,
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        ) {
+                            ProIconView(ProIcon.HOME, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp))
+                        }
+                        Spacer(Modifier.width(6.dp))
+
+                        val tabs by store.tabs.collectAsStateWithLifecycle()
+                        val open = tabs.mapNotNull { id -> lib.notebooks.firstOrNull { it.id == id && it.deletedAt == null } }
+                        Row(
+                            Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            open.forEach { n ->
+                                AppSurface(
+                                    role = SurfaceRole.Control,
+                                    containerColor = if (dark) Color(0xFF12141A) else MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(start = 12.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
+                                    onClick = { onOpen(n.id) },
+                                    modifier = Modifier.widthIn(max = 200.dp),
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            n.title,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false),
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                        Box(
+                                            Modifier.size(20.dp).clip(CircleShape).clickable { store.closeTab(n.id) },
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            ProIconView(ProIcon.CLOSE, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.size(11.dp))
                                         }
                                     }
-                                }
-                                GlassPill(
-                                    tint = GlassButtonPalette.OceanBlue,
-                                    onClick = { collabOpen = true },
-                                    contentPadding = PaddingValues(8.dp),
-                                    modifier = Modifier.elasticStretch(),
-                                ) {
-                                    Icon(Icons.Outlined.Groups, "Live Study Room", Modifier.size(20.dp), tint = GlassButtonPalette.OceanBlue)
-                                }
-                                GlassPill(
-                                    selected = searching,
-                                    tint = GlassButtonPalette.WarmAmber,
-                                    onClick = { searching = !searching; if (!searching) query = "" },
-                                    contentPadding = PaddingValues(8.dp),
-                                    modifier = Modifier.elasticStretch(),
-                                ) {
-                                    com.pronotes.app.ui.ProIconView(
-                                        com.pronotes.app.ui.ProIcon.SEARCH,
-                                        if (searching) Color.White else GlassButtonPalette.WarmAmber,
-                                        Modifier.size(20.dp),
-                                    )
-                                }
-                                GlassPill(
-                                    tint = GlassButtonPalette.MintTeal,
-                                    onClick = onSettings,
-                                    contentPadding = PaddingValues(8.dp),
-                                    modifier = Modifier.elasticStretch(),
-                                ) {
-                                    com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.SETTINGS, GlassButtonPalette.MintTeal, Modifier.size(20.dp))
                                 }
                             }
                         }
+
+                        Spacer(Modifier.width(4.dp))
+                        UpdatePill()
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            AppPill(
+                                tint = ProButtonPalette.SkyCyan,
+                                onClick = { collabOpen = true },
+                                contentPadding = PaddingValues(8.dp),
+                            ) {
+                                Icon(Icons.Outlined.Groups, "Live Study Room", Modifier.size(19.dp))
+                            }
+                            AppPill(
+                                selected = searching,
+                                tint = ProButtonPalette.VibrantOrange,
+                                onClick = { searching = !searching; if (!searching) query = "" },
+                                contentPadding = PaddingValues(8.dp),
+                            ) {
+                                ProIconView(ProIcon.SEARCH, if (searching) Color.White else ProButtonPalette.VibrantOrange, Modifier.size(18.dp))
+                            }
+                            AppPill(
+                                tint = ProButtonPalette.MintTeal,
+                                onClick = onSettings,
+                                contentPadding = PaddingValues(8.dp),
+                            ) {
+                                ProIconView(ProIcon.SETTINGS, ProButtonPalette.MintTeal, Modifier.size(18.dp))
+                            }
+                        }
                     }
-                    // Title row
-                    Row(Modifier.fillMaxWidth().padding(start = 28.dp, end = 20.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+
+                    // Page header & crisp actions row
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 24.dp, end = 20.dp, top = 14.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         if (folderId != null && section == Section.DOCUMENTS) {
-                            // Drop here to move an item up one level.
                             var upHot by remember { mutableStateOf(false) }
                             Box(
-                                Modifier.clip(CircleShape)
+                                Modifier
+                                    .clip(CircleShape)
                                     .libraryDropTarget(onHover = { upHot = it }) { payload -> dropInto(payload, currentFolder?.parentId) }
-                                    .background(if (upHot) MaterialTheme.colorScheme.primary.copy(alpha = 0.22f) else Color.Transparent),
+                                    .background(if (upHot) ProButtonPalette.ElectricBlue.copy(alpha = 0.22f) else Color.Transparent),
                             ) {
-                                IconButton(onClick = { folderId = currentFolder?.parentId }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Up") }
+                                IconButton(onClick = { folderId = currentFolder?.parentId }) {
+                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Up")
+                                }
                             }
                         }
                         AnimatedContent(
                             targetState = title,
                             transitionSpec = { (fadeIn() + slideInHorizontally { it / 6 }) togetherWith (fadeOut() + slideOutHorizontally { -it / 6 }) },
-                            label = "title", modifier = Modifier.weight(1f),
-                        ) { t -> com.pronotes.app.ui.GradientTitle(t, MaterialTheme.typography.headlineLarge) }
+                            label = "title",
+                            modifier = Modifier.weight(1f),
+                        ) { t ->
+                            Text(
+                                t,
+                                style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onBackground,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
 
                         if (section == Section.TRASH) {
-                            TextButton(onClick = { emptyTrash = true }, enabled = entries.isNotEmpty()) { Text("Empty trash", color = MaterialTheme.colorScheme.error) }
+                            AppPill(
+                                selected = true,
+                                tint = ProButtonPalette.CoralRose,
+                                onClick = { if (entries.isNotEmpty()) emptyTrash = true },
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                            ) {
+                                Text("Empty trash", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                            }
                         } else {
-                            GlassMenuButton(
+                            AppMenuButton(
                                 contentPadding = PaddingValues(0.dp),
                                 items = listOf(
-                                    GlassMenuItem("Notebook", Icons.Outlined.Description) { newNotebook = true },
-                                    GlassMenuItem("Infinite whiteboard", Icons.Outlined.Draw) {
+                                    AppMenuItem("Notebook", icon = { Icon(Icons.Outlined.Description, null, Modifier.size(18.dp)) }) { newNotebook = true },
+                                    AppMenuItem("Infinite whiteboard", icon = { Icon(Icons.Outlined.Draw, null, Modifier.size(18.dp)) }) {
                                         scope.launch {
-                                            val k = com.pronotes.app.data.PagePreset.UNITS_PER_MM
-                                            val p = com.pronotes.app.data.PagePreset.WHITEBOARD
+                                            val k = PagePreset.UNITS_PER_MM
+                                            val p = PagePreset.WHITEBOARD
                                             val id = repo.createNotebook(
                                                 "Whiteboard", folderId, 0xFF3D6CF4.toInt(), PaperStyle.DOTTED,
                                                 width = p.wMm * k, height = p.hMm * k, isWhiteboard = true,
@@ -511,10 +508,10 @@ fun LibraryScreen(
                                             onOpen(id)
                                         }
                                     },
-                                    GlassMenuItem("Mind map canvas", Icons.Outlined.Hub) {
+                                    AppMenuItem("Mind map canvas", icon = { Icon(Icons.Outlined.Hub, null, Modifier.size(18.dp)) }) {
                                         scope.launch {
-                                            val k = com.pronotes.app.data.PagePreset.UNITS_PER_MM
-                                            val p = com.pronotes.app.data.PagePreset.WHITEBOARD
+                                            val k = PagePreset.UNITS_PER_MM
+                                            val p = PagePreset.WHITEBOARD
                                             val id = repo.createNotebook(
                                                 "Mind map", folderId, 0xFF9B51E0.toInt(), PaperStyle.DOTTED,
                                                 width = p.wMm * k, height = p.hMm * k, isWhiteboard = true,
@@ -522,126 +519,134 @@ fun LibraryScreen(
                                             val pages = repo.loadPages(id).toMutableList()
                                             if (pages.isNotEmpty()) {
                                                 val first = pages[0]
-                                                val root = com.pronotes.app.editor.MindNodeItem(
-                                                    com.pronotes.app.editor.ItemIds.next(),
-                                                    first.width / 2f - 130f, first.height / 2f - 44f, 260f, 88f,
-                                                    "Central Topic", null, 0xFF3D6CF4.toInt(), "pill",
+                                                val root = MindNodeItem(
+                                                    ItemIds.next(),
+                                                    first.width / 2f - 130f,
+                                                    first.height / 2f - 44f,
+                                                    260f,
+                                                    88f,
+                                                    "Central Topic",
+                                                    null,
+                                                    0xFF3D6CF4.toInt(),
+                                                    "pill",
                                                 )
                                                 pages[0] = first.copy(items = listOf(root))
                                                 repo.savePages(id, pages)
                                             }
-                                            SettingsStore.get(context).setPref("startTool_$id", com.pronotes.app.editor.Tool.MINDMAP.name)
+                                            SettingsStore.get(context).setPref("startTool_$id", Tool.MINDMAP.name)
                                             onOpen(id)
                                         }
                                     },
-                                    GlassMenuItem("Quick note", Icons.Outlined.Edit) {
+                                    AppMenuItem("Quick note", icon = { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)) }) {
                                         scope.launch {
-                                            val k = com.pronotes.app.data.PagePreset.UNITS_PER_MM
+                                            val k = PagePreset.UNITS_PER_MM
                                             val defaultPreset = newBookPrefs.defaultPreset
                                             val defaultLandscape = newBookPrefs.defaultLandscape
                                             val defaultPaper = newBookPrefs.defaultPaper
-                                            var w = defaultPreset.wMm * k; var h = defaultPreset.hMm * k
-                                            if (!defaultPreset.isWhiteboard && defaultLandscape != (w > h)) { val t = w; w = h; h = t }
-                                            onOpen(repo.createNotebook("Quick note", folderId, CoverColors.random(), defaultPaper, width = w, height = h, isWhiteboard = defaultPreset.isWhiteboard))
+                                            var w = defaultPreset.wMm * k
+                                            var h = defaultPreset.hMm * k
+                                            if (!defaultPreset.isWhiteboard && defaultLandscape != (w > h)) {
+                                                val t = w; w = h; h = t
+                                            }
+                                            onOpen(
+                                                repo.createNotebook(
+                                                    "Quick note", folderId, CoverColors.random(), defaultPaper,
+                                                    width = w, height = h, isWhiteboard = defaultPreset.isWhiteboard,
+                                                ),
+                                            )
                                         }
                                     },
-                                    GlassMenuDivider,
-                                    *if (smartFeatures) {
-                                        arrayOf<GlassMenuEntry>(GlassMenuItem("Creative Studio (Stickers & Covers)", Icons.Outlined.AutoAwesome) { onOpenStudio() })
-                                    } else {
-                                        emptyArray()
-                                    },
-                                    GlassMenuItem("Folder", Icons.Outlined.CreateNewFolder) { newFolder = true },
-                                    GlassMenuItem("Import files (PDF, MD, TXT, Images)", Icons.Outlined.UploadFile) {
+                                    AppMenuItem("Folder", icon = { Icon(Icons.Outlined.CreateNewFolder, null, Modifier.size(18.dp)) }) { newFolder = true },
+                                    AppMenuItem("Import PDF, MD, TXT, Images", icon = { Icon(Icons.Outlined.UploadFile, null, Modifier.size(18.dp)) }) {
                                         importFilesLauncher.launch(arrayOf("application/pdf", "text/*", "image/*", "application/json", "application/octet-stream"))
                                     },
-                                    GlassMenuItem("Paste notes from another app…", Icons.Outlined.ContentPaste) { pasteImportOpen = true },
+                                    AppMenuItem("Paste notes from another app…", icon = { Icon(Icons.Outlined.ContentPaste, null, Modifier.size(18.dp)) }) { pasteImportOpen = true },
                                 ),
                                 contentDescription = "Create new",
-                                role = GlassRole.Accent,
-                                shape = glassPillShape(),
-                                menuWidth = 290.dp,
-                                modifier = Modifier.elasticStretch(),
-                                buttonContent = {
-                                    Row(Modifier.padding(horizontal = 16.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Filled.Add, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("New", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onPrimary)
-                                        Spacer(Modifier.width(2.dp))
-                                        Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
-                                    }
-                                },
-                            )
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        GlassMenuButton(
-                            contentPadding = PaddingValues(0.dp),
-                            items = SortBy.entries.map { s -> GlassMenuItem(s.label) { sort = s } },
-                            contentDescription = "Sort notebooks",
-                            role = GlassRole.Frost,
-                            shape = glassPillShape(),
-                            menuWidth = 200.dp,
-                            buttonContent = {
-                                Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Sort by ${sort.label.substringAfter("Date ").lowercase()}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface)
+                                role = SurfaceRole.Control,
+                                containerColor = ProButtonPalette.ElectricBlue,
+                                shape = CircleShape,
+                            ) {
+                                Row(Modifier.padding(horizontal = 16.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Filled.Add, null, Modifier.size(18.dp), tint = Color.White)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("New", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Color.White)
                                     Spacer(Modifier.width(2.dp))
-                                    Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(18.dp), tint = Color.White)
                                 }
+                            }
+                        }
+
+                        Spacer(Modifier.width(8.dp))
+                        AppMenuButton(
+                            contentPadding = PaddingValues(0.dp),
+                            items = SortBy.entries.map { s ->
+                                AppMenuItem(label = s.label, selected = sort == s) { sort = s }
                             },
-                        )
+                            contentDescription = "Sort notebooks",
+                            role = SurfaceRole.Control,
+                            shape = appPillShape(),
+                        ) {
+                            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(sort.label.substringAfter("Date ").replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.labelSmall)
+                                Spacer(Modifier.width(2.dp))
+                                Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+
                         Spacer(Modifier.width(6.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            GlassPill(
+                            AppPill(
                                 selected = !listView,
-                                tint = GlassButtonPalette.Emerald,
+                                tint = ProButtonPalette.Emerald,
                                 onClick = { listView = false },
                                 contentPadding = PaddingValues(8.dp),
-                                modifier = Modifier.elasticStretch(),
                             ) {
-                                Icon(
-                                    Icons.Outlined.GridView,
-                                    "Grid",
-                                    Modifier.size(18.dp),
-                                    tint = if (!listView) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                                Icon(Icons.Outlined.GridView, "Grid", Modifier.size(18.dp))
                             }
-                            GlassPill(
+                            AppPill(
                                 selected = listView,
-                                tint = GlassButtonPalette.OceanBlue,
+                                tint = ProButtonPalette.SkyCyan,
                                 onClick = { listView = true },
                                 contentPadding = PaddingValues(8.dp),
-                                modifier = Modifier.elasticStretch(),
                             ) {
-                                Icon(
-                                    Icons.AutoMirrored.Outlined.ViewList,
-                                    "List",
-                                    Modifier.size(18.dp),
-                                    tint = if (listView) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                                Icon(Icons.AutoMirrored.Outlined.ViewList, "List", Modifier.size(18.dp))
                             }
                         }
                     }
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 24.dp),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                    )
+
                     AnimatedVisibility(searching) {
-                        GlassCard(
+                        AppCard(
                             hero = false,
-                            shape = glassCardShape(),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
+                            shape = appCardShape(),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
                         ) {
                             OutlinedTextField(
-                                query, { query = it }, placeholder = { Text("Search notebooks and folders") }, singleLine = true,
-                                leadingIcon = { Icon(Icons.Outlined.Search, null) }, shape = RoundedCornerShape(14.dp),
+                                query,
+                                { query = it },
+                                placeholder = { Text("Search notebooks and folders") },
+                                singleLine = true,
+                                leadingIcon = { Icon(Icons.Outlined.Search, null) },
+                                shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
                     }
 
-
                     val actions = TileActions(
                         onOpenFolder = { f -> section = Section.DOCUMENTS; query = ""; searching = false; folderId = f.id },
                         onOpenNote = { onOpen(it.id) },
-                        onRename = { renaming = it }, onMove = { moving = it }, onDelete = { deleting = it },
-                        onEditFolder = { folderEdit = it }, onCover = { coverFor = it },
+                        onRename = { renaming = it },
+                        onMove = { moving = it },
+                        onDelete = { deleting = it },
+                        onEditFolder = { folderEdit = it },
+                        onCover = { coverFor = it },
                         onFavorite = { scope.launch { repo.toggleFavorite(it.id) } },
                         onDuplicate = { scope.launch { repo.duplicateNotebook(it.id) } },
                         onRestore = { scope.launch { repo.restoreNotebook(it.id) } },
@@ -649,32 +654,76 @@ fun LibraryScreen(
                         onDrop = { payload, target -> dropInto(payload, target) },
                     )
 
-                    val listBottomPad = GlassContentBottomPadding(bottomBarHeight)
+                    val listBottomPad = appContentBottomPadding()
+                    val showHero = section == Section.DOCUMENTS && folderId == null && query.isBlank()
+
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         if (entries.isEmpty()) {
-                            EmptyState(section, onNew = { newNotebook = true })
-                        } else AnimatedContent(
-                            targetState = Triple(section, folderId, listView),
-                            transitionSpec = { (fadeIn() + slideInHorizontally { it / 12 }) togetherWith fadeOut() },
-                            label = "grid",
-                        ) { (_, _, asList) ->
-                            if (asList) {
-                                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 8.dp, bottom = listBottomPad)) {
-                                    items(entries, key = { keyOf(it) }) { e -> Box(Modifier.animateItem()) { ListRow(e, repo, actions) } }
+                            Column(Modifier.fillMaxSize()) {
+                                if (showHero) {
+                                    LibraryHeroBanner(
+                                        onNewNotebook = { newNotebook = true },
+                                        onQuickImport = {
+                                            importFilesLauncher.launch(arrayOf("application/pdf", "text/*", "image/*"))
+                                        },
+                                        onOpenPreview = onOpenPreview,
+                                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
+                                    )
                                 }
-                            } else {
-                                LazyVerticalGrid(
-                                    columns = GridCells.Adaptive(150.dp),
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(start = 28.dp, end = 28.dp, top = 12.dp, bottom = listBottomPad),
-                                    horizontalArrangement = Arrangement.spacedBy(28.dp),
-                                    verticalArrangement = Arrangement.spacedBy(28.dp),
-                                ) {
-                                    items(entries, key = { keyOf(it) }) { e ->
-                                        Box(Modifier.animateItem()) {
-                                            when (e) {
-                                                is Entry.F -> FolderTile(e, actions)
-                                                is Entry.N -> NotebookTile(e.note, repo, actions)
+                                EmptyState(section, onNew = { newNotebook = true })
+                            }
+                        } else {
+                            AnimatedContent(
+                                targetState = Triple(section, folderId, listView),
+                                transitionSpec = { (fadeIn() + slideInHorizontally { it / 12 }) togetherWith fadeOut() },
+                                label = "grid",
+                            ) { (_, _, asList) ->
+                                if (asList) {
+                                    LazyColumn(
+                                        Modifier.fillMaxSize(),
+                                        contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 12.dp, bottom = listBottomPad),
+                                    ) {
+                                        if (showHero) {
+                                            item(key = "hero-list") {
+                                                LibraryHeroBanner(
+                                                    onNewNotebook = { newNotebook = true },
+                                                    onQuickImport = {
+                                                        importFilesLauncher.launch(arrayOf("application/pdf", "text/*", "image/*"))
+                                                    },
+                                                    onOpenPreview = onOpenPreview,
+                                                    modifier = Modifier.padding(bottom = 14.dp),
+                                                )
+                                            }
+                                        }
+                                        items(entries, key = { keyOf(it) }) { e ->
+                                            Box(Modifier.animateItem()) { ListRow(e, repo, actions) }
+                                        }
+                                    }
+                                } else {
+                                    LazyVerticalGrid(
+                                        columns = GridCells.Adaptive(154.dp),
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 14.dp, bottom = listBottomPad),
+                                        horizontalArrangement = Arrangement.spacedBy(24.dp),
+                                        verticalArrangement = Arrangement.spacedBy(24.dp),
+                                    ) {
+                                        if (showHero) {
+                                            item(key = "hero-grid", span = { GridItemSpan(maxLineSpan) }) {
+                                                LibraryHeroBanner(
+                                                    onNewNotebook = { newNotebook = true },
+                                                    onQuickImport = {
+                                                        importFilesLauncher.launch(arrayOf("application/pdf", "text/*", "image/*"))
+                                                    },
+                                                    onOpenPreview = onOpenPreview,
+                                                )
+                                            }
+                                        }
+                                        items(entries, key = { keyOf(it) }) { e ->
+                                            Box(Modifier.animateItem()) {
+                                                when (e) {
+                                                    is Entry.F -> FolderTile(e, actions)
+                                                    is Entry.N -> NotebookTile(e.note, repo, actions)
+                                                }
                                             }
                                         }
                                     }
@@ -684,10 +733,87 @@ fun LibraryScreen(
                     }
                 }
             }
+
+            if (!wide || section != Section.DOCUMENTS) {
+                AppBottomBar(
+                    tabs = listOf(
+                        AppTabItem("Library") { Icon(Icons.Outlined.Description, null, Modifier.size(18.dp)) },
+                        AppTabItem("Recent") { Icon(Icons.Outlined.AccessTime, null, Modifier.size(18.dp)) },
+                        AppTabItem("Favorites") { Icon(Icons.Outlined.StarBorder, null, Modifier.size(18.dp)) },
+                        AppTabItem("Trash") { Icon(Icons.Outlined.Delete, null, Modifier.size(18.dp)) },
+                    ),
+                    selectedIndex = when (section) {
+                        Section.DOCUMENTS -> 0
+                        Section.RECENT -> 1
+                        Section.FAVORITES -> 2
+                        Section.TRASH -> 3
+                    },
+                    onSelect = { idx ->
+                        section = when (idx) {
+                            0 -> Section.DOCUMENTS
+                            1 -> Section.RECENT
+                            2 -> Section.FAVORITES
+                            else -> Section.TRASH
+                        }
+                        folderId = null
+                    },
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
+            }
+
+            drag.payload?.let { p ->
+                AppSurface(
+                    role = SurfaceRole.Control,
+                    containerColor = ProButtonPalette.ElectricBlue,
+                    contentColor = Color.White,
+                    shape = appPillShape(),
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
+                    shadowElevation = 12.dp,
+                    modifier = Modifier
+                        .offset {
+                            IntOffset((drag.position.x - 70.dp.toPx()).toInt(), (drag.position.y - 80.dp.toPx()).toInt())
+                        }
+                        .scale(if (drag.overTarget) 1.12f else 1f),
+                ) {
+                    Text(
+                        drag.label.ifBlank { if (p.startsWith("folder")) "Folder" else "Notebook" },
+                        Modifier.widthIn(max = 220.dp),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                    )
+                }
+            }
+
+            if (supportCard) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                    AppCard(
+                        hero = true,
+                        shape = appCardShape(),
+                        contentPadding = PaddingValues(18.dp),
+                        modifier = Modifier.padding(20.dp).widthIn(max = 520.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            ProIconView(ProIcon.HEART, ProButtonPalette.MagentaPink, Modifier.size(26.dp), ink = ProButtonPalette.MagentaPink)
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("Enjoying Pro Notes?", style = MaterialTheme.typography.titleMedium)
+                                Text("Made with care. A small tip helps keep development going.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            TextButton(onClick = { supportCard = false }) { Text("Not now") }
+                            Button(
+                                onClick = { supportCard = false; onSupport() },
+                                shape = CircleShape,
+                                colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.MagentaPink, contentColor = Color.White),
+                            ) { Text("Support") }
+                        }
+                    }
+                }
+            }
         }
     }
 
-    // ---------------------------------------------------------------- dialogs
     if (newNotebook) NewNotebookDialog(newBookPrefs, onDismiss = { newNotebook = false }) { b ->
         newNotebook = false
         scope.launch {
@@ -708,13 +834,13 @@ fun LibraryScreen(
     if (pasteImportOpen) {
         var importTitle by remember { mutableStateOf("") }
         var importBody by remember { mutableStateOf("") }
-        GlassDialog(
+        AppDialog(
             onDismissRequest = { pasteImportOpen = false },
             title = { Text("Import notes from another app") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "Paste Markdown, HTML, CSV, or plain notes copied from Notion, Obsidian, Apple Notes, or Google Keep. Headings, checklists, bullets, and callouts are formatted across pages.",
+                        "Paste Markdown, HTML, CSV, or plain notes. Headings, checklists, bullets, and callouts are formatted across pages.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -739,7 +865,7 @@ fun LibraryScreen(
                 }
             },
             confirmButton = {
-                TextButton(
+                Button(
                     enabled = importBody.isNotBlank(),
                     onClick = {
                         val t = importTitle
@@ -747,38 +873,48 @@ fun LibraryScreen(
                         pasteImportOpen = false
                         scope.launch { onOpen(repo.importStructuredText(t, b, folderId)) }
                     },
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
                 ) { Text("Import") }
             },
             dismissButton = { TextButton(onClick = { pasteImportOpen = false }) { Text("Cancel") } },
         )
     }
 
-    if (newFolder) FolderDialog(null, onDismiss = { newFolder = false }) { name, color, emoji ->
+    if (newFolder) FolderDialog(null, onDismiss = { newFolder = false }) { name, color, tag ->
         newFolder = false
-        scope.launch { repo.createFolder(name, folderId, color, emoji) }
+        scope.launch { repo.createFolder(name, folderId, color, tag) }
     }
     folderEdit?.let { f ->
-        FolderDialog(f, onDismiss = { folderEdit = null }) { name, color, emoji ->
+        FolderDialog(f, onDismiss = { folderEdit = null }) { name, color, tag ->
             folderEdit = null
-            scope.launch { repo.updateFolder(f.id, name, color, emoji) }
+            scope.launch { repo.updateFolder(f.id, name, color, tag) }
         }
     }
 
     forever?.let { n ->
-        GlassDialog(
+        AppDialog(
             onDismissRequest = { forever = null },
             title = { Text("Delete \"${n.title}\" forever?") },
             text = { Text("This cannot be undone.") },
-            confirmButton = { TextButton(onClick = { forever = null; scope.launch { repo.deleteForever(n.id) } }) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
+            confirmButton = {
+                TextButton(onClick = { forever = null; scope.launch { repo.deleteForever(n.id) } }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
             dismissButton = { TextButton(onClick = { forever = null }) { Text("Cancel") } },
         )
     }
     if (emptyTrash) {
-        GlassDialog(
+        AppDialog(
             onDismissRequest = { emptyTrash = false },
             title = { Text("Empty trash?") },
             text = { Text("All notebooks in Trash will be deleted forever.") },
-            confirmButton = { TextButton(onClick = { emptyTrash = false; scope.launch { repo.emptyTrash() } }) { Text("Empty", color = MaterialTheme.colorScheme.error) } },
+            confirmButton = {
+                TextButton(onClick = { emptyTrash = false; scope.launch { repo.emptyTrash() } }) {
+                    Text("Empty", color = MaterialTheme.colorScheme.error)
+                }
+            },
             dismissButton = { TextButton(onClick = { emptyTrash = false }) { Text("Cancel") } },
         )
     }
@@ -803,7 +939,7 @@ fun LibraryScreen(
 
     moving?.let { e ->
         val selfId = (e as? Entry.F)?.folder?.id
-        GlassDialog(
+        AppDialog(
             onDismissRequest = { moving = null },
             confirmButton = { TextButton(onClick = { moving = null }) { Text("Cancel") } },
             title = { Text("Move to") },
@@ -828,10 +964,15 @@ fun LibraryScreen(
 
     deleting?.let { e ->
         val name = if (e is Entry.F) e.folder.name else (e as Entry.N).note.title
-        GlassDialog(
+        AppDialog(
             onDismissRequest = { deleting = null },
             title = { Text("Delete \"$name\"?") },
-            text = { Text(if (e is Entry.F) "The folder will be deleted. Notebooks inside it move to Trash." else "The notebook moves to Trash. You can restore it for 30 days.") },
+            text = {
+                Text(
+                    if (e is Entry.F) "The folder will be deleted. Notebooks inside it move to Trash."
+                    else "The notebook moves to Trash. You can restore it for 30 days.",
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     deleting = null
@@ -852,6 +993,88 @@ fun LibraryScreen(
     }
 }
 
+/**
+ * Main screen showcase card featuring the fanned colorful card stack in front of a
+ * slowly moving colorful gradient plus colorful quick action pills.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LibraryHeroBanner(
+    onNewNotebook: () -> Unit,
+    onQuickImport: () -> Unit,
+    onOpenPreview: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AppSurface(
+        role = SurfaceRole.Frost,
+        shape = appCardShape(4f),
+        contentPadding = PaddingValues(0.dp),
+        shadowElevation = 6.dp,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Box(Modifier.fillMaxWidth()) {
+            MovingColorfulGradientBackground(Modifier.matchParentSize(), intensity = 0.85f)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ScaleInAnimatedText(
+                        text = "Your Study Desk",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        staggerMs = 24L,
+                    )
+                    Text(
+                        "Tap the card stack to cycle workflows: low-latency stylus ink, 3D Kindle Book Mode, Flashcards, and SlideShow.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        AppPill(
+                            selected = true,
+                            tint = ProButtonPalette.ElectricBlue,
+                            onClick = onNewNotebook,
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        ) {
+                            Text("+ New Notebook", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        }
+                        AppPill(
+                            selected = true,
+                            tint = ProButtonPalette.VibrantOrange,
+                            onClick = onQuickImport,
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        ) {
+                            Text("Import PDF / Notes", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        }
+                        AppPill(
+                            selected = true,
+                            tint = ProButtonPalette.MagentaPink,
+                            onClick = onOpenPreview,
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        ) {
+                            Text("Preview Tour", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                FannedColorfulCardsDeck(
+                    autoCycle = false,
+                    showLabels = true,
+                    compact = true,
+                )
+            }
+        }
+    }
+}
+
 private fun keyOf(e: Entry) = if (e is Entry.F) "f" + e.folder.id else "n" + (e as Entry.N).note.id
 
 private class TileActions(
@@ -866,11 +1089,8 @@ private class TileActions(
     val onDuplicate: (NotebookMeta) -> Unit,
     val onRestore: (NotebookMeta) -> Unit,
     val onDeleteForever: (NotebookMeta) -> Unit,
-    /** Drag and drop: "note:<id>" or "folder:<id>" dropped on a folder (null = top level). */
     val onDrop: (String, String?) -> Boolean,
 )
-
-// ================================================================ sidebar
 
 @Composable
 private fun Sidebar(
@@ -881,7 +1101,7 @@ private fun Sidebar(
     onSettings: () -> Unit,
     onSupport: () -> Unit,
     onOpenCollab: () -> Unit,
-    onOpenStudio: () -> Unit = {},
+    onOpenPreview: () -> Unit,
     onDropTo: (Section, String) -> Boolean,
 ) {
     val context = LocalContext.current
@@ -889,143 +1109,183 @@ private fun Sidebar(
     val cloudUser by CloudSync.user.collectAsStateWithLifecycle()
     val syncing by CloudSync.syncing.collectAsStateWithLifecycle()
     val syncStatus by CloudSync.status.collectAsStateWithLifecycle()
-    GlassSurface(
-        role = GlassRole.Frost,
-        shape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp),
-        contentPadding = PaddingValues(0.dp),
-        modifier = Modifier.fillMaxHeight().width(236.dp),
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.45f
+    val sidebarBg = if (dark) Color(0xFF181818) else Color(0xFFECE9E0)
+    val activePillBg = if (dark) Color(0xFF1F3162) else MaterialTheme.colorScheme.primaryContainer
+    val activeIconTint = if (dark) Color(0xFF4FB0F5) else MaterialTheme.colorScheme.primary
+
+    Box(
+        Modifier
+            .fillMaxHeight()
+            .width(244.dp)
+            .background(sidebarBg),
     ) {
         Column(Modifier.statusBarsPadding().padding(horizontal = 14.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = onCollapse, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.ChevronLeft, "Hide sidebar") }
+                IconButton(onClick = onCollapse, modifier = Modifier.elasticStretch()) {
+                    Icon(Icons.Outlined.ChevronLeft, "Hide sidebar")
+                }
             }
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 6.dp, bottom = 22.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 6.dp, bottom = 20.dp)) {
                 androidx.compose.foundation.Image(
-                    painterResource(R.drawable.ic_launcher_foreground), null,
+                    painterResource(R.drawable.ic_launcher_foreground),
+                    null,
                     Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(Color.White),
                 )
                 Spacer(Modifier.width(10.dp))
                 Column {
-                    Text("Pro Notes", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
-                    GlassPill(contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
-                        Text(
-                            "Studio",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
+                    Text("Pro Notes", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
+                    Text("v12 Studio", style = MaterialTheme.typography.labelSmall, color = activeIconTint)
                 }
             }
+
             Section.entries.forEach { s ->
+                if (s == Section.TRASH) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 8.dp, horizontal = 6.dp),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                    )
+                }
                 val sel = s == section
                 var hot by remember { mutableStateOf(false) }
                 Row(
-                    Modifier.fillMaxWidth().elasticStretch().clip(CircleShape)
+                    Modifier
+                        .fillMaxWidth()
+                        .elasticStretch()
+                        .clip(RoundedCornerShape(12.dp))
                         .libraryDropTarget(onHover = { hot = it }) { payload -> onDropTo(s, payload) }
                         .background(
                             when {
-                                hot -> MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
-                                sel -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
+                                hot -> ProButtonPalette.ElectricBlue.copy(alpha = 0.24f)
+                                sel -> activePillBg
                                 else -> Color.Transparent
                             },
                         )
-                        .clickable { onSelect(s) }.padding(horizontal = 12.dp, vertical = 10.dp),
+                        .clickable { onSelect(s) }
+                        .padding(horizontal = 12.dp, vertical = 11.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
                         when (s) {
-                            Section.DOCUMENTS -> Icons.Outlined.Folder; Section.FAVORITES -> Icons.Outlined.StarBorder
-                            Section.RECENT -> Icons.Outlined.AccessTime; Section.TRASH -> Icons.Outlined.Delete
+                            Section.DOCUMENTS -> Icons.Outlined.Folder
+                            Section.FAVORITES -> Icons.Outlined.StarBorder
+                            Section.RECENT -> Icons.Outlined.AccessTime
+                            Section.TRASH -> Icons.Outlined.Delete
                         },
-                        null, tint = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        null,
+                        tint = if (sel) activeIconTint else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.width(12.dp))
-                    Text(s.label, color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
-                    if (s == Section.TRASH && trashCount > 0) Text("$trashCount", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        s.label,
+                        color = if (sel) Color.White.takeIf { dark } ?: MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                        fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (s == Section.TRASH && trashCount > 0) {
+                        Text("$trashCount", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
                 Spacer(Modifier.height(2.dp))
             }
+
             Spacer(Modifier.height(10.dp))
-            GlassCard(
+            AppCard(
                 hero = false,
-                shape = glassCardShape(),
+                shape = appCardShape(),
                 contentPadding = PaddingValues(12.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.CloudSync, null, Modifier.size(16.dp), tint = GlassButtonPalette.OceanBlue)
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            cloudUser?.let { it.displayName.ifBlank { it.email } } ?: "Google Cloud Sync",
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.CloudSync, null, Modifier.size(16.dp), tint = ProButtonPalette.SkyCyan)
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        cloudUser?.let { it.displayName.ifBlank { it.email } } ?: "Google Cloud Sync",
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                if (syncStatus.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(syncStatus, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+                }
+                Spacer(Modifier.height(6.dp))
+                if (cloudUser == null) {
+                    AppPill(
+                        selected = true,
+                        tint = ProButtonPalette.ElectricBlue,
+                        onClick = { runCatching { context.startActivity(CloudSync.buildGoogleAuthIntent()) } },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Sign in with Google", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                     }
-                    if (syncStatus.isNotBlank()) {
-                        Text(syncStatus, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
-                    }
-                    if (cloudUser == null) {
-                        GlassPill(
-                            selected = true,
-                            tint = GlassButtonPalette.OceanBlue,
-                            onClick = { runCatching { context.startActivity(CloudSync.buildGoogleAuthIntent()) } },
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
-                            modifier = Modifier.fillMaxWidth().elasticStretch(),
-                        ) {
-                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                Text("Sign in with Google", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
-                            }
-                        }
-                    } else {
-                        GlassPill(
-                            selected = true,
-                            tint = GlassButtonPalette.Emerald,
-                            onClick = { if (!syncing) scope.launch { CloudSync.syncAll(context) } },
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
-                            modifier = Modifier.fillMaxWidth().elasticStretch(),
-                        ) {
-                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                Text(if (syncing) "Syncing…" else "Sync Now", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
-                            }
-                        }
+                } else {
+                    AppPill(
+                        selected = true,
+                        tint = ProButtonPalette.Emerald,
+                        onClick = { if (!syncing) scope.launch { CloudSync.syncAll(context) } },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (syncing) "Syncing…" else "Sync Now", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                     }
                 }
             }
-            Spacer(Modifier.height(6.dp))
-            if (LocalSmartFeatures.current) {
-                Row(
-                    Modifier.fillMaxWidth().elasticStretch().clip(CircleShape).clickable(onClick = onOpenStudio).padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Outlined.AutoAwesome, null, tint = GlassButtonPalette.GalaxyPurple)
-                    Spacer(Modifier.width(12.dp))
-                    Text("Creative Studio", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
-                }
-            }
+
+            Spacer(Modifier.height(8.dp))
             Row(
-                Modifier.fillMaxWidth().elasticStretch().clip(CircleShape).clickable(onClick = onOpenCollab).padding(horizontal = 12.dp, vertical = 10.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .elasticStretch()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable(onClick = onOpenCollab)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Outlined.Groups, null, tint = GlassButtonPalette.OceanBlue)
+                Icon(Icons.Outlined.Groups, null, tint = ProButtonPalette.SkyCyan)
                 Spacer(Modifier.width(12.dp))
                 Text("Live Study Room", color = MaterialTheme.colorScheme.onSurface)
             }
-            Spacer(Modifier.weight(1f))
             Row(
-                Modifier.fillMaxWidth().elasticStretch().clip(CircleShape).clickable(onClick = onSupport).padding(horizontal = 12.dp, vertical = 10.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .elasticStretch()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable(onClick = onOpenPreview)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                com.pronotes.app.ui.ProIconView(com.pronotes.app.ui.ProIcon.HEART, Color(0xFFE5484D), Modifier.size(20.dp), ink = Color(0xFFE5484D))
+                ProIconView(ProIcon.STAR, ProButtonPalette.VibrantOrange, Modifier.size(20.dp))
                 Spacer(Modifier.width(12.dp))
-                Text("Support Pro Notes")
+                Text("Preview & Setup Tour", color = MaterialTheme.colorScheme.onSurface)
+            }
+            Spacer(Modifier.weight(1f))
+            if (Support.enabled) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .elasticStretch()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(onClick = onSupport)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ProIconView(ProIcon.HEART, ProButtonPalette.MagentaPink, Modifier.size(20.dp), ink = ProButtonPalette.MagentaPink)
+                    Spacer(Modifier.width(12.dp))
+                    Text("Support Pro Notes")
+                }
             }
             Row(
-                Modifier.fillMaxWidth().elasticStretch().clip(CircleShape).clickable(onClick = onSettings).padding(horizontal = 12.dp, vertical = 10.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .elasticStretch()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable(onClick = onSettings)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.Outlined.Settings, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1038,11 +1298,13 @@ private fun Sidebar(
 
 @Composable
 private fun EmptyState(section: Section, onNew: () -> Unit) {
-    Column(Modifier.fillMaxSize().padding(40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+    Column(Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Text(
             when (section) {
-                Section.FAVORITES -> "No favorites yet"; Section.RECENT -> "Nothing opened yet"
-                Section.TRASH -> "Trash is empty"; else -> "Your library is empty"
+                Section.FAVORITES -> "No favorites yet"
+                Section.RECENT -> "Nothing opened yet"
+                Section.TRASH -> "Trash is empty"
+                else -> "Your library is empty"
             },
             style = MaterialTheme.typography.headlineSmall,
         )
@@ -1051,13 +1313,20 @@ private fun EmptyState(section: Section, onNew: () -> Unit) {
             Text("Deleted notebooks stay here for 30 days.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
             Text("Create a notebook or import a PDF to start.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(20.dp))
-            Button(onClick = onNew, shape = CircleShape) { Icon(Icons.Filled.Add, null); Spacer(Modifier.width(6.dp)); Text("New notebook") }
+            Spacer(Modifier.height(18.dp))
+            Button(
+                onClick = onNew,
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
+                modifier = Modifier.elasticStretch(),
+            ) {
+                Icon(Icons.Filled.Add, null)
+                Spacer(Modifier.width(6.dp))
+                Text("New notebook")
+            }
         }
     }
 }
-
-// ================================================================ tiles
 
 @Composable
 private fun pressScale(source: MutableInteractionSource): Float {
@@ -1066,52 +1335,57 @@ private fun pressScale(source: MutableInteractionSource): Float {
     return s
 }
 
-/** A folder drawn as a tabbed folder in its own colour, with an optional emoji. */
 @Composable
-fun FolderArt(color: Int, emoji: String, modifier: Modifier = Modifier) {
+fun FolderArt(color: Int, tag: String, modifier: Modifier = Modifier) {
     Box(modifier, contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
-            val w = size.width; val h = size.height
+            val w = size.width
+            val h = size.height
             val c = Color(color)
             val back = Path().apply {
                 moveTo(0f, h * 0.18f); lineTo(w * 0.36f, h * 0.18f); lineTo(w * 0.44f, h * 0.28f); lineTo(w, h * 0.28f)
                 lineTo(w, h * 0.92f); lineTo(0f, h * 0.92f); close()
             }
-            drawPath(back, c.copy(alpha = 0.75f))
+            drawPath(back, c.copy(alpha = 0.78f))
             drawRoundRect(c, Offset(0f, h * 0.34f), Size(w, h * 0.6f), CornerRadius(w * 0.06f))
             drawRoundRect(Color.White.copy(alpha = 0.18f), Offset(0f, h * 0.34f), Size(w, h * 0.06f), CornerRadius(w * 0.06f))
         }
-        if (emoji.isNotBlank()) Text(emoji, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 18.dp))
+        if (tag.isNotBlank()) {
+            AppPill(
+                selected = false,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                modifier = Modifier.padding(top = 18.dp),
+            ) {
+                Text(tag, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            }
+        }
     }
 }
 
-private fun folderMenuItems(e: Entry.F, a: TileActions): List<GlassMenuEntry> = listOf(
-    GlassMenuItem("Colour & label", Icons.Outlined.Palette) { a.onEditFolder(e.folder) },
-    GlassMenuItem("Rename", Icons.Outlined.Edit) { a.onRename(e) },
-    GlassMenuItem("Move", Icons.Outlined.DriveFileMove) { a.onMove(e) },
-    GlassMenuDivider,
-    GlassMenuItem("Delete", Icons.Outlined.Delete, destructive = true) { a.onDelete(e) },
+private fun folderMenuItems(e: Entry.F, a: TileActions): List<AppMenuItem> = listOf(
+    AppMenuItem("Colour & label", icon = { Icon(Icons.Outlined.Palette, null, Modifier.size(18.dp)) }) { a.onEditFolder(e.folder) },
+    AppMenuItem("Rename", icon = { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)) }) { a.onRename(e) },
+    AppMenuItem("Move", icon = { Icon(Icons.Outlined.DriveFileMove, null, Modifier.size(18.dp)) }) { a.onMove(e) },
+    AppMenuItem("Delete", destructive = true, icon = { Icon(Icons.Outlined.Delete, null, Modifier.size(18.dp)) }) { a.onDelete(e) },
 )
 
-private fun noteMenuItems(note: NotebookMeta, a: TileActions): List<GlassMenuEntry> =
+private fun noteMenuItems(note: NotebookMeta, a: TileActions): List<AppMenuItem> =
     if (note.deletedAt != null) {
         listOf(
-            GlassMenuItem("Restore", Icons.Outlined.Refresh) { a.onRestore(note) },
-            GlassMenuDivider,
-            GlassMenuItem("Delete forever", Icons.Outlined.Delete, destructive = true) { a.onDeleteForever(note) },
+            AppMenuItem("Restore", icon = { Icon(Icons.Outlined.Refresh, null, Modifier.size(18.dp)) }) { a.onRestore(note) },
+            AppMenuItem("Delete forever", destructive = true, icon = { Icon(Icons.Outlined.Delete, null, Modifier.size(18.dp)) }) { a.onDeleteForever(note) },
         )
     } else {
         listOf(
-            GlassMenuItem("Duplicate", Icons.Outlined.ContentCopy) { a.onDuplicate(note) },
-            GlassMenuItem(
+            AppMenuItem("Duplicate", icon = { Icon(Icons.Outlined.ContentCopy, null, Modifier.size(18.dp)) }) { a.onDuplicate(note) },
+            AppMenuItem(
                 if (note.favorite) "Remove from favorites" else "Add to favorites",
-                if (note.favorite) Icons.Outlined.Star else Icons.Outlined.StarBorder,
+                icon = { Icon(if (note.favorite) Icons.Outlined.Star else Icons.Outlined.StarBorder, null, Modifier.size(18.dp)) },
             ) { a.onFavorite(note) },
-            GlassMenuItem("Change cover", Icons.Outlined.Palette) { a.onCover(note) },
-            GlassMenuItem("Rename", Icons.Outlined.Edit) { a.onRename(Entry.N(note)) },
-            GlassMenuItem("Move", Icons.Outlined.DriveFileMove) { a.onMove(Entry.N(note)) },
-            GlassMenuDivider,
-            GlassMenuItem("Delete", Icons.Outlined.Delete, destructive = true) { a.onDelete(Entry.N(note)) },
+            AppMenuItem("Change cover", icon = { Icon(Icons.Outlined.Palette, null, Modifier.size(18.dp)) }) { a.onCover(note) },
+            AppMenuItem("Rename", icon = { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)) }) { a.onRename(Entry.N(note)) },
+            AppMenuItem("Move", icon = { Icon(Icons.Outlined.DriveFileMove, null, Modifier.size(18.dp)) }) { a.onMove(Entry.N(note)) },
+            AppMenuItem("Delete", destructive = true, icon = { Icon(Icons.Outlined.Delete, null, Modifier.size(18.dp)) }) { a.onDelete(Entry.N(note)) },
         )
     }
 
@@ -1123,7 +1397,9 @@ private fun FolderTile(e: Entry.F, a: TileActions) {
     val grow by animateFloatAsState(if (dropHover) 1.08f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "drop")
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.elasticStretch().scale(pressScale(src) * grow)) {
         Box(
-            Modifier.fillMaxWidth().aspectRatio(0.75f)
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(0.75f)
                 .libraryDragSource("folder:${e.folder.id}", e.folder.name)
                 .libraryDropTarget(onHover = { dropHover = it }) { payload -> a.onDrop(payload, e.folder.id) }
                 .combinedClickable(interactionSource = src, indication = null, onClick = { a.onOpenFolder(e.folder) }),
@@ -1142,16 +1418,21 @@ private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
     val src = remember { MutableInteractionSource() }
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.elasticStretch().scale(pressScale(src))) {
         Box(
-            Modifier.fillMaxWidth().aspectRatio(0.75f)
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(0.75f)
                 .then(if (note.deletedAt == null) Modifier.libraryDragSource("note:${note.id}", note.title) else Modifier)
                 .combinedClickable(
-                    interactionSource = src, indication = null,
+                    interactionSource = src,
+                    indication = null,
                     onClick = { if (note.deletedAt != null) trashPrompt = true else a.onOpenNote(note) },
                     onLongClick = if (note.deletedAt != null) ({ trashPrompt = true }) else null,
                 ),
         ) {
             CoverArt(note.coverSpec, note.title, repo.noteDir(note.id), note.modified, Modifier.fillMaxSize())
-            if (note.favorite) Icon(Icons.Filled.Star, null, tint = Color(0xFFF2C94C), modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(20.dp))
+            if (note.favorite) {
+                Icon(Icons.Filled.Star, null, tint = Color(0xFFF2C94C), modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(20.dp))
+            }
         }
         Caption(
             note.title,
@@ -1160,13 +1441,11 @@ private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
         )
     }
     if (trashPrompt) {
-        GlassDialog(
+        AppDialog(
             onDismissRequest = { trashPrompt = false },
             title = { Text(note.title) },
             text = { Text("Restore this notebook from Trash or delete it forever?") },
-            confirmButton = {
-                TextButton(onClick = { trashPrompt = false; a.onRestore(note) }) { Text("Restore") }
-            },
+            confirmButton = { TextButton(onClick = { trashPrompt = false; a.onRestore(note) }) { Text("Restore") } },
             dismissButton = {
                 TextButton(onClick = { trashPrompt = false; a.onDeleteForever(note) }) {
                     Text("Delete forever", color = MaterialTheme.colorScheme.error)
@@ -1177,25 +1456,24 @@ private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
 }
 
 @Composable
-private fun Caption(title: String, sub: String, menuItems: List<GlassMenuEntry>) {
+private fun Caption(title: String, sub: String, menuItems: List<AppMenuItem>) {
     Spacer(Modifier.height(10.dp))
-    GlassMenuButton(
+    AppMenuButton(
         contentPadding = PaddingValues(0.dp),
         items = menuItems,
         contentDescription = "$title options",
-        role = GlassRole.Frost,
-        shape = glassPillShape(),
-        menuWidth = 230.dp,
-        buttonContent = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-            ) {
-                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                Icon(Icons.Filled.KeyboardArrowDown, "Options", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        },
-    )
+        role = SurfaceRole.Frost,
+        containerColor = Color.Transparent,
+        shape = appPillShape(),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+            Icon(Icons.Filled.KeyboardArrowDown, "Options", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
     Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
@@ -1203,18 +1481,22 @@ private fun Caption(title: String, sub: String, menuItems: List<GlassMenuEntry>)
 private fun ListRow(e: Entry, repo: Repository, a: TileActions) {
     var trashPrompt by remember { mutableStateOf(false) }
     val items = remember(e) { if (e is Entry.N) noteMenuItems(e.note, a) else folderMenuItems(e as Entry.F, a) }
-    GlassCard(
+    AppCard(
         hero = false,
-        shape = glassCardShape(),
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+        shape = appCardShape(),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Row(
-                Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable {
-                    if (e is Entry.F) a.onOpenFolder(e.folder)
-                    else (e as Entry.N).note.let { n -> if (n.deletedAt == null) a.onOpenNote(n) else trashPrompt = true }
-                }.padding(vertical = 2.dp),
+                Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable {
+                        if (e is Entry.F) a.onOpenFolder(e.folder)
+                        else (e as Entry.N).note.let { n -> if (n.deletedAt == null) a.onOpenNote(n) else trashPrompt = true }
+                    }
+                    .padding(vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(Modifier.size(width = 44.dp, height = 56.dp)) {
@@ -1227,34 +1509,32 @@ private fun ListRow(e: Entry, repo: Repository, a: TileActions) {
                 Column(Modifier.weight(1f)) {
                     Text(if (e is Entry.F) e.folder.name else (e as Entry.N).note.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                     Text(
-                        if (e is Entry.F) "${e.count} items" else (e as Entry.N).note.let { "${it.pageCount} pages · " + DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it.modified)) },
-                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        if (e is Entry.F) "${e.count} items"
+                        else (e as Entry.N).note.let { "${it.pageCount} pages · " + DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it.modified)) },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-            GlassMenuButton(
+            AppMenuButton(
                 contentPadding = PaddingValues(0.dp),
                 items = items,
                 contentDescription = "Options",
-                role = GlassRole.Frost,
-                shape = glassPillShape(),
-                menuWidth = 230.dp,
-                buttonContent = {
-                    Box(Modifier.size(38.dp), Alignment.Center) {
-                        Icon(Icons.Filled.KeyboardArrowDown, "Options", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                },
-            )
+                role = SurfaceRole.Control,
+                shape = appPillShape(),
+            ) {
+                Box(Modifier.size(36.dp), Alignment.Center) {
+                    Icon(Icons.Filled.KeyboardArrowDown, "Options", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         }
     }
     if (trashPrompt && e is Entry.N) {
-        GlassDialog(
+        AppDialog(
             onDismissRequest = { trashPrompt = false },
             title = { Text(e.note.title) },
             text = { Text("Restore this notebook from Trash or delete it forever?") },
-            confirmButton = {
-                TextButton(onClick = { trashPrompt = false; a.onRestore(e.note) }) { Text("Restore") }
-            },
+            confirmButton = { TextButton(onClick = { trashPrompt = false; a.onRestore(e.note) }) { Text("Restore") } },
             dismissButton = {
                 TextButton(onClick = { trashPrompt = false; a.onDeleteForever(e.note) }) {
                     Text("Delete forever", color = MaterialTheme.colorScheme.error)
@@ -1273,12 +1553,10 @@ private fun MoveRow(label: String, folder: Folder?, onClick: () -> Unit) {
     }
 }
 
-// ================================================================ dialogs
-
 @Composable
 private fun NameDialog(title: String, initial: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
     var name by remember { mutableStateOf(initial) }
-    GlassDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = { OutlinedTextField(name, { name = it }, singleLine = true) },
@@ -1294,49 +1572,48 @@ private val FolderTags = listOf("", "Study", "Work", "Lab", "Art", "Math", "Bio"
 private fun FolderDialog(existing: Folder?, onDismiss: () -> Unit, onSave: (String, Int, String) -> Unit) {
     var name by remember { mutableStateOf(existing?.name ?: "New folder") }
     var color by remember { mutableStateOf(existing?.color ?: FolderColors.first()) }
-    var emoji by remember { mutableStateOf(existing?.emoji ?: "") }
+    var tag by remember { mutableStateOf(existing?.emoji ?: "") }
     var custom by remember { mutableStateOf(false) }
-    GlassDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (existing == null) "New folder" else "Edit folder") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
-                FolderArt(color, emoji, Modifier.size(width = 120.dp, height = 104.dp).align(Alignment.CenterHorizontally))
+                FolderArt(color, tag, Modifier.size(width = 120.dp, height = 104.dp).align(Alignment.CenterHorizontally))
                 OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Name") })
                 Text("Colour", style = MaterialTheme.typography.labelSmall)
                 FlowRow {
                     FolderColors.forEach { c -> Swatch(c, c == color) { color = c } }
                     Box(
-                        Modifier.padding(4.dp).size(26.dp).clip(CircleShape).border(1.dp, MaterialTheme.colorScheme.outline, CircleShape).clickable { custom = true },
+                        Modifier
+                            .padding(4.dp)
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .clickable { custom = true },
                         contentAlignment = Alignment.Center,
                     ) { Icon(Icons.Filled.Add, "Custom colour", Modifier.size(16.dp)) }
                 }
                 Text("Label", style = MaterialTheme.typography.labelSmall)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FolderTags.forEach { tag ->
-                        GlassChip(
-                            selected = tag == emoji,
-                            onClick = { emoji = tag },
-                            label = tag.ifEmpty { "None" },
-                        )
+                    FolderTags.forEach { t ->
+                        AppChip(selected = t == tag, onClick = { tag = t }, label = t.ifEmpty { "None" })
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { if (name.isNotBlank()) onSave(name.trim(), color, emoji) }) { Text("Save") } },
+        confirmButton = { TextButton(onClick = { if (name.isNotBlank()) onSave(name.trim(), color, tag) }) { Text("Save") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
     if (custom) ColorEditorDialog(color, FolderColors, emptyList(), onDismiss = { custom = false }) { color = it; custom = false }
 }
 
-/** Cover choices shared by "New notebook" and "Change cover". */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CoverGallery(selected: String, onSelect: (String) -> Unit, onPhoto: () -> Unit) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         val options = CoverColors.map { "solid:$it" } +
             CoverPatterns.flatMap { p ->
-                // Colours that suit each material.
                 val tones = when (p) {
                     "leather" -> listOf(0xFF5D3A23, 0xFF1C1C1E, 0xFF0E2A47, 0xFF6B1E2A)
                     "kraft" -> listOf(0xFFC49A6C, 0xFFA77B4F)
@@ -1350,20 +1627,36 @@ private fun CoverGallery(selected: String, onSelect: (String) -> Unit, onPhoto: 
             }
         options.forEach { spec ->
             Box(
-                Modifier.size(width = 54.dp, height = 72.dp)
+                Modifier
+                    .size(width = 54.dp, height = 72.dp)
                     .border(if (spec == selected) 3.dp else 0.dp, MaterialTheme.colorScheme.primary, NotebookShape)
                     .clickable { onSelect(spec) },
             ) { CoverArt(spec, "", null, 0, Modifier.fillMaxSize(), showTitle = false) }
         }
         Column(
-            Modifier.size(width = 54.dp, height = 72.dp).clip(NotebookShape).border(1.dp, MaterialTheme.colorScheme.outline, NotebookShape)
-                .background(if (selected == "thumb") MaterialTheme.colorScheme.primaryContainer else Color.Transparent).clickable { onSelect("thumb") },
-            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
-        ) { Icon(Icons.Outlined.Description, null); Text("Page 1", style = MaterialTheme.typography.labelSmall) }
+            Modifier
+                .size(width = 54.dp, height = 72.dp)
+                .clip(NotebookShape)
+                .background(if (selected == "thumb") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
+                .clickable { onSelect("thumb") },
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(Icons.Outlined.Description, null)
+            Text("Page 1", style = MaterialTheme.typography.labelSmall)
+        }
         Column(
-            Modifier.size(width = 54.dp, height = 72.dp).clip(NotebookShape).border(1.dp, MaterialTheme.colorScheme.outline, NotebookShape).clickable(onClick = onPhoto),
-            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
-        ) { Icon(Icons.Outlined.Image, null); Text("Photo", style = MaterialTheme.typography.labelSmall) }
+            Modifier
+                .size(width = 54.dp, height = 72.dp)
+                .clip(NotebookShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .clickable(onClick = onPhoto),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(Icons.Outlined.Image, null)
+            Text("Photo", style = MaterialTheme.typography.labelSmall)
+        }
     }
 }
 
@@ -1371,7 +1664,7 @@ private fun CoverGallery(selected: String, onSelect: (String) -> Unit, onPhoto: 
 private fun CoverDialog(current: String, onDismiss: () -> Unit, onPick: (String, Uri?) -> Unit) {
     var spec by remember { mutableStateOf(current) }
     val photo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) onPick(spec, uri) }
-    GlassDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("Cover") },
         text = { Column(Modifier.verticalScroll(rememberScrollState())) { CoverGallery(spec, { spec = it }) { photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) } } },
@@ -1380,10 +1673,16 @@ private fun CoverDialog(current: String, onDismiss: () -> Unit, onPick: (String,
     )
 }
 
-/** Everything chosen in the "New notebook" dialog. */
 data class NewBook(
-    val name: String, val cover: String, val coverColor: Int, val paper: PaperStyle, val photo: Uri?,
-    val width: Float, val height: Float, val paperColor: Int?, val coverPage: Boolean,
+    val name: String,
+    val cover: String,
+    val coverColor: Int,
+    val paper: PaperStyle,
+    val photo: Uri?,
+    val width: Float,
+    val height: Float,
+    val paperColor: Int?,
+    val coverPage: Boolean,
     val isWhiteboard: Boolean = false,
 )
 
@@ -1410,7 +1709,8 @@ private fun NewNotebookDialog(
     var photo by remember { mutableStateOf<Uri?>(null) }
     var tab by remember { mutableStateOf(0) }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) { photo = uri; cover = "photo" } }
-    GlassDialog(
+
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("New notebook") },
         text = {
@@ -1426,7 +1726,7 @@ private fun NewNotebookDialog(
                     Spacer(Modifier.width(14.dp))
                     OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Title") }, shape = CircleShape)
                 }
-                GlassSegmentedControl(
+                AppSegmentedControl(
                     options = listOf("Cover", "Paper", "Size"),
                     selectedIndex = tab,
                     onSelect = { tab = it },
@@ -1436,22 +1736,21 @@ private fun NewNotebookDialog(
                     when (tab) {
                         0 -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             CoverGallery(cover, { cover = it; photo = null }) { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
-                            if (cover != "thumb" && !preset.isWhiteboard) Row(verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text("Cover as first page")
-                                    Text("Write on your cover", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (cover != "thumb" && !preset.isWhiteboard) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text("Cover as first page")
+                                        Text("Write on your cover", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    AppToggle(checked = coverPage, onCheckedChange = { coverPage = it })
                                 }
-                                GlassToggle(
-                                    checked = coverPage,
-                                    onCheckedChange = { coverPage = it },
-                                )
                             }
                         }
                         1 -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             val effectiveLandscape = if (preset.isWhiteboard) true else landscape
-                            GlassCard(
+                            AppCard(
                                 hero = false,
-                                shape = glassCardShape(),
+                                shape = appCardShape(),
                                 contentPadding = PaddingValues(12.dp),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
@@ -1461,8 +1760,7 @@ private fun NewNotebookDialog(
                                         Modifier.size(
                                             width = if (effectiveLandscape) 128.dp else 92.dp,
                                             height = if (effectiveLandscape) 92.dp else 128.dp,
-                                        ).clip(RoundedCornerShape(10.dp))
-                                            .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), RoundedCornerShape(10.dp)),
+                                        ).clip(RoundedCornerShape(10.dp)),
                                         tint = paperColor ?: 0xFFFFFFFF.toInt(),
                                         landscape = effectiveLandscape,
                                     )
@@ -1488,8 +1786,14 @@ private fun NewNotebookDialog(
                                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { paper = p }) {
                                         PaperPreview(
                                             p,
-                                            Modifier.size(width = 60.dp, height = 84.dp).clip(RoundedCornerShape(8.dp))
-                                                .border(if (sel) 2.dp else 1.dp, if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)),
+                                            Modifier
+                                                .size(width = 60.dp, height = 84.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .border(
+                                                    if (sel) 2.dp else 0.75.dp,
+                                                    if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                                    RoundedCornerShape(8.dp),
+                                                ),
                                             tint = paperColor ?: 0xFFFFFFFF.toInt(),
                                         )
                                         Text(p.label, style = MaterialTheme.typography.labelSmall)
@@ -1501,25 +1805,31 @@ private fun NewNotebookDialog(
                                 Swatch(0x00000000, paperColor == null, 22) { paperColor = null }
                                 PaperColors.forEach { c -> Swatch(c, c == paperColor, 22) { paperColor = c } }
                                 Box(
-                                    Modifier.padding(4.dp).size(26.dp).clip(CircleShape).border(1.dp, MaterialTheme.colorScheme.outline, CircleShape).clickable { customPaper = true },
+                                    Modifier
+                                        .padding(4.dp)
+                                        .size(26.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        .clickable { customPaper = true },
                                     contentAlignment = Alignment.Center,
                                 ) { Icon(Icons.Filled.Add, "Custom", Modifier.size(14.dp)) }
                             }
                         }
                         else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                com.pronotes.app.data.PagePreset.entries.forEach { p ->
+                                PagePreset.entries.forEach { p ->
                                     val chipLabel = when {
                                         p.recommended -> "${p.label} · Recommended"
                                         p.isWhiteboard -> "${p.label} · Infinite"
                                         else -> p.label
                                     }
-                                    GlassChip(
+                                    AppChip(
                                         selected = preset == p,
                                         onClick = {
                                             preset = p
-                                            if (p != com.pronotes.app.data.PagePreset.CUSTOM) {
-                                                wMm = "%.0f".format(p.wMm); hMm = "%.0f".format(p.hMm)
+                                            if (p != PagePreset.CUSTOM) {
+                                                wMm = "%.0f".format(p.wMm)
+                                                hMm = "%.0f".format(p.hMm)
                                             }
                                             if (p.isWhiteboard && paper == PaperStyle.BLANK) paper = PaperStyle.DOTTED
                                         },
@@ -1536,15 +1846,14 @@ private fun NewNotebookDialog(
                             } else {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("Landscape", Modifier.weight(1f))
-                                    GlassToggle(
-                                        checked = landscape,
-                                        onCheckedChange = { landscape = it },
-                                    )
+                                    AppToggle(checked = landscape, onCheckedChange = { landscape = it })
                                 }
                             }
-                            if (preset == com.pronotes.app.data.PagePreset.CUSTOM) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                OutlinedTextField(wMm, { v -> wMm = v.filter { it.isDigit() }.take(4) }, label = { Text("Width mm") }, singleLine = true, modifier = Modifier.weight(1f), shape = CircleShape)
-                                OutlinedTextField(hMm, { v -> hMm = v.filter { it.isDigit() }.take(4) }, label = { Text("Height mm") }, singleLine = true, modifier = Modifier.weight(1f), shape = CircleShape)
+                            if (preset == PagePreset.CUSTOM) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    OutlinedTextField(wMm, { v -> wMm = v.filter { it.isDigit() }.take(4) }, label = { Text("Width mm") }, singleLine = true, modifier = Modifier.weight(1f), shape = CircleShape)
+                                    OutlinedTextField(hMm, { v -> hMm = v.filter { it.isDigit() }.take(4) }, label = { Text("Height mm") }, singleLine = true, modifier = Modifier.weight(1f), shape = CircleShape)
+                                }
                             }
                         }
                     }
@@ -1552,26 +1861,39 @@ private fun NewNotebookDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                val color = cover.substringAfterLast(':').toLongOrNull()?.toInt() ?: startColor
-                var w = (wMm.toFloatOrNull() ?: 210f).coerceIn(40f, 1000f)
-                var h = (hMm.toFloatOrNull() ?: 297f).coerceIn(40f, 1000f)
-                if (!preset.isWhiteboard && landscape != (w > h)) { val t = w; w = h; h = t }
-                val k = com.pronotes.app.data.PagePreset.UNITS_PER_MM
-                onCreate(NewBook(
-                    name.ifBlank { if (preset.isWhiteboard) "Whiteboard" else "Untitled notebook" },
-                    if (cover == "photo") "" else cover, color, paper, photo,
-                    w * k, h * k, paperColor, coverPage && cover != "thumb" && !preset.isWhiteboard,
-                    isWhiteboard = preset.isWhiteboard,
-                ))
-            }) { Text("Create") }
+            Button(
+                onClick = {
+                    val color = cover.substringAfterLast(':').toLongOrNull()?.toInt() ?: startColor
+                    var w = (wMm.toFloatOrNull() ?: 210f).coerceIn(40f, 1000f)
+                    var h = (hMm.toFloatOrNull() ?: 297f).coerceIn(40f, 1000f)
+                    if (!preset.isWhiteboard && landscape != (w > h)) {
+                        val t = w; w = h; h = t
+                    }
+                    val k = PagePreset.UNITS_PER_MM
+                    onCreate(
+                        NewBook(
+                            name.ifBlank { if (preset.isWhiteboard) "Whiteboard" else "Untitled notebook" },
+                            if (cover == "photo") "" else cover,
+                            color,
+                            paper,
+                            photo,
+                            w * k,
+                            h * k,
+                            paperColor,
+                            coverPage && cover != "thumb" && !preset.isWhiteboard,
+                            isWhiteboard = preset.isWhiteboard,
+                        ),
+                    )
+                },
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
+            ) { Text("Create") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
     if (customPaper) ColorEditorDialog(paperColor ?: 0xFFFFFFFF.toInt(), PaperColors, emptyList(), onDismiss = { customPaper = false }) { paperColor = it; customPaper = false }
 }
 
-/** Small pill in the library header: offers in-app updates when a new release is out. */
 @Composable
 private fun UpdatePill() {
     val context = LocalContext.current
@@ -1580,53 +1902,43 @@ private fun UpdatePill() {
         store.select { it.autoUpdateCheck to it.updateReminders }
     }.collectAsStateWithLifecycle(initialValue = store.settings.value.let { it.autoUpdateCheck to it.updateReminders })
     val (autoUpdateCheck, updateReminders) = updatePrefs
-    androidx.compose.runtime.LaunchedEffect(autoUpdateCheck) {
-        if (autoUpdateCheck || updateReminders) com.pronotes.app.data.Updater.check(context, quiet = true)
-        val u0 = com.pronotes.app.data.Updater
-        if (updateReminders && u0.phase == com.pronotes.app.data.Updater.Phase.AVAILABLE && !u0.remindedThisLaunch) {
-            u0.remindedThisLaunch = true
-            kotlinx.coroutines.delay(1200)
-            u0.showDialog = true
+    LaunchedEffect(autoUpdateCheck) {
+        if (autoUpdateCheck || updateReminders) Updater.check(context, quiet = true)
+        if (updateReminders && Updater.phase == Updater.Phase.AVAILABLE && !Updater.remindedThisLaunch) {
+            Updater.remindedThisLaunch = true
+            delay(1200)
+            Updater.showDialog = true
         }
     }
-    val u = com.pronotes.app.data.Updater
-    val pct = (u.progress * 100).toInt().coerceIn(0, 100)
-    val label = when (u.phase) {
-        com.pronotes.app.data.Updater.Phase.AVAILABLE -> "Update to ${u.release?.tag}"
-        com.pronotes.app.data.Updater.Phase.DOWNLOADING -> "Downloading $pct%"
-        com.pronotes.app.data.Updater.Phase.PAUSED -> "Resume update ($pct%)"
-        com.pronotes.app.data.Updater.Phase.READY -> "Install update"
-        com.pronotes.app.data.Updater.Phase.INSTALLING -> "Installing..."
-        com.pronotes.app.data.Updater.Phase.FAILED -> if (u.release != null) "Update failed · Retry" else null
+    val pct = (Updater.progress * 100).toInt().coerceIn(0, 100)
+    val label = when (Updater.phase) {
+        Updater.Phase.AVAILABLE -> "Update to ${Updater.release?.tag}"
+        Updater.Phase.DOWNLOADING -> "Downloading $pct%"
+        Updater.Phase.PAUSED -> "Resume update ($pct%)"
+        Updater.Phase.READY -> "Install update"
+        Updater.Phase.INSTALLING -> "Installing..."
+        Updater.Phase.FAILED -> if (Updater.release != null) "Update failed · Retry" else null
         else -> null
     } ?: return
-    val role = when (u.phase) {
-        com.pronotes.app.data.Updater.Phase.FAILED -> GlassRole.Frost
-        com.pronotes.app.data.Updater.Phase.PAUSED -> GlassRole.Frost
-        else -> GlassRole.Accent
+    val tint = when (Updater.phase) {
+        Updater.Phase.FAILED -> ProButtonPalette.CoralRose
+        Updater.Phase.PAUSED -> ProButtonPalette.VibrantOrange
+        else -> ProButtonPalette.Emerald
     }
-    val textColor = when (u.phase) {
-        com.pronotes.app.data.Updater.Phase.FAILED -> MaterialTheme.colorScheme.onError
-        com.pronotes.app.data.Updater.Phase.PAUSED -> MaterialTheme.colorScheme.onSurface
-        else -> MaterialTheme.colorScheme.onPrimary
-    }
-    GlassSurface(
-        role = role,
-        containerColor = if (u.phase == com.pronotes.app.data.Updater.Phase.FAILED) MaterialTheme.colorScheme.error else null,
-        shape = glassPillShape(),
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
+    AppPill(
+        selected = true,
+        tint = tint,
         onClick = {
-            when (u.phase) {
-                com.pronotes.app.data.Updater.Phase.AVAILABLE,
-                com.pronotes.app.data.Updater.Phase.DOWNLOADING,
-                com.pronotes.app.data.Updater.Phase.PAUSED -> u.showDialog = true
-                com.pronotes.app.data.Updater.Phase.READY -> u.install(context)
-                com.pronotes.app.data.Updater.Phase.FAILED -> if (u.hasReadyApk(context)) u.install(context) else u.showDialog = true
+            when (Updater.phase) {
+                Updater.Phase.AVAILABLE, Updater.Phase.DOWNLOADING, Updater.Phase.PAUSED -> Updater.showDialog = true
+                Updater.Phase.READY -> Updater.install(context)
+                Updater.Phase.FAILED -> if (Updater.hasReadyApk(context)) Updater.install(context) else Updater.showDialog = true
                 else -> Unit
             }
         },
-        modifier = Modifier.padding(horizontal = 6.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+        modifier = Modifier.padding(horizontal = 4.dp),
     ) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = textColor, fontWeight = FontWeight.SemiBold)
+        Text(label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
     }
 }

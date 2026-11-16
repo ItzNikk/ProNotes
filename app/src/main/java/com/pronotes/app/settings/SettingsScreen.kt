@@ -1,17 +1,16 @@
 package com.pronotes.app.settings
 
-import android.content.Intent
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,7 +29,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -39,6 +38,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.DragHandle
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -49,7 +49,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,21 +58,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush as GBrush
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pronotes.app.BuildConfigInfo
+import com.pronotes.app.UpdateCheckReceiver
 import com.pronotes.app.data.AccentColor
 import com.pronotes.app.data.AppFont
 import com.pronotes.app.data.AppSettings
 import com.pronotes.app.data.CloudSync
 import com.pronotes.app.data.DeskColor
-import com.pronotes.app.data.GlassQualitySetting
-import com.pronotes.app.data.InterfaceStyle
 import com.pronotes.app.data.MotionStyle
+import com.pronotes.app.data.PagePreset
 import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.data.PaperTint
 import com.pronotes.app.data.PenAction
@@ -81,6 +81,7 @@ import com.pronotes.app.data.PenBrands
 import com.pronotes.app.data.PenClickDelay
 import com.pronotes.app.data.PenProfile
 import com.pronotes.app.data.PerformanceMode
+import com.pronotes.app.data.Repository
 import com.pronotes.app.data.ScribbleSensitivity
 import com.pronotes.app.data.ScrollDirection
 import com.pronotes.app.data.SettingsStore
@@ -88,37 +89,42 @@ import com.pronotes.app.data.SideButton
 import com.pronotes.app.data.ThemeMode
 import com.pronotes.app.data.ToolbarDock
 import com.pronotes.app.data.ToolbarSize
+import com.pronotes.app.data.Updater
 import com.pronotes.app.data.Updater.Phase as UPhase
-import com.pronotes.app.editor.LocalAiManager
+import com.pronotes.app.editor.ToolbarOrder
 import com.pronotes.app.library.PaperPreview
-import com.pronotes.app.ui.BotanicalGlassBackground
-import com.pronotes.app.ui.GlassChip
-import com.pronotes.app.ui.GlassChoiceRow
-import com.pronotes.app.ui.GlassDialog
-import com.pronotes.app.ui.GlassRole
-import com.pronotes.app.ui.GlassScene
-import com.pronotes.app.ui.GlassSegmentedControl
-import com.pronotes.app.ui.GlassSliderRow
-import com.pronotes.app.ui.GlassSurface
-import com.pronotes.app.ui.GlassToggle
+import com.pronotes.app.support.Support
+import com.pronotes.app.ui.AppChip
+import com.pronotes.app.ui.AppChoiceRow
+import com.pronotes.app.ui.AppDialog
+import com.pronotes.app.ui.AppSegmentedControl
+import com.pronotes.app.ui.AppSliderRow
+import com.pronotes.app.ui.AppSurface
+import com.pronotes.app.ui.AppToggle
 import com.pronotes.app.ui.GradientTitle
+import com.pronotes.app.ui.MovingColorfulGradientBackground
+import com.pronotes.app.ui.ProButtonPalette
 import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.ProIconView
+import com.pronotes.app.ui.SurfaceRole
+import com.pronotes.app.ui.appCardShape
+import com.pronotes.app.ui.appPillShape
 import com.pronotes.app.ui.elasticStretch
-import com.pronotes.app.ui.glassCardShape
-import com.pronotes.app.ui.glassPillShape
+import com.pronotes.app.ui.iconFor
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
+import java.text.DateFormat
+import java.util.Date
 
 private enum class Category(val label: String, val sub: String, val icon: ProIcon, val tint: Long) {
-    STYLUS("Stylus & input", "Drawing, feel, side button, pens", ProIcon.PEN, 0xFF24483F),
-    GESTURES("Gestures", "Live scribble sensitivity, circle, taps", ProIcon.LASSO, 0xFF2E4A7A),
-    PAGES("Pages & paper", "Scroll, templates, paper colour", ProIcon.DOCUMENT, 0xFF2F6B4F),
-    TOOLBAR("Toolbar", "Floating capsule, hover tooltips, timer", ProIcon.TOOLBAR, 0xFF7A2E42),
-    LOOK("Appearance & Theme", "OpenLeaf botanical palette, typography, motion", ProIcon.PALETTE, 0xFFB98A2E),
-    SMART("Smart features", "On-device study tools & creative studio", ProIcon.CUSTOM_AI, 0xFF6250D6),
-    LIBRARY("Library & backup", "Covers, cloud sync, backup and restore", ProIcon.FOLDER, 0xFF35655A),
-    ABOUT("About", "Version, resumable updates", ProIcon.INFO, 0xFF5A5F58),
+    STYLUS("Stylus & input", "Drawing, feel, side button, pens", ProIcon.PEN, 0xFF0044EA),
+    GESTURES("Gestures", "Live scribble sensitivity, circle, taps", ProIcon.LASSO, 0xFF00A3F5),
+    PAGES("Pages & paper", "Scroll, templates, paper colour", ProIcon.DOCUMENT, 0xFF10B981),
+    TOOLBAR("Toolbar", "Floating capsule, hover tooltips, timer", ProIcon.TOOLBAR, 0xFFF01E6B),
+    LOOK("Appearance & Theme", "Palette, typography, corner roundness, motion", ProIcon.PALETTE, 0xFFFF8C00),
+    LIBRARY("Library & backup", "Covers, cloud sync, backup and restore", ProIcon.FOLDER, 0xFF7C3AED),
+    ABOUT("About", "Version, resumable updates", ProIcon.INFO, 0xFF475569),
 }
 
 @Composable
@@ -131,14 +137,17 @@ fun SettingsScreen(onBack: () -> Unit, onTour: () -> Unit = {}, onSupport: () ->
 
     BackHandler(enabled = !wide && selected != null) { selected = null }
 
-    GlassScene(
-        background = { BotanicalGlassBackground() },
-    ) {
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        MovingColorfulGradientBackground(Modifier.fillMaxSize(), intensity = 0.24f)
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                GlassSurface(
-                    role = GlassRole.Control,
-                    shape = glassPillShape(),
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                AppSurface(
+                    role = SurfaceRole.Control,
+                    shape = appPillShape(),
                     contentPadding = PaddingValues(10.dp),
                     onClick = { if (!wide && selected != null) selected = null else onBack() },
                     onClickLabel = "Back",
@@ -153,7 +162,8 @@ fun SettingsScreen(onBack: () -> Unit, onTour: () -> Unit = {}, onSupport: () ->
                     AnimatedContent(
                         targetState = selected ?: Category.STYLUS,
                         transitionSpec = { (fadeIn() + slideInHorizontally { it / 12 }) togetherWith fadeOut() },
-                        label = "detail", modifier = Modifier.weight(1f),
+                        label = "detail",
+                        modifier = Modifier.weight(1f),
                     ) { c -> Detail(c, s, store, onTour, onSupport) }
                 }
             } else {
@@ -176,19 +186,21 @@ private fun CategoryList(selected: Category?, modifier: Modifier, onPick: (Categ
         items(Category.entries.size, key = { Category.entries[it].name }) { i ->
             val c = Category.entries[i]
             val sel = c == selected
-            GlassSurface(
+            AppSurface(
                 modifier = Modifier.fillMaxWidth(),
-                role = GlassRole.Frost,
+                role = SurfaceRole.Frost,
                 containerColor = if (sel) scheme.primaryContainer else null,
-                shape = glassCardShape(),
+                shape = appCardShape(),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
                 onClick = { onPick(c) },
                 onClickLabel = c.label,
             ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Box(
-                        Modifier.size(38.dp).clip(CircleShape)
-                            .background(GBrush.linearGradient(listOf(Color(c.tint), Color(c.tint).copy(alpha = 0.78f)))),
+                        Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Brush.linearGradient(listOf(Color(c.tint), Color(c.tint).copy(alpha = 0.78f)))),
                         contentAlignment = Alignment.Center,
                     ) { ProIconView(c.icon, Color.White, Modifier.size(22.dp)) }
                     Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
@@ -226,8 +238,8 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                         Toggle("Writing sound", "A soft pencil-on-paper sound that follows your speed", s.paperSound) { v -> up { it.copy(paperSound = v) } }
                         if (s.paperSound) {
                             Box(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
-                                GlassSliderRow(
-                                    label = "Writing sound volume",
+                                AppSliderRow(
+                                    title = "Writing sound volume",
                                     valueText = "${(s.paperVolume * 100).toInt()}%",
                                     value = s.paperVolume,
                                     valueRange = 0.05f..1f,
@@ -278,7 +290,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                         }
                     }
                     Section("New notebooks") {
-                        val presets = com.pronotes.app.data.PagePreset.entries.filter { it != com.pronotes.app.data.PagePreset.CUSTOM }
+                        val presets = PagePreset.entries.filter { it != PagePreset.CUSTOM }
                         Choice(
                             "Page size",
                             if (s.defaultPreset.recommended) "${s.defaultPreset.label} (Recommended)" else s.defaultPreset.label,
@@ -294,8 +306,14 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { up { it.copy(defaultPaper = p) } }) {
                                     PaperPreview(
                                         p,
-                                        Modifier.size(width = 60.dp, height = 84.dp).clip(RoundedCornerShape(6.dp))
-                                            .border(if (sel) 2.dp else 1.dp, if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp)),
+                                        Modifier
+                                            .size(width = 60.dp, height = 84.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .border(
+                                                if (sel) 2.dp else 0.75.dp,
+                                                if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                                RoundedCornerShape(6.dp),
+                                            ),
                                         tint = s.paperTint.argb,
                                     )
                                     Text(p.label, style = MaterialTheme.typography.labelSmall)
@@ -312,7 +330,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                     }
                     Section("Tools in the toolbar") {
                         ToolbarEditor(s.toolbarTools) { spec -> up { it.copy(toolbarTools = spec) } }
-                        Info("Long-press & drag icons right inside the editor toolbar with rubber-band feel, or reorder above.")
+                        Info("Long-press & drag icons inside the editor toolbar with elastic feel, or reorder above.")
                     }
                     Section("Tabs & Study Timer") {
                         Toggle("Notebook tabs", "Keep several notebooks open and switch between them", s.showTabs) { v -> up { it.copy(showTabs = v) } }
@@ -331,41 +349,24 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                 Category.LOOK -> {
                     Section("Appearance") {
                         Segmented(ThemeMode.entries.map { it.label }, s.themeMode.ordinal) { i -> up { it.copy(themeMode = ThemeMode.entries[i]) } }
-                        Text("INTERFACE STYLE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 16.dp, top = 6.dp))
-                        Segmented(InterfaceStyle.entries.map { it.label }, s.interfaceStyle.ordinal) { i ->
-                            up { it.copy(interfaceStyle = InterfaceStyle.entries[i]) }
-                        }
-                        if (s.interfaceStyle == InterfaceStyle.LIQUID_GLASS) {
-                            Choice("Glass quality", s.glassQuality.label, GlassQualitySetting.entries.map { it.label }) { i ->
-                                up { it.copy(glassQuality = GlassQualitySetting.entries[i]) }
-                            }
-                            Box(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
-                                GlassSliderRow(
-                                    label = "Glass transparency",
-                                    valueText = "${(s.glassTransparency.coerceIn(0.15f, 0.75f) * 100).toInt()}%",
-                                    value = s.glassTransparency.coerceIn(0.15f, 0.75f),
-                                    valueRange = 0.15f..0.75f,
-                                    onValueChange = { v -> up { it.copy(glassTransparency = v.coerceIn(0.15f, 0.75f)) } },
-                                )
-                            }
-                        }
                         Box(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
-                            GlassSliderRow(
-                                label = "Corner roundness",
+                            AppSliderRow(
+                                title = "Corner roundness",
                                 valueText = "${s.cornerRoundnessDp.toInt()} dp",
-                                value = s.cornerRoundnessDp.coerceIn(8f, 36f),
-                                valueRange = 8f..36f,
-                                onValueChange = { v -> up { it.copy(cornerRoundnessDp = v.coerceIn(8f, 36f)) } },
+                                value = s.cornerRoundnessDp.coerceIn(8f, 32f),
+                                valueRange = 8f..32f,
+                                onValueChange = { v -> up { it.copy(cornerRoundnessDp = v.coerceIn(8f, 32f)) } },
                             )
                         }
                     }
                     Section("Typography") {
                         FlowRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             AppFont.entries.forEach { f ->
-                                GlassChip(
+                                AppChip(
                                     selected = s.appFont == f,
                                     onClick = { up { it.copy(appFont = f) } },
                                     label = f.label,
+                                    tint = ProButtonPalette.ElectricBlue,
                                 )
                             }
                         }
@@ -373,7 +374,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                     }
                     Section("Motion & Animations") {
                         Segmented(MotionStyle.entries.map { it.label }, s.motionStyle.ordinal) { i -> up { it.copy(motionStyle = MotionStyle.entries[i]) } }
-                        Info("Ultra Spring enables kinetic rubber-band toolbar drag, slideshow transitions, and fluid morphing.")
+                        Info("Ultra Spring enables elastic touch stretch, Kindle 3D page turns, and moving letter headings.")
                     }
                     Section("Performance") {
                         Text("PERFORMANCE MODE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 16.dp, top = 10.dp))
@@ -381,9 +382,9 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                             up { it.copy(performanceMode = PerformanceMode.entries[i]) }
                         }
                         val perfDesc = when (s.performanceMode) {
-                            PerformanceMode.BATTERY_SAVER -> "Uses flat classic surfaces, reduced motion, 1.8 s autosave intervals, and compact cover thumbnails."
-                            PerformanceMode.BALANCED -> "Adaptive glass tier, smooth motion, balanced thumbnail size, and 800 ms debounced saves."
-                            PerformanceMode.MAXIMUM -> "Full shader/blur intensity, adjacent PDF page prefetching, and crisp high-res thumbnails."
+                            PerformanceMode.BATTERY_SAVER -> "Reduced motion, 2.4 s autosave intervals, and compact cover thumbnails."
+                            PerformanceMode.BALANCED -> "Smooth spring motion, balanced thumbnail resolution, and 1.2 s debounced saves."
+                            PerformanceMode.MAXIMUM -> "Full spring responsiveness, adjacent PDF page prefetching, and crisp high-res thumbnails."
                         }
                         Info(perfDesc)
                     }
@@ -392,8 +393,10 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                             AccentColor.entries.forEach { a ->
                                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { up { it.copy(accent = a) } }) {
                                     Box(
-                                        Modifier.size(40.dp).clip(CircleShape)
-                                            .background(GBrush.linearGradient(listOf(Color(a.argb), Color(a.argb2))))
+                                        Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(Brush.linearGradient(listOf(Color(a.argb), Color(a.argb2))))
                                             .border(if (s.accent == a) 3.dp else 0.dp, MaterialTheme.colorScheme.onSurface, CircleShape),
                                     )
                                     Text(a.label, style = MaterialTheme.typography.labelSmall)
@@ -407,34 +410,14 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                             DeskColor.entries.forEach { d -> Swatchy(Color(d.argb), d.label, s.deskColor == d) { up { it.copy(deskColor = d) } } }
                         }
                     }
-                    Section("Setup Studio") {
+                    Section("Setup & Preview") {
                         Row(Modifier.fillMaxWidth().clickable(onClick = onTour).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            ProIconView(ProIcon.STAR, MaterialTheme.colorScheme.primary, Modifier.size(22.dp))
+                            ProIconView(ProIcon.STAR, ProButtonPalette.ElectricBlue, Modifier.size(22.dp))
                             Spacer(Modifier.size(16.dp))
                             Column(Modifier.weight(1f)) {
-                                Text("Open Setup Studio")
-                                Text("Preview themes, typography, and stylus calibration", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Open Setup & Preview Tour")
+                                Text("Animated feature cards, theme studio, and stylus calibration", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                        }
-                    }
-                }
-                Category.SMART -> {
-                    Section("Smart features") {
-                        Toggle(
-                            "Smart features",
-                            "Enable study assistant, summaries, flashcard/quiz generation, semantic search, and creative studio",
-                            s.smartFeatures,
-                        ) { v -> up { it.copy(smartFeatures = v) } }
-                        HorizontalDivider(Modifier.padding(start = 16.dp))
-                        if (s.smartFeatures) {
-                            val statusText = if (LocalAiManager.hasCustomApi(context)) {
-                                "Smart tools active (custom endpoint connected)"
-                            } else {
-                                "Smart tools active (on-device study engine)"
-                            }
-                            Info(statusText)
-                        } else {
-                            Info("All generative and smart buttons are hidden across the library and editor. Manual flashcards, quizzes, mind maps, search, and drawing remain active.")
                         }
                     }
                 }
@@ -448,22 +431,22 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                 Category.ABOUT -> {
                     Section("Get started") {
                         Row(Modifier.fillMaxWidth().clickable(onClick = onTour).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            ProIconView(ProIcon.STAR, MaterialTheme.colorScheme.primary, Modifier.size(22.dp)); Spacer(Modifier.size(16.dp))
-                            Text("Take the tour", Modifier.weight(1f))
+                            ProIconView(ProIcon.STAR, ProButtonPalette.ElectricBlue, Modifier.size(22.dp)); Spacer(Modifier.size(16.dp))
+                            Text("Open Setup & Preview Tour", Modifier.weight(1f))
                         }
-                        if (com.pronotes.app.support.Support.enabled) {
-                            HorizontalDivider(Modifier.padding(start = 56.dp))
+                        if (Support.enabled) {
+                            HorizontalDivider(Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                             Row(Modifier.fillMaxWidth().clickable(onClick = onSupport).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                ProIconView(ProIcon.HEART, Color(0xFFE5484D), Modifier.size(22.dp), ink = Color(0xFFE5484D)); Spacer(Modifier.size(16.dp))
+                                ProIconView(ProIcon.HEART, ProButtonPalette.MagentaPink, Modifier.size(22.dp), ink = ProButtonPalette.MagentaPink); Spacer(Modifier.size(16.dp))
                                 Text("Support Pro Notes", Modifier.weight(1f))
                             }
-                            HorizontalDivider(Modifier.padding(start = 56.dp))
+                            HorizontalDivider(Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                             Toggle("Occasional support reminders", "A gentle note now and then", s.supportReminders) { v -> up { it.copy(supportReminders = v) } }
                         }
                     }
                     Section("Pro Notes") {
                         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            ProIconView(ProIcon.INFO, MaterialTheme.colorScheme.primary, Modifier.size(22.dp))
+                            ProIconView(ProIcon.INFO, ProButtonPalette.ElectricBlue, Modifier.size(22.dp))
                             Spacer(Modifier.size(16.dp))
                             Column(Modifier.weight(1f)) {
                                 GradientTitle("Pro Notes", MaterialTheme.typography.titleMedium)
@@ -471,13 +454,13 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                                 Text("Made by ItzNikk · Apache License 2.0", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        HorizontalDivider(Modifier.padding(start = 56.dp))
+                        HorizontalDivider(Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                         UpdateRow()
-                        HorizontalDivider(Modifier.padding(start = 56.dp))
+                        HorizontalDivider(Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                         Toggle("Check for updates automatically", "When the library opens", s.autoUpdateCheck) { v -> up { it.copy(autoUpdateCheck = v) } }
                         Toggle("Update reminders", "A daily notification and a reminder when the app opens", s.updateReminders) { v ->
                             up { it.copy(updateReminders = v) }
-                            com.pronotes.app.UpdateCheckReceiver.schedule(context, v)
+                            UpdateCheckReceiver.schedule(context, v)
                         }
                     }
                 }
@@ -495,9 +478,9 @@ private fun Section(title: String, content: @Composable () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 16.dp, bottom = 6.dp),
         )
-        GlassSurface(
-            role = GlassRole.Frost,
-            shape = glassCardShape(),
+        AppSurface(
+            role = SurfaceRole.Frost,
+            shape = appCardShape(),
             contentPadding = PaddingValues(0.dp),
         ) {
             Column(Modifier.fillMaxWidth()) { content() }
@@ -515,22 +498,21 @@ private fun Toggle(title: String, sub: String, value: Boolean, onChange: (Boolea
             Text(title, color = MaterialTheme.colorScheme.onSurface)
             Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        GlassToggle(
-            checked = value,
-            onCheckedChange = onChange,
-        )
+        AppToggle(checked = value, onCheckedChange = onChange)
     }
 }
 
 @Composable
 private fun Choice(title: String, value: String, options: List<String>, onPick: (Int) -> Unit) {
-    GlassChoiceRow(title = title, value = value, options = options, onPick = onPick)
+    Box(Modifier.padding(horizontal = 12.dp)) {
+        AppChoiceRow(title = title, value = value, options = options, onPick = onPick)
+    }
 }
 
 @Composable
 private fun Segmented(options: List<String>, selected: Int, onPick: (Int) -> Unit) {
     Box(Modifier.fillMaxWidth().padding(12.dp)) {
-        GlassSegmentedControl(
+        AppSegmentedControl(
             options = options,
             selectedIndex = selected,
             onSelect = onPick,
@@ -542,8 +524,15 @@ private fun Segmented(options: List<String>, selected: Int, onPick: (Int) -> Uni
 private fun Swatchy(color: Color, label: String, selected: Boolean, onClick: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable(onClick = onClick)) {
         Box(
-            Modifier.size(width = 48.dp, height = 36.dp).clip(RoundedCornerShape(8.dp)).background(color)
-                .border(if (selected) 3.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)),
+            Modifier
+                .size(width = 48.dp, height = 36.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(color)
+                .border(
+                    if (selected) 3.dp else 0.75.dp,
+                    if (selected) ProButtonPalette.ElectricBlue else MaterialTheme.colorScheme.outlineVariant,
+                    RoundedCornerShape(8.dp),
+                ),
         )
         Text(label, style = MaterialTheme.typography.labelSmall)
     }
@@ -551,39 +540,45 @@ private fun Swatchy(color: Color, label: String, selected: Boolean, onClick: () 
 
 @Composable
 private fun Info(text: String) {
-    Text(text, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+    )
 }
 
 @Composable
 private fun ToolbarEditor(spec: String, onChange: (String) -> Unit) {
-    var list by remember(spec) { mutableStateOf(com.pronotes.app.editor.ToolbarOrder.parse(spec)) }
-    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-    val reorder = sh.calvin.reorderable.rememberReorderableLazyListState(listState) { from, to ->
+    var list by remember(spec) { mutableStateOf(ToolbarOrder.parse(spec)) }
+    val listState = rememberLazyListState()
+    val reorder = rememberReorderableLazyListState(listState) { from, to ->
         list = list.toMutableList().apply { add(to.index, removeAt(from.index)) }
-        onChange(com.pronotes.app.editor.ToolbarOrder.encode(list))
+        onChange(ToolbarOrder.encode(list))
     }
     LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().height((list.size * 56).dp), userScrollEnabled = false) {
         items(list.size, key = { list[it].first.name }) { i ->
             val (tool, visible) = list[i]
             ReorderableItem(reorder, key = tool.name) { dragging ->
                 Row(
-                    Modifier.fillMaxWidth().height(56.dp)
+                    Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
                         .background(if (dragging) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else Color.Transparent)
                         .padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(Icons.Outlined.DragHandle, "Drag", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.longPressDraggableHandle())
                     Spacer(Modifier.width(12.dp))
-                    ProIconView(com.pronotes.app.ui.iconFor(tool), MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp))
+                    ProIconView(iconFor(tool), MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp))
                     Spacer(Modifier.width(12.dp))
                     Text(tool.name.lowercase().replaceFirstChar { it.uppercase() }, Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
-                    GlassToggle(
+                    AppToggle(
                         checked = visible,
                         onCheckedChange = { v ->
-                            if (!v && list.count { it.second } <= 1) return@GlassToggle
+                            if (!v && list.count { it.second } <= 1) return@AppToggle
                             list = list.toMutableList().also { it[i] = tool to v }
-                            onChange(com.pronotes.app.editor.ToolbarOrder.encode(list))
+                            onChange(ToolbarOrder.encode(list))
                         },
                     )
                 }
@@ -595,10 +590,10 @@ private fun ToolbarEditor(spec: String, onChange: (String) -> Unit) {
 @Composable
 private fun BackupRows() {
     val context = LocalContext.current
-    val repo = remember { com.pronotes.app.data.Repository.get(context) }
+    val repo = remember { Repository.get(context) }
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<String?>(null) }
-    val save = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+    val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         if (uri != null) scope.launch {
             status = runCatching {
                 context.contentResolver.openOutputStream(uri)?.use { repo.backup(it) } ?: error("Unable to write file")
@@ -606,7 +601,7 @@ private fun BackupRows() {
             }.getOrElse { "Backup failed: ${it.message}" }
         }
     }
-    val open = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+    val open = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
             status = runCatching {
                 val n = context.contentResolver.openInputStream(uri)?.use { repo.restore(it) } ?: error("Unable to open file")
@@ -615,15 +610,15 @@ private fun BackupRows() {
         }
     }
     Row(Modifier.fillMaxWidth().clickable { save.launch("ProNotes-backup.zip") }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        ProIconView(ProIcon.SHARE, MaterialTheme.colorScheme.primary, Modifier.size(22.dp)); Spacer(Modifier.width(14.dp))
+        ProIconView(ProIcon.SHARE, ProButtonPalette.ElectricBlue, Modifier.size(22.dp)); Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text("Back up library")
             Text("Saves every notebook, folder and sticker to one file", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
-    HorizontalDivider(Modifier.padding(start = 54.dp))
+    HorizontalDivider(Modifier.padding(start = 54.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
     Row(Modifier.fillMaxWidth().clickable { open.launch(arrayOf("application/zip", "application/octet-stream")) }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        ProIconView(ProIcon.RESTORE, MaterialTheme.colorScheme.primary, Modifier.size(22.dp)); Spacer(Modifier.width(14.dp))
+        ProIconView(ProIcon.RESTORE, ProButtonPalette.Emerald, Modifier.size(22.dp)); Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text("Restore from backup")
             Text("Adds notebooks from a backup file; nothing is overwritten", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -636,7 +631,7 @@ private fun BackupRows() {
 private fun UpdateRow() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val u = com.pronotes.app.data.Updater
+    val u = Updater
     val pct = (u.progress * 100).toInt().coerceIn(0, 100)
     val speedStr = if (u.speedBytesPerSec > 0L) " · ${"%.1f".format(u.speedBytesPerSec / (1024f * 1024f))} MB/s" else ""
     val etaStr = u.etaSeconds?.let { sec -> if (sec > 0) " · ~${sec}s left" else "" }.orEmpty()
@@ -663,7 +658,7 @@ private fun UpdateRow() {
         }.padding(16.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            ProIconView(ProIcon.DOWNLOAD, MaterialTheme.colorScheme.primary, Modifier.size(22.dp))
+            ProIconView(ProIcon.DOWNLOAD, ProButtonPalette.ElectricBlue, Modifier.size(22.dp))
             Spacer(Modifier.size(16.dp))
             Column(Modifier.weight(1f)) {
                 Text(title)
@@ -683,7 +678,6 @@ private fun UpdateRow() {
     }
 }
 
-/** Saved pens with inline rename/alias + dedicated Setup Stylus modal (fixed off onTour!). */
 @Composable
 private fun PensSection(store: SettingsStore) {
     val pens by store.pens.collectAsStateWithLifecycle()
@@ -693,10 +687,10 @@ private fun PensSection(store: SettingsStore) {
     Section("Your pens") {
         if (pens.isEmpty()) Info("Tap 'Set up a pen' below or write with a stylus to register it.")
         pens.forEachIndexed { i, p ->
-            if (i > 0) HorizontalDivider()
+            if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
             Column(Modifier.padding(vertical = 4.dp)) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    ProIconView(ProIcon.PEN, MaterialTheme.colorScheme.primary, Modifier.size(22.dp))
+                    ProIconView(ProIcon.PEN, ProButtonPalette.ElectricBlue, Modifier.size(22.dp))
                     Spacer(Modifier.size(14.dp))
                     Column(Modifier.weight(1f)) {
                         Text(p.displayName(), fontWeight = FontWeight.SemiBold)
@@ -710,9 +704,9 @@ private fun PensSection(store: SettingsStore) {
                 Choice("Double-click button", p.doubleClick.label, PenAction.entries.map { it.label }) { k -> store.updatePen(p.copy(doubleClick = PenAction.entries[k])) }
             }
         }
-        HorizontalDivider()
+        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
         Row(Modifier.fillMaxWidth().clickable { showSetup = true }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            ProIconView(ProIcon.ADD, MaterialTheme.colorScheme.primary, Modifier.size(22.dp)); Spacer(Modifier.size(16.dp))
+            ProIconView(ProIcon.ADD, ProButtonPalette.ElectricBlue, Modifier.size(22.dp)); Spacer(Modifier.size(16.dp))
             Text("Set up a pen", Modifier.weight(1f))
         }
     }
@@ -720,26 +714,36 @@ private fun PensSection(store: SettingsStore) {
     if (showSetup) {
         var alias by remember { mutableStateOf("") }
         var brand by remember { mutableStateOf(PenBrands.manual.first()) }
-        GlassDialog(
+        AppDialog(
             onDismissRequest = { showSetup = false },
             title = { Text("Set up a pen") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(
-                        alias, { alias = it }, singleLine = true, shape = RoundedCornerShape(16.dp),
-                        label = { Text("Custom pen name") }, placeholder = { Text("e.g. Fine Lecture Stylus") }, modifier = Modifier.fillMaxWidth(),
+                        alias,
+                        { alias = it },
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp),
+                        label = { Text("Custom pen name") },
+                        placeholder = { Text("e.g. Fine Lecture Stylus") },
+                        modifier = Modifier.fillMaxWidth(),
                     )
-                    Choice("Stylus hardware", brand, PenBrands.manual) { idx -> brand = PenBrands.manual[idx] }
+                    AppChoiceRow("Stylus hardware", brand, PenBrands.manual, { idx -> brand = PenBrands.manual[idx] })
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    val label = alias.trim().ifBlank { brand }
-                    val id = "pen-${System.currentTimeMillis()}"
-                    store.registerPen(id, brand = brand, alias = label)
-                    store.update { it.copy(penName = label) }
-                    showSetup = false
-                }, shape = CircleShape) { Text("Save Pen") }
+                Button(
+                    onClick = {
+                        val label = alias.trim().ifBlank { brand }
+                        val id = "pen-${System.currentTimeMillis()}"
+                        store.registerPen(id, brand = brand, alias = label)
+                        store.update { it.copy(penName = label) }
+                        showSetup = false
+                    },
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
+                    modifier = Modifier.elasticStretch(),
+                ) { Text("Save Pen") }
             },
             dismissButton = { TextButton(onClick = { showSetup = false }) { Text("Cancel") } },
         )
@@ -747,19 +751,24 @@ private fun PensSection(store: SettingsStore) {
 
     renameTarget?.let { target ->
         var nextAlias by remember(target) { mutableStateOf(target.alias.ifBlank { target.displayName() }) }
-        GlassDialog(
+        AppDialog(
             onDismissRequest = { renameTarget = null },
             title = { Text("Rename pen") },
             text = {
                 OutlinedTextField(nextAlias, { nextAlias = it }, singleLine = true, shape = RoundedCornerShape(16.dp), label = { Text("Pen name") }, modifier = Modifier.fillMaxWidth())
             },
             confirmButton = {
-                Button(onClick = {
-                    val clean = nextAlias.trim()
-                    store.updatePen(target.copy(alias = clean))
-                    if (clean.isNotBlank()) store.update { it.copy(penName = clean) }
-                    renameTarget = null
-                }, shape = CircleShape) { Text("Save") }
+                Button(
+                    onClick = {
+                        val clean = nextAlias.trim()
+                        store.updatePen(target.copy(alias = clean))
+                        if (clean.isNotBlank()) store.update { it.copy(penName = clean) }
+                        renameTarget = null
+                    },
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
+                    modifier = Modifier.elasticStretch(),
+                ) { Text("Save") }
             },
             dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancel") } },
         )
@@ -780,18 +789,19 @@ private fun CloudAccountSection(s: AppSettings) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             val activeUser = cloudUser
             if (activeUser == null) {
-                Text("Sign in with Google to sync your notebooks, folders, and settings across devices and join Live Study Rooms.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "Sign in with Google to sync your notebooks, folders, and settings across devices and join Live Study Rooms.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = { runCatching { context.startActivity(CloudSync.buildGoogleAuthIntent()) } },
                         shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
                         modifier = Modifier.elasticStretch(),
                     ) { Text("Sign in with Google") }
-                    OutlinedButton(
-                        onClick = { pasteTokenOpen = true },
-                        shape = CircleShape,
-                    ) { Text("Paste ID Token") }
+                    OutlinedButton(onClick = { pasteTokenOpen = true }, shape = CircleShape) { Text("Paste ID Token") }
                 }
             } else {
                 Text(activeUser.displayName.ifBlank { activeUser.email }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -799,20 +809,21 @@ private fun CloudAccountSection(s: AppSettings) {
                     Text(activeUser.email, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (s.lastCloudSyncMs > 0L) {
-                    Text("Last synced ${java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(s.lastCloudSyncMs))}",
-                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "Last synced ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(s.lastCloudSyncMs))}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         enabled = !syncing,
                         onClick = { scope.launch { CloudSync.syncAll(context) } },
                         shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.Emerald, contentColor = Color.White),
                         modifier = Modifier.elasticStretch(),
                     ) { Text(if (syncing) "Syncing…" else "Sync Now") }
-                    OutlinedButton(
-                        onClick = { CloudSync.signOut(context) },
-                        shape = CircleShape,
-                    ) { Text("Sign Out") }
+                    OutlinedButton(onClick = { CloudSync.signOut(context) }, shape = CircleShape) { Text("Sign Out") }
                 }
             }
             if (status.isNotBlank()) {
@@ -822,7 +833,7 @@ private fun CloudAccountSection(s: AppSettings) {
     }
 
     if (pasteTokenOpen) {
-        GlassDialog(
+        AppDialog(
             onDismissRequest = { pasteTokenOpen = false },
             title = { Text("Sign in with Google ID Token") },
             text = {
@@ -844,10 +855,11 @@ private fun CloudAccountSection(s: AppSettings) {
                         scope.launch { CloudSync.signInWithGoogleIdToken(context, tok) }
                     },
                     shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
+                    modifier = Modifier.elasticStretch(),
                 ) { Text("Sign In") }
             },
             dismissButton = { TextButton(onClick = { pasteTokenOpen = false }) { Text("Cancel") } },
         )
     }
 }
-
