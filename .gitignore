@@ -17,4 +17,5 @@ firebase-applet-config.json
 .env.*
 !.env.example
 src-tauri/target/
-
+package.json
+package-lock.json
