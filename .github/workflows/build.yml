@@ -1,170 +1,99 @@
-name: Build and release Pro Notes (Android)
+name: Build APK
 
 on:
   push:
-    branches: [ main, master ]
-    tags: [ 'v*' ]
+    branches: [main]
+    tags: ["v*"]
   pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
-    inputs:
-      release_tag:
-        description: 'Optional tag to publish as a GitHub Release (e.g. v12.0.0). Leave empty for a build-only run.'
-        required: false
-        default: ''
 
 permissions:
   contents: write
 
 jobs:
-  # ============================================================================
-  # 1. Android APK Build
-  # ============================================================================
-  build-android:
-    name: Build Android APK
+  build:
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.apk.outputs.version }}
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: temurin
+          java-version: "17"
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.13'
+          gradle-version: "8.13"
 
-      - name: Decode signing keystore (if configured)
-        id: keystore
+      # Keep one signing key across builds so updates install over each other.
+      - name: Restore signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: pronotes-debug-keystore-v1
+
+      - name: Signing from secrets (optional)
         env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
         run: |
-          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
-            echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.keystore"
-            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
-            echo "signed=true" >> "$GITHUB_OUTPUT"
-            echo "Signing keystore loaded from repository secrets."
-          else
-            echo "signed=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Android signing secrets not configured — APK will be signed with the fallback key so it is installable."
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+            echo "SIGNING_KEYSTORE_PATH=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
           fi
+
+      # Every push to main is a release: version = newest CHANGELOG heading + build number (12.0.0.135),
+      # so the in-app updater always sees it as newer. Tagged pushes (v12.0.0) keep the tag as the version.
+      - name: Work out the version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            NAME="${GITHUB_REF_NAME#v}"
+          else
+            TOP=$(grep -m1 -oE '^## v[0-9]+(\.[0-9]+)*' CHANGELOG.md | sed 's/^## v//')
+            NAME="${TOP:-12.0.0}.${GITHUB_RUN_NUMBER}"
+          fi
+          echo "VERSION_NAME=$NAME" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v$NAME" >> "$GITHUB_ENV"
 
       - name: Build release APK
         env:
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          PRONOTES_UPI: ${{ vars.PRONOTES_UPI }}
-          PRONOTES_UPI_NAME: ${{ vars.PRONOTES_UPI_NAME }}
+          VERSION_CODE: ${{ github.run_number }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          # Kept out of the source tree: the support screen reads it at build time.
+          SUPPORT_UPI: ${{ secrets.SUPPORT_UPI }}
+          SUPPORT_UPI_NAME: Pro Notes
           CLOUD_PROJECT_ID: ${{ secrets.CLOUD_PROJECT_ID }}
           CLOUD_DB_ID: ${{ secrets.CLOUD_DB_ID }}
           CLOUD_API_KEY: ${{ secrets.CLOUD_API_KEY }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
         run: |
-          EXTRA=""
-          if [ -n "$PRONOTES_UPI" ]; then
-            EXTRA="$EXTRA -Ppronotes.upi=$PRONOTES_UPI"
-          fi
-          if [ -n "$PRONOTES_UPI_NAME" ]; then
-            EXTRA="$EXTRA -Ppronotes.upiName=$PRONOTES_UPI_NAME"
-          fi
-          gradle :app:assembleRelease --stacktrace $EXTRA
+          gradle assembleRelease --stacktrace
+          mkdir -p dist
+          cp app/build/outputs/apk/release/*.apk dist/ProNotes.apk
 
-      - name: Collect APK
-        id: apk
-        run: |
-          mkdir -p dist-android
-          APK_Signed=$(find app/build/outputs/apk/release -name "*-release.apk" | head -n 1)
-          APK_Unsigned=$(find app/build/outputs/apk/release -name "*-release-unsigned.apk" | head -n 1)
-          VERSION_NAME=$(grep -E 'versionName\s*=' app/build.gradle.kts | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
-          VERSION_NAME=${VERSION_NAME:-12.0.0}
-
-          if [ -n "$APK_Signed" ]; then
-            TARGET="dist-android/ProNotes-v${VERSION_NAME}.apk"
-            cp "$APK_Signed" "$TARGET"
-            cp "$APK_Signed" "dist-android/ProNotes.apk"
-          elif [ -n "$APK_Unsigned" ]; then
-            TARGET="dist-android/ProNotes-v${VERSION_NAME}-unsigned.apk"
-            cp "$APK_Unsigned" "$TARGET"
-            cp "$APK_Unsigned" "dist-android/ProNotes.apk"
-          else
-            echo "::error::No release APK found under app/build/outputs/apk/release"
-            ls -la app/build/outputs/apk/release || true
-            exit 1
-          fi
-
-          echo "apk_path=$TARGET" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION_NAME" >> "$GITHUB_OUTPUT"
-          ls -lh dist-android/
-
-      - name: Upload Android APK artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: pronotes-android
-          path: dist-android/*.apk
-          if-no-files-found: error
-          retention-days: 30
+          name: ProNotes-apk
+          path: dist/ProNotes.apk
 
-  # ============================================================================
-  # 2. Combined GitHub Release (Android APK)
-  # ============================================================================
-  release:
-    name: Publish GitHub Release
-    needs: [build-android]
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Download Android artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: pronotes-android
-          path: artifacts/pronotes-android
-
-      - name: Prepare release assets
-        id: prep
-        env:
-          INPUT_TAG: ${{ inputs.release_tag }}
-          REF_NAME: ${{ github.ref_name }}
-          REF_TYPE: ${{ github.ref_type }}
-          APP_VERSION: ${{ needs.build-android.outputs.version }}
+      - name: Release notes from CHANGELOG.md
+        if: github.event_name != 'pull_request'
         run: |
-          if [ -n "$INPUT_TAG" ]; then
-            TAG="$INPUT_TAG"
-          elif [ "$REF_TYPE" = "tag" ]; then
-            TAG="$REF_NAME"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            awk -v tag="## ${GITHUB_REF_NAME}" '$0==tag{f=1;next} /^## /{f=0} f' CHANGELOG.md > RELEASE_NOTES.md
           else
-            TAG="v${APP_VERSION:-12.0.0}"
+            awk '/^## /{n++; next} n==1' CHANGELOG.md > RELEASE_NOTES.md
           fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          mkdir -p publish-assets
-          cp artifacts/pronotes-android/*.apk publish-assets/
-          ls -lh publish-assets/
-
-          awk '/^## /{if (f) exit; f=1; next} f' CHANGELOG.md > release-notes.md || true
-          if [ ! -s release-notes.md ]; then
-            echo "Pro Notes $TAG release." > release-notes.md
-          fi
+          [ -s RELEASE_NOTES.md ] || echo "Improvements and fixes." > RELEASE_NOTES.md
 
       - name: Publish GitHub Release
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.prep.outputs.tag }}
-          name: Pro Notes ${{ steps.prep.outputs.tag }}
-          body_path: release-notes.md
-          generate_release_notes: true
-          files: |
-            publish-assets/*.apk
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          name: Pro Notes ${{ env.VERSION_NAME }}
+          make_latest: true
+          files: dist/ProNotes.apk
+          body_path: RELEASE_NOTES.md
