@@ -393,7 +393,12 @@ class PageRenderer(private val noteDir: File?) {
         return bmp
     }
 
-    fun drawPaper(canvas: Canvas, page: Page, pdf: Bitmap?, shadow: Boolean) {
+    private val pdfSkeletonPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val pdfSkeletonTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER
+    }
+
+    fun drawPaper(canvas: Canvas, page: Page, pdf: Bitmap?, shadow: Boolean, loaderPhase: Float = -1f) {
         val rect = RectF(0f, 0f, page.width, page.height)
         val bg = if (page.pdfPage >= 0) Color.WHITE else page.paperColor ?: paperColor
         currentBg = if (page.pdfPage >= 0 && darkPdf) Color.BLACK else bg
@@ -416,7 +421,10 @@ class PageRenderer(private val noteDir: File?) {
             canvas.drawBitmap(pdf, null, rect, if (darkPdf) invertPaint else bitmapPaint)
             return
         }
-        if (page.pdfPage >= 0) return
+        if (page.pdfPage >= 0) {
+            drawPdfLoaderPreview(canvas, page, loaderPhase)
+            return
+        }
         currentBg = bg
         val line = page.lineColor ?: if (isDark) 0xFF3A3F48.toInt() else 0xFFD5DEEA.toInt()
         /** Spacing multiplier chosen in the template sheet. */
@@ -765,10 +773,6 @@ class PageRenderer(private val noteDir: File?) {
             }
             val fromRoot = parent.parentId == null
             val baseW = if (fromRoot) 5.6f else 3.8f
-            // Soft outer glow under connector
-            mindLinkPaint.color = (child.color and 0x00FFFFFF) or (0x26 shl 24)
-            mindLinkPaint.strokeWidth = baseW + 5f
-            canvas.drawPath(mindPath, mindLinkPaint)
             // Crisp branch curve
             mindLinkPaint.color = (child.color and 0x00FFFFFF) or (0xD8 shl 24)
             mindLinkPaint.strokeWidth = baseW
@@ -1384,5 +1388,93 @@ class PageRenderer(private val noteDir: File?) {
         drawPaper(canvas, page, pdf, shadow = false)
         drawItems(canvas, page.items.map { if (it is TapeItem && it.revealed) it.copy(revealed = false) else it }, m)
         canvas.restore()
+    }
+
+    private fun drawPdfLoaderPreview(canvas: Canvas, page: Page, loaderPhase: Float) {
+        val w = page.width.coerceAtLeast(100f)
+        val h = page.height.coerceAtLeast(100f)
+        val bgColor = if (darkPdf) 0xFF1A1D24.toInt() else 0xFFF8F9FC.toInt()
+        val lineColor = if (darkPdf) 0xFF2B3140.toInt() else 0xFFE2E8F0.toInt()
+        val accentColor = if (darkPdf) 0xFF2D436B.toInt() else 0xFFD9E6FB.toInt()
+        val boxColor = if (darkPdf) 0xFF222733.toInt() else 0xFFEEF2F7.toInt()
+        val badgeBg = if (darkPdf) 0xFF242A36.toInt() else 0xFFFFFFFF.toInt()
+        val badgeBorder = if (darkPdf) 0xFF3E485C.toInt() else 0xFFCBD5E1.toInt()
+        val badgeText = if (darkPdf) 0xFFE2E8F0.toInt() else 0xFF334155.toInt()
+
+        pdfSkeletonPaint.shader = null
+        pdfSkeletonPaint.style = Paint.Style.FILL
+        pdfSkeletonPaint.color = bgColor
+        canvas.drawRect(0f, 0f, w, h, pdfSkeletonPaint)
+
+        val padX = w * 0.085f
+        val padY = h * 0.075f
+        val contentW = w - padX * 2f
+
+        // Header block
+        pdfSkeletonPaint.color = accentColor
+        canvas.drawRoundRect(RectF(padX, padY, padX + contentW * 0.44f, padY + h * 0.036f), 14f, 14f, pdfSkeletonPaint)
+
+        // Subheader bar
+        pdfSkeletonPaint.color = lineColor
+        canvas.drawRoundRect(RectF(padX, padY + h * 0.056f, padX + contentW * 0.72f, padY + h * 0.076f), 10f, 10f, pdfSkeletonPaint)
+
+        // Mock figure / diagram card
+        val diagramTop = padY + h * 0.115f
+        val diagramBot = diagramTop + h * 0.24f
+        pdfSkeletonPaint.color = boxColor
+        canvas.drawRoundRect(RectF(padX, diagramTop, w - padX, diagramBot), 20f, 20f, pdfSkeletonPaint)
+
+        // Paragraph skeleton bars
+        val lineRatios = floatArrayOf(0.94f, 0.88f, 0.96f, 0.74f, 0.91f, 0.62f, 0.86f, 0.54f)
+        var y = diagramBot + h * 0.048f
+        val lineH = h * 0.020f
+        val stepY = h * 0.042f
+        pdfSkeletonPaint.color = lineColor
+        for (ratio in lineRatios) {
+            if (y + lineH > h - padY) break
+            canvas.drawRoundRect(RectF(padX, y, padX + contentW * ratio, y + lineH), 10f, 10f, pdfSkeletonPaint)
+            y += stepY
+        }
+
+        // Animated diagonal shimmer highlight across the wireframe while loading
+        if (loaderPhase >= 0f) {
+            val sweepX = -w * 0.35f + (w * 1.7f) * (loaderPhase % 1f)
+            val sweepW = w * 0.34f
+            pdfSkeletonPaint.shader = android.graphics.LinearGradient(
+                sweepX,
+                0f,
+                sweepX + sweepW,
+                h * 0.28f,
+                intArrayOf(0x00FFFFFF, if (darkPdf) 0x22FFFFFF else 0x88FFFFFF.toInt(), 0x00FFFFFF),
+                floatArrayOf(0f, 0.5f, 1f),
+                android.graphics.Shader.TileMode.CLAMP,
+            )
+            canvas.drawRect(0f, 0f, w, h, pdfSkeletonPaint)
+            pdfSkeletonPaint.shader = null
+        }
+
+        // Centered status pill
+        val label = "Loading PDF · Page ${page.pdfPage + 1}"
+        pdfSkeletonTextPaint.textSize = (w * 0.024f).coerceIn(22f, 36f)
+        pdfSkeletonTextPaint.isFakeBoldText = true
+        val textW = pdfSkeletonTextPaint.measureText(label)
+        val pillW = textW + 64f
+        val pillH = pdfSkeletonTextPaint.textSize * 2.1f
+        val pillRect = RectF((w - pillW) / 2f, h * 0.50f - pillH / 2f, (w + pillW) / 2f, h * 0.50f + pillH / 2f)
+
+        pdfSkeletonPaint.style = Paint.Style.FILL
+        pdfSkeletonPaint.color = badgeBg
+        canvas.drawRoundRect(pillRect, pillH / 2f, pillH / 2f, pdfSkeletonPaint)
+
+        pdfSkeletonPaint.style = Paint.Style.STROKE
+        pdfSkeletonPaint.strokeWidth = 2.5f
+        pdfSkeletonPaint.color = badgeBorder
+        canvas.drawRoundRect(pillRect, pillH / 2f, pillH / 2f, pdfSkeletonPaint)
+        pdfSkeletonPaint.style = Paint.Style.FILL
+
+        pdfSkeletonTextPaint.color = badgeText
+        val fm = pdfSkeletonTextPaint.fontMetrics
+        val baseline = pillRect.centerY() - (fm.ascent + fm.descent) / 2f
+        canvas.drawText(label, pillRect.centerX(), baseline, pdfSkeletonTextPaint)
     }
 }

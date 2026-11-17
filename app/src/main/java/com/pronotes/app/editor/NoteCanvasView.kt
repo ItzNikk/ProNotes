@@ -2248,10 +2248,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             strokeJoin = Paint.Join.ROUND; strokeCap = Paint.Cap.ROUND
         }
         private val tapePreviewPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x993D6CF4.toInt() }
-        private val laserGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        private val laserCore = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
         }
-        private val laserCore = Paint(laserGlow)
         private val pullPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt() }
         private val pullText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = 14f * density; color = 0xFF5B6475.toInt(); textAlign = Paint.Align.CENTER
@@ -2295,9 +2294,6 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
         private var morph: List<Pt>? = null
         private var morphT = 0f
-        private val morphGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; color = 0xFF3D6CF4.toInt()
-        }
 
         private var puffs: List<RectF> = emptyList()
         private var puffT = 0f
@@ -2389,11 +2385,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             pts.forEachIndexed { i, (x, y) -> if (i == 0) tmpPath.moveTo(x, y) else tmpPath.lineTo(x, y) }
             tmpPath.close()
             val t = morphT
-            lassoFill.alpha = (0x14 + 40 * t).toInt().coerceAtMost(255)
+            lassoFill.alpha = (0x14 + 36 * t).toInt().coerceAtMost(255)
             canvas.drawPath(tmpPath, lassoFill)
-            morphGlow.alpha = ((1f - t) * 120).toInt()
-            morphGlow.strokeWidth = (4f + 10f * t) * density
-            canvas.drawPath(tmpPath, morphGlow)
             lassoPaint.pathEffect = DashPathEffect(floatArrayOf(9f * density * t + 0.1f, 4f * density * t + 0.1f), t * 40f)
             canvas.drawPath(tmpPath, lassoPaint)
             lassoFill.alpha = 0x14
@@ -2418,6 +2411,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             pageNumberPaint.color = if (Color.luminance(deskArgb()) < 0.4f) 0xFFB0B6C0.toInt() else 0xFF7B8391.toInt()
             val view = RectF(0f, 0f, width.toFloat(), height.toFloat())
             val active = host.activeHighlight()
+            val loaderPhase = ((SystemClock.uptimeMillis() % 1200L) / 1200f)
+            var anyPdfLoading = false
             pages.forEachIndexed { i, p ->
                 val sr = RectF(0f, 0f, p.width, p.height)
                 pageMatrix(i, m).mapRect(sr)
@@ -2430,8 +2425,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 canvas.save()
                 canvas.concat(m)
                 val pdf = if (p.pdfPage >= 0) host.pdfBitmap(p, (p.width * scale).toInt()) { postInvalidate() } else null
+                if (p.pdfPage >= 0 && pdf == null) anyPdfLoading = true
                 if (!p.isWhiteboard) {
-                    r.drawPaper(canvas, p, pdf, shadow = true)
+                    r.drawPaper(canvas, p, pdf, shadow = true, loaderPhase = loaderPhase)
                     host.pdfDetail(i)?.let { d -> r.drawPdfDetail(canvas, d.bmp, d.region) }
                 }
                 val hl = host.highlights(i)
@@ -2479,6 +2475,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 canvas.drawCircle(x, y, r + 1.5f * density, hoverRing)
             }
             if (flashAlpha > 0f) canvas.drawColor(Color.argb((flashAlpha * 40).toInt(), 61, 108, 244))
+            if (anyPdfLoading) postInvalidateDelayed(33L)
         }
 
         private fun drawPull(canvas: Canvas) {
@@ -2651,11 +2648,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                     pt[0] = x; pt[1] = y; viewMatrix.mapPoints(pt)
                     if (i == 0) tmpPath.moveTo(pt[0], pt[1]) else tmpPath.lineTo(pt[0], pt[1])
                 }
-                laserGlow.color = Color.argb((life * 80).toInt(), 255, 59, 48)
-                laserGlow.strokeWidth = 12f * density
-                canvas.drawPath(tmpPath, laserGlow)
-                laserCore.color = Color.argb((life * 255).toInt(), 255, 80, 70)
-                laserCore.strokeWidth = 3.5f * density
+                laserCore.color = Color.argb((life * 255).toInt(), 255, 59, 48)
+                laserCore.strokeWidth = 3.8f * density
                 canvas.drawPath(tmpPath, laserCore)
             }
             if (lasers.isNotEmpty()) postInvalidateOnAnimation()

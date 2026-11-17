@@ -14,7 +14,7 @@ HSPLcom/pronotes/app/editor/PageRenderer**->**(**)**
 HSPLcom/pronotes/app/editor/InkCodec**->**(**)**
 HSPLcom/pronotes/app/editor/InkCanvasRenderer**->**(**)**
 HSPLcom/pronotes/app/settings/SettingsScreenKt;->**(**)**
-HSPLcom/pronotes/app/onboarding/WelcomeScreenKt;->**(**)**
+HSPLcom/pronotes/app/reader/BookReaderAreaKt;->**(**)**
 HSPLandroidx/ink/**->**(**)**
 Lcom/pronotes/app/MainActivity;
 Lcom/pronotes/app/ProNotesApplication;

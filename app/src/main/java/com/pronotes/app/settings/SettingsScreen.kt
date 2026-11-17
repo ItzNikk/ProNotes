@@ -102,14 +102,12 @@ import com.pronotes.app.ui.AppSliderRow
 import com.pronotes.app.ui.AppSurface
 import com.pronotes.app.ui.AppToggle
 import com.pronotes.app.ui.GradientTitle
-import com.pronotes.app.ui.MovingColorfulGradientBackground
 import com.pronotes.app.ui.ProButtonPalette
 import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.ProIconView
 import com.pronotes.app.ui.SurfaceRole
 import com.pronotes.app.ui.appCardShape
 import com.pronotes.app.ui.appPillShape
-import com.pronotes.app.ui.elasticStretch
 import com.pronotes.app.ui.iconFor
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
@@ -128,7 +126,7 @@ private enum class Category(val label: String, val sub: String, val icon: ProIco
 }
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onTour: () -> Unit = {}, onSupport: () -> Unit = {}) {
+fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
     val context = LocalContext.current
     val store = remember { SettingsStore.get(context) }
     val s by store.settings.collectAsStateWithLifecycle()
@@ -138,7 +136,6 @@ fun SettingsScreen(onBack: () -> Unit, onTour: () -> Unit = {}, onSupport: () ->
     BackHandler(enabled = !wide && selected != null) { selected = null }
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        MovingColorfulGradientBackground(Modifier.fillMaxSize(), intensity = 0.24f)
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
@@ -164,11 +161,11 @@ fun SettingsScreen(onBack: () -> Unit, onTour: () -> Unit = {}, onSupport: () ->
                         transitionSpec = { (fadeIn() + slideInHorizontally { it / 12 }) togetherWith fadeOut() },
                         label = "detail",
                         modifier = Modifier.weight(1f),
-                    ) { c -> Detail(c, s, store, onTour, onSupport) }
+                    ) { c -> Detail(c, s, store, onSupport) }
                 }
             } else {
                 AnimatedContent(targetState = selected, label = "phone") { c ->
-                    if (c == null) CategoryList(null, Modifier.fillMaxSize()) { selected = it } else Detail(c, s, store, onTour, onSupport)
+                    if (c == null) CategoryList(null, Modifier.fillMaxSize()) { selected = it } else Detail(c, s, store, onSupport)
                 }
             }
         }
@@ -221,7 +218,7 @@ private fun CategoryList(selected: Category?, modifier: Modifier, onPick: (Categ
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: () -> Unit, onSupport: () -> Unit) {
+private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport: () -> Unit) {
     val context = LocalContext.current
     fun up(block: (AppSettings) -> AppSettings) = store.update(block)
     LazyColumn(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, contentPadding = PaddingValues(bottom = 48.dp)) {
@@ -330,7 +327,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                     }
                     Section("Tools in the toolbar") {
                         ToolbarEditor(s.toolbarTools) { spec -> up { it.copy(toolbarTools = spec) } }
-                        Info("Long-press & drag icons inside the editor toolbar with elastic feel, or reorder above.")
+                        Info("Drag the toolbar handle inside the editor to reposition it anywhere, or reorder tools above.")
                     }
                     Section("Tabs & Study Timer") {
                         Toggle("Notebook tabs", "Keep several notebooks open and switch between them", s.showTabs) { v -> up { it.copy(showTabs = v) } }
@@ -374,7 +371,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                     }
                     Section("Motion & Animations") {
                         Segmented(MotionStyle.entries.map { it.label }, s.motionStyle.ordinal) { i -> up { it.copy(motionStyle = MotionStyle.entries[i]) } }
-                        Info("Ultra Spring enables elastic touch stretch, Kindle 3D page turns, and moving letter headings.")
+                        Info("Ultra Spring enables smooth spring transitions, real page-turn physics in the Book Reader, and animated headings.")
                     }
                     Section("Performance") {
                         Text("PERFORMANCE MODE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 16.dp, top = 10.dp))
@@ -410,16 +407,6 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                             DeskColor.entries.forEach { d -> Swatchy(Color(d.argb), d.label, s.deskColor == d) { up { it.copy(deskColor = d) } } }
                         }
                     }
-                    Section("Setup & Preview") {
-                        Row(Modifier.fillMaxWidth().clickable(onClick = onTour).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            ProIconView(ProIcon.STAR, ProButtonPalette.ElectricBlue, Modifier.size(22.dp))
-                            Spacer(Modifier.size(16.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text("Open Setup & Preview Tour")
-                                Text("Animated feature cards, theme studio, and stylus calibration", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                    }
                 }
                 Category.LIBRARY -> {
                     CloudAccountSection(s)
@@ -429,13 +416,8 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onTour: ()
                     Section("Backup") { BackupRows() }
                 }
                 Category.ABOUT -> {
-                    Section("Get started") {
-                        Row(Modifier.fillMaxWidth().clickable(onClick = onTour).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            ProIconView(ProIcon.STAR, ProButtonPalette.ElectricBlue, Modifier.size(22.dp)); Spacer(Modifier.size(16.dp))
-                            Text("Open Setup & Preview Tour", Modifier.weight(1f))
-                        }
-                        if (Support.enabled) {
-                            HorizontalDivider(Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                    if (Support.enabled) {
+                        Section("Support") {
                             Row(Modifier.fillMaxWidth().clickable(onClick = onSupport).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                                 ProIconView(ProIcon.HEART, ProButtonPalette.MagentaPink, Modifier.size(22.dp), ink = ProButtonPalette.MagentaPink); Spacer(Modifier.size(16.dp))
                                 Text("Support Pro Notes", Modifier.weight(1f))
@@ -742,7 +724,6 @@ private fun PensSection(store: SettingsStore) {
                     },
                     shape = CircleShape,
                     colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
-                    modifier = Modifier.elasticStretch(),
                 ) { Text("Save Pen") }
             },
             dismissButton = { TextButton(onClick = { showSetup = false }) { Text("Cancel") } },
@@ -767,7 +748,6 @@ private fun PensSection(store: SettingsStore) {
                     },
                     shape = CircleShape,
                     colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
-                    modifier = Modifier.elasticStretch(),
                 ) { Text("Save") }
             },
             dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancel") } },
@@ -799,7 +779,6 @@ private fun CloudAccountSection(s: AppSettings) {
                         onClick = { runCatching { context.startActivity(CloudSync.buildGoogleAuthIntent()) } },
                         shape = CircleShape,
                         colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
-                        modifier = Modifier.elasticStretch(),
                     ) { Text("Sign in with Google") }
                     OutlinedButton(onClick = { pasteTokenOpen = true }, shape = CircleShape) { Text("Paste ID Token") }
                 }
@@ -821,7 +800,6 @@ private fun CloudAccountSection(s: AppSettings) {
                         onClick = { scope.launch { CloudSync.syncAll(context) } },
                         shape = CircleShape,
                         colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.Emerald, contentColor = Color.White),
-                        modifier = Modifier.elasticStretch(),
                     ) { Text(if (syncing) "Syncing…" else "Sync Now") }
                     OutlinedButton(onClick = { CloudSync.signOut(context) }, shape = CircleShape) { Text("Sign Out") }
                 }
@@ -856,7 +834,6 @@ private fun CloudAccountSection(s: AppSettings) {
                     },
                     shape = CircleShape,
                     colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
-                    modifier = Modifier.elasticStretch(),
                 ) { Text("Sign In") }
             },
             dismissButton = { TextButton(onClick = { pasteTokenOpen = false }) { Text("Cancel") } },

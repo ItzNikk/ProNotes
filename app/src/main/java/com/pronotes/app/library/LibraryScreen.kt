@@ -7,9 +7,12 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -25,7 +28,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,7 +50,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -58,6 +59,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.automirrored.outlined.ViewList
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -90,6 +92,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -105,7 +108,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -150,18 +152,14 @@ import com.pronotes.app.ui.AppSurface
 import com.pronotes.app.ui.AppTabItem
 import com.pronotes.app.ui.AppToggle
 import com.pronotes.app.ui.ColorEditorDialog
-import com.pronotes.app.ui.FannedColorfulCardsDeck
-import com.pronotes.app.ui.MovingColorfulGradientBackground
 import com.pronotes.app.ui.ProButtonPalette
 import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.ProIconView
-import com.pronotes.app.ui.ScaleInAnimatedText
 import com.pronotes.app.ui.SurfaceRole
 import com.pronotes.app.ui.Swatch
 import com.pronotes.app.ui.appCardShape
 import com.pronotes.app.ui.appContentBottomPadding
 import com.pronotes.app.ui.appPillShape
-import com.pronotes.app.ui.elasticStretch
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.delay
@@ -204,7 +202,7 @@ fun LibraryScreen(
     pendingImport: PendingImport?,
     onImportConsumed: () -> Unit,
     onSupport: () -> Unit = {},
-    onOpenPreview: () -> Unit = {},
+    onOpenBookReader: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val repo = remember { Repository.get(context) }
@@ -249,16 +247,31 @@ fun LibraryScreen(
         }
     }
     var emptyTrash by remember { mutableStateOf(false) }
+    var pdfImportProgress by remember { mutableStateOf<Triple<String, Int, Int>?>(null) }
 
     val importFilesLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        if (uris.isNotEmpty()) scope.launch { repo.importFiles(uris, folderId)?.let(onOpen) }
+        if (uris.isNotEmpty()) scope.launch {
+            try {
+                repo.importFiles(uris, folderId) { title, page, total ->
+                    pdfImportProgress = Triple(title, page, total)
+                }?.let(onOpen)
+            } finally {
+                pdfImportProgress = null
+            }
+        }
     }
     if (pendingImport != null) {
         LaunchedEffect(pendingImport) {
-            val id = when {
-                pendingImport.uris.isNotEmpty() -> repo.importFiles(pendingImport.uris, null)
-                !pendingImport.text.isNullOrBlank() -> repo.importStructuredText(pendingImport.title ?: "", pendingImport.text, null)
-                else -> null
+            val id = try {
+                when {
+                    pendingImport.uris.isNotEmpty() -> repo.importFiles(pendingImport.uris, null) { title, page, total ->
+                        pdfImportProgress = Triple(title, page, total)
+                    }
+                    !pendingImport.text.isNullOrBlank() -> repo.importStructuredText(pendingImport.title ?: "", pendingImport.text, null)
+                    else -> null
+                }
+            } finally {
+                pdfImportProgress = null
             }
             onImportConsumed()
             if (id != null) onOpen(id)
@@ -333,7 +346,7 @@ fun LibraryScreen(
                         onSettings = onSettings,
                         onSupport = onSupport,
                         onOpenCollab = { collabOpen = true },
-                        onOpenPreview = onOpenPreview,
+                        onOpenBookReader = onOpenBookReader,
                         onDropTo = { s, payload ->
                             when (s) {
                                 Section.DOCUMENTS -> dropInto(payload, null)
@@ -423,6 +436,17 @@ fun LibraryScreen(
                         UpdatePill()
 
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            AppPill(
+                                tint = ProButtonPalette.VibrantOrange,
+                                onClick = onOpenBookReader,
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp),
+                            ) {
+                                Icon(Icons.AutoMirrored.Outlined.MenuBook, "Book Reader", Modifier.size(17.dp))
+                                if (wide) {
+                                    Spacer(Modifier.width(5.dp))
+                                    Text("Book Reader", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
                             AppPill(
                                 tint = ProButtonPalette.SkyCyan,
                                 onClick = { collabOpen = true },
@@ -655,23 +679,10 @@ fun LibraryScreen(
                     )
 
                     val listBottomPad = appContentBottomPadding()
-                    val showHero = section == Section.DOCUMENTS && folderId == null && query.isBlank()
 
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         if (entries.isEmpty()) {
-                            Column(Modifier.fillMaxSize()) {
-                                if (showHero) {
-                                    LibraryHeroBanner(
-                                        onNewNotebook = { newNotebook = true },
-                                        onQuickImport = {
-                                            importFilesLauncher.launch(arrayOf("application/pdf", "text/*", "image/*"))
-                                        },
-                                        onOpenPreview = onOpenPreview,
-                                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
-                                    )
-                                }
-                                EmptyState(section, onNew = { newNotebook = true })
-                            }
+                            EmptyState(section, onNew = { newNotebook = true })
                         } else {
                             AnimatedContent(
                                 targetState = Triple(section, folderId, listView),
@@ -683,18 +694,6 @@ fun LibraryScreen(
                                         Modifier.fillMaxSize(),
                                         contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 12.dp, bottom = listBottomPad),
                                     ) {
-                                        if (showHero) {
-                                            item(key = "hero-list") {
-                                                LibraryHeroBanner(
-                                                    onNewNotebook = { newNotebook = true },
-                                                    onQuickImport = {
-                                                        importFilesLauncher.launch(arrayOf("application/pdf", "text/*", "image/*"))
-                                                    },
-                                                    onOpenPreview = onOpenPreview,
-                                                    modifier = Modifier.padding(bottom = 14.dp),
-                                                )
-                                            }
-                                        }
                                         items(entries, key = { keyOf(it) }) { e ->
                                             Box(Modifier.animateItem()) { ListRow(e, repo, actions) }
                                         }
@@ -707,17 +706,6 @@ fun LibraryScreen(
                                         horizontalArrangement = Arrangement.spacedBy(24.dp),
                                         verticalArrangement = Arrangement.spacedBy(24.dp),
                                     ) {
-                                        if (showHero) {
-                                            item(key = "hero-grid", span = { GridItemSpan(maxLineSpan) }) {
-                                                LibraryHeroBanner(
-                                                    onNewNotebook = { newNotebook = true },
-                                                    onQuickImport = {
-                                                        importFilesLauncher.launch(arrayOf("application/pdf", "text/*", "image/*"))
-                                                    },
-                                                    onOpenPreview = onOpenPreview,
-                                                )
-                                            }
-                                        }
                                         items(entries, key = { keyOf(it) }) { e ->
                                             Box(Modifier.animateItem()) {
                                                 when (e) {
@@ -738,24 +726,29 @@ fun LibraryScreen(
                 AppBottomBar(
                     tabs = listOf(
                         AppTabItem("Library") { Icon(Icons.Outlined.Description, null, Modifier.size(18.dp)) },
+                        AppTabItem("Books") { Icon(Icons.AutoMirrored.Outlined.MenuBook, null, Modifier.size(18.dp)) },
                         AppTabItem("Recent") { Icon(Icons.Outlined.AccessTime, null, Modifier.size(18.dp)) },
                         AppTabItem("Favorites") { Icon(Icons.Outlined.StarBorder, null, Modifier.size(18.dp)) },
                         AppTabItem("Trash") { Icon(Icons.Outlined.Delete, null, Modifier.size(18.dp)) },
                     ),
                     selectedIndex = when (section) {
                         Section.DOCUMENTS -> 0
-                        Section.RECENT -> 1
-                        Section.FAVORITES -> 2
-                        Section.TRASH -> 3
+                        Section.RECENT -> 2
+                        Section.FAVORITES -> 3
+                        Section.TRASH -> 4
                     },
                     onSelect = { idx ->
-                        section = when (idx) {
-                            0 -> Section.DOCUMENTS
-                            1 -> Section.RECENT
-                            2 -> Section.FAVORITES
-                            else -> Section.TRASH
+                        if (idx == 1) {
+                            onOpenBookReader()
+                        } else {
+                            section = when (idx) {
+                                0 -> Section.DOCUMENTS
+                                2 -> Section.RECENT
+                                3 -> Section.FAVORITES
+                                else -> Section.TRASH
+                            }
+                            folderId = null
                         }
-                        folderId = null
                     },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
@@ -772,8 +765,7 @@ fun LibraryScreen(
                     modifier = Modifier
                         .offset {
                             IntOffset((drag.position.x - 70.dp.toPx()).toInt(), (drag.position.y - 80.dp.toPx()).toInt())
-                        }
-                        .scale(if (drag.overTarget) 1.12f else 1f),
+                        },
                 ) {
                     Text(
                         drag.label.ifBlank { if (p.startsWith("folder")) "Folder" else "Notebook" },
@@ -784,6 +776,15 @@ fun LibraryScreen(
                         color = Color.White,
                     )
                 }
+            }
+
+            pdfImportProgress?.let { (pdfTitle, page, total) ->
+                PdfImportLoaderOverlay(
+                    title = pdfTitle,
+                    page = page,
+                    total = total,
+                    modifier = Modifier.align(Alignment.Center),
+                )
             }
 
             if (supportCard) {
@@ -994,84 +995,113 @@ fun LibraryScreen(
 }
 
 /**
- * Main screen showcase card featuring the fanned colorful card stack in front of a
- * slowly moving colorful gradient plus colorful quick action pills.
+ * Animated PDF skeleton loader card displayed while importing a PDF document.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun LibraryHeroBanner(
-    onNewNotebook: () -> Unit,
-    onQuickImport: () -> Unit,
-    onOpenPreview: () -> Unit,
+fun PdfImportLoaderOverlay(
+    title: String,
+    page: Int,
+    total: Int,
     modifier: Modifier = Modifier,
 ) {
-    AppSurface(
-        role = SurfaceRole.Frost,
-        shape = appCardShape(4f),
-        contentPadding = PaddingValues(0.dp),
-        shadowElevation = 6.dp,
-        modifier = modifier.fillMaxWidth(),
+    val shimmer by rememberInfiniteTransition(label = "pdfImportShimmer").animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1150, easing = LinearEasing), RepeatMode.Restart),
+        label = "sweep",
+    )
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.45f)),
+        contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.fillMaxWidth()) {
-            MovingColorfulGradientBackground(Modifier.matchParentSize(), intensity = 0.85f)
+        AppCard(
+            hero = true,
+            shape = appCardShape(4f),
+            contentPadding = PaddingValues(20.dp),
+            modifier = modifier.padding(24.dp).widthIn(min = 260.dp, max = 380.dp).fillMaxWidth(),
+        ) {
             Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 18.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.fillMaxWidth(),
             ) {
+                PdfSkeletonPreviewBox(
+                    shimmer = shimmer,
+                    modifier = Modifier.size(width = 72.dp, height = 98.dp),
+                )
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ScaleInAnimatedText(
-                        text = "Your Study Desk",
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        staggerMs = 24L,
+                    Text(
+                        "Loading PDF",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ProButtonPalette.ElectricBlue,
+                        fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        "Tap the card stack to cycle workflows: low-latency stylus ink, 3D Kindle Book Mode, Flashcards, and SlideShow.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
+                        title.ifBlank { "Document" },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        AppPill(
-                            selected = true,
-                            tint = ProButtonPalette.ElectricBlue,
-                            onClick = onNewNotebook,
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                        ) {
-                            Text("+ New Notebook", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                        }
-                        AppPill(
-                            selected = true,
-                            tint = ProButtonPalette.VibrantOrange,
-                            onClick = onQuickImport,
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                        ) {
-                            Text("Import PDF / Notes", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                        }
-                        AppPill(
-                            selected = true,
-                            tint = ProButtonPalette.MagentaPink,
-                            onClick = onOpenPreview,
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                        ) {
-                            Text("Preview Tour", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                        }
+                    Text(
+                        if (total > 0) "Indexing page $page of $total" else "Preparing PDF pages…",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (total > 0) {
+                        LinearProgressIndicator(
+                            progress = { (page.toFloat() / total.toFloat()).coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth().height(5.dp).clip(CircleShape),
+                            color = ProButtonPalette.ElectricBlue,
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().height(5.dp).clip(CircleShape),
+                            color = ProButtonPalette.ElectricBlue,
+                        )
                     }
                 }
-                FannedColorfulCardsDeck(
-                    autoCycle = false,
-                    showLabels = true,
-                    compact = true,
-                )
             }
         }
+    }
+}
+
+@Composable
+fun PdfSkeletonPreviewBox(
+    shimmer: Float,
+    modifier: Modifier = Modifier,
+) {
+    val surface = MaterialTheme.colorScheme.surfaceVariant
+    val lineColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f)
+    val accentLine = ProButtonPalette.ElectricBlue.copy(alpha = 0.24f)
+    Canvas(
+        modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(surface)
+            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(10.dp)),
+    ) {
+        val w = size.width
+        val h = size.height
+        val pad = w * 0.13f
+        // Header block
+        drawRoundRect(accentLine, Offset(pad, pad), Size(w * 0.56f, h * 0.09f), CornerRadius(4f))
+        // Mock diagram block
+        drawRoundRect(lineColor.copy(alpha = 0.10f), Offset(pad, h * 0.26f), Size(w - pad * 2f, h * 0.24f), CornerRadius(6f))
+        // Text skeleton lines
+        val lineRatios = listOf(0.84f, 0.92f, 0.72f, 0.88f, 0.55f)
+        lineRatios.forEachIndexed { idx, ratio ->
+            val y = h * (0.58f + idx * 0.075f)
+            drawRoundRect(lineColor, Offset(pad, y), Size((w - pad * 2f) * ratio, h * 0.036f), CornerRadius(3f))
+        }
+        // Subtle sweep bar
+        val sweepX = -w * 0.3f + (w * 1.6f) * shimmer
+        drawRect(
+            color = Color.White.copy(alpha = 0.22f),
+            topLeft = Offset(sweepX, 0f),
+            size = Size(w * 0.26f, h),
+        )
     }
 }
 
@@ -1101,7 +1131,7 @@ private fun Sidebar(
     onSettings: () -> Unit,
     onSupport: () -> Unit,
     onOpenCollab: () -> Unit,
-    onOpenPreview: () -> Unit,
+    onOpenBookReader: () -> Unit,
     onDropTo: (Section, String) -> Boolean,
 ) {
     val context = LocalContext.current
@@ -1123,7 +1153,7 @@ private fun Sidebar(
         Column(Modifier.statusBarsPadding().padding(horizontal = 14.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = onCollapse, modifier = Modifier.elasticStretch()) {
+                IconButton(onClick = onCollapse) {
                     Icon(Icons.Outlined.ChevronLeft, "Hide sidebar")
                 }
             }
@@ -1152,7 +1182,6 @@ private fun Sidebar(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .elasticStretch()
                         .clip(RoundedCornerShape(12.dp))
                         .libraryDropTarget(onHover = { hot = it }) { payload -> onDropTo(s, payload) }
                         .background(
@@ -1240,7 +1269,18 @@ private fun Sidebar(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .elasticStretch()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable(onClick = onOpenBookReader)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.AutoMirrored.Outlined.MenuBook, null, tint = ProButtonPalette.VibrantOrange)
+                Spacer(Modifier.width(12.dp))
+                Text("Book Reader", color = MaterialTheme.colorScheme.onSurface)
+            }
+            Row(
+                Modifier
+                    .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
                     .clickable(onClick = onOpenCollab)
                     .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -1250,25 +1290,11 @@ private fun Sidebar(
                 Spacer(Modifier.width(12.dp))
                 Text("Live Study Room", color = MaterialTheme.colorScheme.onSurface)
             }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .elasticStretch()
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable(onClick = onOpenPreview)
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ProIconView(ProIcon.STAR, ProButtonPalette.VibrantOrange, Modifier.size(20.dp))
-                Spacer(Modifier.width(12.dp))
-                Text("Preview & Setup Tour", color = MaterialTheme.colorScheme.onSurface)
-            }
             Spacer(Modifier.weight(1f))
             if (Support.enabled) {
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .elasticStretch()
                         .clip(RoundedCornerShape(12.dp))
                         .clickable(onClick = onSupport)
                         .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -1282,7 +1308,6 @@ private fun Sidebar(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .elasticStretch()
                     .clip(RoundedCornerShape(12.dp))
                     .clickable(onClick = onSettings)
                     .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -1318,7 +1343,6 @@ private fun EmptyState(section: Section, onNew: () -> Unit) {
                 onClick = onNew,
                 shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
-                modifier = Modifier.elasticStretch(),
             ) {
                 Icon(Icons.Filled.Add, null)
                 Spacer(Modifier.width(6.dp))
@@ -1326,13 +1350,6 @@ private fun EmptyState(section: Section, onNew: () -> Unit) {
             }
         }
     }
-}
-
-@Composable
-private fun pressScale(source: MutableInteractionSource): Float {
-    val pressed by source.collectIsPressedAsState()
-    val s by animateFloatAsState(if (pressed) 0.95f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "press")
-    return s
 }
 
 @Composable
@@ -1394,14 +1411,17 @@ private fun noteMenuItems(note: NotebookMeta, a: TileActions): List<AppMenuItem>
 private fun FolderTile(e: Entry.F, a: TileActions) {
     val src = remember { MutableInteractionSource() }
     var dropHover by remember { mutableStateOf(false) }
-    val grow by animateFloatAsState(if (dropHover) 1.08f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "drop")
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.elasticStretch().scale(pressScale(src) * grow)) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.75f)
                 .libraryDragSource("folder:${e.folder.id}", e.folder.name)
                 .libraryDropTarget(onHover = { dropHover = it }) { payload -> a.onDrop(payload, e.folder.id) }
+                .then(
+                    if (dropHover) Modifier.border(2.dp, ProButtonPalette.ElectricBlue, RoundedCornerShape(14.dp))
+                    else Modifier,
+                )
                 .combinedClickable(interactionSource = src, indication = null, onClick = { a.onOpenFolder(e.folder) }),
             contentAlignment = Alignment.BottomCenter,
         ) {
@@ -1416,7 +1436,7 @@ private fun FolderTile(e: Entry.F, a: TileActions) {
 private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
     var trashPrompt by remember { mutableStateOf(false) }
     val src = remember { MutableInteractionSource() }
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.elasticStretch().scale(pressScale(src))) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             Modifier
                 .fillMaxWidth()

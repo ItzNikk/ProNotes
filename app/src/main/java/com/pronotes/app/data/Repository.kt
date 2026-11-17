@@ -180,14 +180,22 @@ class Repository private constructor(private val context: Context) {
         true
     }
 
-    suspend fun importPdf(uri: Uri, folderId: String?): String = withContext(Dispatchers.IO) {
+    suspend fun importPdf(
+        uri: Uri,
+        folderId: String?,
+        onProgress: ((title: String, page: Int, total: Int) -> Unit)? = null,
+    ): String = withContext(Dispatchers.IO) {
         val id = UUID.randomUUID().toString()
         val target = pdfFile(id)
+        val title = displayName(uri)?.removeSuffix(".pdf")?.removeSuffix(".PDF") ?: "Imported PDF"
+        onProgress?.invoke(title, 0, 0)
         context.contentResolver.openInputStream(uri)!!.use { input ->
             AtomicFiles.writeBytesAtomic(target) { out -> input.copyTo(out) }
         }
         val pages = ArrayList<PageDoc>()
         PdfRenderer(ParcelFileDescriptor.open(target, ParcelFileDescriptor.MODE_READ_ONLY)).use { r ->
+            val total = r.pageCount.coerceAtLeast(1)
+            onProgress?.invoke(title, 0, total)
             for (i in 0 until r.pageCount) {
                 r.openPage(i).use { p ->
                     // Scale so the shorter side is about one notebook page wide (landscape slides and
@@ -195,26 +203,33 @@ class Repository private constructor(private val context: Context) {
                     val k = (PageSize.WIDTH / minOf(p.width, p.height).toFloat()).coerceIn(1f, 4f)
                     pages += PageDoc(UUID.randomUUID().toString(), p.width * k, p.height * k, PaperStyle.BLANK, pdfPage = i)
                 }
+                if ((i + 1) % 2 == 0 || i == r.pageCount - 1) {
+                    onProgress?.invoke(title, i + 1, total)
+                }
             }
         }
         writePageDocsIncremental(id, pages, dirtyIds = null, structureChanged = true, writeFullSnapshot = true)
-        val title = displayName(uri)?.removeSuffix(".pdf")?.removeSuffix(".PDF") ?: "Imported PDF"
         val now = System.currentTimeMillis()
         updateIndex {
             it.copy(notebooks = it.notebooks + NotebookMeta(id, title, folderId, CoverColors[0], PaperStyle.BLANK, now, now, pages.size, fromPdf = true))
         }
+        onProgress?.invoke(title, pages.size, pages.size)
         runCatching { writeThumbnail(id, pages.map { InkCodec.fromDoc(it) }) }
         id
     }
 
     /** Imports PDFs, images, Markdown/TXT/HTML/CSV files, or JSON note exports into a new notebook. */
-    suspend fun importFiles(uris: List<Uri>, folderId: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun importFiles(
+        uris: List<Uri>,
+        folderId: String?,
+        onProgress: ((title: String, page: Int, total: Int) -> Unit)? = null,
+    ): String? = withContext(Dispatchers.IO) {
         if (uris.isEmpty()) return@withContext null
         val first = uris.first()
         val firstName = displayName(first) ?: "Imported Note"
         val firstMime = context.contentResolver.getType(first)?.lowercase().orEmpty()
         if (uris.size == 1 && (firstMime == "application/pdf" || firstName.endsWith(".pdf", true))) {
-            return@withContext importPdf(first, folderId)
+            return@withContext importPdf(first, folderId, onProgress)
         }
         val id = UUID.randomUUID().toString()
         val pageDocs = ArrayList<PageDoc>()
@@ -255,7 +270,7 @@ class Repository private constructor(private val context: Context) {
                 val mime = context.contentResolver.getType(u)?.lowercase().orEmpty()
                 when {
                     mime == "application/pdf" || name.endsWith(".pdf", true) -> {
-                        val subId = importPdf(u, folderId)
+                        val subId = importPdf(u, folderId, onProgress)
                         if (uris.size == 1) return@withContext subId
                         val subPages = runCatching { json.decodeFromString(NoteDoc.serializer(), File(noteDir(subId), "note.json").readText()).pages }.getOrDefault(emptyList())
                         if (subPages.isNotEmpty()) return@withContext subId

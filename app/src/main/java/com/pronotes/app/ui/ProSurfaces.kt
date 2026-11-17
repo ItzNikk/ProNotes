@@ -1,25 +1,10 @@
 package com.pronotes.app.ui
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -97,12 +82,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
-import com.pronotes.app.data.MotionStyle
 import kotlinx.coroutines.delay
-import kotlin.math.PI
-import kotlin.math.cos
-import kotlin.math.min
-import kotlin.math.sin
 
 /**
  * Clean Material 3 surface roles used across Pro Notes (borderless/hairline tonal architecture).
@@ -185,9 +165,7 @@ fun AppSurface(
     val stroke = borderColor?.let { BorderStroke(0.75.dp, it) }
 
     val clickModifier = if (onClick != null) {
-        Modifier
-            .elasticStretch(enabled = enabled, pressScale = 0.97f)
-            .clickable(enabled = enabled, onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
+        Modifier.clickable(enabled = enabled, onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
     } else Modifier
 
     Surface(
@@ -230,9 +208,7 @@ fun AppCard(
         .clip(shape)
         .then(
             if (onClick != null) {
-                Modifier
-                    .elasticStretch(pressScale = 0.975f)
-                    .clickable(role = Role.Button, onClick = onClick)
+                Modifier.clickable(role = Role.Button, onClick = onClick)
             } else Modifier,
         )
 
@@ -367,9 +343,7 @@ fun AppPill(
             .background(bg)
             .then(
                 if (onClick != null) {
-                    Modifier
-                        .elasticStretch(pressScale = 0.94f)
-                        .clickable(role = Role.Button, onClick = onClick)
+                    Modifier.clickable(role = Role.Button, onClick = onClick)
                 } else Modifier,
             )
             .padding(contentPadding),
@@ -766,76 +740,6 @@ fun AppSheet(
     )
 }
 
-/**
- * Constantly slowly moving colorful ambient gradient mesh using smooth sinusoidal orbital glow shifts.
- * Zero per-frame Brush allocations when stationary and light cached coordinate updates.
- */
-@Composable
-fun MovingColorfulGradientBackground(
-    modifier: Modifier = Modifier,
-    intensity: Float = 1f,
-) {
-    val reduced = LocalMotionStyle.current == MotionStyle.REDUCED
-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.45f
-    val phase = if (reduced) {
-        0.8f
-    } else {
-        val transition = rememberInfiniteTransition(label = "movingGradient")
-        transition.animateFloat(
-            initialValue = 0f,
-            targetValue = (2.0 * PI).toFloat(),
-            animationSpec = infiniteRepeatable(tween(22000, easing = LinearEasing), RepeatMode.Restart),
-            label = "gradientPhase",
-        ).value
-    }
-
-    val baseBg = if (dark) Color(0xFF0E1118) else Color(0xFFF4F6FA)
-    val cBlue = Color(0xFF0044EA)
-    val cSky = Color(0xFF00A3F5)
-    val cOrange = Color(0xFFFF8C00)
-    val cPink = Color(0xFFF01E6B)
-    val cViolet = Color(0xFF6D28D9)
-    val alphaScale = (if (dark) 0.46f else 0.34f) * intensity.coerceIn(0.3f, 1.4f)
-
-    Canvas(modifier.background(baseBg)) {
-        val w = size.width
-        val h = size.height
-        val minDim = min(w, h).coerceAtLeast(1f)
-
-        val p1 = Offset(w * (0.20f + 0.18f * cos(phase)), h * (0.25f + 0.16f * sin(phase * 0.85f)))
-        val p2 = Offset(w * (0.78f + 0.16f * sin(phase * 0.9f)), h * (0.28f + 0.18f * cos(phase * 1.1f)))
-        val p3 = Offset(w * (0.34f + 0.20f * sin(phase * 0.7f)), h * (0.78f + 0.14f * cos(phase * 0.95f)))
-        val p4 = Offset(w * (0.80f + 0.15f * cos(phase * 1.05f)), h * (0.76f + 0.16f * sin(phase * 0.75f)))
-        val p5 = Offset(w * (0.50f + 0.14f * cos(phase * 0.6f)), h * (0.48f + 0.15f * sin(phase * 1.2f)))
-
-        drawCircle(
-            brush = Brush.radialGradient(listOf(cBlue.copy(alpha = alphaScale), Color.Transparent), p1, minDim * 0.95f),
-            radius = minDim * 0.95f,
-            center = p1,
-        )
-        drawCircle(
-            brush = Brush.radialGradient(listOf(cSky.copy(alpha = alphaScale * 0.95f), Color.Transparent), p2, minDim * 0.90f),
-            radius = minDim * 0.90f,
-            center = p2,
-        )
-        drawCircle(
-            brush = Brush.radialGradient(listOf(cOrange.copy(alpha = alphaScale * 0.85f), Color.Transparent), p3, minDim * 0.88f),
-            radius = minDim * 0.88f,
-            center = p3,
-        )
-        drawCircle(
-            brush = Brush.radialGradient(listOf(cPink.copy(alpha = alphaScale * 0.90f), Color.Transparent), p4, minDim * 0.92f),
-            radius = minDim * 0.92f,
-            center = p4,
-        )
-        drawCircle(
-            brush = Brush.radialGradient(listOf(cViolet.copy(alpha = alphaScale * 0.65f), Color.Transparent), p5, minDim * 0.80f),
-            radius = minDim * 0.80f,
-            center = p5,
-        )
-    }
-}
-
 @Immutable
 data class FanCardSpec(
     val id: Int,
@@ -847,42 +751,33 @@ data class FanCardSpec(
 )
 
 private val DefaultFanCards = listOf(
-    FanCardSpec(0, "Ink Workspace", "Low-latency stylus & paper", Color(0xFF0044EA), Color(0xFF0032B5), Color(0xFF4BA6FF)),
-    FanCardSpec(1, "Kindle Reader", "3D page curl & sepia book mode", Color(0xFF00A3F5), Color(0xFF0077CC), Color(0xFF8BE2FF)),
-    FanCardSpec(2, "Flashcards", "Visual crop decks & spaced recall", Color(0xFFFF8C00), Color(0xFFD96400), Color(0xFFFFCF6E)),
-    FanCardSpec(3, "SlideShow", "Instant structured revision decks", Color(0xFFF01E6B), Color(0xFFC20E4F), Color(0xFFFF86B4)),
+    FanCardSpec(0, "Due Today", "Active spaced recall queue", Color(0xFF0044EA), Color(0xFF0032B5), Color(0xFF4BA6FF)),
+    FanCardSpec(1, "Visual Cutouts", "Image occlusion & diagram cards", Color(0xFF00A3F5), Color(0xFF0077CC), Color(0xFF8BE2FF)),
+    FanCardSpec(2, "Quick Quiz", "Prompt & answer flip review", Color(0xFFFF8C00), Color(0xFFD96400), Color(0xFFFFCF6E)),
+    FanCardSpec(3, "Mastered", "Scheduled long-term memory", Color(0xFFF01E6B), Color(0xFFC20E4F), Color(0xFFFF86B4)),
 )
 
 /**
- * Glossy fanned rounded card stack matching Royal Blue, Sky Blue, Vibrant Orange, and Magenta Pink.
- * When [autoCycle] is true (e.g. Preview screen), cards automatically cycle forward one by one.
+ * Fanned rounded card deck for Flashcards review decks without glow or stretch effects.
  */
 @Composable
 fun FannedColorfulCardsDeck(
     modifier: Modifier = Modifier,
+    cards: List<FanCardSpec> = DefaultFanCards,
     autoCycle: Boolean = false,
     showLabels: Boolean = true,
     compact: Boolean = false,
     onFrontCardClick: ((Int) -> Unit)? = null,
 ) {
-    val reduced = LocalMotionStyle.current == MotionStyle.REDUCED
-    var frontIndex by remember { mutableIntStateOf(0) }
+    if (cards.isEmpty()) return
+    var frontIndex by remember(cards.size) { mutableIntStateOf(0) }
 
-    LaunchedEffect(autoCycle, reduced) {
-        if (!autoCycle) return@LaunchedEffect
+    LaunchedEffect(autoCycle, cards.size) {
+        if (!autoCycle || cards.size <= 1) return@LaunchedEffect
         while (true) {
-            delay(if (reduced) 3200L else 2100L)
-            frontIndex = (frontIndex + 1) % DefaultFanCards.size
+            delay(2600L)
+            frontIndex = (frontIndex + 1) % cards.size
         }
-    }
-
-    val breathe = if (reduced) 0f else {
-        rememberInfiniteTransition(label = "deckBreathe").animateFloat(
-            initialValue = -1f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(tween(3400, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-            label = "breathe",
-        ).value
     }
 
     val cardW = if (compact) 114.dp else 188.dp
@@ -894,15 +789,14 @@ fun FannedColorfulCardsDeck(
         modifier = modifier.size(boxW, boxH),
         contentAlignment = Alignment.Center,
     ) {
-        DefaultFanCards.forEachIndexed { cardIdx, spec ->
-            // Slot 0 = frontmost Royal Blue slot, 1 = Sky Blue slot, 2 = Orange slot, 3 = back Magenta slot
-            val slot = (cardIdx - frontIndex).mod(DefaultFanCards.size)
+        cards.forEachIndexed { cardIdx, spec ->
+            val slot = (cardIdx - frontIndex).mod(cards.size)
             val targetAngle = when (slot) {
                 0 -> -7.5f
                 1 -> 6.5f
                 2 -> 17.5f
                 else -> 28.5f
-            } + breathe * (0.6f + slot * 0.25f)
+            }
             val targetTx = when (slot) {
                 0 -> if (compact) -28f else -46f
                 1 -> if (compact) 0f else 2f
@@ -924,22 +818,22 @@ fun FannedColorfulCardsDeck(
 
             val rot by animateFloatAsState(
                 targetValue = targetAngle,
-                animationSpec = spring(dampingRatio = 0.68f, stiffness = 210f),
+                animationSpec = spring(dampingRatio = 0.72f, stiffness = 220f),
                 label = "fanRot$cardIdx",
             )
             val tx by animateFloatAsState(
                 targetValue = targetTx,
-                animationSpec = spring(dampingRatio = 0.72f, stiffness = 220f),
+                animationSpec = spring(dampingRatio = 0.76f, stiffness = 220f),
                 label = "fanTx$cardIdx",
             )
             val ty by animateFloatAsState(
                 targetValue = targetTy,
-                animationSpec = spring(dampingRatio = 0.72f, stiffness = 220f),
+                animationSpec = spring(dampingRatio = 0.76f, stiffness = 220f),
                 label = "fanTy$cardIdx",
             )
             val sc by animateFloatAsState(
                 targetValue = targetScale,
-                animationSpec = spring(dampingRatio = 0.74f, stiffness = 240f),
+                animationSpec = spring(dampingRatio = 0.78f, stiffness = 240f),
                 label = "fanSc$cardIdx",
             )
             val cornerRadius = if (compact) 20.dp else 28.dp
@@ -947,7 +841,7 @@ fun FannedColorfulCardsDeck(
 
             Box(
                 modifier = Modifier
-                    .zIndex((DefaultFanCards.size - slot).toFloat())
+                    .zIndex((cards.size - slot).toFloat())
                     .size(cardW, cardH)
                     .graphicsLayer {
                         translationX = tx.dp.toPx()
@@ -958,10 +852,10 @@ fun FannedColorfulCardsDeck(
                         transformOrigin = TransformOrigin(0.5f, 0.88f)
                     }
                     .shadow(
-                        elevation = (18 - slot * 3).dp,
+                        elevation = (12 - slot * 2).coerceAtLeast(2).dp,
                         shape = shape,
-                        ambientColor = spec.secondary.copy(alpha = 0.55f),
-                        spotColor = Color.Black.copy(alpha = 0.35f),
+                        ambientColor = Color.Black.copy(alpha = 0.18f),
+                        spotColor = Color.Black.copy(alpha = 0.24f),
                     )
                     .clip(shape)
                     .background(
@@ -971,25 +865,24 @@ fun FannedColorfulCardsDeck(
                             end = Offset(450f, 620f),
                         ),
                     )
-                    .border(1.4.dp, spec.rim.copy(alpha = 0.85f), shape)
+                    .border(1.2.dp, spec.rim.copy(alpha = 0.78f), shape)
                     .clickable {
                         if (slot == 0 && onFrontCardClick != null) {
                             onFrontCardClick(spec.id)
                         } else {
-                            frontIndex = (frontIndex + 1) % DefaultFanCards.size
+                            frontIndex = (frontIndex + 1) % cards.size
                         }
                     },
             ) {
-                // Glossy top-left sheen overlay
                 Box(
                     Modifier
                         .fillMaxSize()
                         .background(
                             Brush.linearGradient(
                                 colors = listOf(
-                                    Color.White.copy(alpha = 0.28f),
-                                    Color.White.copy(alpha = 0.05f),
-                                    Color.Black.copy(alpha = 0.14f),
+                                    Color.White.copy(alpha = 0.14f),
+                                    Color.Transparent,
+                                    Color.Black.copy(alpha = 0.10f),
                                 ),
                                 start = Offset(0f, 0f),
                                 end = Offset(300f, 450f),

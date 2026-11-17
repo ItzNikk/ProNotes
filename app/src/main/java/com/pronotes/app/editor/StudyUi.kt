@@ -93,13 +93,13 @@ import com.pronotes.app.ui.AppSegmentedControl
 import com.pronotes.app.ui.AppSheet
 import com.pronotes.app.ui.AppSliderRow
 import com.pronotes.app.ui.AppSurface
-import com.pronotes.app.ui.MovingColorfulGradientBackground
+import com.pronotes.app.ui.FanCardSpec
+import com.pronotes.app.ui.FannedColorfulCardsDeck
 import com.pronotes.app.ui.ProButtonPalette
 import com.pronotes.app.ui.ScaleInAnimatedText
 import com.pronotes.app.ui.SurfaceRole
 import com.pronotes.app.ui.Swatch
 import com.pronotes.app.ui.appCardShape
-import com.pronotes.app.ui.elasticStretch
 
 private val Pill = CircleShape
 
@@ -164,7 +164,6 @@ fun CardEditorDialog(vm: EditorViewModel, draft: EditorViewModel.CardDraft) {
                 enabled = front.isNotBlank() || picture != null,
                 shape = Pill,
                 colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
-                modifier = Modifier.elasticStretch(),
             ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = { vm.cardDraft = null }) { Text("Cancel") } },
@@ -199,8 +198,7 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                     .statusBarsPadding()
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
             ) {
-                Box(Modifier.fillMaxWidth()) {
-                    MovingColorfulGradientBackground(Modifier.matchParentSize(), intensity = 0.42f)
+                Box(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
                     if (studying) {
                         val deck = if (studyAll) vm.cards else vm.dueCards()
                         StudyView(vm, deck, onDone = { studying = false })
@@ -208,6 +206,43 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                         val due = vm.dueCards().size
                         val mastered = vm.cards.count { it.box >= 4 }
                         val learning = vm.cards.size - mastered
+                        val visualCount = vm.cards.count { it.frontImage != null || it.backImage != null }
+                        val flashcardDeckSpecs = remember(vm.cards.size, due, mastered, visualCount) {
+                            listOf(
+                                FanCardSpec(
+                                    0,
+                                    "Due Today",
+                                    if (due > 0) "$due cards queued for recall" else "All caught up for today",
+                                    Color(0xFF0044EA),
+                                    Color(0xFF0032B5),
+                                    Color(0xFF4BA6FF),
+                                ),
+                                FanCardSpec(
+                                    1,
+                                    "Visual Cutouts",
+                                    "$visualCount diagram & capture cards",
+                                    Color(0xFF00A3F5),
+                                    Color(0xFF0077CC),
+                                    Color(0xFF8BE2FF),
+                                ),
+                                FanCardSpec(
+                                    2,
+                                    "Practice All",
+                                    "${vm.cards.size} cards in this notebook",
+                                    Color(0xFFFF8C00),
+                                    Color(0xFFD96400),
+                                    Color(0xFFFFCF6E),
+                                ),
+                                FanCardSpec(
+                                    3,
+                                    "Mastered",
+                                    "$mastered cards locked in memory",
+                                    Color(0xFFF01E6B),
+                                    Color(0xFFC20E4F),
+                                    Color(0xFFFF86B4),
+                                ),
+                            )
+                        }
                         Column(Modifier.padding(20.dp)) {
                             StudyHero(
                                 title = "Flashcards Studio",
@@ -236,38 +271,65 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                             Spacer(Modifier.height(12.dp))
 
                             if (tab == 0) {
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Button(
-                                        onClick = { studyAll = false; studying = true },
-                                        enabled = due > 0,
-                                        shape = Pill,
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = ProButtonPalette.ElectricBlue,
-                                            contentColor = Color.White,
-                                        ),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(52.dp)
-                                            .elasticStretch(),
+                                AppCard(
+                                    hero = false,
+                                    shape = appCardShape(),
+                                    contentPadding = PaddingValues(14.dp),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                                     ) {
-                                        Text(
-                                            if (due > 0) "Study $due due cards" else "Due deck caught up",
-                                            fontSize = 15.sp,
-                                            fontWeight = FontWeight.SemiBold,
+                                        FannedColorfulCardsDeck(
+                                            cards = flashcardDeckSpecs,
+                                            autoCycle = false,
+                                            showLabels = true,
+                                            compact = true,
+                                            onFrontCardClick = { specId ->
+                                                when (specId) {
+                                                    0 -> if (due > 0) { studyAll = false; studying = true } else tab = 1
+                                                    1 -> { onClose(); vm.capturingCard = true }
+                                                    2 -> if (vm.cards.isNotEmpty()) { studyAll = true; studying = true } else vm.newTextCard()
+                                                    else -> tab = 1
+                                                }
+                                            },
                                         )
-                                    }
-                                    if (vm.cards.isNotEmpty()) {
-                                        AppPill(
-                                            selected = true,
-                                            tint = ProButtonPalette.VibrantOrange,
-                                            onClick = { studyAll = true; studying = true },
-                                            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
-                                        ) {
-                                            Text("Practice all (${vm.cards.size})", fontWeight = FontWeight.SemiBold)
+                                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Text("DECK OVERVIEW", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Button(
+                                                onClick = { studyAll = false; studying = true },
+                                                enabled = due > 0,
+                                                shape = Pill,
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = ProButtonPalette.ElectricBlue,
+                                                    contentColor = Color.White,
+                                                ),
+                                                modifier = Modifier.fillMaxWidth().height(46.dp),
+                                            ) {
+                                                Text(
+                                                    if (due > 0) "Study $due due" else "Due caught up",
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1,
+                                                )
+                                            }
+                                            if (vm.cards.isNotEmpty()) {
+                                                AppPill(
+                                                    selected = true,
+                                                    tint = ProButtonPalette.VibrantOrange,
+                                                    onClick = { studyAll = true; studying = true },
+                                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                ) {
+                                                    Text("Practice all (${vm.cards.size})", fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                                }
+                                            }
                                         }
                                     }
                                 }
-                                Spacer(Modifier.height(12.dp))
+                                Spacer(Modifier.height(10.dp))
                                 Text("CREATE CARD", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(Modifier.height(6.dp))
                                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -485,7 +547,6 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
                 onClick = onDone,
                 shape = Pill,
                 colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
-                modifier = Modifier.elasticStretch(),
             ) { Text("Finish") }
             return@Column
         }
@@ -545,24 +606,24 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
                 OutlinedButton(
                     onClick = { grade(0) },
                     shape = Pill,
-                    modifier = Modifier.weight(1f).elasticStretch(),
+                    modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = ProButtonPalette.CoralRose),
                 ) { Text("Again\n10m", textAlign = TextAlign.Center, fontSize = 12.sp) }
                 FilledTonalButton(
                     onClick = { grade(1) },
                     shape = Pill,
-                    modifier = Modifier.weight(1f).elasticStretch(),
+                    modifier = Modifier.weight(1f),
                 ) { Text("Hard\n12h", textAlign = TextAlign.Center, fontSize = 12.sp) }
                 FilledTonalButton(
                     onClick = { grade(2) },
                     shape = Pill,
-                    modifier = Modifier.weight(1f).elasticStretch(),
+                    modifier = Modifier.weight(1f),
                 ) { Text("Good\n1d+", textAlign = TextAlign.Center, fontSize = 12.sp) }
                 Button(
                     onClick = { grade(3) },
                     shape = Pill,
                     colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.Emerald, contentColor = Color.White),
-                    modifier = Modifier.weight(1f).elasticStretch(),
+                    modifier = Modifier.weight(1f),
                 ) { Text("Easy\n3d+", textAlign = TextAlign.Center, fontSize = 12.sp) }
             }
         } else {
@@ -621,7 +682,6 @@ fun LinkSheet(vm: EditorViewModel) {
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(10.dp))
-                                        .elasticStretch()
                                         .clickable { vm.linkToPage(i) }
                                         .padding(2.dp),
                                 ) {
@@ -661,7 +721,6 @@ fun LinkSheet(vm: EditorViewModel) {
                             enabled = url.trim().contains('.'),
                             shape = Pill,
                             colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
-                            modifier = Modifier.elasticStretch(),
                         ) { Text("Add link") }
                     }
                     Spacer(Modifier.height(8.dp))
@@ -822,7 +881,6 @@ fun TemplateSheet(vm: EditorViewModel, onClose: () -> Unit) {
                     },
                     shape = Pill,
                     colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
-                    modifier = Modifier.elasticStretch(),
                 ) {
                     Text("Apply template")
                 }
@@ -854,7 +912,6 @@ fun TapePatternPicker(vm: EditorViewModel, onPickImage: () -> Unit) {
                         color = if (selected) ProButtonPalette.ElectricBlue else MaterialTheme.colorScheme.outlineVariant,
                         shape = RoundedCornerShape(10.dp),
                     )
-                    .elasticStretch()
                     .clickable { vm.tapePattern = name }
                     .padding(4.dp),
             ) {

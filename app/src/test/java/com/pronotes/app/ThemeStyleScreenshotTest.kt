@@ -26,9 +26,9 @@ import com.pronotes.app.data.AtomicFiles
 import com.pronotes.app.data.PerformanceMode
 import com.pronotes.app.data.SettingsStore
 import com.pronotes.app.data.ThemeMode
-import com.pronotes.app.editor.KindleTheme
 import com.pronotes.app.library.LibraryScreen
-import com.pronotes.app.onboarding.WelcomeScreen
+import com.pronotes.app.reader.BookReaderHubScreen
+import com.pronotes.app.reader.BookTheme
 import com.pronotes.app.settings.SettingsScreen
 import com.pronotes.app.support.SupportScreen
 import com.pronotes.app.ui.AppCard
@@ -49,11 +49,13 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 /**
  * Screenshot, theme-parity, contrast, and persistence checks across Pro Notes v12 screens.
  */
 @RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w1280dp-h800dp-xhdpi")
 class ThemeStyleScreenshotTest {
 
@@ -98,14 +100,20 @@ class ThemeStyleScreenshotTest {
         bmp.recycle()
     }
 
-    private fun renderScreen(
+    private data class AppearanceVariant(
+        val themeMode: ThemeMode,
+        val roundnessDp: Float = 20f,
+        val performanceMode: PerformanceMode = PerformanceMode.BALANCED,
+    )
+
+    private fun renderScreenVariants(
         screenName: String,
-        themeMode: ThemeMode,
-        roundnessDp: Float = 20f,
-        performanceMode: PerformanceMode = PerformanceMode.BALANCED,
+        variants: List<AppearanceVariant>,
         assertUi: () -> Unit,
     ) {
-        configureAppearance(themeMode, roundnessDp, performanceMode)
+        require(variants.isNotEmpty())
+        val first = variants.first()
+        configureAppearance(first.themeMode, first.roundnessDp, first.performanceMode)
         var capturedView: View? = null
         var resolvedRoundnessDp: Float? = null
         var resolvedPerformanceMode: PerformanceMode? = null
@@ -123,76 +131,80 @@ class ThemeStyleScreenshotTest {
                         onImportConsumed = {},
                     )
                     "settings" -> SettingsScreen(onBack = {})
-                    "welcome" -> WelcomeScreen(onDone = {})
+                    "books" -> BookReaderHubScreen(
+                        onOpenBook = {},
+                        onBackToLibrary = {},
+                        onSettings = {},
+                    )
                     "support" -> SupportScreen(onBack = {})
                     "editor_chrome" -> EditorChromeHarness()
                 }
             }
         }
-        rule.waitForIdle()
 
-        assertEquals(roundnessDp, resolvedRoundnessDp ?: -1f, 0.01f)
-        assertEquals(performanceMode, resolvedPerformanceMode)
-        assertUi()
-        val view = requireNotNull(capturedView)
-        captureViewScreenshot(view, "${screenName}_${themeMode.name.lowercase()}")
+        for (variant in variants) {
+            rule.runOnIdle {
+                configureAppearance(variant.themeMode, variant.roundnessDp, variant.performanceMode)
+            }
+            rule.waitForIdle()
+            assertEquals(variant.roundnessDp, resolvedRoundnessDp ?: -1f, 0.01f)
+            assertEquals(variant.performanceMode, resolvedPerformanceMode)
+            assertUi()
+            val view = requireNotNull(capturedView)
+            captureViewScreenshot(view, "${screenName}_${variant.themeMode.name.lowercase()}")
+        }
     }
 
     @Test
     fun libraryScreen_rendersLightAndDark() {
-        for (theme in listOf(ThemeMode.LIGHT, ThemeMode.DARK)) {
-            renderScreen("library", theme) {
-                rule.onAllNodesWithText("Pro Notes")[0].assertIsDisplayed()
-                rule.onNodeWithText("+ New Notebook").assertIsDisplayed()
-            }
+        renderScreenVariants(
+            screenName = "library",
+            variants = listOf(AppearanceVariant(ThemeMode.LIGHT), AppearanceVariant(ThemeMode.DARK)),
+        ) {
+            rule.onAllNodesWithText("Pro Notes")[0].assertIsDisplayed()
+            rule.onNodeWithText("New notebook").assertIsDisplayed()
         }
     }
 
     @Test
     fun settingsScreen_rendersLightAndDark() {
-        for (theme in listOf(ThemeMode.LIGHT, ThemeMode.DARK)) {
-            renderScreen("settings", theme) {
-                rule.onAllNodesWithText("Settings")[0].assertIsDisplayed()
-            }
+        renderScreenVariants(
+            screenName = "settings",
+            variants = listOf(AppearanceVariant(ThemeMode.LIGHT), AppearanceVariant(ThemeMode.DARK)),
+        ) {
+            rule.onAllNodesWithText("Settings")[0].assertIsDisplayed()
         }
     }
 
     @Test
-    fun welcomeScreen_rendersPreviewAndDeck() {
-        for (theme in listOf(ThemeMode.LIGHT, ThemeMode.DARK)) {
-            renderScreen("welcome", theme) {
-                rule.onNodeWithText("Open Library").assertIsDisplayed()
-                rule.onNodeWithText("Customize your Studio").assertIsDisplayed()
-            }
+    fun bookReaderHubScreen_rendersCleanly() {
+        renderScreenVariants(
+            screenName = "books",
+            variants = listOf(AppearanceVariant(ThemeMode.LIGHT), AppearanceVariant(ThemeMode.DARK)),
+        ) {
+            rule.onAllNodesWithText("Book Reader")[0].assertIsDisplayed()
         }
     }
 
     @Test
     fun supportScreen_rendersCleanly() {
-        for (theme in listOf(ThemeMode.LIGHT, ThemeMode.DARK)) {
-            renderScreen("support", theme) {
-                rule.onNodeWithText("Highlights").assertIsDisplayed()
-                rule.onNodeWithText("Send Applause").assertIsDisplayed()
-            }
+        renderScreenVariants(
+            screenName = "support",
+            variants = listOf(AppearanceVariant(ThemeMode.LIGHT), AppearanceVariant(ThemeMode.DARK)),
+        ) {
+            rule.onNodeWithText("Highlights").assertIsDisplayed()
+            rule.onNodeWithText("Send Applause").assertIsDisplayed()
         }
     }
 
     @Test
     fun editorChromeHarness_appliesCornerRoundnessAndPerformanceMode() {
-        renderScreen(
+        renderScreenVariants(
             screenName = "editor_chrome",
-            themeMode = ThemeMode.DARK,
-            roundnessDp = 8f,
-            performanceMode = PerformanceMode.BATTERY_SAVER,
-        ) {
-            rule.onNodeWithText("Lecture Notes").assertIsDisplayed()
-            rule.onNodeWithText("Pen").assertIsDisplayed()
-        }
-        renderScreen(
-            screenName = "editor_chrome",
-            themeMode = ThemeMode.LIGHT,
-            roundnessDp = 28f,
-            performanceMode = PerformanceMode.MAXIMUM,
+            variants = listOf(
+                AppearanceVariant(ThemeMode.DARK, roundnessDp = 8f, performanceMode = PerformanceMode.BATTERY_SAVER),
+                AppearanceVariant(ThemeMode.LIGHT, roundnessDp = 28f, performanceMode = PerformanceMode.MAXIMUM),
+            ),
         ) {
             rule.onNodeWithText("Lecture Notes").assertIsDisplayed()
             rule.onNodeWithText("Pen").assertIsDisplayed()
@@ -200,11 +212,11 @@ class ThemeStyleScreenshotTest {
     }
 
     @Test
-    fun kindleThemes_haveReadableContrast() {
-        for (theme in KindleTheme.entries) {
+    fun bookThemes_haveReadableContrast() {
+        for (theme in BookTheme.entries) {
             val ratio = contrastRatio(theme.inkText, theme.pageBg)
             assertTrue(
-                "Kindle theme ${theme.label} failed 4.5:1 contrast: $ratio",
+                "Book theme ${theme.label} failed 4.5:1 contrast: $ratio",
                 ratio >= 4.5f,
             )
         }

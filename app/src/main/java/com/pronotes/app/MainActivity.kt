@@ -26,6 +26,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.pronotes.app.editor.EditorScreen
 import com.pronotes.app.library.LibraryScreen
+import com.pronotes.app.reader.BookReaderHubScreen
+import com.pronotes.app.reader.BookReaderScreen
 import com.pronotes.app.settings.SettingsScreen
 import com.pronotes.app.ui.ProNotesTheme
 import kotlinx.coroutines.launch
@@ -70,7 +72,6 @@ class MainActivity : ComponentActivity() {
                     popExitTransition = { fadeOut() + scaleOut(targetScale = 0.96f) },
                 ) {
                     composable("support") { com.pronotes.app.support.SupportScreen(onBack = { nav.popBackStack() }) }
-                    composable("welcome") { com.pronotes.app.onboarding.WelcomeScreen(onDone = { nav.popBackStack() }) }
                     composable("library") {
                         LibraryScreen(
                             onOpen = { id -> nav.navigate("editor/$id") },
@@ -78,7 +79,21 @@ class MainActivity : ComponentActivity() {
                             pendingImport = pendingImport,
                             onImportConsumed = { pendingImport = null },
                             onSupport = { nav.navigate("support") },
-                            onOpenPreview = { nav.navigate("welcome") },
+                            onOpenBookReader = { nav.navigate("books") { launchSingleTop = true } },
+                        )
+                    }
+                    composable("books") {
+                        BookReaderHubScreen(
+                            onOpenBook = { id -> nav.navigate("reader/$id") },
+                            onBackToLibrary = { nav.popBackStack("library", inclusive = false) },
+                            onSettings = { nav.navigate("settings") },
+                        )
+                    }
+                    composable("reader/{id}") { entry ->
+                        val id = entry.arguments?.getString("id") ?: return@composable
+                        BookReaderScreen(
+                            bookId = id,
+                            onBack = { nav.popBackStack() },
                         )
                     }
                     composable("editor/{id}") { entry ->
@@ -97,7 +112,6 @@ class MainActivity : ComponentActivity() {
                     ) {
                         SettingsScreen(
                             onBack = { nav.popBackStack() },
-                            onTour = { nav.navigate("welcome") },
                             onSupport = { nav.navigate("support") },
                         )
                     }

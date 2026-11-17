@@ -10,8 +10,13 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -75,7 +80,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.FormatAlignLeft
 import androidx.compose.material.icons.automirrored.outlined.FormatAlignRight
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragIndicator
@@ -162,6 +166,8 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
@@ -203,6 +209,7 @@ import com.pronotes.app.data.ScribbleSensitivity
 import com.pronotes.app.data.ScrollDirection
 import com.pronotes.app.data.SettingsStore
 import com.pronotes.app.data.ToolbarDock
+import com.pronotes.app.library.PdfSkeletonPreviewBox
 import com.pronotes.app.ui.AppCard
 import com.pronotes.app.ui.AppChip
 import com.pronotes.app.ui.AppContextMenu
@@ -230,7 +237,6 @@ import com.pronotes.app.ui.Swatch
 import com.pronotes.app.ui.ToolGlyph
 import com.pronotes.app.ui.appCardShape
 import com.pronotes.app.ui.appPillShape
-import com.pronotes.app.ui.elasticStretch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -238,6 +244,7 @@ import kotlinx.coroutines.withContext
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import java.io.File
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -307,7 +314,6 @@ fun EditorScreen(
     var showTemplates by remember { mutableStateOf(false) }
     var showCards by remember { mutableStateOf(false) }
     var showCollabRoom by remember { mutableStateOf(false) }
-    var kindleMode by remember { mutableStateOf(false) }
     var activePopoverTool by remember { mutableStateOf<Tool?>(null) }
     var splitId by remember { mutableStateOf<String?>(null) }
     var splitWeight by remember { mutableFloatStateOf(0.8f) }
@@ -346,7 +352,6 @@ fun EditorScreen(
 
     BackHandler {
         when {
-            kindleMode -> kindleMode = false
             activePopoverTool != null -> activePopoverTool = null
             focus -> focus = false
             showPages -> showPages = false
@@ -541,7 +546,6 @@ fun EditorScreen(
                                 onPageColor = { pageColor = true },
                                 onCards = { showCards = true },
                                 onSlideShow = { vm.showSlideShow = true },
-                                onKindleMode = { kindleMode = true },
                                 onCollabRoom = { showCollabRoom = true },
                                 onAddWebLink = {
                                     val p = vm.currentPage
@@ -716,39 +720,182 @@ fun EditorScreen(
                         }
                     }
 
-                    // SVG Floating Obsidian Sub-Toolbar / Pen & Options Dock
+                    // Repositionable Floating Sub-Toolbar / Pen & Options Dock
+                    var dockSize by remember { mutableStateOf(IntSize.Zero) }
+                    var dockDragging by remember { mutableStateOf(false) }
+                    var liveDragDelta by remember { mutableStateOf(Offset.Zero) }
+
+                    val isVerticalDock = settings.toolbarDock == ToolbarDock.LEFT || settings.toolbarDock == ToolbarDock.RIGHT
+                    val marginPx = (12f * density).roundToInt()
+                    val undoClearPx = (144f * density).roundToInt()
+                    val topClearPx = (66f * density).roundToInt()
+
+                    val parsedPos = remember(settings.toolbarPos) {
+                        val parts = settings.toolbarPos.split(',')
+                        val fx = parts.getOrNull(0)?.toFloatOrNull()?.coerceIn(0f, 1f) ?: 0.5f
+                        val fy = parts.getOrNull(1)?.toFloatOrNull()?.coerceIn(0f, 1f) ?: 0.03f
+                        fx to fy
+                    }
+
+                    val baseDockOffset = remember(areaSize, dockSize, settings.toolbarDock, parsedPos, density) {
+                        if (areaSize.width <= 0 || dockSize.width <= 0) {
+                            IntOffset(undoClearPx, marginPx)
+                        } else {
+                            val maxX = (areaSize.width - dockSize.width - marginPx).coerceAtLeast(marginPx)
+                            val maxY = (areaSize.height - dockSize.height - marginPx).coerceAtLeast(marginPx)
+                            when (settings.toolbarDock) {
+                                ToolbarDock.HEADER, ToolbarDock.TOP -> IntOffset(
+                                    x = maxOf(undoClearPx, (areaSize.width - dockSize.width) / 2).coerceIn(marginPx, maxX),
+                                    y = marginPx,
+                                )
+                                ToolbarDock.BOTTOM -> IntOffset(
+                                    x = ((areaSize.width - dockSize.width) / 2).coerceIn(marginPx, maxX),
+                                    y = maxY,
+                                )
+                                ToolbarDock.LEFT -> IntOffset(
+                                    x = marginPx,
+                                    y = ((areaSize.height - dockSize.height) / 2).coerceIn(topClearPx.coerceAtMost(maxY), maxY),
+                                )
+                                ToolbarDock.RIGHT -> IntOffset(
+                                    x = maxX,
+                                    y = ((areaSize.height - dockSize.height) / 2).coerceIn(marginPx, maxY),
+                                )
+                                ToolbarDock.FREE -> IntOffset(
+                                    x = (parsedPos.first * (areaSize.width - dockSize.width)).roundToInt().coerceIn(marginPx, maxX),
+                                    y = (parsedPos.second * (areaSize.height - dockSize.height)).roundToInt().coerceIn(marginPx, maxY),
+                                )
+                            }
+                        }
+                    }
+
+                    val activeDockOffset = remember(baseDockOffset, dockDragging, liveDragDelta, areaSize, dockSize, density) {
+                        if (!dockDragging || areaSize.width <= 0 || dockSize.width <= 0) {
+                            baseDockOffset
+                        } else {
+                            val maxX = (areaSize.width - dockSize.width - marginPx).coerceAtLeast(marginPx)
+                            val maxY = (areaSize.height - dockSize.height - marginPx).coerceAtLeast(marginPx)
+                            IntOffset(
+                                x = (baseDockOffset.x + liveDragDelta.x.roundToInt()).coerceIn(marginPx, maxX),
+                                y = (baseDockOffset.y + liveDragDelta.y.roundToInt()).coerceIn(marginPx, maxY),
+                            )
+                        }
+                    }
+
                     if (!hideTools) {
                         ObsidianSubToolDock(
                             vm = vm,
                             settings = settings,
                             darkUi = darkUi,
                             area = areaSize,
+                            isVertical = isVerticalDock,
                             overlayFade = overlayFade,
                             activePopoverTool = activePopoverTool,
                             onTogglePopover = { t ->
                                 activePopoverTool = if (activePopoverTool == t) null else t
                             },
+                            onDragStart = {
+                                dockDragging = true
+                                liveDragDelta = Offset.Zero
+                            },
+                            onDragDelta = { delta ->
+                                liveDragDelta = delta
+                            },
+                            onDragEnd = {
+                                val finalX = (baseDockOffset.x + liveDragDelta.x.roundToInt())
+                                    .coerceIn(marginPx, (areaSize.width - dockSize.width - marginPx).coerceAtLeast(marginPx))
+                                val finalY = (baseDockOffset.y + liveDragDelta.y.roundToInt())
+                                    .coerceIn(marginPx, (areaSize.height - dockSize.height - marginPx).coerceAtLeast(marginPx))
+                                dockDragging = false
+                                liveDragDelta = Offset.Zero
+                                if (areaSize.width > 0 && areaSize.height > 0) {
+                                    val centerX = (finalX + dockSize.width / 2f) / areaSize.width
+                                    val centerY = (finalY + dockSize.height / 2f) / areaSize.height
+                                    val availW = (areaSize.width - dockSize.width).coerceAtLeast(1).toFloat()
+                                    val availH = (areaSize.height - dockSize.height).coerceAtLeast(1).toFloat()
+                                    val nx = (finalX / availW).coerceIn(0f, 1f)
+                                    val ny = (finalY / availH).coerceIn(0f, 1f)
+                                    val nextDock = when {
+                                        centerX < 0.13f -> ToolbarDock.LEFT
+                                        centerX > 0.87f -> ToolbarDock.RIGHT
+                                        centerY < 0.12f -> ToolbarDock.TOP
+                                        centerY > 0.88f -> ToolbarDock.BOTTOM
+                                        else -> ToolbarDock.FREE
+                                    }
+                                    store.update {
+                                        it.copy(
+                                            toolbarDock = nextDock,
+                                            toolbarPos = String.format(Locale.US, "%.3f,%.3f", nx, ny),
+                                        )
+                                    }
+                                }
+                            },
+                            onSelectDock = { dock ->
+                                store.update { it.copy(toolbarDock = dock) }
+                            },
+                            onResetPosition = {
+                                store.update { it.copy(toolbarDock = ToolbarDock.TOP, toolbarPos = "0.5,0.03") }
+                            },
                             modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = 12.dp, start = 148.dp, end = 12.dp),
+                                .offset { activeDockOffset }
+                                .onSizeChanged { dockSize = it },
                         )
                     }
 
-                    // SVG-anchored Caret Tool Popover (Pen Studio / Highlighter / Eraser / Shapes / etc.)
+                    // Anchored Caret Tool Popover (follows toolbar dock wherever it is positioned)
                     activePopoverTool?.let { popoverTool ->
-                        val anchorAlign = if (LocalConfiguration.current.screenWidthDp < 720) Alignment.TopCenter else Alignment.TopCenter
+                        var popoverSize by remember { mutableStateOf(IntSize.Zero) }
+                        val popW = if (popoverSize.width > 0) popoverSize.width else (340f * density).roundToInt()
+                        val popH = if (popoverSize.height > 0) popoverSize.height else (420f * density).roundToInt()
+                        val gapPx = (8f * density).roundToInt()
+                        val maxPopX = (areaSize.width - popW - marginPx).coerceAtLeast(marginPx)
+                        val maxPopY = (areaSize.height - popH - marginPx).coerceAtLeast(marginPx)
+
+                        val dockCenterX = activeDockOffset.x + dockSize.width / 2
+                        val dockCenterY = activeDockOffset.y + dockSize.height / 2
+                        val placeRight = isVerticalDock && activeDockOffset.x < areaSize.width / 2
+                        val placeLeft = isVerticalDock && !placeRight
+                        val placeAbove = !isVerticalDock && dockCenterY > areaSize.height / 2
+
+                        val caretSide = when {
+                            placeRight -> PopoverCaretSide.LEFT
+                            placeLeft -> PopoverCaretSide.RIGHT
+                            placeAbove -> PopoverCaretSide.BOTTOM
+                            else -> PopoverCaretSide.TOP
+                        }
+                        val popOffset = when (caretSide) {
+                            PopoverCaretSide.LEFT -> IntOffset(
+                                x = (activeDockOffset.x + dockSize.width + gapPx).coerceIn(marginPx, maxPopX),
+                                y = (dockCenterY - popH / 2).coerceIn(marginPx, maxPopY),
+                            )
+                            PopoverCaretSide.RIGHT -> IntOffset(
+                                x = (activeDockOffset.x - popW - gapPx).coerceIn(marginPx, maxPopX),
+                                y = (dockCenterY - popH / 2).coerceIn(marginPx, maxPopY),
+                            )
+                            PopoverCaretSide.BOTTOM -> IntOffset(
+                                x = (dockCenterX - popW / 2).coerceIn(marginPx, maxPopX),
+                                y = (activeDockOffset.y - popH - gapPx).coerceIn(marginPx, maxPopY),
+                            )
+                            PopoverCaretSide.TOP -> IntOffset(
+                                x = (dockCenterX - popW / 2).coerceIn(marginPx, maxPopX),
+                                y = (activeDockOffset.y + dockSize.height + gapPx).coerceIn(marginPx, maxPopY),
+                            )
+                        }
+
                         Popup(
-                            alignment = anchorAlign,
-                            offset = IntOffset(0, (78 * density).roundToInt()),
+                            alignment = Alignment.TopStart,
+                            offset = popOffset,
                             onDismissRequest = { activePopoverTool = null },
                             properties = PopupProperties(focusable = true),
                         ) {
-                            ToolPopoverCard(
-                                tool = popoverTool,
-                                vm = vm,
-                                darkUi = darkUi,
-                                onDismiss = { activePopoverTool = null },
-                            )
+                            Box(Modifier.onSizeChanged { popoverSize = it }) {
+                                ToolPopoverCard(
+                                    tool = popoverTool,
+                                    vm = vm,
+                                    darkUi = darkUi,
+                                    caretSide = caretSide,
+                                    onDismiss = { activePopoverTool = null },
+                                )
+                            }
                         }
                     }
 
@@ -1081,11 +1228,6 @@ fun EditorScreen(
 
         // Quick tool wheel (stylus button click while hovering)
         wheelAt?.let { at -> ToolWheel(vm, at, onDismiss = { wheelAt = null }) }
-
-        // Kindle Reading Mode overlay with animated 3D page turns
-        if (kindleMode) {
-            KindleReaderOverlay(vm = vm, onExit = { kindleMode = false })
-        }
     }
 
     // ------------------------------------------------------------------ dialogs & sheets
@@ -1290,7 +1432,6 @@ private fun TabStrip(
                 .padding(bottom = 4.dp)
                 .size(30.dp)
                 .clip(CircleShape)
-                .elasticStretch()
                 .clickable(onClick = onHome),
             contentAlignment = Alignment.Center,
         ) {
@@ -1363,7 +1504,6 @@ private fun TabStrip(
                 .padding(bottom = 4.dp)
                 .size(28.dp)
                 .clip(CircleShape)
-                .elasticStretch()
                 .clickable(onClick = onNewPageTab),
             contentAlignment = Alignment.Center,
         ) {
@@ -1391,7 +1531,6 @@ private fun BarIcon(
     Box(
         modifier = Modifier
             .size(36.dp)
-            .elasticStretch(enabled)
             .clip(RoundedCornerShape(11.dp))
             .background(if (active) activeBg else Color.Transparent)
             .clickable(enabled = enabled, onClick = onClick),
@@ -1428,7 +1567,6 @@ private fun TopBar(
     onPageImage: () -> Unit,
     onCards: () -> Unit,
     onSlideShow: () -> Unit,
-    onKindleMode: () -> Unit,
     onCollabRoom: () -> Unit,
     onAddWebLink: () -> Unit,
     onTemplates: () -> Unit,
@@ -1500,19 +1638,10 @@ private fun TopBar(
 
         Box(Modifier.padding(horizontal = 4.dp).width(1.dp).height(22.dp).background(dividerColor))
 
-        // Quick Book Mode (Kindle Reader) trigger in TopBar
-        BarIcon(
-            icon = ProIcon.BOOK,
-            label = "Book Mode",
-            fgColor = fgColor,
-            onClick = onKindleMode,
-        )
-
         AppMenuButton(
             contentDescription = "Add page or template",
             containerColor = ProButtonPalette.Emerald.copy(alpha = if (darkUi) 0.24f else 0.16f),
             contentPadding = PaddingValues(7.dp),
-            modifier = Modifier.elasticStretch(),
             buttonContent = {
                 ProIconView(ProIcon.ADD, if (darkUi) Color(0xFF6EE7B7) else Color(0xFF047857), Modifier.size(20.dp))
             },
@@ -1528,7 +1657,6 @@ private fun TopBar(
             contentDescription = "Share and export",
             containerColor = ProButtonPalette.SkyCyan.copy(alpha = if (darkUi) 0.24f else 0.16f),
             contentPadding = PaddingValues(7.dp),
-            modifier = Modifier.elasticStretch(),
             buttonContent = {
                 ProIconView(ProIcon.SHARE, if (darkUi) Color(0xFF7DD3FC) else Color(0xFF0369A1), Modifier.size(20.dp))
             },
@@ -1540,12 +1668,6 @@ private fun TopBar(
         )
         Spacer(Modifier.width(3.dp))
         val moreEntries = buildList {
-            add(
-                AppMenuItem(
-                    "Book Mode (Kindle)",
-                    icon = { Icon(Icons.AutoMirrored.Outlined.MenuBook, null, Modifier.size(18.dp), tint = ProButtonPalette.VibrantOrange) },
-                ) { onKindleMode() },
-            )
             add(
                 AppMenuItem(
                     "Flashcards",
@@ -1704,7 +1826,6 @@ private fun TopBar(
             contentDescription = "More tools and actions",
             containerColor = ProButtonPalette.WarmAmber.copy(alpha = if (darkUi) 0.24f else 0.16f),
             contentPadding = PaddingValues(7.dp),
-            modifier = Modifier.elasticStretch(),
             buttonContent = {
                 ProIconView(ProIcon.MORE, if (darkUi) Color(0xFFFCD34D) else Color(0xFFB45309), Modifier.size(20.dp))
             },
@@ -1721,9 +1842,15 @@ private fun ObsidianSubToolDock(
     settings: AppSettings,
     darkUi: Boolean,
     area: IntSize,
+    isVertical: Boolean,
     overlayFade: Float,
     activePopoverTool: Tool?,
     onTogglePopover: (Tool) -> Unit,
+    onDragStart: () -> Unit,
+    onDragDelta: (Offset) -> Unit,
+    onDragEnd: () -> Unit,
+    onSelectDock: (ToolbarDock) -> Unit,
+    onResetPosition: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val dockBg = if (darkUi) DockDarkBg else DockLightBg
@@ -1731,27 +1858,77 @@ private fun ObsidianSubToolDock(
     val dividerColor = dockFg.copy(alpha = 0.20f)
     val dens = LocalDensity.current
     val areaW = with(dens) { area.width.toDp() }
-    val maxDockW = (areaW - 180.dp).coerceAtLeast(220.dp)
+    val areaH = with(dens) { area.height.toDp() }
+    val maxDockW = if (isVertical) 64.dp else (areaW - 180.dp).coerceAtLeast(220.dp)
+    val maxDockH = if (isVertical) (areaH - 110.dp).coerceAtLeast(220.dp) else 80.dp
     val quickTools = remember { listOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.TAPE, Tool.SHAPE) }
+
+    var dockMenuOpen by remember { mutableStateOf(false) }
+    var gripCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
     AppSurface(
         role = SurfaceRole.Chrome,
         containerColor = dockBg,
         contentColor = dockFg,
-        shape = appPillShape(),
+        shape = if (isVertical) RoundedCornerShape(22.dp) else appPillShape(),
         shadowElevation = 10.dp,
         borderColor = if (darkUi) Color.Black.copy(alpha = 0.45f) else Color.Black.copy(alpha = 0.08f),
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+        contentPadding = PaddingValues(horizontal = if (isVertical) 6.dp else 8.dp, vertical = if (isVertical) 8.dp else 6.dp),
         modifier = modifier
             .widthIn(max = maxDockW)
+            .heightIn(max = maxDockH)
             .graphicsLayer { alpha = overlayFade },
     ) {
-        Row(
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            // SVG Quick-Tool Strip (highlighted active teal slot with chevron)
+        val dockBody = @Composable {
+            Box {
+                Box(
+                    modifier = Modifier
+                        .size(if (isVertical) 36.dp else 28.dp, if (isVertical) 28.dp else 36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .onGloballyPositioned { gripCoords = it }
+                        .pointerInput(Unit) {
+                            var startRoot = Offset.Zero
+                            detectDragGestures(
+                                onDragStart = { downOffset ->
+                                    startRoot = gripCoords?.localToRoot(downOffset) ?: downOffset
+                                    onDragStart()
+                                },
+                                onDragCancel = { onDragEnd() },
+                                onDragEnd = { onDragEnd() },
+                                onDrag = { change, _ ->
+                                    change.consume()
+                                    val curRoot = gripCoords?.localToRoot(change.position)
+                                    if (curRoot != null) {
+                                        onDragDelta(curRoot - startRoot)
+                                    }
+                                },
+                            )
+                        }
+                        .clickable { dockMenuOpen = true },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.DragIndicator,
+                        contentDescription = "Reposition toolbar",
+                        tint = dockFg.copy(alpha = 0.55f),
+                        modifier = Modifier
+                            .size(18.dp)
+                            .graphicsLayer { rotationZ = if (isVertical) 90f else 0f },
+                    )
+                }
+                AppContextMenu(
+                    expanded = dockMenuOpen,
+                    onDismissRequest = { dockMenuOpen = false },
+                    items = listOf(
+                        AppMenuItem("Dock top") { dockMenuOpen = false; onSelectDock(ToolbarDock.TOP) },
+                        AppMenuItem("Dock bottom") { dockMenuOpen = false; onSelectDock(ToolbarDock.BOTTOM) },
+                        AppMenuItem("Dock left") { dockMenuOpen = false; onSelectDock(ToolbarDock.LEFT) },
+                        AppMenuItem("Dock right") { dockMenuOpen = false; onSelectDock(ToolbarDock.RIGHT) },
+                        AppMenuItem("Reset position") { dockMenuOpen = false; onResetPosition() },
+                    ),
+                )
+            }
+
             quickTools.forEach { t ->
                 val isCurrent = vm.tool == t || (vm.tool !in quickTools && t == Tool.PEN)
                 val showActiveSlot = vm.tool == t
@@ -1761,11 +1938,10 @@ private fun ObsidianSubToolDock(
                         .height(38.dp)
                         .clip(RoundedCornerShape(13.dp))
                         .background(if (showActiveSlot) TealActiveTile else Color.Transparent)
-                        .elasticStretch(pressScale = 0.92f)
                         .clickable {
                             if (vm.tool == t) onTogglePopover(t) else vm.tool = t
                         }
-                        .padding(horizontal = if (showActiveSlot) 10.dp else 7.dp),
+                        .padding(horizontal = if (showActiveSlot && !isVertical) 10.dp else 7.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
@@ -1776,7 +1952,7 @@ private fun ObsidianSubToolDock(
                         modifier = Modifier.size(21.dp),
                         active = showActiveSlot || isCurrent,
                     )
-                    if (showActiveSlot) {
+                    if (showActiveSlot && !isVertical) {
                         Icon(
                             if (activePopoverTool == t) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
                             contentDescription = "Tool options",
@@ -1787,39 +1963,60 @@ private fun ObsidianSubToolDock(
                 }
             }
 
-            // Secondary tool trigger chip if another tool (Eraser, Text, MindMap, Lasso, Sticky, WebLink) is active
             if (vm.tool !in quickTools && vm.tool != Tool.IMAGE && vm.tool != Tool.STICKER) {
                 Row(
                     modifier = Modifier
                         .height(38.dp)
                         .clip(RoundedCornerShape(13.dp))
                         .background(TealActiveTile)
-                        .elasticStretch()
                         .clickable { onTogglePopover(vm.tool) }
-                        .padding(horizontal = 10.dp),
+                        .padding(horizontal = if (isVertical) 8.dp else 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
                     ToolGlyph(vm.tool, Color.White, Color(vm.penStyle.color), Modifier.size(19.dp), active = true)
-                    Text(
-                        toolDisplayName(vm.tool),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color.White,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Icon(
-                        if (activePopoverTool == vm.tool) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                        contentDescription = "Tool studio",
-                        tint = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.size(14.dp),
-                    )
+                    if (!isVertical) {
+                        Text(
+                            toolDisplayName(vm.tool),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Icon(
+                            if (activePopoverTool == vm.tool) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                            contentDescription = "Tool studio",
+                            tint = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
                 }
             }
 
-            Box(Modifier.padding(horizontal = 2.dp).width(1.dp).height(24.dp).background(dividerColor))
+            if (isVertical) {
+                Box(Modifier.padding(vertical = 2.dp).height(1.dp).width(24.dp).background(dividerColor))
+            } else {
+                Box(Modifier.padding(horizontal = 2.dp).width(1.dp).height(24.dp).background(dividerColor))
+            }
 
-            // Active Tool Width & Colour Options right inside the Obsidian dock
-            ToolOptions(vm = vm, vertical = false, settings = settings, dockFg = dockFg, darkDock = darkUi)
+            ToolOptions(vm = vm, vertical = isVertical, settings = settings, dockFg = dockFg, darkDock = darkUi)
+        }
+
+        if (isVertical) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                dockBody()
+            }
+        } else {
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                dockBody()
+            }
         }
     }
 }
@@ -1993,7 +2190,15 @@ private fun PageThumb(vm: EditorViewModel, i: Int, page: Page, modifier: Modifie
                 )
                 .clickable { onJump(i) },
         ) {
-            thumb?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize()) }
+            thumb?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize()) } ?: run {
+                val shimmer by rememberInfiniteTransition(label = "thumbShimmer").animateFloat(
+                    initialValue = 0f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(tween(1150, easing = LinearEasing), RepeatMode.Restart),
+                    label = "sweep",
+                )
+                PdfSkeletonPreviewBox(shimmer = shimmer, modifier = Modifier.fillMaxSize())
+            }
             if (page.bookmarked) {
                 ProIconView(
                     ProIcon.BOOKMARK,
@@ -2078,20 +2283,6 @@ private fun ToolButton(
         MotionStyle.MINIMAL_CRISP -> Spring.DampingRatioNoBouncy
         MotionStyle.REDUCED -> 1f
     }
-    val stretchX by animateFloatAsState(
-        targetValue = if (dragging) {
-            1.14f + (abs(stretchDx) / (75f * density)).coerceIn(0f, 0.24f) - (abs(stretchDy) / (150f * density)).coerceIn(0f, 0.12f)
-        } else if (selected) 1.04f else 1f,
-        animationSpec = spring(dampingRatio = springDamping, stiffness = Spring.StiffnessMediumLow),
-        label = "sx",
-    )
-    val stretchY by animateFloatAsState(
-        targetValue = if (dragging) {
-            1.14f + (abs(stretchDy) / (75f * density)).coerceIn(0f, 0.24f) - (abs(stretchDx) / (150f * density)).coerceIn(0f, 0.12f)
-        } else if (selected) 1.04f else 1f,
-        animationSpec = spring(dampingRatio = springDamping, stiffness = Spring.StiffnessMediumLow),
-        label = "sy",
-    )
     val offsetX by animateFloatAsState(
         targetValue = if (dragging) stretchDx.coerceIn(-22f * density, 22f * density) else 0f,
         animationSpec = spring(dampingRatio = springDamping, stiffness = Spring.StiffnessMedium),
@@ -2149,10 +2340,7 @@ private fun ToolButton(
             modifier = Modifier
                 .padding(1.dp)
                 .size(sz)
-                .elasticStretch(enabled = !dragging, pressScale = 0.91f)
                 .graphicsLayer {
-                    scaleX = stretchX
-                    scaleY = stretchY
                     translationX = offsetX
                     translationY = offsetY
                 }
@@ -2229,27 +2417,29 @@ private fun ToolOptions(
     val store = SettingsStore.get(LocalContext.current)
     AnimatedContent(
         targetState = vm.tool,
-        transitionSpec = { (fadeIn() + scaleIn(initialScale = 0.92f)) togetherWith fadeOut() },
+        transitionSpec = { fadeIn() togetherWith fadeOut() },
         label = "options",
     ) { t ->
         val content = @Composable {
             val style = vm.styleFor(t)
             when {
-                style != null -> StyleOptions(vm, t, style, dockFg, darkDock)
+                style != null -> StyleOptions(vm, t, style, dockFg, darkDock, vertical)
                 t == Tool.ERASER -> {
                     SizeDots(listOf(8f, 16f, 30f), listOf(8f, 16f, 30f)[vm.eraserSize], ring = true, fg = dockFg, darkDock = darkDock) { s ->
                         vm.eraserSize = listOf(8f, 16f, 30f).indexOf(s)
                     }
-                    MiniChip(if (settings.eraserMode == EraserMode.PIXEL) "Pixel" else "Stroke") {
-                        store.update {
-                            it.copy(eraserMode = if (it.eraserMode == EraserMode.PIXEL) EraserMode.STROKE else EraserMode.PIXEL)
+                    if (!vertical) {
+                        MiniChip(if (settings.eraserMode == EraserMode.PIXEL) "Pixel" else "Stroke") {
+                            store.update {
+                                it.copy(eraserMode = if (it.eraserMode == EraserMode.PIXEL) EraserMode.STROKE else EraserMode.PIXEL)
+                            }
                         }
                     }
                 }
                 t == Tool.TEXT -> SizeDots(listOf(28f, 40f, 64f), vm.textSize, fg = dockFg, darkDock = darkDock) { vm.textSize = it }
                 t == Tool.TAPE -> {
                     CustomSwatches(TapeColors, vm.tapeColor, vm) { vm.tapeColor = it }
-                    MiniChip(if (vm.tapeFreehand) "Freehand" else "Straight") { vm.tapeFreehand = !vm.tapeFreehand }
+                    if (!vertical) MiniChip(if (vm.tapeFreehand) "Freehand" else "Straight") { vm.tapeFreehand = !vm.tapeFreehand }
                 }
                 t == Tool.STICKY -> CustomSwatches(StickyColors, vm.stickyColor, vm) { vm.stickyColor = it }
                 t == Tool.WEBLINK -> CustomSwatches(WebLinkColors, vm.webLinkColor, vm) { vm.webLinkColor = it }
@@ -2257,17 +2447,19 @@ private fun ToolOptions(
                     MindPalette.take(5).forEach { c ->
                         Swatch(c, c == vm.mindColor, 18) { vm.recolorMindNode(color = c) }
                     }
-                    EditorViewModel.MindLayout.entries.forEach { layout ->
-                        MiniChip(layout.label) { vm.autoLayoutMindMap(layout) }
+                    if (!vertical) {
+                        EditorViewModel.MindLayout.entries.forEach { layout ->
+                            MiniChip(layout.label) { vm.autoLayoutMindMap(layout) }
+                        }
+                        MiniChip("Fit Map") { vm.fitMindMapToView() }
+                        MiniChip(if (vm.moveMindSubtree) "Subtree: On" else "Subtree: Off") { vm.moveMindSubtree = !vm.moveMindSubtree }
+                        MiniChip("Cards") { vm.flashcardsFromMindMap() }
                     }
-                    MiniChip("Fit Map") { vm.fitMindMapToView() }
-                    MiniChip(if (vm.moveMindSubtree) "Subtree: On" else "Subtree: Off") { vm.moveMindSubtree = !vm.moveMindSubtree }
-                    MiniChip("Cards") { vm.flashcardsFromMindMap() }
                 }
                 else -> Unit
             }
         }
-        if (vertical) Column(horizontalAlignment = Alignment.CenterHorizontally) { content() }
+        if (vertical) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) { content() }
         else Row(verticalAlignment = Alignment.CenterVertically) { content() }
     }
 }
@@ -2333,6 +2525,7 @@ private fun StyleOptions(
     style: ToolStyle,
     dockFg: Color,
     darkDock: Boolean,
+    vertical: Boolean = false,
 ) {
     var editing by remember { mutableStateOf<Int?>(null) }
     var adding by remember { mutableStateOf(false) }
@@ -2341,7 +2534,11 @@ private fun StyleOptions(
     SizeDots(style.sizes, style.size, fg = dockFg, darkDock = darkDock) { sz ->
         vm.updateStyle(t, style.copy(size = sz))
     }
-    Box(Modifier.padding(horizontal = 6.dp).width(1.dp).height(22.dp).background(dockFg.copy(alpha = 0.2f)))
+    if (vertical) {
+        Box(Modifier.padding(vertical = 4.dp).height(1.dp).width(22.dp).background(dockFg.copy(alpha = 0.2f)))
+    } else {
+        Box(Modifier.padding(horizontal = 6.dp).width(1.dp).height(22.dp).background(dockFg.copy(alpha = 0.2f)))
+    }
     style.colors.forEachIndexed { i, c ->
         val selected = c == style.color
         Box {
@@ -2397,7 +2594,6 @@ private fun SizeDots(
                 .size(34.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(if (selected) activeBg else Color.Transparent)
-                .elasticStretch(pressScale = 0.9f)
                 .clickable { onPick(s) },
             contentAlignment = Alignment.Center,
         ) {
@@ -2411,13 +2607,14 @@ private fun SizeDots(
     }
 }
 
-// ============================================================== SVG caret tool popovers
+private enum class PopoverCaretSide { TOP, BOTTOM, LEFT, RIGHT }
 
 @Composable
 private fun ToolPopoverCard(
     tool: Tool,
     vm: EditorViewModel,
     darkUi: Boolean,
+    caretSide: PopoverCaretSide = PopoverCaretSide.TOP,
     onDismiss: () -> Unit,
 ) {
     val pickTape = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -2431,15 +2628,16 @@ private fun ToolPopoverCard(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.widthIn(min = 310.dp, max = 380.dp),
     ) {
-        // SVG upward caret pointer
-        Canvas(Modifier.size(width = 24.dp, height = 11.dp)) {
-            val tri = Path().apply {
-                moveTo(0f, size.height)
-                lineTo(size.width / 2f, 0f)
-                lineTo(size.width, size.height)
-                close()
+        if (caretSide == PopoverCaretSide.TOP) {
+            Canvas(Modifier.size(width = 24.dp, height = 11.dp)) {
+                val tri = Path().apply {
+                    moveTo(0f, size.height)
+                    lineTo(size.width / 2f, 0f)
+                    lineTo(size.width, size.height)
+                    close()
+                }
+                drawPath(tri, cardBg)
             }
-            drawPath(tri, cardBg)
         }
         AppSurface(
             role = SurfaceRole.Popover,
@@ -2496,6 +2694,17 @@ private fun ToolPopoverCard(
                         Tool.STICKER, Tool.IMAGE -> Unit
                     }
                 }
+            }
+        }
+        if (caretSide == PopoverCaretSide.BOTTOM) {
+            Canvas(Modifier.size(width = 24.dp, height = 11.dp)) {
+                val tri = Path().apply {
+                    moveTo(0f, 0f)
+                    lineTo(size.width / 2f, size.height)
+                    lineTo(size.width, 0f)
+                    close()
+                }
+                drawPath(tri, cardBg)
             }
         }
     }
@@ -2618,7 +2827,6 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
                     .clip(RoundedCornerShape(14.dp))
                     .background(if (sel) tileBg else tileIdleBg)
                     .border(if (sel) 1.5.dp else 0.dp, if (sel) ProButtonPalette.ElectricBlue else Color.Transparent, RoundedCornerShape(14.dp))
-                    .elasticStretch()
                     .clickable { vm.penType = type }
                     .padding(vertical = 10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -2794,7 +3002,6 @@ private fun EraserCardContent(vm: EditorViewModel) {
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .elasticStretch()
             .clickable { vm.clearPageInk() }
             .padding(horizontal = 8.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -2995,7 +3202,6 @@ private fun ShapeCardContent(vm: EditorViewModel) {
                     .clip(RoundedCornerShape(16.dp))
                     .background(if (sel) ProButtonPalette.ElectricBlue.copy(alpha = 0.2f) else fgColor.copy(alpha = 0.08f))
                     .border(if (sel) 1.5.dp else 0.dp, if (sel) ProButtonPalette.ElectricBlue else Color.Transparent, RoundedCornerShape(16.dp))
-                    .elasticStretch()
                     .clickable { vm.shapeKind = k },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
@@ -3124,7 +3330,6 @@ private fun StickerSheet(onPick: (Bitmap) -> Unit) {
                         .padding(4.dp)
                         .aspectRatio(1f)
                         .clip(RoundedCornerShape(18.dp))
-                        .elasticStretch()
                         .clickable { pick(st) },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -3277,7 +3482,7 @@ private fun SelectionMenu(
                     shape = appPillShape(),
                     color = ProButtonPalette.ElectricBlue,
                     contentColor = Color.White,
-                    modifier = Modifier.padding(4.dp).elasticStretch(),
+                    modifier = Modifier.padding(4.dp),
                 ) {
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Outlined.Link, null, Modifier.size(18.dp), tint = Color.White)
@@ -3291,7 +3496,7 @@ private fun SelectionMenu(
                         shape = appPillShape(),
                         color = Color(0xFFE5484D),
                         contentColor = Color.White,
-                        modifier = Modifier.padding(4.dp).elasticStretch(),
+                        modifier = Modifier.padding(4.dp),
                     ) {
                         Text(
                             "Unlink",
@@ -3301,18 +3506,18 @@ private fun SelectionMenu(
                         )
                     }
                 }
-                IconButton(onClick = vm::cutSelection, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.ContentCut, "Cut") }
-                IconButton(onClick = vm::copySelection, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.ContentCopy, "Copy") }
-                IconButton(onClick = onDuplicate, modifier = Modifier.elasticStretch()) { ProIconView(ProIcon.ADD, fg, Modifier.size(22.dp)) }
-                IconButton(onClick = { vm.rainbowSelection() }, modifier = Modifier.elasticStretch()) {
+                IconButton(onClick = vm::cutSelection) { Icon(Icons.Outlined.ContentCut, "Cut") }
+                IconButton(onClick = vm::copySelection) { Icon(Icons.Outlined.ContentCopy, "Copy") }
+                IconButton(onClick = onDuplicate) { ProIconView(ProIcon.ADD, fg, Modifier.size(22.dp)) }
+                IconButton(onClick = { vm.rainbowSelection() }) {
                     Icon(Icons.Outlined.ColorLens, "Rainbow tint", tint = ProButtonPalette.MagentaPink)
                 }
-                IconButton(onClick = { colors = true }, modifier = Modifier.elasticStretch()) { Icon(Icons.Outlined.Palette, "Colour") }
-                IconButton(onClick = { keep { vm.rotateSelection(90f) } }, modifier = Modifier.elasticStretch()) {
+                IconButton(onClick = { colors = true }) { Icon(Icons.Outlined.Palette, "Colour") }
+                IconButton(onClick = { keep { vm.rotateSelection(90f) } }) {
                     Icon(Icons.Outlined.RotateRight, "Rotate 90°")
                 }
                 Box {
-                    IconButton(onClick = { moreOpen = true }, modifier = Modifier.elasticStretch()) {
+                    IconButton(onClick = { moreOpen = true }) {
                         ProIconView(ProIcon.MORE, fg, Modifier.size(22.dp))
                     }
                     AppContextMenu(
@@ -3343,7 +3548,7 @@ private fun SelectionMenu(
                         ),
                     )
                 }
-                IconButton(onClick = vm::deleteSelection, modifier = Modifier.elasticStretch()) {
+                IconButton(onClick = vm::deleteSelection) {
                     Icon(Icons.Outlined.Delete, "Delete", tint = MaterialTheme.colorScheme.error)
                 }
             }
@@ -3459,7 +3664,6 @@ private fun StudyTimer(
             shadowElevation = 6.dp,
             contentPadding = PaddingValues(0.dp),
             modifier = Modifier
-                .elasticStretch()
                 .combinedClickable(onClick = { running = !running }, onLongClick = { menu = true }),
         ) {
             Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -3729,7 +3933,7 @@ private fun SplitPanel(
                     .padding(horizontal = 2.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onSwap, modifier = Modifier.size(28.dp).elasticStretch()) {
+                IconButton(onClick = onSwap, modifier = Modifier.size(28.dp)) {
                     Icon(Icons.Outlined.SwapHoriz, "Swap Panes", Modifier.size(16.dp))
                 }
                 TextButton(onClick = { onRatioPreset(1f) }, contentPadding = PaddingValues(horizontal = 6.dp), modifier = Modifier.height(28.dp)) {
@@ -3762,7 +3966,7 @@ private fun SplitPanel(
             }
 
             if (writeMode) {
-                IconButton(enabled = vm2.canUndo, onClick = vm2::undo, modifier = Modifier.size(32.dp).elasticStretch()) {
+                IconButton(enabled = vm2.canUndo, onClick = vm2::undo, modifier = Modifier.size(32.dp)) {
                     Icon(Icons.AutoMirrored.Outlined.Undo, "Undo", Modifier.size(17.dp))
                 }
             }
@@ -3991,7 +4195,18 @@ private fun SplitPanel(
                     ) {
                         Box(Modifier.fillMaxWidth()) {
                             bmp?.let { Image(it.asImageBitmap(), "Page ${i + 1}", Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth) }
-                                ?: Box(Modifier.fillMaxWidth().aspectRatio((page.width / page.height).coerceIn(0.45f, 1.8f)))
+                                ?: run {
+                                    val shimmer by rememberInfiniteTransition(label = "splitPdfShimmer").animateFloat(
+                                        initialValue = 0f,
+                                        targetValue = 1f,
+                                        animationSpec = infiniteRepeatable(tween(1150, easing = LinearEasing), RepeatMode.Restart),
+                                        label = "sweep",
+                                    )
+                                    PdfSkeletonPreviewBox(
+                                        shimmer = shimmer,
+                                        modifier = Modifier.fillMaxWidth().aspectRatio((page.width / page.height).coerceIn(0.45f, 1.8f)),
+                                    )
+                                }
 
                             if (writeMode) {
                                 Box(

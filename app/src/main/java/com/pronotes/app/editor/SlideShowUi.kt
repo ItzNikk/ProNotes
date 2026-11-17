@@ -92,19 +92,14 @@ import com.pronotes.app.ui.AppDialogSurface
 import com.pronotes.app.ui.AppPill
 import com.pronotes.app.ui.AppSurface
 import com.pronotes.app.ui.FadeAnimatedText
-import com.pronotes.app.ui.MovingColorfulGradientBackground
 import com.pronotes.app.ui.ProButtonPalette
 import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.ProIconView
 import com.pronotes.app.ui.ScaleInAnimatedText
 import com.pronotes.app.ui.SurfaceRole
 import com.pronotes.app.ui.appCardShape
-import com.pronotes.app.ui.elasticStretch
 import kotlinx.coroutines.delay
 import java.util.UUID
-import kotlin.math.PI
-import kotlin.math.cos
-import kotlin.math.sin
 
 private fun SlideTheme.colors(): List<Color> = listOf(Color(gradA), Color(gradB), Color(accent))
 
@@ -144,7 +139,6 @@ fun SlideShowDialog(vm: EditorViewModel, onClose: () -> Unit) {
                         .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
                 ) {
                     Box(Modifier.fillMaxWidth()) {
-                        MovingColorfulGradientBackground(Modifier.matchParentSize(), intensity = 0.45f)
                         Column(Modifier.padding(20.dp)) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 Box(
@@ -253,7 +247,7 @@ fun SlideShowDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                         },
                                         shape = CircleShape,
                                         colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.SkyCyan, contentColor = Color(0xFF041224)),
-                                        modifier = Modifier.weight(1f).height(48.dp).elasticStretch(),
+                                        modifier = Modifier.weight(1f).height(48.dp),
                                     ) {
                                         Text("Build Deck ($slideCount Slides)", fontWeight = FontWeight.Bold)
                                     }
@@ -290,7 +284,6 @@ fun SlideShowDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                     enabled = vm.slides.isNotEmpty(),
                                     shape = CircleShape,
                                     colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.MagentaPink, contentColor = Color.White),
-                                    modifier = Modifier.elasticStretch(),
                                 ) {
                                     Text("Present Slideshow", fontWeight = FontWeight.Bold)
                                 }
@@ -423,41 +416,11 @@ private fun SlideShowPresenter(
         }
     }
 
-    val t = rememberInfiniteTransition(label = "presenter-bg")
-    val drift by t.animateFloat(
-        initialValue = 0f,
-        targetValue = (2.0 * PI).toFloat(),
-        animationSpec = infiniteRepeatable(tween(11000, easing = LinearEasing), RepeatMode.Restart),
-        label = "drift",
-    )
-
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color(0xFF040711)),
+            .background(Brush.linearGradient(cols.map { it.copy(alpha = 0.90f) })),
     ) {
-        Canvas(Modifier.fillMaxSize()) {
-            drawRect(Brush.linearGradient(cols.map { it.copy(alpha = 0.85f) }))
-            val w = size.width
-            val h = size.height
-            val minDim = minOf(w, h)
-            val orbs = listOf(
-                Triple(0.22f, 0.25f, Color.White.copy(alpha = 0.14f)),
-                Triple(0.82f, 0.28f, cols.last().copy(alpha = 0.36f)),
-                Triple(0.65f, 0.80f, Color(0xFFFDE047).copy(alpha = 0.15f)),
-                Triple(0.18f, 0.78f, ProButtonPalette.SkyCyan.copy(alpha = 0.22f)),
-            )
-            orbs.forEachIndexed { idx, (fx, fy, col) ->
-                val cx = w * fx + cos(drift + idx * 1.4f) * (minDim * 0.08f)
-                val cy = h * fy + sin(drift * 0.8f + idx * 1.1f) * (minDim * 0.08f)
-                val r = minDim * (0.34f + idx * 0.06f)
-                drawCircle(
-                    brush = Brush.radialGradient(listOf(col, Color.Transparent), center = Offset(cx, cy), radius = r),
-                    radius = r,
-                    center = Offset(cx, cy),
-                )
-            }
-        }
 
         Column(
             Modifier
@@ -546,7 +509,6 @@ private fun SlideShowPresenter(
                     enabled = safeIndex > 0,
                     shape = CircleShape,
                     colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.22f), contentColor = Color.White),
-                    modifier = Modifier.elasticStretch(),
                 ) { Text("Previous", modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) }
 
                 if (current.kind == SlideKind.CHECK_QA) {
@@ -554,7 +516,6 @@ private fun SlideShowPresenter(
                         onClick = { revealAnswer = !revealAnswer },
                         shape = CircleShape,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFDE047), contentColor = Color(0xFF0F172A)),
-                        modifier = Modifier.elasticStretch(),
                     ) {
                         Text(if (revealAnswer) "Hide Answer" else "Reveal Answer", fontWeight = FontWeight.Bold)
                     }
@@ -566,7 +527,6 @@ private fun SlideShowPresenter(
                     },
                     shape = CircleShape,
                     colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF0F172A)),
-                    modifier = Modifier.elasticStretch(),
                 ) {
                     Text(
                         if (safeIndex < slides.lastIndex) "Next" else "Finish",
@@ -762,7 +722,6 @@ private fun SlideCardEditorDialog(
                                     if (theme == th) Color.White else Color.Transparent,
                                     CircleShape,
                                 )
-                                .elasticStretch()
                                 .clickable { theme = th },
                         )
                     }
@@ -805,7 +764,6 @@ private fun SlideCardEditorDialog(
                 enabled = title.isNotBlank() || bulletsRaw.isNotBlank() || question.isNotBlank(),
                 shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
-                modifier = Modifier.elasticStretch(),
             ) { Text("Save Slide") }
         },
         dismissButton = {

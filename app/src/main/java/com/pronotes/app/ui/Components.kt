@@ -1,8 +1,5 @@
 package com.pronotes.app.ui
 
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -33,23 +30,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.github.skydoves.colorpicker.compose.BrightnessSlider
 import com.github.skydoves.colorpicker.compose.HsvColorPicker
 import com.github.skydoves.colorpicker.compose.rememberColorPickerController
-import com.pronotes.app.data.MotionStyle
-import kotlin.math.max
 
 /** Vibrant multi-color palette for interactive buttons, action pills, and highlights across the UI. */
 object ProButtonPalette {
@@ -67,21 +55,22 @@ object ProButtonPalette {
     val SlateNeutral = Color(0xFF475569)
 }
 
-/** A colour dot that stretches and pops when selected or pressed; keeps dark colors crisp on dark bars. */
+/** A crisp colour dot with a clean selection ring; keeps dark colors legible on dark bars. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Swatch(color: Int, selected: Boolean, size: Int = 26, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
-    val s by animateFloatAsState(if (selected) 1.15f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "swatch")
     val dotColor = Color(color)
-    val darkBarRim = dotColor.luminance() < 0.08f
+    val darkBarRim = dotColor.alpha < 0.05f || dotColor.luminance() < 0.08f
     Box(
-        Modifier.size((size + 8).dp).scale(s).elasticStretch(pressScale = 0.88f)
+        Modifier.size((size + 8).dp)
             .border(
                 width = if (selected) 2.dp else if (darkBarRim) 1.dp else 0.dp,
-                color = if (selected) MaterialTheme.colorScheme.primary else if (darkBarRim) Color.White.copy(alpha = 0.28f) else Color.Transparent,
+                color = if (selected) MaterialTheme.colorScheme.primary else if (darkBarRim) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f) else Color.Transparent,
                 shape = CircleShape,
             )
-            .padding(3.dp).clip(CircleShape).background(dotColor)
+            .padding(3.dp)
+            .clip(CircleShape)
+            .background(if (dotColor.alpha < 0.05f) MaterialTheme.colorScheme.surfaceVariant else dotColor)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     )
 }
@@ -167,77 +156,3 @@ val StickerSet = listOf(
     "Book", "Draft", "Concept", "Quote", "Trophy", "Milestone", "Diagram", "Summary",
 )
 
-/**
- * Elastic spring stretch feedback + zero-allocation soft radial touch glow for cards, pills, and buttons.
- */
-@Composable
-fun Modifier.elasticStretch(
-    enabled: Boolean = true,
-    pressScale: Float = 0.94f,
-    glowColor: Color = ProButtonPalette.SkyCyan,
-): Modifier {
-    val reducedMotion = LocalMotionStyle.current == MotionStyle.REDUCED
-    if (!enabled || reducedMotion) return this
-    var pressed by remember { mutableStateOf(false) }
-    var touchPos by remember { mutableStateOf(Offset.Zero) }
-    val sx by animateFloatAsState(
-        targetValue = if (pressed) pressScale else 1f,
-        animationSpec = spring(dampingRatio = 0.44f, stiffness = 460f),
-        label = "elasticX",
-    )
-    val sy by animateFloatAsState(
-        targetValue = if (pressed) (2f - pressScale).coerceAtMost(1.06f) else 1f,
-        animationSpec = spring(dampingRatio = 0.44f, stiffness = 460f),
-        label = "elasticY",
-    )
-    val glowAlpha by animateFloatAsState(
-        targetValue = if (pressed) 1f else 0f,
-        animationSpec = spring(stiffness = 500f),
-        label = "touchGlow",
-    )
-    return this
-        .pointerInput(enabled) {
-            awaitPointerEventScope {
-                while (true) {
-                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                    val active = event.changes.firstOrNull { it.pressed }
-                    if (active != null) {
-                        pressed = true
-                        touchPos = active.position
-                    } else {
-                        pressed = false
-                    }
-                }
-            }
-        }
-        .graphicsLayer { scaleX = sx; scaleY = sy }
-        .drawWithContent {
-            drawContent()
-            if (glowAlpha > 0.01f) {
-                val r = max(size.width, size.height).coerceAtLeast(48f) * 0.72f
-                val c = Offset(
-                    touchPos.x.coerceIn(0f, size.width),
-                    touchPos.y.coerceIn(0f, size.height),
-                )
-                // Layered concentric soft glow circles (zero per-frame Brush shader allocations)
-                drawCircle(
-                    color = glowColor.copy(alpha = 0.14f * glowAlpha),
-                    radius = r,
-                    center = c,
-                    blendMode = BlendMode.Plus,
-                )
-                drawCircle(
-                    color = Color.White.copy(alpha = 0.16f * glowAlpha),
-                    radius = r * 0.56f,
-                    center = c,
-                    blendMode = BlendMode.Plus,
-                )
-                drawCircle(
-                    color = Color.White.copy(alpha = 0.22f * glowAlpha),
-                    radius = r * 0.24f,
-                    center = c,
-                    blendMode = BlendMode.Plus,
-                )
-            }
-        }
-}

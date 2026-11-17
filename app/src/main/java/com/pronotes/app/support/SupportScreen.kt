@@ -8,12 +8,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -54,8 +49,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalContext
@@ -68,12 +61,10 @@ import com.pronotes.app.ui.AppChip
 import com.pronotes.app.ui.AppSurface
 import com.pronotes.app.ui.AppToggle
 import com.pronotes.app.ui.GradientTitle
-import com.pronotes.app.ui.MovingColorfulGradientBackground
 import com.pronotes.app.ui.ProButtonPalette
 import com.pronotes.app.ui.ScaleInAnimatedText
 import com.pronotes.app.ui.SurfaceRole
 import com.pronotes.app.ui.appPillShape
-import com.pronotes.app.ui.elasticStretch
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
@@ -107,8 +98,7 @@ fun SupportScreen(onBack: () -> Unit) {
         }
     }
 
-    Box(Modifier.fillMaxSize()) {
-        MovingColorfulGradientBackground(Modifier.fillMaxSize(), intensity = 0.55f)
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(
             Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -149,7 +139,7 @@ fun SupportScreen(onBack: () -> Unit) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Highlights", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = ProButtonPalette.ElectricBlue)
                     Text("- Clean Obsidian & Paper themes with colorful interactive controls", style = MaterialTheme.typography.bodySmall)
-                    Text("- Kindle Book Reading mode with smooth 3D page-turn animations", style = MaterialTheme.typography.bodySmall)
+                    Text("- Dedicated Book Reader space with physical page-turn animations", style = MaterialTheme.typography.bodySmall)
                     Text("- Writable split notes and flexible item transforms", style = MaterialTheme.typography.bodySmall)
                     Text("- Flashcards, Mind Maps, SlideShow, and Study Timer", style = MaterialTheme.typography.bodySmall)
                 }
@@ -183,7 +173,7 @@ fun SupportScreen(onBack: () -> Unit) {
                                 }
                             },
                             shape = CircleShape,
-                            modifier = Modifier.weight(1f).elasticStretch(),
+                            modifier = Modifier.weight(1f),
                         ) { Text(if (supportNote.isBlank()) "Send Applause" else "Send Note") }
                         OutlinedButton(
                             onClick = {
@@ -194,7 +184,6 @@ fun SupportScreen(onBack: () -> Unit) {
                                 context.startActivity(Intent.createChooser(send, "Share Pro Notes"))
                             },
                             shape = CircleShape,
-                            modifier = Modifier.elasticStretch(),
                         ) { Text("Share App") }
                     }
                 }
@@ -245,7 +234,7 @@ fun SupportScreen(onBack: () -> Unit) {
                             Toast.makeText(context, "No UPI app found", Toast.LENGTH_SHORT).show()
                         }
                     },
-                    shape = CircleShape, modifier = Modifier.widthIn(min = 240.dp).height(52.dp).elasticStretch(),
+                    shape = CircleShape, modifier = Modifier.widthIn(min = 240.dp).height(52.dp),
                 ) { Text(if (chooseInApp) "Continue to UPI" else if (amountValue > 0) "Pay ₹$amountValue with UPI" else "Enter an amount") }
             }
             Spacer(Modifier.height(32.dp))
@@ -256,9 +245,7 @@ fun SupportScreen(onBack: () -> Unit) {
 
 @Composable
 private fun BeatingHeart(modifier: Modifier) {
-    val t = rememberInfiniteTransition(label = "beat")
-    val s by t.animateFloat(0.92f, 1.06f, infiniteRepeatable(tween(650, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "s")
-    Canvas(modifier.scale(s)) { drawPath(heartPath(size.width / 2, size.height / 2, size.minDimension * 0.46f), Color(0xFFE5484D)) }
+    Canvas(modifier) { drawPath(heartPath(size.width / 2, size.height / 2, size.minDimension * 0.46f), Color(0xFFE5484D)) }
 }
 
 private fun heartPath(cx: Float, cy: Float, r: Float): Path = Path().apply {
@@ -294,9 +281,8 @@ private fun ThankYou(paid: Boolean, onClose: () -> Unit) {
                 val y = size.height / 2 + (sin(a) * dist).toFloat() - size.height * 0.15f * p * p
                 drawPath(heartPath(x, y, 18f + 14f * speed), Color(color).copy(alpha = (1f - p).coerceIn(0f, 1f)))
             }
-            drawCircle(Color(0x22E5484D), size.minDimension * 0.25f * (0.6f + p), Offset(size.width / 2, size.height / 2))
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.scale(0.9f + 0.1f * progress.value.coerceAtMost(1f))) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
             BeatingHeart(Modifier.size(90.dp))
             Spacer(Modifier.height(16.dp))
             GradientTitle("Thank you!", MaterialTheme.typography.headlineLarge)
