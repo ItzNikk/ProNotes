@@ -72,6 +72,8 @@ import com.pronotes.app.data.AppFont
 import com.pronotes.app.data.AppSettings
 import com.pronotes.app.data.CloudSync
 import com.pronotes.app.data.DeskColor
+import com.pronotes.app.data.EraserFilter
+import com.pronotes.app.data.EraserMode
 import com.pronotes.app.data.MotionStyle
 import com.pronotes.app.data.PagePreset
 import com.pronotes.app.data.PaperStyle
@@ -89,6 +91,7 @@ import com.pronotes.app.data.SideButton
 import com.pronotes.app.data.ThemeMode
 import com.pronotes.app.data.ToolbarDock
 import com.pronotes.app.data.ToolbarSize
+import com.pronotes.app.data.UiColorScheme
 import com.pronotes.app.data.Updater
 import com.pronotes.app.data.Updater.Phase as UPhase
 import com.pronotes.app.editor.ToolbarOrder
@@ -116,11 +119,11 @@ import java.text.DateFormat
 import java.util.Date
 
 private enum class Category(val label: String, val sub: String, val icon: ProIcon, val tint: Long) {
-    STYLUS("Stylus & input", "Drawing, feel, side button, pens", ProIcon.PEN, 0xFF0044EA),
+    STYLUS("Stylus & input", "Drawing, feel, eraser targets, pens", ProIcon.PEN, 0xFF0044EA),
     GESTURES("Gestures", "Live scribble sensitivity, circle, taps", ProIcon.LASSO, 0xFF00A3F5),
     PAGES("Pages & paper", "Scroll, templates, paper colour", ProIcon.DOCUMENT, 0xFF10B981),
-    TOOLBAR("Toolbar", "Floating capsule, hover tooltips, timer", ProIcon.TOOLBAR, 0xFFF01E6B),
-    LOOK("Appearance & Theme", "Palette, typography, corner roundness, motion", ProIcon.PALETTE, 0xFFFF8C00),
+    TOOLBAR("Toolbar", "Floating capsule, left/right dock, timer", ProIcon.TOOLBAR, 0xFFF01E6B),
+    LOOK("Appearance & Theme", "UI colour schemes, palette, typography, motion", ProIcon.PALETTE, 0xFFFF8C00),
     LIBRARY("Library & backup", "Covers, cloud sync, backup and restore", ProIcon.FOLDER, 0xFF7C3AED),
     ABOUT("About", "Version, resumable updates", ProIcon.INFO, 0xFF475569),
 }
@@ -231,12 +234,69 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                         Toggle("Haptic feedback", "Small buzz on shapes, selection and page add", s.haptics) { v -> up { it.copy(haptics = v) } }
                         Toggle("Pen touch tick", "A light tick when the pen lands", s.penHaptics) { v -> up { it.copy(penHaptics = v) } }
                     }
-                    Section("Paper feel") {
+                    Section("What the eraser erases") {
+                        Segmented(EraserMode.entries.map { it.label }, s.eraserMode.ordinal) { i ->
+                            up { it.copy(eraserMode = EraserMode.entries[i]) }
+                        }
+                        val ef = s.eraserFilter
+                        FlowRow(
+                            Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            AppChip(
+                                selected = ef.ink && !s.eraseHighlighterOnly,
+                                onClick = { up { it.copy(eraseHighlighterOnly = false, eraserFilter = ef.copy(ink = !ef.ink)) } },
+                                label = "Pen Ink",
+                            )
+                            AppChip(
+                                selected = ef.highlighter || s.eraseHighlighterOnly,
+                                onClick = {
+                                    val next = !ef.highlighter
+                                    up { it.copy(eraseHighlighterOnly = false, eraserFilter = ef.copy(highlighter = next)) }
+                                },
+                                label = "Highlighter",
+                            )
+                            AppChip(
+                                selected = ef.shapes && !s.eraseHighlighterOnly,
+                                onClick = { up { it.copy(eraseHighlighterOnly = false, eraserFilter = ef.copy(shapes = !ef.shapes)) } },
+                                label = "Shapes & Fills",
+                            )
+                            AppChip(
+                                selected = ef.text && !s.eraseHighlighterOnly,
+                                onClick = { up { it.copy(eraseHighlighterOnly = false, eraserFilter = ef.copy(text = !ef.text)) } },
+                                label = "Text & Write Boxes",
+                            )
+                            AppChip(
+                                selected = ef.stickyAndTape && !s.eraseHighlighterOnly,
+                                onClick = { up { it.copy(eraseHighlighterOnly = false, eraserFilter = ef.copy(stickyAndTape = !ef.stickyAndTape)) } },
+                                label = "Sticky & Washi Tape",
+                            )
+                            AppChip(
+                                selected = ef.images && !s.eraseHighlighterOnly,
+                                onClick = { up { it.copy(eraseHighlighterOnly = false, eraserFilter = ef.copy(images = !ef.images)) } },
+                                label = "Images & Stickers",
+                            )
+                        }
+                        Toggle("Erase highlighter only", "Quickly restrict erasing to highlighter strokes only", s.eraseHighlighterOnly) { v ->
+                            up {
+                                it.copy(
+                                    eraseHighlighterOnly = v,
+                                    eraserFilter = if (v) it.eraserFilter.copy(highlighter = true) else it.eraserFilter,
+                                )
+                            }
+                        }
+                        Toggle("Auto-switch back to pen", "Return to your previous tool as soon as you lift the eraser", s.eraserAutoSwitch) { v ->
+                            up { it.copy(eraserAutoSwitch = v) }
+                        }
+                    }
+                    Section("Paper feel & sounds") {
                         Toggle("Writing sound", "A soft pencil-on-paper sound that follows your speed", s.paperSound) { v -> up { it.copy(paperSound = v) } }
-                        if (s.paperSound) {
+                        Toggle("Book page-flip sound", "Realistic paper rustle & page turn sound in the Book Reader", s.bookFlipSound) { v -> up { it.copy(bookFlipSound = v) } }
+                        if (s.paperSound || s.bookFlipSound) {
                             Box(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
                                 AppSliderRow(
-                                    title = "Writing sound volume",
+                                    title = "Paper & page-flip volume",
                                     valueText = "${(s.paperVolume * 100).toInt()}%",
                                     value = s.paperVolume,
                                     valueRange = 0.05f..1f,
@@ -321,7 +381,16 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                 }
                 Category.TOOLBAR -> {
                     Section("Toolbar") {
-                        Choice("Position", s.toolbarDock.label, ToolbarDock.entries.map { it.label }) { i -> up { it.copy(toolbarDock = ToolbarDock.entries[i]) } }
+                        Choice("Position", s.toolbarDock.label, ToolbarDock.entries.map { it.label }) { i ->
+                            val nextDock = ToolbarDock.entries[i]
+                            val defaultPos = when (nextDock) {
+                                ToolbarDock.TOP, ToolbarDock.HEADER -> "0.5,0.03"
+                                ToolbarDock.BOTTOM, ToolbarDock.FREE -> "0.5,0.88"
+                                ToolbarDock.LEFT -> "0.02,0.5"
+                                ToolbarDock.RIGHT -> "0.94,0.5"
+                            }
+                            up { it.copy(toolbarDock = nextDock, toolbarPos = defaultPos) }
+                        }
                         Segmented(ToolbarSize.entries.map { it.label }, s.toolbarSize.ordinal) { i -> up { it.copy(toolbarSize = ToolbarSize.entries[i]) } }
                         Toggle("Hover tool name labels", "Show a floating tool badge when hovering with a pen or pointer", s.showHoverTooltips) { v -> up { it.copy(showHoverTooltips = v) } }
                     }
@@ -354,6 +423,74 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                                 valueRange = 8f..32f,
                                 onValueChange = { v -> up { it.copy(cornerRoundnessDp = v.coerceIn(8f, 32f)) } },
                             )
+                        }
+                    }
+                    Section("UI Colour Scheme") {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            UiColorScheme.entries.chunked(2).forEach { pair ->
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    pair.forEach { scheme ->
+                                        val selected = s.uiColorScheme == scheme
+                                        Box(
+                                            Modifier
+                                                .weight(1f)
+                                                .clip(RoundedCornerShape(14.dp))
+                                                .background(
+                                                    if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
+                                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                                )
+                                                .border(
+                                                    width = if (selected) 2.dp else 1.dp,
+                                                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                                    shape = RoundedCornerShape(14.dp),
+                                                )
+                                                .clickable { up { it.copy(uiColorScheme = scheme) } }
+                                                .padding(12.dp),
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                                // Preview swatch trio (light surface, dark surface, primary seed)
+                                                Row(horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
+                                                    Box(
+                                                        Modifier
+                                                            .size(22.dp)
+                                                            .clip(CircleShape)
+                                                            .background(Color(scheme.lightBg))
+                                                            .border(1.dp, Color.Black.copy(alpha = 0.18f), CircleShape),
+                                                    )
+                                                    Box(
+                                                        Modifier
+                                                            .size(22.dp)
+                                                            .clip(CircleShape)
+                                                            .background(Color(scheme.darkBg))
+                                                            .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape),
+                                                    )
+                                                    Box(
+                                                        Modifier
+                                                            .size(22.dp)
+                                                            .clip(CircleShape)
+                                                            .background(Color(scheme.seedPrimary))
+                                                            .border(1.dp, Color.White.copy(alpha = 0.4f), CircleShape),
+                                                    )
+                                                }
+                                                Column(Modifier.weight(1f)) {
+                                                    Text(
+                                                        scheme.label,
+                                                        style = MaterialTheme.typography.labelLarge,
+                                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
+                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                    )
+                                                    Text(
+                                                        scheme.subtitle,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        maxLines = 1,
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     Section("Typography") {

@@ -113,6 +113,109 @@ data class LassoFilter(
     val other: Boolean = true,
 )
 
+/** Which kinds of content the eraser removes. */
+@Immutable
+data class EraserFilter(
+    val ink: Boolean = true,
+    val highlighter: Boolean = true,
+    val shapes: Boolean = true,
+    val text: Boolean = false,
+    val stickyAndTape: Boolean = false,
+    val images: Boolean = false,
+)
+
+enum class UiColorScheme(
+    val label: String,
+    val subtitle: String,
+    val seedPrimary: Long,
+    val seedSecondary: Long,
+    val lightBg: Long,
+    val lightSurface: Long,
+    val darkBg: Long,
+    val darkSurface: Long,
+) {
+    OBSIDIAN_STUDIO(
+        label = "Obsidian Studio",
+        subtitle = "Crisp studio dark & warm paper",
+        seedPrimary = 0xFF0044EA,
+        seedSecondary = 0xFF00A3F5,
+        lightBg = 0xFFF3F1EA,
+        lightSurface = 0xFFFBF9F4,
+        darkBg = 0xFF141519,
+        darkSurface = 0xFF1C1C1C,
+    ),
+    SAMSUNG_WARM(
+        label = "Warm Ivory",
+        subtitle = "Cozy cream & botanical ink",
+        seedPrimary = 0xFF24483F,
+        seedSecondary = 0xFF35655A,
+        lightBg = 0xFFF6F1E6,
+        lightSurface = 0xFFFDFBF6,
+        darkBg = 0xFF171614,
+        darkSurface = 0xFF211F1C,
+    ),
+    OCEAN_BREEZE(
+        label = "Ocean Breeze",
+        subtitle = "Coastal blue & airy slate",
+        seedPrimary = 0xFF0284C7,
+        seedSecondary = 0xFF38BDF8,
+        lightBg = 0xFFEEF6FA,
+        lightSurface = 0xFFF8FCFF,
+        darkBg = 0xFF0D1722,
+        darkSurface = 0xFF152232,
+    ),
+    FOREST_SAGE(
+        label = "Forest Sage",
+        subtitle = "Botanical green & parchment",
+        seedPrimary = 0xFF15803D,
+        seedSecondary = 0xFF34D399,
+        lightBg = 0xFFEEF4EF,
+        lightSurface = 0xFFF7FBF8,
+        darkBg = 0xFF0F1913,
+        darkSurface = 0xFF17261D,
+    ),
+    ROSE_QUARTZ(
+        label = "Rose Quartz",
+        subtitle = "Soft blush & berry accents",
+        seedPrimary = 0xFFE11D48,
+        seedSecondary = 0xFFFB7185,
+        lightBg = 0xFFFBF1F3,
+        lightSurface = 0xFFFFF8F9,
+        darkBg = 0xFF1C1115,
+        darkSurface = 0xFF28181E,
+    ),
+    MIDNIGHT_OLED(
+        label = "Midnight OLED",
+        subtitle = "True black OLED & electric indigo",
+        seedPrimary = 0xFF4F46E5,
+        seedSecondary = 0xFF818CF8,
+        lightBg = 0xFFF1F3F9,
+        lightSurface = 0xFFFFFFFF,
+        darkBg = 0xFF000000,
+        darkSurface = 0xFF0D0E14,
+    ),
+    NORDIC_SLATE(
+        label = "Nordic Slate",
+        subtitle = "Cool architectural steel",
+        seedPrimary = 0xFF334155,
+        seedSecondary = 0xFF64748B,
+        lightBg = 0xFFEDF1F5,
+        lightSurface = 0xFFF8FAFC,
+        darkBg = 0xFF11151C,
+        darkSurface = 0xFF1B222C,
+    ),
+    SOLAR_AMBER(
+        label = "Solar Amber",
+        subtitle = "Golden honey & warm espresso",
+        seedPrimary = 0xFFD97706,
+        seedSecondary = 0xFFFBBF24,
+        lightBg = 0xFFFBF5E8,
+        lightSurface = 0xFFFFFCF5,
+        darkBg = 0xFF1B160F,
+        darkSurface = 0xFF261F15,
+    ),
+}
+
 @Immutable
 data class AppSettings(
     // stylus & input
@@ -167,6 +270,7 @@ data class AppSettings(
     val paperSound: Boolean = true,
     val paperHaptics: Boolean = true,
     val paperVolume: Float = 0.4f,
+    val bookFlipSound: Boolean = true,
     /** Device-specific performance profile; never synced to the cloud. */
     val performanceMode: PerformanceMode = PerformanceMode.BALANCED,
     /** Corner roundness in dp (8 = soft rectangle, 28 = rounded studio). */
@@ -180,6 +284,7 @@ data class AppSettings(
     // tools
     val eraserMode: EraserMode = EraserMode.STROKE,
     val eraseHighlighterOnly: Boolean = false,
+    val eraserFilter: EraserFilter = EraserFilter(),
     val eraserAutoSwitch: Boolean = false,
     val highlighterBehind: Boolean = true,
     val highlighterMode: HighlighterMode = HighlighterMode.AUTO,
@@ -192,6 +297,7 @@ data class AppSettings(
     val lassoTouching: Boolean = false,
     // look & customization
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val uiColorScheme: UiColorScheme = UiColorScheme.OBSIDIAN_STUDIO,
     val accent: AccentColor = AccentColor.BLUE,
     val gradientTitles: Boolean = false,
     val appFont: AppFont = AppFont.MODERN_SANS,
@@ -267,6 +373,7 @@ class SettingsStore private constructor(context: Context) {
             paperSound = b("paperSound", d.paperSound),
             paperHaptics = b("paperHaptics", d.paperHaptics),
             paperVolume = prefs.getFloat("paperVol", d.paperVolume),
+            bookFlipSound = b("bookFlipSound", d.bookFlipSound),
             performanceMode = enumOf("performanceMode", d.performanceMode),
             cornerRoundnessDp = prefs.getFloat("cornerRoundnessDp", d.cornerRoundnessDp).coerceIn(8f, 32f),
             penName = prefs.getString("penName", d.penName) ?: d.penName,
@@ -276,6 +383,14 @@ class SettingsStore private constructor(context: Context) {
             supportReminders = b("supportReminders", d.supportReminders),
             eraserMode = enumOf("eraserMode", d.eraserMode),
             eraseHighlighterOnly = b("eraseHlOnly", d.eraseHighlighterOnly),
+            eraserFilter = EraserFilter(
+                ink = b("eraseInk", true),
+                highlighter = b("eraseHl", true),
+                shapes = b("eraseShapes", true),
+                text = b("eraseText", false),
+                stickyAndTape = b("eraseStickyTape", false),
+                images = b("eraseImages", false),
+            ),
             eraserAutoSwitch = b("eraserAutoSwitch", d.eraserAutoSwitch),
             highlighterBehind = b("hlBehind", d.highlighterBehind),
             highlighterMode = if (!prefs.contains("hlMode") && legacyStraight) HighlighterMode.STRAIGHT else enumOf("hlMode", d.highlighterMode),
@@ -289,6 +404,7 @@ class SettingsStore private constructor(context: Context) {
             ),
             lassoTouching = b("lassoTouching", d.lassoTouching),
             themeMode = enumOf("themeMode", d.themeMode),
+            uiColorScheme = enumOf("uiColorScheme", d.uiColorScheme),
             accent = enumOf("accent", d.accent),
             gradientTitles = b("gradientTitles", d.gradientTitles),
             appFont = enumOf("appFont", d.appFont),
@@ -345,6 +461,7 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("paperSound", s.paperSound)
             .putBoolean("paperHaptics", s.paperHaptics)
             .putFloat("paperVol", s.paperVolume)
+            .putBoolean("bookFlipSound", s.bookFlipSound)
             .putString("performanceMode", s.performanceMode.name)
             .putFloat("cornerRoundnessDp", s.cornerRoundnessDp.coerceIn(8f, 32f))
             .putString("penName", s.penName)
@@ -354,6 +471,12 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("supportReminders", s.supportReminders)
             .putString("eraserMode", s.eraserMode.name)
             .putBoolean("eraseHlOnly", s.eraseHighlighterOnly)
+            .putBoolean("eraseInk", s.eraserFilter.ink)
+            .putBoolean("eraseHl", s.eraserFilter.highlighter)
+            .putBoolean("eraseShapes", s.eraserFilter.shapes)
+            .putBoolean("eraseText", s.eraserFilter.text)
+            .putBoolean("eraseStickyTape", s.eraserFilter.stickyAndTape)
+            .putBoolean("eraseImages", s.eraserFilter.images)
             .putBoolean("eraserAutoSwitch", s.eraserAutoSwitch)
             .putBoolean("hlBehind", s.highlighterBehind)
             .putString("hlMode", s.highlighterMode.name)
@@ -368,6 +491,7 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("lassoOther", s.lassoFilter.other)
             .putBoolean("lassoTouching", s.lassoTouching)
             .putString("themeMode", s.themeMode.name)
+            .putString("uiColorScheme", s.uiColorScheme.name)
             .putString("accent", s.accent.name)
             .putBoolean("gradientTitles", s.gradientTitles)
             .putString("appFont", s.appFont.name)

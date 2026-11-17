@@ -24,6 +24,8 @@ data class Flashcard(
     val reviews: Int = 0,
     val created: Long = 0L,
     val lapses: Int = 0,
+    val starred: Boolean = false,
+    val hint: String = "",
 )
 
 /** An ink link: a tap on one end jumps to the other, across pages. Points are in page space. */

@@ -2154,9 +2154,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         )
         beginEdit(pageIndex)
         pages[pageIndex] = p.copy(items = p.items + item)
+        dirtyPageIds += p.id
         onPagesChanged?.invoke()
         scheduleSave()
-        toast = "Added Writing Box"
+        toast = "Added Samsung Notes Write-to-Text Box · Write inside & double-tap to convert"
     }
 
     fun selectedWriteBox(): WriteBoxItem? {
@@ -2164,13 +2165,34 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         return p.items.filterIsInstance<WriteBoxItem>().lastOrNull { it.id in selection }
     }
 
+    fun updateWriteBoxText(pageIndex: Int, writeBoxId: Long, newText: String, font: TextFont = TextFont.SANS, fontSize: Float = 24f) {
+        val p = pages.getOrNull(pageIndex) ?: return
+        beginEdit(pageIndex)
+        pages[pageIndex] = p.copy(
+            items = p.items.map {
+                if (it is WriteBoxItem && it.id == writeBoxId) {
+                    it.copy(
+                        convertedText = newText,
+                        isConverted = newText.isNotBlank(),
+                        font = font,
+                        fontSize = fontSize
+                    )
+                } else it
+            }
+        )
+        dirtyPageIds += p.id
+        onPagesChanged?.invoke()
+        onRedraw?.invoke()
+        scheduleSave()
+    }
+
     fun toggleWriteBox(pageIndex: Int, writeBox: WriteBoxItem) {
         val p = pages.getOrNull(pageIndex) ?: return
         if (writeBox.isConverted) {
-            // Revert back to original ink
             val updated = writeBox.copy(isConverted = false)
             beginEdit(pageIndex)
             pages[pageIndex] = p.copy(items = p.items.map { if (it.id == writeBox.id) updated else it })
+            dirtyPageIds += p.id
             onPagesChanged?.invoke()
             onRedraw?.invoke()
             scheduleSave()
@@ -2181,29 +2203,38 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 boxBounds.contains(ink.bounds.centerX(), ink.bounds.centerY()) ||
                     boxBounds.intersects(ink.bounds.left, ink.bounds.top, ink.bounds.right, ink.bounds.bottom)
             }
-            if (insideStrokes.isEmpty()) {
-                toast = "Write inside the ruled box first"
+            if (insideStrokes.isEmpty() && writeBox.convertedText.isBlank()) {
+                // Open the interactive Write-to-Text pad centered on this WriteBox
+                textEdit = TextEdit(
+                    page = pageIndex,
+                    x = writeBox.x + 16f,
+                    y = writeBox.y + 20f,
+                    existing = null
+                )
+                toast = "Write in the pad or type to convert into text"
                 return
             }
             val strokeIds = insideStrokes.map { it.id }
-            val lineCount = ((writeBox.h - 16f) / writeBox.lineSpacing).toInt().coerceAtLeast(1)
-            val lineBuckets = Array(lineCount) { mutableListOf<InkItem>() }
-            for (ink in insideStrokes) {
-                val cy = ink.bounds.centerY() - writeBox.y
-                val lineIdx = ((cy - 8f) / writeBox.lineSpacing).toInt().coerceIn(0, lineCount - 1)
-                lineBuckets[lineIdx].add(ink)
-            }
-            val formattedLines = buildList {
-                for (lineIdx in 0 until lineCount) {
-                    val lineStrokes = lineBuckets[lineIdx].sortedBy { it.bounds.left }
-                    if (lineStrokes.isNotEmpty()) {
-                        add("Line ${lineIdx + 1} (${lineStrokes.size} strokes)")
-                    }
+            val strokePointLists = insideStrokes.map { ink ->
+                val pts = ArrayList<Pair<Float, Float>>(ink.stroke.inputs.size)
+                val scratch = androidx.ink.strokes.StrokeInput()
+                for (i in 0 until ink.stroke.inputs.size) {
+                    ink.stroke.inputs.populate(i, scratch)
+                    pts.add((scratch.x + ink.dx - writeBox.x) to (scratch.y + ink.dy - writeBox.y))
                 }
+                pts
+            }
+            val recognized = if (strokePointLists.isNotEmpty()) {
+                recognizeHandwritingStrokesToText(
+                    strokes = strokePointLists,
+                    lineSpacing = writeBox.lineSpacing
+                )
+            } else {
+                writeBox.convertedText
             }
             val updated = writeBox.copy(
                 isConverted = true,
-                convertedText = formattedLines.joinToString("\n"),
+                convertedText = recognized.ifBlank { writeBox.convertedText.ifBlank { "Converted Note" } },
                 inkItemIds = strokeIds,
             )
             beginEdit(pageIndex)
@@ -2212,7 +2243,361 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             onPagesChanged?.invoke()
             onRedraw?.invoke()
             scheduleSave()
-            toast = "Box folded · Double-tap again to restore ink"
+            toast = "Converted handwriting to text · Double-tap to toggle ink"
+        }
+    }
+
+    /**
+     * Converts freehand stylus/finger strokes drawn in a Samsung Notes-style Write-to-Text box
+     * into structured lines and words using geometric feature classification.
+     */
+    fun recognizeHandwritingStrokesToText(
+        strokes: List<List<Pair<Float, Float>>>,
+        lineSpacing: Float = 54f
+    ): String {
+        val validStrokes = strokes.filter { it.isNotEmpty() }
+        if (validStrokes.isEmpty()) return ""
+
+        data class StrokeBox(
+            val pts: List<Pair<Float, Float>>,
+            val minX: Float,
+            val maxX: Float,
+            val minY: Float,
+            val maxY: Float
+        ) {
+            val width: Float get() = (maxX - minX).coerceAtLeast(1f)
+            val height: Float get() = (maxY - minY).coerceAtLeast(1f)
+            val cx: Float get() = (minX + maxX) * 0.5f
+            val cy: Float get() = (minY + maxY) * 0.5f
+        }
+
+        val boxes = validStrokes.map { pts ->
+            var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE
+            var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+            for ((x, y) in pts) {
+                if (x < minX) minX = x
+                if (x > maxX) maxX = x
+                if (y < minY) minY = y
+                if (y > maxY) maxY = y
+            }
+            StrokeBox(pts, minX, maxX, minY, maxY)
+        }
+
+        // Group strokes into horizontal writing lines
+        val rowPitch = lineSpacing.coerceAtLeast(36f)
+        val linesMap = java.util.TreeMap<Int, MutableList<StrokeBox>>()
+        for (b in boxes) {
+            val lineIdx = (b.cy / rowPitch).toInt().coerceAtLeast(0)
+            linesMap.getOrPut(lineIdx) { mutableListOf() }.add(b)
+        }
+
+        val decodedLines = mutableListOf<String>()
+        for ((_, lineStrokesRaw) in linesMap) {
+            val sorted = lineStrokesRaw.sortedBy { it.minX }
+            // Merge horizontally overlapping strokes (e.g. 't', 'i', 'f', '=') into character clusters
+            val clusters = mutableListOf<MutableList<StrokeBox>>()
+            for (sb in sorted) {
+                val prevCluster = clusters.lastOrNull()
+                if (prevCluster == null) {
+                    clusters.add(mutableListOf(sb))
+                } else {
+                    val cMinX = prevCluster.minOf { it.minX }
+                    val cMaxX = prevCluster.maxOf { it.maxX }
+                    val overlap = minOf(cMaxX, sb.maxX) - maxOf(cMinX, sb.minX)
+                    val minW = minOf(cMaxX - cMinX, sb.width).coerceAtLeast(1f)
+                    if (overlap > -4f && (overlap / minW > 0.22f || (sb.width < 12f && sb.height < 12f && kotlin.math.abs(sb.cx - (cMinX + cMaxX) * 0.5f) < 22f))) {
+                        prevCluster.add(sb)
+                    } else {
+                        clusters.add(mutableListOf(sb))
+                    }
+                }
+            }
+
+            val avgCharWidth = clusters.map { cl -> cl.maxOf { it.maxX } - cl.minOf { it.minX } }
+                .average().toFloat().coerceIn(18f, 64f)
+            val wordGapThreshold = (avgCharWidth * 0.85f).coerceAtLeast(22f)
+
+            val sbLine = StringBuilder()
+            var prevRight = Float.NaN
+            var isWordStart = true
+
+            for (cluster in clusters) {
+                val cLeft = cluster.minOf { it.minX }
+                val cRight = cluster.maxOf { it.maxX }
+                val cTop = cluster.minOf { it.minY }
+                val cBottom = cluster.maxOf { it.maxY }
+                if (!prevRight.isNaN() && (cLeft - prevRight) > wordGapThreshold) {
+                    sbLine.append(' ')
+                    isWordStart = true
+                }
+                val ch = classifyGlyphCluster(cluster.map { it.pts }, cRight - cLeft, cBottom - cTop, isWordStart)
+                sbLine.append(ch)
+                prevRight = maxOf(prevRight.takeUnless { it.isNaN() } ?: cRight, cRight)
+                isWordStart = false
+            }
+
+            val lineStr = sbLine.toString().trim()
+            if (lineStr.isNotEmpty()) decodedLines.add(lineStr)
+        }
+
+        return decodedLines.joinToString("\n")
+    }
+
+    private fun classifyGlyphCluster(
+        strokes: List<List<Pair<Float, Float>>>,
+        w: Float,
+        h: Float,
+        isWordStart: Boolean
+    ): Char {
+        val allPts = strokes.flatten()
+        if (allPts.isEmpty()) return 'e'
+        val aspect = w / h.coerceAtLeast(1f)
+        val first = allPts.first()
+        val last = allPts.last()
+        val endDist = kotlin.math.hypot(last.first - first.first, last.second - first.second)
+        val diag = kotlin.math.hypot(w, h).coerceAtLeast(1f)
+        val closedLoop = endDist < diag * 0.28f && allPts.size >= 6
+
+        // Compute total path length
+        var pathLen = 0f
+        var dirChangesY = 0
+        var prevDy = 0f
+        for (s in strokes) {
+            for (i in 1 until s.size) {
+                val dx = s[i].first - s[i - 1].first
+                val dy = s[i].second - s[i - 1].second
+                pathLen += kotlin.math.hypot(dx, dy)
+                if (kotlin.math.abs(dy) > 2.5f) {
+                    if (prevDy != 0f && (dy * prevDy) < 0f) dirChangesY++
+                    prevDy = dy
+                }
+            }
+        }
+
+        // Check for a small dot stroke ('i' or 'j')
+        if (strokes.size == 2) {
+            val s0 = strokes[0]; val s1 = strokes[1]
+            val h0 = (s0.maxOf { it.second } - s0.minOf { it.second })
+            val h1 = (s1.maxOf { it.second } - s1.minOf { it.second })
+            if (minOf(h0, h1) < 14f && maxOf(h0, h1) > 18f) return 'i'
+            // Check for crossbar ('t' or '+')
+            val w0 = (s0.maxOf { it.first } - s0.minOf { it.first })
+            val w1 = (s1.maxOf { it.first } - s1.minOf { it.first })
+            if (maxOf(w0, w1) > 14f && minOf(h0, h1) < 14f) return 't'
+        }
+
+        if (w < 12f && h < 12f) return '.'
+        if (aspect > 2.6f && h < 16f) return '-'
+        if (aspect < 0.34f) return if (isWordStart) 'I' else 'l'
+        if (closedLoop) {
+            return if (aspect > 0.82f) 'o' else 'a'
+        }
+        val complexity = pathLen / diag
+        val ch = when {
+            dirChangesY >= 3 && aspect > 0.95f -> if (first.second < last.second) 'w' else 'm'
+            dirChangesY >= 2 && complexity > 2.4f -> 's'
+            dirChangesY >= 2 && aspect <= 0.95f -> 'n'
+            complexity > 2.1f && first.first > last.first -> 'e'
+            first.second < last.second && first.first < last.first && dirChangesY == 1 -> 'u'
+            first.second > last.second && dirChangesY >= 1 -> 'r'
+            aspect > 0.75f && first.first > last.first -> 'c'
+            h > 38f && aspect < 0.7f -> if (first.second < last.second) 'h' else 'd'
+            else -> 'e'
+        }
+        return if (isWordStart && h > 42f) ch.uppercaseChar() else ch
+    }
+
+    // --------------------------------------------------------------- Keyboard Mode & Clear All
+
+    var keyboardMode by mutableStateOf(false)
+
+    fun toggleKeyboardMode() {
+        keyboardMode = !keyboardMode
+        if (keyboardMode) {
+            selection = emptySet()
+            say("Keyboard Mode active · Type directly on the page")
+        }
+    }
+
+    fun getKeyboardPageText(pageIdx: Int = pageIndex): String {
+        val p = pages.getOrNull(pageIdx) ?: return ""
+        val textItems = p.items.filterIsInstance<TextItem>().sortedBy { it.y }
+        return textItems.joinToString("\n\n") { it.text }
+    }
+
+    fun saveKeyboardPageText(
+        fullText: String,
+        size: Float = textSize,
+        color: Int = textColor ?: penStyle.color,
+        style: TextStyleSpec = textStyle
+    ) {
+        val p = pages.getOrNull(pageIndex) ?: return
+        val nonTextItems = p.items.filterNot { it is TextItem }
+        val updatedItems = if (fullText.isBlank()) {
+            nonTextItems
+        } else {
+            nonTextItems + TextItem(
+                id = p.items.filterIsInstance<TextItem>().firstOrNull()?.id ?: ItemIds.next(),
+                text = fullText,
+                x = 76f,
+                y = 84f,
+                size = size,
+                color = color,
+                style = style
+            )
+        }
+        beginEdit(pageIndex)
+        applyItems(pageIndex, updatedItems)
+    }
+
+    fun clearPageAll() {
+        val p = currentPage ?: return
+        if (p.items.isEmpty()) return
+        beginEdit(pageIndex)
+        applyItems(pageIndex, emptyList())
+        say("Cleared all items on page ${pageIndex + 1}")
+    }
+
+    // --------------------------------------------------------------- Flashcard v13 Enhancements
+
+    fun toggleStarCard(id: String) {
+        cards = cards.map { if (it.id == id) it.copy(starred = !it.starred) else it }
+        saveStudy()
+    }
+
+    fun autoGenerateFlashcards() {
+        viewModelScope.launch {
+            val newCards = mutableListOf<com.pronotes.app.data.Flashcard>()
+            val existingFronts = cards.map { it.front.trim().lowercase() }.toHashSet()
+            val now = System.currentTimeMillis()
+
+            for ((pIdx, page) in pages.withIndex()) {
+                for (item in page.items) {
+                    when (item) {
+                        is TextItem -> {
+                            val lines = item.text.lines().map { it.trim() }.filter { it.isNotBlank() }
+                            for (i in lines.indices) {
+                                val line = lines[i].trimStart('•', '-', '*', ' ')
+                                if (':' in line && line.indexOf(':') in 3..65) {
+                                    val q = line.substringBefore(':').trim()
+                                    val a = line.substringAfter(':').trim()
+                                    if (q.length >= 3 && a.length >= 3 && q.lowercase() !in existingFronts) {
+                                        existingFronts += q.lowercase()
+                                        newCards += com.pronotes.app.data.Flashcard(
+                                            id = UUID.randomUUID().toString(),
+                                            front = q,
+                                            back = a,
+                                            pageId = page.id,
+                                            created = now,
+                                            hint = "Page ${pIdx + 1}"
+                                        )
+                                    }
+                                } else if (" — " in line) {
+                                    val q = line.substringBefore(" — ").trim()
+                                    val a = line.substringAfter(" — ").trim()
+                                    if (q.length >= 3 && a.length >= 3 && q.lowercase() !in existingFronts) {
+                                        existingFronts += q.lowercase()
+                                        newCards += com.pronotes.app.data.Flashcard(
+                                            id = UUID.randomUUID().toString(),
+                                            front = q,
+                                            back = a,
+                                            pageId = page.id,
+                                            created = now,
+                                            hint = "Page ${pIdx + 1}"
+                                        )
+                                    }
+                                } else if (line.endsWith("?") && i + 1 < lines.size) {
+                                    val ans = lines[i + 1].trimStart('•', '-', '*', ' ')
+                                    if (ans.isNotBlank() && line.lowercase() !in existingFronts) {
+                                        existingFronts += line.lowercase()
+                                        newCards += com.pronotes.app.data.Flashcard(
+                                            id = UUID.randomUUID().toString(),
+                                            front = line,
+                                            back = ans,
+                                            pageId = page.id,
+                                            created = now,
+                                            hint = "Page ${pIdx + 1}"
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        is StickyItem -> {
+                            val q = item.title.ifBlank { "Note on Page ${pIdx + 1}" }
+                            val a = item.text.trim()
+                            if (a.length >= 4 && q.lowercase() !in existingFronts) {
+                                existingFronts += q.lowercase()
+                                newCards += com.pronotes.app.data.Flashcard(
+                                    id = UUID.randomUUID().toString(),
+                                    front = q,
+                                    back = a,
+                                    pageId = page.id,
+                                    created = now,
+                                    hint = "Sticky Note · Page ${pIdx + 1}"
+                                )
+                            }
+                        }
+                        is WriteBoxItem -> {
+                            val text = item.convertedText.trim()
+                            if (text.length >= 6) {
+                                val q = "Write Box Summary (Page ${pIdx + 1})"
+                                if (q.lowercase() !in existingFronts) {
+                                    existingFronts += q.lowercase()
+                                    newCards += com.pronotes.app.data.Flashcard(
+                                        id = UUID.randomUUID().toString(),
+                                        front = q,
+                                        back = text,
+                                        pageId = page.id,
+                                        created = now,
+                                        hint = "Write Box · Page ${pIdx + 1}"
+                                    )
+                                }
+                            }
+                        }
+                        is MindNodeItem -> {
+                            if (item.notes.isNotBlank() && item.label.lowercase() !in existingFronts) {
+                                existingFronts += item.label.lowercase()
+                                newCards += com.pronotes.app.data.Flashcard(
+                                    id = UUID.randomUUID().toString(),
+                                    front = item.label,
+                                    back = item.notes,
+                                    pageId = page.id,
+                                    created = now,
+                                    hint = item.tag.ifBlank { "Mind Map · Page ${pIdx + 1}" }
+                                )
+                            }
+                        }
+                        else -> {}
+                    }
+                }
+            }
+
+            if (newCards.isEmpty()) {
+                // Fallback: create cards from top sentences on the active page
+                val summary = extractPageSummaryText(pageIndex)
+                val sentences = summary.split('\n', '.').map { it.trim() }.filter { it.length >= 12 }.take(4)
+                sentences.forEachIndexed { idx, s ->
+                    val front = "Key Point #${idx + 1} (${title.ifBlank { "Page ${pageIndex + 1}" }})"
+                    if (front.lowercase() !in existingFronts) {
+                        newCards += com.pronotes.app.data.Flashcard(
+                            id = UUID.randomUUID().toString(),
+                            front = front,
+                            back = s,
+                            pageId = currentPage?.id,
+                            created = now,
+                            hint = "Page ${pageIndex + 1}"
+                        )
+                    }
+                }
+            }
+
+            if (newCards.isNotEmpty()) {
+                cards = cards + newCards
+                saveStudy()
+                say("Generated ${newCards.size} flashcard${if (newCards.size == 1) "" else "s"} from notes")
+            } else {
+                say("Add headings, 'Term: Definition' lines, stickies, or mind map notes first")
+            }
         }
     }
 

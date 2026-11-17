@@ -1471,6 +1471,20 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
     // ----------------------------------------------------------- eraser
 
+    private fun eraserAllows(item: PageItem): Boolean {
+        if (settings.eraseHighlighterOnly) {
+            return item is InkItem && item.isHighlighter
+        }
+        val ef = settings.eraserFilter
+        return when (item) {
+            is InkItem -> if (item.isHighlighter) ef.highlighter else ef.ink
+            is FillItem -> ef.shapes
+            is TextItem, is WriteBoxItem -> ef.text
+            is StickyItem, is TapeItem, is WebLinkItem, is MindNodeItem -> ef.stickyAndTape
+            is ImageItem -> ef.images
+        }
+    }
+
     private fun eraseScribbleWindow(page: Int, pts: List<Pt>, highlighter: Boolean) {
         if (pts.size < 2) return
         val p = pages.getOrNull(page) ?: return
@@ -1479,8 +1493,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         val touched = itemsUnder(page, pts)
         val hit = p.items.filter { item ->
             val ok = when (item) {
-                is InkItem -> item.isHighlighter == highlighter
-                is TextItem -> !highlighter
+                is InkItem -> item.isHighlighter == highlighter && eraserAllows(item)
+                is TextItem -> !highlighter && eraserAllows(item)
                 else -> false
             }
             if (!ok) return@filter false
@@ -1506,12 +1520,12 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             if (scribbleErased) {
                 val scribbleHigh = strokeTool == Tool.HIGHLIGHTER
                 val ok = when (item) {
-                    is InkItem -> item.isHighlighter == scribbleHigh
-                    is TextItem -> !scribbleHigh
+                    is InkItem -> item.isHighlighter == scribbleHigh && eraserAllows(item)
+                    is TextItem -> !scribbleHigh && eraserAllows(item)
                     else -> false
                 }
                 if (!ok) continue
-            } else if (settings.eraseHighlighterOnly && !(item is InkItem && item.isHighlighter)) continue
+            } else if (!eraserAllows(item)) continue
             when (item) {
                 is InkItem -> {
                     val b = item.bounds
@@ -1540,8 +1554,12 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             val cy = prev.second + (wy - prev.second) * t
             val next = ArrayList<PageItem>(items.size)
             for (item in items) {
-                if (item !is InkItem || (settings.eraseHighlighterOnly && !item.isHighlighter)) {
-                    if (item !is InkItem && !settings.eraseHighlighterOnly && item.bounds.contains(cx, cy) && item !is FillItem) { changed = true; continue }
+                if (!eraserAllows(item)) {
+                    next += item
+                    continue
+                }
+                if (item !is InkItem) {
+                    if (item.bounds.contains(cx, cy)) { changed = true; continue }
                     next += item; continue
                 }
                 val b = item.bounds

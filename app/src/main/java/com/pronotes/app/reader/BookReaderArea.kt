@@ -64,6 +64,9 @@ import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Search
@@ -71,6 +74,8 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material.icons.outlined.ViewColumn
+import androidx.compose.material.icons.outlined.VolumeOff
+import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -154,10 +159,113 @@ import com.pronotes.app.ui.appPillShape
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.Executors
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.exp
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.random.Random
+
+/**
+ * Synthesizes realistic physical paper-flip swish & page-settle acoustic waves in real time.
+ * Zero external audio files required; works offline with ultra-low latency.
+ */
+private object BookFlipSoundEngine {
+    private const val SAMPLE_RATE = 22050
+    private val audioExecutor = Executors.newSingleThreadExecutor()
+    @Volatile
+    private var lastRustleAt = 0L
+
+    fun playPageTurnSwish(volume: Float = 0.72f, forward: Boolean = true) {
+        val vol = volume.coerceIn(0.05f, 1f)
+        audioExecutor.execute {
+            runCatching {
+                val durationSec = 0.25f
+                val totalSamples = (SAMPLE_RATE * durationSec).toInt()
+                val pcm = ShortArray(totalSamples)
+                val rng = Random(System.nanoTime())
+                var lp1 = 0f
+                var lp2 = 0f
+                var prev = 0f
+
+                for (i in 0 until totalSamples) {
+                    val t = i.toFloat() / totalSamples
+                    // Crisp paper lift -> airy mid-turn swish -> soft page settle thud
+                    val liftEnv = exp(-((t - 0.14f) * (t - 0.14f)) / 0.008f) * 0.45f
+                    val swishEnv = sin(t * PI).toFloat().let { it * it } * 0.85f
+                    val settleEnv = exp(-((t - 0.86f) * (t - 0.86f)) / 0.0018f) * 0.52f
+
+                    val white = rng.nextFloat() * 2f - 1f
+                    // Dynamic filter cutoff sweeps higher mid-flip like real paper fibers
+                    val cutoff = if (forward) (0.18f + 0.34f * sin(t * PI).toFloat()) else (0.15f + 0.28f * sin(t * PI).toFloat())
+                    lp1 += cutoff * (white - lp1)
+                    lp2 += cutoff * (lp1 - lp2)
+                    val bandNoise = (lp1 - lp2 * 0.55f) + (white - prev) * 0.22f
+                    prev = white
+
+                    // Subtle low-frequency air displacement on settle
+                    val settleThud = sin(2.0 * PI * (if (forward) 105.0 else 92.0) * (i.toDouble() / SAMPLE_RATE)).toFloat() * settleEnv
+                    val sample = ((bandNoise * (liftEnv + swishEnv) + settleThud) * vol * 0.82f).coerceIn(-1f, 1f)
+                    pcm[i] = (sample * Short.MAX_VALUE).toInt().toShort()
+                }
+                playPcm(pcm)
+            }
+        }
+    }
+
+    fun playDragRustleTick(speedPx: Float, volume: Float = 0.45f) {
+        val now = System.currentTimeMillis()
+        if (now - lastRustleAt < 65L) return
+        lastRustleAt = now
+        val vol = (volume * (abs(speedPx) / 48f).coerceIn(0.2f, 0.85f)).coerceIn(0.04f, 0.65f)
+        audioExecutor.execute {
+            runCatching {
+                val totalSamples = (SAMPLE_RATE * 0.045f).toInt()
+                val pcm = ShortArray(totalSamples)
+                val rng = Random(now)
+                var lp = 0f
+                for (i in 0 until totalSamples) {
+                    val t = i.toFloat() / totalSamples
+                    val env = sin(t * PI).toFloat()
+                    val w = rng.nextFloat() * 2f - 1f
+                    lp += 0.28f * (w - lp)
+                    val s = (lp * env * vol * 0.55f).coerceIn(-1f, 1f)
+                    pcm[i] = (s * Short.MAX_VALUE).toInt().toShort()
+                }
+                playPcm(pcm)
+            }
+        }
+    }
+
+    private fun playPcm(pcm: ShortArray) {
+        val byteCount = pcm.size * 2
+        val track = AudioTrack.Builder()
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build(),
+            )
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(SAMPLE_RATE)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build(),
+            )
+            .setBufferSizeInBytes(maxOf(byteCount, AudioTrack.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)))
+            .setTransferMode(AudioTrack.MODE_STATIC)
+            .build()
+        track.write(pcm, 0, pcm.size)
+        track.play()
+        Thread.sleep((pcm.size * 1000L / SAMPLE_RATE) + 35L)
+        runCatching {
+            track.stop()
+            track.release()
+        }
+    }
+}
 
 enum class BookTheme(
     val label: String,
@@ -230,16 +338,23 @@ fun BookReaderHubScreen(
     var query by remember { mutableStateOf("") }
     var pdfImportProgress by remember { mutableStateOf<Triple<String, Int, Int>?>(null) }
 
-    val importPdfLauncher = rememberLauncherForActivityResult(
+    val importBookLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri != null) {
             scope.launch {
-                val id = repo.importPdf(uri, null) { title, page, total ->
-                    pdfImportProgress = Triple(title, page, total)
+                val mime = context.contentResolver.getType(uri)?.lowercase() ?: ""
+                val id = if (mime.contains("pdf")) {
+                    repo.importPdf(uri, null) { title, page, total ->
+                        pdfImportProgress = Triple(title, page, total)
+                    }
+                } else {
+                    repo.importFiles(listOf(uri), null) { title, page, total ->
+                        pdfImportProgress = Triple(title, page, total)
+                    }
                 }
                 pdfImportProgress = null
-                onOpenBook(id)
+                if (id != null) onOpenBook(id)
             }
         }
     }
@@ -324,12 +439,12 @@ fun BookReaderHubScreen(
                 AppPill(
                     selected = true,
                     tint = Color(0xFF24483F),
-                    onClick = { importPdfLauncher.launch(arrayOf("application/pdf")) },
+                    onClick = { importBookLauncher.launch(arrayOf("*/*")) },
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
                 ) {
                     Icon(Icons.Outlined.UploadFile, null, Modifier.size(16.dp), tint = Color.White)
                     Spacer(Modifier.width(6.dp))
-                    Text("Import Book", color = Color.White, style = MaterialTheme.typography.labelLarge)
+                    Text("Import Book / Doc", color = Color.White, style = MaterialTheme.typography.labelLarge)
                 }
                 IconButton(onClick = onSettings) {
                     Icon(Icons.Outlined.Settings, contentDescription = "Settings")
@@ -401,19 +516,19 @@ fun BookReaderHubScreen(
                                 textAlign = TextAlign.Center,
                             )
                             Text(
-                                "Import any PDF book, textbook, or manuscript to read it with interactive curved page turns, warm paper themes, and saved bookmarks.",
+                                "Import any PDF book, EPUB, Word document, PowerPoint deck, or study sheet to read it with realistic 3D curved paper-flip animations, page-turn sound effects, and warm paper themes.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center,
                             )
                             Button(
-                                onClick = { importPdfLauncher.launch(arrayOf("application/pdf")) },
+                                onClick = { importBookLauncher.launch(arrayOf("*/*")) },
                                 shape = CircleShape,
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF24483F), contentColor = Color.White),
                             ) {
                                 Icon(Icons.Outlined.UploadFile, null, Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text("Import PDF Book")
+                                Text("Import Book (PDF, EPUB, Word, PPT)")
                             }
                         }
                     }
@@ -726,15 +841,21 @@ fun BookReaderScreen(
         }
     }
 
+    val appSettings by store.settings.collectAsStateWithLifecycle()
+    val bookFlipSound = appSettings.bookFlipSound
+
     fun animatePageTurn(direction: Int, normalizedY: Float = 0.72f) {
         if (direction > 0 && !canGoNext()) return
         if (direction < 0 && !canGoPrev()) return
         if (turnProgress.isRunning) return
+        if (bookFlipSound) {
+            BookFlipSoundEngine.playPageTurnSwish(volume = appSettings.paperVolume, forward = direction > 0)
+        }
         scope.launch {
             turnDir = direction
             curlTouchY = normalizedY.coerceIn(0.15f, 0.85f)
             turnProgress.snapTo(0f)
-            turnProgress.animateTo(1f, tween(durationMillis = 420, easing = FastOutSlowInEasing))
+            turnProgress.animateTo(1f, tween(durationMillis = 460, easing = FastOutSlowInEasing))
             currentPage = (currentPage + direction * pageStep).coerceIn(0, totalPages - 1)
             turnDir = 0
             turnProgress.snapTo(0f)
@@ -955,11 +1076,17 @@ fun BookReaderScreen(
                                 change.consume()
                                 totalDx += dragAmount
                                 val w = size.width.toFloat().coerceAtLeast(1f)
-                                if (totalDx < -12f && canGoNext()) {
+                                if (totalDx < -10f && canGoNext()) {
                                     turnDir = +1
+                                    if (bookFlipSound && abs(dragAmount) > 4f) {
+                                        BookFlipSoundEngine.playDragRustleTick(dragAmount, appSettings.paperVolume)
+                                    }
                                     scope.launch { turnProgress.snapTo((abs(totalDx) / (w * 0.72f)).coerceIn(0f, 1f)) }
-                                } else if (totalDx > 12f && canGoPrev()) {
+                                } else if (totalDx > 10f && canGoPrev()) {
                                     turnDir = -1
+                                    if (bookFlipSound && abs(dragAmount) > 4f) {
+                                        BookFlipSoundEngine.playDragRustleTick(dragAmount, appSettings.paperVolume)
+                                    }
                                     scope.launch { turnProgress.snapTo((abs(totalDx) / (w * 0.72f)).coerceIn(0f, 1f)) }
                                 }
                             },
@@ -972,8 +1099,11 @@ fun BookReaderScreen(
                             onDragEnd = {
                                 scope.launch {
                                     val p = turnProgress.value
-                                    if (p >= 0.20f && turnDir != 0) {
-                                        turnProgress.animateTo(1f, tween(260, easing = FastOutSlowInEasing))
+                                    if (p >= 0.18f && turnDir != 0) {
+                                        if (bookFlipSound) {
+                                            BookFlipSoundEngine.playPageTurnSwish(volume = appSettings.paperVolume, forward = turnDir > 0)
+                                        }
+                                        turnProgress.animateTo(1f, tween(280, easing = FastOutSlowInEasing))
                                         currentPage = (currentPage + turnDir * pageStep).coerceIn(0, totalPages - 1)
                                     } else {
                                         turnProgress.animateTo(0f, spring(dampingRatio = 0.82f, stiffness = 360f))
@@ -1096,6 +1226,19 @@ fun BookReaderScreen(
                                 tint = if (twoPageSpread) theme.accent else theme.mutedText,
                             )
                         }
+                    }
+                    IconButton(
+                        onClick = {
+                            val nextVal = !bookFlipSound
+                            store.update { it.copy(bookFlipSound = nextVal) }
+                            if (nextVal) BookFlipSoundEngine.playPageTurnSwish(volume = appSettings.paperVolume, forward = true)
+                        },
+                    ) {
+                        Icon(
+                            if (bookFlipSound) Icons.Outlined.VolumeUp else Icons.Outlined.VolumeOff,
+                            contentDescription = "Page flip sound",
+                            tint = if (bookFlipSound) theme.accent else theme.mutedText,
+                        )
                     }
                     val isBookmarked = pages.getOrNull(currentPage)?.bookmarked == true
                     IconButton(onClick = { toggleBookmarkAt(currentPage) }) {
@@ -1231,6 +1374,18 @@ fun BookReaderScreen(
                     valueRange = 0.45f..1.0f,
                     onValueChange = { brightness = it },
                 )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Realistic page-flip paper sound", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    AppChip(
+                        selected = bookFlipSound,
+                        onClick = {
+                            val next = !bookFlipSound
+                            store.update { it.copy(bookFlipSound = next) }
+                            if (next) BookFlipSoundEngine.playPageTurnSwish(volume = appSettings.paperVolume, forward = true)
+                        },
+                        label = if (bookFlipSound) "Sound On" else "Muted",
+                    )
+                }
                 if (isWideTablet) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("Two-page open book layout", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
@@ -1521,7 +1676,7 @@ private fun BookCurlStage(
                 )
             }
 
-            // Cast shadows + Curled backside paper flap overlay
+            // Cast shadows + Curled backside paper flap overlay with realistic 3D cylindrical roll
             if (activeCurl) {
                 val turningBmp = if (spread && turnDir > 0) (curRightBmp ?: curLeftBmp) else curLeftBmp
                 Canvas(Modifier.fillMaxSize()) {
@@ -1532,19 +1687,23 @@ private fun BookCurlStage(
                     val bias = (curlTouchY - 0.5f) * 2f // -1f near top, +1f near bottom
 
                     if (turnDir > 0) {
-                        // Peeling right-to-left
+                        // Peeling right-to-left with natural corner lift & S-curve fold spine
                         val foldX = w * (1f - 1.18f * p)
-                        val skew = bias * h * 0.14f * arcSin
+                        val skew = bias * h * 0.17f * arcSin
                         val topX = foldX + skew
                         val botX = foldX - skew
-                        val midX = (topX + botX) * 0.5f + minOf(w * 0.055f, (w - foldX).coerceAtLeast(0f) * 0.16f) * arcSin
-                        val flapW = ((w - foldX).coerceAtLeast(0f) * 0.42f).coerceIn(12f, w * 0.44f)
+                        val midX = (topX + botX) * 0.5f + minOf(w * 0.075f, (w - foldX).coerceAtLeast(0f) * 0.22f) * arcSin
+                        val flapW = ((w - foldX).coerceAtLeast(0f) * 0.48f).coerceIn(16f, w * 0.48f)
 
-                        // Shadow cast by lifting sheet onto the newly uncovered page (right side of crease)
+                        // Deep ambient occlusion & cast shadow onto the newly uncovered right page
                         val exposedShadow = Brush.horizontalGradient(
-                            colors = listOf(Color.Black.copy(alpha = 0.28f * arcSin), Color.Transparent),
-                            startX = minOf(topX, botX) - 6f,
-                            endX = minOf(maxOf(topX, botX) + flapW * 0.9f + 48f, w),
+                            colors = listOf(
+                                Color.Black.copy(alpha = 0.36f * arcSin),
+                                Color.Black.copy(alpha = 0.14f * arcSin),
+                                Color.Transparent,
+                            ),
+                            startX = minOf(topX, botX) - 4f,
+                            endX = minOf(maxOf(topX, botX) + flapW * 1.15f + 56f, w),
                         )
                         val shadowPath = Path().apply {
                             moveTo(topX, 0f)
@@ -1557,27 +1716,35 @@ private fun BookCurlStage(
                             drawRect(exposedShadow)
                         }
 
-                        // Curled paper flap curving onto left side of the crease
-                        val flapTopX = (topX - flapW * (0.94f - 0.12f * bias)).coerceAtLeast(-w * 0.2f)
-                        val flapBotX = (botX - flapW * (0.94f + 0.12f * bias)).coerceAtLeast(-w * 0.2f)
-                        val flapOuterMidX = (flapTopX + flapBotX) * 0.5f - flapW * 0.10f * arcSin
+                        // Curled paper flap curving over the left side of the crease
+                        val flapTopX = (topX - flapW * (0.95f - 0.14f * bias)).coerceAtLeast(-w * 0.25f)
+                        val flapBotX = (botX - flapW * (0.95f + 0.14f * bias)).coerceAtLeast(-w * 0.25f)
+                        val flapOuterMidX = (flapTopX + flapBotX) * 0.5f - flapW * 0.15f * arcSin
+                        val topArchY = (h * 0.025f * arcSin * (1f - bias * 0.4f)).coerceAtLeast(0f)
+                        val botArchY = h - (h * 0.025f * arcSin * (1f + bias * 0.4f)).coerceAtLeast(0f)
+
                         val flapPath = Path().apply {
                             moveTo(topX, 0f)
                             quadraticTo(midX, h * 0.5f, botX, h)
-                            lineTo(flapBotX, h)
-                            quadraticTo(flapOuterMidX, h * 0.5f, flapTopX, 0f)
+                            lineTo(flapBotX, botArchY)
+                            quadraticTo(flapOuterMidX, h * 0.5f, flapTopX, topArchY)
                             close()
                         }
 
                         // Soft drop shadow cast by the curled flap onto the flat left sheet
                         drawPath(
                             path = flapPath,
-                            color = Color.Black.copy(alpha = 0.12f * arcSin),
-                            style = Stroke(width = 14f),
+                            color = Color.Black.copy(alpha = 0.18f * arcSin),
+                            style = Stroke(width = 22f),
+                        )
+                        drawPath(
+                            path = flapPath,
+                            color = Color.Black.copy(alpha = 0.09f * arcSin),
+                            style = Stroke(width = 38f),
                         )
 
                         clipPath(flapPath) {
-                            // Backside paper base
+                            // Warm backside paper base
                             drawRect(theme.pageBg)
 
                             // Faint horizontally mirrored bleed-through from turning page
@@ -1591,28 +1758,30 @@ private fun BookCurlStage(
                                     nc.translate(rectRight, 0f)
                                     nc.scale(-1f, 1f)
                                     val paint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG).apply {
-                                        alpha = if (theme.isDark) 24 else 34
+                                        alpha = if (theme.isDark) 28 else 38
                                     }
                                     nc.drawBitmap(
                                         turningBmp,
                                         null,
-                                        android.graphics.RectF(0f, 0f, rectW * 1.4f, h),
+                                        android.graphics.RectF(0f, 0f, rectW * 1.45f, h),
                                         paint,
                                     )
                                     nc.restore()
                                 }
                             }
 
-                            // 3D cylindrical curl shading across the flap
+                            // 3D cylindrical curl specular highlight + shadow roll across the flap
                             val gradStart = minOf(flapTopX, flapBotX)
                             val gradEnd = maxOf(topX, botX)
                             drawRect(
                                 brush = Brush.horizontalGradient(
                                     colors = listOf(
-                                        Color.Black.copy(alpha = 0.16f * arcSin),
-                                        Color.White.copy(alpha = if (theme.isDark) 0.10f else 0.44f),
+                                        Color.Black.copy(alpha = 0.22f * arcSin),
+                                        Color.White.copy(alpha = if (theme.isDark) 0.14f else 0.52f),
                                         Color.Transparent,
-                                        Color.Black.copy(alpha = 0.24f * arcSin),
+                                        Color.Black.copy(alpha = 0.12f * arcSin),
+                                        Color.White.copy(alpha = (if (theme.isDark) 0.18f else 0.62f) * arcSin),
+                                        Color.Black.copy(alpha = 0.28f * arcSin),
                                     ),
                                     startX = gradStart,
                                     endX = gradEnd.coerceAtLeast(gradStart + 4f),
@@ -1620,20 +1789,20 @@ private fun BookCurlStage(
                             )
                         }
 
-                        // Subtle paper edge hairline
+                        // Crisp paper fold edge highlight + outline
                         drawPath(
                             path = flapPath,
-                            color = theme.mutedText.copy(alpha = 0.25f),
+                            color = theme.mutedText.copy(alpha = 0.30f),
                             style = Stroke(width = 1.6f),
                         )
                     } else {
                         // Peeling left-to-right (backward page turn)
                         val foldX = w * 1.18f * p
-                        val skew = bias * h * 0.14f * arcSin
+                        val skew = bias * h * 0.17f * arcSin
                         val topX = foldX - skew
                         val botX = foldX + skew
-                        val midX = (topX + botX) * 0.5f - minOf(w * 0.055f, foldX.coerceAtLeast(0f) * 0.16f) * arcSin
-                        val flapW = (foldX.coerceAtLeast(0f) * 0.42f).coerceIn(12f, w * 0.44f)
+                        val midX = (topX + botX) * 0.5f - minOf(w * 0.075f, foldX.coerceAtLeast(0f) * 0.22f) * arcSin
+                        val flapW = (foldX.coerceAtLeast(0f) * 0.48f).coerceIn(16f, w * 0.48f)
 
                         // Shadow cast by lifting sheet onto uncovered left page
                         val shadowPath = Path().apply {
@@ -1645,10 +1814,14 @@ private fun BookCurlStage(
                         }
                         clipPath(shadowPath) {
                             val endX = maxOf(topX, botX)
-                            val startX = (endX - flapW * 0.9f - 48f).coerceAtLeast(0f)
+                            val startX = (endX - flapW * 1.15f - 56f).coerceAtLeast(0f)
                             drawRect(
                                 Brush.horizontalGradient(
-                                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.28f * arcSin)),
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = 0.14f * arcSin),
+                                        Color.Black.copy(alpha = 0.36f * arcSin),
+                                    ),
                                     startX = startX,
                                     endX = endX.coerceAtLeast(startX + 4f),
                                 ),
@@ -1656,21 +1829,29 @@ private fun BookCurlStage(
                         }
 
                         // Curled paper flap rolling to the right of the crease
-                        val flapTopX = (topX + flapW * (0.94f - 0.12f * bias)).coerceAtMost(w * 1.2f)
-                        val flapBotX = (botX + flapW * (0.94f + 0.12f * bias)).coerceAtMost(w * 1.2f)
-                        val flapOuterMidX = (flapTopX + flapBotX) * 0.5f + flapW * 0.10f * arcSin
+                        val flapTopX = (topX + flapW * (0.95f - 0.14f * bias)).coerceAtMost(w * 1.25f)
+                        val flapBotX = (botX + flapW * (0.95f + 0.14f * bias)).coerceAtMost(w * 1.25f)
+                        val flapOuterMidX = (flapTopX + flapBotX) * 0.5f + flapW * 0.15f * arcSin
+                        val topArchY = (h * 0.025f * arcSin * (1f - bias * 0.4f)).coerceAtLeast(0f)
+                        val botArchY = h - (h * 0.025f * arcSin * (1f + bias * 0.4f)).coerceAtLeast(0f)
+
                         val flapPath = Path().apply {
                             moveTo(topX, 0f)
                             quadraticTo(midX, h * 0.5f, botX, h)
-                            lineTo(flapBotX, h)
-                            quadraticTo(flapOuterMidX, h * 0.5f, flapTopX, 0f)
+                            lineTo(flapBotX, botArchY)
+                            quadraticTo(flapOuterMidX, h * 0.5f, flapTopX, topArchY)
                             close()
                         }
 
                         drawPath(
                             path = flapPath,
-                            color = Color.Black.copy(alpha = 0.12f * arcSin),
-                            style = Stroke(width = 14f),
+                            color = Color.Black.copy(alpha = 0.18f * arcSin),
+                            style = Stroke(width = 22f),
+                        )
+                        drawPath(
+                            path = flapPath,
+                            color = Color.Black.copy(alpha = 0.09f * arcSin),
+                            style = Stroke(width = 38f),
                         )
 
                         clipPath(flapPath) {
@@ -1685,12 +1866,12 @@ private fun BookCurlStage(
                                     nc.translate(rectLeft + rectW, 0f)
                                     nc.scale(-1f, 1f)
                                     val paint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG).apply {
-                                        alpha = if (theme.isDark) 24 else 34
+                                        alpha = if (theme.isDark) 28 else 38
                                     }
                                     nc.drawBitmap(
                                         turningBmp,
                                         null,
-                                        android.graphics.RectF(0f, 0f, rectW * 1.4f, h),
+                                        android.graphics.RectF(0f, 0f, rectW * 1.45f, h),
                                         paint,
                                     )
                                     nc.restore()
@@ -1701,10 +1882,12 @@ private fun BookCurlStage(
                             drawRect(
                                 brush = Brush.horizontalGradient(
                                     colors = listOf(
-                                        Color.Black.copy(alpha = 0.24f * arcSin),
+                                        Color.Black.copy(alpha = 0.28f * arcSin),
+                                        Color.White.copy(alpha = (if (theme.isDark) 0.18f else 0.62f) * arcSin),
+                                        Color.Black.copy(alpha = 0.12f * arcSin),
                                         Color.Transparent,
-                                        Color.White.copy(alpha = if (theme.isDark) 0.10f else 0.44f),
-                                        Color.Black.copy(alpha = 0.16f * arcSin),
+                                        Color.White.copy(alpha = if (theme.isDark) 0.14f else 0.52f),
+                                        Color.Black.copy(alpha = 0.22f * arcSin),
                                     ),
                                     startX = gradStart,
                                     endX = gradEnd.coerceAtLeast(gradStart + 4f),
@@ -1714,7 +1897,7 @@ private fun BookCurlStage(
 
                         drawPath(
                             path = flapPath,
-                            color = theme.mutedText.copy(alpha = 0.25f),
+                            color = theme.mutedText.copy(alpha = 0.30f),
                             style = Stroke(width = 1.6f),
                         )
                     }
@@ -1747,10 +1930,10 @@ private fun Modifier.drawCurvedPageClip(
                 val path = Path()
                 if (turnDir > 0) {
                     val foldX = w * (1f - 1.18f * p)
-                    val skew = bias * h * 0.14f * arcSin
+                    val skew = bias * h * 0.17f * arcSin
                     val topX = foldX + skew
                     val botX = foldX - skew
-                    val midX = (topX + botX) * 0.5f + minOf(w * 0.055f, (w - foldX).coerceAtLeast(0f) * 0.16f) * arcSin
+                    val midX = (topX + botX) * 0.5f + minOf(w * 0.075f, (w - foldX).coerceAtLeast(0f) * 0.22f) * arcSin
                     path.moveTo(0f, 0f)
                     path.lineTo(topX, 0f)
                     path.quadraticTo(midX, h * 0.5f, botX, h)
@@ -1758,10 +1941,10 @@ private fun Modifier.drawCurvedPageClip(
                     path.close()
                 } else {
                     val foldX = w * 1.18f * p
-                    val skew = bias * h * 0.14f * arcSin
+                    val skew = bias * h * 0.17f * arcSin
                     val topX = foldX - skew
                     val botX = foldX + skew
-                    val midX = (topX + botX) * 0.5f - minOf(w * 0.055f, foldX.coerceAtLeast(0f) * 0.16f) * arcSin
+                    val midX = (topX + botX) * 0.5f - minOf(w * 0.075f, foldX.coerceAtLeast(0f) * 0.22f) * arcSin
                     path.moveTo(topX, 0f)
                     path.lineTo(w, 0f)
                     path.lineTo(w, h)

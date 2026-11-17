@@ -729,6 +729,7 @@ fun EditorScreen(
                     val marginPx = (12f * density).roundToInt()
                     val undoClearPx = (144f * density).roundToInt()
                     val topClearPx = (66f * density).roundToInt()
+                    val verticalRailWidthPx = (58f * density).roundToInt()
 
                     val parsedPos = remember(settings.toolbarPos) {
                         val parts = settings.toolbarPos.split(',')
@@ -737,43 +738,65 @@ fun EditorScreen(
                         fx to fy
                     }
 
-                    val baseDockOffset = remember(areaSize, dockSize, settings.toolbarDock, parsedPos, density) {
-                        if (areaSize.width <= 0 || dockSize.width <= 0) {
+                    val effDockW = remember(isVerticalDock, dockSize.width, density) {
+                        if (isVerticalDock) {
+                            verticalRailWidthPx
+                        } else if (dockSize.width > 0) {
+                            dockSize.width
+                        } else {
+                            (320f * density).roundToInt()
+                        }
+                    }
+
+                    val effDockH = remember(isVerticalDock, dockSize.height, areaSize.height, density) {
+                        if (isVerticalDock) {
+                            val measured = if (dockSize.height > 0) dockSize.height else (340f * density).roundToInt()
+                            val maxAllowed = (areaSize.height - topClearPx - marginPx * 2).coerceAtLeast((180f * density).roundToInt())
+                            measured.coerceAtMost(maxAllowed)
+                        } else if (dockSize.height > 0) {
+                            dockSize.height
+                        } else {
+                            (52f * density).roundToInt()
+                        }
+                    }
+
+                    val baseDockOffset = remember(areaSize, effDockW, effDockH, settings.toolbarDock, parsedPos, density) {
+                        if (areaSize.width <= 0 || areaSize.height <= 0) {
                             IntOffset(undoClearPx, marginPx)
                         } else {
-                            val maxX = (areaSize.width - dockSize.width - marginPx).coerceAtLeast(marginPx)
-                            val maxY = (areaSize.height - dockSize.height - marginPx).coerceAtLeast(marginPx)
+                            val maxX = (areaSize.width - effDockW - marginPx).coerceAtLeast(marginPx)
+                            val maxY = (areaSize.height - effDockH - marginPx).coerceAtLeast(marginPx)
                             when (settings.toolbarDock) {
                                 ToolbarDock.HEADER, ToolbarDock.TOP -> IntOffset(
-                                    x = maxOf(undoClearPx, (areaSize.width - dockSize.width) / 2).coerceIn(marginPx, maxX),
+                                    x = maxOf(undoClearPx, (areaSize.width - effDockW) / 2).coerceIn(marginPx, maxX),
                                     y = marginPx,
                                 )
                                 ToolbarDock.BOTTOM -> IntOffset(
-                                    x = ((areaSize.width - dockSize.width) / 2).coerceIn(marginPx, maxX),
+                                    x = ((areaSize.width - effDockW) / 2).coerceIn(marginPx, maxX),
                                     y = maxY,
                                 )
                                 ToolbarDock.LEFT -> IntOffset(
                                     x = marginPx,
-                                    y = ((areaSize.height - dockSize.height) / 2).coerceIn(topClearPx.coerceAtMost(maxY), maxY),
+                                    y = ((areaSize.height - effDockH) / 2).coerceIn(topClearPx.coerceAtMost(maxY), maxY),
                                 )
                                 ToolbarDock.RIGHT -> IntOffset(
                                     x = maxX,
-                                    y = ((areaSize.height - dockSize.height) / 2).coerceIn(marginPx, maxY),
+                                    y = ((areaSize.height - effDockH) / 2).coerceIn(marginPx, maxY),
                                 )
                                 ToolbarDock.FREE -> IntOffset(
-                                    x = (parsedPos.first * (areaSize.width - dockSize.width)).roundToInt().coerceIn(marginPx, maxX),
-                                    y = (parsedPos.second * (areaSize.height - dockSize.height)).roundToInt().coerceIn(marginPx, maxY),
+                                    x = (parsedPos.first * (areaSize.width - effDockW)).roundToInt().coerceIn(marginPx, maxX),
+                                    y = (parsedPos.second * (areaSize.height - effDockH)).roundToInt().coerceIn(marginPx, maxY),
                                 )
                             }
                         }
                     }
 
-                    val activeDockOffset = remember(baseDockOffset, dockDragging, liveDragDelta, areaSize, dockSize, density) {
-                        if (!dockDragging || areaSize.width <= 0 || dockSize.width <= 0) {
+                    val activeDockOffset = remember(baseDockOffset, dockDragging, liveDragDelta, areaSize, effDockW, effDockH, density) {
+                        if (!dockDragging || areaSize.width <= 0) {
                             baseDockOffset
                         } else {
-                            val maxX = (areaSize.width - dockSize.width - marginPx).coerceAtLeast(marginPx)
-                            val maxY = (areaSize.height - dockSize.height - marginPx).coerceAtLeast(marginPx)
+                            val maxX = (areaSize.width - effDockW - marginPx).coerceAtLeast(marginPx)
+                            val maxY = (areaSize.height - effDockH - marginPx).coerceAtLeast(marginPx)
                             IntOffset(
                                 x = (baseDockOffset.x + liveDragDelta.x.roundToInt()).coerceIn(marginPx, maxX),
                                 y = (baseDockOffset.y + liveDragDelta.y.roundToInt()).coerceIn(marginPx, maxY),
@@ -802,21 +825,21 @@ fun EditorScreen(
                             },
                             onDragEnd = {
                                 val finalX = (baseDockOffset.x + liveDragDelta.x.roundToInt())
-                                    .coerceIn(marginPx, (areaSize.width - dockSize.width - marginPx).coerceAtLeast(marginPx))
+                                    .coerceIn(marginPx, (areaSize.width - effDockW - marginPx).coerceAtLeast(marginPx))
                                 val finalY = (baseDockOffset.y + liveDragDelta.y.roundToInt())
-                                    .coerceIn(marginPx, (areaSize.height - dockSize.height - marginPx).coerceAtLeast(marginPx))
+                                    .coerceIn(marginPx, (areaSize.height - effDockH - marginPx).coerceAtLeast(marginPx))
                                 dockDragging = false
                                 liveDragDelta = Offset.Zero
                                 if (areaSize.width > 0 && areaSize.height > 0) {
-                                    val centerX = (finalX + dockSize.width / 2f) / areaSize.width
-                                    val centerY = (finalY + dockSize.height / 2f) / areaSize.height
-                                    val availW = (areaSize.width - dockSize.width).coerceAtLeast(1).toFloat()
-                                    val availH = (areaSize.height - dockSize.height).coerceAtLeast(1).toFloat()
+                                    val centerX = (finalX + effDockW / 2f) / areaSize.width
+                                    val centerY = (finalY + effDockH / 2f) / areaSize.height
+                                    val availW = (areaSize.width - effDockW).coerceAtLeast(1).toFloat()
+                                    val availH = (areaSize.height - effDockH).coerceAtLeast(1).toFloat()
                                     val nx = (finalX / availW).coerceIn(0f, 1f)
                                     val ny = (finalY / availH).coerceIn(0f, 1f)
                                     val nextDock = when {
-                                        centerX < 0.13f -> ToolbarDock.LEFT
-                                        centerX > 0.87f -> ToolbarDock.RIGHT
+                                        centerX < 0.14f -> ToolbarDock.LEFT
+                                        centerX > 0.86f -> ToolbarDock.RIGHT
                                         centerY < 0.12f -> ToolbarDock.TOP
                                         centerY > 0.88f -> ToolbarDock.BOTTOM
                                         else -> ToolbarDock.FREE
@@ -830,10 +853,16 @@ fun EditorScreen(
                                 }
                             },
                             onSelectDock = { dock ->
-                                store.update { it.copy(toolbarDock = dock) }
+                                val defaultPos = when (dock) {
+                                    ToolbarDock.LEFT -> "0.02,0.50"
+                                    ToolbarDock.RIGHT -> "0.96,0.50"
+                                    ToolbarDock.BOTTOM -> "0.50,0.92"
+                                    else -> "0.50,0.03"
+                                }
+                                store.update { it.copy(toolbarDock = dock, toolbarPos = defaultPos) }
                             },
                             onResetPosition = {
-                                store.update { it.copy(toolbarDock = ToolbarDock.TOP, toolbarPos = "0.5,0.03") }
+                                store.update { it.copy(toolbarDock = ToolbarDock.TOP, toolbarPos = "0.50,0.03") }
                             },
                             modifier = Modifier
                                 .offset { activeDockOffset }
@@ -1231,6 +1260,7 @@ fun EditorScreen(
     }
 
     // ------------------------------------------------------------------ dialogs & sheets
+    if (vm.keyboardMode) KeyboardNoteModeOverlay(vm, darkUi)
     vm.textEdit?.let { edit -> TextDialog(vm, edit) }
     vm.mindNodeEdit?.let { edit -> MindNodeDialog(vm, edit) }
     vm.cardDraft?.let { d -> CardEditorDialog(vm, d) }
@@ -1591,6 +1621,7 @@ private fun TopBar(
         BarIcon(ProIcon.SIDEBAR, "Pages", active = showPages, fgColor = fgColor, onClick = onPages)
         BarIcon(ProIcon.SEARCH, "Search", active = showSearch, fgColor = fgColor, onClick = onSearch)
         BarIcon(ProIcon.PAGES, "Jump to page", fgColor = fgColor, onClick = onGoTo)
+        BarIcon(ProIcon.KEYBOARD, "Keyboard note mode", active = vm.keyboardMode, fgColor = fgColor, onClick = { vm.toggleKeyboardMode() })
 
         if (!hideTools) {
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
@@ -1648,6 +1679,7 @@ private fun TopBar(
             items = listOf(
                 AppMenuItem("New page after this") { vm.addPage() },
                 AppMenuItem("New page at the end") { vm.addPage(atEnd = true) },
+                AppMenuItem("Add Write-to-Text Box") { vm.addWriteBox() },
                 AppMenuItem("Infinite whiteboard page") { vm.addPage(paper = PaperStyle.DOTTED, isWhiteboard = true) },
                 AppMenuItem("Choose a template…") { onTemplates() },
             ),
@@ -1670,9 +1702,33 @@ private fun TopBar(
         val moreEntries = buildList {
             add(
                 AppMenuItem(
+                    if (vm.keyboardMode) "Exit Keyboard Mode" else "Keyboard Mode (Full Page)",
+                    icon = { ProIconView(ProIcon.KEYBOARD, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp), ink = if (vm.keyboardMode) ProButtonPalette.ElectricBlue else null) },
+                ) { vm.toggleKeyboardMode() },
+            )
+            add(
+                AppMenuItem(
+                    "Samsung Notes Write-to-Text Box",
+                    icon = { ProIconView(ProIcon.WRITE_BOX, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp), ink = ProButtonPalette.ElectricBlue) },
+                ) {
+                    val p = vm.currentPage
+                    vm.textEdit = EditorViewModel.TextEdit(vm.pageIndex, (p?.width ?: 1240f) * 0.15f, (p?.height ?: 1754f) * 0.22f, null)
+                },
+            )
+            add(
+                AppMenuItem(
                     "Flashcards",
                     icon = { ProIconView(ProIcon.FLASHCARDS, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp), ink = ProButtonPalette.RoyalBlue.copy(alpha = 0.22f)) },
                 ) { onCards() },
+            )
+            add(
+                AppMenuItem(
+                    "Auto-generate flashcards from notes",
+                    icon = { ProIconView(ProIcon.FLASHCARDS, ProButtonPalette.WarmAmber, Modifier.size(18.dp)) },
+                ) {
+                    vm.autoGenerateFlashcards()
+                    onCards()
+                },
             )
             add(
                 AppMenuItem(
@@ -1718,13 +1774,24 @@ private fun TopBar(
             )
             add(
                 AppMenuItem(
+                    "Cycle UI Colour Scheme (${settings.uiColorScheme.label})",
+                    icon = { ProIconView(ProIcon.PALETTE, ProButtonPalette.MagentaPink, Modifier.size(18.dp)) },
+                ) {
+                    val schemes = com.pronotes.app.data.UiColorScheme.entries
+                    val nextScheme = schemes[(settings.uiColorScheme.ordinal + 1) % schemes.size]
+                    store.update { it.copy(uiColorScheme = nextScheme) }
+                    vm.toast = "UI Colour Scheme: ${nextScheme.label}"
+                },
+            )
+            add(
+                AppMenuItem(
                     if (vm.currentPage?.isWhiteboard == true) "Switch to standard page" else "Infinite whiteboard",
                     icon = { Icon(Icons.Outlined.AllInclusive, null, Modifier.size(18.dp)) },
                 ) { vm.toggleCurrentWhiteboard() },
             )
             add(
                 AppMenuItem(
-                    "Import files into notebook…",
+                    "Import PDF, Word, PPT, Sheets, EPUB…",
                     icon = { Icon(Icons.Outlined.UploadFile, null, Modifier.size(18.dp)) },
                 ) { onImportFiles() },
             )
@@ -1859,8 +1926,8 @@ private fun ObsidianSubToolDock(
     val dens = LocalDensity.current
     val areaW = with(dens) { area.width.toDp() }
     val areaH = with(dens) { area.height.toDp() }
-    val maxDockW = if (isVertical) 64.dp else (areaW - 180.dp).coerceAtLeast(220.dp)
-    val maxDockH = if (isVertical) (areaH - 110.dp).coerceAtLeast(220.dp) else 80.dp
+    val maxDockW = if (isVertical) 58.dp else (areaW - 180.dp).coerceAtLeast(220.dp)
+    val maxDockH = if (isVertical) (areaH - 110.dp).coerceAtLeast(240.dp) else 80.dp
     val quickTools = remember { listOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.TAPE, Tool.SHAPE) }
 
     var dockMenuOpen by remember { mutableStateOf(false) }
@@ -1875,7 +1942,7 @@ private fun ObsidianSubToolDock(
         borderColor = if (darkUi) Color.Black.copy(alpha = 0.45f) else Color.Black.copy(alpha = 0.08f),
         contentPadding = PaddingValues(horizontal = if (isVertical) 6.dp else 8.dp, vertical = if (isVertical) 8.dp else 6.dp),
         modifier = modifier
-            .widthIn(max = maxDockW)
+            .then(if (isVertical) Modifier.width(58.dp) else Modifier.widthIn(max = maxDockW))
             .heightIn(max = maxDockH)
             .graphicsLayer { alpha = overlayFade },
     ) {
@@ -1883,23 +1950,28 @@ private fun ObsidianSubToolDock(
             Box {
                 Box(
                     modifier = Modifier
-                        .size(if (isVertical) 36.dp else 28.dp, if (isVertical) 28.dp else 36.dp)
+                        .size(if (isVertical) 42.dp else 28.dp, if (isVertical) 28.dp else 36.dp)
                         .clip(RoundedCornerShape(10.dp))
                         .onGloballyPositioned { gripCoords = it }
-                        .pointerInput(Unit) {
+                        .pointerInput(settings.toolbarDock, isVertical) {
                             var startRoot = Offset.Zero
+                            var accumDelta = Offset.Zero
                             detectDragGestures(
                                 onDragStart = { downOffset ->
                                     startRoot = gripCoords?.localToRoot(downOffset) ?: downOffset
+                                    accumDelta = Offset.Zero
                                     onDragStart()
                                 },
                                 onDragCancel = { onDragEnd() },
                                 onDragEnd = { onDragEnd() },
-                                onDrag = { change, _ ->
+                                onDrag = { change, dragAmount ->
                                     change.consume()
                                     val curRoot = gripCoords?.localToRoot(change.position)
                                     if (curRoot != null) {
                                         onDragDelta(curRoot - startRoot)
+                                    } else {
+                                        accumDelta += dragAmount
+                                        onDragDelta(accumDelta)
                                     }
                                 },
                             )
@@ -1910,7 +1982,7 @@ private fun ObsidianSubToolDock(
                     Icon(
                         Icons.Filled.DragIndicator,
                         contentDescription = "Reposition toolbar",
-                        tint = dockFg.copy(alpha = 0.55f),
+                        tint = dockFg.copy(alpha = 0.65f),
                         modifier = Modifier
                             .size(18.dp)
                             .graphicsLayer { rotationZ = if (isVertical) 90f else 0f },
@@ -1936,6 +2008,7 @@ private fun ObsidianSubToolDock(
                 Row(
                     modifier = Modifier
                         .height(38.dp)
+                        .then(if (isVertical) Modifier.width(44.dp) else Modifier)
                         .clip(RoundedCornerShape(13.dp))
                         .background(if (showActiveSlot) TealActiveTile else Color.Transparent)
                         .clickable {
@@ -1943,7 +2016,7 @@ private fun ObsidianSubToolDock(
                         }
                         .padding(horizontal = if (showActiveSlot && !isVertical) 10.dp else 7.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    horizontalArrangement = if (isVertical) Arrangement.Center else Arrangement.spacedBy(3.dp),
                 ) {
                     ToolGlyph(
                         tool = t,
@@ -1967,12 +2040,13 @@ private fun ObsidianSubToolDock(
                 Row(
                     modifier = Modifier
                         .height(38.dp)
+                        .then(if (isVertical) Modifier.width(44.dp) else Modifier)
                         .clip(RoundedCornerShape(13.dp))
                         .background(TealActiveTile)
                         .clickable { onTogglePopover(vm.tool) }
-                        .padding(horizontal = if (isVertical) 8.dp else 10.dp),
+                        .padding(horizontal = if (isVertical) 6.dp else 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    horizontalArrangement = if (isVertical) Arrangement.Center else Arrangement.spacedBy(5.dp),
                 ) {
                     ToolGlyph(vm.tool, Color.White, Color(vm.penStyle.color), Modifier.size(19.dp), active = true)
                     if (!isVertical) {
@@ -2003,9 +2077,9 @@ private fun ObsidianSubToolDock(
 
         if (isVertical) {
             Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 dockBody()
             }
@@ -2765,6 +2839,7 @@ private data class EraserCardSettings(
     val eraserMode: EraserMode,
     val scribbleSensitivity: ScribbleSensitivity,
     val eraseHighlighterOnly: Boolean,
+    val eraserFilter: com.pronotes.app.data.EraserFilter,
     val eraserAutoSwitch: Boolean,
     val scribbleToErase: Boolean,
     val liveScribbleErase: Boolean,
@@ -2967,6 +3042,7 @@ private fun HighlighterCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor
     ToggleLine("Draw behind ink", s.highlighterBehind, fgColor) { v -> store.update { it.copy(highlighterBehind = v) } }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun EraserCardContent(vm: EditorViewModel) {
     val context = LocalContext.current
@@ -2974,11 +3050,27 @@ private fun EraserCardContent(vm: EditorViewModel) {
     val fgColor = LocalContentColor.current
     val s by remember(store) {
         store.select {
-            EraserCardSettings(it.eraserMode, it.scribbleSensitivity, it.eraseHighlighterOnly, it.eraserAutoSwitch, it.scribbleToErase, it.liveScribbleErase)
+            EraserCardSettings(
+                it.eraserMode,
+                it.scribbleSensitivity,
+                it.eraseHighlighterOnly,
+                it.eraserFilter,
+                it.eraserAutoSwitch,
+                it.scribbleToErase,
+                it.liveScribbleErase,
+            )
         }
     }.collectAsStateWithLifecycle(
         initialValue = store.settings.value.let {
-            EraserCardSettings(it.eraserMode, it.scribbleSensitivity, it.eraseHighlighterOnly, it.eraserAutoSwitch, it.scribbleToErase, it.liveScribbleErase)
+            EraserCardSettings(
+                it.eraserMode,
+                it.scribbleSensitivity,
+                it.eraseHighlighterOnly,
+                it.eraserFilter,
+                it.eraserAutoSwitch,
+                it.scribbleToErase,
+                it.liveScribbleErase,
+            )
         },
     )
     Segments(EraserMode.entries.map { it.label }, s.eraserMode.ordinal) { i ->
@@ -2989,26 +3081,62 @@ private fun EraserCardContent(vm: EditorViewModel) {
             vm.eraserSize = listOf(8f, 16f, 30f).indexOf(v)
         }
     }
+    Text("WHAT ERASER ERASES", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.62f))
+    val ef = s.eraserFilter
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        AppChip(ef.ink && !s.eraseHighlighterOnly, {
+            store.update { it.copy(eraseHighlighterOnly = false, eraserFilter = ef.copy(ink = !ef.ink)) }
+        }, label = "Pen Ink")
+        AppChip(ef.highlighter, {
+            store.update { it.copy(eraserFilter = ef.copy(highlighter = !ef.highlighter)) }
+        }, label = "Highlighter")
+        AppChip(ef.shapes && !s.eraseHighlighterOnly, {
+            store.update { it.copy(eraseHighlighterOnly = false, eraserFilter = ef.copy(shapes = !ef.shapes)) }
+        }, label = "Shapes & Fills")
+        AppChip(ef.text && !s.eraseHighlighterOnly, {
+            store.update { it.copy(eraseHighlighterOnly = false, eraserFilter = ef.copy(text = !ef.text)) }
+        }, label = "Text & Write Boxes")
+        AppChip(ef.stickyAndTape && !s.eraseHighlighterOnly, {
+            store.update { it.copy(eraseHighlighterOnly = false, eraserFilter = ef.copy(stickyAndTape = !ef.stickyAndTape)) }
+        }, label = "Sticky & Tape")
+        AppChip(ef.images && !s.eraseHighlighterOnly, {
+            store.update { it.copy(eraseHighlighterOnly = false, eraserFilter = ef.copy(images = !ef.images)) }
+        }, label = "Images")
+    }
     Text("SCRIBBLE SENSITIVITY", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.62f))
     Segments(ScribbleSensitivity.entries.map { it.label }, s.scribbleSensitivity.ordinal) { i ->
         store.update { it.copy(scribbleSensitivity = ScribbleSensitivity.entries[i]) }
     }
-    ToggleLine("Erase highlighter only", s.eraseHighlighterOnly, fgColor) { v -> store.update { it.copy(eraseHighlighterOnly = v) } }
+    ToggleLine("Highlighter only quick-lock", s.eraseHighlighterOnly, fgColor) { v -> store.update { it.copy(eraseHighlighterOnly = v) } }
     ToggleLine("Switch back after erasing", s.eraserAutoSwitch, fgColor) { v -> store.update { it.copy(eraserAutoSwitch = v) } }
     ToggleLine("Scribble to erase with the pen", s.scribbleToErase, fgColor) { v -> store.update { it.copy(scribbleToErase = v) } }
     ToggleLine("Erase mid-stroke while writing", s.liveScribbleErase, fgColor) { v -> store.update { it.copy(liveScribbleErase = v) } }
     HorizontalDivider(color = fgColor.copy(alpha = 0.08f))
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .clickable { vm.clearPageInk() }
-            .padding(horizontal = 8.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(Icons.Outlined.CleaningServices, null, Modifier.size(17.dp), tint = Color(0xFFF28B82))
-        Spacer(Modifier.width(8.dp))
-        Text("Clear all ink on this page", style = MaterialTheme.typography.labelLarge, color = Color(0xFFF28B82))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { vm.clearPageInk() }
+                .padding(horizontal = 8.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Outlined.CleaningServices, null, Modifier.size(16.dp), tint = Color(0xFFF28B82))
+            Spacer(Modifier.width(6.dp))
+            Text("Clear Ink", style = MaterialTheme.typography.labelMedium, color = Color(0xFFF28B82))
+        }
+        Row(
+            Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { vm.clearPageAll() }
+                .padding(horizontal = 8.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Outlined.Delete, null, Modifier.size(16.dp), tint = Color(0xFFF28B82))
+            Spacer(Modifier.width(6.dp))
+            Text("Clear All", style = MaterialTheme.typography.labelMedium, color = Color(0xFFF28B82))
+        }
     }
 }
 
@@ -3056,11 +3184,51 @@ private fun LaserCardContent() {
 
 @Composable
 private fun TextCardContent(vm: EditorViewModel) {
+    val fgColor = LocalContentColor.current
+    Text("TEXT & HANDWRITING BOX", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.62f))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        AppPill(
+            selected = true,
+            tint = ProButtonPalette.ElectricBlue,
+            onClick = {
+                val p = vm.currentPage
+                vm.textEdit = EditorViewModel.TextEdit(vm.pageIndex, (p?.width ?: 1240f) * 0.14f, (p?.height ?: 1754f) * 0.24f, null)
+            },
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 9.dp),
+            modifier = Modifier.weight(1f),
+        ) {
+            ProIconView(ProIcon.WRITE_BOX, Color.White, Modifier.size(16.dp), ink = Color.White)
+            Spacer(Modifier.width(5.dp))
+            Text("Write-to-Text Box", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
+        }
+        AppPill(
+            selected = vm.keyboardMode,
+            tint = ProButtonPalette.Emerald,
+            onClick = { vm.toggleKeyboardMode() },
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 9.dp),
+            modifier = Modifier.weight(1f),
+        ) {
+            ProIconView(ProIcon.KEYBOARD, if (vm.keyboardMode) Color.White else fgColor, Modifier.size(16.dp))
+            Spacer(Modifier.width(5.dp))
+            Text("Keyboard Mode", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = if (vm.keyboardMode) Color.White else fgColor, maxLines = 1)
+        }
+    }
+    TextButton(
+        onClick = { vm.addWriteBox(vm.pageIndex) },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text("+ Place Ruled Canvas WriteBox on Page", color = ProButtonPalette.ElectricBlue)
+    }
     SliderRow("DEFAULT SIZE", "%.0f".format(vm.textSize), vm.textSize, 16f..160f) { vm.textSize = it }
     Segments(
         TextFont.entries.take(4).map { it.label },
         TextFont.entries.indexOf(vm.textStyle.font).coerceAtMost(3),
     ) { i -> vm.textStyle = vm.textStyle.copy(font = TextFont.entries[i]) }
+    Text(
+        "Tap anywhere on the page with the Text tool to open the Samsung Notes-style Write-to-Text & Keyboard Box.",
+        style = MaterialTheme.typography.labelSmall,
+        color = fgColor.copy(alpha = 0.65f),
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -3355,18 +3523,47 @@ private fun TextFont.compose(): FontFamily = when (this) {
 private fun TextDialog(vm: EditorViewModel, edit: EditorViewModel.TextEdit) {
     val ex = edit.existing
     var text by remember(edit) { mutableStateOf(ex?.text ?: "") }
-    var size by remember(edit) { mutableFloatStateOf(ex?.size ?: vm.textSize) }
+    var fontSize by remember(edit) { mutableFloatStateOf(ex?.size ?: vm.textSize) }
     var color by remember(edit) { mutableIntStateOf(ex?.color ?: vm.textColor ?: vm.penStyle.color) }
     var style by remember(edit) { mutableStateOf(ex?.style ?: vm.textStyle) }
     var colorEdit by remember { mutableStateOf<Int?>(null) }
+    // Mode 0: Samsung Notes Write-to-Text Pad + Live Preview, Mode 1: Direct Keyboard Editor
+    var inputMode by remember { mutableIntStateOf(0) }
+    val padStrokes = remember { androidx.compose.runtime.mutableStateListOf<List<Offset>>() }
+    var activeStroke by remember { mutableStateOf<List<Offset>>(emptyList()) }
+
+    fun convertPadStrokes() {
+        if (padStrokes.isEmpty()) return
+        val strokeCoordLists: List<List<Pair<Float, Float>>> = padStrokes.map { pts ->
+            pts.map { pt -> pt.x to pt.y }
+        }
+        val recognized = vm.recognizeHandwritingStrokesToText(strokeCoordLists)
+        if (recognized.isNotBlank()) {
+            text = if (text.isBlank()) recognized else "$text $recognized"
+        }
+        padStrokes.clear()
+        activeStroke = emptyList()
+    }
 
     AppDialog(
         onDismissRequest = { vm.textEdit = null },
-        title = { Text(if (ex != null) "Edit text" else "Add text") },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ProIconView(ProIcon.WRITE_BOX, ProButtonPalette.ElectricBlue, Modifier.size(20.dp), ink = ProButtonPalette.ElectricBlue)
+                Text(if (ex != null) "Edit Text / Write Box" else "Samsung Notes Write-to-Text & Text Box")
+            }
+        },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                AppSegmentedControl(
+                    options = listOf("Handwrite to Text Box", "Keyboard Type Box"),
+                    selectedIndex = inputMode,
+                    onSelect = { inputMode = it },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
                 val previewStyle = TextStyle(
-                    fontSize = (size / 2f).coerceIn(12f, 40f).sp,
+                    fontSize = (fontSize / 2f).coerceIn(13f, 34f).sp,
                     fontFamily = style.font.compose(),
                     fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Normal,
                     fontStyle = if (style.italic) FontStyle.Italic else FontStyle.Normal,
@@ -3379,10 +3576,175 @@ private fun TextDialog(vm: EditorViewModel, edit: EditorViewModel.TextEdit) {
                 ).let { s ->
                     style.gradient?.let { g -> s.copy(brush = Brush.linearGradient(listOf(Color(color), Color(g)))) } ?: s.copy(color = Color(color))
                 }
-                Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White).padding(14.dp)) {
-                    Text(text.ifBlank { "Preview" }, style = previewStyle, modifier = Modifier.fillMaxWidth(), maxLines = 3, overflow = TextOverflow.Ellipsis)
+
+                // Live converted text box at top (editable with keyboard at any time)
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    textStyle = previewStyle,
+                    minLines = 2,
+                    maxLines = 5,
+                    label = { Text("Converted / Typed Text (editable)") },
+                    placeholder = { Text("Write in the ruled box below or type with keyboard…") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                )
+
+                if (inputMode == 0) {
+                    // Samsung Notes-style ruled handwriting pad with instant conversion
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFFFFFCF5))
+                            .border(1.5.dp, ProButtonPalette.ElectricBlue.copy(alpha = 0.55f), RoundedCornerShape(16.dp)),
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(ProButtonPalette.ElectricBlue.copy(alpha = 0.10f))
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "HANDWRITING PAD — write here with stylus or finger",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = ProButtonPalette.ElectricBlue,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(
+                                onClick = {
+                                    text = "$text "
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            ) { Text("Space", fontSize = 11.sp) }
+                            TextButton(
+                                onClick = {
+                                    text = if (text.isEmpty()) "\n" else "$text\n"
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            ) { Text("Enter ↵", fontSize = 11.sp) }
+                            TextButton(
+                                onClick = {
+                                    if (padStrokes.isNotEmpty()) {
+                                        padStrokes.removeAt(padStrokes.lastIndex)
+                                    } else if (text.isNotEmpty()) {
+                                        text = text.dropLast(1)
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            ) { Text("⌫", fontSize = 12.sp) }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(165.dp)
+                                .pointerInput(Unit) {
+                                    awaitEachGesture {
+                                        var pts = mutableListOf<Offset>()
+                                        while (true) {
+                                            val ev = awaitPointerEvent()
+                                            val ch = ev.changes.firstOrNull() ?: break
+                                            if (ch.pressed) {
+                                                pts.add(ch.position)
+                                                activeStroke = pts.toList()
+                                                ch.consume()
+                                            } else {
+                                                ch.consume()
+                                                break
+                                            }
+                                        }
+                                        if (pts.size >= 2) {
+                                            padStrokes.add(pts.toList())
+                                        }
+                                        activeStroke = emptyList()
+                                    }
+                                },
+                        ) {
+                            Canvas(Modifier.fillMaxSize()) {
+                                val canvasW = this.size.width
+                                val canvasH = this.size.height
+                                // Ruled baseline guides
+                                val lineGap = canvasH / 3.2f
+                                for (i in 1..2) {
+                                    val y = lineGap * i
+                                    drawLine(
+                                        color = Color(0xFF93B4E8).copy(alpha = 0.45f),
+                                        start = Offset(16.dp.toPx(), y),
+                                        end = Offset(canvasW - 16.dp.toPx(), y),
+                                        strokeWidth = 1.2.dp.toPx(),
+                                    )
+                                }
+                                // Margin line
+                                drawLine(
+                                    color = Color(0xFFE57373).copy(alpha = 0.38f),
+                                    start = Offset(28.dp.toPx(), 0f),
+                                    end = Offset(28.dp.toPx(), canvasH),
+                                    strokeWidth = 1.dp.toPx(),
+                                )
+                                val strokeColor = Color(color)
+                                fun drawPts(pts: List<Offset>) {
+                                    if (pts.size < 2) return
+                                    val path = Path().apply {
+                                        moveTo(pts.first().x, pts.first().y)
+                                        for (i in 1 until pts.size) {
+                                            val prev = pts[i - 1]
+                                            val cur = pts[i]
+                                            quadraticTo(prev.x, prev.y, (prev.x + cur.x) * 0.5f, (prev.y + cur.y) * 0.5f)
+                                        }
+                                    }
+                                    drawPath(path, strokeColor, style = Stroke(width = 3.2.dp.toPx(), cap = StrokeCap.Round))
+                                }
+                                padStrokes.forEach { drawPts(it) }
+                                drawPts(activeStroke)
+                            }
+                            if (padStrokes.isEmpty() && activeStroke.isEmpty()) {
+                                Text(
+                                    "Write words here — tap 'Convert Strokes' or 'Done' to turn ink into neat text",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF7A869A),
+                                    modifier = Modifier.align(Alignment.Center).padding(horizontal = 20.dp),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            AppPill(
+                                selected = padStrokes.isNotEmpty(),
+                                tint = ProButtonPalette.ElectricBlue,
+                                onClick = { convertPadStrokes() },
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
+                            ) {
+                                Text(
+                                    "Convert Strokes → Text",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (padStrokes.isNotEmpty()) Color.White else Color(0xFF475569),
+                                )
+                            }
+                            TextButton(onClick = { padStrokes.clear(); activeStroke = emptyList() }) {
+                                Text("Clear Pad", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                } else {
+                    // Quick formatting chips for keyboard mode
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                        AppChip(false, { text = if (text.isEmpty() || text.endsWith("\n")) "${text}• " else "$text\n• " }, label = "• Bullet")
+                        AppChip(false, { text = if (text.isEmpty() || text.endsWith("\n")) "${text}☐ " else "$text\n☐ " }, label = "☐ Checklist")
+                        AppChip(false, { text = if (text.isEmpty() || text.endsWith("\n")) "${text}1. " else "$text\n1. " }, label = "1. Numbered")
+                    }
                 }
-                OutlinedTextField(text, { text = it }, minLines = 3, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp))
+
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     AppMenuButton(
                         role = SurfaceRole.Control,
@@ -3412,7 +3774,7 @@ private fun TextDialog(vm: EditorViewModel, edit: EditorViewModel.TextEdit) {
                         style = style.copy(align = TextAlign.RIGHT)
                     }
                 }
-                SliderRow("SIZE", "%.0f".format(size), size, 16f..160f) { size = it }
+                SliderRow("SIZE", "%.0f".format(fontSize), fontSize, 16f..160f) { fontSize = it }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     PenPalette.forEach { c -> Swatch(c, c == color, 20) { color = c } }
                     AddSwatchButton { colorEdit = 0 }
@@ -3428,7 +3790,27 @@ private fun TextDialog(vm: EditorViewModel, edit: EditorViewModel.TextEdit) {
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { vm.commitText(text, size, color, style) }) { Text("Done") } },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                TextButton(
+                    onClick = {
+                        if (padStrokes.isNotEmpty()) convertPadStrokes()
+                        vm.addWriteBox(vm.pageIndex, edit.x, edit.y)
+                        val latestBox = vm.currentPage?.items?.filterIsInstance<WriteBoxItem>()?.lastOrNull()
+                        if (latestBox != null && text.isNotBlank()) {
+                            vm.updateWriteBoxText(vm.pageIndex, latestBox.id, text, style.font, fontSize)
+                        }
+                        vm.textEdit = null
+                    },
+                ) { Text("Place as Ruled Box") }
+                TextButton(
+                    onClick = {
+                        if (padStrokes.isNotEmpty()) convertPadStrokes()
+                        vm.commitText(text, fontSize, color, style)
+                    },
+                ) { Text("Done", fontWeight = FontWeight.Bold) }
+            }
+        },
         dismissButton = { TextButton(onClick = { vm.textEdit = null }) { Text("Cancel") } },
     )
 
@@ -3453,6 +3835,177 @@ private fun FmtToggle(icon: androidx.compose.ui.graphics.vector.ImageVector, on:
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, null, tint = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+    }
+}
+
+/**
+ * Full-page Keyboard Note Mode overlay — allows users to type structured document notes
+ * directly onto the current page using the hardware or on-screen keyboard, complete with
+ * headings, checklists, bullet lists, font families, and automatic page persistence.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun KeyboardNoteModeOverlay(vm: EditorViewModel, darkUi: Boolean) {
+    val page = vm.currentPage
+    var bodyText by remember(page?.id) { mutableStateOf(vm.getKeyboardPageText()) }
+    var fontSize by remember { mutableFloatStateOf(vm.textSize.coerceIn(22f, 64f)) }
+    var style by remember { mutableStateOf(vm.textStyle) }
+    var textColor by remember { mutableIntStateOf(vm.textColor ?: (if (darkUi) 0xFFF8FAFC.toInt() else 0xFF1A1C1E.toInt())) }
+
+    val panelBg = if (darkUi) Color(0xF5161820) else Color(0xFAFCFBF7)
+    val fg = if (darkUi) Color(0xFFF3F5F8) else Color(0xFF181C23)
+    val borderCol = if (darkUi) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.12f)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = 74.dp, bottom = 18.dp, start = 18.dp, end = 18.dp),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 820.dp)
+                .fillMaxSize()
+                .clip(RoundedCornerShape(22.dp))
+                .background(panelBg)
+                .border(1.5.dp, borderCol, RoundedCornerShape(22.dp))
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            // Header & quick actions
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ProIconView(ProIcon.KEYBOARD, ProButtonPalette.ElectricBlue, Modifier.size(22.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Keyboard Note Mode · Page ${vm.pageIndex + 1}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = fg,
+                    )
+                    Text(
+                        "Type full-page notes with keyboard; syncs directly to the canvas page",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = fg.copy(alpha = 0.65f),
+                    )
+                }
+                TextButton(
+                    onClick = {
+                        vm.saveKeyboardPageText(bodyText)
+                    },
+                ) {
+                    Text("Save", fontWeight = FontWeight.SemiBold, color = ProButtonPalette.ElectricBlue)
+                }
+                AppPill(
+                    selected = true,
+                    tint = ProButtonPalette.ElectricBlue,
+                    onClick = {
+                        vm.saveKeyboardPageText(bodyText)
+                        vm.keyboardMode = false
+                    },
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                ) {
+                    Text("Done", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            }
+
+            // Formatting toolbar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                AppChip(false, {
+                    bodyText = if (bodyText.isEmpty() || bodyText.endsWith("\n")) "${bodyText}# " else "$bodyText\n# "
+                }, label = "H1")
+                AppChip(false, {
+                    bodyText = if (bodyText.isEmpty() || bodyText.endsWith("\n")) "${bodyText}## " else "$bodyText\n## "
+                }, label = "H2")
+                AppChip(false, {
+                    bodyText = if (bodyText.isEmpty() || bodyText.endsWith("\n")) "${bodyText}• " else "$bodyText\n• "
+                }, label = "• Bullet")
+                AppChip(false, {
+                    bodyText = if (bodyText.isEmpty() || bodyText.endsWith("\n")) "${bodyText}☐ " else "$bodyText\n☐ "
+                }, label = "☐ Task")
+                AppChip(false, {
+                    bodyText = if (bodyText.isEmpty() || bodyText.endsWith("\n")) "${bodyText}☑ " else "$bodyText\n☑ "
+                }, label = "☑ Done")
+                AppChip(false, {
+                    bodyText = if (bodyText.isEmpty() || bodyText.endsWith("\n")) "${bodyText}1. " else "$bodyText\n1. "
+                }, label = "1. List")
+                FmtToggle(Icons.Outlined.FormatBold, style.bold) {
+                    style = style.copy(bold = !style.bold)
+                    vm.textStyle = style
+                }
+                FmtToggle(Icons.Outlined.FormatItalic, style.italic) {
+                    style = style.copy(italic = !style.italic)
+                    vm.textStyle = style
+                }
+                FmtToggle(Icons.Outlined.FormatUnderlined, style.underline) {
+                    style = style.copy(underline = !style.underline)
+                    vm.textStyle = style
+                }
+                TextFont.entries.take(4).forEach { f ->
+                    AppChip(style.font == f, {
+                        style = style.copy(font = f)
+                        vm.textStyle = style
+                    }, label = f.label)
+                }
+            }
+
+            // Color & size strip
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    PenPalette.take(8).forEach { c ->
+                        Swatch(c, c == textColor, 18) {
+                            textColor = c
+                            vm.textColor = c
+                        }
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                Text("${fontSize.roundToInt()} pt", style = MaterialTheme.typography.labelSmall, color = fg.copy(alpha = 0.75f))
+                TextButton(onClick = { fontSize = (fontSize - 2f).coerceAtLeast(18f); vm.textSize = fontSize }) { Text("A−") }
+                TextButton(onClick = { fontSize = (fontSize + 2f).coerceAtMost(72f); vm.textSize = fontSize }) { Text("A+") }
+            }
+
+            // Main full-page keyboard editor
+            OutlinedTextField(
+                value = bodyText,
+                onValueChange = {
+                    bodyText = it
+                    vm.saveKeyboardPageText(it)
+                },
+                placeholder = {
+                    Text(
+                        "Start typing your notes here with the keyboard…\n• Use • Bullet, ☐ Task, or H1/H2 above\n• Everything you type is saved directly onto Page ${vm.pageIndex + 1} so you can also annotate over it with the stylus!",
+                        color = fg.copy(alpha = 0.45f),
+                    )
+                },
+                textStyle = TextStyle(
+                    fontSize = (fontSize * 0.55f).coerceIn(14f, 28f).sp,
+                    lineHeight = ((fontSize * 0.55f).coerceIn(14f, 28f) * 1.45f).sp,
+                    fontFamily = style.font.compose(),
+                    fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Normal,
+                    fontStyle = if (style.italic) FontStyle.Italic else FontStyle.Normal,
+                    textDecoration = if (style.underline) TextDecoration.Underline else null,
+                    color = Color(textColor),
+                ),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            )
+        }
     }
 }
 

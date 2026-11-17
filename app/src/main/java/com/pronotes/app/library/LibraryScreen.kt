@@ -581,8 +581,8 @@ fun LibraryScreen(
                                         }
                                     },
                                     AppMenuItem("Folder", icon = { Icon(Icons.Outlined.CreateNewFolder, null, Modifier.size(18.dp)) }) { newFolder = true },
-                                    AppMenuItem("Import PDF, MD, TXT, Images", icon = { Icon(Icons.Outlined.UploadFile, null, Modifier.size(18.dp)) }) {
-                                        importFilesLauncher.launch(arrayOf("application/pdf", "text/*", "image/*", "application/json", "application/octet-stream"))
+                                    AppMenuItem("Import PDF, Word, PPT, Sheets, EPUB, Images", icon = { Icon(Icons.Outlined.UploadFile, null, Modifier.size(18.dp)) }) {
+                                        importFilesLauncher.launch(arrayOf("*/*"))
                                     },
                                     AppMenuItem("Paste notes from another app…", icon = { Icon(Icons.Outlined.ContentPaste, null, Modifier.size(18.dp)) }) { pasteImportOpen = true },
                                 ),

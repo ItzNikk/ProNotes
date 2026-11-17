@@ -1,5 +1,17 @@
 # Changelog
 
+## v13.0.0
+- **Realistic Book Reader Paper-Flip Physics & Acoustic Engine**: Upgraded 3D curved corner peel with S-curve fold spine, deep ambient occlusion cast shadows, cylindrical specular highlights, backside ink bleed-through, and synthesized real-time paper-flip swish & finger-drag rustle sounds (`BookFlipSoundEngine`) with one-tap sound toggle.
+- **Samsung Notes-Style Write-to-Text Box & On-Canvas Conversion**: Redesigned Text Studio featuring a ruled handwriting pad where stylus/finger strokes convert directly into editable formatted text (`Space`, `Enter`, `Backspace`, `Convert Strokes → Text`), plus on-canvas `WriteBoxItem` ruled boxes that convert handwritten ink into neat typography in place.
+- **Full-Page Keyboard Note Mode**: Added a dedicated `Keyboard` mode in the editor top bar and Text tool popover so users can type full-page structured notes with headings (`H1`, `H2`), interactive checklists (`☐` / `☑`), bullet/numbered lists, font families, and instant page sync.
+- **Rock-Solid Left/Right/Top/Bottom Toolbar Positioning**: Fixed vertical `Left` and `Right` docked toolbars so they maintain a dedicated `58dp` vertical rail and adaptive sub-tool pill that never clip or disappear off-screen, alongside smooth draggable dock snapping.
+- **Adaptive High-Contrast Ink Borders**: Pen, Highlighter, Shape, Text, and Swatch indicators now compute luminance-aware contrast borders (`adaptiveInkBorderColor`) so both dark-on-dark and white-on-light ink colors remain crisp and readable at all times.
+- **Granular Eraser Target Filters**: Choose exactly what the Eraser removes (`Pen Ink`, `Highlighter`, `Shapes & Fills`, `Text & Write Boxes`, `Sticky & Tape`, `Images`) from both the Eraser popover and Settings, plus quick `Clear Ink` and `Clear All` actions.
+- **8 Switchable UI Color Schemes**: Switch between `Obsidian Studio`, `Samsung Warm`, `Ocean Breeze`, `Forest Sage`, `Rose Quartz`, `Midnight OLED`, `Nordic Slate`, and `Solar Amber` themes in Settings or from the Editor menu.
+- **Multi-Format Office & E-Book Import**: Native importer (`OfficeDocumentImporter`) for Word (`.docx`, `.doc`, `.odt`, `.rtf`), PowerPoint (`.pptx`, `.ppt`, `.odp`), Excel/Sheets (`.xlsx`, `.xls`, `.ods`, `.csv`, `.tsv`), and E-Books (`.epub`) alongside PDFs and images, complete with live page loader previews.
+- **Preloaded Welcome Guide & Upgraded Flashcards Studio**: First-launch preloaded welcome notebook with interactive examples, plus Flashcards Studio upgrades including **Auto-Generate from Notes**, **Multiple-Choice Quiz Mode**, **Starred ★** cards, memory **Hints**, and deck **Shuffle**.
+- **Refreshed Vector Icons**: Redesigned crisp geometric icons for `Settings`, `Mind Map`, `Text`, `Keyboard Mode`, `Write-to-Text Box`, and `Flashcards`.
+
 ## v12.0.0
 - **Kindle Book Reading Mode**: Distraction-free book reader with Paper, Sepia, and Night themes, single-page and wide-tablet two-page spread toggle, interactive 3D page-turn curl animations, edge-tap turning, and a bottom page scrubber.
 - **Animated Moving Gradient & Fanned Card Stack**: Continuously shifting ambient color gradient paired with an interactive fanned card deck that auto-cycles through core workflows on the preview screen and switches on tap in the library header.

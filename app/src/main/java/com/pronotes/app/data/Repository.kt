@@ -57,12 +57,163 @@ class Repository private constructor(private val context: Context) {
     /** Outlives screens, so a save started on exit still finishes. */
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    private val isFirstInstall = !indexFile.exists()
     private val _library = MutableStateFlow(loadIndex())
     val library: StateFlow<LibraryIndex> = _library
 
     init {
-        appScope.launch { runCatching { purgeTrash() } }
+        appScope.launch {
+            runCatching {
+                if (isFirstInstall && _library.value.notebooks.isEmpty()) {
+                    seedPreloadedWelcomeNotebook()
+                }
+                purgeTrash()
+            }
+        }
     }
+
+    private suspend fun seedPreloadedWelcomeNotebook() {
+        val id = UUID.randomUUID().toString()
+        val now = System.currentTimeMillis()
+        val page1 = PageDoc(
+            id = UUID.randomUUID().toString(),
+            width = PageSize.WIDTH,
+            height = PageSize.HEIGHT,
+            paper = PaperStyle.CORNELL,
+            items = listOf(
+                ItemDoc.Text(
+                    text = "Welcome to Pro Notes v13",
+                    x = 76f,
+                    y = 74f,
+                    size = 38f,
+                    color = 0xFF1E293B.toInt(),
+                    font = "SANS",
+                    bold = true
+                ),
+                ItemDoc.Text(
+                    text = "• Write-to-Text Box: Tap the Text tool to handwrite in a ruled box that converts to live text, or type directly.\n" +
+                        "• Keyboard Mode: Tap the Keyboard icon in the top bar for full-page rich note typing.\n" +
+                        "• Smart Eraser Filter: Choose whether to erase Pen Ink, Highlighter, Shapes, Text, Stickies, or Images.\n" +
+                        "• Multi-Format Import: Import PDF, Word (.docx), PowerPoint (.pptx), Excel/Sheets (.xlsx/.csv), and EPUB.\n" +
+                        "• Realistic Book Reader: Enjoy 3D paper-flip physics with real paper rustle & page-turn audio.",
+                    x = 76f,
+                    y = 148f,
+                    size = 24f,
+                    color = 0xFF334155.toInt(),
+                    font = "SANS"
+                ),
+                ItemDoc.WriteBox(
+                    x = 76f,
+                    y = 430f,
+                    w = 760f,
+                    h = 260f,
+                    lineSpacing = 48f,
+                    convertedText = "Samsung Notes Style Write-to-Text Box — Double-tap or use the Text tool to write or type here!",
+                    isConverted = true,
+                    font = "SANS",
+                    fontSize = 24f
+                ),
+                ItemDoc.Sticky(
+                    x = 860f,
+                    y = 430f,
+                    w = 300f,
+                    h = 240f,
+                    color = 0xFFFFF3A3.toInt(),
+                    title = "Quick Tip",
+                    text = "Dock the toolbar to Top, Bottom, Left, or Right — or switch between 8 UI Color Schemes in Settings!",
+                    fontSize = 21f
+                ),
+                ItemDoc.MindNode(
+                    nodeId = 1001L,
+                    x = 180f,
+                    y = 820f,
+                    w = 240f,
+                    h = 84f,
+                    label = "Pro Notes v13",
+                    parentId = null,
+                    color = 0xFF3D6CF4.toInt(),
+                    shape = "pill",
+                    tag = "Core"
+                ),
+                ItemDoc.MindNode(
+                    nodeId = 1002L,
+                    x = 520f,
+                    y = 760f,
+                    w = 230f,
+                    h = 78f,
+                    label = "Write-to-Text & Keyboard",
+                    parentId = 1001L,
+                    color = 0xFF2BB673.toInt(),
+                    shape = "rounded",
+                    tag = "Input"
+                ),
+                ItemDoc.MindNode(
+                    nodeId = 1003L,
+                    x = 520f,
+                    y = 880f,
+                    w = 230f,
+                    h = 78f,
+                    label = "3D Book Reader & Flashcards",
+                    parentId = 1001L,
+                    color = 0xFFF2994A.toInt(),
+                    shape = "rounded",
+                    tag = "Study"
+                )
+            )
+        )
+        val pages = listOf(page1)
+        writePageDocsIncremental(id, pages, dirtyIds = null, structureChanged = true, writeFullSnapshot = true)
+        updateIndex { cur ->
+            if (cur.notebooks.isNotEmpty()) cur
+            else cur.copy(
+                notebooks = listOf(
+                    NotebookMeta(
+                        id = id,
+                        title = "Welcome to Pro Notes v13",
+                        folderId = null,
+                        coverColor = CoverColors[0],
+                        paper = PaperStyle.CORNELL,
+                        created = now,
+                        modified = now,
+                        pageCount = pages.size,
+                        favorite = true
+                    )
+                )
+            )
+        }
+        runCatching {
+            val studyStore = StudyStore(noteDir(id))
+            val starterCards = listOf(
+                Flashcard(
+                    id = UUID.randomUUID().toString(),
+                    front = "How do you use the Samsung Notes-style Write-to-Text box?",
+                    back = "Select the Text tool (or Write Box) on the canvas, handwrite with your stylus inside the lined pad to auto-convert strokes to text, or switch to Keyboard mode.",
+                    pageId = page1.id,
+                    created = now,
+                    starred = true,
+                    hint = "Look at the Text / Write Box tool"
+                ),
+                Flashcard(
+                    id = UUID.randomUUID().toString(),
+                    front = "What file formats can Pro Notes v13 import?",
+                    back = "PDF, Word (.docx/.doc/.odt/.rtf), PowerPoint (.pptx/.ppt/.odp), Excel/Sheets (.xlsx/.xls/.ods/.csv/.tsv), EPUB books, Markdown, Text, and Images.",
+                    pageId = page1.id,
+                    created = now,
+                    hint = "Office + Books + Notes"
+                )
+            )
+            studyStore.save(StudyData(cards = starterCards))
+        }
+        runCatching { writeThumbnail(id, pages.map { InkCodec.fromDoc(it) }) }
+    }
+
+    private fun saveAssetBytesToNote(noteId: String, bytes: ByteArray, ext: String): String? = runCatching {
+        val cleanExt = ext.lowercase().filter { it.isLetterOrDigit() }.ifEmpty { "png" }
+        val name = "img_${UUID.randomUUID()}.$cleanExt"
+        val target = File(noteDir(noteId), name)
+        AtomicFiles.writeBytesAtomic(target) { out -> out.write(bytes) }
+        name
+    }.getOrNull()
 
     private fun loadIndex(): LibraryIndex = runCatching {
         if (indexFile.exists()) json.decodeFromString(LibraryIndex.serializer(), indexFile.readText()) else LibraryIndex()
@@ -218,7 +369,7 @@ class Repository private constructor(private val context: Context) {
         id
     }
 
-    /** Imports PDFs, images, Markdown/TXT/HTML/CSV files, or JSON note exports into a new notebook. */
+    /** Imports PDFs, Word, PowerPoint, Excel/Sheets, EPUB, images, Markdown/TXT/HTML/CSV files, or JSON note exports into a new notebook. */
     suspend fun importFiles(
         uris: List<Uri>,
         folderId: String?,
@@ -265,15 +416,26 @@ class Repository private constructor(private val context: Context) {
             }
             if (imageUris.size > 1) importedTitle = "${firstName.substringBeforeLast('.')} (+${imageUris.size - 1})"
         } else {
-            for (u in uris) {
+            for ((idx, u) in uris.withIndex()) {
                 val name = displayName(u) ?: "Imported"
                 val mime = context.contentResolver.getType(u)?.lowercase().orEmpty()
+                onProgress?.invoke(importedTitle, idx, uris.size)
                 when {
                     mime == "application/pdf" || name.endsWith(".pdf", true) -> {
                         val subId = importPdf(u, folderId, onProgress)
                         if (uris.size == 1) return@withContext subId
                         val subPages = runCatching { json.decodeFromString(NoteDoc.serializer(), File(noteDir(subId), "note.json").readText()).pages }.getOrDefault(emptyList())
                         if (subPages.isNotEmpty()) return@withContext subId
+                    }
+                    OfficeDocumentImporter.isSupportedFile(name, mime) -> {
+                        val importedPages = OfficeDocumentImporter.importDocumentPages(
+                            context = context,
+                            uri = u,
+                            displayName = name,
+                            mimeType = mime,
+                            saveAssetBytes = { bytes, ext -> saveAssetBytesToNote(id, bytes, ext) }
+                        )
+                        pageDocs += importedPages
                     }
                     mime.startsWith("image/") || name.endsWith(".png", true) || name.endsWith(".jpg", true) || name.endsWith(".jpeg", true) || name.endsWith(".webp", true) -> {
                         val imgName = runCatching { saveImage(id, u) }.getOrNull() ?: continue
@@ -312,11 +474,13 @@ class Repository private constructor(private val context: Context) {
         if (pageDocs.isEmpty()) {
             pageDocs += PageDoc(UUID.randomUUID().toString(), PageSize.WIDTH, PageSize.HEIGHT, PaperStyle.RULED)
         }
+        val primaryPaper = pageDocs.firstOrNull()?.paper ?: PaperStyle.RULED
         writePageDocsIncremental(id, pageDocs, dirtyIds = null, structureChanged = true, writeFullSnapshot = true)
         val now = System.currentTimeMillis()
         updateIndex {
-            it.copy(notebooks = it.notebooks + NotebookMeta(id, importedTitle, folderId, coverColor, PaperStyle.RULED, now, now, pageDocs.size))
+            it.copy(notebooks = it.notebooks + NotebookMeta(id, importedTitle, folderId, coverColor, primaryPaper, now, now, pageDocs.size))
         }
+        onProgress?.invoke(importedTitle, pageDocs.size, pageDocs.size)
         runCatching { writeThumbnail(id, pageDocs.map { InkCodec.fromDoc(it) }) }
         id
     }
@@ -338,13 +502,21 @@ class Repository private constructor(private val context: Context) {
         id
     }
 
-    /** Builds new pages from files/images to append into an existing notebook. */
+    /** Builds new pages from files/images/Word/PPT/Excel/EPUB to append into an existing notebook. */
     suspend fun buildPagesFromUris(noteId: String, uris: List<Uri>): List<Page> = withContext(Dispatchers.IO) {
         val out = ArrayList<PageDoc>()
         for (u in uris) {
             val name = displayName(u) ?: "Imported"
             val mime = context.contentResolver.getType(u)?.lowercase().orEmpty()
-            if (mime.startsWith("image/") || name.endsWith(".png", true) || name.endsWith(".jpg", true) || name.endsWith(".jpeg", true) || name.endsWith(".webp", true)) {
+            if (OfficeDocumentImporter.isSupportedFile(name, mime)) {
+                out += OfficeDocumentImporter.importDocumentPages(
+                    context = context,
+                    uri = u,
+                    displayName = name,
+                    mimeType = mime,
+                    saveAssetBytes = { bytes, ext -> saveAssetBytesToNote(noteId, bytes, ext) }
+                )
+            } else if (mime.startsWith("image/") || name.endsWith(".png", true) || name.endsWith(".jpg", true) || name.endsWith(".jpeg", true) || name.endsWith(".webp", true)) {
                 val imgName = runCatching { saveImage(noteId, u) }.getOrNull() ?: continue
                 val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 File(noteDir(noteId), imgName).inputStream().use { android.graphics.BitmapFactory.decodeStream(it, null, opts) }

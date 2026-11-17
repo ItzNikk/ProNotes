@@ -34,6 +34,7 @@ import com.pronotes.app.data.MotionStyle
 import com.pronotes.app.data.PerformanceMode
 import com.pronotes.app.data.SettingsStore
 import com.pronotes.app.data.ThemeMode
+import com.pronotes.app.data.UiColorScheme
 import kotlin.math.max
 import kotlin.math.min
 
@@ -43,6 +44,7 @@ val LocalTitleGradient = compositionLocalOf<List<Color>?> { null }
 val LocalMotionStyle = compositionLocalOf { MotionStyle.ULTRA_SPRING }
 val LocalCornerRoundness = compositionLocalOf<Dp> { 20.dp }
 val LocalPerformanceMode = compositionLocalOf { PerformanceMode.BALANCED }
+val LocalUiColorScheme = compositionLocalOf { UiColorScheme.OBSIDIAN_STUDIO }
 
 fun contrastRatio(fg: Color, bg: Color): Float {
     val l1 = fg.luminance()
@@ -108,43 +110,57 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
+    val uiScheme = settings.uiColorScheme
     val accent = settings.accent
-    val primary = Color(accent.argb)
+    val schemePrimary = Color(uiScheme.seedPrimary)
+    val primary = if (uiScheme == UiColorScheme.OBSIDIAN_STUDIO) Color(accent.argb) else lerp(schemePrimary, Color(accent.argb), 0.35f)
+    val secondary = Color(uiScheme.seedSecondary)
+    val lightBg = Color(uiScheme.lightBg)
+    val lightSurf = Color(uiScheme.lightSurface)
+    val lightVar = lerp(lightBg, schemePrimary, 0.06f)
+
     val light = lightColorScheme(
         primary = primary,
         onPrimary = Color.White,
-        primaryContainer = lerp(primary, Color(0xFFFBF9F4), 0.84f),
+        primaryContainer = lerp(primary, lightSurf, 0.84f),
         onPrimaryContainer = lerp(primary, Color(0xFF1F2421), 0.35f),
-        secondary = Color(0xFF00A3F5),
-        background = Color(0xFFF3F1EA),
+        secondary = secondary,
+        background = lightBg,
         onBackground = Color(0xFF181A1F),
-        surface = Color(0xFFFBF9F4),
+        surface = lightSurf,
         onSurface = Color(0xFF181A1F),
-        surfaceVariant = Color(0xFFECE9E0),
+        surfaceVariant = lightVar,
         onSurfaceVariant = Color(0xFF565B64),
-        surfaceContainer = Color(0xFFECE9E0),
+        surfaceContainer = lightVar,
         surfaceContainerHigh = Color(0xFFFFFFFF),
         outline = Color(0xFF9EA3AE),
-        outlineVariant = Color(0xFFE0DDD4),
+        outlineVariant = lerp(lightVar, Color(0xFF9EA3AE), 0.25f),
         error = Color(0xFFDC2626),
     )
-    val darkPrimary = if (accent == AccentColor.GRAPHITE) Color(0xFF93C5FD) else lerp(primary, Color.White, 0.24f)
+    val darkBg = Color(uiScheme.darkBg)
+    val darkSurf = Color(uiScheme.darkSurface)
+    val darkVar = lerp(darkSurf, Color.White, 0.05f)
+    val darkPrimary = if (accent == AccentColor.GRAPHITE && uiScheme == UiColorScheme.OBSIDIAN_STUDIO) {
+        Color(0xFF93C5FD)
+    } else {
+        lerp(primary, Color.White, 0.26f)
+    }
     val darkScheme = darkColorScheme(
         primary = darkPrimary,
         onPrimary = Color(0xFF0A0D14),
-        primaryContainer = Color(0xFF1F3162),
+        primaryContainer = lerp(darkSurf, primary, 0.34f),
         onPrimaryContainer = Color(0xFFF1F5F9),
-        secondary = Color(0xFF4FB0F5),
-        background = Color(0xFF141519),
+        secondary = lerp(secondary, Color.White, 0.18f),
+        background = darkBg,
         onBackground = Color(0xFFF3F4F6),
-        surface = Color(0xFF1C1C1C),
+        surface = darkSurf,
         onSurface = Color(0xFFF3F4F6),
-        surfaceVariant = Color(0xFF25262B),
+        surfaceVariant = darkVar,
         onSurfaceVariant = Color(0xFFA7ACB8),
-        surfaceContainer = Color(0xFF181818),
-        surfaceContainerHigh = Color(0xFF282A32),
+        surfaceContainer = lerp(darkBg, darkSurf, 0.65f),
+        surfaceContainerHigh = lerp(darkSurf, Color.White, 0.08f),
         outline = Color(0xFF5A5E6A),
-        outlineVariant = Color(0xFF2B2D35),
+        outlineVariant = lerp(darkSurf, Color.White, 0.12f),
         error = Color(0xFFF28B82),
     )
     val gradient = if (settings.gradientTitles) listOf(primary, Color(accent.argb2)).let { g ->
@@ -167,6 +183,7 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
         LocalMotionStyle provides effectiveMotion,
         LocalCornerRoundness provides cornerDp,
         LocalPerformanceMode provides perf,
+        LocalUiColorScheme provides uiScheme,
     ) {
         MaterialTheme(
             colorScheme = if (dark) darkScheme else light,

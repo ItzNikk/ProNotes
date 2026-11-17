@@ -38,10 +38,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.Shuffle
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -107,13 +111,28 @@ private val Pill = CircleShape
 fun CardEditorDialog(vm: EditorViewModel, draft: EditorViewModel.CardDraft) {
     var front by remember(draft) { mutableStateOf(draft.card.front) }
     var back by remember(draft) { mutableStateOf(draft.card.back) }
+    var hint by remember(draft) { mutableStateOf(draft.card.hint) }
+    var starred by remember(draft) { mutableStateOf(draft.card.starred) }
     val picture = remember(draft) { vm.cardImage(draft.card.frontImage) }
     AppDialog(
         onDismissRequest = { vm.cardDraft = null },
-        title = { Text(if (draft.isNew) "New flashcard" else "Edit flashcard") },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (draft.isNew) "New flashcard" else "Edit flashcard", modifier = Modifier.weight(1f))
+                Icon(
+                    imageVector = if (starred) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                    contentDescription = "Star card",
+                    tint = if (starred) ProButtonPalette.VibrantOrange else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .clip(Pill)
+                        .clickable { starred = !starred }
+                        .padding(6.dp),
+                )
+            }
+        },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("FRONT", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("FRONT (QUESTION / TERM)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 picture?.let {
                     Image(
                         it.asImageBitmap(),
@@ -130,10 +149,10 @@ fun CardEditorDialog(vm: EditorViewModel, draft: EditorViewModel.CardDraft) {
                     { front = it },
                     minLines = if (picture == null) 2 else 1,
                     shape = RoundedCornerShape(16.dp),
-                    placeholder = { Text(if (picture == null) "Question" else "Question (optional)") },
+                    placeholder = { Text(if (picture == null) "Question or key concept" else "Question (optional)") },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Text("BACK", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("BACK (ANSWER / DEFINITION)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 remember(draft) { vm.cardImage(draft.card.backImage) }?.let {
                     Image(
                         it.asImageBitmap(),
@@ -150,17 +169,26 @@ fun CardEditorDialog(vm: EditorViewModel, draft: EditorViewModel.CardDraft) {
                     { back = it },
                     minLines = 3,
                     shape = RoundedCornerShape(16.dp),
-                    placeholder = { Text("Answer") },
+                    placeholder = { Text("Answer or detailed explanation") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    hint,
+                    { hint = it },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    label = { Text("Memory hint (optional)") },
+                    placeholder = { Text("Mnemonic or cue shown before flipping") },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 TextButton(
-                    onClick = { vm.captureBack(draft.copy(card = draft.card.copy(front = front, back = back))) },
+                    onClick = { vm.captureBack(draft.copy(card = draft.card.copy(front = front, back = back, hint = hint, starred = starred))) },
                 ) { Text("Cut the answer from the page") }
             }
         },
         confirmButton = {
             Button(
-                onClick = { vm.saveCard(draft.card.copy(front = front.trim(), back = back.trim())) },
+                onClick = { vm.saveCard(draft.card.copy(front = front.trim(), back = back.trim(), hint = hint.trim(), starred = starred)) },
                 enabled = front.isNotBlank() || picture != null,
                 shape = Pill,
                 colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
@@ -330,9 +358,19 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                     }
                                 }
                                 Spacer(Modifier.height(10.dp))
-                                Text("CREATE CARD", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("CREATE & GENERATE CARDS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(Modifier.height(6.dp))
                                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    AppPill(
+                                        selected = true,
+                                        tint = ProButtonPalette.Emerald,
+                                        onClick = { vm.autoGenerateFlashcards() },
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                                    ) {
+                                        Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp), tint = Color.White)
+                                        Spacer(Modifier.width(5.dp))
+                                        Text("Auto-Generate from Notes", fontWeight = FontWeight.SemiBold, color = Color.White)
+                                    }
                                     AppPill(
                                         selected = true,
                                         tint = ProButtonPalette.SkyCyan,
@@ -346,14 +384,14 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                         onClick = { vm.newTextCard() },
                                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                                     ) {
-                                        Text("Text card", fontWeight = FontWeight.SemiBold)
+                                        Text("New text card", fontWeight = FontWeight.SemiBold)
                                     }
                                 }
                                 Spacer(Modifier.height(14.dp))
                                 if (vm.cards.isEmpty()) {
                                     AppCard(hero = false, shape = appCardShape(), contentPadding = PaddingValues(18.dp), modifier = Modifier.fillMaxWidth()) {
                                         Text(
-                                            "Your deck is empty. Cut any diagram or note directly from a page, or create a text card manually.",
+                                            "Your deck is empty. Tap 'Auto-Generate from Notes' to build cards from your text, sticky notes, and mind map, or cut any diagram directly from a page.",
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }
@@ -368,29 +406,30 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                 OutlinedTextField(
                                     query,
                                     { query = it },
-                                    placeholder = { Text("Search cards front & back…") },
+                                    placeholder = { Text("Search cards front, back & hints…") },
                                     singleLine = true,
                                     shape = Pill,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                                 Row(
-                                    Modifier.padding(vertical = 8.dp),
+                                    Modifier.padding(vertical = 8.dp).horizontalScroll(rememberScrollState()),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    listOf("All", "Due", "Mastered").forEachIndexed { idx, label ->
+                                    listOf("All", "Due", "Starred ★", "Mastered").forEachIndexed { idx, label ->
                                         AppChip(
                                             selected = filter == idx,
                                             onClick = { filter = idx },
                                             label = label,
                                             tint = when (idx) {
                                                 1 -> ProButtonPalette.VibrantOrange
-                                                2 -> ProButtonPalette.Emerald
+                                                2 -> ProButtonPalette.CoralRose
+                                                3 -> ProButtonPalette.Emerald
                                                 else -> ProButtonPalette.ElectricBlue
                                             },
                                         )
                                     }
-                                    Spacer(Modifier.weight(1f))
+                                    Spacer(Modifier.width(8.dp))
                                     if (vm.cards.isNotEmpty()) {
                                         TextButton(onClick = {
                                             val send = Intent(Intent.ACTION_SEND).setType("text/csv")
@@ -402,10 +441,11 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                 }
                                 val now = System.currentTimeMillis()
                                 val shown = vm.cards.filter { c ->
-                                    val matchesQ = query.isBlank() || c.front.contains(query, true) || c.back.contains(query, true)
+                                    val matchesQ = query.isBlank() || c.front.contains(query, true) || c.back.contains(query, true) || c.hint.contains(query, true)
                                     val matchesF = when (filter) {
                                         1 -> c.due <= now
-                                        2 -> c.box >= 4
+                                        2 -> c.starred
+                                        3 -> c.box >= 4
                                         else -> true
                                     }
                                     matchesQ && matchesF
@@ -465,9 +505,20 @@ private fun CardRow(vm: EditorViewModel, c: Flashcard, onShow: () -> Unit) {
                 Text(c.back.ifBlank { "No answer yet" }, maxLines = 1, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 2.dp)) {
                     Text("Box ${c.box + 1}/6", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    if (c.hint.isNotBlank()) Text("· Hint", style = MaterialTheme.typography.labelSmall, color = ProButtonPalette.Emerald)
                     if (c.lapses > 0) Text("· ${c.lapses} lapses", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                 }
             }
+            Icon(
+                imageVector = if (c.starred) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                contentDescription = "Star card",
+                tint = if (c.starred) ProButtonPalette.VibrantOrange else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier
+                    .clip(Pill)
+                    .clickable { vm.toggleStarCard(c.id) }
+                    .padding(6.dp)
+                    .size(20.dp),
+            )
             AppMenuButton(
                 contentPadding = PaddingValues(0.dp),
                 contentDescription = "Card options",
@@ -504,12 +555,16 @@ private fun CardRow(vm: EditorViewModel, c: Flashcard, onShow: () -> Unit) {
     }
 }
 
-/** 3D Flip StudyView with 4-grade SM-2 (Again / Hard / Good / Easy) & ScoreRing completion. */
+/** 3D Flip & Multiple-Choice Quiz StudyView with 4-grade SM-2 (Again / Hard / Good / Easy), hints, stars & ScoreRing completion. */
 @Composable
 private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> Unit) {
-    val queue = remember(deck) { deck.shuffled().map { it.id } }
+    var shuffleSeed by remember { mutableIntStateOf(0) }
+    val queue = remember(deck, shuffleSeed) { deck.shuffled().map { it.id } }
     var index by remember(queue) { mutableIntStateOf(0) }
     var flipped by remember { mutableStateOf(false) }
+    var showHint by remember { mutableStateOf(false) }
+    var studyMode by remember { mutableIntStateOf(0) } // 0 = 3D Flip Card, 1 = Multiple-Choice Quiz
+    var selectedQuizChoice by remember { mutableStateOf<String?>(null) }
     var known by remember { mutableIntStateOf(0) }
     val againIds = remember { mutableStateListOf<String>() }
     val total = queue.size
@@ -522,8 +577,38 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f),
             )
+            if (index < total) {
+                Icon(
+                    imageVector = Icons.Outlined.Shuffle,
+                    contentDescription = "Reshuffle deck",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clip(Pill)
+                        .clickable {
+                            shuffleSeed++
+                            index = 0
+                            flipped = false
+                            showHint = false
+                            selectedQuizChoice = null
+                        }
+                        .padding(6.dp)
+                        .size(20.dp),
+                )
+            }
             SessionClock(running = index < total) { elapsed = it }
             TextButton(onClick = onDone) { Text("Back") }
+        }
+        if (index < total) {
+            AppSegmentedControl(
+                options = listOf("3D Flip Recall", "Multiple-Choice Quiz"),
+                selectedIndex = studyMode,
+                onSelect = {
+                    studyMode = it
+                    flipped = false
+                    selectedQuizChoice = null
+                },
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            )
         }
         LinearProgressIndicator(
             progress = { if (total == 0) 1f else index / total.toFloat() },
@@ -551,6 +636,112 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
             return@Column
         }
 
+        if (studyMode == 1) {
+            // Multiple-choice quiz mode
+            val correctAnswer = card.back.ifBlank { "Visual answer card" }
+            val choices = remember(card.id, vm.cards.size) {
+                val distractors = vm.cards
+                    .filter { it.id != card.id && it.back.isNotBlank() }
+                    .map { it.back }
+                    .distinct()
+                    .shuffled()
+                    .take(3)
+                    .toMutableList()
+                val fallbacks = listOf(
+                    "Review concept in notebook",
+                    "Secondary supporting detail",
+                    "Related contrast definition",
+                )
+                for (fb in fallbacks) {
+                    if (distractors.size >= 3) break
+                    if (fb != correctAnswer && fb !in distractors) distractors += fb
+                }
+                (distractors + correctAnswer).shuffled()
+            }
+
+            AppSurface(
+                role = SurfaceRole.Frost,
+                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
+                shape = appCardShape(4f),
+                contentPadding = PaddingValues(18.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("QUIZ PROMPT", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+                        Icon(
+                            imageVector = if (card.starred) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                            contentDescription = "Star",
+                            tint = if (card.starred) ProButtonPalette.VibrantOrange else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp).clickable { vm.toggleStarCard(card.id) },
+                        )
+                    }
+                    Text(card.front.ifBlank { "Select the matching answer for this card" }, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+                    if (card.hint.isNotBlank()) {
+                        if (showHint) {
+                            Text("Hint: ${card.hint}", style = MaterialTheme.typography.bodySmall, color = ProButtonPalette.Emerald)
+                        } else {
+                            TextButton(onClick = { showHint = true }) { Text("Show Hint") }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                choices.forEach { option ->
+                    val chosen = selectedQuizChoice == option
+                    val isRight = option == correctAnswer
+                    val bgColor = when {
+                        selectedQuizChoice == null -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
+                        isRight -> ProButtonPalette.Emerald.copy(alpha = 0.25f)
+                        chosen -> ProButtonPalette.CoralRose.copy(alpha = 0.25f)
+                        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                    }
+                    val borderCol = when {
+                        selectedQuizChoice == null -> Color.Transparent
+                        isRight -> ProButtonPalette.Emerald
+                        chosen -> ProButtonPalette.CoralRose
+                        else -> Color.Transparent
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(bgColor)
+                            .border(1.5.dp, borderCol, RoundedCornerShape(14.dp))
+                            .clickable(enabled = selectedQuizChoice == null) {
+                                selectedQuizChoice = option
+                            }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                    ) {
+                        Text(option, style = MaterialTheme.typography.bodyMedium, fontWeight = if (chosen || (selectedQuizChoice != null && isRight)) FontWeight.Bold else FontWeight.Normal)
+                    }
+                }
+            }
+            if (selectedQuizChoice != null) {
+                Spacer(Modifier.height(12.dp))
+                val wasCorrect = selectedQuizChoice == correctAnswer
+                Button(
+                    onClick = {
+                        vm.gradeCard(card.id, if (wasCorrect) 2 else 0)
+                        if (wasCorrect) known++ else againIds += card.id
+                        selectedQuizChoice = null
+                        showHint = false
+                        index++
+                    },
+                    shape = Pill,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (wasCorrect) ProButtonPalette.Emerald else ProButtonPalette.ElectricBlue,
+                        contentColor = Color.White,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (wasCorrect) "Correct! Next Card →" else "Got it · Next Card →", fontWeight = FontWeight.Bold)
+                }
+            }
+            return@Column
+        }
+
         val turn by animateFloatAsState(if (flipped) 180f else 0f, tween(420), label = "flip")
         val pic = remember(card.id) { vm.cardImage(card.frontImage) }
         AppSurface(
@@ -561,30 +752,50 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
             onClick = { flipped = !flipped },
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 270.dp, max = 460.dp)
+                .heightIn(min = 270.dp, max = 440.dp)
                 .graphicsLayer { rotationY = turn; cameraDistance = 12f * density },
         ) {
             Box(Modifier.fillMaxWidth().graphicsLayer { if (turn > 90f) rotationY = 180f }, contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(if (turn <= 90f) "QUESTION" else "ANSWER", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (turn <= 90f) "QUESTION · BOX ${card.box + 1}/6" else "ANSWER",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(
+                            imageVector = if (card.starred) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                            contentDescription = "Star card",
+                            tint = if (card.starred) ProButtonPalette.VibrantOrange else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp).clickable { vm.toggleStarCard(card.id) },
+                        )
+                    }
                     if (turn <= 90f) {
                         pic?.let {
                             Image(
                                 it.asImageBitmap(),
                                 null,
                                 contentScale = ContentScale.Fit,
-                                modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp).clip(RoundedCornerShape(12.dp)),
+                                modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp).clip(RoundedCornerShape(12.dp)),
                             )
                         }
                         if (card.front.isNotBlank()) Text(card.front, fontSize = 22.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
-                        Text("Tap card to reveal answer", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (card.hint.isNotBlank()) {
+                            if (showHint) {
+                                Text("Hint: ${card.hint}", style = MaterialTheme.typography.bodySmall, color = ProButtonPalette.Emerald, textAlign = TextAlign.Center)
+                            } else {
+                                TextButton(onClick = { showHint = true }) { Text("Show Hint") }
+                            }
+                        }
+                        Text("Tap card to 3D flip", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
                         remember(card.id) { vm.cardImage(card.backImage) }?.let {
                             Image(
                                 it.asImageBitmap(),
                                 null,
                                 contentScale = ContentScale.Fit,
-                                modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp).clip(RoundedCornerShape(12.dp)),
+                                modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp).clip(RoundedCornerShape(12.dp)),
                             )
                         }
                         if (card.back.isNotBlank() || card.backImage == null) {
@@ -594,13 +805,14 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
                 }
             }
         }
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(16.dp))
         if (flipped) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 fun grade(g: Int) {
                     vm.gradeCard(card.id, g)
                     if (g == 0) againIds += card.id else known++
                     flipped = false
+                    showHint = false
                     index++
                 }
                 OutlinedButton(

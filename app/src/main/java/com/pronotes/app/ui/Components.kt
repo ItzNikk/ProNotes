@@ -55,22 +55,42 @@ object ProButtonPalette {
     val SlateNeutral = Color(0xFF475569)
 }
 
-/** A crisp colour dot with a clean selection ring; keeps dark colors legible on dark bars. */
+/** A crisp colour dot with an adaptive contrasting border ring so both light and dark swatches stay readable on any toolbar. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Swatch(color: Int, selected: Boolean, size: Int = 26, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     val dotColor = Color(color)
-    val darkBarRim = dotColor.alpha < 0.05f || dotColor.luminance() < 0.08f
+    val lum = dotColor.luminance()
+    val innerRimColor = when {
+        dotColor.alpha < 0.05f -> MaterialTheme.colorScheme.outline
+        lum > 0.72f -> Color(0xFF14171F).copy(alpha = 0.65f)
+        lum < 0.25f -> Color(0xFFF8FAFC).copy(alpha = 0.72f)
+        else -> Color.White.copy(alpha = 0.32f)
+    }
+    val outerRingColor = if (selected) {
+        when {
+            lum > 0.75f -> Color(0xFF1A84FF)
+            lum < 0.22f -> Color(0xFF60A5FA)
+            else -> MaterialTheme.colorScheme.primary
+        }
+    } else Color.Transparent
+
     Box(
-        Modifier.size((size + 8).dp)
+        Modifier
+            .size((size + 8).dp)
             .border(
-                width = if (selected) 2.dp else if (darkBarRim) 1.dp else 0.dp,
-                color = if (selected) MaterialTheme.colorScheme.primary else if (darkBarRim) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f) else Color.Transparent,
+                width = if (selected) 2.2.dp else 0.dp,
+                color = outerRingColor,
                 shape = CircleShape,
             )
             .padding(3.dp)
             .clip(CircleShape)
             .background(if (dotColor.alpha < 0.05f) MaterialTheme.colorScheme.surfaceVariant else dotColor)
+            .border(
+                width = 1.25.dp,
+                color = innerRimColor,
+                shape = CircleShape,
+            )
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     )
 }
