@@ -176,7 +176,8 @@ class Repository private constructor(private val context: Context) {
                         created = now,
                         modified = now,
                         pageCount = pages.size,
-                        favorite = true
+                        favorite = true,
+                        tags = listOf("Guide", "Study", "Important"),
                     )
                 )
             )
@@ -246,6 +247,20 @@ class Repository private constructor(private val context: Context) {
 
     suspend fun setCover(id: String, cover: String) = updateIndex {
         it.copy(notebooks = it.notebooks.map { n -> if (n.id == id) n.copy(cover = cover) else n })
+    }
+
+    suspend fun setNotebookTags(id: String, tags: List<String>) {
+        val cleaned = tags.map { it.trim().removePrefix("#").trim() }
+            .filter { it.isNotBlank() }
+            .distinctBy { it.lowercase() }
+            .take(12)
+        updateIndex { idx ->
+            idx.copy(
+                notebooks = idx.notebooks.map { n ->
+                    if (n.id == id) n.copy(tags = cleaned, modified = System.currentTimeMillis()) else n
+                },
+            )
+        }
     }
 
     suspend fun markOpened(id: String) = updateIndex {

@@ -2136,28 +2136,52 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     suspend fun exportPdf(out: OutputStream) = repo.exportPdf(noteId, pages.toList(), out)
 
-    fun addWriteBox(pageIndex: Int = this.pageIndex, x: Float? = null, y: Float? = null) {
+    var activeWriteBoxId by mutableStateOf<Long?>(null)
+    var activeWriteBoxPage by mutableStateOf(0)
+
+    fun activeWriteBox(): WriteBoxItem? {
+        val bid = activeWriteBoxId ?: return selectedWriteBox()
+        val p = pages.getOrNull(activeWriteBoxPage) ?: currentPage ?: return null
+        return p.items.filterIsInstance<WriteBoxItem>().firstOrNull { it.id == bid } ?: selectedWriteBox()
+    }
+
+    fun selectWriteBox(pageIndex: Int, boxId: Long?) {
+        activeWriteBoxPage = pageIndex
+        activeWriteBoxId = boxId
+    }
+
+    fun placeWriteBox(pageIndex: Int, x: Float, y: Float, w: Float, h: Float) {
         val p = pages.getOrNull(pageIndex) ?: return
-        val w = (p.width * 0.72f).coerceIn(400f, 760f)
-        val h = 320f
-        val bx = x ?: ((p.width - w) / 2f).coerceAtLeast(40f)
-        val by = y ?: ((p.height - h) / 2f).coerceAtLeast(80f)
         val item = WriteBoxItem(
             id = ItemIds.next(),
-            x = bx,
-            y = by,
+            x = x,
+            y = y,
             w = w,
             h = h,
-            lineSpacing = 48f,
-            strokeColor = 0x884A70E2.toInt(),
-            fillColor = 0x144A70E2.toInt(),
+            lineSpacing = 46f,
+            strokeColor = 0xAA3D6CF4.toInt(),
+            fillColor = 0x123D6CF4,
+            fontSize = textSize.coerceIn(18f, 44f),
+            font = textStyle.font,
         )
         beginEdit(pageIndex)
         pages[pageIndex] = p.copy(items = p.items + item)
+        activeWriteBoxPage = pageIndex
+        activeWriteBoxId = item.id
         dirtyPageIds += p.id
         onPagesChanged?.invoke()
+        onRedraw?.invoke()
         scheduleSave()
-        toast = "Added Samsung Notes Write-to-Text Box · Write inside & double-tap to convert"
+        toast = "Write inside the box — handwriting converts to text automatically"
+    }
+
+    fun addWriteBox(pageIndex: Int = this.pageIndex, x: Float? = null, y: Float? = null) {
+        val p = pages.getOrNull(pageIndex) ?: return
+        val w = (p.width * 0.72f).coerceIn(400f, 760f)
+        val h = 240f
+        val bx = x ?: ((p.width - w) / 2f).coerceAtLeast(40f)
+        val by = y ?: ((p.height - h) / 2f).coerceAtLeast(80f)
+        placeWriteBox(pageIndex, bx, by, w, h)
     }
 
     fun selectedWriteBox(): WriteBoxItem? {
@@ -2165,7 +2189,62 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         return p.items.filterIsInstance<WriteBoxItem>().lastOrNull { it.id in selection }
     }
 
-    fun updateWriteBoxText(pageIndex: Int, writeBoxId: Long, newText: String, font: TextFont = TextFont.SANS, fontSize: Float = 24f) {
+    fun autoConvertWriteBox(pageIndex: Int, boxId: Long) {
+        val p = pages.getOrNull(pageIndex) ?: return
+        val writeBox = p.items.filterIsInstance<WriteBoxItem>().firstOrNull { it.id == boxId } ?: return
+        val boxBounds = writeBox.raw
+        val insideStrokes = p.items.filterIsInstance<InkItem>().filter { ink ->
+            boxBounds.contains(ink.bounds.centerX(), ink.bounds.centerY()) ||
+                boxBounds.intersects(ink.bounds.left, ink.bounds.top, ink.bounds.right, ink.bounds.bottom)
+        }
+        if (insideStrokes.isEmpty()) return
+
+        // Recognize only newly drawn strokes if the user already has text, or all strokes if starting fresh
+        val newStrokes = insideStrokes.filter { it.id !in writeBox.inkItemIds }
+        val strokesToRecognize = if (writeBox.convertedText.isNotBlank() && newStrokes.isNotEmpty()) newStrokes else insideStrokes
+        if (strokesToRecognize.isEmpty()) return
+
+        val strokePointLists = strokesToRecognize.map { ink ->
+            val pts = ArrayList<Pair<Float, Float>>(ink.stroke.inputs.size)
+            val scratch = androidx.ink.strokes.StrokeInput()
+            for (i in 0 until ink.stroke.inputs.size) {
+                ink.stroke.inputs.populate(i, scratch)
+                pts.add((scratch.x + ink.dx - writeBox.x) to (scratch.y + ink.dy - writeBox.y))
+            }
+            pts
+        }
+        val recognized = recognizeHandwritingStrokesToText(
+            strokes = strokePointLists,
+            lineSpacing = writeBox.lineSpacing
+        ).trim()
+        if (recognized.isBlank()) return
+
+        val mergedText = if (writeBox.convertedText.isNotBlank() && newStrokes.isNotEmpty() && newStrokes.size < insideStrokes.size) {
+            "${writeBox.convertedText.trim()} $recognized"
+        } else {
+            recognized
+        }
+        val updated = writeBox.copy(
+            isConverted = true,
+            convertedText = mergedText,
+            inkItemIds = insideStrokes.map { it.id },
+        )
+        pages[pageIndex] = p.copy(items = p.items.map { if (it.id == writeBox.id) updated else it })
+        activeWriteBoxPage = pageIndex
+        activeWriteBoxId = writeBox.id
+        dirtyPageIds += p.id
+        onPagesChanged?.invoke()
+        onRedraw?.invoke()
+        scheduleSave()
+    }
+
+    fun updateWriteBoxText(
+        pageIndex: Int,
+        writeBoxId: Long,
+        newText: String,
+        font: TextFont? = null,
+        fontSize: Float? = null,
+    ) {
         val p = pages.getOrNull(pageIndex) ?: return
         beginEdit(pageIndex)
         pages[pageIndex] = p.copy(
@@ -2173,9 +2252,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 if (it is WriteBoxItem && it.id == writeBoxId) {
                     it.copy(
                         convertedText = newText,
-                        isConverted = newText.isNotBlank(),
-                        font = font,
-                        fontSize = fontSize
+                        isConverted = newText.isNotBlank() || it.isConverted,
+                        font = font ?: it.font,
+                        fontSize = fontSize ?: it.fontSize,
                     )
                 } else it
             }
@@ -2186,8 +2265,54 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         scheduleSave()
     }
 
+    fun flattenWriteBoxToText(pageIndex: Int, writeBoxId: Long) {
+        val p = pages.getOrNull(pageIndex) ?: return
+        val wb = p.items.filterIsInstance<WriteBoxItem>().firstOrNull { it.id == writeBoxId } ?: return
+        val finalText = wb.convertedText.trim()
+        beginEdit(pageIndex)
+        val remaining = p.items.filterNot { item ->
+            item.id == wb.id || (item is InkItem && (item.id in wb.inkItemIds || wb.raw.contains(item.bounds.centerX(), item.bounds.centerY())))
+        }
+        val updatedItems = if (finalText.isNotBlank()) {
+            remaining + TextItem(
+                id = ItemIds.next(),
+                text = finalText,
+                x = wb.x + 18f,
+                y = wb.y + 20f,
+                size = wb.fontSize,
+                color = textColor ?: penStyle.color,
+                style = TextStyleSpec(font = wb.font),
+            )
+        } else remaining
+        pages[pageIndex] = p.copy(items = updatedItems)
+        if (activeWriteBoxId == writeBoxId) activeWriteBoxId = null
+        dirtyPageIds += p.id
+        onPagesChanged?.invoke()
+        onRedraw?.invoke()
+        scheduleSave()
+        toast = if (finalText.isNotBlank()) "Placed converted text onto page" else "Removed empty Write Box"
+    }
+
+    fun deleteWriteBox(pageIndex: Int, writeBoxId: Long) {
+        val p = pages.getOrNull(pageIndex) ?: return
+        val wb = p.items.filterIsInstance<WriteBoxItem>().firstOrNull { it.id == writeBoxId } ?: return
+        beginEdit(pageIndex)
+        val remaining = p.items.filterNot { item ->
+            item.id == wb.id || (item is InkItem && (item.id in wb.inkItemIds || wb.raw.contains(item.bounds.centerX(), item.bounds.centerY())))
+        }
+        pages[pageIndex] = p.copy(items = remaining)
+        if (activeWriteBoxId == writeBoxId) activeWriteBoxId = null
+        dirtyPageIds += p.id
+        onPagesChanged?.invoke()
+        onRedraw?.invoke()
+        scheduleSave()
+        toast = "Deleted Write Box"
+    }
+
     fun toggleWriteBox(pageIndex: Int, writeBox: WriteBoxItem) {
         val p = pages.getOrNull(pageIndex) ?: return
+        activeWriteBoxPage = pageIndex
+        activeWriteBoxId = writeBox.id
         if (writeBox.isConverted) {
             val updated = writeBox.copy(isConverted = false)
             beginEdit(pageIndex)
@@ -2196,7 +2321,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             onPagesChanged?.invoke()
             onRedraw?.invoke()
             scheduleSave()
-            toast = "Restored handwritten ink"
+            toast = "Showing original handwriting strokes"
         } else {
             val boxBounds = writeBox.raw
             val insideStrokes = p.items.filterIsInstance<InkItem>().filter { ink ->
@@ -2204,14 +2329,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                     boxBounds.intersects(ink.bounds.left, ink.bounds.top, ink.bounds.right, ink.bounds.bottom)
             }
             if (insideStrokes.isEmpty() && writeBox.convertedText.isBlank()) {
-                // Open the interactive Write-to-Text pad centered on this WriteBox
-                textEdit = TextEdit(
-                    page = pageIndex,
-                    x = writeBox.x + 16f,
-                    y = writeBox.y + 20f,
-                    existing = null
-                )
-                toast = "Write in the pad or type to convert into text"
+                toast = "Write inside the box with your stylus or type in the bar below"
                 return
             }
             val strokeIds = insideStrokes.map { it.id }
@@ -2234,7 +2352,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             }
             val updated = writeBox.copy(
                 isConverted = true,
-                convertedText = recognized.ifBlank { writeBox.convertedText.ifBlank { "Converted Note" } },
+                convertedText = recognized.ifBlank { writeBox.convertedText.ifBlank { "Note" } },
                 inkItemIds = strokeIds,
             )
             beginEdit(pageIndex)
@@ -2243,7 +2361,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             onPagesChanged?.invoke()
             onRedraw?.invoke()
             scheduleSave()
-            toast = "Converted handwriting to text · Double-tap to toggle ink"
+            toast = "Converted handwriting to text"
         }
     }
 

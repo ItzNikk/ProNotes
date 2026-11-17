@@ -398,15 +398,10 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                         ToolbarEditor(s.toolbarTools) { spec -> up { it.copy(toolbarTools = spec) } }
                         Info("Drag the toolbar handle inside the editor to reposition it anywhere, or reorder tools above.")
                     }
-                    Section("Tabs & Study Timer") {
+                    Section("Workspace & Study Timer") {
                         Toggle("Notebook tabs", "Keep several notebooks open and switch between them", s.showTabs) { v -> up { it.copy(showTabs = v) } }
-                        Toggle("Hide toolbar while recording", "When the screen is being recorded (Android 15 and newer)", s.hideToolsWhenRecording) { v -> up { it.copy(hideToolsWhenRecording = v) } }
-                        Toggle("Study timer", "A stopwatch for each study session", s.studyTimer) { v -> up { it.copy(studyTimer = v) } }
+                        Toggle("Study timer", "Track focused study sessions in the top bar", s.studyTimer) { v -> up { it.copy(studyTimer = v) } }
                         if (s.studyTimer) {
-                            Toggle("Start by itself", "Count from the moment a notebook opens", s.studyAutoStart) { v -> up { it.copy(studyAutoStart = v) } }
-                            Toggle("Show seconds", "Off shows hours and minutes only", s.studySeconds) { v -> up { it.copy(studySeconds = v) } }
-                            val idle = listOf(0, 2, 5, 10)
-                            Choice("Pause when idle", if (s.studyIdleMinutes == 0) "Never" else "${s.studyIdleMinutes} min", idle.map { if (it == 0) "Never" else "$it min" }) { i -> up { it.copy(studyIdleMinutes = idle[i]) } }
                             val pomos = listOf(15, 25, 45)
                             Choice("Focus Pomodoro length", "${s.pomodoroMinutes} min", pomos.map { "$it min" }) { i -> up { it.copy(pomodoroMinutes = pomos[i]) } }
                         }
@@ -506,40 +501,33 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                         }
                         Info("Applies across titles, studio panels, and interface controls.")
                     }
-                    Section("Motion & Animations") {
-                        Segmented(MotionStyle.entries.map { it.label }, s.motionStyle.ordinal) { i -> up { it.copy(motionStyle = MotionStyle.entries[i]) } }
-                        Info("Ultra Spring enables smooth spring transitions, real page-turn physics in the Book Reader, and animated headings.")
-                    }
                     Section("Performance") {
-                        Text("PERFORMANCE MODE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 16.dp, top = 10.dp))
                         Segmented(PerformanceMode.entries.map { it.label }, s.performanceMode.ordinal) { i ->
                             up { it.copy(performanceMode = PerformanceMode.entries[i]) }
                         }
                         val perfDesc = when (s.performanceMode) {
                             PerformanceMode.BATTERY_SAVER -> "Reduced motion, 2.4 s autosave intervals, and compact cover thumbnails."
                             PerformanceMode.BALANCED -> "Smooth spring motion, balanced thumbnail resolution, and 1.2 s debounced saves."
-                            PerformanceMode.MAXIMUM -> "Full spring responsiveness, adjacent PDF page prefetching, and crisp high-res thumbnails."
+                            PerformanceMode.MAXIMUM -> "Full responsiveness, adjacent PDF page prefetching, and crisp high-res thumbnails."
                         }
                         Info(perfDesc)
                     }
-                    Section("Accent colour") {
+                    Section("Accent & Desk") {
                         FlowRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             AccentColor.entries.forEach { a ->
                                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { up { it.copy(accent = a) } }) {
                                     Box(
                                         Modifier
-                                            .size(40.dp)
+                                            .size(38.dp)
                                             .clip(CircleShape)
                                             .background(Brush.linearGradient(listOf(Color(a.argb), Color(a.argb2))))
-                                            .border(if (s.accent == a) 3.dp else 0.dp, MaterialTheme.colorScheme.onSurface, CircleShape),
+                                            .border(if (s.accent == a) 2.5.dp else 1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = if (s.accent == a) 1f else 0.2f), CircleShape),
                                     )
                                     Text(a.label, style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }
-                        Toggle("Gradient titles", "Headings use the accent gradient", s.gradientTitles) { v -> up { it.copy(gradientTitles = v) } }
-                    }
-                    Section("Desk") {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                         FlowRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             DeskColor.entries.forEach { d -> Swatchy(Color(d.argb), d.label, s.deskColor == d) { up { it.copy(deskColor = d) } } }
                         }
@@ -553,34 +541,20 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                     Section("Backup") { BackupRows() }
                 }
                 Category.ABOUT -> {
-                    if (Support.enabled) {
-                        Section("Support") {
-                            Row(Modifier.fillMaxWidth().clickable(onClick = onSupport).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                ProIconView(ProIcon.HEART, ProButtonPalette.MagentaPink, Modifier.size(22.dp), ink = ProButtonPalette.MagentaPink); Spacer(Modifier.size(16.dp))
-                                Text("Support Pro Notes", Modifier.weight(1f))
-                            }
-                            HorizontalDivider(Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                            Toggle("Occasional support reminders", "A gentle note now and then", s.supportReminders) { v -> up { it.copy(supportReminders = v) } }
-                        }
-                    }
-                    Section("Pro Notes") {
+                    Section("Pro Notes Studio") {
                         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             ProIconView(ProIcon.INFO, ProButtonPalette.ElectricBlue, Modifier.size(22.dp))
                             Spacer(Modifier.size(16.dp))
                             Column(Modifier.weight(1f)) {
                                 GradientTitle("Pro Notes", MaterialTheme.typography.titleMedium)
                                 Text("Version ${BuildConfigInfo.versionName(context)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("Made by ItzNikk · Apache License 2.0", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Precision Note-Taking & PDF Studio · Apache License 2.0", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         HorizontalDivider(Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                         UpdateRow()
                         HorizontalDivider(Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                        Toggle("Check for updates automatically", "When the library opens", s.autoUpdateCheck) { v -> up { it.copy(autoUpdateCheck = v) } }
-                        Toggle("Update reminders", "A daily notification and a reminder when the app opens", s.updateReminders) { v ->
-                            up { it.copy(updateReminders = v) }
-                            UpdateCheckReceiver.schedule(context, v)
-                        }
+                        Toggle("Check for updates automatically", "Check when the library opens", s.autoUpdateCheck) { v -> up { it.copy(autoUpdateCheck = v) } }
                     }
                 }
             }
@@ -899,26 +873,21 @@ private fun CloudAccountSection(s: AppSettings) {
     val cloudUser by CloudSync.user.collectAsStateWithLifecycle()
     val syncing by CloudSync.syncing.collectAsStateWithLifecycle()
     val status by CloudSync.status.collectAsStateWithLifecycle()
-    var pasteTokenOpen by remember { mutableStateOf(false) }
-    var rawToken by remember { mutableStateOf("") }
 
     Section("Google Account & Cloud Sync") {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             val activeUser = cloudUser
             if (activeUser == null) {
                 Text(
-                    "Sign in with Google to sync your notebooks, folders, and settings across devices and join Live Study Rooms.",
+                    "Sign in with Google to sync your notebooks, folders, and settings across devices.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { runCatching { context.startActivity(CloudSync.buildGoogleAuthIntent()) } },
-                        shape = CircleShape,
-                        colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
-                    ) { Text("Sign in with Google") }
-                    OutlinedButton(onClick = { pasteTokenOpen = true }, shape = CircleShape) { Text("Paste ID Token") }
-                }
+                Button(
+                    onClick = { runCatching { context.startActivity(CloudSync.buildGoogleAuthIntent()) } },
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
+                ) { Text("Sign in with Google") }
             } else {
                 Text(activeUser.displayName.ifBlank { activeUser.email }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 if (activeUser.email.isNotBlank()) {
@@ -945,35 +914,5 @@ private fun CloudAccountSection(s: AppSettings) {
                 Text(status, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-    }
-
-    if (pasteTokenOpen) {
-        AppDialog(
-            onDismissRequest = { pasteTokenOpen = false },
-            title = { Text("Sign in with Google ID Token") },
-            text = {
-                OutlinedTextField(
-                    value = rawToken,
-                    onValueChange = { rawToken = it },
-                    label = { Text("Google OAuth id_token (JWT)") },
-                    minLines = 3,
-                    maxLines = 5,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            },
-            confirmButton = {
-                Button(
-                    enabled = rawToken.trim().length > 20,
-                    onClick = {
-                        val tok = rawToken.trim()
-                        pasteTokenOpen = false
-                        scope.launch { CloudSync.signInWithGoogleIdToken(context, tok) }
-                    },
-                    shape = CircleShape,
-                    colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
-                ) { Text("Sign In") }
-            },
-            dismissButton = { TextButton(onClick = { pasteTokenOpen = false }) { Text("Cancel") } },
-        )
     }
 }

@@ -1099,10 +1099,10 @@ class PageRenderer(private val noteDir: File?) {
         rotated(canvas, r, item.rot) {
             canvas.save()
             writeBoxFill.color = item.fillColor
-            canvas.drawRoundRect(r, 16f, 16f, writeBoxFill)
+            canvas.drawRoundRect(r, 14f, 14f, writeBoxFill)
 
             writeBoxBorder.color = item.strokeColor
-            canvas.drawRoundRect(r, 16f, 16f, writeBoxBorder)
+            canvas.drawRoundRect(r, 14f, 14f, writeBoxBorder)
 
             // Ruled lines inside the box
             writeBoxRule.color = (item.strokeColor and 0x00FFFFFF) or (0x44 shl 24)
@@ -1113,14 +1113,14 @@ class PageRenderer(private val noteDir: File?) {
             }
 
             // Top-right indicator badge
-            val badge = if (item.isConverted) "TEXT · Double-tap for ink" else "WRITING BOX · Double-tap to convert"
-            stickyTitleText.textSize = 12f
-            val bw = stickyTitleText.measureText(badge) + 16f
-            val badgeRect = RectF(r.right - bw - 12f, r.top + 6f, r.right - 12f, r.top + 26f)
-            fillPaint.color = (item.strokeColor and 0x00FFFFFF) or (0x28 shl 24)
-            canvas.drawRoundRect(badgeRect, 10f, 10f, fillPaint)
-            stickyTitleText.color = if (isDark) 0xFFCBD5E1.toInt() else 0xFF334155.toInt()
-            canvas.drawText(badge, badgeRect.left + 8f, badgeRect.top + 14f, stickyTitleText)
+            val badge = if (item.isConverted) "CONVERTED TEXT · Tap for Ink" else "WRITE-TO-TEXT BOX · Tap to Convert"
+            stickyTitleText.textSize = 11.5f
+            val bw = stickyTitleText.measureText(badge) + 18f
+            val badgeRect = RectF(r.right - bw - 10f, r.top + 6f, r.right - 10f, r.top + 26f)
+            fillPaint.color = (item.strokeColor and 0x00FFFFFF) or (0x32 shl 24)
+            canvas.drawRoundRect(badgeRect, 8f, 8f, fillPaint)
+            stickyTitleText.color = if (isDark) 0xFFE2E8F0.toInt() else 0xFF1E3A8A.toInt()
+            canvas.drawText(badge, badgeRect.left + 9f, badgeRect.top + 14.5f, stickyTitleText)
 
             if (item.isConverted && item.convertedText.isNotBlank()) {
                 writeBoxText.textSize = item.fontSize
@@ -1133,6 +1133,10 @@ class PageRenderer(private val noteDir: File?) {
                     canvas.drawText(line, r.left + 18f, baseline, writeBoxText)
                     baseline += item.lineSpacing
                 }
+            } else if (!item.isConverted && item.convertedText.isBlank() && item.inkItemIds.isEmpty()) {
+                stickyTitleText.textSize = 14f
+                stickyTitleText.color = if (isDark) 0x7794A3B8 else 0x8864748B.toInt()
+                canvas.drawText("Write here with stylus or finger — converts to text in place", r.left + 18f, r.top + item.lineSpacing - 10f, stickyTitleText)
             }
             canvas.restore()
         }

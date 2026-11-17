@@ -652,6 +652,10 @@ fun EditorScreen(
                                         }
                                     }
                                     override fun hoverInk(): Pair<Int, Float>? = vm.hoverInk()
+                                    override fun onWriteBoxDoubleTap(page: Int, item: WriteBoxItem) = vm.toggleWriteBox(page, item)
+                                    override fun onPlaceWriteBox(page: Int, x: Float, y: Float, w: Float, h: Float) = vm.placeWriteBox(page, x, y, w, h)
+                                    override fun onAutoConvertWriteBox(page: Int, boxId: Long) = vm.autoConvertWriteBox(page, boxId)
+                                    override fun onSelectWriteBox(page: Int, boxId: Long?) = vm.selectWriteBox(page, boxId)
                                 }).also {
                                     it.renderer = vm.renderer()
                                     it.settings = settings
@@ -966,6 +970,28 @@ fun EditorScreen(
                                 scope.launch { vm.selectionImage()?.let { shareBitmap(context, it, vm.title + " selection") } }
                             },
                         )
+                    }
+
+                    // Floating On-Canvas Write-to-Text Box Studio Bar
+                    val activeWb = vm.activeWriteBox()
+                    if (activeWb != null && !focus) {
+                        Box(
+                            modifier = Modifier
+                                .align(if (settings.toolbarDock == ToolbarDock.BOTTOM) Alignment.TopCenter else Alignment.BottomCenter)
+                                .padding(
+                                    top = if (settings.toolbarDock == ToolbarDock.BOTTOM) 14.dp else 0.dp,
+                                    bottom = if (settings.toolbarDock == ToolbarDock.BOTTOM) 0.dp else 16.dp,
+                                    start = 12.dp,
+                                    end = 12.dp,
+                                ),
+                        ) {
+                            WriteBoxStudioBar(
+                                vm = vm,
+                                box = activeWb,
+                                pageIndex = vm.activeWriteBoxPage,
+                                darkUi = darkUi,
+                            )
+                        }
                     }
 
                     // Zoom indicator pill
@@ -1708,11 +1734,11 @@ private fun TopBar(
             )
             add(
                 AppMenuItem(
-                    "Samsung Notes Write-to-Text Box",
+                    "Place Write-to-Text Box",
                     icon = { ProIconView(ProIcon.WRITE_BOX, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp), ink = ProButtonPalette.ElectricBlue) },
                 ) {
-                    val p = vm.currentPage
-                    vm.textEdit = EditorViewModel.TextEdit(vm.pageIndex, (p?.width ?: 1240f) * 0.15f, (p?.height ?: 1754f) * 0.22f, null)
+                    vm.tool = Tool.TEXT
+                    vm.addWriteBox(vm.pageIndex)
                 },
             )
             add(
@@ -1931,7 +1957,6 @@ private fun ObsidianSubToolDock(
     val quickTools = remember { listOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.TAPE, Tool.SHAPE) }
 
     var dockMenuOpen by remember { mutableStateOf(false) }
-    var gripCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
     AppSurface(
         role = SurfaceRole.Chrome,
@@ -1939,54 +1964,111 @@ private fun ObsidianSubToolDock(
         contentColor = dockFg,
         shape = if (isVertical) RoundedCornerShape(22.dp) else appPillShape(),
         shadowElevation = 10.dp,
-        borderColor = if (darkUi) Color.Black.copy(alpha = 0.45f) else Color.Black.copy(alpha = 0.08f),
+        borderColor = if (darkUi) Color.White.copy(alpha = 0.24f) else Color(0xFF0F172A).copy(alpha = 0.20f),
         contentPadding = PaddingValues(horizontal = if (isVertical) 6.dp else 8.dp, vertical = if (isVertical) 8.dp else 6.dp),
         modifier = modifier
-            .then(if (isVertical) Modifier.width(58.dp) else Modifier.widthIn(max = maxDockW))
+            .then(if (isVertical) Modifier.width(60.dp) else Modifier.widthIn(max = maxDockW))
             .heightIn(max = maxDockH)
             .graphicsLayer { alpha = overlayFade },
     ) {
-        val dockBody = @Composable {
+        val gripAndDockControl = @Composable {
             Box {
-                Box(
-                    modifier = Modifier
-                        .size(if (isVertical) 42.dp else 28.dp, if (isVertical) 28.dp else 36.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .onGloballyPositioned { gripCoords = it }
-                        .pointerInput(settings.toolbarDock, isVertical) {
-                            var startRoot = Offset.Zero
-                            var accumDelta = Offset.Zero
-                            detectDragGestures(
-                                onDragStart = { downOffset ->
-                                    startRoot = gripCoords?.localToRoot(downOffset) ?: downOffset
-                                    accumDelta = Offset.Zero
-                                    onDragStart()
+                if (isVertical) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp, 26.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(dockFg.copy(alpha = 0.08f))
+                                .border(1.dp, dockFg.copy(alpha = 0.24f), RoundedCornerShape(9.dp))
+                                .pointerInput(Unit) {
+                                    var accumDelta = Offset.Zero
+                                    detectDragGestures(
+                                        onDragStart = {
+                                            accumDelta = Offset.Zero
+                                            onDragStart()
+                                        },
+                                        onDragCancel = { onDragEnd() },
+                                        onDragEnd = { onDragEnd() },
+                                        onDrag = { change, dragAmount ->
+                                            change.consume()
+                                            accumDelta += dragAmount
+                                            onDragDelta(accumDelta)
+                                        },
+                                    )
                                 },
-                                onDragCancel = { onDragEnd() },
-                                onDragEnd = { onDragEnd() },
-                                onDrag = { change, dragAmount ->
-                                    change.consume()
-                                    val curRoot = gripCoords?.localToRoot(change.position)
-                                    if (curRoot != null) {
-                                        onDragDelta(curRoot - startRoot)
-                                    } else {
-                                        accumDelta += dragAmount
-                                        onDragDelta(accumDelta)
-                                    }
-                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.DragIndicator,
+                                contentDescription = "Drag to reposition toolbar",
+                                tint = dockFg.copy(alpha = 0.85f),
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .graphicsLayer { rotationZ = 90f },
                             )
                         }
-                        .clickable { dockMenuOpen = true },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.Filled.DragIndicator,
-                        contentDescription = "Reposition toolbar",
-                        tint = dockFg.copy(alpha = 0.65f),
-                        modifier = Modifier
-                            .size(18.dp)
-                            .graphicsLayer { rotationZ = if (isVertical) 90f else 0f },
-                    )
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp, 22.dp)
+                                .clip(RoundedCornerShape(7.dp))
+                                .border(1.dp, dockFg.copy(alpha = 0.20f), RoundedCornerShape(7.dp))
+                                .clickable { dockMenuOpen = true },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            ProIconView(ProIcon.TOOLBAR, dockFg.copy(alpha = 0.78f), Modifier.size(14.dp))
+                        }
+                    }
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp, 38.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(dockFg.copy(alpha = 0.08f))
+                                .border(1.dp, dockFg.copy(alpha = 0.24f), RoundedCornerShape(10.dp))
+                                .pointerInput(Unit) {
+                                    var accumDelta = Offset.Zero
+                                    detectDragGestures(
+                                        onDragStart = {
+                                            accumDelta = Offset.Zero
+                                            onDragStart()
+                                        },
+                                        onDragCancel = { onDragEnd() },
+                                        onDragEnd = { onDragEnd() },
+                                        onDrag = { change, dragAmount ->
+                                            change.consume()
+                                            accumDelta += dragAmount
+                                            onDragDelta(accumDelta)
+                                        },
+                                    )
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.DragIndicator,
+                                contentDescription = "Drag to reposition toolbar",
+                                tint = dockFg.copy(alpha = 0.85f),
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(26.dp, 38.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                                .border(1.dp, dockFg.copy(alpha = 0.20f), RoundedCornerShape(9.dp))
+                                .clickable { dockMenuOpen = true },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            ProIconView(ProIcon.TOOLBAR, dockFg.copy(alpha = 0.78f), Modifier.size(14.dp))
+                        }
+                    }
                 }
                 AppContextMenu(
                     expanded = dockMenuOpen,
@@ -2000,17 +2082,24 @@ private fun ObsidianSubToolDock(
                     ),
                 )
             }
+        }
 
+        val dockToolsAndOptions = @Composable {
             quickTools.forEach { t ->
                 val isCurrent = vm.tool == t || (vm.tool !in quickTools && t == Tool.PEN)
                 val showActiveSlot = vm.tool == t
                 val slotInk = Color(vm.styleFor(t)?.color ?: if (t == Tool.TAPE) vm.tapeColor else vm.penStyle.color)
+                val slotBorderColor = when {
+                    showActiveSlot -> Color.White.copy(alpha = 0.72f)
+                    else -> dockFg.copy(alpha = 0.25f)
+                }
                 Row(
                     modifier = Modifier
                         .height(38.dp)
-                        .then(if (isVertical) Modifier.width(44.dp) else Modifier)
+                        .then(if (isVertical) Modifier.width(46.dp) else Modifier)
                         .clip(RoundedCornerShape(13.dp))
-                        .background(if (showActiveSlot) TealActiveTile else Color.Transparent)
+                        .background(if (showActiveSlot) TealActiveTile else dockFg.copy(alpha = 0.05f))
+                        .border(if (showActiveSlot) 1.5.dp else 1.dp, slotBorderColor, RoundedCornerShape(13.dp))
                         .clickable {
                             if (vm.tool == t) onTogglePopover(t) else vm.tool = t
                         }
@@ -2040,9 +2129,10 @@ private fun ObsidianSubToolDock(
                 Row(
                     modifier = Modifier
                         .height(38.dp)
-                        .then(if (isVertical) Modifier.width(44.dp) else Modifier)
+                        .then(if (isVertical) Modifier.width(46.dp) else Modifier)
                         .clip(RoundedCornerShape(13.dp))
                         .background(TealActiveTile)
+                        .border(1.5.dp, Color.White.copy(alpha = 0.72f), RoundedCornerShape(13.dp))
                         .clickable { onTogglePopover(vm.tool) }
                         .padding(horizontal = if (isVertical) 6.dp else 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -2077,19 +2167,34 @@ private fun ObsidianSubToolDock(
 
         if (isVertical) {
             Column(
-                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
-                dockBody()
+                gripAndDockControl()
+                Box(Modifier.height(1.dp).width(30.dp).background(dividerColor))
+                Column(
+                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    dockToolsAndOptions()
+                }
             }
         } else {
             Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                dockBody()
+                gripAndDockControl()
+                Box(Modifier.width(1.dp).height(24.dp).background(dividerColor))
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    dockToolsAndOptions()
+                }
             }
         }
     }
@@ -2408,6 +2513,18 @@ private fun ToolButton(
 
     val activeSlotBg = if (darkUi) Color(0xFFCBD5E1) else ProButtonPalette.RoyalBlue
     val activeSlotFg = if (darkUi) Color(0xFF1A1A1A) else Color.White
+    val hasColorBar = t in setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.TEXT, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.MINDMAP)
+    val inkLum = ink.luminance()
+    val colorBarRim = when {
+        inkLum > 0.68f -> Color(0xFF0F172A)
+        inkLum < 0.24f -> Color(0xFFF8FAFC)
+        else -> if (darkUi) Color(0xFFF8FAFC) else Color(0xFF0F172A)
+    }
+    val cellBorderColor = when {
+        dragging -> ProButtonPalette.ElectricBlue
+        selected -> if (darkUi) Color.White else Color(0xFF1E3A8A)
+        else -> barFg.copy(alpha = 0.24f)
+    }
 
     Box {
         Box(
@@ -2423,8 +2540,13 @@ private fun ToolButton(
                     when {
                         dragging -> ProButtonPalette.SkyCyan
                         selected -> activeSlotBg
-                        else -> Color.Transparent
+                        else -> barFg.copy(alpha = 0.04f)
                     },
+                )
+                .border(
+                    width = if (selected || dragging) 1.5.dp else 1.dp,
+                    color = cellBorderColor,
+                    shape = RoundedCornerShape(12.dp),
                 )
                 .pointerInput(t) {
                     awaitPointerEventScope {
@@ -2452,9 +2574,20 @@ private fun ToolButton(
                 tool = t,
                 tint = tint,
                 inkColor = ink,
-                modifier = Modifier.size((21 * settings.toolbarSize.scale).dp),
+                modifier = Modifier.size((20 * settings.toolbarSize.scale).dp),
                 active = selected || dragging,
             )
+            if (hasColorBar) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 2.5.dp)
+                        .size(width = 16.dp, height = 4.5.dp)
+                        .clip(CircleShape)
+                        .background(ink)
+                        .border(0.9.dp, colorBarRim, CircleShape),
+                )
+            }
         }
 
         if (hovered && !dragging && !popoverOpen && settings.showHoverTooltips && settings.hoverCursor) {
@@ -3185,21 +3318,18 @@ private fun LaserCardContent() {
 @Composable
 private fun TextCardContent(vm: EditorViewModel) {
     val fgColor = LocalContentColor.current
-    Text("TEXT & HANDWRITING BOX", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.62f))
+    Text("ON-CANVAS WRITE-TO-TEXT BOX", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.62f))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         AppPill(
             selected = true,
             tint = ProButtonPalette.ElectricBlue,
-            onClick = {
-                val p = vm.currentPage
-                vm.textEdit = EditorViewModel.TextEdit(vm.pageIndex, (p?.width ?: 1240f) * 0.14f, (p?.height ?: 1754f) * 0.24f, null)
-            },
+            onClick = { vm.addWriteBox(vm.pageIndex) },
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 9.dp),
             modifier = Modifier.weight(1f),
         ) {
             ProIconView(ProIcon.WRITE_BOX, Color.White, Modifier.size(16.dp), ink = Color.White)
             Spacer(Modifier.width(5.dp))
-            Text("Write-to-Text Box", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
+            Text("+ Add Write Box", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
         }
         AppPill(
             selected = vm.keyboardMode,
@@ -3213,22 +3343,144 @@ private fun TextCardContent(vm: EditorViewModel) {
             Text("Keyboard Mode", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = if (vm.keyboardMode) Color.White else fgColor, maxLines = 1)
         }
     }
-    TextButton(
-        onClick = { vm.addWriteBox(vm.pageIndex) },
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text("+ Place Ruled Canvas WriteBox on Page", color = ProButtonPalette.ElectricBlue)
-    }
-    SliderRow("DEFAULT SIZE", "%.0f".format(vm.textSize), vm.textSize, 16f..160f) { vm.textSize = it }
+    SliderRow("TEXT SIZE", "%.0f".format(vm.textSize), vm.textSize, 16f..96f) { vm.textSize = it }
     Segments(
         TextFont.entries.take(4).map { it.label },
         TextFont.entries.indexOf(vm.textStyle.font).coerceAtMost(3),
     ) { i -> vm.textStyle = vm.textStyle.copy(font = TextFont.entries[i]) }
     Text(
-        "Tap anywhere on the page with the Text tool to open the Samsung Notes-style Write-to-Text & Keyboard Box.",
+        "Tap or drag anywhere on the page with the Text tool to place a Write-to-Text Box. Write inside with your stylus or finger and it automatically converts to text in place.",
         style = MaterialTheme.typography.labelSmall,
         color = fgColor.copy(alpha = 0.65f),
     )
+}
+
+@Composable
+private fun WriteBoxStudioBar(
+    vm: EditorViewModel,
+    box: WriteBoxItem,
+    pageIndex: Int,
+    darkUi: Boolean,
+) {
+    val barBg = if (darkUi) Color(0xF5161B26) else Color(0xFAFFFFFF)
+    val barFg = if (darkUi) Color(0xFFF1F5F9) else Color(0xFF0F172A)
+    var textValue by remember(box.id, box.convertedText) { mutableStateOf(box.convertedText) }
+
+    AppSurface(
+        role = SurfaceRole.Chrome,
+        containerColor = barBg,
+        contentColor = barFg,
+        shape = RoundedCornerShape(18.dp),
+        shadowElevation = 12.dp,
+        borderColor = ProButtonPalette.ElectricBlue.copy(alpha = 0.55f),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        modifier = Modifier.widthIn(max = 680.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                ProIconView(ProIcon.WRITE_BOX, ProButtonPalette.ElectricBlue, Modifier.size(18.dp), ink = ProButtonPalette.ElectricBlue)
+                Text(
+                    "Write-to-Text Box",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = barFg,
+                )
+                Text(
+                    if (box.isConverted) "• Converted" else "• Writing Ink (auto-converts)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ProButtonPalette.ElectricBlue,
+                )
+                Spacer(Modifier.weight(1f))
+                AppPill(
+                    selected = box.isConverted,
+                    tint = ProButtonPalette.ElectricBlue,
+                    onClick = { vm.toggleWriteBox(pageIndex, box) },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
+                ) {
+                    Text(
+                        if (box.isConverted) "Show Ink" else "Convert Now",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (box.isConverted) Color.White else barFg,
+                    )
+                }
+                AppPill(
+                    selected = true,
+                    tint = ProButtonPalette.Emerald,
+                    onClick = { vm.flattenWriteBoxToText(pageIndex, box.id) },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
+                ) {
+                    Text(
+                        "Place Text",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White,
+                    )
+                }
+                IconButton(
+                    onClick = { vm.deleteWriteBox(pageIndex, box.id) },
+                    modifier = Modifier.size(28.dp),
+                ) {
+                    ProIconView(ProIcon.TRASH, MaterialTheme.colorScheme.error, Modifier.size(18.dp))
+                }
+                IconButton(
+                    onClick = { vm.selectWriteBox(pageIndex, null) },
+                    modifier = Modifier.size(28.dp),
+                ) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close bar", tint = barFg.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                }
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                OutlinedTextField(
+                    value = textValue,
+                    onValueChange = {
+                        textValue = it
+                        vm.updateWriteBoxText(pageIndex, box.id, it)
+                    },
+                    placeholder = { Text("Write inside the box on page or type here…", style = MaterialTheme.typography.bodySmall) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f),
+                )
+                AppPill(
+                    onClick = {
+                        val nextSize = (box.fontSize - 3f).coerceAtLeast(16f)
+                        vm.updateWriteBoxText(pageIndex, box.id, textValue, fontSize = nextSize)
+                    },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                ) {
+                    Text("A-", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                }
+                AppPill(
+                    onClick = {
+                        val nextSize = (box.fontSize + 3f).coerceAtMost(64f)
+                        vm.updateWriteBoxText(pageIndex, box.id, textValue, fontSize = nextSize)
+                    },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                ) {
+                    Text("A+", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                }
+                val nextFont = TextFont.entries[(TextFont.entries.indexOf(box.font) + 1) % 4]
+                AppPill(
+                    onClick = {
+                        vm.updateWriteBoxText(pageIndex, box.id, textValue, font = nextFont)
+                    },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                ) {
+                    Text(box.font.label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)

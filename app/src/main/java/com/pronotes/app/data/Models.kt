@@ -87,6 +87,7 @@ data class NotebookMeta(
     /** Set when the notebook is in the trash. */
     val deletedAt: Long? = null,
     val isWhiteboard: Boolean = false,
+    val tags: List<String> = emptyList(),
 ) {
     val coverSpec: String get() = cover.ifBlank { if (fromPdf) "thumb" else "solid:$coverColor" }
 }
@@ -222,6 +223,7 @@ data class PageDoc(
     val lineScale: Float = 1f,
     val lineColor: Int? = null,
     val isWhiteboard: Boolean = false,
+    val tags: List<String> = emptyList(),
 )
 
 @Immutable

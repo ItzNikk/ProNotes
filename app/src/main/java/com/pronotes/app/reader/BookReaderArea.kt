@@ -307,6 +307,16 @@ enum class BookTheme(
         accent = Color(0xFFB45309),
         isDark = false,
     ),
+    FOREST_SAGE(
+        label = "Sage",
+        deskBg = Color(0xFFCED8CF),
+        pageBg = Color(0xFFEAF1EB),
+        chromeBg = Color(0xF5E3ECE4),
+        inkText = Color(0xFF1A2920),
+        mutedText = Color(0xFF4B6353),
+        accent = Color(0xFF0D9488),
+        isDark = false,
+    ),
     NIGHT(
         label = "Night",
         deskBg = Color(0xFF0A0B0E),
@@ -317,6 +327,35 @@ enum class BookTheme(
         accent = Color(0xFF4FB0F5),
         isDark = true,
     ),
+    AMOLED_BLACK(
+        label = "OLED",
+        deskBg = Color(0xFF000000),
+        pageBg = Color(0xFF050608),
+        chromeBg = Color(0xF50E1015),
+        inkText = Color(0xFFD8DEE9),
+        mutedText = Color(0xFF7C8698),
+        accent = Color(0xFF38BDF8),
+        isDark = true,
+    ),
+}
+
+enum class BookFlipStyle(val label: String) {
+    REALISTIC_CURL("3D Curl"),
+    SPINE_FLIP("3D Flip"),
+    CRISP_SLIDE("Slide"),
+    INSTANT("Instant"),
+}
+
+enum class BookFlipSpeed(val label: String, val durationMs: Int) {
+    FAST("Fast", 280),
+    NATURAL("Natural", 440),
+    RELAXED("Relaxed", 620),
+}
+
+enum class BookMargin(val label: String, val padDp: Int) {
+    COMPACT("Compact", 6),
+    CLASSIC("Classic", 16),
+    WIDE("Wide", 30),
 }
 
 /**
@@ -762,7 +801,11 @@ fun BookReaderScreen(
     var loaded by remember(bookId) { mutableStateOf(false) }
     var currentPage by remember(bookId) { mutableIntStateOf(store.readerPage(bookId)) }
     var theme by remember { mutableStateOf(BookTheme.WARM_IVORY) }
+    var flipStyle by remember { mutableStateOf(BookFlipStyle.REALISTIC_CURL) }
+    var flipSpeed by remember { mutableStateOf(BookFlipSpeed.NATURAL) }
+    var bookMargin by remember { mutableStateOf(BookMargin.CLASSIC) }
     var brightness by remember { mutableFloatStateOf(1f) }
+    var contrast by remember { mutableFloatStateOf(1.05f) }
     var twoPageSpread by remember { mutableStateOf(true) }
     var showChrome by remember { mutableStateOf(true) }
     var showDisplaySheet by remember { mutableStateOf(false) }
@@ -851,11 +894,15 @@ fun BookReaderScreen(
         if (bookFlipSound) {
             BookFlipSoundEngine.playPageTurnSwish(volume = appSettings.paperVolume, forward = direction > 0)
         }
+        if (flipStyle == BookFlipStyle.INSTANT) {
+            currentPage = (currentPage + direction * pageStep).coerceIn(0, totalPages - 1)
+            return
+        }
         scope.launch {
             turnDir = direction
             curlTouchY = normalizedY.coerceIn(0.15f, 0.85f)
             turnProgress.snapTo(0f)
-            turnProgress.animateTo(1f, tween(durationMillis = 460, easing = FastOutSlowInEasing))
+            turnProgress.animateTo(1f, tween(durationMillis = flipSpeed.durationMs, easing = FastOutSlowInEasing))
             currentPage = (currentPage + direction * pageStep).coerceIn(0, totalPages - 1)
             turnDir = 0
             turnProgress.snapTo(0f)
@@ -891,15 +938,17 @@ fun BookReaderScreen(
         }
     }
 
-    val colorFilter = remember(theme, brightness) {
+    val colorFilter = remember(theme, brightness, contrast) {
         val b = brightness.coerceIn(0.45f, 1.0f)
+        val c = contrast.coerceIn(0.85f, 1.35f)
+        val t = (1f - c) * 128f
         when (theme) {
-            BookTheme.PAPER -> if (b >= 0.99f) null else ColorFilter.colorMatrix(
+            BookTheme.PAPER -> if (b >= 0.99f && kotlin.math.abs(c - 1f) < 0.02f) null else ColorFilter.colorMatrix(
                 ColorMatrix(
                     floatArrayOf(
-                        b, 0f, 0f, 0f, 0f,
-                        0f, b, 0f, 0f, 0f,
-                        0f, 0f, b, 0f, 0f,
+                        b * c, 0f, 0f, 0f, t * b,
+                        0f, b * c, 0f, 0f, t * b,
+                        0f, 0f, b * c, 0f, t * b,
                         0f, 0f, 0f, 1f, 0f,
                     ),
                 ),
@@ -907,9 +956,9 @@ fun BookReaderScreen(
             BookTheme.WARM_IVORY -> ColorFilter.colorMatrix(
                 ColorMatrix(
                     floatArrayOf(
-                        0.98f * b, 0f, 0f, 0f, 0f,
-                        0f, 0.95f * b, 0f, 0f, 0f,
-                        0f, 0f, 0.88f * b, 0f, 0f,
+                        0.98f * b * c, 0f, 0f, 0f, t * b,
+                        0f, 0.95f * b * c, 0f, 0f, t * b,
+                        0f, 0f, 0.88f * b * c, 0f, t * b,
                         0f, 0f, 0f, 1f, 0f,
                     ),
                 ),
@@ -917,9 +966,19 @@ fun BookReaderScreen(
             BookTheme.SEPIA -> ColorFilter.colorMatrix(
                 ColorMatrix(
                     floatArrayOf(
-                        0.95f * b, 0f, 0f, 0f, 0f,
-                        0f, 0.89f * b, 0f, 0f, 0f,
-                        0f, 0f, 0.78f * b, 0f, 0f,
+                        0.95f * b * c, 0f, 0f, 0f, t * b,
+                        0f, 0.89f * b * c, 0f, 0f, t * b,
+                        0f, 0f, 0.78f * b * c, 0f, t * b,
+                        0f, 0f, 0f, 1f, 0f,
+                    ),
+                ),
+            )
+            BookTheme.FOREST_SAGE -> ColorFilter.colorMatrix(
+                ColorMatrix(
+                    floatArrayOf(
+                        0.91f * b * c, 0f, 0f, 0f, t * b,
+                        0f, 0.95f * b * c, 0f, 0f, t * b,
+                        0f, 0f, 0.92f * b * c, 0f, t * b,
                         0f, 0f, 0f, 1f, 0f,
                     ),
                 ),
@@ -927,9 +986,19 @@ fun BookReaderScreen(
             BookTheme.NIGHT -> ColorFilter.colorMatrix(
                 ColorMatrix(
                     floatArrayOf(
-                        -0.88f * b, 0f, 0f, 0f, 236f * b,
-                        0f, -0.88f * b, 0f, 0f, 236f * b,
-                        0f, 0f, -0.88f * b, 0f, 236f * b,
+                        -0.88f * b * c, 0f, 0f, 0f, 236f * b,
+                        0f, -0.88f * b * c, 0f, 0f, 236f * b,
+                        0f, 0f, -0.88f * b * c, 0f, 236f * b,
+                        0f, 0f, 0f, 1f, 0f,
+                    ),
+                ),
+            )
+            BookTheme.AMOLED_BLACK -> ColorFilter.colorMatrix(
+                ColorMatrix(
+                    floatArrayOf(
+                        -0.95f * b * c, 0f, 0f, 0f, 244f * b,
+                        0f, -0.95f * b * c, 0f, 0f, 244f * b,
+                        0f, 0f, -0.95f * b * c, 0f, 244f * b,
                         0f, 0f, 0f, 1f, 0f,
                     ),
                 ),
@@ -1001,7 +1070,7 @@ fun BookReaderScreen(
             Modifier
                 .fillMaxSize()
                 .padding(
-                    horizontal = if (isWideTablet) 28.dp else 10.dp,
+                    horizontal = if (isWideTablet) (bookMargin.padDp + 12).dp else bookMargin.padDp.dp,
                     vertical = if (showChrome) 74.dp else 14.dp,
                 )
                 .pointerInput(zoom) {
@@ -1135,6 +1204,7 @@ fun BookReaderScreen(
                 val p = turnProgress.value.coerceIn(0f, 1f)
                 BookCurlStage(
                     theme = theme,
+                    flipStyle = flipStyle,
                     spread = effectiveSpread,
                     title = bookTitle,
                     totalPages = totalPages,
@@ -1334,37 +1404,61 @@ fun BookReaderScreen(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 12.dp)
+                    .padding(horizontal = 20.dp, vertical = 10.dp)
                     .navigationBarsPadding(),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    "Reading Display",
+                    "Reading Display & Animation",
                     style = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Serif),
                     fontWeight = FontWeight.Bold,
                 )
                 Text("PAPER THEME", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     BookTheme.entries.forEach { t ->
                         val selected = t == theme
                         Column(
                             Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(14.dp))
+                                .clip(RoundedCornerShape(12.dp))
                                 .background(t.pageBg)
                                 .border(
                                     width = if (selected) 2.dp else 1.dp,
-                                    color = if (selected) ProButtonPalette.ElectricBlue else Color.Gray.copy(alpha = 0.25f),
-                                    shape = RoundedCornerShape(14.dp),
+                                    color = if (selected) ProButtonPalette.ElectricBlue else Color.Gray.copy(alpha = 0.28f),
+                                    shape = RoundedCornerShape(12.dp),
                                 )
                                 .clickable { theme = t }
-                                .padding(vertical = 12.dp),
+                                .padding(vertical = 10.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(3.dp),
                         ) {
                             Text("Aa", color = t.inkText, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
-                            Text(t.label, style = MaterialTheme.typography.labelSmall, color = t.inkText)
+                            Text(t.label, style = MaterialTheme.typography.labelSmall, color = t.inkText, maxLines = 1)
                         }
+                    }
+                }
+                Text("PAGE TURN ANIMATION", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                AppSegmentedControl(
+                    options = BookFlipStyle.entries.map { it.label },
+                    selectedIndex = flipStyle.ordinal,
+                    onSelect = { flipStyle = BookFlipStyle.entries[it] },
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("ANIMATION SPEED", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        AppSegmentedControl(
+                            options = BookFlipSpeed.entries.map { it.label },
+                            selectedIndex = flipSpeed.ordinal,
+                            onSelect = { flipSpeed = BookFlipSpeed.entries[it] },
+                        )
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("PAGE MARGIN", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        AppSegmentedControl(
+                            options = BookMargin.entries.map { it.label },
+                            selectedIndex = bookMargin.ordinal,
+                            onSelect = { bookMargin = BookMargin.entries[it] },
+                        )
                     }
                 }
                 AppSliderRow(
@@ -1373,6 +1467,13 @@ fun BookReaderScreen(
                     value = brightness,
                     valueRange = 0.45f..1.0f,
                     onValueChange = { brightness = it },
+                )
+                AppSliderRow(
+                    title = "INK CONTRAST",
+                    valueText = "${(contrast * 100).roundToInt()}%",
+                    value = contrast,
+                    valueRange = 0.85f..1.35f,
+                    onValueChange = { contrast = it },
                 )
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Realistic page-flip paper sound", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
@@ -1396,7 +1497,7 @@ fun BookReaderScreen(
                         )
                     }
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(6.dp))
             }
         }
     }
@@ -1607,6 +1708,7 @@ fun BookReaderScreen(
 @Composable
 private fun BookCurlStage(
     theme: BookTheme,
+    flipStyle: BookFlipStyle,
     spread: Boolean,
     title: String,
     totalPages: Int,
@@ -1642,23 +1744,37 @@ private fun BookCurlStage(
             )
         }
 
-        // Layer 2 + Layer 3: Turning sheet with live curved Bezier clip + curled flap physics
+        // Layer 2 + Layer 3: Turning sheet with selected animation physics
         val cornerRadiusPx = with(LocalDensity.current) { 16.dp.toPx() }
         Box(
             Modifier
                 .fillMaxSize()
                 .graphicsLayer { clip = true; shape = RoundedCornerShape(16.dp) },
         ) {
-            // Current sheet clipped cleanly at the curved page-peel crease
             Box(
                 Modifier
                     .fillMaxSize()
                     .let { base ->
-                        if (!activeCurl) base else base.drawCurvedPageClip(
-                            turnDir = turnDir,
-                            progress = curlProgress,
-                            touchY = curlTouchY,
-                        )
+                        when {
+                            !activeCurl -> base
+                            flipStyle == BookFlipStyle.REALISTIC_CURL -> base.drawCurvedPageClip(
+                                turnDir = turnDir,
+                                progress = curlProgress,
+                                touchY = curlTouchY,
+                            )
+                            flipStyle == BookFlipStyle.SPINE_FLIP -> base.graphicsLayer {
+                                val p = curlProgress.coerceIn(0f, 1f)
+                                cameraDistance = 28f * density
+                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(if (turnDir > 0) 0f else 1f, 0.5f)
+                                rotationY = if (turnDir > 0) -105f * p else 105f * p
+                                alpha = (1f - (p - 0.55f).coerceAtLeast(0f) * 2.2f).coerceIn(0f, 1f)
+                            }
+                            flipStyle == BookFlipStyle.CRISP_SLIDE -> base.graphicsLayer {
+                                val p = curlProgress.coerceIn(0f, 1f)
+                                translationX = (if (turnDir > 0) -1f else 1f) * size.width * p
+                            }
+                            else -> base
+                        }
                     },
             ) {
                 BookSheetFrame(
@@ -1677,7 +1793,7 @@ private fun BookCurlStage(
             }
 
             // Cast shadows + Curled backside paper flap overlay with realistic 3D cylindrical roll
-            if (activeCurl) {
+            if (activeCurl && flipStyle == BookFlipStyle.REALISTIC_CURL) {
                 val turningBmp = if (spread && turnDir > 0) (curRightBmp ?: curLeftBmp) else curLeftBmp
                 Canvas(Modifier.fillMaxSize()) {
                     val w = size.width

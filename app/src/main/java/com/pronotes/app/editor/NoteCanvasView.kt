@@ -104,6 +104,12 @@ interface CanvasHost {
     fun onPenButton(doubleClick: Boolean, x: Float, y: Float, deviceName: String)
     /** Colour and on-screen size of the hover dot, or null for no dot. */
     fun hoverInk(): Pair<Int, Float>?
+    /** Called when user places a new WriteBoxItem on the canvas with Tool.TEXT. */
+    fun onPlaceWriteBox(page: Int, x: Float, y: Float, w: Float, h: Float) {}
+    /** Called after user pauses writing inside a WriteBoxItem to auto-convert strokes to text. */
+    fun onAutoConvertWriteBox(page: Int, boxId: Long) {}
+    /** Called when user focuses or taps inside/outside a WriteBoxItem. */
+    fun onSelectWriteBox(page: Int, boxId: Long?) {}
 }
 
 /**
@@ -280,6 +286,16 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         }
                     }
                     updatePage(pi, p.items + added)
+                    val boxes = pages.getOrNull(pi)?.items?.filterIsInstance<WriteBoxItem>().orEmpty()
+                    if (boxes.isNotEmpty() && added.isNotEmpty()) {
+                        for (wb in boxes) {
+                            val boxRect = wb.raw
+                            val hit = added.any { ink -> RectF.intersects(boxRect, ink.bounds) || boxRect.contains(ink.bounds.centerX(), ink.bounds.centerY()) }
+                            if (hit) {
+                                scheduleAutoConvert(pi, wb.id)
+                            }
+                        }
+                    }
                 }
                 wetInk.removeFinishedStrokes(strokes.keys)
             }
@@ -563,7 +579,24 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
     // ------------------------------------------------------------------ input
 
-    private enum class Mode { NONE, INK, ERASE, LASSO, MOVE, LASER, PAN, TAP, SHAPE_DRAG, TAPE, MIND_DRAG, IGNORE }
+    private enum class Mode { NONE, INK, ERASE, LASSO, MOVE, LASER, PAN, TAP, SHAPE_DRAG, TAPE, MIND_DRAG, WRITE_BOX_DRAG, IGNORE }
+
+    private var pendingConvertPage = -1
+    private var pendingConvertBoxId = -1L
+    private val autoConvertRunnable = Runnable {
+        val p = pendingConvertPage
+        val bid = pendingConvertBoxId
+        if (p >= 0 && bid != -1L) {
+            host.onAutoConvertWriteBox(p, bid)
+        }
+    }
+
+    private fun scheduleAutoConvert(page: Int, boxId: Long) {
+        removeCallbacks(autoConvertRunnable)
+        pendingConvertPage = page
+        pendingConvertBoxId = boxId
+        postDelayed(autoConvertRunnable, 900L)
+    }
 
     private var mode = Mode.NONE
     private var activePointer = -1
@@ -816,7 +849,16 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 }
 
                 when (t) {
-                    Tool.PEN, Tool.HIGHLIGHTER -> startInk(e, t)
+                    Tool.PEN, Tool.HIGHLIGHTER -> {
+                        if (t == Tool.PEN) {
+                            val hitBox = pages.getOrNull(activePage)?.items?.filterIsInstance<WriteBoxItem>()?.lastOrNull { it.raw.contains(wx, wy) }
+                            if (hitBox != null) {
+                                removeCallbacks(autoConvertRunnable)
+                                host.onSelectWriteBox(activePage, hitBox.id)
+                            }
+                        }
+                        startInk(e, t)
+                    }
                     Tool.SHAPE -> if (host.shapeKind() == ShapeKind.AUTO) startInk(e, t) else {
                         mode = Mode.SHAPE_DRAG
                         layer.shapePreview = null
@@ -872,7 +914,33 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                             mode = Mode.TAP
                         }
                     }
-                    Tool.TEXT, Tool.STICKY, Tool.WEBLINK -> mode = Mode.TAP
+                    Tool.TEXT -> {
+                        val allItems = pages[activePage].items
+                        val hitBox = allItems.filterIsInstance<WriteBoxItem>().lastOrNull { it.raw.contains(wx, wy) }
+                        if (hitBox != null) {
+                            removeCallbacks(autoConvertRunnable)
+                            host.onSelectWriteBox(activePage, hitBox.id)
+                            // Tapping the top-right status badge toggles Ink/Text or converts immediately
+                            if (wx >= hitBox.raw.right - 220f && wy <= hitBox.raw.top + 44f) {
+                                buzz()
+                                host.onWriteBoxDoubleTap(activePage, hitBox)
+                                mode = Mode.IGNORE
+                            } else {
+                                // Write directly inside the box with real low-latency ink!
+                                strokeTool = Tool.PEN
+                                startInk(e, Tool.PEN)
+                            }
+                        } else {
+                            val hitText = allItems.filterIsInstance<TextItem>().lastOrNull { it.bounds.contains(wx, wy) }
+                            if (hitText != null) {
+                                mode = Mode.TAP
+                            } else {
+                                mode = Mode.WRITE_BOX_DRAG
+                                layer.writeBoxPreview = null
+                            }
+                        }
+                    }
+                    Tool.STICKY, Tool.WEBLINK -> mode = Mode.TAP
                     Tool.IMAGE, Tool.STICKER -> mode = Mode.IGNORE
                 }
             }
@@ -961,6 +1029,19 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         layer.shapePreview = runCatching { ShapeBuilder.build(host.shapeKind(), sx, sy, cx, cy) }.getOrNull() ?: layer.shapePreview
                         layer.invalidate()
                     }
+                    Mode.WRITE_BOX_DRAG -> {
+                        val (wx, wy) = toLocal(e.getX(idx), e.getY(idx), activePage)
+                        val (x0, y0) = points.first()
+                        if (hypot(wx - x0, wy - y0) > 16f) {
+                            val page = pages[activePage]
+                            val l = min(x0, wx).coerceIn(20f, page.width - 180f)
+                            val r = max(x0, wx).coerceIn(l + 160f, page.width - 20f)
+                            val t = min(y0, wy).coerceIn(20f, page.height - 110f)
+                            val b = max(y0, wy).coerceIn(t + 90f, page.height - 20f)
+                            layer.writeBoxPreview = RectF(l, t, r, b)
+                            layer.invalidate()
+                        }
+                    }
                     Mode.TAPE -> {
                         if (host.tapeFreehand()) {
                             for (h in 0 until e.historySize) points += toLocal(e.getHistoricalX(idx, h), e.getHistoricalY(idx, h), activePage)
@@ -1042,6 +1123,20 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         layer.shapePreview = null
                         val moved = hypot(px - downX, py - downY) > touchSlop * 0.6f
                         if (shapes != null && (!isTap || moved)) addShapes(shapes, fillable = host.shapeKind().closed)
+                        layer.invalidate()
+                    }
+                    Mode.WRITE_BOX_DRAG -> {
+                        layer.writeBoxPreview = null
+                        val (wx, wy) = toLocal(px, py, activePage)
+                        val (x0, y0) = points.first()
+                        val page = pages[activePage]
+                        val dragged = hypot(wx - x0, wy - y0) > 28f
+                        val boxW = if (dragged) abs(wx - x0).coerceIn(280f, page.width - 40f) else 680f.coerceAtMost(page.width - 60f)
+                        val boxH = if (dragged) abs(wy - y0).coerceIn(130f, page.height - 40f) else 220f
+                        val boxX = (if (dragged) min(x0, wx) else (x0 - 40f)).coerceIn(24f, (page.width - boxW - 24f).coerceAtLeast(24f))
+                        val boxY = (if (dragged) min(y0, wy) else (y0 - 36f)).coerceIn(24f, (page.height - boxH - 24f).coerceAtLeast(24f))
+                        buzz()
+                        host.onPlaceWriteBox(activePage, boxX, boxY, boxW, boxH)
                         layer.invalidate()
                     }
                     Mode.TAPE -> {
@@ -2237,6 +2332,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         var shapePreview: List<List<Pt>>? = null
         var tapePreview: RectF? = null
         var tapeFree: List<Pt>? = null
+        var writeBoxPreview: RectF? = null
         /** Hover preview: x, y, and (colour, radius in px). */
         var hoverDot: Triple<Float, Float, Pair<Int, Float>>? = null
         private val hoverPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -2466,6 +2562,15 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                     line.forEachIndexed { k, (x, y) -> if (k == 0) tmpPath.moveTo(x, y) else tmpPath.lineTo(x, y) }
                     previewPaint.strokeWidth = 2f * density / scale
                     canvas.drawPath(tmpPath, previewPaint)
+                }
+                writeBoxPreview?.takeIf { i == activePage }?.let { wb ->
+                    canvas.drawRoundRect(wb, 12f, 12f, linkBoxFill)
+                    canvas.drawRoundRect(wb, 12f, 12f, selPaint)
+                    var gy = wb.top + 56f
+                    while (gy < wb.bottom - 18f) {
+                        canvas.drawLine(wb.left + 16f, gy, wb.right - 16f, gy, linkBoxLine)
+                        gy += 44f
+                    }
                 }
                 canvas.restore()
                 if (!p.isWhiteboard && settings.pageNumbers && pages.size > 1) {

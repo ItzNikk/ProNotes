@@ -237,15 +237,10 @@ fun LibraryScreen(
     var deleting by remember { mutableStateOf<Entry?>(null) }
     var coverFor by remember { mutableStateOf<NotebookMeta?>(null) }
     var forever by remember { mutableStateOf<NotebookMeta?>(null) }
+    var taggingNotebook by remember { mutableStateOf<NotebookMeta?>(null) }
+    var selectedTag by rememberSaveable { mutableStateOf<String?>(null) }
     var collabOpen by remember { mutableStateOf(false) }
     var supportCard by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        val st = SettingsStore.get(context)
-        if (Support.enabled && st.shouldRemindSupport()) {
-            supportCard = true
-            st.markSupportShown()
-        }
-    }
     var emptyTrash by remember { mutableStateOf(false) }
     var pdfImportProgress by remember { mutableStateOf<Triple<String, Int, Int>?>(null) }
 
@@ -301,9 +296,18 @@ fun LibraryScreen(
 
     BackHandler(enabled = folderId != null) { folderId = lib.folders.firstOrNull { it.id == folderId }?.parentId }
 
-    val entries: ImmutableList<Entry> = remember(lib, section, folderId, query, sort) {
-        val q = query.trim().lowercase()
-        val live = lib.notebooks.filter { it.deletedAt == null }
+    val allAvailableTags: List<String> = remember(lib.notebooks) {
+        val defaults = listOf("Important", "Study", "Lecture", "Exam", "Work", "Math", "Review")
+        val used = lib.notebooks.filter { it.deletedAt == null }.flatMap { it.tags }
+        (used + defaults).distinctBy { it.lowercase() }
+    }
+
+    val entries: ImmutableList<Entry> = remember(lib, section, folderId, query, sort, selectedTag) {
+        val q = query.trim().lowercase().removePrefix("#")
+        val activeTag = selectedTag?.lowercase()
+        val live = lib.notebooks.filter { n ->
+            n.deletedAt == null && (activeTag == null || n.tags.any { it.equals(activeTag, ignoreCase = true) })
+        }
         fun sortNotes(l: List<NotebookMeta>) = when (sort) {
             SortBy.MODIFIED -> l.sortedByDescending { it.modified }
             SortBy.CREATED -> l.sortedByDescending { it.created }
@@ -312,8 +316,9 @@ fun LibraryScreen(
         fun folderEntry(f: Folder) = Entry.F(f, lib.notebooks.count { it.folderId == f.id && it.deletedAt == null } + lib.folders.count { it.parentId == f.id })
         when {
             section == Section.TRASH -> lib.notebooks.filter { it.deletedAt != null }.sortedByDescending { it.deletedAt }.map { Entry.N(it) }
-            q.isNotEmpty() -> lib.folders.filter { it.name.lowercase().contains(q) }.map(::folderEntry) +
-                sortNotes(live.filter { it.title.lowercase().contains(q) }).map { Entry.N(it) }
+            q.isNotEmpty() -> lib.folders.filter { it.name.lowercase().contains(q) || it.emoji.lowercase().contains(q) }.map(::folderEntry) +
+                sortNotes(live.filter { n -> n.title.lowercase().contains(q) || n.tags.any { it.lowercase().contains(q) } }).map { Entry.N(it) }
+            activeTag != null -> sortNotes(live).map { Entry.N(it) }
             section == Section.FAVORITES -> sortNotes(live.filter { it.favorite }).map { Entry.N(it) }
             section == Section.RECENT -> live.sortedByDescending { it.opened }.take(30).map { Entry.N(it) }
             else -> lib.folders.filter { it.parentId == folderId }.let { fs ->
@@ -644,6 +649,33 @@ fun LibraryScreen(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
                     )
 
+                    if (section != Section.TRASH) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 24.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            AppChip(
+                                selected = selectedTag == null,
+                                onClick = { selectedTag = null },
+                                label = "All Tags",
+                                tint = ProButtonPalette.ElectricBlue,
+                            )
+                            allAvailableTags.forEach { tag ->
+                                val isSel = selectedTag?.equals(tag, ignoreCase = true) == true
+                                AppChip(
+                                    selected = isSel,
+                                    onClick = { selectedTag = if (isSel) null else tag },
+                                    label = "#$tag",
+                                    tint = tagTintFor(tag),
+                                )
+                            }
+                        }
+                    }
+
                     AnimatedVisibility(searching) {
                         AppCard(
                             hero = false,
@@ -654,7 +686,7 @@ fun LibraryScreen(
                             OutlinedTextField(
                                 query,
                                 { query = it },
-                                placeholder = { Text("Search notebooks and folders") },
+                                placeholder = { Text("Search notebooks, folders, or #tags") },
                                 singleLine = true,
                                 leadingIcon = { Icon(Icons.Outlined.Search, null) },
                                 shape = RoundedCornerShape(14.dp),
@@ -671,6 +703,8 @@ fun LibraryScreen(
                         onDelete = { deleting = it },
                         onEditFolder = { folderEdit = it },
                         onCover = { coverFor = it },
+                        onTags = { taggingNotebook = it },
+                        onTagFilter = { tag -> selectedTag = if (selectedTag.equals(tag, ignoreCase = true)) null else tag },
                         onFavorite = { scope.launch { repo.toggleFavorite(it.id) } },
                         onDuplicate = { scope.launch { repo.duplicateNotebook(it.id) } },
                         onRestore = { scope.launch { repo.restoreNotebook(it.id) } },
@@ -992,6 +1026,18 @@ fun LibraryScreen(
             onClose = { collabOpen = false },
         )
     }
+
+    taggingNotebook?.let { targetNote ->
+        ManageTagsDialog(
+            note = targetNote,
+            availableTags = allAvailableTags,
+            onDismiss = { taggingNotebook = null },
+            onSave = { updatedTags ->
+                taggingNotebook = null
+                scope.launch { repo.setNotebookTags(targetNote.id, updatedTags) }
+            },
+        )
+    }
 }
 
 /**
@@ -1115,6 +1161,8 @@ private class TileActions(
     val onDelete: (Entry) -> Unit,
     val onEditFolder: (Folder) -> Unit,
     val onCover: (NotebookMeta) -> Unit,
+    val onTags: (NotebookMeta) -> Unit,
+    val onTagFilter: (String) -> Unit,
     val onFavorite: (NotebookMeta) -> Unit,
     val onDuplicate: (NotebookMeta) -> Unit,
     val onRestore: (NotebookMeta) -> Unit,
@@ -1166,7 +1214,7 @@ private fun Sidebar(
                 Spacer(Modifier.width(10.dp))
                 Column {
                     Text("Pro Notes", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
-                    Text("v12 Studio", style = MaterialTheme.typography.labelSmall, color = activeIconTint)
+                    Text("v13 Studio", style = MaterialTheme.typography.labelSmall, color = activeIconTint)
                 }
             }
 
@@ -1394,6 +1442,7 @@ private fun noteMenuItems(note: NotebookMeta, a: TileActions): List<AppMenuItem>
         )
     } else {
         listOf(
+            AppMenuItem("Manage tags…", icon = { ProIconView(ProIcon.BOOKMARK, ProButtonPalette.ElectricBlue, Modifier.size(18.dp)) }) { a.onTags(note) },
             AppMenuItem("Duplicate", icon = { Icon(Icons.Outlined.ContentCopy, null, Modifier.size(18.dp)) }) { a.onDuplicate(note) },
             AppMenuItem(
                 if (note.favorite) "Remove from favorites" else "Add to favorites",
@@ -1431,7 +1480,7 @@ private fun FolderTile(e: Entry.F, a: TileActions) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
     var trashPrompt by remember { mutableStateOf(false) }
@@ -1459,6 +1508,17 @@ private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
             DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(note.modified)),
             menuItems = remember(note) { noteMenuItems(note, a) },
         )
+        if (note.tags.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                note.tags.take(3).forEach { tag ->
+                    TagBadgePill(tag = tag, onClick = { a.onTagFilter(tag) })
+                }
+            }
+        }
     }
     if (trashPrompt) {
         AppDialog(
@@ -1497,6 +1557,7 @@ private fun Caption(title: String, sub: String, menuItems: List<AppMenuItem>) {
     Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ListRow(e: Entry, repo: Repository, a: TileActions) {
     var trashPrompt by remember { mutableStateOf(false) }
@@ -1534,6 +1595,14 @@ private fun ListRow(e: Entry, repo: Repository, a: TileActions) {
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (e is Entry.N && e.note.tags.isNotEmpty()) {
+                        Spacer(Modifier.height(4.dp))
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            e.note.tags.forEach { tag ->
+                                TagBadgePill(tag = tag, onClick = { a.onTagFilter(tag) })
+                            }
+                        }
+                    }
                 }
             }
             AppMenuButton(
@@ -1562,6 +1631,125 @@ private fun ListRow(e: Entry, repo: Repository, a: TileActions) {
             },
         )
     }
+}
+
+private fun tagTintFor(tag: String): Color {
+    val palette = listOf(
+        ProButtonPalette.ElectricBlue,
+        ProButtonPalette.Emerald,
+        ProButtonPalette.VibrantOrange,
+        ProButtonPalette.Violet,
+        ProButtonPalette.MagentaPink,
+        ProButtonPalette.MintTeal,
+        ProButtonPalette.SkyCyan,
+    )
+    val idx = (tag.lowercase().hashCode() and 0x7FFFFFFF) % palette.size
+    return palette[idx]
+}
+
+@Composable
+private fun TagBadgePill(tag: String, onClick: () -> Unit) {
+    val tint = tagTintFor(tag)
+    Box(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(tint.copy(alpha = 0.16f))
+            .border(1.dp, tint.copy(alpha = 0.48f), CircleShape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+    ) {
+        Text(
+            text = "#$tag",
+            style = MaterialTheme.typography.labelSmall,
+            color = tint,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ManageTagsDialog(
+    note: NotebookMeta,
+    availableTags: List<String>,
+    onDismiss: () -> Unit,
+    onSave: (List<String>) -> Unit,
+) {
+    var tags by remember(note.id) { mutableStateOf(note.tags) }
+    var customTag by remember { mutableStateOf("") }
+    val presets = remember(availableTags) {
+        (availableTags + listOf("Important", "Study", "Lecture", "Exam", "Work", "Math", "Review", "Project", "Personal", "Summary"))
+            .distinctBy { it.lowercase() }
+    }
+
+    AppDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Tags · ${note.title}", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "Organize and filter your notebooks with color-coded tags.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = customTag,
+                        onValueChange = { customTag = it.take(24) },
+                        singleLine = true,
+                        label = { Text("Add custom tag") },
+                        placeholder = { Text("e.g. Semester1, Physics") },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(
+                        enabled = customTag.trim().removePrefix("#").isNotBlank(),
+                        onClick = {
+                            val clean = customTag.trim().removePrefix("#").trim()
+                            if (clean.isNotBlank() && tags.none { it.equals(clean, ignoreCase = true) }) {
+                                tags = tags + clean
+                            }
+                            customTag = ""
+                        },
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
+                    ) {
+                        Text("Add")
+                    }
+                }
+                Text("TAP TO TOGGLE TAGS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    (tags + presets).distinctBy { it.lowercase() }.forEach { t ->
+                        val active = tags.any { it.equals(t, ignoreCase = true) }
+                        AppChip(
+                            selected = active,
+                            onClick = {
+                                tags = if (active) {
+                                    tags.filterNot { it.equals(t, ignoreCase = true) }
+                                } else {
+                                    tags + t
+                                }
+                            },
+                            label = "#$t",
+                            tint = tagTintFor(t),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(tags) },
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
+            ) {
+                Text("Save Tags")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 @Composable
