@@ -1,7 +1,9 @@
 package com.pronotes.app.ui
 
+import android.os.Build
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -67,9 +69,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -112,14 +116,30 @@ fun appContentBottomPadding(extra: Dp = 16.dp): Dp {
     return 96.dp + navBottom + extra
 }
 
+/** Applies native Android 12+ blur when active and Classic appearance is off. */
+@Composable
+fun Modifier.appBackdropBlur(enabled: Boolean, radiusDp: Dp = 14.dp): Modifier {
+    val classic = LocalClassicAppearance.current
+    if (!enabled || classic || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return this
+    val radiusPx = with(LocalDensity.current) { radiusDp.toPx() }.coerceAtLeast(1f)
+    return graphicsLayer {
+        renderEffect = android.graphics.RenderEffect.createBlurEffect(
+            radiusPx,
+            radiusPx,
+            android.graphics.Shader.TileMode.CLAMP,
+        ).asComposeRenderEffect()
+    }
+}
+
 private fun resolveSurfaceColors(
     role: SurfaceRole,
     scheme: androidx.compose.material3.ColorScheme,
     dark: Boolean,
+    classicAppearance: Boolean,
     containerColor: Color?,
     contentColor: Color?,
 ): Pair<Color, Color> {
-    val bg = containerColor ?: when (role) {
+    val base = containerColor ?: when (role) {
         SurfaceRole.Chrome -> if (dark) Color(0xFF1F2229) else Color(0xFFF6F4EE)
         SurfaceRole.Frost -> if (dark) Color(0xFF1C1D22) else Color(0xFFFFFFFF)
         SurfaceRole.Control -> if (dark) Color(0xFF262830) else Color(0xFFECEAE3)
@@ -127,12 +147,20 @@ private fun resolveSurfaceColors(
         SurfaceRole.Popover -> if (dark) Color(0xFF1E2027) else Color(0xFFFAF8F3)
         SurfaceRole.Sheet -> if (dark) Color(0xFF1A1B20) else Color(0xFFFDFBF6)
     }
+    val bg = when {
+        classicAppearance -> base.copy(alpha = 1f)
+        role == SurfaceRole.Chrome || role == SurfaceRole.Popover -> {
+            val a = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 0.90f else 0.96f
+            if (base.alpha > a) base.copy(alpha = a) else base
+        }
+        else -> base
+    }
     val fg = contentColor ?: if (bg.luminance() < 0.42f) Color(0xFFF1F5F9) else scheme.onSurface
     return bg to fg
 }
 
 /**
- * Primary surface wrapper with crisp tonal layering and subtle elevation instead of heavy borders.
+ * Primary surface wrapper with crisp tonal layering and configurable shadow/blur policies.
  */
 @Composable
 fun AppSurface(
@@ -151,14 +179,23 @@ fun AppSurface(
 ) {
     val scheme = MaterialTheme.colorScheme
     val dark = scheme.background.luminance() < 0.4f
-    val (bg, fg) = resolveSurfaceColors(role, scheme, dark, containerColor, contentColor)
-    val effectiveElevation = if (shadowElevation > 0.dp) shadowElevation else when (role) {
+    val classic = LocalClassicAppearance.current
+    val reduceEffects = LocalReduceEffects.current
+    val (bg, fg) = resolveSurfaceColors(role, scheme, dark, classic, containerColor, contentColor)
+    val baseElevation = if (shadowElevation > 0.dp) shadowElevation else when (role) {
         SurfaceRole.Popover -> 12.dp
         SurfaceRole.Sheet -> 8.dp
         SurfaceRole.Chrome -> 2.dp
         else -> 0.dp
     }
-    val stroke = borderColor?.let { BorderStroke(0.75.dp, it) }
+    val effectiveElevation = if (reduceEffects) 0.dp else baseElevation
+    val resolvedBorderColor = when {
+        borderColor != null -> borderColor
+        reduceEffects && effectiveElevation == 0.dp && (role == SurfaceRole.Chrome || role == SurfaceRole.Popover) ->
+            scheme.outlineVariant
+        else -> null
+    }
+    val stroke = resolvedBorderColor?.let { BorderStroke(0.85.dp, it) }
 
     val clickModifier = if (onClick != null) {
         Modifier.clickable(enabled = enabled, onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
@@ -192,6 +229,7 @@ fun AppCard(
 ) {
     val scheme = MaterialTheme.colorScheme
     val dark = scheme.background.luminance() < 0.4f
+    val reduceEffects = LocalReduceEffects.current
     val bg = containerColor ?: when {
         hero && dark -> Color(0xFF21242D)
         hero && !dark -> Color(0xFFFFFFFF)
@@ -200,7 +238,7 @@ fun AppCard(
     }
     val fg = if (bg.luminance() < 0.42f) Color(0xFFF3F4F6) else scheme.onSurface
     val cardMod = modifier
-        .then(if (hero) Modifier.shadow(6.dp, shape, clip = false) else Modifier)
+        .then(if (hero && !reduceEffects) Modifier.shadow(6.dp, shape, clip = false) else Modifier)
         .clip(shape)
         .then(
             if (onClick != null) {
@@ -213,6 +251,7 @@ fun AppCard(
         shape = shape,
         color = bg,
         contentColor = fg,
+        border = if (hero && reduceEffects) BorderStroke(1.dp, scheme.outlineVariant) else null,
     ) {
         CompositionLocalProvider(LocalContentColor provides fg) {
             Column(Modifier.padding(contentPadding), content = content)
@@ -226,12 +265,13 @@ fun AppDialogSurface(
     shape: Shape = appCardShape(2f),
     content: @Composable BoxScope.() -> Unit,
 ) {
+    val reduceEffects = LocalReduceEffects.current
     AppSurface(
         modifier = modifier,
         role = SurfaceRole.Popover,
         shape = shape,
-        shadowElevation = 18.dp,
-        borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+        shadowElevation = if (reduceEffects) 0.dp else 18.dp,
+        borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = if (reduceEffects) 0.18f else 0.08f),
         content = content,
     )
 }
@@ -315,6 +355,7 @@ fun AppPill(
 ) {
     val scheme = MaterialTheme.colorScheme
     val dark = scheme.background.luminance() < 0.4f
+    val reduceMotion = LocalReduceMotion.current
     val activeTint = tint ?: ProButtonPalette.ElectricBlue
     val bg by animateColorAsState(
         targetValue = when {
@@ -323,7 +364,7 @@ fun AppPill(
             dark -> Color(0xFF282B34)
             else -> Color(0xFFECE9E1)
         },
-        animationSpec = tween(180),
+        animationSpec = if (reduceMotion) snap() else tween(180),
         label = "pillBg",
     )
     val fg = when {
@@ -804,24 +845,26 @@ fun FannedColorfulCardsDeck(
                 else -> 0.82f
             }
 
+            val reduceMotion = LocalReduceMotion.current
+            val reduceEffects = LocalReduceEffects.current
             val rot by animateFloatAsState(
                 targetValue = targetAngle,
-                animationSpec = spring(dampingRatio = 0.72f, stiffness = 220f),
+                animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.72f, stiffness = 220f),
                 label = "fanRot$cardIdx",
             )
             val tx by animateFloatAsState(
                 targetValue = targetTx,
-                animationSpec = spring(dampingRatio = 0.76f, stiffness = 220f),
+                animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.76f, stiffness = 220f),
                 label = "fanTx$cardIdx",
             )
             val ty by animateFloatAsState(
                 targetValue = targetTy,
-                animationSpec = spring(dampingRatio = 0.76f, stiffness = 220f),
+                animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.76f, stiffness = 220f),
                 label = "fanTy$cardIdx",
             )
             val sc by animateFloatAsState(
                 targetValue = targetScale,
-                animationSpec = spring(dampingRatio = 0.78f, stiffness = 240f),
+                animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.78f, stiffness = 240f),
                 label = "fanSc$cardIdx",
             )
             val cornerRadius = if (compact) 20.dp else 28.dp
@@ -839,11 +882,14 @@ fun FannedColorfulCardsDeck(
                         scaleY = sc
                         transformOrigin = TransformOrigin(0.5f, 0.88f)
                     }
-                    .shadow(
-                        elevation = (12 - slot * 2).coerceAtLeast(2).dp,
-                        shape = shape,
-                        ambientColor = Color.Black.copy(alpha = 0.18f),
-                        spotColor = Color.Black.copy(alpha = 0.24f),
+                    .then(
+                        if (reduceEffects) Modifier
+                        else Modifier.shadow(
+                            elevation = (12 - slot * 2).coerceAtLeast(2).dp,
+                            shape = shape,
+                            ambientColor = Color.Black.copy(alpha = 0.18f),
+                            spotColor = Color.Black.copy(alpha = 0.24f),
+                        ),
                     )
                     .clip(shape)
                     .background(

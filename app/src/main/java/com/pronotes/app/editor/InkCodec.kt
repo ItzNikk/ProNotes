@@ -65,12 +65,27 @@ object Brushes {
 
     fun opaque(color: Int) = color or (0xFF shl 24)
 
-    fun create(family: String, color: Int, size: Float): Brush {
-        val c = if (family == HIGHLIGHTER) (color and 0x00FFFFFF) or (highlightAlpha shl 24) else opaque(color)
+    fun withAlpha(color: Int, opacity: Float): Int {
+        val a = (opacity.coerceIn(0.15f, 1f) * 255f).toInt().coerceIn(38, 255)
+        return (color and 0x00FFFFFF) or (a shl 24)
+    }
+
+    fun create(family: String, color: Int, size: Float, opacity: Float = 1f): Brush {
+        val c = if (family == HIGHLIGHTER) {
+            (color and 0x00FFFFFF) or (highlightAlpha shl 24)
+        } else if (opacity >= 0.995f) {
+            opaque(color)
+        } else {
+            withAlpha(color, opacity)
+        }
         return Brush.createWithColorIntArgb(family(family), c, size, 0.1f)
     }
 
-    fun recolor(brush: Brush, color: Int): Brush = create(nameOf(brush), color, brush.size)
+    fun recolor(brush: Brush, color: Int): Brush {
+        val familyName = nameOf(brush)
+        val alpha = if (familyName == HIGHLIGHTER) 1f else ((brush.colorIntArgb ushr 24) and 0xFF) / 255f
+        return create(familyName, color, brush.size, alpha)
+    }
 }
 
 object InkCodec {

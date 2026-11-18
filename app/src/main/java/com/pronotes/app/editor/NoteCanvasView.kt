@@ -115,6 +115,8 @@ interface CanvasHost {
     fun onHint(message: String) {}
     /** Called when scribble-to-erase removed one or more items so an undo snackbar can appear. */
     fun onScribbleErased() {}
+    /** Long-press on empty page space (not PDF text and not an existing item): opens Quick Insert. */
+    fun onEmptyPageLongPress(page: Int, x: Float, y: Float, screenX: Float, screenY: Float) {}
 }
 
 /**
@@ -2232,6 +2234,14 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             scroller.forceFinished(true)
             buzz()
             layer.invalidate()
+        } else if (!readOnly && pi in pages.indices) {
+            val hitAnyItem = pages[pi].items.any { it.bounds.contains(lx, ly) }
+            if (!hitAnyItem) {
+                mode = Mode.NONE
+                velocity?.recycle(); velocity = null
+                buzz(HapticFeedbackConstants.LONG_PRESS)
+                host.onEmptyPageLongPress(pi, lx, ly, fingerStartX, fingerStartY)
+            }
         }
     }
 

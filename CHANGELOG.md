@@ -2,6 +2,21 @@
 
 All notable changes to Pro Notes are documented in this file.
 
+## v13.2.0 — 2026-11-18
+
+### New
+- **Unified Toolbar State (`ToolbarState`):** Persists dock edge (`Top`, `Bottom`, `Left`, `Right`, `Floating`), toolbar style (`Fixed bar`, `Floating pill`, `Compact`), custom tool order, visible tools, and per-tool defaults (`ToolDefaults`).
+- **Per-Tool Settings Sheets:** Added dedicated configuration sheets for Pen, Highlighter, Eraser (with custom radius slider and targets), Shapes (stroke/fill opacity and fill swatches), Selection (Lasso), Text and Write Box, Sticker, Image, Masking tape, Sticky note, Link Previews, Concept Maps, and Laser pointer.
+- **Quick Insert & Quick Actions:** Added long-press `Quick Insert` on empty canvas pages (Write Box, Text box, Sticky note, Link Preview, Image, Sticker, Paste) and upgraded the stylus button radial menu to `Quick Actions` with Undo/Redo and Escape key dismissal.
+- **Ink-to-Text Selection Action:** Added `Convert to text` directly inside the `Selection (Lasso)` action bar and Selection settings sheet.
+- **Appearance Switches:** Added `Classic appearance` (disables blur and translucent surface layers) and `Reduce glow and shadow effects` toggles under Look settings, backed by Android 12+ `RenderEffect` backdrop blur with solid translucent fallback on older versions.
+
+### Improved
+- **Fixed Top Bar by Default:** Made the fixed top bar the default toolbar layout with the colour and size strip docked cleanly beside/below the main bar so it never overlaps the canvas, while removing redundant duplicate controls from the notebook header bar.
+- **Single-Pass Adaptive Toolbar Layout & Clamping:** Automatically recomputes toolbar size, orientation, overflow drawer (`More tools`), popover caret side, and viewport clamping across dock changes, window resizes, rotation, and split-screen changes so floating bars and menus stay onscreen and clear of system bars.
+- **Modular Editor Architecture:** Extracted `EditorToolbar.kt`, `ToolSettingsSheets.kt`, and `EditorOverlays.kt` from `EditorScreen.kt`.
+- **Accessibility & Motion Compliance:** Enforced 48 dp minimum touch targets, icon content descriptions, keyboard focusability, high-contrast borders, and system remove-animations (`LocalReduceMotion`) checks across editor toolbars and overlays.
+
 ## v13.1.0 — 2026-11-18
 
 ### New

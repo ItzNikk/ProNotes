@@ -10,14 +10,46 @@ import kotlinx.coroutines.flow.map
 
 enum class ScrollDirection(val label: String) { VERTICAL("Vertical"), HORIZONTAL("Horizontal") }
 enum class ToolbarDock(val label: String) {
-    HEADER("Top bar"),
-    TOP("Floating top"),
-    BOTTOM("Floating bottom"),
-    LEFT("Floating left"),
-    RIGHT("Floating right"),
-    FREE("Custom position"),
+    TOP("Top edge"),
+    BOTTOM("Bottom edge"),
+    LEFT("Left edge"),
+    RIGHT("Right edge"),
+    FREE("Floating"),
+}
+enum class ToolbarStyle(val label: String) {
+    FIXED_BAR("Fixed bar"),
+    FLOATING_PILL("Floating pill"),
+    COMPACT("Compact"),
 }
 enum class ToolbarSize(val label: String, val scale: Float) { COMPACT("Compact", 0.85f), REGULAR("Regular", 1f), LARGE("Large", 1.18f) }
+
+/** Persisted per-tool defaults (size, opacity, colour behaviour, aspect lock). */
+@Immutable
+data class ToolDefaults(
+    val penOpacity: Float = 1f,
+    val shapeOpacity: Float = 1f,
+    val textOpacity: Float = 1f,
+    val stickerScale: Float = 1f,
+    val stickerOpacity: Float = 1f,
+    val stickerLockAspect: Boolean = true,
+    val imageWidthRatio: Float = 0.6f,
+    val imageOpacity: Float = 1f,
+    val imageLockAspect: Boolean = true,
+    val imageBorder: Boolean = false,
+)
+
+/** Unified model of the editor toolbar state persisted through [SettingsStore]. */
+@Immutable
+data class ToolbarState(
+    val dockEdge: ToolbarDock = ToolbarDock.TOP,
+    val style: ToolbarStyle = ToolbarStyle.FIXED_BAR,
+    val floatingPosX: Float = 0.5f,
+    val floatingPosY: Float = 0.04f,
+    val size: ToolbarSize = ToolbarSize.REGULAR,
+    val toolOrderSpec: String = "",
+    val perToolDefaults: ToolDefaults = ToolDefaults(),
+)
+
 enum class SideButton(val label: String) { ERASER("Eraser"), LASSO("Lasso"), NONE("Nothing") }
 /** How long the app waits after a pen-button click before acting (it waits to see if a second click follows). */
 enum class PenClickDelay(val label: String, val ms: Long) { QUICK("Quick", 450), NORMAL("Normal", 700), RELAXED("Relaxed", 1000) }
@@ -66,7 +98,7 @@ enum class DeskColor(val label: String, val argb: Int) {
 
 /** What a pen button click (without touching the screen) does. */
 enum class PenAction(val label: String) {
-    QUICK_WHEEL("Tool wheel"), UNDO("Undo"), TOGGLE_ERASER("Pen / eraser"), LAST_TOOL("Previous tool"), NONE("Nothing")
+    QUICK_WHEEL("Quick Actions"), UNDO("Undo"), TOGGLE_ERASER("Pen / eraser"), LAST_TOOL("Previous tool"), NONE("Nothing")
 }
 
 /** Per-pen settings, keyed by the pen's input device name. */
@@ -242,7 +274,9 @@ data class AppSettings(
     val darkPdf: Boolean = false,
     // toolbar
     val toolbarDock: ToolbarDock = ToolbarDock.TOP,
+    val toolbarStyle: ToolbarStyle = ToolbarStyle.FIXED_BAR,
     val toolbarPos: String = "0.5,0.03",
+    val toolDefaults: ToolDefaults = ToolDefaults(),
     /** Hide the toolbar while the screen is being recorded (Android 15+). */
     val hideToolsWhenRecording: Boolean = false,
     /** Study stopwatch in the editor. */
@@ -302,6 +336,8 @@ data class AppSettings(
     val gradientTitles: Boolean = false,
     val appFont: AppFont = AppFont.MODERN_SANS,
     val motionStyle: MotionStyle = MotionStyle.SPRING,
+    val classicAppearance: Boolean = false,
+    val reduceEffects: Boolean = false,
     val showHoverTooltips: Boolean = true,
     // library
     val thumbCovers: Boolean = false,
@@ -310,7 +346,31 @@ data class AppSettings(
     val googleEmail: String = "",
     val googleName: String = "",
     val lastCloudSyncMs: Long = 0L,
-)
+) {
+    fun toolbarState(): ToolbarState {
+        val parts = toolbarPos.split(',')
+        val fx = parts.getOrNull(0)?.toFloatOrNull()?.coerceIn(0f, 1f) ?: 0.5f
+        val fy = parts.getOrNull(1)?.toFloatOrNull()?.coerceIn(0f, 1f) ?: 0.04f
+        return ToolbarState(
+            dockEdge = toolbarDock,
+            style = toolbarStyle,
+            floatingPosX = fx,
+            floatingPosY = fy,
+            size = toolbarSize,
+            toolOrderSpec = toolbarTools,
+            perToolDefaults = toolDefaults,
+        )
+    }
+
+    fun withToolbarState(state: ToolbarState): AppSettings = copy(
+        toolbarDock = state.dockEdge,
+        toolbarStyle = state.style,
+        toolbarPos = String.format(java.util.Locale.US, "%.3f,%.3f", state.floatingPosX.coerceIn(0f, 1f), state.floatingPosY.coerceIn(0f, 1f)),
+        toolbarSize = state.size,
+        toolbarTools = state.toolOrderSpec,
+        toolDefaults = state.perToolDefaults,
+    )
+}
 
 /** A saved pen: type, colour and thickness, one tap away, with an optional user label. */
 @Immutable
@@ -360,8 +420,24 @@ class SettingsStore private constructor(context: Context) {
             pageNumbers = b("pageNumbers", d.pageNumbers),
             keepScreenOn = b("keepScreenOn", d.keepScreenOn),
             darkPdf = b("darkPdf", d.darkPdf),
-            toolbarDock = enumOf("toolbarDock", d.toolbarDock),
+            toolbarDock = prefs.getString("toolbarDock", d.toolbarDock.name).let { raw ->
+                if (raw == "HEADER") ToolbarDock.TOP
+                else runCatching { ToolbarDock.valueOf(raw ?: d.toolbarDock.name) }.getOrDefault(d.toolbarDock)
+            },
+            toolbarStyle = enumOf("toolbarStyle", d.toolbarStyle),
             toolbarPos = prefs.getString("toolbarPos", d.toolbarPos) ?: d.toolbarPos,
+            toolDefaults = ToolDefaults(
+                penOpacity = prefs.getFloat("tdPenOp", d.toolDefaults.penOpacity).coerceIn(0.15f, 1f),
+                shapeOpacity = prefs.getFloat("tdShapeOp", d.toolDefaults.shapeOpacity).coerceIn(0.15f, 1f),
+                textOpacity = prefs.getFloat("tdTextOp", d.toolDefaults.textOpacity).coerceIn(0.2f, 1f),
+                stickerScale = prefs.getFloat("tdStickerScale", d.toolDefaults.stickerScale).coerceIn(0.4f, 2f),
+                stickerOpacity = prefs.getFloat("tdStickerOp", d.toolDefaults.stickerOpacity).coerceIn(0.2f, 1f),
+                stickerLockAspect = b("tdStickerAspect", d.toolDefaults.stickerLockAspect),
+                imageWidthRatio = prefs.getFloat("tdImgRatio", d.toolDefaults.imageWidthRatio).coerceIn(0.2f, 0.95f),
+                imageOpacity = prefs.getFloat("tdImgOp", d.toolDefaults.imageOpacity).coerceIn(0.2f, 1f),
+                imageLockAspect = b("tdImgAspect", d.toolDefaults.imageLockAspect),
+                imageBorder = b("tdImgBorder", d.toolDefaults.imageBorder),
+            ),
             hideToolsWhenRecording = b("hideRec", d.hideToolsWhenRecording),
             studyTimer = b("studyTimer", d.studyTimer),
             studyAutoStart = b("studyAuto", d.studyAutoStart),
@@ -415,6 +491,8 @@ class SettingsStore private constructor(context: Context) {
             gradientTitles = b("gradientTitles", d.gradientTitles),
             appFont = enumOf("appFont", d.appFont),
             motionStyle = motionStyleOf("motionStyle", d.motionStyle),
+            classicAppearance = b("classicAppearance", d.classicAppearance),
+            reduceEffects = b("reduceEffects", d.reduceEffects),
             showHoverTooltips = b("showHoverTooltips", d.showHoverTooltips),
             thumbCovers = b("thumbCovers", d.thumbCovers),
             pomodoroMinutes = prefs.getInt("pomodoroMinutes", d.pomodoroMinutes),
@@ -449,7 +527,18 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("keepScreenOn", s.keepScreenOn)
             .putBoolean("darkPdf", s.darkPdf)
             .putString("toolbarDock", s.toolbarDock.name)
+            .putString("toolbarStyle", s.toolbarStyle.name)
             .putString("toolbarPos", s.toolbarPos)
+            .putFloat("tdPenOp", s.toolDefaults.penOpacity.coerceIn(0.15f, 1f))
+            .putFloat("tdShapeOp", s.toolDefaults.shapeOpacity.coerceIn(0.15f, 1f))
+            .putFloat("tdTextOp", s.toolDefaults.textOpacity.coerceIn(0.2f, 1f))
+            .putFloat("tdStickerScale", s.toolDefaults.stickerScale.coerceIn(0.4f, 2f))
+            .putFloat("tdStickerOp", s.toolDefaults.stickerOpacity.coerceIn(0.2f, 1f))
+            .putBoolean("tdStickerAspect", s.toolDefaults.stickerLockAspect)
+            .putFloat("tdImgRatio", s.toolDefaults.imageWidthRatio.coerceIn(0.2f, 0.95f))
+            .putFloat("tdImgOp", s.toolDefaults.imageOpacity.coerceIn(0.2f, 1f))
+            .putBoolean("tdImgAspect", s.toolDefaults.imageLockAspect)
+            .putBoolean("tdImgBorder", s.toolDefaults.imageBorder)
             .putBoolean("hideRec", s.hideToolsWhenRecording)
             .putBoolean("studyTimer", s.studyTimer)
             .putBoolean("studyAuto", s.studyAutoStart)
@@ -502,6 +591,8 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("gradientTitles", s.gradientTitles)
             .putString("appFont", s.appFont.name)
             .putString("motionStyle", s.motionStyle.name)
+            .putBoolean("classicAppearance", s.classicAppearance)
+            .putBoolean("reduceEffects", s.reduceEffects)
             .putBoolean("showHoverTooltips", s.showHoverTooltips)
             .putBoolean("thumbCovers", s.thumbCovers)
             .putInt("pomodoroMinutes", s.pomodoroMinutes)

@@ -53,19 +53,24 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -81,43 +86,28 @@ import androidx.compose.material.icons.automirrored.outlined.FormatAlignLeft
 import androidx.compose.material.icons.automirrored.outlined.FormatAlignRight
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AllInclusive
 import androidx.compose.material.icons.outlined.Brush
-import androidx.compose.material.icons.outlined.CleaningServices
-import androidx.compose.material.icons.outlined.ColorLens
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.ContentCut
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Crop
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Flip
-import androidx.compose.material.icons.outlined.FlipToBack
-import androidx.compose.material.icons.outlined.FlipToFront
 import androidx.compose.material.icons.outlined.FormatAlignCenter
 import androidx.compose.material.icons.outlined.FormatBold
 import androidx.compose.material.icons.outlined.FormatItalic
 import androidx.compose.material.icons.outlined.FormatUnderlined
 import androidx.compose.material.icons.outlined.Groups
-import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.MoreHoriz
-import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.PostAdd
 import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material.icons.outlined.RotateRight
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.StarBorder
-import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.SwapVert
 import androidx.compose.material.icons.outlined.Timer
@@ -136,7 +126,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -155,20 +144,22 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -191,20 +182,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.pronotes.app.R
 import com.pronotes.app.data.AppSettings
-import com.pronotes.app.data.EraserMode
-import com.pronotes.app.data.HighlighterMode
-import com.pronotes.app.data.LassoFilter
-import com.pronotes.app.data.LassoMode
-import com.pronotes.app.data.MotionStyle
 import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.data.PenAction
-import com.pronotes.app.data.PenPreset
 import com.pronotes.app.data.Repository
-import com.pronotes.app.data.ScribbleSensitivity
 import com.pronotes.app.data.ScrollDirection
 import com.pronotes.app.data.SettingsStore
 import com.pronotes.app.data.ToolbarDock
+import com.pronotes.app.data.ToolbarStyle
 import com.pronotes.app.library.PdfSkeletonPreviewBox
 import com.pronotes.app.ui.AppCard
 import com.pronotes.app.ui.AppChip
@@ -219,17 +205,16 @@ import com.pronotes.app.ui.AppSliderRow
 import com.pronotes.app.ui.AppSurface
 import com.pronotes.app.ui.AppToggle
 import com.pronotes.app.ui.ColorEditorDialog
-import com.pronotes.app.ui.LocalMotionStyle
-import com.pronotes.app.ui.PenGlyph
+import com.pronotes.app.ui.LocalReduceEffects
+import com.pronotes.app.ui.LocalReduceMotion
 import com.pronotes.app.ui.ProButtonPalette
 import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.ProIconView
 import com.pronotes.app.ui.ScaleInAnimatedText
-import com.pronotes.app.ui.ShapeGlyph
 import com.pronotes.app.ui.StickerSet
 import com.pronotes.app.ui.SurfaceRole
 import com.pronotes.app.ui.Swatch
-import com.pronotes.app.ui.ToolGlyph
+import com.pronotes.app.ui.appBackdropBlur
 import com.pronotes.app.ui.appCardShape
 import com.pronotes.app.ui.appPillShape
 import kotlinx.coroutines.Dispatchers
@@ -241,9 +226,7 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 import java.io.File
 import java.util.Locale
 import kotlin.math.abs
-import kotlin.math.cos
 import kotlin.math.roundToInt
-import kotlin.math.sin
 
 private val Pill = CircleShape
 
@@ -254,9 +237,6 @@ private val TopBarDarkBg = Color(0xFF27507F)
 private val TopBarLightBg = Color(0xFFD7E4F8)
 private val WorkspaceDarkBg = Color(0xFF1C1C1C)
 private val WorkspaceLightBg = Color(0xFFF3F1EA)
-private val DockDarkBg = Color(0xFF1A1A1A)
-private val DockLightBg = Color(0xFFFFFFFF)
-private val TealActiveTile = Color(0xFF2F7F93)
 private val PopoverDarkBg = Color(0xFF1C1C1C)
 private val PopoverLightBg = Color(0xFFFAF8F3)
 
@@ -310,6 +290,8 @@ fun EditorScreen(
     var showCards by remember { mutableStateOf(false) }
     var showCollabRoom by remember { mutableStateOf(false) }
     var activePopoverTool by remember { mutableStateOf<Tool?>(null) }
+    var quickInsert by remember { mutableStateOf<QuickInsertRequest?>(null) }
+    var pendingInsertCoords by remember { mutableStateOf<Triple<Int, Float, Float>?>(null) }
     var splitId by remember { mutableStateOf<String?>(null) }
     var splitWeight by remember { mutableFloatStateOf(0.8f) }
 
@@ -320,7 +302,15 @@ fun EditorScreen(
         if (uris.isNotEmpty()) vm.importFilesIntoCurrent(uris)
     }
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) vm.insertImage(uri) { page, id -> canvas?.selectItems(page, setOf(id)) }
+        val coords = pendingInsertCoords
+        pendingInsertCoords = null
+        if (uri != null) {
+            if (coords != null) {
+                vm.insertImage(uri, coords.first, coords.second, coords.third) { page, id -> canvas?.selectItems(page, setOf(id)) }
+            } else {
+                vm.insertImage(uri) { page, id -> canvas?.selectItems(page, setOf(id)) }
+            }
+        }
         vm.tool = Tool.LASSO
     }
     val exportPdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
@@ -331,7 +321,9 @@ fun EditorScreen(
     LaunchedEffect(library) {
         store.retainTabs(library.notebooks.filter { it.deletedAt == null }.map { it.id }.toSet())
     }
-    LaunchedEffect(activePopoverTool) { vm.cardOpen = activePopoverTool != null }
+    LaunchedEffect(activePopoverTool, quickInsert, wheelAt) {
+        vm.cardOpen = activePopoverTool != null || quickInsert != null || wheelAt != null
+    }
 
     fun sharePdf() = scope.launch {
         val dir = File(context.cacheDir, "exports").apply { mkdirs() }
@@ -347,6 +339,8 @@ fun EditorScreen(
 
     BackHandler {
         when {
+            quickInsert != null -> quickInsert = null
+            wheelAt != null -> wheelAt = null
             activePopoverTool != null -> activePopoverTool = null
             focus -> focus = false
             showPages -> showPages = false
@@ -443,6 +437,9 @@ fun EditorScreen(
     }
     LaunchedEffect(vm.moveMindSubtree, canvas) { canvas?.moveMindSubtree = vm.moveMindSubtree }
 
+    val isFixedBar = settings.toolbarStyle == ToolbarStyle.FIXED_BAR && settings.toolbarDock != ToolbarDock.FREE
+    val reduceMotion = LocalReduceMotion.current
+    val reduceEffects = LocalReduceEffects.current
     val workspaceBg = if (darkUi) WorkspaceDarkBg else WorkspaceLightBg
     val tabStripBg = if (darkUi) TabStripDarkBg else TabStripLightBg
     val topBarBg = if (darkUi) TopBarDarkBg else TopBarLightBg
@@ -452,6 +449,31 @@ fun EditorScreen(
             library.notebooks.firstOrNull { it.id == id && it.deletedAt == null }?.let { id to it.title }
         }
         if (list.any { it.first == noteId }) list else list + (noteId to vm.title)
+    }
+
+    val selectDock: (ToolbarDock) -> Unit = { dock ->
+        val defaultPos = when (dock) {
+            ToolbarDock.LEFT -> "0.02,0.50"
+            ToolbarDock.RIGHT -> "0.96,0.50"
+            ToolbarDock.BOTTOM -> "0.50,0.92"
+            else -> "0.50,0.03"
+        }
+        store.update {
+            it.copy(
+                toolbarDock = dock,
+                toolbarPos = defaultPos,
+                toolbarStyle = if (dock == ToolbarDock.FREE && it.toolbarStyle == ToolbarStyle.FIXED_BAR) ToolbarStyle.FLOATING_PILL else it.toolbarStyle,
+            )
+        }
+    }
+    val selectStyle: (ToolbarStyle) -> Unit = { nextStyle ->
+        store.update {
+            val nextDock = if (nextStyle == ToolbarStyle.FIXED_BAR && it.toolbarDock == ToolbarDock.FREE) ToolbarDock.TOP else it.toolbarDock
+            it.copy(toolbarStyle = nextStyle, toolbarDock = nextDock)
+        }
+    }
+    val resetToolbarPos: () -> Unit = {
+        store.update { it.copy(toolbarDock = ToolbarDock.TOP, toolbarStyle = ToolbarStyle.FIXED_BAR, toolbarPos = "0.50,0.03") }
     }
 
     Box(
@@ -507,12 +529,7 @@ fun EditorScreen(
                                 showTabs = settings.showTabs,
                                 showSearch = showSearch,
                                 showPages = showPages,
-                                hideTools = hideTools,
                                 darkUi = darkUi,
-                                activePopoverTool = activePopoverTool,
-                                onTogglePopover = { t ->
-                                    activePopoverTool = if (activePopoverTool == t) null else t
-                                },
                                 onHome = { vm.saveNow(); onBack() },
                                 onPages = { showPages = !showPages },
                                 onSearch = {
@@ -561,6 +578,18 @@ fun EditorScreen(
                             )
                         }
                     }
+                    if (!hideTools && isFixedBar && settings.toolbarDock == ToolbarDock.TOP) {
+                        AdaptiveFixedToolbar(
+                            vm = vm,
+                            settings = settings,
+                            darkUi = darkUi,
+                            activePopoverTool = activePopoverTool,
+                            onTogglePopover = { t -> activePopoverTool = if (activePopoverTool == t) null else t },
+                            onSelectDock = selectDock,
+                            onSelectStyle = selectStyle,
+                            onResetPosition = resetToolbarPos,
+                        )
+                    }
                     AnimatedVisibility(showSearch, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         SearchBar(vm)
                     }
@@ -575,6 +604,18 @@ fun EditorScreen(
                 ) {
                     PagesPanel(vm, onJump = { vm.goToPage(it) }, onClose = { showPages = false })
                 }
+                if (!hideTools && isFixedBar && settings.toolbarDock == ToolbarDock.LEFT) {
+                    AdaptiveFixedToolbar(
+                        vm = vm,
+                        settings = settings,
+                        darkUi = darkUi,
+                        activePopoverTool = activePopoverTool,
+                        onTogglePopover = { t -> activePopoverTool = if (activePopoverTool == t) null else t },
+                        onSelectDock = selectDock,
+                        onSelectStyle = selectStyle,
+                        onResetPosition = resetToolbarPos,
+                    )
+                }
 
                 var areaSize by remember { mutableStateOf(IntSize.Zero) }
                 Box(
@@ -583,9 +624,12 @@ fun EditorScreen(
                         .fillMaxHeight()
                         .onSizeChanged { areaSize = it },
                 ) {
+                    val overlayModalOpen = activePopoverTool != null || quickInsert != null || wheelAt != null
                     if (vm.loaded) {
                         AndroidView(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .appBackdropBlur(enabled = overlayModalOpen, radiusDp = 8.dp),
                             factory = { ctx ->
                                 NoteCanvasView(ctx, object : CanvasHost {
                                     override fun brush(tool: Tool) = vm.brushFor(tool)
@@ -653,6 +697,11 @@ fun EditorScreen(
                                     override fun onSelectWriteBox(page: Int, boxId: Long?) = vm.selectWriteBox(page, boxId)
                                     override fun onHint(message: String) = vm.showHint(message)
                                     override fun onScribbleErased() = vm.onScribbleErased()
+                                    override fun onEmptyPageLongPress(page: Int, x: Float, y: Float, screenX: Float, screenY: Float) {
+                                        if (!vm.readOnly) {
+                                            quickInsert = QuickInsertRequest(page, x, y, screenX, screenY)
+                                        }
+                                    }
                                 }).also {
                                     it.renderer = vm.renderer()
                                     it.settings = settings
@@ -663,12 +712,17 @@ fun EditorScreen(
                         )
                     }
 
-                    val overlayFade by animateFloatAsState(if (vm.penActive) 0.14f else 1f, tween(280), label = "ov")
+                    val overlayFade by animateFloatAsState(
+                        targetValue = if (vm.penActive) 0.14f else 1f,
+                        animationSpec = if (reduceMotion) androidx.compose.animation.core.snap() else tween(260),
+                        label = "ov",
+                    )
 
-                    // SVG Top-Left Floating Undo / Redo Pill
-                    if (!focus) {
+                    // Top-Left Floating Undo / Redo + Reset view Pill when Fixed bar isn't hosting Undo/Redo
+                    val showFloatingUndoPill = !focus && (!isFixedBar || hideTools || vm.currentPage?.isWhiteboard == true)
+                    if (showFloatingUndoPill) {
                         val undoPillBg = if (darkUi) PopoverDarkBg else PopoverLightBg
-                        val undoPillBorder = if (darkUi) Color.White.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.12f)
+                        val undoPillBorder = if (darkUi) Color.White.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.14f)
                         val undoFg = if (darkUi) Color(0xFFD1D5DB) else Color(0xFF1F2937)
                         AppSurface(
                             role = SurfaceRole.Chrome,
@@ -676,8 +730,8 @@ fun EditorScreen(
                             contentColor = undoFg,
                             shape = RoundedCornerShape(16.dp),
                             borderColor = undoPillBorder,
-                            shadowElevation = 6.dp,
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            shadowElevation = if (reduceEffects) 0.dp else 6.dp,
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                             modifier = Modifier
                                 .align(Alignment.TopStart)
                                 .padding(start = 12.dp, top = 12.dp)
@@ -685,43 +739,47 @@ fun EditorScreen(
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
                             ) {
-                                BarIcon(
-                                    icon = ProIcon.UNDO,
-                                    label = "Undo",
-                                    enabled = vm.canUndo,
-                                    fgColor = undoFg,
-                                    onClick = vm::undo,
-                                )
-                                BarIcon(
-                                    icon = ProIcon.REDO,
-                                    label = "Redo",
-                                    enabled = vm.canRedo,
-                                    fgColor = undoFg,
-                                    onClick = vm::redo,
-                                )
-                                if (vm.currentPage?.isWhiteboard == true) {
-                                    Box(
-                                        Modifier
-                                            .padding(horizontal = 4.dp)
-                                            .width(1.dp)
-                                            .height(18.dp)
-                                            .background(undoPillBorder),
+                                if (!isFixedBar || hideTools) {
+                                    BarIcon(
+                                        icon = ProIcon.UNDO,
+                                        label = stringResource(R.string.toolbar_undo),
+                                        enabled = vm.canUndo,
+                                        fgColor = undoFg,
+                                        onClick = vm::undo,
                                     )
+                                    BarIcon(
+                                        icon = ProIcon.REDO,
+                                        label = stringResource(R.string.toolbar_redo),
+                                        enabled = vm.canRedo,
+                                        fgColor = undoFg,
+                                        onClick = vm::redo,
+                                    )
+                                }
+                                if (vm.currentPage?.isWhiteboard == true) {
+                                    if (!isFixedBar || hideTools) {
+                                        Box(
+                                            Modifier
+                                                .padding(horizontal = 4.dp)
+                                                .width(1.dp)
+                                                .height(18.dp)
+                                                .background(undoPillBorder),
+                                        )
+                                    }
                                     TextButton(
                                         onClick = { canvas?.resetWhiteboardView() },
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                        modifier = Modifier.height(32.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                        modifier = Modifier.defaultMinSize(minHeight = 48.dp),
                                     ) {
-                                        Text("Reset view", style = MaterialTheme.typography.labelSmall, color = ProButtonPalette.ElectricBlue)
+                                        Text(stringResource(R.string.toolbar_reset_view), style = MaterialTheme.typography.labelSmall, color = ProButtonPalette.ElectricBlue)
                                     }
                                 }
                             }
                         }
                     }
 
-                    // Repositionable Floating Sub-Toolbar / Pen & Options Dock
+                    // Floating pill / Compact toolbar state & strict bounds clamping
                     var dockSize by remember { mutableStateOf(IntSize.Zero) }
                     var dockDragging by remember { mutableStateOf(false) }
                     var liveDragDelta by remember { mutableStateOf(Offset.Zero) }
@@ -729,8 +787,10 @@ fun EditorScreen(
                     val isVerticalDock = settings.toolbarDock == ToolbarDock.LEFT || settings.toolbarDock == ToolbarDock.RIGHT
                     val marginPx = (12f * density).roundToInt()
                     val undoClearPx = (144f * density).roundToInt()
-                    val topClearPx = (66f * density).roundToInt()
-                    val verticalRailWidthPx = (58f * density).roundToInt()
+                    val statusPadPx = with(LocalDensity.current) { WindowInsets.statusBars.asPaddingValues().calculateTopPadding().toPx().roundToInt() }
+                    val navPadPx = with(LocalDensity.current) { WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding().toPx().roundToInt() }
+                    val topSafePx = if (focus) statusPadPx + marginPx else marginPx
+                    val bottomSafePx = navPadPx + marginPx
 
                     val parsedPos = remember(settings.toolbarPos) {
                         val parts = settings.toolbarPos.split(',')
@@ -740,104 +800,88 @@ fun EditorScreen(
                     }
 
                     val effDockW = remember(isVerticalDock, dockSize.width, density) {
-                        if (isVerticalDock) {
-                            verticalRailWidthPx
-                        } else if (dockSize.width > 0) {
-                            dockSize.width
-                        } else {
-                            (320f * density).roundToInt()
-                        }
+                        if (isVerticalDock) (62f * density).roundToInt()
+                        else if (dockSize.width > 0) dockSize.width else (340f * density).roundToInt()
                     }
-
                     val effDockH = remember(isVerticalDock, dockSize.height, areaSize.height, density) {
                         if (isVerticalDock) {
                             val measured = if (dockSize.height > 0) dockSize.height else (340f * density).roundToInt()
-                            val maxAllowed = (areaSize.height - topClearPx - marginPx * 2).coerceAtLeast((180f * density).roundToInt())
+                            val maxAllowed = (areaSize.height - topSafePx - bottomSafePx).coerceAtLeast((180f * density).roundToInt())
                             measured.coerceAtMost(maxAllowed)
                         } else if (dockSize.height > 0) {
                             dockSize.height
                         } else {
-                            (52f * density).roundToInt()
+                            (60f * density).roundToInt()
                         }
                     }
 
-                    val baseDockOffset = remember(areaSize, effDockW, effDockH, settings.toolbarDock, parsedPos, density) {
+                    val pillSizeEst = IntSize(effDockW, effDockH)
+                    val baseDockOffset = remember(areaSize, pillSizeEst, settings.toolbarDock, parsedPos, marginPx, topSafePx, bottomSafePx, undoClearPx) {
                         if (areaSize.width <= 0 || areaSize.height <= 0) {
-                            IntOffset(undoClearPx, marginPx)
+                            IntOffset(undoClearPx, topSafePx)
                         } else {
-                            val maxX = (areaSize.width - effDockW - marginPx).coerceAtLeast(marginPx)
-                            val maxY = (areaSize.height - effDockH - marginPx).coerceAtLeast(marginPx)
-                            when (settings.toolbarDock) {
-                                ToolbarDock.HEADER, ToolbarDock.TOP -> IntOffset(
-                                    x = maxOf(undoClearPx, (areaSize.width - effDockW) / 2).coerceIn(marginPx, maxX),
-                                    y = marginPx,
-                                )
-                                ToolbarDock.BOTTOM -> IntOffset(
-                                    x = ((areaSize.width - effDockW) / 2).coerceIn(marginPx, maxX),
-                                    y = maxY,
-                                )
-                                ToolbarDock.LEFT -> IntOffset(
-                                    x = marginPx,
-                                    y = ((areaSize.height - effDockH) / 2).coerceIn(topClearPx.coerceAtMost(maxY), maxY),
-                                )
-                                ToolbarDock.RIGHT -> IntOffset(
-                                    x = maxX,
-                                    y = ((areaSize.height - effDockH) / 2).coerceIn(marginPx, maxY),
-                                )
-                                ToolbarDock.FREE -> IntOffset(
-                                    x = (parsedPos.first * (areaSize.width - effDockW)).roundToInt().coerceIn(marginPx, maxX),
-                                    y = (parsedPos.second * (areaSize.height - effDockH)).roundToInt().coerceIn(marginPx, maxY),
+                            val desired = when (settings.toolbarDock) {
+                                ToolbarDock.TOP -> IntOffset(maxOf(undoClearPx, (areaSize.width - effDockW) / 2), topSafePx)
+                                ToolbarDock.BOTTOM -> IntOffset((areaSize.width - effDockW) / 2, areaSize.height - effDockH - bottomSafePx)
+                                ToolbarDock.LEFT -> IntOffset(marginPx, ((areaSize.height - effDockH) / 2).coerceAtLeast((72f * density).roundToInt()))
+                                ToolbarDock.RIGHT -> IntOffset(areaSize.width - effDockW - marginPx, (areaSize.height - effDockH) / 2)
+                                ToolbarDock.FREE -> return@remember ToolbarGeometry.normalizedToOffset(
+                                    parsedPos.first, parsedPos.second, pillSizeEst, areaSize, marginPx, topSafePx, bottomSafePx,
                                 )
                             }
+                            ToolbarGeometry.clampFloatingOffset(desired.x, desired.y, pillSizeEst, areaSize, marginPx, topSafePx, bottomSafePx)
                         }
                     }
 
-                    val activeDockOffset = remember(baseDockOffset, dockDragging, liveDragDelta, areaSize, effDockW, effDockH, density) {
+                    val activeDockOffset = remember(baseDockOffset, dockDragging, liveDragDelta, areaSize, pillSizeEst, marginPx, topSafePx, bottomSafePx) {
                         if (!dockDragging || areaSize.width <= 0) {
                             baseDockOffset
                         } else {
-                            val maxX = (areaSize.width - effDockW - marginPx).coerceAtLeast(marginPx)
-                            val maxY = (areaSize.height - effDockH - marginPx).coerceAtLeast(marginPx)
-                            IntOffset(
-                                x = (baseDockOffset.x + liveDragDelta.x.roundToInt()).coerceIn(marginPx, maxX),
-                                y = (baseDockOffset.y + liveDragDelta.y.roundToInt()).coerceIn(marginPx, maxY),
+                            ToolbarGeometry.clampFloatingOffset(
+                                desiredX = baseDockOffset.x + liveDragDelta.x.roundToInt(),
+                                desiredY = baseDockOffset.y + liveDragDelta.y.roundToInt(),
+                                pillSize = pillSizeEst,
+                                areaSize = areaSize,
+                                marginPx = marginPx,
+                                topSafePx = topSafePx,
+                                bottomSafePx = bottomSafePx,
                             )
                         }
                     }
 
-                    if (!hideTools) {
-                        DockedSubToolBar(
+                    if (!hideTools && !isFixedBar) {
+                        FloatingToolbarPill(
                             vm = vm,
                             settings = settings,
                             darkUi = darkUi,
                             area = areaSize,
-                            isVertical = isVerticalDock,
                             overlayFade = overlayFade,
                             activePopoverTool = activePopoverTool,
-                            onTogglePopover = { t ->
-                                activePopoverTool = if (activePopoverTool == t) null else t
-                            },
+                            onTogglePopover = { t -> activePopoverTool = if (activePopoverTool == t) null else t },
                             onDragStart = {
                                 dockDragging = true
                                 liveDragDelta = Offset.Zero
                             },
-                            onDragDelta = { delta ->
-                                liveDragDelta = delta
-                            },
+                            onDragDelta = { delta -> liveDragDelta = delta },
                             onDragEnd = {
-                                val finalX = (baseDockOffset.x + liveDragDelta.x.roundToInt())
-                                    .coerceIn(marginPx, (areaSize.width - effDockW - marginPx).coerceAtLeast(marginPx))
-                                val finalY = (baseDockOffset.y + liveDragDelta.y.roundToInt())
-                                    .coerceIn(marginPx, (areaSize.height - effDockH - marginPx).coerceAtLeast(marginPx))
+                                val finalPos = ToolbarGeometry.clampFloatingOffset(
+                                    desiredX = baseDockOffset.x + liveDragDelta.x.roundToInt(),
+                                    desiredY = baseDockOffset.y + liveDragDelta.y.roundToInt(),
+                                    pillSize = pillSizeEst,
+                                    areaSize = areaSize,
+                                    marginPx = marginPx,
+                                    topSafePx = topSafePx,
+                                    bottomSafePx = bottomSafePx,
+                                )
                                 dockDragging = false
                                 liveDragDelta = Offset.Zero
                                 if (areaSize.width > 0 && areaSize.height > 0) {
-                                    val centerX = (finalX + effDockW / 2f) / areaSize.width
-                                    val centerY = (finalY + effDockH / 2f) / areaSize.height
-                                    val availW = (areaSize.width - effDockW).coerceAtLeast(1).toFloat()
-                                    val availH = (areaSize.height - effDockH).coerceAtLeast(1).toFloat()
-                                    val nx = (finalX / availW).coerceIn(0f, 1f)
-                                    val ny = (finalY / availH).coerceIn(0f, 1f)
+                                    val centerX = (finalPos.x + effDockW / 2f) / areaSize.width
+                                    val centerY = (finalPos.y + effDockH / 2f) / areaSize.height
+                                    val availW = (areaSize.width - effDockW - marginPx * 2).coerceAtLeast(1).toFloat()
+                                    val availH = (areaSize.height - effDockH - topSafePx - bottomSafePx).coerceAtLeast(1).toFloat()
+                                    val nx = ((finalPos.x - marginPx) / availW).coerceIn(0f, 1f)
+                                    val ny = ((finalPos.y - topSafePx) / availH).coerceIn(0f, 1f)
                                     val nextDock = when {
                                         centerX < 0.14f -> ToolbarDock.LEFT
                                         centerX > 0.86f -> ToolbarDock.RIGHT
@@ -853,63 +897,52 @@ fun EditorScreen(
                                     }
                                 }
                             },
-                            onSelectDock = { dock ->
-                                val defaultPos = when (dock) {
-                                    ToolbarDock.LEFT -> "0.02,0.50"
-                                    ToolbarDock.RIGHT -> "0.96,0.50"
-                                    ToolbarDock.BOTTOM -> "0.50,0.92"
-                                    else -> "0.50,0.03"
-                                }
-                                store.update { it.copy(toolbarDock = dock, toolbarPos = defaultPos) }
-                            },
-                            onResetPosition = {
-                                store.update { it.copy(toolbarDock = ToolbarDock.TOP, toolbarPos = "0.50,0.03") }
-                            },
+                            onSelectDock = selectDock,
+                            onSelectStyle = selectStyle,
+                            onResetPosition = resetToolbarPos,
                             modifier = Modifier
                                 .offset { activeDockOffset }
                                 .onSizeChanged { dockSize = it },
                         )
                     }
 
-                    // Anchored Caret Tool Popover (follows toolbar dock wherever it is positioned)
+                    // Anchored Caret Tool Settings Sheet (anchors cleanly from Fixed Bar OR Floating Pill)
                     activePopoverTool?.let { popoverTool ->
                         var popoverSize by remember { mutableStateOf(IntSize.Zero) }
                         val popW = if (popoverSize.width > 0) popoverSize.width else (340f * density).roundToInt()
                         val popH = if (popoverSize.height > 0) popoverSize.height else (420f * density).roundToInt()
                         val gapPx = (8f * density).roundToInt()
-                        val maxPopX = (areaSize.width - popW - marginPx).coerceAtLeast(marginPx)
-                        val maxPopY = (areaSize.height - popH - marginPx).coerceAtLeast(marginPx)
 
-                        val dockCenterX = activeDockOffset.x + dockSize.width / 2
-                        val dockCenterY = activeDockOffset.y + dockSize.height / 2
-                        val placeRight = isVerticalDock && activeDockOffset.x < areaSize.width / 2
-                        val placeLeft = isVerticalDock && !placeRight
-                        val placeAbove = !isVerticalDock && dockCenterY > areaSize.height / 2
+                        val (caretSide, desiredPopX, desiredPopY) = if (isFixedBar) {
+                            when (settings.toolbarDock) {
+                                ToolbarDock.LEFT -> Triple(PopoverCaretSide.LEFT, marginPx, (areaSize.height - popH) / 2)
+                                ToolbarDock.RIGHT -> Triple(PopoverCaretSide.RIGHT, areaSize.width - popW - marginPx, (areaSize.height - popH) / 2)
+                                ToolbarDock.BOTTOM -> Triple(PopoverCaretSide.BOTTOM, (areaSize.width - popW) / 2, areaSize.height - popH - marginPx)
+                                else -> Triple(PopoverCaretSide.TOP, (areaSize.width - popW) / 2, marginPx)
+                            }
+                        } else {
+                            val dockCenterX = activeDockOffset.x + dockSize.width / 2
+                            val dockCenterY = activeDockOffset.y + dockSize.height / 2
+                            val placeRight = isVerticalDock && activeDockOffset.x < areaSize.width / 2
+                            val placeLeft = isVerticalDock && !placeRight
+                            val placeAbove = !isVerticalDock && dockCenterY > areaSize.height / 2
+                            when {
+                                placeRight -> Triple(PopoverCaretSide.LEFT, activeDockOffset.x + dockSize.width + gapPx, dockCenterY - popH / 2)
+                                placeLeft -> Triple(PopoverCaretSide.RIGHT, activeDockOffset.x - popW - gapPx, dockCenterY - popH / 2)
+                                placeAbove -> Triple(PopoverCaretSide.BOTTOM, dockCenterX - popW / 2, activeDockOffset.y - popH - gapPx)
+                                else -> Triple(PopoverCaretSide.TOP, dockCenterX - popW / 2, activeDockOffset.y + dockSize.height + gapPx)
+                            }
+                        }
 
-                        val caretSide = when {
-                            placeRight -> PopoverCaretSide.LEFT
-                            placeLeft -> PopoverCaretSide.RIGHT
-                            placeAbove -> PopoverCaretSide.BOTTOM
-                            else -> PopoverCaretSide.TOP
-                        }
-                        val popOffset = when (caretSide) {
-                            PopoverCaretSide.LEFT -> IntOffset(
-                                x = (activeDockOffset.x + dockSize.width + gapPx).coerceIn(marginPx, maxPopX),
-                                y = (dockCenterY - popH / 2).coerceIn(marginPx, maxPopY),
-                            )
-                            PopoverCaretSide.RIGHT -> IntOffset(
-                                x = (activeDockOffset.x - popW - gapPx).coerceIn(marginPx, maxPopX),
-                                y = (dockCenterY - popH / 2).coerceIn(marginPx, maxPopY),
-                            )
-                            PopoverCaretSide.BOTTOM -> IntOffset(
-                                x = (dockCenterX - popW / 2).coerceIn(marginPx, maxPopX),
-                                y = (activeDockOffset.y - popH - gapPx).coerceIn(marginPx, maxPopY),
-                            )
-                            PopoverCaretSide.TOP -> IntOffset(
-                                x = (dockCenterX - popW / 2).coerceIn(marginPx, maxPopX),
-                                y = (activeDockOffset.y + dockSize.height + gapPx).coerceIn(marginPx, maxPopY),
-                            )
-                        }
+                        val popOffset = ToolbarGeometry.clampFloatingOffset(
+                            desiredX = desiredPopX,
+                            desiredY = desiredPopY,
+                            pillSize = IntSize(popW, popH),
+                            areaSize = areaSize,
+                            marginPx = marginPx,
+                            topSafePx = marginPx,
+                            bottomSafePx = bottomSafePx,
+                        )
 
                         Popup(
                             alignment = Alignment.TopStart,
@@ -923,30 +956,36 @@ fun EditorScreen(
                                     vm = vm,
                                     darkUi = darkUi,
                                     caretSide = caretSide,
+                                    onBrowseStickers = { showStickers = true },
+                                    onPickImage = { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                    onSelectionConverted = { newId ->
+                                        canvas?.selectItems(vm.selectionPage, setOf(newId))
+                                    },
                                     onDismiss = { activePopoverTool = null },
                                 )
                             }
                         }
                     }
 
-                    // Floating selection menu
+                    // Floating Selection (Lasso) contextual menu
                     val sb = vm.selectionBounds
                     androidx.compose.animation.AnimatedVisibility(
                         visible = vm.selection.isNotEmpty() && sb != null,
-                        enter = fadeIn() + scaleIn(initialScale = 0.85f),
-                        exit = fadeOut() + scaleOut(targetScale = 0.85f),
+                        enter = if (reduceMotion) fadeIn(androidx.compose.animation.core.snap()) else fadeIn() + scaleIn(initialScale = 0.85f),
+                        exit = if (reduceMotion) fadeOut(androidx.compose.animation.core.snap()) else fadeOut() + scaleOut(targetScale = 0.85f),
                         modifier = Modifier.offset {
                             val b = sb ?: android.graphics.RectF()
                             val below = b.bottom + 18 * density
-                            val y = if (below + 60 * density < areaSize.height) below else (b.top - 110 * density).coerceAtLeast(8f)
+                            val y = if (below + 64 * density < areaSize.height) below else (b.top - 110 * density).coerceAtLeast(8f)
                             IntOffset(
-                                b.left.roundToInt().coerceIn(8, (areaSize.width - 480 * density).roundToInt().coerceAtLeast(8)),
-                                y.roundToInt(),
+                                b.left.roundToInt().coerceIn(8, (areaSize.width - 420 * density).roundToInt().coerceAtLeast(8)),
+                                y.roundToInt().coerceIn(8, (areaSize.height - 64 * density).roundToInt().coerceAtLeast(8)),
                             )
                         },
                     ) {
                         SelectionMenu(
                             vm = vm,
+                            areaSize = areaSize,
                             onDuplicate = {
                                 val ids = vm.duplicateSelection()
                                 canvas?.selectItems(vm.selectionPage, ids)
@@ -965,6 +1004,9 @@ fun EditorScreen(
                             },
                             onShareImage = {
                                 scope.launch { vm.selectionImage()?.let { shareBitmap(context, it, vm.title + " selection") } }
+                            },
+                            onConvertToText = { newId ->
+                                canvas?.selectItems(vm.selectionPage, setOf(newId))
                             },
                         )
                     }
@@ -1263,6 +1305,58 @@ fun EditorScreen(
                             }
                         }
                     }
+                    // Quick Insert (long-press on empty page)
+                    quickInsert?.let { req ->
+                        QuickInsertOverlay(
+                            request = req,
+                            areaSize = areaSize,
+                            hasClipboard = vm.hasClipboard,
+                            onDismiss = { quickInsert = null },
+                            onWriteBox = {
+                                quickInsert = null
+                                vm.placeWriteBox(req.page, req.x - 240f, req.y - 120f, 480f, 240f)
+                            },
+                            onTextBox = {
+                                quickInsert = null
+                                vm.textEdit = EditorViewModel.TextEdit(req.page, req.x, req.y, null)
+                            },
+                            onSticky = {
+                                quickInsert = null
+                                vm.openSticky(req.page, req.x, req.y, null)
+                            },
+                            onWebLink = {
+                                quickInsert = null
+                                vm.openWebLink(req.page, req.x, req.y, null)
+                            },
+                            onImage = {
+                                pendingInsertCoords = Triple(req.page, req.x, req.y)
+                                quickInsert = null
+                                pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            },
+                            onSticker = {
+                                pendingInsertCoords = Triple(req.page, req.x, req.y)
+                                quickInsert = null
+                                showStickers = true
+                            },
+                            onPaste = {
+                                quickInsert = null
+                                vm.pasteAt(req.page, req.x, req.y)?.let { (pg, ids) -> canvas?.selectItems(pg, ids) }
+                            },
+                        )
+                    }
+                }
+
+                if (!hideTools && isFixedBar && settings.toolbarDock == ToolbarDock.RIGHT) {
+                    AdaptiveFixedToolbar(
+                        vm = vm,
+                        settings = settings,
+                        darkUi = darkUi,
+                        activePopoverTool = activePopoverTool,
+                        onTogglePopover = { t -> activePopoverTool = if (activePopoverTool == t) null else t },
+                        onSelectDock = selectDock,
+                        onSelectStyle = selectStyle,
+                        onResetPosition = resetToolbarPos,
+                    )
                 }
 
                 // Split view (right)
@@ -1303,10 +1397,23 @@ fun EditorScreen(
                     )
                 }
             }
+
+            if (!hideTools && isFixedBar && settings.toolbarDock == ToolbarDock.BOTTOM) {
+                AdaptiveFixedToolbar(
+                    vm = vm,
+                    settings = settings,
+                    darkUi = darkUi,
+                    activePopoverTool = activePopoverTool,
+                    onTogglePopover = { t -> activePopoverTool = if (activePopoverTool == t) null else t },
+                    onSelectDock = selectDock,
+                    onSelectStyle = selectStyle,
+                    onResetPosition = resetToolbarPos,
+                )
+            }
         }
 
-        // Quick tool wheel (stylus button click while hovering)
-        wheelAt?.let { at -> ToolWheel(vm, at, onDismiss = { wheelAt = null }) }
+        // Quick Actions radial popup (stylus button click while hovering)
+        wheelAt?.let { at -> QuickActionsOverlay(vm, at, onDismiss = { wheelAt = null }) }
     }
 
     // ------------------------------------------------------------------ dialogs & sheets
@@ -1466,11 +1573,21 @@ fun EditorScreen(
     }
 
     if (showStickers) {
-        AppSheet(onDismissRequest = { showStickers = false; vm.tool = Tool.LASSO }) {
+        AppSheet(onDismissRequest = {
+            showStickers = false
+            pendingInsertCoords = null
+            vm.tool = Tool.LASSO
+        }) {
             StickerSheet { bmp ->
+                val coords = pendingInsertCoords
+                pendingInsertCoords = null
                 showStickers = false
                 vm.tool = Tool.LASSO
-                vm.insertStickerBitmap(bmp) { pg, id -> canvas?.selectItems(pg, setOf(id)) }
+                if (coords != null) {
+                    vm.insertStickerBitmap(bmp, coords.first, coords.second, coords.third) { pg, id -> canvas?.selectItems(pg, setOf(id)) }
+                } else {
+                    vm.insertStickerBitmap(bmp) { pg, id -> canvas?.selectItems(pg, setOf(id)) }
+                }
             }
         }
     }
@@ -1610,10 +1727,11 @@ private fun BarIcon(
     }
     Box(
         modifier = Modifier
-            .size(36.dp)
+            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
             .clip(RoundedCornerShape(11.dp))
             .background(if (active) activeBg else Color.Transparent)
-            .clickable(enabled = enabled, onClick = onClick),
+            .semantics { contentDescription = label }
+            .clickable(enabled = enabled, role = Role.Button, onClickLabel = label, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         ProIconView(icon, tint, Modifier.size(20.dp))
@@ -1627,10 +1745,7 @@ private fun TopBar(
     showTabs: Boolean,
     showSearch: Boolean,
     showPages: Boolean,
-    hideTools: Boolean,
     darkUi: Boolean,
-    activePopoverTool: Tool?,
-    onTogglePopover: (Tool) -> Unit,
     onHome: () -> Unit,
     onPages: () -> Unit,
     onSearch: () -> Unit,
@@ -1671,51 +1786,22 @@ private fun TopBar(
         BarIcon(ProIcon.SIDEBAR, "Pages", active = showPages, fgColor = fgColor, onClick = onPages)
         BarIcon(ProIcon.SEARCH, "Search", active = showSearch, fgColor = fgColor, onClick = onSearch)
         BarIcon(ProIcon.PAGES, "Jump to page", fgColor = fgColor, onClick = onGoTo)
-        BarIcon(ProIcon.KEYBOARD, "Keyboard note mode", active = vm.keyboardMode, fgColor = fgColor, onClick = { vm.toggleKeyboardMode() })
+        BarIcon(ProIcon.KEYBOARD, "Keyboard Mode", active = vm.keyboardMode, fgColor = fgColor, onClick = { vm.toggleKeyboardMode() })
 
-        if (!hideTools) {
-            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    val visible = ToolbarOrder.visible(settings.toolbarTools)
-                    visible.forEach { t ->
-                        ToolButton(
-                            vm = vm,
-                            t = t,
-                            settings = settings,
-                            darkUi = darkUi,
-                            barFg = fgColor,
-                            popoverOpen = activePopoverTool == t,
-                            onOpenPopover = { onTogglePopover(t) },
-                            onReorderStep = { toolToMove, step ->
-                                val idx = visible.indexOf(toolToMove)
-                                val targetIdx = (idx + step).coerceIn(0, visible.lastIndex)
-                                if (idx >= 0 && targetIdx != idx) {
-                                    store.update {
-                                        it.copy(toolbarTools = ToolbarOrder.moveVisible(it.toolbarTools, toolToMove, visible[targetIdx]))
-                                    }
-                                }
-                            },
-                        )
-                    }
-                }
-            }
-        } else {
-            Text(
-                vm.title,
-                style = MaterialTheme.typography.titleMedium,
-                color = fgColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 10.dp)
-                    .clickable(onClick = onRename),
-            )
-        }
+        Text(
+            vm.title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = fgColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .defaultMinSize(minHeight = 48.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .clickable(role = Role.Button, onClickLabel = "Rename notebook", onClick = onRename)
+                .padding(horizontal = 10.dp, vertical = 12.dp),
+        )
 
         Box(Modifier.padding(horizontal = 4.dp).width(1.dp).height(22.dp).background(dividerColor))
 
@@ -1953,277 +2039,6 @@ private fun TopBar(
 
 // ============================================================== Docked sub-tool bar
 
-@Composable
-private fun DockedSubToolBar(
-    vm: EditorViewModel,
-    settings: AppSettings,
-    darkUi: Boolean,
-    area: IntSize,
-    isVertical: Boolean,
-    overlayFade: Float,
-    activePopoverTool: Tool?,
-    onTogglePopover: (Tool) -> Unit,
-    onDragStart: () -> Unit,
-    onDragDelta: (Offset) -> Unit,
-    onDragEnd: () -> Unit,
-    onSelectDock: (ToolbarDock) -> Unit,
-    onResetPosition: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val dockBg = if (darkUi) DockDarkBg else DockLightBg
-    val dockFg = if (darkUi) Color.White else Color(0xFF1E2321)
-    val dividerColor = dockFg.copy(alpha = 0.20f)
-    val dens = LocalDensity.current
-    val areaW = with(dens) { area.width.toDp() }
-    val areaH = with(dens) { area.height.toDp() }
-    val maxDockW = if (isVertical) 58.dp else (areaW - 180.dp).coerceAtLeast(220.dp)
-    val maxDockH = if (isVertical) (areaH - 110.dp).coerceAtLeast(240.dp) else 80.dp
-    val quickTools = remember { listOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.TAPE, Tool.SHAPE) }
-
-    var dockMenuOpen by remember { mutableStateOf(false) }
-
-    AppSurface(
-        role = SurfaceRole.Chrome,
-        containerColor = dockBg,
-        contentColor = dockFg,
-        shape = if (isVertical) RoundedCornerShape(22.dp) else appPillShape(),
-        shadowElevation = 10.dp,
-        borderColor = if (darkUi) Color.White.copy(alpha = 0.24f) else Color(0xFF0F172A).copy(alpha = 0.20f),
-        contentPadding = PaddingValues(horizontal = if (isVertical) 6.dp else 8.dp, vertical = if (isVertical) 8.dp else 6.dp),
-        modifier = modifier
-            .then(if (isVertical) Modifier.width(60.dp) else Modifier.widthIn(max = maxDockW))
-            .heightIn(max = maxDockH)
-            .graphicsLayer { alpha = overlayFade },
-    ) {
-        val gripAndDockControl = @Composable {
-            Box {
-                if (isVertical) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(3.dp),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp, 26.dp)
-                                .clip(RoundedCornerShape(9.dp))
-                                .background(dockFg.copy(alpha = 0.08f))
-                                .border(1.dp, dockFg.copy(alpha = 0.24f), RoundedCornerShape(9.dp))
-                                .pointerInput(Unit) {
-                                    var accumDelta = Offset.Zero
-                                    detectDragGestures(
-                                        onDragStart = {
-                                            accumDelta = Offset.Zero
-                                            onDragStart()
-                                        },
-                                        onDragCancel = { onDragEnd() },
-                                        onDragEnd = { onDragEnd() },
-                                        onDrag = { change, dragAmount ->
-                                            change.consume()
-                                            accumDelta += dragAmount
-                                            onDragDelta(accumDelta)
-                                        },
-                                    )
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                Icons.Filled.DragIndicator,
-                                contentDescription = "Drag to reposition toolbar",
-                                tint = dockFg.copy(alpha = 0.85f),
-                                modifier = Modifier
-                                    .size(18.dp)
-                                    .graphicsLayer { rotationZ = 90f },
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp, 22.dp)
-                                .clip(RoundedCornerShape(7.dp))
-                                .border(1.dp, dockFg.copy(alpha = 0.20f), RoundedCornerShape(7.dp))
-                                .clickable { dockMenuOpen = true },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            ProIconView(ProIcon.TOOLBAR, dockFg.copy(alpha = 0.78f), Modifier.size(14.dp))
-                        }
-                    }
-                } else {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp, 38.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(dockFg.copy(alpha = 0.08f))
-                                .border(1.dp, dockFg.copy(alpha = 0.24f), RoundedCornerShape(10.dp))
-                                .pointerInput(Unit) {
-                                    var accumDelta = Offset.Zero
-                                    detectDragGestures(
-                                        onDragStart = {
-                                            accumDelta = Offset.Zero
-                                            onDragStart()
-                                        },
-                                        onDragCancel = { onDragEnd() },
-                                        onDragEnd = { onDragEnd() },
-                                        onDrag = { change, dragAmount ->
-                                            change.consume()
-                                            accumDelta += dragAmount
-                                            onDragDelta(accumDelta)
-                                        },
-                                    )
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                Icons.Filled.DragIndicator,
-                                contentDescription = "Drag to reposition toolbar",
-                                tint = dockFg.copy(alpha = 0.85f),
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .size(26.dp, 38.dp)
-                                .clip(RoundedCornerShape(9.dp))
-                                .border(1.dp, dockFg.copy(alpha = 0.20f), RoundedCornerShape(9.dp))
-                                .clickable { dockMenuOpen = true },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            ProIconView(ProIcon.TOOLBAR, dockFg.copy(alpha = 0.78f), Modifier.size(14.dp))
-                        }
-                    }
-                }
-                AppContextMenu(
-                    expanded = dockMenuOpen,
-                    onDismissRequest = { dockMenuOpen = false },
-                    items = listOf(
-                        AppMenuItem("Dock top") { dockMenuOpen = false; onSelectDock(ToolbarDock.TOP) },
-                        AppMenuItem("Dock bottom") { dockMenuOpen = false; onSelectDock(ToolbarDock.BOTTOM) },
-                        AppMenuItem("Dock left") { dockMenuOpen = false; onSelectDock(ToolbarDock.LEFT) },
-                        AppMenuItem("Dock right") { dockMenuOpen = false; onSelectDock(ToolbarDock.RIGHT) },
-                        AppMenuItem("Reset position") { dockMenuOpen = false; onResetPosition() },
-                    ),
-                )
-            }
-        }
-
-        val dockToolsAndOptions = @Composable {
-            quickTools.forEach { t ->
-                val isCurrent = vm.tool == t || (vm.tool !in quickTools && t == Tool.PEN)
-                val showActiveSlot = vm.tool == t
-                val slotInk = Color(vm.styleFor(t)?.color ?: if (t == Tool.TAPE) vm.tapeColor else vm.penStyle.color)
-                val slotBorderColor = when {
-                    showActiveSlot -> Color.White.copy(alpha = 0.72f)
-                    else -> dockFg.copy(alpha = 0.25f)
-                }
-                Row(
-                    modifier = Modifier
-                        .height(38.dp)
-                        .then(if (isVertical) Modifier.width(46.dp) else Modifier)
-                        .clip(RoundedCornerShape(13.dp))
-                        .background(if (showActiveSlot) TealActiveTile else dockFg.copy(alpha = 0.05f))
-                        .border(if (showActiveSlot) 1.5.dp else 1.dp, slotBorderColor, RoundedCornerShape(13.dp))
-                        .clickable {
-                            if (vm.tool == t) onTogglePopover(t) else vm.tool = t
-                        }
-                        .padding(horizontal = if (showActiveSlot && !isVertical) 10.dp else 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = if (isVertical) Arrangement.Center else Arrangement.spacedBy(3.dp),
-                ) {
-                    ToolGlyph(
-                        tool = t,
-                        tint = if (showActiveSlot) Color.White else dockFg,
-                        inkColor = slotInk,
-                        modifier = Modifier.size(21.dp),
-                        active = showActiveSlot || isCurrent,
-                    )
-                    if (showActiveSlot && !isVertical) {
-                        Icon(
-                            if (activePopoverTool == t) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                            contentDescription = "Tool options",
-                            tint = Color.White.copy(alpha = 0.85f),
-                            modifier = Modifier.size(14.dp),
-                        )
-                    }
-                }
-            }
-
-            if (vm.tool !in quickTools && vm.tool != Tool.IMAGE && vm.tool != Tool.STICKER) {
-                Row(
-                    modifier = Modifier
-                        .height(38.dp)
-                        .then(if (isVertical) Modifier.width(46.dp) else Modifier)
-                        .clip(RoundedCornerShape(13.dp))
-                        .background(TealActiveTile)
-                        .border(1.5.dp, Color.White.copy(alpha = 0.72f), RoundedCornerShape(13.dp))
-                        .clickable { onTogglePopover(vm.tool) }
-                        .padding(horizontal = if (isVertical) 6.dp else 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = if (isVertical) Arrangement.Center else Arrangement.spacedBy(5.dp),
-                ) {
-                    ToolGlyph(vm.tool, Color.White, Color(vm.penStyle.color), Modifier.size(19.dp), active = true)
-                    if (!isVertical) {
-                        Text(
-                            toolDisplayName(vm.tool),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color.White,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Icon(
-                            if (activePopoverTool == vm.tool) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                            contentDescription = "Tool studio",
-                            tint = Color.White.copy(alpha = 0.85f),
-                            modifier = Modifier.size(14.dp),
-                        )
-                    }
-                }
-            }
-
-            if (isVertical) {
-                Box(Modifier.padding(vertical = 2.dp).height(1.dp).width(24.dp).background(dividerColor))
-            } else {
-                Box(Modifier.padding(horizontal = 2.dp).width(1.dp).height(24.dp).background(dividerColor))
-            }
-
-            ToolOptions(vm = vm, vertical = isVertical, settings = settings, dockFg = dockFg, darkDock = darkUi)
-        }
-
-        if (isVertical) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                gripAndDockControl()
-                Box(Modifier.height(1.dp).width(30.dp).background(dividerColor))
-                Column(
-                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    dockToolsAndOptions()
-                }
-            }
-        } else {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                gripAndDockControl()
-                Box(Modifier.width(1.dp).height(24.dp).background(dividerColor))
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    dockToolsAndOptions()
-                }
-            }
-        }
-    }
-}
-
 // ============================================================== search
 
 @Composable
@@ -2415,513 +2230,6 @@ private fun PageThumb(vm: EditorViewModel, i: Int, page: Page, modifier: Modifie
     }
 }
 
-// ============================================================== tool icons & options
-
-private fun toolDisplayName(t: Tool): String = when (t) {
-    Tool.PEN -> "Pen"
-    Tool.HIGHLIGHTER -> "Highlighter"
-    Tool.ERASER -> "Eraser"
-    Tool.SHAPE -> "Shapes"
-    Tool.LASSO -> "Lasso Select"
-    Tool.MINDMAP -> "Concept Map"
-    Tool.IMAGE -> "Insert Image"
-    Tool.TEXT -> "Text Box"
-    Tool.STICKY -> "Sticky Note"
-    Tool.WEBLINK -> "Web Link"
-    Tool.TAPE -> "Washi Tape"
-    Tool.STICKER -> "Stickers"
-    Tool.LASER -> "Laser Pointer"
-}
-
-@Composable
-private fun ToolButton(
-    vm: EditorViewModel,
-    t: Tool,
-    settings: AppSettings,
-    darkUi: Boolean,
-    barFg: Color,
-    popoverOpen: Boolean,
-    onOpenPopover: () -> Unit,
-    onReorderStep: ((Tool, Int) -> Unit)? = null,
-) {
-    val selected = vm.tool == t
-    val motion = LocalMotionStyle.current
-    val ink = Color(
-        vm.styleFor(t)?.color ?: when (t) {
-            Tool.TAPE -> vm.tapeColor
-            Tool.STICKY -> vm.stickyColor
-            Tool.WEBLINK -> vm.webLinkColor
-            else -> vm.penStyle.color
-        },
-    )
-    val sz = (38 * settings.toolbarSize.scale).dp
-    val density = LocalDensity.current.density
-    var hovered by remember { mutableStateOf(false) }
-    var dragging by remember { mutableStateOf(false) }
-    var dragAccum by remember { mutableFloatStateOf(0f) }
-    var stretchDx by remember { mutableFloatStateOf(0f) }
-    var stretchDy by remember { mutableFloatStateOf(0f) }
-
-    val springDamping = when (motion) {
-        MotionStyle.SPRING -> 0.56f
-        MotionStyle.MINIMAL_CRISP -> Spring.DampingRatioNoBouncy
-        MotionStyle.REDUCED -> 1f
-    }
-    val offsetX by animateFloatAsState(
-        targetValue = if (dragging) stretchDx.coerceIn(-22f * density, 22f * density) else 0f,
-        animationSpec = spring(dampingRatio = springDamping, stiffness = Spring.StiffnessMedium),
-        label = "ox",
-    )
-    val offsetY by animateFloatAsState(
-        targetValue = if (dragging) stretchDy.coerceIn(-22f * density, 22f * density) else 0f,
-        animationSpec = spring(dampingRatio = springDamping, stiffness = Spring.StiffnessMedium),
-        label = "oy",
-    )
-
-    val dragReorderMod = if (onReorderStep != null) {
-        Modifier.pointerInput(t) {
-            val stepPx = 38f * density
-            detectDragGesturesAfterLongPress(
-                onDragStart = {
-                    dragging = true
-                    hovered = false
-                    dragAccum = 0f
-                    stretchDx = 0f
-                    stretchDy = 0f
-                },
-                onDragEnd = {
-                    dragging = false
-                    dragAccum = 0f
-                    stretchDx = 0f
-                    stretchDy = 0f
-                },
-                onDragCancel = {
-                    dragging = false
-                    dragAccum = 0f
-                    stretchDx = 0f
-                    stretchDy = 0f
-                },
-                onDrag = { change, amount ->
-                    change.consume()
-                    stretchDx = (stretchDx + amount.x).coerceIn(-26f * density, 26f * density)
-                    stretchDy = (stretchDy + amount.y).coerceIn(-26f * density, 26f * density)
-                    dragAccum += amount.x
-                    if (abs(dragAccum) >= stepPx) {
-                        val dir = if (dragAccum > 0f) 1 else -1
-                        onReorderStep(t, dir)
-                        dragAccum -= dir * stepPx
-                    }
-                },
-            )
-        }
-    } else Modifier
-
-    val activeSlotBg = if (darkUi) Color(0xFFCBD5E1) else ProButtonPalette.RoyalBlue
-    val activeSlotFg = if (darkUi) Color(0xFF1A1A1A) else Color.White
-    val hasColorBar = t in setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.TEXT, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.MINDMAP)
-    val inkLum = ink.luminance()
-    val colorBarRim = when {
-        inkLum > 0.68f -> Color(0xFF0F172A)
-        inkLum < 0.24f -> Color(0xFFF8FAFC)
-        else -> if (darkUi) Color(0xFFF8FAFC) else Color(0xFF0F172A)
-    }
-    val cellBorderColor = when {
-        dragging -> ProButtonPalette.ElectricBlue
-        selected -> if (darkUi) Color.White else Color(0xFF1E3A8A)
-        else -> barFg.copy(alpha = 0.24f)
-    }
-
-    Box {
-        Box(
-            modifier = Modifier
-                .padding(1.dp)
-                .size(sz)
-                .graphicsLayer {
-                    translationX = offsetX
-                    translationY = offsetY
-                }
-                .clip(RoundedCornerShape(12.dp))
-                .background(
-                    when {
-                        dragging -> ProButtonPalette.SkyCyan
-                        selected -> activeSlotBg
-                        else -> barFg.copy(alpha = 0.04f)
-                    },
-                )
-                .border(
-                    width = if (selected || dragging) 1.5.dp else 1.dp,
-                    color = cellBorderColor,
-                    shape = RoundedCornerShape(12.dp),
-                )
-                .pointerInput(t) {
-                    awaitPointerEventScope {
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            when (event.type) {
-                                PointerEventType.Enter -> hovered = true
-                                PointerEventType.Exit -> hovered = false
-                            }
-                        }
-                    }
-                }
-                .then(dragReorderMod)
-                .clickable {
-                    when {
-                        !selected -> vm.tool = t
-                        t == Tool.IMAGE || t == Tool.STICKER -> vm.reopenTool++
-                        else -> onOpenPopover()
-                    }
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            val tint = if (selected || dragging) activeSlotFg else barFg
-            ToolGlyph(
-                tool = t,
-                tint = tint,
-                inkColor = ink,
-                modifier = Modifier.size((20 * settings.toolbarSize.scale).dp),
-                active = selected || dragging,
-            )
-            if (hasColorBar) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 2.5.dp)
-                        .size(width = 16.dp, height = 4.5.dp)
-                        .clip(CircleShape)
-                        .background(ink)
-                        .border(0.9.dp, colorBarRim, CircleShape),
-                )
-            }
-        }
-
-        if (hovered && !dragging && !popoverOpen && settings.showHoverTooltips && settings.hoverCursor) {
-            Popup(
-                alignment = Alignment.BottomCenter,
-                offset = IntOffset(0, (40 * density).toInt()),
-                properties = PopupProperties(focusable = false),
-            ) {
-                AppSurface(
-                    role = SurfaceRole.Popover,
-                    shape = appPillShape(),
-                    shadowElevation = 6.dp,
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
-                ) {
-                    Text(
-                        toolDisplayName(t),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ToolOptions(
-    vm: EditorViewModel,
-    vertical: Boolean,
-    settings: AppSettings,
-    dockFg: Color = MaterialTheme.colorScheme.onSurface,
-    darkDock: Boolean = false,
-) {
-    val store = SettingsStore.get(LocalContext.current)
-    AnimatedContent(
-        targetState = vm.tool,
-        transitionSpec = { fadeIn() togetherWith fadeOut() },
-        label = "options",
-    ) { t ->
-        val content = @Composable {
-            val style = vm.styleFor(t)
-            when {
-                style != null -> StyleOptions(vm, t, style, dockFg, darkDock, vertical)
-                t == Tool.ERASER -> {
-                    SizeDots(listOf(8f, 16f, 30f), listOf(8f, 16f, 30f)[vm.eraserSize], ring = true, fg = dockFg, darkDock = darkDock) { s ->
-                        vm.eraserSize = listOf(8f, 16f, 30f).indexOf(s)
-                    }
-                    if (!vertical) {
-                        MiniChip(if (settings.eraserMode == EraserMode.PIXEL) "Pixel" else "Stroke") {
-                            store.update {
-                                it.copy(eraserMode = if (it.eraserMode == EraserMode.PIXEL) EraserMode.STROKE else EraserMode.PIXEL)
-                            }
-                        }
-                    }
-                }
-                t == Tool.TEXT -> SizeDots(listOf(28f, 40f, 64f), vm.textSize, fg = dockFg, darkDock = darkDock) { vm.textSize = it }
-                t == Tool.TAPE -> {
-                    CustomSwatches(TapeColors, vm.tapeColor, vm) { vm.tapeColor = it }
-                    if (!vertical) MiniChip(if (vm.tapeFreehand) "Freehand" else "Straight") { vm.tapeFreehand = !vm.tapeFreehand }
-                }
-                t == Tool.STICKY -> CustomSwatches(StickyColors, vm.stickyColor, vm) { vm.stickyColor = it }
-                t == Tool.WEBLINK -> CustomSwatches(WebLinkColors, vm.webLinkColor, vm) { vm.webLinkColor = it }
-                t == Tool.MINDMAP -> {
-                    MindPalette.take(5).forEach { c ->
-                        Swatch(c, c == vm.mindColor, 18) { vm.recolorMindNode(color = c) }
-                    }
-                    if (!vertical) {
-                        EditorViewModel.MindLayout.entries.forEach { layout ->
-                            MiniChip(layout.label) { vm.autoLayoutMindMap(layout) }
-                        }
-                        MiniChip("Fit Map") { vm.fitMindMapToView() }
-                        MiniChip(if (vm.moveMindSubtree) "Subtree: On" else "Subtree: Off") { vm.moveMindSubtree = !vm.moveMindSubtree }
-                        MiniChip("Cards") { vm.flashcardsFromMindMap() }
-                    }
-                }
-                else -> Unit
-            }
-        }
-        if (vertical) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) { content() }
-        else Row(verticalAlignment = Alignment.CenterVertically) { content() }
-    }
-}
-
-@Composable
-private fun MiniChip(label: String, onClick: () -> Unit) {
-    AppPill(
-        onClick = onClick,
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
-        modifier = Modifier.padding(3.dp),
-    ) {
-        Text(label, style = MaterialTheme.typography.labelSmall)
-    }
-}
-
-@Composable
-private fun CustomSwatches(base: List<Int>, current: Int, vm: EditorViewModel, onPick: (Int) -> Unit) {
-    var custom by remember { mutableStateOf(false) }
-    base.forEach { c -> Swatch(c, c == current, 18) { onPick(c) } }
-    if (current !in base) Swatch(current, true, 18) { custom = true }
-    AddSwatchButton { custom = true }
-    if (custom) {
-        ColorEditorDialog(current, PenPalette, vm.recentColors(), onDismiss = { custom = false }) {
-            onPick(it)
-            vm.pushRecent(it)
-            custom = false
-        }
-    }
-}
-
-@Composable
-private fun AddSwatchButton(onClick: () -> Unit) {
-    Box(
-        Modifier
-            .padding(3.dp)
-            .size(22.dp)
-            .clip(CircleShape)
-            .background(
-                Brush.sweepGradient(
-                    listOf(
-                        Color(0xFFFF3B30),
-                        Color(0xFFFFCC00),
-                        Color(0xFF34C759),
-                        Color(0xFF0A84FF),
-                        Color(0xFFAF52DE),
-                        Color(0xFFFF3B30),
-                    ),
-                ),
-            )
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(Modifier.size(14.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
-            Icon(Icons.Outlined.Add, "Custom colour", Modifier.size(11.dp))
-        }
-    }
-}
-
-@Composable
-private fun StyleOptions(
-    vm: EditorViewModel,
-    t: Tool,
-    style: ToolStyle,
-    dockFg: Color,
-    darkDock: Boolean,
-    vertical: Boolean = false,
-) {
-    var editing by remember { mutableStateOf<Int?>(null) }
-    var adding by remember { mutableStateOf(false) }
-    var removeMenu by remember { mutableStateOf<Int?>(null) }
-
-    SizeDots(style.sizes, style.size, fg = dockFg, darkDock = darkDock) { sz ->
-        vm.updateStyle(t, style.copy(size = sz))
-    }
-    if (vertical) {
-        Box(Modifier.padding(vertical = 4.dp).height(1.dp).width(22.dp).background(dockFg.copy(alpha = 0.2f)))
-    } else {
-        Box(Modifier.padding(horizontal = 6.dp).width(1.dp).height(22.dp).background(dockFg.copy(alpha = 0.2f)))
-    }
-    style.colors.forEachIndexed { i, c ->
-        val selected = c == style.color
-        Box {
-            Swatch(c, selected, 18, onLongClick = { removeMenu = i }) {
-                if (selected) editing = i else vm.updateStyle(t, style.copy(color = c))
-            }
-            AppContextMenu(
-                expanded = removeMenu == i,
-                onDismissRequest = { removeMenu = null },
-                items = buildList {
-                    add(AppMenuItem("Edit colour") { editing = i })
-                    if (style.colors.size > 1) {
-                        add(AppMenuItem("Remove", destructive = true) { vm.removeSwatch(t, i) })
-                    }
-                },
-            )
-        }
-    }
-    if (style.colors.size < 8) AddSwatchButton { adding = true }
-
-    val presets = if (t == Tool.HIGHLIGHTER) HighlighterPalette + PenPalette else PenPalette
-    editing?.let { slot ->
-        ColorEditorDialog(style.colors[slot], presets, vm.recentColors(), onDismiss = { editing = null }) { picked ->
-            val colors = style.colors.toMutableList().also { it[slot] = picked }
-            vm.updateStyle(t, style.copy(colors = colors, color = picked))
-            vm.pushRecent(picked)
-            editing = null
-        }
-    }
-    if (adding) {
-        ColorEditorDialog(style.color, presets, vm.recentColors(), onDismiss = { adding = false }) { picked ->
-            vm.addSwatch(t, picked)
-            adding = false
-        }
-    }
-}
-
-@Composable
-private fun SizeDots(
-    sizes: List<Float>,
-    current: Float,
-    ring: Boolean = false,
-    fg: Color = MaterialTheme.colorScheme.onSurface,
-    darkDock: Boolean = false,
-    onPick: (Float) -> Unit,
-) {
-    val activeBg = if (darkDock) Color(0xFF2A2A2A) else MaterialTheme.colorScheme.primaryContainer
-    sizes.forEachIndexed { i, s ->
-        val selected = s == current
-        Box(
-            Modifier
-                .padding(horizontal = 2.dp)
-                .size(34.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(if (selected) activeBg else Color.Transparent)
-                .clickable { onPick(s) },
-            contentAlignment = Alignment.Center,
-        ) {
-            val w = (2 + 2.5f * i).dp
-            if (ring) {
-                Box(Modifier.size((8 + 5 * i).dp).border(1.6.dp, fg, CircleShape))
-            } else {
-                Box(Modifier.width(18.dp).height(w).clip(Pill).background(fg))
-            }
-        }
-    }
-}
-
-private enum class PopoverCaretSide { TOP, BOTTOM, LEFT, RIGHT }
-
-@Composable
-private fun ToolPopoverCard(
-    tool: Tool,
-    vm: EditorViewModel,
-    darkUi: Boolean,
-    caretSide: PopoverCaretSide = PopoverCaretSide.TOP,
-    onDismiss: () -> Unit,
-) {
-    val pickTape = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) vm.useTapeImage(uri)
-    }
-    val cardBg = if (darkUi) PopoverDarkBg else PopoverLightBg
-    val cardFg = if (darkUi) Color.White else Color(0xFF181A1F)
-    val borderTint = if (darkUi) Color.White.copy(alpha = 0.09f) else Color.Black.copy(alpha = 0.08f)
-
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.widthIn(min = 310.dp, max = 380.dp),
-    ) {
-        if (caretSide == PopoverCaretSide.TOP) {
-            Canvas(Modifier.size(width = 24.dp, height = 11.dp)) {
-                val tri = Path().apply {
-                    moveTo(0f, size.height)
-                    lineTo(size.width / 2f, 0f)
-                    lineTo(size.width, size.height)
-                    close()
-                }
-                drawPath(tri, cardBg)
-            }
-        }
-        AppSurface(
-            role = SurfaceRole.Popover,
-            containerColor = cardBg,
-            contentColor = cardFg,
-            shape = RoundedCornerShape(16.dp),
-            borderColor = borderTint,
-            shadowElevation = 18.dp,
-            contentPadding = PaddingValues(18.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            CompositionLocalProvider(LocalContentColor provides cardFg) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 540.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        ScaleInAnimatedText(
-                            text = if (tool == Tool.PEN) vm.penType.label else toolDisplayName(tool),
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-                            color = cardFg,
-                            modifier = Modifier.weight(1f),
-                        )
-                        IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Filled.Close, contentDescription = "Close", tint = cardFg.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
-                        }
-                    }
-
-                    when (tool) {
-                        Tool.PEN -> PenCardContent(vm, darkUi, cardFg)
-                        Tool.HIGHLIGHTER -> HighlighterCardContent(vm, darkUi, cardFg)
-                        Tool.SHAPE -> ShapeCardContent(vm)
-                        Tool.ERASER -> EraserCardContent(vm)
-                        Tool.LASSO -> LassoCardContent()
-                        Tool.LASER -> LaserCardContent()
-                        Tool.TEXT -> TextCardContent(vm)
-                        Tool.TAPE -> {
-                            Segments(listOf("Straight", "Freehand"), if (vm.tapeFreehand) 1 else 0) { vm.tapeFreehand = it == 1 }
-                            Row(verticalAlignment = Alignment.CenterVertically) { CustomSwatches(TapeColors, vm.tapeColor, vm) { vm.tapeColor = it } }
-                            TapePatternPicker(vm) {
-                                pickTape.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                            }
-                        }
-                        Tool.STICKY -> Row(verticalAlignment = Alignment.CenterVertically) {
-                            CustomSwatches(StickyColors, vm.stickyColor, vm) { vm.stickyColor = it }
-                        }
-                        Tool.WEBLINK -> Row(verticalAlignment = Alignment.CenterVertically) {
-                            CustomSwatches(WebLinkColors, vm.webLinkColor, vm) { vm.webLinkColor = it }
-                        }
-                        Tool.MINDMAP -> MindMapCardContent(vm)
-                        Tool.STICKER, Tool.IMAGE -> Unit
-                    }
-                }
-            }
-        }
-        if (caretSide == PopoverCaretSide.BOTTOM) {
-            Canvas(Modifier.size(width = 24.dp, height = 11.dp)) {
-                val tri = Path().apply {
-                    moveTo(0f, 0f)
-                    lineTo(size.width / 2f, size.height)
-                    lineTo(size.width, 0f)
-                    close()
-                }
-                drawPath(tri, cardBg)
-            }
-        }
-    }
-}
-
 @Composable
 private fun Segments(options: List<String>, selected: Int, onPick: (Int) -> Unit) {
     AppSegmentedControl(
@@ -2932,441 +2240,7 @@ private fun Segments(options: List<String>, selected: Int, onPick: (Int) -> Unit
     )
 }
 
-@Composable
-private fun StrokePreview(color: Color, width: Float, taper: Boolean, darkUi: Boolean) {
-    val boxBg = if (darkUi) Color(0xFF242424) else Color(0xFFECE9E0)
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(boxBg)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-    ) {
-        Canvas(Modifier.fillMaxWidth().height(64.dp)) {
-            val path = Path().apply {
-                moveTo(size.width * 0.08f, size.height * 0.62f)
-                cubicTo(size.width * 0.3f, size.height * 1.05f, size.width * 0.45f, size.height * 0.05f, size.width * 0.92f, size.height * 0.45f)
-            }
-            if (taper) {
-                for (k in 0..3) {
-                    drawPath(path, color, style = Stroke(width * (0.4f + k * 0.2f), cap = StrokeCap.Round), alpha = 0.35f)
-                }
-            }
-            drawPath(path, color, style = Stroke(width, cap = StrokeCap.Round))
-        }
-    }
-}
 
-@Immutable
-private data class PenCardSettings(
-    val penName: String,
-    val paperSound: Boolean,
-    val paperVolume: Float,
-    val paperHaptics: Boolean,
-)
-
-@Immutable
-private data class HighlighterCardSettings(
-    val highlighterOpacity: Float,
-    val highlighterMode: HighlighterMode,
-    val highlighterBehind: Boolean,
-)
-
-@Immutable
-private data class EraserCardSettings(
-    val eraserMode: EraserMode,
-    val scribbleSensitivity: ScribbleSensitivity,
-    val eraseHighlighterOnly: Boolean,
-    val eraserFilter: com.pronotes.app.data.EraserFilter,
-    val eraserAutoSwitch: Boolean,
-    val scribbleToErase: Boolean,
-    val liveScribbleErase: Boolean,
-)
-
-@Immutable
-private data class LassoCardSettings(
-    val lassoMode: LassoMode,
-    val lassoFilter: LassoFilter,
-    val lassoTouching: Boolean,
-    val circleToLasso: Boolean,
-)
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color) {
-    val style = vm.penStyle
-    val presets by vm.presets.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    val store = remember { SettingsStore.get(context) }
-    val s by remember(store) {
-        store.select { PenCardSettings(it.penName, it.paperSound, it.paperVolume, it.paperHaptics) }
-    }.collectAsStateWithLifecycle(
-        initialValue = remember(store) {
-            store.settings.value.let { PenCardSettings(it.penName, it.paperSound, it.paperVolume, it.paperHaptics) }
-        },
-    )
-    var editingPenName by remember { mutableStateOf(false) }
-    var savingPreset by remember { mutableStateOf(false) }
-    var renamingPreset by remember { mutableStateOf<PenPreset?>(null) }
-
-    val tileBg = if (darkUi) Color(0xFF2C2C2C) else MaterialTheme.colorScheme.primaryContainer
-    val tileIdleBg = if (darkUi) Color(0xFF232326) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-    val mutedFg = fgColor.copy(alpha = 0.62f)
-
-    // Stylus profile header pill
-    AppCard(
-        onClick = { editingPenName = true },
-        containerColor = tileIdleBg,
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 9.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.Edit, null, Modifier.size(16.dp), tint = ProButtonPalette.ElectricBlue)
-            Spacer(Modifier.width(8.dp))
-            Column(Modifier.weight(1f)) {
-                Text("ACTIVE STYLUS", style = MaterialTheme.typography.labelSmall, color = mutedFg)
-                Text(s.penName.ifBlank { "Pro Stylus" }, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = fgColor)
-            }
-            Text("Rename", style = MaterialTheme.typography.labelSmall, color = ProButtonPalette.ElectricBlue)
-        }
-    }
-
-    StrokePreview(Color(style.color), style.size * vm.penType.sizeFactor * 2.2f, vm.penType != PenType.BALL, darkUi)
-
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        PenType.entries.forEach { type ->
-            val sel = vm.penType == type
-            Column(
-                Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(if (sel) tileBg else tileIdleBg)
-                    .border(if (sel) 1.5.dp else 0.dp, if (sel) ProButtonPalette.ElectricBlue else Color.Transparent, RoundedCornerShape(14.dp))
-                    .clickable { vm.penType = type }
-                    .padding(vertical = 10.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                PenGlyph(type, fgColor, Color(style.color), Modifier.size(28.dp))
-                Spacer(Modifier.height(4.dp))
-                Text(type.label, style = MaterialTheme.typography.labelSmall, color = fgColor, maxLines = 1)
-            }
-        }
-    }
-
-    HorizontalDivider(color = fgColor.copy(alpha = 0.08f))
-    SliderRow("THICKNESS", "%.1f pt".format(style.size), style.size, 0.5f..20f) { v ->
-        val sizes = style.sizes.map { if (it == style.size) v else it }
-        vm.updateStyle(Tool.PEN, style.copy(size = v, sizes = sizes))
-    }
-
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("FAVOURITE PENS", style = MaterialTheme.typography.labelSmall, color = mutedFg, modifier = Modifier.weight(1f))
-        TextButton(onClick = { savingPreset = true }) {
-            Icon(Icons.Outlined.StarBorder, null, Modifier.size(16.dp), tint = ProButtonPalette.ElectricBlue)
-            Spacer(Modifier.width(4.dp))
-            Text("Save pen", color = ProButtonPalette.ElectricBlue)
-        }
-    }
-    if (presets.isNotEmpty()) {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            presets.forEach { p ->
-                PresetChip(
-                    p = p,
-                    fgColor = fgColor,
-                    onClick = { vm.applyPreset(p) },
-                    onRename = { renamingPreset = p },
-                    onRemove = { vm.removePreset(p) },
-                )
-            }
-        }
-    }
-
-    HorizontalDivider(color = fgColor.copy(alpha = 0.08f))
-    Text("SETTINGS", style = MaterialTheme.typography.labelSmall, color = mutedFg, letterSpacing = 0.8.sp)
-    ToggleLine("Writing sound", s.paperSound, fgColor) { v -> store.update { it.copy(paperSound = v) } }
-    if (s.paperSound) {
-        SliderRow("VOLUME", "%.0f%%".format(s.paperVolume * 100), s.paperVolume, 0.05f..1f) { v ->
-            store.update { it.copy(paperVolume = v) }
-        }
-    }
-    ToggleLine("Paper haptics", s.paperHaptics, fgColor) { v -> store.update { it.copy(paperHaptics = v) } }
-
-    if (editingPenName) {
-        var name by remember(s.penName) { mutableStateOf(s.penName) }
-        AppDialog(
-            onDismissRequest = { editingPenName = false },
-            title = { Text("Stylus name") },
-            text = { OutlinedTextField(name, { name = it }, singleLine = true, shape = Pill, label = { Text("Pen display name") }) },
-            confirmButton = { TextButton(onClick = { vm.setPenName(name); editingPenName = false }) { Text("Save") } },
-            dismissButton = { TextButton(onClick = { editingPenName = false }) { Text("Cancel") } },
-        )
-    }
-
-    if (savingPreset) {
-        var label by remember { mutableStateOf("${vm.penType.label} ${style.size.roundToInt()}") }
-        AppDialog(
-            onDismissRequest = { savingPreset = false },
-            title = { Text("Name this pen preset") },
-            text = { OutlinedTextField(label, { label = it }, singleLine = true, shape = Pill) },
-            confirmButton = { TextButton(onClick = { vm.savePreset(label); savingPreset = false }) { Text("Save") } },
-            dismissButton = { TextButton(onClick = { savingPreset = false }) { Text("Cancel") } },
-        )
-    }
-
-    renamingPreset?.let { p ->
-        var label by remember(p) { mutableStateOf(p.name) }
-        AppDialog(
-            onDismissRequest = { renamingPreset = null },
-            title = { Text("Rename preset") },
-            text = { OutlinedTextField(label, { label = it }, singleLine = true, shape = Pill) },
-            confirmButton = { TextButton(onClick = { vm.renamePreset(p, label); renamingPreset = null }) { Text("Save") } },
-            dismissButton = { TextButton(onClick = { renamingPreset = null }) { Text("Cancel") } },
-        )
-    }
-}
-
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable
-private fun PresetChip(p: PenPreset, fgColor: Color, onClick: () -> Unit, onRename: () -> Unit, onRemove: () -> Unit) {
-    var menu by remember { mutableStateOf(false) }
-    Box {
-        Row(
-            Modifier
-                .clip(Pill)
-                .border(1.dp, fgColor.copy(alpha = 0.22f), Pill)
-                .combinedClickable(onClick = onClick, onLongClick = { menu = true })
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            PenGlyph(runCatching { PenType.valueOf(p.type) }.getOrDefault(PenType.FOUNTAIN), fgColor, Color(p.color), Modifier.size(18.dp))
-            Spacer(Modifier.width(4.dp))
-            Box(Modifier.size(width = 16.dp, height = (p.size / 2f).coerceIn(2f, 8f).dp).clip(Pill).background(Color(p.color)))
-            if (p.name.isNotBlank()) {
-                Spacer(Modifier.width(5.dp))
-                Text(p.name, style = MaterialTheme.typography.labelSmall, color = fgColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
-        AppContextMenu(
-            expanded = menu,
-            onDismissRequest = { menu = false },
-            items = listOf(
-                AppMenuItem("Rename") { onRename() },
-                AppMenuItem("Remove", destructive = true) { onRemove() },
-            ),
-        )
-    }
-}
-
-@Composable
-private fun HighlighterCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color) {
-    val style = vm.highlighterStyle
-    val context = LocalContext.current
-    val store = remember { SettingsStore.get(context) }
-    val s by remember(store) {
-        store.select { HighlighterCardSettings(it.highlighterOpacity, it.highlighterMode, it.highlighterBehind) }
-    }.collectAsStateWithLifecycle(
-        initialValue = remember(store) {
-            store.settings.value.let { HighlighterCardSettings(it.highlighterOpacity, it.highlighterMode, it.highlighterBehind) }
-        },
-    )
-    StrokePreview(Color(style.color).copy(alpha = s.highlighterOpacity), style.size * 1.2f, false, darkUi)
-    SliderRow("THICKNESS", "%.0f".format(style.size), style.size, 6f..70f) { v ->
-        val sizes = style.sizes.map { if (it == style.size) v else it }
-        vm.updateStyle(Tool.HIGHLIGHTER, style.copy(size = v, sizes = sizes))
-    }
-    SliderRow("OPACITY", "%.0f%%".format(s.highlighterOpacity * 100), s.highlighterOpacity, 0.3f..0.9f) { v ->
-        store.update { it.copy(highlighterOpacity = v) }
-    }
-    Text("LINE", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.62f))
-    Segments(HighlighterMode.entries.map { it.label }, s.highlighterMode.ordinal) { i ->
-        store.update { it.copy(highlighterMode = HighlighterMode.entries[i]) }
-    }
-    ToggleLine("Draw behind ink", s.highlighterBehind, fgColor) { v -> store.update { it.copy(highlighterBehind = v) } }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun EraserCardContent(vm: EditorViewModel) {
-    val context = LocalContext.current
-    val store = remember { SettingsStore.get(context) }
-    val fgColor = LocalContentColor.current
-    val s by remember(store) {
-        store.select {
-            EraserCardSettings(
-                it.eraserMode,
-                it.scribbleSensitivity,
-                it.eraseHighlighterOnly,
-                it.eraserFilter,
-                it.eraserAutoSwitch,
-                it.scribbleToErase,
-                it.liveScribbleErase,
-            )
-        }
-    }.collectAsStateWithLifecycle(
-        initialValue = remember(store) {
-            store.settings.value.let {
-                EraserCardSettings(
-                    it.eraserMode,
-                    it.scribbleSensitivity,
-                    it.eraseHighlighterOnly,
-                    it.eraserFilter,
-                    it.eraserAutoSwitch,
-                    it.scribbleToErase,
-                    it.liveScribbleErase,
-                )
-            }
-        },
-    )
-    Segments(EraserMode.entries.map { it.label }, s.eraserMode.ordinal) { i ->
-        store.update { it.copy(eraserMode = EraserMode.entries[i]) }
-    }
-    Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
-        SizeDots(listOf(8f, 16f, 30f), listOf(8f, 16f, 30f)[vm.eraserSize], ring = true, fg = fgColor) { v ->
-            vm.eraserSize = listOf(8f, 16f, 30f).indexOf(v)
-        }
-    }
-    Text("WHAT ERASER ERASES", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.62f))
-    val ef = s.eraserFilter
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        AppChip(ef.ink && !s.eraseHighlighterOnly, {
-            store.update { it.copy(eraseHighlighterOnly = false, eraserFilter = ef.copy(ink = !ef.ink)) }
-        }, label = "Pen Ink")
-        AppChip(ef.highlighter, {
-            store.update { it.copy(eraserFilter = ef.copy(highlighter = !ef.highlighter)) }
-        }, label = "Highlighter")
-        AppChip(ef.shapes && !s.eraseHighlighterOnly, {
-            store.update { it.copy(eraseHighlighterOnly = false, eraserFilter = ef.copy(shapes = !ef.shapes)) }
-        }, label = "Shapes & Fills")
-        AppChip(ef.text && !s.eraseHighlighterOnly, {
-            store.update { it.copy(eraseHighlighterOnly = false, eraserFilter = ef.copy(text = !ef.text)) }
-        }, label = "Text & Write Boxes")
-        AppChip(ef.stickyAndTape && !s.eraseHighlighterOnly, {
-            store.update { it.copy(eraseHighlighterOnly = false, eraserFilter = ef.copy(stickyAndTape = !ef.stickyAndTape)) }
-        }, label = "Sticky & Tape")
-        AppChip(ef.images && !s.eraseHighlighterOnly, {
-            store.update { it.copy(eraseHighlighterOnly = false, eraserFilter = ef.copy(images = !ef.images)) }
-        }, label = "Images")
-    }
-    Text("SCRIBBLE SENSITIVITY", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.62f))
-    Segments(ScribbleSensitivity.entries.map { it.label }, s.scribbleSensitivity.ordinal) { i ->
-        store.update { it.copy(scribbleSensitivity = ScribbleSensitivity.entries[i]) }
-    }
-    ToggleLine("Highlighter only quick-lock", s.eraseHighlighterOnly, fgColor) { v -> store.update { it.copy(eraseHighlighterOnly = v) } }
-    ToggleLine("Switch back after erasing", s.eraserAutoSwitch, fgColor) { v -> store.update { it.copy(eraserAutoSwitch = v) } }
-    ToggleLine("Scribble to erase with the pen", s.scribbleToErase, fgColor) { v -> store.update { it.copy(scribbleToErase = v) } }
-    ToggleLine("Erase mid-stroke while writing", s.liveScribbleErase, fgColor) { v -> store.update { it.copy(liveScribbleErase = v) } }
-    HorizontalDivider(color = fgColor.copy(alpha = 0.08f))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(
-            Modifier
-                .weight(1f)
-                .clip(RoundedCornerShape(12.dp))
-                .clickable { vm.clearPageInk() }
-                .padding(horizontal = 8.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Outlined.CleaningServices, null, Modifier.size(16.dp), tint = Color(0xFFF28B82))
-            Spacer(Modifier.width(6.dp))
-            Text("Clear Ink", style = MaterialTheme.typography.labelMedium, color = Color(0xFFF28B82))
-        }
-        Row(
-            Modifier
-                .weight(1f)
-                .clip(RoundedCornerShape(12.dp))
-                .clickable { vm.clearPageAll() }
-                .padding(horizontal = 8.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Outlined.Delete, null, Modifier.size(16.dp), tint = Color(0xFFF28B82))
-            Spacer(Modifier.width(6.dp))
-            Text("Clear All", style = MaterialTheme.typography.labelMedium, color = Color(0xFFF28B82))
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun LassoCardContent() {
-    val context = LocalContext.current
-    val store = remember { SettingsStore.get(context) }
-    val fgColor = LocalContentColor.current
-    val s by remember(store) {
-        store.select { LassoCardSettings(it.lassoMode, it.lassoFilter, it.lassoTouching, it.circleToLasso) }
-    }.collectAsStateWithLifecycle(
-        initialValue = remember(store) {
-            store.settings.value.let { LassoCardSettings(it.lassoMode, it.lassoFilter, it.lassoTouching, it.circleToLasso) }
-        },
-    )
-    Segments(LassoMode.entries.map { it.label }, s.lassoMode.ordinal) { i -> store.update { it.copy(lassoMode = LassoMode.entries[i]) } }
-    Text("SELECT", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.62f))
-    val f = s.lassoFilter
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        AppChip(f.ink, { store.update { it.copy(lassoFilter = f.copy(ink = !f.ink)) } }, label = "Ink")
-        AppChip(f.highlighter, { store.update { it.copy(lassoFilter = f.copy(highlighter = !f.highlighter)) } }, label = "Highlighter")
-        AppChip(f.text, { store.update { it.copy(lassoFilter = f.copy(text = !f.text)) } }, label = "Text")
-        AppChip(f.images, { store.update { it.copy(lassoFilter = f.copy(images = !f.images)) } }, label = "Images & stickers")
-        AppChip(f.other, { store.update { it.copy(lassoFilter = f.copy(other = !f.other)) } }, label = "Notes & tape")
-    }
-    ToggleLine("Select anything the lasso touches", s.lassoTouching, fgColor) { v -> store.update { it.copy(lassoTouching = v) } }
-    ToggleLine("Circle and hold with the pen", s.circleToLasso, fgColor) { v -> store.update { it.copy(circleToLasso = v) } }
-}
-
-@Composable
-private fun LaserCardContent() {
-    val context = LocalContext.current
-    val store = remember { SettingsStore.get(context) }
-    val laserSeconds by remember(store) {
-        store.select { it.laserSeconds }
-    }.collectAsStateWithLifecycle(initialValue = remember(store) { store.settings.value.laserSeconds })
-    SliderRow("STAYS FOR", "%.0f s".format(laserSeconds), laserSeconds, 1f..8f) { v ->
-        store.update { it.copy(laserSeconds = v) }
-    }
-    Text(
-        "Keep the pen or a finger on the screen to hold the laser pointer active; trails fade smoothly after release.",
-        style = MaterialTheme.typography.labelSmall,
-        color = LocalContentColor.current.copy(alpha = 0.7f),
-    )
-}
-
-@Composable
-private fun TextCardContent(vm: EditorViewModel) {
-    val fgColor = LocalContentColor.current
-    Text("ON-CANVAS WRITE BOX", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.62f))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        AppPill(
-            selected = true,
-            tint = ProButtonPalette.ElectricBlue,
-            onClick = { vm.addWriteBox(vm.pageIndex) },
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 9.dp),
-            modifier = Modifier.weight(1f),
-        ) {
-            ProIconView(ProIcon.WRITE_BOX, Color.White, Modifier.size(16.dp), ink = Color.White)
-            Spacer(Modifier.width(5.dp))
-            Text("+ Add Write Box", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
-        }
-        AppPill(
-            selected = vm.keyboardMode,
-            tint = ProButtonPalette.Emerald,
-            onClick = { vm.toggleKeyboardMode() },
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 9.dp),
-            modifier = Modifier.weight(1f),
-        ) {
-            ProIconView(ProIcon.KEYBOARD, if (vm.keyboardMode) Color.White else fgColor, Modifier.size(16.dp))
-            Spacer(Modifier.width(5.dp))
-            Text("Keyboard Mode", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = if (vm.keyboardMode) Color.White else fgColor, maxLines = 1)
-        }
-    }
-    SliderRow("TEXT SIZE", "%.0f".format(vm.textSize), vm.textSize, 16f..96f) { vm.textSize = it }
-    Segments(
-        TextFont.entries.take(4).map { it.label },
-        TextFont.entries.indexOf(vm.textStyle.font).coerceAtMost(3),
-    ) { i -> vm.textStyle = vm.textStyle.copy(font = TextFont.entries[i]) }
-    Text(
-        "Tap or drag anywhere on the page with the Text tool to place a Write Box. Write inside with your stylus or finger and it converts to text in place.",
-        style = MaterialTheme.typography.labelSmall,
-        color = fgColor.copy(alpha = 0.65f),
-    )
-}
 
 @Composable
 private fun WriteBoxStudioBar(
@@ -3496,54 +2370,7 @@ private fun WriteBoxStudioBar(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun MindMapCardContent(vm: EditorViewModel) {
-    val fgColor = LocalContentColor.current
-    val shapes = listOf("pill" to "Pill", "rect" to "Card", "diamond" to "Diamond", "circle" to "Oval")
-    Text("NODE SHAPE", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.62f))
-    Segments(shapes.map { it.second }, shapes.indexOfFirst { it.first == vm.mindShape }.coerceAtLeast(0)) { i ->
-        vm.mindShape = shapes[i].first
-    }
-    Text("NODE COLOUR", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.62f))
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        MindPalette.forEach { c ->
-            Swatch(c, c == vm.mindColor, 20) { vm.recolorMindNode(color = c) }
-        }
-    }
-    ToggleLine("Move child branch with node", vm.moveMindSubtree, fgColor) { vm.moveMindSubtree = it }
-    Text("LAYOUT", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.62f))
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        EditorViewModel.MindLayout.entries.forEach { layout ->
-            TextButton(onClick = { vm.autoLayoutMindMap(layout) }, modifier = Modifier.weight(1f)) {
-                Text(layout.label, maxLines = 1)
-            }
-        }
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        TextButton(onClick = { vm.exportMindMapOutlineToPage() }, modifier = Modifier.weight(1f)) {
-            Text("Outline → Page", maxLines = 1)
-        }
-        TextButton(onClick = { vm.flashcardsFromMindMap() }, modifier = Modifier.weight(1f)) {
-            Text("→ Flashcards", maxLines = 1)
-        }
-    }
-    AppPill(
-        selected = true,
-        tint = ProButtonPalette.ElectricBlue,
-        onClick = { vm.buildMindMapFromNotes() },
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Icon(Icons.Outlined.Hub, null, Modifier.size(16.dp), tint = Color.White)
-        Spacer(Modifier.width(6.dp))
-        Text("Build concept map from notes", style = MaterialTheme.typography.labelLarge, color = Color.White)
-    }
-    Text(
-        "Tap the canvas to add nodes, drag nodes to arrange, and double-tap a node to edit.",
-        style = MaterialTheme.typography.labelSmall,
-        color = fgColor.copy(alpha = 0.68f),
-    )
-}
+
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -3621,56 +2448,7 @@ private fun ToggleLine(label: String, value: Boolean, fgColor: Color = LocalCont
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ShapeCardContent(vm: EditorViewModel) {
-    var fillEdit by remember { mutableStateOf(false) }
-    val fgColor = LocalContentColor.current
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        ShapeKind.entries.forEach { k ->
-            val sel = vm.shapeKind == k
-            Column(
-                Modifier
-                    .size(66.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(if (sel) ProButtonPalette.ElectricBlue.copy(alpha = 0.2f) else fgColor.copy(alpha = 0.08f))
-                    .border(if (sel) 1.5.dp else 0.dp, if (sel) ProButtonPalette.ElectricBlue else Color.Transparent, RoundedCornerShape(16.dp))
-                    .clickable { vm.shapeKind = k },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                ShapeGlyph(
-                    k,
-                    if (sel) ProButtonPalette.ElectricBlue else fgColor,
-                    Modifier.size(26.dp),
-                    fill = if (vm.shapeFillOn) Color(vm.shapeFillColor) else null,
-                )
-                Text(k.label, style = MaterialTheme.typography.labelSmall, color = fgColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
-    }
-    ToggleLine("Dashed line", vm.shapeDashed, fgColor) { vm.shapeDashed = it }
-    ToggleLine("Fill", vm.shapeFillOn, fgColor) { vm.shapeFillOn = it }
-    AnimatedVisibility(vm.shapeFillOn) {
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                listOf(0xFFCDE2FB, 0xFFCAEAC7, 0xFFFAD6D6, 0xFFF9DCA4, 0xFFDFDBFD, 0x661B1F2A).map { it.toInt() }.forEach { c ->
-                    Swatch(c, c == vm.shapeFillColor, 20) { vm.shapeFillColor = c }
-                }
-                AddSwatchButton { fillEdit = true }
-            }
-            SliderRow("OPACITY", "${((vm.shapeFillColor ushr 24) * 100 / 255)}%", (vm.shapeFillColor ushr 24) / 255f, 0.1f..1f) { a ->
-                vm.shapeFillColor = (vm.shapeFillColor and 0x00FFFFFF) or ((a * 255).toInt() shl 24)
-            }
-        }
-    }
-    if (fillEdit) {
-        ColorEditorDialog(vm.shapeFillColor, PenPalette, vm.recentColors(), onDismiss = { fillEdit = false }) { c ->
-            vm.shapeFillColor = (c and 0x00FFFFFF) or (vm.shapeFillColor and 0xFF000000.toInt())
-            fillEdit = false
-        }
-    }
-}
+
 
 @Composable
 private fun SliderRow(label: String, value: String, v: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit) {
@@ -4274,111 +3052,7 @@ private fun KeyboardNoteModeOverlay(vm: EditorViewModel, darkUi: Boolean) {
     }
 }
 
-// ============================================================== selection menu
 
-@Composable
-private fun SelectionMenu(
-    vm: EditorViewModel,
-    onDuplicate: () -> Unit,
-    onColor: (Int) -> Unit,
-    keep: (() -> Unit) -> Unit,
-    onShareImage: () -> Unit,
-) {
-    var colors by remember { mutableStateOf(false) }
-    var moreOpen by remember { mutableStateOf(false) }
-    val fg = MaterialTheme.colorScheme.onSurface
-    AppSurface(
-        role = SurfaceRole.Popover,
-        shape = appPillShape(),
-        shadowElevation = 10.dp,
-        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-    ) {
-        CompositionLocalProvider(LocalContentColor provides fg) {
-            Row(Modifier.padding(horizontal = 2.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    onClick = { vm.startLinkFromSelection() },
-                    shape = appPillShape(),
-                    color = ProButtonPalette.ElectricBlue,
-                    contentColor = Color.White,
-                    modifier = Modifier.padding(4.dp),
-                ) {
-                    Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.Link, null, Modifier.size(18.dp), tint = Color.White)
-                        Spacer(Modifier.width(6.dp))
-                        Text("Link", style = MaterialTheme.typography.labelLarge, color = Color.White)
-                    }
-                }
-                if (vm.selectionLinks().isNotEmpty()) {
-                    Surface(
-                        onClick = { vm.unlinkSelection() },
-                        shape = appPillShape(),
-                        color = Color(0xFFE5484D),
-                        contentColor = Color.White,
-                        modifier = Modifier.padding(4.dp),
-                    ) {
-                        Text(
-                            "Unlink",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = Color.White,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                        )
-                    }
-                }
-                IconButton(onClick = vm::cutSelection) { Icon(Icons.Outlined.ContentCut, "Cut") }
-                IconButton(onClick = vm::copySelection) { Icon(Icons.Outlined.ContentCopy, "Copy") }
-                IconButton(onClick = onDuplicate) { ProIconView(ProIcon.ADD, fg, Modifier.size(22.dp)) }
-                IconButton(onClick = { vm.rainbowSelection() }) {
-                    Icon(Icons.Outlined.ColorLens, "Rainbow tint", tint = ProButtonPalette.MagentaPink)
-                }
-                IconButton(onClick = { colors = true }) { Icon(Icons.Outlined.Palette, "Colour") }
-                IconButton(onClick = { keep { vm.rotateSelection(90f) } }) {
-                    Icon(Icons.Outlined.RotateRight, "Rotate 90°")
-                }
-                Box {
-                    IconButton(onClick = { moreOpen = true }) {
-                        ProIconView(ProIcon.MORE, fg, Modifier.size(22.dp))
-                    }
-                    AppContextMenu(
-                        expanded = moreOpen,
-                        onDismissRequest = { moreOpen = false },
-                        items = listOf(
-                            AppMenuItem("Flip horizontally", icon = { Icon(Icons.Outlined.Flip, null, Modifier.size(18.dp)) }) {
-                                keep { vm.flipSelection() }
-                            },
-                            AppMenuItem("Bring to front", icon = { Icon(Icons.Outlined.FlipToFront, null, Modifier.size(18.dp)) }) {
-                                keep { vm.arrange(true) }
-                            },
-                            AppMenuItem("Send to back", icon = { Icon(Icons.Outlined.FlipToBack, null, Modifier.size(18.dp)) }) {
-                                keep { vm.arrange(false) }
-                            },
-                            AppMenuItem("Share as image", icon = { Icon(Icons.Outlined.IosShare, null, Modifier.size(18.dp)) }) {
-                                onShareImage()
-                            },
-                            AppMenuItem("Make flashcard", icon = { Icon(Icons.Outlined.Style, null, Modifier.size(18.dp)) }) {
-                                vm.cardFromSelection()
-                            },
-                            AppMenuItem("Add link…", icon = { Icon(Icons.Outlined.Link, null, Modifier.size(18.dp)) }) {
-                                vm.startLinkFromSelection()
-                            },
-                            AppMenuItem("Save as screenshot", icon = { Icon(Icons.Outlined.Image, null, Modifier.size(18.dp)) }) {
-                                vm.saveSelectionScreenshot()
-                            },
-                        ),
-                    )
-                }
-                IconButton(onClick = vm::deleteSelection) {
-                    Icon(Icons.Outlined.Delete, "Delete", tint = MaterialTheme.colorScheme.error)
-                }
-            }
-        }
-    }
-    if (colors) {
-        ColorEditorDialog(0xFF1B1F2A.toInt(), PenPalette, vm.recentColors(), onDismiss = { colors = false }) {
-            onColor(it)
-            colors = false
-        }
-    }
-}
 
 // ============================================================== study timer
 
@@ -4537,67 +3211,7 @@ private fun StudyTimer(
     }
 }
 
-// ============================================================== tool wheel
 
-@Composable
-private fun ToolWheel(vm: EditorViewModel, at: Offset, onDismiss: () -> Unit) {
-    val density = LocalDensity.current.density
-    val tools = listOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.LASSO, Tool.SHAPE, Tool.MINDMAP, Tool.TEXT, Tool.LASER, Tool.TAPE)
-    val appear = remember { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(Unit) {
-        appear.animateTo(1f, spring(dampingRatio = 0.62f, stiffness = 420f))
-    }
-    var size by remember { mutableStateOf(IntSize.Zero) }
-    Box(
-        Modifier
-            .fillMaxSize()
-            .onSizeChanged { size = it }
-            .background(Color.Black.copy(alpha = 0.14f * appear.value))
-            .pointerInput(Unit) { detectTapGestures { onDismiss() } },
-    ) {
-        val radius = 92f * density
-        val cx = at.x.coerceIn(radius + 40 * density, (size.width - radius - 40 * density).coerceAtLeast(radius + 40 * density))
-        val cy = at.y.coerceIn(radius + 40 * density, (size.height - radius - 40 * density).coerceAtLeast(radius + 40 * density))
-        AppSurface(
-            role = SurfaceRole.Popover,
-            shape = CircleShape,
-            shadowElevation = 8.dp,
-            modifier = Modifier
-                .offset { IntOffset((cx - 34 * density).roundToInt(), (cy - 34 * density).roundToInt()) }
-                .size(68.dp)
-                .graphicsLayer { scaleX = appear.value; scaleY = appear.value },
-        ) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                ProIconView(ProIcon.CLOSE, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.size(18.dp))
-            }
-        }
-        tools.forEachIndexed { i, t ->
-            val a = -Math.PI / 2 + i * 2 * Math.PI / tools.size
-            val r = radius * appear.value
-            val x = cx + (r * cos(a)).toFloat()
-            val y = cy + (r * sin(a)).toFloat()
-            val sel = vm.tool == t
-            Box(
-                Modifier
-                    .offset { IntOffset((x - 26 * density).roundToInt(), (y - 26 * density).roundToInt()) }
-                    .size(52.dp)
-                    .shadow(6.dp, CircleShape)
-                    .clip(CircleShape)
-                    .background(if (sel) ProButtonPalette.ElectricBlue else MaterialTheme.colorScheme.surface)
-                    .clickable { vm.tool = t; onDismiss() },
-                contentAlignment = Alignment.Center,
-            ) {
-                ToolGlyph(
-                    t,
-                    if (sel) Color.White else MaterialTheme.colorScheme.onSurface,
-                    Color(vm.styleFor(t)?.color ?: vm.penStyle.color),
-                    Modifier.size(24.dp),
-                    active = sel,
-                )
-            }
-        }
-    }
-}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

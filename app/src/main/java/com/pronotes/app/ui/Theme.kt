@@ -44,6 +44,9 @@ val LocalMotionStyle = compositionLocalOf { MotionStyle.SPRING }
 val LocalCornerRoundness = compositionLocalOf<Dp> { 20.dp }
 val LocalPerformanceMode = compositionLocalOf { PerformanceMode.BALANCED }
 val LocalUiColorScheme = compositionLocalOf { UiColorScheme.SLATE_STUDIO }
+val LocalClassicAppearance = compositionLocalOf { false }
+val LocalReduceEffects = compositionLocalOf { false }
+val LocalReduceMotion = compositionLocalOf { false }
 
 fun contrastRatio(fg: Color, bg: Color): Float {
     val l1 = fg.luminance()
@@ -158,13 +161,26 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
         )
     }
     val perf = settings.performanceMode
-    val effectiveMotion = if (perf == PerformanceMode.BATTERY_SAVER) MotionStyle.REDUCED else settings.motionStyle
+    val systemRemoveAnimations = remember(context) {
+        runCatching {
+            android.provider.Settings.Global.getFloat(
+                context.contentResolver,
+                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+                1f,
+            ) == 0f
+        }.getOrDefault(false)
+    }
+    val reduceMotion = systemRemoveAnimations || perf == PerformanceMode.BATTERY_SAVER || settings.motionStyle == MotionStyle.REDUCED
+    val effectiveMotion = if (reduceMotion) MotionStyle.REDUCED else settings.motionStyle
     CompositionLocalProvider(
         LocalTitleGradient provides gradient,
         LocalMotionStyle provides effectiveMotion,
         LocalCornerRoundness provides cornerDp,
         LocalPerformanceMode provides perf,
         LocalUiColorScheme provides uiScheme,
+        LocalClassicAppearance provides settings.classicAppearance,
+        LocalReduceEffects provides settings.reduceEffects,
+        LocalReduceMotion provides reduceMotion,
     ) {
         MaterialTheme(
             colorScheme = if (dark) darkScheme else light,

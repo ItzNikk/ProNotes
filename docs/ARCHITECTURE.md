@@ -30,16 +30,19 @@ Pro Notes is a native Android application built with Kotlin, Jetpack Compose, Ma
 - `Updater.kt`, `UpdateDownloadService.kt`: Resumable background APK downloader and GitHub Releases checker.
 
 ### `com.pronotes.app.editor`
-- `EditorScreen.kt`: Editor screen scaffold, notebook tab strip, top/docked toolbars, tool option popovers, Write Box and Keyboard Mode editors, and export dialogs.
-- `EditorViewModel.kt`: Notebook state, undo/redo command history, page lifecycle, search, Concept Map auto-layout, Flashcard extraction, and Split View coordination.
-- `NoteCanvasView.kt`: Android `View` canvas integrating `InProgressStrokesView` (Jetpack Ink) and `MotionEventPredictor`, handling pen/finger input, palm rejection, zoom/pan, scribble-to-erase, hold-to-shape, and circle-to-select.
+- `EditorScreen.kt`: Editor screen scaffold, notebook tab strip, layout orchestration, Write Box and Keyboard Mode editors, and export dialogs.
+- `EditorToolbar.kt`: Adaptive fixed-bar (`Top`, `Bottom`, `Left`, `Right`) and floating-pill toolbars driven by `ToolbarState`, inline colour/size bar, overflow tool menu, and shared swatch/size controls.
+- `ToolSettingsSheets.kt`: Dedicated per-tool configuration sheets (`Pen`, `Highlighter`, `Eraser`, `Shapes`, `Selection (Lasso)`, `Text and Write Box`, `Sticker`, `Image`, `Masking tape`, `Sticky note`, `Link Previews`, `Concept Maps`, `Laser pointer`).
+- `EditorOverlays.kt`: Clamped contextual overlays for `Selection (Lasso)` actions (including ink-to-text conversion), stylus `Quick Actions`, and empty-page `Quick Insert`.
+- `EditorViewModel.kt`: Notebook state, undo/redo command history, page lifecycle, search, Concept Map auto-layout, Flashcard extraction, ink-to-text selection conversion, and Split View coordination.
+- `NoteCanvasView.kt`: Android `View` canvas integrating `InProgressStrokesView` (Jetpack Ink) and `MotionEventPredictor`, handling pen/finger input, palm rejection, zoom/pan, scribble-to-erase, hold-to-shape, circle-to-select, and empty-page long-press `Quick Insert`.
 - `PageModel.kt`: Runtime canvas item and stroke models (`Page`, `InkStroke`, `TextItem`, `WriteBoxItem`, `StickyItem`, `ImageItem`, `TapeItem`, `WebLinkItem`, `MindNodeItem`).
-- `InkCodec.kt`: Binary/JSON serialisation codec preserving backward compatibility with stored notebooks and strokes.
+- `InkCodec.kt`: Binary/JSON serialisation codec preserving backward compatibility with stored notebooks and strokes, plus per-tool stroke opacity helpers.
 - `PageRenderer.kt`: High-resolution page background, PDF tile, ink stroke, shape, sticky, Write Box, and Concept Map renderer with LRU bitmap caching.
 - `Geometry.kt`: Geometric shape recogniser, closed-loop and scribble detectors, and path hit-testing helpers.
 - `PdfSearch.kt`: PdfBox-Android text extraction and bounding-box search highlighter.
 - `PaperFeel.kt`: Synthesised pen/paper acoustic feedback and haptic triggers.
-- `Stickers.kt`, `TapePatterns.kt`, `ToolbarOrder.kt`: Built-in sticker assets, masking tape patterns, and toolbar ordering defaults.
+- `Stickers.kt`, `TapePatterns.kt`, `ToolbarOrder.kt`: Built-in sticker assets, masking tape patterns, toolbar ordering defaults, single-pass adaptive toolbar layout, and bounds-clamping math.
 - `StudyKit.kt`, `StudyUi.kt`, `SlideShowUi.kt`, `CollabUi.kt`: Flashcard review, ink linking, SlideShow presentation, and Live Study Room UI overlays.
 
 ### `com.pronotes.app.library`
@@ -51,12 +54,12 @@ Pro Notes is a native Android application built with Kotlin, Jetpack Compose, Ma
 - `BookReaderArea.kt`: Dedicated Reader Mode hub (`BookReaderHubScreen`) and page-turn reader (`BookReaderScreen`) with Paper/Sepia/Night themes, tablet spread layout, and `BookFlipSoundEngine`.
 
 ### `com.pronotes.app.settings` & `com.pronotes.app.support`
-- `SettingsScreen.kt`: Categorised settings screens for Stylus, Gestures, Workspace, Appearance, Backup, and About/Updates.
+- `SettingsScreen.kt`: Categorised settings screens for Stylus, Gestures, Workspace, Appearance (including Classic appearance and Reduced effects toggles), Backup, and About/Updates.
 - `SupportScreen.kt`: Project highlights, sharing actions, and optional developer UPI contribution.
 
 ### `com.pronotes.app.ui`
-- `Theme.kt`: Material 3 theme builder (`ProNotesTheme`), typography presets, and `UiColorScheme` palette mapping.
-- `ProSurfaces.kt`, `Components.kt`: Shared surface, card, pill, chip, slider, dialog, and bottom-sheet components.
+- `Theme.kt`: Material 3 theme builder (`ProNotesTheme`), typography presets, `UiColorScheme` palette mapping, and composition locals for Classic appearance, reduced effects, and reduced motion.
+- `ProSurfaces.kt`, `Components.kt`: Shared surface, card, pill, chip, slider, dialog, bottom-sheet components, and Android 12+ backdrop blur modifier with solid-surface fallback.
 - `ToolIcons.kt`: Vector path icon definitions (`ProIcon`, `ToolGlyph`) with adaptive ink-contrast borders.
 - `MovingLetters.kt`: Kinetic text reveal animations (`ScaleInAnimatedText`, `FadeAnimatedText`).
 - `UpdateDialog.kt`: Release-notes and download-progress dialog for in-app updates.

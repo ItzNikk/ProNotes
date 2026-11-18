@@ -62,10 +62,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pronotes.app.BuildConfigInfo
+import com.pronotes.app.R
 import com.pronotes.app.data.AccentColor
 import com.pronotes.app.data.AppFont
 import com.pronotes.app.data.AppSettings
@@ -88,6 +90,7 @@ import com.pronotes.app.data.SideButton
 import com.pronotes.app.data.ThemeMode
 import com.pronotes.app.data.ToolbarDock
 import com.pronotes.app.data.ToolbarSize
+import com.pronotes.app.data.ToolbarStyle
 import com.pronotes.app.data.UiColorScheme
 import com.pronotes.app.data.Updater
 import com.pronotes.app.data.Updater.Phase as UPhase
@@ -377,15 +380,25 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                 }
                 Category.TOOLBAR -> {
                     Section("Toolbar") {
+                        Segmented(ToolbarStyle.entries.map { it.label }, s.toolbarStyle.ordinal) { i ->
+                            val nextStyle = ToolbarStyle.entries[i]
+                            up {
+                                val nextDock = if (nextStyle == ToolbarStyle.FIXED_BAR && it.toolbarDock == ToolbarDock.FREE) ToolbarDock.TOP else it.toolbarDock
+                                it.copy(toolbarStyle = nextStyle, toolbarDock = nextDock)
+                            }
+                        }
                         Choice("Position", s.toolbarDock.label, ToolbarDock.entries.map { it.label }) { i ->
                             val nextDock = ToolbarDock.entries[i]
                             val defaultPos = when (nextDock) {
-                                ToolbarDock.TOP, ToolbarDock.HEADER -> "0.5,0.03"
+                                ToolbarDock.TOP -> "0.5,0.03"
                                 ToolbarDock.BOTTOM, ToolbarDock.FREE -> "0.5,0.88"
                                 ToolbarDock.LEFT -> "0.02,0.5"
                                 ToolbarDock.RIGHT -> "0.94,0.5"
                             }
-                            up { it.copy(toolbarDock = nextDock, toolbarPos = defaultPos) }
+                            up {
+                                val nextStyle = if (nextDock == ToolbarDock.FREE && it.toolbarStyle == ToolbarStyle.FIXED_BAR) ToolbarStyle.FLOATING_PILL else it.toolbarStyle
+                                it.copy(toolbarDock = nextDock, toolbarStyle = nextStyle, toolbarPos = defaultPos)
+                            }
                         }
                         Segmented(ToolbarSize.entries.map { it.label }, s.toolbarSize.ordinal) { i -> up { it.copy(toolbarSize = ToolbarSize.entries[i]) } }
                         Toggle("Hover tool name labels", "Show a floating tool badge when hovering with a pen or pointer", s.showHoverTooltips) { v -> up { it.copy(showHoverTooltips = v) } }
@@ -406,6 +419,16 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                 Category.LOOK -> {
                     Section("Appearance") {
                         Segmented(ThemeMode.entries.map { it.label }, s.themeMode.ordinal) { i -> up { it.copy(themeMode = ThemeMode.entries[i]) } }
+                        Toggle(
+                            stringResource(R.string.setting_classic_appearance),
+                            stringResource(R.string.setting_classic_appearance_sub),
+                            s.classicAppearance,
+                        ) { v -> up { it.copy(classicAppearance = v) } }
+                        Toggle(
+                            stringResource(R.string.setting_reduce_effects),
+                            stringResource(R.string.setting_reduce_effects_sub),
+                            s.reduceEffects,
+                        ) { v -> up { it.copy(reduceEffects = v) } }
                         Box(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
                             AppSliderRow(
                                 title = "Corner roundness",

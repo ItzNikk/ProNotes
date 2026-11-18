@@ -103,6 +103,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var hasClipboard by mutableStateOf(false)
         private set
     var eraserSize by mutableStateOf(saved.getOrNull(6)?.toIntOrNull()?.coerceIn(0, 2) ?: 1)
+    var eraserCustomDp by mutableStateOf<Float?>(null)
     var textSize by mutableStateOf(40f)
     var tapeColor by mutableStateOf(saved.getOrNull(7)?.toIntOrNull() ?: TapeColors[0])
     var tapeFreehand by mutableStateOf(false)
@@ -417,20 +418,34 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         say("Cleared ink on page ${pageIndex + 1}")
     }
 
-    /** Places a sticker picture in the middle of the page in view and returns it for selection. */
-    fun insertStickerBitmap(bmp: Bitmap, onPlaced: (Int, Long) -> Unit) {
+    /** Places a sticker picture onto [targetPage] near ([targetX], [targetY]) or page centre and returns it for selection. */
+    fun insertStickerBitmap(
+        bmp: Bitmap,
+        targetPage: Int = pageIndex,
+        targetX: Float? = null,
+        targetY: Float? = null,
+        onPlaced: (Int, Long) -> Unit,
+    ) {
+        val td = store.settings.value.toolDefaults
         viewModelScope.launch {
+            val processed = withContext(Dispatchers.Default) {
+                if (td.stickerOpacity >= 0.99f) bmp
+                else applyBitmapEffects(bmp, td.stickerOpacity, drawBorder = false)
+            }
             val name = withContext(Dispatchers.IO) {
                 val n = "sticker_${UUID.randomUUID()}.png"
                 AtomicFiles.writeBytesAtomic(File(repo.noteDir(noteId), n)) { out ->
-                    bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    processed.compress(Bitmap.CompressFormat.PNG, 100, out)
                 }
                 n
             }
-            val idx = pageIndex
+            val idx = targetPage.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
             val p = pages.getOrNull(idx) ?: return@launch
-            val w = 300f; val h = w * bmp.height / bmp.width
-            val item = ImageItem(ItemIds.next(), name, (p.width - w) / 2f, p.height / 3f, w, h)
+            val w = (300f * td.stickerScale.coerceIn(0.4f, 2f)).coerceIn(90f, p.width * 0.85f)
+            val h = if (td.stickerLockAspect && bmp.width > 0) w * bmp.height / bmp.width else w
+            val ix = ((targetX ?: (p.width / 2f)) - w / 2f).coerceIn(16f, (p.width - w - 16f).coerceAtLeast(16f))
+            val iy = ((targetY ?: (p.height / 3f + h / 2f)) - h / 2f).coerceIn(16f, (p.height - h - 16f).coerceAtLeast(16f))
+            val item = ImageItem(ItemIds.next(), name, ix, iy, w, h)
             beginEdit(idx)
             applyItems(idx, p.items + item)
             onPlaced(idx, item.id)
@@ -449,6 +464,41 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         return idx to copies.map { it.id }.toSet()
     }
 
+    /** Pastes clipboard items centred around ([x], [y]) on [page] for Quick Insert. */
+    fun pasteAt(page: Int, x: Float, y: Float): Pair<Int, Set<Long>>? {
+        if (clipboard.isEmpty()) return null
+        val idx = page.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
+        val p = pages.getOrNull(idx) ?: return null
+        val union = RectF(clipboard.first().bounds).apply {
+            clipboard.drop(1).forEach { union(it.bounds) }
+        }
+        val dx = x - union.centerX()
+        val dy = y - union.centerY()
+        val copies = clipboard.map { it.translated(dx, dy).withId(ItemIds.next()) }
+        beginEdit(idx)
+        applyItems(idx, p.items + copies)
+        return idx to copies.map { it.id }.toSet()
+    }
+
+    private fun applyBitmapEffects(src: Bitmap, opacity: Float, drawBorder: Boolean): Bitmap {
+        val out = Bitmap.createBitmap(src.width.coerceAtLeast(1), src.height.coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+        val c = Canvas(out)
+        val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            alpha = (opacity.coerceIn(0.2f, 1f) * 255f).toInt()
+        }
+        c.drawBitmap(src, 0f, 0f, p)
+        if (drawBorder) {
+            val strokeW = (maxOf(src.width, src.height) * 0.008f).coerceIn(2f, 8f)
+            val borderPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = strokeW
+                color = (0x33000000).toInt()
+            }
+            c.drawRect(strokeW / 2f, strokeW / 2f, out.width - strokeW / 2f, out.height - strokeW / 2f, borderPaint)
+        }
+        return out
+    }
+
     fun toggleBookmark() {
         val p = currentPage ?: return
         pages[pageIndex] = p.copy(bookmarked = !p.bookmarked)
@@ -465,16 +515,29 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun recentColors() = store.recentColors()
     fun pushRecent(c: Int) = store.pushRecentColor(c)
 
-    fun brushFor(t: Tool): Brush = when (t) {
-        Tool.HIGHLIGHTER -> {
-            Brushes.highlightAlpha = (store.settings.value.highlighterOpacity.coerceIn(0.3f, 0.9f) * 255).toInt()
-            Brushes.create(Brushes.HIGHLIGHTER, highlighterStyle.color, highlighterStyle.size)
+    fun brushFor(t: Tool): Brush {
+        val td = store.settings.value.toolDefaults
+        return when (t) {
+            Tool.HIGHLIGHTER -> {
+                Brushes.highlightAlpha = (store.settings.value.highlighterOpacity.coerceIn(0.3f, 0.9f) * 255).toInt()
+                Brushes.create(Brushes.HIGHLIGHTER, highlighterStyle.color, highlighterStyle.size)
+            }
+            Tool.SHAPE -> Brushes.create(
+                if (shapeDashed) Brushes.DASHED else Brushes.PEN,
+                shapeStyle.color,
+                shapeStyle.size,
+                td.shapeOpacity,
+            )
+            else -> Brushes.create(
+                penType.family,
+                penStyle.color,
+                penStyle.size * penType.sizeFactor,
+                td.penOpacity,
+            )
         }
-        Tool.SHAPE -> Brushes.create(if (shapeDashed) Brushes.DASHED else Brushes.PEN, shapeStyle.color, shapeStyle.size)
-        else -> Brushes.create(penType.family, penStyle.color, penStyle.size * penType.sizeFactor)
     }
 
-    fun eraserRadiusPx(density: Float) = listOf(8f, 16f, 30f)[eraserSize] * density
+    fun eraserRadiusPx(density: Float): Float = (eraserCustomDp ?: listOf(8f, 16f, 30f)[eraserSize]) * density
 
     // --------------------------------------------------------------- edits
 
@@ -632,18 +695,60 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         })
     }
 
+    /** Recognises selected ink strokes into a typed [TextItem] at their bounding box in one undoable edit. */
+    fun convertSelectionToText(): Long? {
+        val p = pages.getOrNull(selectionPage) ?: return null
+        val selectedInk = p.items.filter { it.id in selection && it is InkItem }.map { it as InkItem }
+        if (selectedInk.isEmpty()) {
+            toast = "Select handwritten ink first"
+            return null
+        }
+        val scratch = androidx.ink.strokes.StrokeInput()
+        val union = RectF(selectedInk.first().bounds)
+        val rawStrokes = selectedInk.map { ink ->
+            union.union(ink.bounds)
+            val pts = ArrayList<Pair<Float, Float>>(ink.stroke.inputs.size)
+            for (i in 0 until ink.stroke.inputs.size) {
+                ink.stroke.inputs.populate(i, scratch)
+                pts.add(scratch.x to scratch.y)
+            }
+            pts
+        }
+        val recognized = recognizeHandwritingStrokesToText(rawStrokes).trim()
+        if (recognized.isBlank()) {
+            toast = "Could not recognise handwritten ink"
+            return null
+        }
+        val newItem = TextItem(
+            id = ItemIds.next(),
+            text = recognized,
+            x = union.left.coerceIn(24f, (p.width - 120f).coerceAtLeast(24f)),
+            y = union.top.coerceIn(24f, (p.height - 60f).coerceAtLeast(24f)),
+            size = textSize,
+            color = selectedInk.first().stroke.brush.colorIntArgb,
+            style = textStyle,
+        )
+        val selectedInkIds = selectedInk.map { it.id }.toSet()
+        beginEdit(selectionPage)
+        applyItems(selectionPage, p.items.filterNot { it.id in selectedInkIds } + newItem)
+        toast = "Converted ink to text"
+        return newItem.id
+    }
+
     fun commitText(text: String, size: Float = textSize, color: Int = textColor ?: penStyle.color, style: TextStyleSpec = textStyle) {
         val edit = textEdit ?: return
         textEdit = null
         val p = pages.getOrNull(edit.page) ?: return
-        val existing = edit.existing
+        val td = store.settings.value.toolDefaults
+        val effectiveColor = if (td.textOpacity >= 0.99f) color else Brushes.withAlpha(color, td.textOpacity)
         // New text remembers the last formatting used.
-        textSize = size; textStyle = style; textColor = color
+        textSize = size; textStyle = style; textColor = effectiveColor
+        val existing = edit.existing
         val items = when {
             existing != null && text.isBlank() -> p.items.filterNot { it.id == existing.id }
-            existing != null -> p.items.map { if (it.id == existing.id) existing.copy(text = text, size = size, color = color, style = style) else it }
+            existing != null -> p.items.map { if (it.id == existing.id) existing.copy(text = text, size = size, color = effectiveColor, style = style) else it }
             text.isBlank() -> return
-            else -> p.items + TextItem(ItemIds.next(), text, edit.x, edit.y, size, color, style)
+            else -> p.items + TextItem(ItemIds.next(), text, edit.x, edit.y, size, effectiveColor, style)
         }
         beginEdit(edit.page)
         applyItems(edit.page, items)
@@ -1260,15 +1365,37 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         return pageIndex to item.id
     }
 
-    fun insertImage(uri: Uri, onPlaced: (Int, Long) -> Unit) {
+    fun insertImage(
+        uri: Uri,
+        targetPage: Int = pageIndex,
+        targetX: Float? = null,
+        targetY: Float? = null,
+        onPlaced: (Int, Long) -> Unit,
+    ) {
+        val td = store.settings.value.toolDefaults
         viewModelScope.launch {
-            val name = runCatching { repo.saveImage(noteId, uri) }.getOrNull() ?: return@launch
-            val bmp = withContext(Dispatchers.IO) { renderer().image(name) } ?: return@launch
-            val idx = pageIndex
+            val savedName = runCatching { repo.saveImage(noteId, uri) }.getOrNull() ?: return@launch
+            val rawBmp = withContext(Dispatchers.IO) { renderer().image(savedName) } ?: return@launch
+            val finalName = if (td.imageOpacity < 0.99f || td.imageBorder) {
+                val processed = withContext(Dispatchers.Default) {
+                    applyBitmapEffects(rawBmp, td.imageOpacity, td.imageBorder)
+                }
+                val styledName = "img_styled_${UUID.randomUUID()}.png"
+                withContext(Dispatchers.IO) {
+                    AtomicFiles.writeBytesAtomic(File(repo.noteDir(noteId), styledName)) { out ->
+                        processed.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    }
+                }
+                styledName
+            } else savedName
+            val idx = targetPage.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
             val p = pages.getOrNull(idx) ?: return@launch
-            val w = (p.width * 0.6f).coerceAtMost(bmp.width.toFloat().coerceAtLeast(200f))
-            val h = w * bmp.height / bmp.width
-            val item = ImageItem(ItemIds.next(), name, (p.width - w) / 2f, (p.height - h) / 3f, w, h)
+            val w = (p.width * td.imageWidthRatio.coerceIn(0.2f, 0.95f))
+                .coerceAtMost(rawBmp.width.toFloat().coerceAtLeast(200f))
+            val h = if (td.imageLockAspect && rawBmp.width > 0) w * rawBmp.height / rawBmp.width else w * 0.75f
+            val ix = ((targetX ?: (p.width / 2f)) - w / 2f).coerceIn(16f, (p.width - w - 16f).coerceAtLeast(16f))
+            val iy = ((targetY ?: ((p.height - h) / 3f + h / 2f)) - h / 2f).coerceIn(16f, (p.height - h - 16f).coerceAtLeast(16f))
+            val item = ImageItem(ItemIds.next(), finalName, ix, iy, w, h)
             beginEdit(idx)
             applyItems(idx, p.items + item)
             onPlaced(idx, item.id)
