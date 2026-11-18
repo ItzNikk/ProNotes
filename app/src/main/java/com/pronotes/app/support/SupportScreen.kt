@@ -138,10 +138,10 @@ fun SupportScreen(onBack: () -> Unit) {
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Highlights", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = ProButtonPalette.ElectricBlue)
-                    Text("- Clean Obsidian & Paper themes with colorful interactive controls", style = MaterialTheme.typography.bodySmall)
-                    Text("- Dedicated Book Reader space with physical page-turn animations", style = MaterialTheme.typography.bodySmall)
-                    Text("- Writable split notes and flexible item transforms", style = MaterialTheme.typography.bodySmall)
-                    Text("- Flashcards, Mind Maps, SlideShow, and Study Timer", style = MaterialTheme.typography.bodySmall)
+                    Text("- Clean dark and paper themes with high-contrast controls", style = MaterialTheme.typography.bodySmall)
+                    Text("- Dedicated Reader Mode with physical page-turn animations", style = MaterialTheme.typography.bodySmall)
+                    Text("- Writable Split View and flexible item transforms", style = MaterialTheme.typography.bodySmall)
+                    Text("- Flashcards, Concept Maps, SlideShow, and Study Timer", style = MaterialTheme.typography.bodySmall)
                 }
             }
             Spacer(Modifier.height(16.dp))

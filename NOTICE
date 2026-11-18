@@ -18,4 +18,3 @@ Third-party components:
   - Reorderable (Apache 2.0, Calvin Liang)
   - Coil (Apache 2.0, Coil Contributors)
   - kotlinx.serialization, kotlinx.coroutines (Apache 2.0, JetBrains)
-  - AndroidLiquidGlass backdrop (io.github.kyant0:backdrop, Apache 2.0, Kyant)

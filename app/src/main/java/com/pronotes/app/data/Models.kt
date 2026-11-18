@@ -34,7 +34,7 @@ enum class PaperStyle(val label: String) {
     TABLATURE("Guitar tab"),
     ;
 
-    /** Groups for the template picker, GoodNotes style. */
+    /** Groups for the paper template picker. */
     val group: String get() = when (this) {
         BLANK, RULED, NARROW, COLLEGE, WIDE, LEGAL, HANDWRITING -> "Writing"
         GRID, SMALL_GRID, GRAPH, DOTTED, ISOMETRIC, HEX -> "Grids"

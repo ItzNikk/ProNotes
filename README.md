@@ -2,189 +2,137 @@
 
 # Pro Notes
 
-### Your ideas deserve a better workspace.
+**A handwriting, PDF annotation, and study workspace for Android tablets and phones.**
 
-A thoughtfully crafted space for notes, handwritten ideas, PDF study and everything in between.  
-Create freely, stay organised, and make room for focused work on Android.
+[![Latest release](https://img.shields.io/github/v/release/ItzNikk/ProNotes?label=LATEST%20RELEASE&style=flat-square&color=1A84FF)](https://github.com/ItzNikk/ProNotes/releases/latest)
+[![Download APK](https://img.shields.io/badge/DOWNLOAD-APK-111827?style=flat-square&logo=android&logoColor=white)](https://github.com/ItzNikk/ProNotes/releases/latest/download/ProNotes.apk)
+[![License](https://img.shields.io/badge/LICENSE-Apache%202.0-64748B?style=flat-square)](LICENSE)
+![Android 8.0+](https://img.shields.io/badge/ANDROID-8.0%2B-3DDC84?style=flat-square&logo=android&logoColor=white)
 
-<br />
-
-<a href="https://github.com/ItzNikk/ProNotes/releases/latest">
-  <img src="https://img.shields.io/github/v/release/ItzNikk/ProNotes?label=LATEST%20RELEASE&style=flat-square&color=7C3AED" alt="Latest release" />
-</a>
-<a href="https://github.com/ItzNikk/ProNotes/releases/latest/download/ProNotes.apk">
-  <img src="https://img.shields.io/badge/DOWNLOAD-APK-111827?style=flat-square&logo=android&logoColor=white" alt="Download APK" />
-</a>
-<a href="LICENSE">
-  <img src="https://img.shields.io/badge/LICENSE-Apache%202.0-64748B?style=flat-square" alt="Apache 2.0 license" />
-</a>
-<img src="https://img.shields.io/badge/ANDROID-8.0%2B-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android 8.0+" />
-
-<br />
-<br />
-
-<a href="https://github.com/ItzNikk/ProNotes/releases/latest">Get the latest release</a> · <a href="https://github.com/ItzNikk/ProNotes/releases">Release history</a> · <a href="https://github.com/ItzNikk/ProNotes">Explore the source</a>
+[Latest release](https://github.com/ItzNikk/ProNotes/releases/latest) · [Release history](https://github.com/ItzNikk/ProNotes/releases) · [Architecture](docs/ARCHITECTURE.md) · [Changelog](CHANGELOG.md)
 
 </div>
 
 ---
 
-## A closer look
+## Overview
 
-A focused workspace for handwritten notes, PDF study and the small details that make everyday learning easier.
+Pro Notes brings low-latency handwriting, document annotation, and structured study tools together in a native Kotlin and Jetpack Compose workspace designed for styluses and tablets.
 
 <div align="center">
   <img src="docs/screenshots/IMG_0562.jpeg" alt="Pro Notes document library with notebooks and folders" width="100%" />
-  <p><sub><strong>Your library.</strong> Keep notebooks, folders and study material organised in one place.</sub></p>
-  <img src="docs/screenshots/IMG_0571.jpeg" alt="Pro Notes handwriting editor with a clean notebook page and toolbar" width="100%" />
-  <p><sub><strong>Your workspace.</strong> A clean writing surface with tools close at hand.</sub></p>
+  <p><sub><strong>Library.</strong> Organise notebooks, folders, tags, and imported documents in one workspace.</sub></p>
+  <img src="docs/screenshots/IMG_0571.jpeg" alt="Pro Notes editor showing a ruled notebook page and docked toolbar" width="100%" />
+  <p><sub><strong>Editor.</strong> Write naturally with pen tools, page templates, and a customisable toolbar.</sub></p>
 </div>
 
-## Get Pro Notes
+## Installation
 
-**[Download the latest APK](https://github.com/ItzNikk/ProNotes/releases/latest/download/ProNotes.apk)** · [Browse all releases](https://github.com/ItzNikk/ProNotes/releases)
+1. Download the latest APK from [Releases](https://github.com/ItzNikk/ProNotes/releases/latest).
+2. Install the APK on your Android device (Android 8.0 or newer).
+3. Use **Settings → About** for resumable in-app updates signed with the same key.
 
-Install the APK from a release, then check **Settings → About** for in-app updates. Releases are signed with the same key.
+## Core Features
 
-> Always download builds from this repository's official Releases page. Android may ask you to allow installation from your browser or file manager.
-
-## Made for the way you study
-
-Pro Notes brings handwriting, PDF study and notebook organisation together in a native Android workspace.
-
-| Write | Study & Read | Organise |
-|:--|:--|:--|
-| Natural, pressure-aware ink and a range of pen styles | Kindle Book Mode with Paper, Sepia and Night themes and 3D page turns | Folders, notebook covers, bookmarks and page templates |
-| Stylus buttons, hover preview and anchored tool popovers | Flashcards, Mind Maps, SlideShow decks, ink links and a study timer | Obsidian & Paper Light workspace, customisable toolbar and library backup |
-
-## Features
-
-### Writing that stays out of your way
-- Low-latency, pressure-sensitive handwriting powered by Jetpack Ink and motion prediction.
-- Fountain, ball, brush and dashed pens, with individual pen settings.
-- Samsung S Pen, Wacom, USI 2.0, Lenovo, Xiaomi, Huawei, OnePlus and Microsoft Pen Protocol support.
-- Stylus shortcuts: hold the side button to erase or lasso, use the hover radial wheel, and double-click to undo.
-- Gesture tools for circle-to-select, scribble-to-erase, hold-to-snap shapes and two-finger undo.
-- Lasso and rectangular selection, with move, resize, rotate, flip, recolour, arrange, copy and image sharing.
-- Automatic shape recognition, plus 30 drawable shapes with fill and dashed outlines.
-- A round-tip highlighter with adjustable opacity and consistent width.
-
-### Smart stylus gestures
-
-A few useful gestures make editing feel more direct. Bring a compatible pen close to the screen to check hover support, circle ink to select it, scribble over strokes to erase, or hold at the end of a stroke to snap it into a clean shape.
+### Handwriting and Canvas
+- **Low-latency ink:** Pressure- and tilt-aware strokes built on Jetpack Ink and `input-motionprediction`.
+- **Pens and highlighter:** Fountain, ball, brush, and dashed pen presets, plus a round-tip highlighter with adjustable opacity and layer blending.
+- **Stylus support:** Hardware detection and button shortcuts (Quick Actions wheel, side-button erase/selection, double-click undo) for Wacom, USI 2.0, S Pen, and other active styluses.
+- **Gestures:** Circle-to-select, scribble-to-erase, hold-to-snap shapes, and two-finger undo / three-finger redo.
+- **Selection (Lasso):** Freeform and rectangular selection with move, resize, rotate, flip, recolour, layering, copy/paste, and image export.
+- **Shapes and geometry:** Automatic shape recognition alongside 30 preset shapes with fill and dashed outline controls.
 
 <div align="center">
   <table>
     <tr>
       <td align="center" width="50%">
-        <img src="docs/screenshots/IMG_0563.jpeg" alt="Pen hover detection setup" width="100%" />
-        <sub><strong>Meet your pen</strong><br />Check stylus hover support and configure your pen.</sub>
+        <img src="docs/screenshots/IMG_0563.jpeg" alt="Stylus hover and button configuration" width="100%" />
+        <sub><strong>Stylus setup</strong><br />Detect stylus hover and configure button shortcuts.</sub>
       </td>
       <td align="center" width="50%">
-        <img src="docs/screenshots/IMG_0564.jpeg" alt="Circle to select handwriting gesture" width="100%" />
-        <sub><strong>Circle to select</strong><br />Loop around ink to select it.</sub>
+        <img src="docs/screenshots/IMG_0564.jpeg" alt="Circle-to-select loop gesture" width="100%" />
+        <sub><strong>Selection (Lasso)</strong><br />Draw a closed loop around content to select it.</sub>
       </td>
     </tr>
     <tr>
       <td align="center" width="50%">
-        <img src="docs/screenshots/IMG_0565.jpeg" alt="Scribble to erase handwriting gesture" width="100%" />
-        <sub><strong>Scribble to erase</strong><br />Zig-zag over ink to remove it.</sub>
+        <img src="docs/screenshots/IMG_0565.jpeg" alt="Scribble-to-erase gesture" width="100%" />
+        <sub><strong>Scribble to erase</strong><br />Zig-zag across strokes to remove them.</sub>
       </td>
       <td align="center" width="50%">
-        <img src="docs/screenshots/IMG_0566.jpeg" alt="Hold to snap shape recognition gesture" width="100%" />
-        <sub><strong>Hold to snap</strong><br />Hold a stroke briefly to turn it into a clean shape.</sub>
+        <img src="docs/screenshots/IMG_0566.jpeg" alt="Hold-to-snap shape gesture" width="100%" />
+        <sub><strong>Hold to snap</strong><br />Pause at the end of a stroke to snap into a clean shape.</sub>
       </td>
     </tr>
   </table>
 </div>
 
-### PDFs and pages
-- Import PDFs, annotate them, search their text, use dark reading mode, and export or share.
-- Vertical or horizontal page navigation, custom page sizes, nine templates and page colours.
-- Picture pages, bookmarks and drag-to-reorder page management.
-- Large PDFs open fast: a light first pass appears at once, then sharpens, and nearby pages load ahead.
+### Write Box and Keyboard Mode
+- **Write Box:** Place a ruled box on any page, handwrite with a stylus or finger, and convert strokes to editable typed text in place.
+- **Keyboard Mode:** Switch to full-page typed editing with headings, interactive checklists, lists, and font controls.
+- **Granular Eraser Filters:** Target any combination of pen ink, highlighter, shapes, text and Write Boxes, stickies and tape, or images.
 
-### Book reading & study tools
-- **Kindle Book Mode:** read any notebook or PDF like a book with **Paper**, **Sepia**, and **Night** themes, optional tablet **2-page spread**, interactive **3D page-turn curl animations**, and a bottom progress scrubber.
-- **Flashcards:** drag a box over any part of a PDF or your notes, or turn a selection into a card. Spaced review with Again / Good / Easy, a jump back to the source page, and CSV export.
-- **Mind Maps & SlideShow:** build node-and-branch mind maps from your notes or manually, and present pages or summary cards in an animated SlideShow viewer.
-- **Ink links & Live Study Rooms:** connect any two spots in a notebook with a jump badge, study side by side in Writable Split View, or share a Live Study Room code.
-- **Study timer & Read-only mode:** draggable study stopwatch/Pomodoro timer with idle pause and one-tap Read-only lock.
+### Documents, Reader Mode, and Study Tools
+- **Multi-format import:** Import PDF, Word (`.docx`, `.doc`, `.odt`, `.rtf`), PowerPoint (`.pptx`, `.ppt`, `.odp`), spreadsheets (`.xlsx`, `.xls`, `.ods`, `.csv`, `.tsv`), EPUB books, Markdown, plain text, and images.
+- **Reader Mode:** Dedicated page-turn reading space with single-page and two-page tablet spread layouts, Paper/Sepia/Night themes, page-turn animations, progress scrubber, and optional paper-turn audio.
+- **Flashcards:** Create cards from page regions, selections, or structured notes; review with spaced repetition (`Again` / `Good` / `Easy`), quiz mode, hints, starred filters, and CSV export.
+- **Concept Maps:** Build node-and-branch diagrams on the page with radial, tree, and org-chart auto-layouts, subtree dragging, outline export, and flashcard conversion.
+- **Split View and Ink Links:** Study two notes side by side with pan/zoom and writing tools, connect related regions across pages, attach Link Previews, or collaborate in shared study rooms.
+- **SlideShow and Study Timer:** Present pages or summary cards in SlideShow mode and track study sessions with a stopwatch or Pomodoro countdown.
 
 <div align="center">
   <table>
     <tr>
       <td align="center" width="50%">
-        <img src="docs/screenshots/IMG_0567.jpeg" alt="Link anything tutorial showing connected content" width="100%" />
-        <sub><strong>Link anything</strong><br />Connect ink, pages and external references.</sub>
+        <img src="docs/screenshots/IMG_0567.jpeg" alt="Ink links connecting content across pages" width="100%" />
+        <sub><strong>Ink links</strong><br />Connect related regions across pages or open external references.</sub>
       </td>
       <td align="center" width="50%">
-        <img src="docs/screenshots/IMG_0568.jpeg" alt="Create flashcards from PDF content" width="100%" />
-        <sub><strong>Flashcards</strong><br />Turn selected PDF content into study cards.</sub>
+        <img src="docs/screenshots/IMG_0568.jpeg" alt="Creating flashcards from PDF content" width="100%" />
+        <sub><strong>Flashcards</strong><br />Capture sections from notes or PDFs into spaced-repetition cards.</sub>
       </td>
     </tr>
   </table>
 </div>
 
-### A library that feels like yours
-- Colour-coded folders, drag and drop, writable covers and 14 cover materials.
-- Favourites, recents, trash and tabs.
-- Notebook-specific memory for your last tool, pen, colours, sizes and page.
-- Library backup and restore, themes, accent colours and a customisable toolbar.
+### Library and Appearance
+- Colour-coded folders, drag-and-drop organisation, tags, favourites, trash, custom notebook covers, and library backup/restore.
+- Eight switchable UI colour schemes, light/dark/system modes, customisable corner roundness, and dockable toolbars (`Top`, `Bottom`, `Left`, `Right`, or `Floating`).
 
-### Small details for focused work
-- Obsidian & Paper Light editor chrome with connected notebook tabs and anchored tool popovers.
-- Animated ambient color gradient, auto-cycling preview card stack, and kinetic moving-letter headings.
-- In-app updates with resumable downloads, release notes, and system-installer handoff.
-- Pen setup that helps identify and configure your stylus, plus optional toolbar hiding while screen recording.
-- Performance modes (**Battery saver**, **Balanced**, **Maximum**) and customizable corner roundness (`8dp`–`32dp`).
+## Compatibility and Building
 
-## Compatibility
-
-- **Android:** 8.0 (API 26) or newer.
-- **Devices:** designed with tablets and styluses in mind; also works on phones.
-- **Build environment:** JDK 17 and Android SDK API 36.
-
-## Build from source
+- **Runtime:** Android 8.0 (API 26) or newer (target SDK 36).
+- **Build toolchain:** JDK 17, Gradle 8.13+, Android SDK API 36.
 
 ```bash
 git clone https://github.com/ItzNikk/ProNotes.git
 cd ProNotes
-gradle assembleRelease
+./gradlew assembleRelease
 ```
 
-CI builds on pushes to the repository. Version tags such as `v12.0.0` publish a GitHub Release, using [CHANGELOG.md](CHANGELOG.md) for release notes.
+Optional build properties in `gradle.properties` or environment variables:
+- `SUPPORT_UPI` / `SUPPORT_UPI_NAME` (`pronotes.upi` / `pronotes.upiName`): enables optional UPI support on the Support screen.
+- `CLOUD_PROJECT_ID`, `CLOUD_DB_ID`, `CLOUD_API_KEY`, `GOOGLE_CLIENT_ID`: configures optional custom sync credentials.
 
-Optional: set `pronotes.upi` in `gradle.properties` (or `SUPPORT_UPI` in CI) to enable the in-app support screen.
+## Project Structure
 
-## Built with
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the module and package layout.
 
-[Jetpack Compose](https://developer.android.com/compose) · [Jetpack Ink](https://developer.android.com/develop/ui/compose/touch-input/stylus-input/ink-api) · Jetpack Graphics Shapes · PdfBox-Android · Coil · colorpicker-compose · Reorderable · kotlinx.serialization
+## Technology Stack
 
----
+- [Jetpack Compose](https://developer.android.com/compose) & Material 3
+- [Jetpack Ink](https://developer.android.com/develop/ui/compose/touch-input/stylus-input/ink-api) & `androidx.input:input-motionprediction`
+- Jetpack Graphics Shapes
+- PdfBox-Android
+- Coil 3
+- Reorderable
+- colorpicker-compose
+- kotlinx.serialization & kotlinx.coroutines
 
-## A note from the developer
+## Licence and Attribution
 
-Pro Notes is an independent project built and maintained by a student. Studies and other responsibilities come first, so development may be intermittent and replies to issues or pull requests may take time. Please do not expect a full-time response schedule or guaranteed turnaround.
+Pro Notes is licensed under the **Apache License 2.0**. See [LICENSE](LICENSE) and [NOTICE](NOTICE) for full terms and third-party attributions.
 
-This project is shared as a gift to students and learners who want a capable, open-source notebook without a barrier to getting started. Use it, learn from it, and make the most of it.
-
-## Forks, reuse and attribution
-
-You are welcome to **fork Pro Notes, study the source, adapt it and build your own version** under the terms of the Apache License 2.0.
-
-Please preserve the original copyright and licence notices, include the [NOTICE](NOTICE) file in redistributed copies, and give clear credit to the original project. A suitable attribution is:
+Derived works must preserve copyright notices and include [NOTICE](NOTICE) with credit:
 
 > Based on Pro Notes by ItzNikk — https://github.com/ItzNikk/ProNotes
-
-The **Pro Notes** name and app icon identify the original project; please do not use them to endorse or brand a derived app without prior written permission. See [LICENSE](LICENSE) and [NOTICE](NOTICE) for the applicable terms.
-
----
-
-<div align="center">
-
-**Made by a student, shared with students.**
-
-[Download](https://github.com/ItzNikk/ProNotes/releases/latest) · [Source code](https://github.com/ItzNikk/ProNotes) · [Changelog](CHANGELOG.md)
-
-</div>

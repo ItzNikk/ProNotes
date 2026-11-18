@@ -45,7 +45,6 @@ import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -166,11 +165,8 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
@@ -214,7 +210,6 @@ import com.pronotes.app.ui.AppCard
 import com.pronotes.app.ui.AppChip
 import com.pronotes.app.ui.AppContextMenu
 import com.pronotes.app.ui.AppDialog
-import com.pronotes.app.ui.AppDialogSurface
 import com.pronotes.app.ui.AppMenuButton
 import com.pronotes.app.ui.AppMenuItem
 import com.pronotes.app.ui.AppPill
@@ -252,7 +247,7 @@ import kotlin.math.sin
 
 private val Pill = CircleShape
 
-// SVG-aligned Obsidian Dark & Paper Light workspace tokens (matching editor.svg & editor-pen-popover.svg)
+// Workspace palette tokens for Dark and Paper Light themes
 private val TabStripDarkBg = Color(0xFF1F3162)
 private val TabStripLightBg = Color(0xFFE3EAF4)
 private val TopBarDarkBg = Color(0xFF27507F)
@@ -656,6 +651,8 @@ fun EditorScreen(
                                     override fun onPlaceWriteBox(page: Int, x: Float, y: Float, w: Float, h: Float) = vm.placeWriteBox(page, x, y, w, h)
                                     override fun onAutoConvertWriteBox(page: Int, boxId: Long) = vm.autoConvertWriteBox(page, boxId)
                                     override fun onSelectWriteBox(page: Int, boxId: Long?) = vm.selectWriteBox(page, boxId)
+                                    override fun onHint(message: String) = vm.showHint(message)
+                                    override fun onScribbleErased() = vm.onScribbleErased()
                                 }).also {
                                     it.renderer = vm.renderer()
                                     it.settings = settings
@@ -809,7 +806,7 @@ fun EditorScreen(
                     }
 
                     if (!hideTools) {
-                        ObsidianSubToolDock(
+                        DockedSubToolBar(
                             vm = vm,
                             settings = settings,
                             darkUi = darkUi,
@@ -972,7 +969,7 @@ fun EditorScreen(
                         )
                     }
 
-                    // Floating On-Canvas Write-to-Text Box Studio Bar
+                    // Floating On-Canvas Write Box Studio Bar
                     val activeWb = vm.activeWriteBox()
                     if (activeWb != null && !focus) {
                         Box(
@@ -1083,20 +1080,47 @@ fun EditorScreen(
                         }
                     }
 
-                    // Toast banner
+                    // Toast / Undo snackbar banner
                     vm.toast?.let { msg ->
                         AppSurface(
                             role = SurfaceRole.Popover,
                             containerColor = Color(0xEB1B1F2A),
                             contentColor = Color.White,
                             shape = appPillShape(),
-                            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
+                            contentPadding = PaddingValues(
+                                start = 18.dp,
+                                end = if (vm.toastActionLabel != null) 10.dp else 18.dp,
+                                top = 8.dp,
+                                bottom = 8.dp,
+                            ),
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()
                                 .padding(bottom = 112.dp),
                         ) {
-                            Text(msg, style = MaterialTheme.typography.labelLarge, color = Color.White)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(msg, style = MaterialTheme.typography.labelLarge, color = Color.White)
+                                val actionLabel = vm.toastActionLabel
+                                val action = vm.toastAction
+                                if (actionLabel != null && action != null) {
+                                    TextButton(
+                                        onClick = {
+                                            action()
+                                            vm.dismissToast()
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                    ) {
+                                        Text(
+                                            actionLabel,
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = Color(0xFF93C5FD),
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -1705,7 +1729,7 @@ private fun TopBar(
             items = listOf(
                 AppMenuItem("New page after this") { vm.addPage() },
                 AppMenuItem("New page at the end") { vm.addPage(atEnd = true) },
-                AppMenuItem("Add Write-to-Text Box") { vm.addWriteBox() },
+                AppMenuItem("Add Write Box") { vm.addWriteBox() },
                 AppMenuItem("Infinite whiteboard page") { vm.addPage(paper = PaperStyle.DOTTED, isWhiteboard = true) },
                 AppMenuItem("Choose a template…") { onTemplates() },
             ),
@@ -1734,7 +1758,7 @@ private fun TopBar(
             )
             add(
                 AppMenuItem(
-                    "Place Write-to-Text Box",
+                    "Place Write Box",
                     icon = { ProIconView(ProIcon.WRITE_BOX, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp), ink = ProButtonPalette.ElectricBlue) },
                 ) {
                     vm.tool = Tool.TEXT
@@ -1927,10 +1951,10 @@ private fun TopBar(
     }
 }
 
-// ============================================================== SVG obsidian sub-tool dock
+// ============================================================== Docked sub-tool bar
 
 @Composable
-private fun ObsidianSubToolDock(
+private fun DockedSubToolBar(
     vm: EditorViewModel,
     settings: AppSettings,
     darkUi: Boolean,
@@ -2393,32 +2417,13 @@ private fun PageThumb(vm: EditorViewModel, i: Int, page: Page, modifier: Modifie
 
 // ============================================================== tool icons & options
 
-@Composable
-private fun PenTypeGlyph(type: PenType, tint: Color) {
-    Canvas(Modifier.size(24.dp)) {
-        val w = size.width
-        val h = size.height
-        val path = Path().apply {
-            moveTo(w * 0.1f, h * 0.7f)
-            cubicTo(w * 0.35f, h * 0.05f, w * 0.6f, h * 0.95f, w * 0.9f, h * 0.3f)
-        }
-        val width = when (type) {
-            PenType.BRUSH -> 4.5f
-            PenType.BALL -> 1.6f
-            else -> 2.4f
-        }.dp.toPx()
-        val dash = if (type == PenType.DASHED) PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())) else null
-        drawPath(path, tint, style = Stroke(width, cap = StrokeCap.Round, pathEffect = dash))
-    }
-}
-
 private fun toolDisplayName(t: Tool): String = when (t) {
     Tool.PEN -> "Pen"
     Tool.HIGHLIGHTER -> "Highlighter"
     Tool.ERASER -> "Eraser"
     Tool.SHAPE -> "Shapes"
     Tool.LASSO -> "Lasso Select"
-    Tool.MINDMAP -> "Mind Map"
+    Tool.MINDMAP -> "Concept Map"
     Tool.IMAGE -> "Insert Image"
     Tool.TEXT -> "Text Box"
     Tool.STICKY -> "Sticky Note"
@@ -2458,7 +2463,7 @@ private fun ToolButton(
     var stretchDy by remember { mutableFloatStateOf(0f) }
 
     val springDamping = when (motion) {
-        MotionStyle.ULTRA_SPRING -> 0.56f
+        MotionStyle.SPRING -> 0.56f
         MotionStyle.MINIMAL_CRISP -> Spring.DampingRatioNoBouncy
         MotionStyle.REDUCED -> 1f
     }
@@ -2996,7 +3001,9 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
     val s by remember(store) {
         store.select { PenCardSettings(it.penName, it.paperSound, it.paperVolume, it.paperHaptics) }
     }.collectAsStateWithLifecycle(
-        initialValue = store.settings.value.let { PenCardSettings(it.penName, it.paperSound, it.paperVolume, it.paperHaptics) },
+        initialValue = remember(store) {
+            store.settings.value.let { PenCardSettings(it.penName, it.paperSound, it.paperVolume, it.paperHaptics) }
+        },
     )
     var editingPenName by remember { mutableStateOf(false) }
     var savingPreset by remember { mutableStateOf(false) }
@@ -3158,7 +3165,9 @@ private fun HighlighterCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor
     val s by remember(store) {
         store.select { HighlighterCardSettings(it.highlighterOpacity, it.highlighterMode, it.highlighterBehind) }
     }.collectAsStateWithLifecycle(
-        initialValue = store.settings.value.let { HighlighterCardSettings(it.highlighterOpacity, it.highlighterMode, it.highlighterBehind) },
+        initialValue = remember(store) {
+            store.settings.value.let { HighlighterCardSettings(it.highlighterOpacity, it.highlighterMode, it.highlighterBehind) }
+        },
     )
     StrokePreview(Color(style.color).copy(alpha = s.highlighterOpacity), style.size * 1.2f, false, darkUi)
     SliderRow("THICKNESS", "%.0f".format(style.size), style.size, 6f..70f) { v ->
@@ -3194,16 +3203,18 @@ private fun EraserCardContent(vm: EditorViewModel) {
             )
         }
     }.collectAsStateWithLifecycle(
-        initialValue = store.settings.value.let {
-            EraserCardSettings(
-                it.eraserMode,
-                it.scribbleSensitivity,
-                it.eraseHighlighterOnly,
-                it.eraserFilter,
-                it.eraserAutoSwitch,
-                it.scribbleToErase,
-                it.liveScribbleErase,
-            )
+        initialValue = remember(store) {
+            store.settings.value.let {
+                EraserCardSettings(
+                    it.eraserMode,
+                    it.scribbleSensitivity,
+                    it.eraseHighlighterOnly,
+                    it.eraserFilter,
+                    it.eraserAutoSwitch,
+                    it.scribbleToErase,
+                    it.liveScribbleErase,
+                )
+            }
         },
     )
     Segments(EraserMode.entries.map { it.label }, s.eraserMode.ordinal) { i ->
@@ -3282,7 +3293,9 @@ private fun LassoCardContent() {
     val s by remember(store) {
         store.select { LassoCardSettings(it.lassoMode, it.lassoFilter, it.lassoTouching, it.circleToLasso) }
     }.collectAsStateWithLifecycle(
-        initialValue = store.settings.value.let { LassoCardSettings(it.lassoMode, it.lassoFilter, it.lassoTouching, it.circleToLasso) },
+        initialValue = remember(store) {
+            store.settings.value.let { LassoCardSettings(it.lassoMode, it.lassoFilter, it.lassoTouching, it.circleToLasso) }
+        },
     )
     Segments(LassoMode.entries.map { it.label }, s.lassoMode.ordinal) { i -> store.update { it.copy(lassoMode = LassoMode.entries[i]) } }
     Text("SELECT", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.62f))
@@ -3304,7 +3317,7 @@ private fun LaserCardContent() {
     val store = remember { SettingsStore.get(context) }
     val laserSeconds by remember(store) {
         store.select { it.laserSeconds }
-    }.collectAsStateWithLifecycle(initialValue = store.settings.value.laserSeconds)
+    }.collectAsStateWithLifecycle(initialValue = remember(store) { store.settings.value.laserSeconds })
     SliderRow("STAYS FOR", "%.0f s".format(laserSeconds), laserSeconds, 1f..8f) { v ->
         store.update { it.copy(laserSeconds = v) }
     }
@@ -3318,7 +3331,7 @@ private fun LaserCardContent() {
 @Composable
 private fun TextCardContent(vm: EditorViewModel) {
     val fgColor = LocalContentColor.current
-    Text("ON-CANVAS WRITE-TO-TEXT BOX", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.62f))
+    Text("ON-CANVAS WRITE BOX", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.62f))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         AppPill(
             selected = true,
@@ -3349,7 +3362,7 @@ private fun TextCardContent(vm: EditorViewModel) {
         TextFont.entries.indexOf(vm.textStyle.font).coerceAtMost(3),
     ) { i -> vm.textStyle = vm.textStyle.copy(font = TextFont.entries[i]) }
     Text(
-        "Tap or drag anywhere on the page with the Text tool to place a Write-to-Text Box. Write inside with your stylus or finger and it automatically converts to text in place.",
+        "Tap or drag anywhere on the page with the Text tool to place a Write Box. Write inside with your stylus or finger and it converts to text in place.",
         style = MaterialTheme.typography.labelSmall,
         color = fgColor.copy(alpha = 0.65f),
     )
@@ -3384,7 +3397,7 @@ private fun WriteBoxStudioBar(
             ) {
                 ProIconView(ProIcon.WRITE_BOX, ProButtonPalette.ElectricBlue, Modifier.size(18.dp), ink = ProButtonPalette.ElectricBlue)
                 Text(
-                    "Write-to-Text Box",
+                    "Write Box",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     color = barFg,
@@ -3523,7 +3536,7 @@ private fun MindMapCardContent(vm: EditorViewModel) {
     ) {
         Icon(Icons.Outlined.Hub, null, Modifier.size(16.dp), tint = Color.White)
         Spacer(Modifier.width(6.dp))
-        Text("Build mind map from notes", style = MaterialTheme.typography.labelLarge, color = Color.White)
+        Text("Build concept map from notes", style = MaterialTheme.typography.labelLarge, color = Color.White)
     }
     Text(
         "Tap the canvas to add nodes, drag nodes to arrange, and double-tap a node to edit.",
@@ -3543,7 +3556,7 @@ private fun MindNodeDialog(vm: EditorViewModel, edit: EditorViewModel.MindNodeEd
     val shapes = listOf("pill" to "Pill", "rect" to "Card", "diamond" to "Diamond", "circle" to "Oval")
     AppDialog(
         onDismissRequest = { vm.mindNodeEdit = null },
-        title = { Text(if (edit.isNew) "New mind map node" else "Edit node") },
+        title = { Text(if (edit.isNew) "New concept map node" else "Edit node") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
@@ -3779,7 +3792,7 @@ private fun TextDialog(vm: EditorViewModel, edit: EditorViewModel.TextEdit) {
     var color by remember(edit) { mutableIntStateOf(ex?.color ?: vm.textColor ?: vm.penStyle.color) }
     var style by remember(edit) { mutableStateOf(ex?.style ?: vm.textStyle) }
     var colorEdit by remember { mutableStateOf<Int?>(null) }
-    // Mode 0: Samsung Notes Write-to-Text Pad + Live Preview, Mode 1: Direct Keyboard Editor
+    // Mode 0: Write Box Pad + Live Preview, Mode 1: Direct Keyboard Editor
     var inputMode by remember { mutableIntStateOf(0) }
     val padStrokes = remember { androidx.compose.runtime.mutableStateListOf<List<Offset>>() }
     var activeStroke by remember { mutableStateOf<List<Offset>>(emptyList()) }
@@ -3802,13 +3815,13 @@ private fun TextDialog(vm: EditorViewModel, edit: EditorViewModel.TextEdit) {
         title = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ProIconView(ProIcon.WRITE_BOX, ProButtonPalette.ElectricBlue, Modifier.size(20.dp), ink = ProButtonPalette.ElectricBlue)
-                Text(if (ex != null) "Edit Text / Write Box" else "Samsung Notes Write-to-Text & Text Box")
+                Text(if (ex != null) "Edit Text / Write Box" else "Write Box & Text Box")
             }
         },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 AppSegmentedControl(
-                    options = listOf("Handwrite to Text Box", "Keyboard Type Box"),
+                    options = listOf("Write Box Pad", "Keyboard Box"),
                     selectedIndex = inputMode,
                     onSelect = { inputMode = it },
                     modifier = Modifier.fillMaxWidth(),
@@ -3843,7 +3856,7 @@ private fun TextDialog(vm: EditorViewModel, edit: EditorViewModel.TextEdit) {
                 )
 
                 if (inputMode == 0) {
-                    // Samsung Notes-style ruled handwriting pad with instant conversion
+                    // Ruled handwriting pad with instant conversion
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()

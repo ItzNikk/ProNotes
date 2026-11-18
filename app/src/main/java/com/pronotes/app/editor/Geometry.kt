@@ -2,11 +2,14 @@ package com.pronotes.app.editor
 
 import android.graphics.Path
 import android.graphics.Region
+import androidx.compose.runtime.Immutable
 import androidx.graphics.shapes.pill
 import androidx.graphics.shapes.pillStar
 import androidx.graphics.shapes.rectangle
 import androidx.graphics.shapes.star
 import androidx.graphics.shapes.toPath
+import com.pronotes.app.data.AppSettings
+import com.pronotes.app.data.ScribbleSensitivity
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -16,6 +19,51 @@ import kotlin.math.min
 import kotlin.math.sin
 
 typealias Pt = Pair<Float, Float>
+
+/** Tunable thresholds for hold gestures, loop selection, scribble-to-erase, and palm rejection. */
+@Immutable
+data class GestureConfig(
+    val holdDelayMs: Long = 550L,
+    val holdSlopDp: Float = 8f,
+    val circleWindowMs: Long = 1800L,
+    val circleHoldDelayMs: Long = 450L,
+    val circleEndRadiusDp: Float = 40f,
+    val loopClosingRatio: Float = 0.35f,
+    val overlapLoopClosingRatio: Float = 0.25f,
+    val overlapMinLengthRatio: Float = 2.2f,
+    val minLoopSizePx: Float = 30f,
+    val minLoopScreenWdp: Float = 40f,
+    val minLoopScreenHdp: Float = 30f,
+    val scribbleSensitivity: ScribbleSensitivity = ScribbleSensitivity.BALANCED,
+    val scribbleMinLengthPx: Float = 88f,
+    val scribbleMaxNetDispRatio: Float = 0.30f,
+    val palmRejectionWindowMs: Long = 300L,
+) {
+    companion object {
+        fun fromSensitivity(sensitivity: ScribbleSensitivity): GestureConfig = when (sensitivity) {
+            ScribbleSensitivity.GENTLE -> GestureConfig(
+                scribbleSensitivity = sensitivity,
+                scribbleMinLengthPx = 120f,
+                scribbleMaxNetDispRatio = 0.24f,
+            )
+            ScribbleSensitivity.BALANCED -> GestureConfig(
+                scribbleSensitivity = sensitivity,
+                scribbleMinLengthPx = 88f,
+                scribbleMaxNetDispRatio = 0.30f,
+            )
+            ScribbleSensitivity.INSTANT -> GestureConfig(
+                scribbleSensitivity = sensitivity,
+                scribbleMinLengthPx = 56f,
+                scribbleMaxNetDispRatio = 0.36f,
+            )
+        }
+
+        fun fromSettings(settings: AppSettings): GestureConfig =
+            fromSensitivity(settings.scribbleSensitivity).copy(
+                loopClosingRatio = if (settings.lassoTouching) 0.40f else 0.35f,
+            )
+    }
+}
 
 private fun dist(a: Pt, b: Pt) = hypot(a.first - b.first, a.second - b.second)
 
@@ -42,16 +90,157 @@ private fun box(pts: List<Pt>): Box {
     return Box(l, t, r, b)
 }
 
-fun isClosedLoop(pts: List<Pt>): Boolean {
+/** Single closing rule shared by shape recognition, lasso candidate checks, and circle selection. */
+fun isClosedLoop(pts: List<Pt>, config: GestureConfig = GestureConfig()): Boolean {
     if (pts.size < 8) return false
     val bx = box(pts)
     val size = max(bx.w, bx.h)
-    if (size <= 30f) return false
-    if (dist(pts.first(), pts.last()) < size * 0.35f) return true
-    // Overlapping loops: the end has come back near any early point.
+    if (size <= config.minLoopSizePx) return false
+    if (dist(pts.first(), pts.last()) < size * config.loopClosingRatio) return true
     val end = pts.last()
     val early = pts.subList(0, pts.size / 3)
-    return early.any { dist(it, end) < size * 0.25f } && pathLength(pts) > size * 2.2f
+    return early.any { dist(it, end) < size * config.overlapLoopClosingRatio } &&
+        pathLength(pts) > size * config.overlapMinLengthRatio
+}
+
+/**
+ * Unified state machine for circle-to-select (both live hold before lift and quick press-and-hold
+ * immediately after drawing a closed loop).
+ */
+class CircleDetector {
+    data class Candidate(
+        val strokeKey: Any,
+        val page: Int,
+        val targetIds: Set<Long>,
+        val loop: List<Pt>,
+        val endX: Float,
+        val endY: Float,
+        val createdAtMs: Long,
+        var itemId: Long = -1L,
+        var pendingRemoval: Boolean = false,
+    )
+
+    sealed interface State {
+        data object Idle : State
+        data class CandidateReady(val candidate: Candidate) : State
+        data class HoldArmed(
+            val candidate: Candidate,
+            val downX: Float,
+            val downY: Float,
+            val armedAtMs: Long,
+        ) : State
+    }
+
+    var state: State = State.Idle
+        private set
+
+    fun isValidLoopCandidate(
+        pts: List<Pt>,
+        scale: Float,
+        density: Float,
+        config: GestureConfig = GestureConfig(),
+    ): Boolean {
+        if (pts.size < 8 || !isClosedLoop(pts, config)) return false
+        val bx = box(pts)
+        return bx.w * scale > config.minLoopScreenWdp * density &&
+            bx.h * scale > config.minLoopScreenHdp * density
+    }
+
+    fun offerCandidate(
+        strokeKey: Any,
+        page: Int,
+        targetIds: Set<Long>,
+        loop: List<Pt>,
+        nowMs: Long,
+    ): Candidate? {
+        if (loop.isEmpty() || targetIds.isEmpty()) return null
+        val end = loop.last()
+        val candidate = Candidate(
+            strokeKey = strokeKey,
+            page = page,
+            targetIds = targetIds,
+            loop = ArrayList(loop),
+            endX = end.first,
+            endY = end.second,
+            createdAtMs = nowMs,
+        )
+        state = State.CandidateReady(candidate)
+        return candidate
+    }
+
+    /**
+     * Associates the asynchronously persisted [itemId] with the active candidate (if matching [strokeKey]).
+     * Returns true if the user already triggered circle-select before persistence finished, meaning the
+     * item should be removed instead of kept on the page.
+     */
+    fun attachItemId(strokeKey: Any, itemId: Long): Boolean {
+        val candidate = activeCandidateUnchecked() ?: return false
+        if (candidate.strokeKey != strokeKey) return false
+        candidate.itemId = itemId
+        return candidate.pendingRemoval
+    }
+
+    fun activeCandidate(nowMs: Long, config: GestureConfig): Candidate? {
+        val c = activeCandidateUnchecked() ?: return null
+        if (state is State.CandidateReady && nowMs - c.createdAtMs > config.circleWindowMs) {
+            state = State.Idle
+            return null
+        }
+        return c
+    }
+
+    fun isHoldArmed(): Boolean = state is State.HoldArmed
+
+    fun tryArmHold(
+        px: Float,
+        py: Float,
+        nowMs: Long,
+        isPen: Boolean,
+        density: Float,
+        config: GestureConfig,
+        mapPagePointToScreen: (page: Int, x: Float, y: Float) -> Pt,
+    ): Boolean {
+        val candidate = activeCandidate(nowMs, config) ?: return false
+        if (!isPen) {
+            reset()
+            return false
+        }
+        val (sx, sy) = mapPagePointToScreen(candidate.page, candidate.endX, candidate.endY)
+        val near = hypot(px - sx, py - sy) < config.circleEndRadiusDp * density
+        if (!near) {
+            reset()
+            return false
+        }
+        state = State.HoldArmed(candidate, px, py, nowMs)
+        return true
+    }
+
+    fun shouldCancelHoldOnMove(px: Float, py: Float, slopPx: Float): Boolean {
+        val armed = state as? State.HoldArmed ?: return false
+        return hypot(px - armed.downX, py - armed.downY) > slopPx
+    }
+
+    /** Fires selection from the armed post-lift hold and clears detector state. */
+    fun triggerArmedHold(): Pair<Candidate, Pt>? {
+        val armed = state as? State.HoldArmed ?: return null
+        armed.candidate.pendingRemoval = true
+        state = State.Idle
+        return armed.candidate to (armed.downX to armed.downY)
+    }
+
+    fun cancelHold() {
+        if (state is State.HoldArmed) state = State.Idle
+    }
+
+    fun reset() {
+        state = State.Idle
+    }
+
+    private fun activeCandidateUnchecked(): Candidate? = when (val s = state) {
+        is State.Idle -> null
+        is State.CandidateReady -> s.candidate
+        is State.HoldArmed -> s.candidate
+    }
 }
 
 /** Ramer-Douglas-Peucker simplification of an open polyline. */
@@ -97,7 +286,7 @@ private fun closedCorners(raw: List<Pt>, eps: Float): List<Pt> {
     if (far == 0) return emptyList()
     val a = simplify(raw.subList(0, far + 1), eps)
     val b = simplify(raw.subList(far, raw.size) + listOf(start), eps)
-    var corners = (a.dropLast(1) + b.dropLast(1)).toMutableList()
+    val corners = (a.dropLast(1) + b.dropLast(1)).toMutableList()
     // Drop near-duplicates and corners that are really straight lines.
     var changed = true
     while (changed && corners.size > 3) {
@@ -128,26 +317,41 @@ private fun polygonError(raw: List<Pt>, poly: List<Pt>, diag: Float): Float {
 
 /**
  * Turns a hand-drawn stroke into a clean shape: line, elbow/zig-zag line, triangle,
- * rectangle, square, diamond, quad, pentagon, hexagon, circle or ellipse.
- * Returns null when nothing fits well.
+ * rectangle, square, diamond, quad, pentagon, hexagon, star, circle or ellipse.
+ * When [forceNearest] is true (dedicated Shape tool), picks the closest supported shape
+ * within a wider tolerance and returns null only for unrecognisable strokes.
  */
 object ShapeRecognizer {
-    fun recognize(raw: List<Pt>): List<Pt>? {
+    fun recognize(raw: List<Pt>, forceNearest: Boolean = false): List<Pt>? {
         if (raw.size < 4) return null
         val len = pathLength(raw)
         if (len < 20f) return null
         val bx = box(raw)
         val diag = bx.diag.coerceAtLeast(1f)
+        if (forceNearest && diag < 14f) return null
 
         // Straight line.
-        if (dist(raw.first(), raw.last()) / len > 0.9f) return densify(listOf(raw.first(), raw.last()))
+        val endDist = dist(raw.first(), raw.last())
+        val straightRatio = endDist / len
+        if (straightRatio > 0.9f) return densify(listOf(raw.first(), raw.last()))
 
-        if (!isClosedLoop(raw)) {
+        val closed = isClosedLoop(raw)
+        if (!closed) {
             // Elbow or zig-zag made of 2-3 straight segments.
             val pts = simplify(raw, diag * 0.06f)
             if (pts.size in 3..4 && abs(pathLength(pts) - len) / len < 0.12f) return densify(pts)
-            return null
+            if (forceNearest) {
+                if (straightRatio >= 0.72f && endDist >= 20f) return densify(listOf(raw.first(), raw.last()))
+                val relaxedPts = simplify(raw, diag * 0.08f)
+                if (relaxedPts.size in 3..4 && abs(pathLength(relaxedPts) - len) / len < 0.24f) {
+                    return densify(relaxedPts)
+                }
+            }
+            if (!forceNearest) return null
         }
+
+        val nearlyClosed = closed || (endDist < max(bx.w, bx.h) * 0.55f && len > max(bx.w, bx.h) * 2.0f)
+        if (!nearlyClosed) return null
 
         val rx = bx.w / 2f; val ry = bx.h / 2f
         var ellipseErr = Float.MAX_VALUE
@@ -161,19 +365,28 @@ object ShapeRecognizer {
         val polyErr = polygonError(raw, corners, diag)
         val n = corners.size
         // Five-pointed star: ten corners whose distance from the centre alternates long/short.
-        if (n in 9..11 && polyErr < 0.05f) {
+        if (n in 9..11 && polyErr < if (forceNearest) 0.08f else 0.05f) {
             val d = corners.map { hypot(it.first - bx.cx, it.second - bx.cy) }
             val alternates = d.indices.count { i -> (d[i] > d[(i + 1) % n]) != (d[(i + 1) % n] > d[(i + 2) % n]) } >= n - 2
             if (alternates) return ShapeBuilder.build(ShapeKind.STAR, bx.l, bx.t, bx.r, bx.b).first()
         }
-        if (n in 3..8 && polyErr < 0.045f && (polyErr < ellipseErr * 0.5f || ellipseErr > 0.08f)) {
+        val polyTol = if (forceNearest) 0.09f else 0.045f
+        val ellipseThreshold = if (forceNearest) 0.42f else 0.28f
+        if (n in 3..8 && polyErr < polyTol && (polyErr < ellipseErr * 0.5f || ellipseErr > 0.08f)) {
             return when (n) {
                 3 -> densify(corners + corners.first())
                 4 -> quad(corners, bx)
                 else -> densify(corners + corners.first())
             }
         }
-        if (ellipseErr < 0.28f) return ellipse(bx, rx, ry)
+        if (ellipseErr < ellipseThreshold) return ellipse(bx, rx, ry)
+        if (forceNearest && n in 3..8 && polyErr < 0.16f) {
+            return when (n) {
+                3 -> densify(corners + corners.first())
+                4 -> quad(corners, bx)
+                else -> densify(corners + corners.first())
+            }
+        }
         return null
     }
 
@@ -220,82 +433,121 @@ fun isNearlyStraight(pts: List<Pt>, tolerance: Float): Boolean {
     return pts.all { segDist(it, a, b) <= tolerance }
 }
 
+private data class ScribbleThresholds(
+    val minPts: Int,
+    val minLen: Float,
+    val maxNetRatio: Float,
+    val minRev: Int,
+    val minAxisRatio: Float,
+    val minSharp: Int,
+    val minZigRatio: Float,
+)
+
+private fun scribbleThresholds(config: GestureConfig): ScribbleThresholds = when (config.scribbleSensitivity) {
+    ScribbleSensitivity.GENTLE -> ScribbleThresholds(
+        minPts = 14,
+        minLen = config.scribbleMinLengthPx.coerceAtLeast(120f),
+        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtMost(0.24f),
+        minRev = 5,
+        minAxisRatio = 2.65f,
+        minSharp = 5,
+        minZigRatio = 3.40f,
+    )
+    ScribbleSensitivity.BALANCED -> ScribbleThresholds(
+        minPts = 12,
+        minLen = config.scribbleMinLengthPx.coerceAtLeast(88f),
+        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtMost(0.30f),
+        minRev = 4,
+        minAxisRatio = 2.20f,
+        minSharp = 4,
+        minZigRatio = 2.85f,
+    )
+    ScribbleSensitivity.INSTANT -> ScribbleThresholds(
+        minPts = 9,
+        minLen = config.scribbleMinLengthPx.coerceAtLeast(56f),
+        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtMost(0.36f),
+        minRev = 3,
+        minAxisRatio = 1.75f,
+        minSharp = 3,
+        minZigRatio = 2.25f,
+    )
+}
+
 /**
  * A fast back-and-forth zig-zag means "erase this". The stroke is projected onto its
  * main direction (PCA); the motion along that axis must reverse several times while staying dense.
- * Normal cursive/letters move forward steadily and never qualify due to net forward displacement checks.
+ * Normal cursive/letters move forward steadily and never qualify due to minimum length & net displacement checks.
  */
 fun isScribble(
     pts: List<Pt>,
-    sensitivity: com.pronotes.app.data.ScribbleSensitivity = com.pronotes.app.data.ScribbleSensitivity.BALANCED,
+    config: GestureConfig = GestureConfig(),
 ): Boolean {
-    if (pts.size < 8) return false
+    val t = scribbleThresholds(config)
+    if (pts.size < t.minPts) return false
     val totalLen = pathLength(pts)
-    if (totalLen < 32f) return false
+    if (totalLen < t.minLen) return false
     val netDisp = dist(pts.first(), pts.last())
-    // Handwriting moves forward steadily along the line; scribbles stay concentrated in place
-    if (netDisp / totalLen > 0.32f) return false
+    // Handwriting moves forward steadily along the line; scribbles stay concentrated in place.
+    if (netDisp / totalLen > t.maxNetRatio) return false
 
-    val (minRev, minAxisRatio, minSharp, minZigRatio) = when (sensitivity) {
-        com.pronotes.app.data.ScribbleSensitivity.GENTLE -> Quad(4, 2.35f, 4, 3.2f)
-        com.pronotes.app.data.ScribbleSensitivity.BALANCED -> Quad(3, 1.95f, 3, 2.55f)
-        com.pronotes.app.data.ScribbleSensitivity.INSTANT -> Quad(3, 1.65f, 3, 2.15f)
-    }
-    if (axisScribble(pts, minRev, minAxisRatio) || zigZagScribble(pts, minSharp, minZigRatio)) return true
+    if (axisScribble(pts, t.minRev, t.minAxisRatio) || zigZagScribble(pts, t.minSharp, t.minZigRatio)) return true
     for (w in intArrayOf(24, 40, 64)) {
         if (pts.size > w) {
             val sub = pts.subList(pts.size - w, pts.size)
             val subLen = pathLength(sub)
             val subDisp = dist(sub.first(), sub.last())
-            if (subLen >= 28f && (subDisp / subLen) <= 0.35f) {
-                if (axisScribble(sub, minRev, minAxisRatio) || zigZagScribble(sub, minSharp, minZigRatio)) return true
+            if (subLen >= t.minLen && (subDisp / subLen) <= t.maxNetRatio) {
+                if (axisScribble(sub, t.minRev, t.minAxisRatio) || zigZagScribble(sub, t.minSharp, t.minZigRatio)) return true
             }
         }
     }
     return false
 }
 
-private data class Quad(val a: Int, val b: Float, val c: Int, val d: Float)
+fun isScribble(
+    pts: List<Pt>,
+    sensitivity: ScribbleSensitivity,
+): Boolean = isScribble(pts, GestureConfig.fromSensitivity(sensitivity))
 
 /**
  * Live continuous scribble detection called while moving: inspects multi-scale trailing windows
- * so users can scrub back and forth (even mid-word) and erase immediately without lifting.
- * High precision filters prevent accidental erasure during cursive letters ("w", "m", "n").
+ * so users can scrub back and forth and erase without lifting, while filtering dense hatching
+ * and normal zig-zag cursive letters.
  */
 fun isLiveScribble(
     pts: List<Pt>,
-    sensitivity: com.pronotes.app.data.ScribbleSensitivity = com.pronotes.app.data.ScribbleSensitivity.BALANCED,
+    config: GestureConfig = GestureConfig(),
 ): Boolean {
-    val minPts = if (sensitivity == com.pronotes.app.data.ScribbleSensitivity.INSTANT) 10 else 12
-    if (pts.size < minPts) return false
-    val (minRev, minAxisRatio, minSharp, minZigRatio) = when (sensitivity) {
-        com.pronotes.app.data.ScribbleSensitivity.GENTLE -> Quad(4, 2.25f, 4, 2.85f)
-        com.pronotes.app.data.ScribbleSensitivity.BALANCED -> Quad(3, 1.90f, 3, 2.35f)
-        com.pronotes.app.data.ScribbleSensitivity.INSTANT -> Quad(3, 1.65f, 3, 1.95f)
-    }
+    val t = scribbleThresholds(config)
+    if (pts.size < t.minPts) return false
     for (w in intArrayOf(24, 40, 64)) {
         val win = if (pts.size > w) pts.subList(pts.size - w, pts.size) else pts
-        if (win.size < minPts) continue
+        if (win.size < t.minPts) continue
         val bx = box(win)
         val diag = bx.diag
-        if (diag < 16f) continue
+        if (diag < 20f) continue
         val len = pathLength(win)
-        if (len < diag * minAxisRatio) continue
+        if (len < t.minLen || len < diag * t.minAxisRatio) continue
         val netDisp = dist(win.first(), win.last())
-        if (netDisp / len > 0.34f) continue // Discard forward handwriting gestures
+        if (netDisp / len > t.maxNetRatio) continue
 
-        if (axisScribble(win, minReversals = minRev, minRatio = minAxisRatio) ||
-            zigZagScribble(win, minSharp = minSharp, minRatio = minZigRatio)
+        if (axisScribble(win, minReversals = t.minRev, minRatio = t.minAxisRatio) ||
+            zigZagScribble(win, minSharp = t.minSharp, minRatio = t.minZigRatio)
         ) return true
     }
     return false
 }
 
+fun isLiveScribble(
+    pts: List<Pt>,
+    sensitivity: ScribbleSensitivity,
+): Boolean = isLiveScribble(pts, GestureConfig.fromSensitivity(sensitivity))
+
 /** Dense scrubbing that does not follow a single axis, e.g. back and forth across a word or underline. */
-private fun zigZagScribble(pts: List<Pt>, minSharp: Int = 3, minRatio: Float = 2.35f): Boolean {
+private fun zigZagScribble(pts: List<Pt>, minSharp: Int = 4, minRatio: Float = 2.85f): Boolean {
     val bx = box(pts)
     val diag = bx.diag
-    if (diag < 14f) return false
+    if (diag < 18f) return false
     if (pathLength(pts) < diag * minRatio) return false
     val s = simplify(pts, max(1.8f, diag * 0.03f))
     if (s.size < 5) return false
@@ -304,7 +556,7 @@ private fun zigZagScribble(pts: List<Pt>, minSharp: Int = 3, minRatio: Float = 2
     return sharp >= minSharp
 }
 
-private fun axisScribble(pts: List<Pt>, minReversals: Int = 3, minRatio: Float = 1.75f): Boolean {
+private fun axisScribble(pts: List<Pt>, minReversals: Int = 4, minRatio: Float = 2.20f): Boolean {
     var mx = 0.0; var my = 0.0
     for ((x, y) in pts) { mx += x; my += y }
     mx /= pts.size; my /= pts.size
@@ -314,9 +566,9 @@ private fun axisScribble(pts: List<Pt>, minReversals: Int = 3, minRatio: Float =
     val ux = cos(theta).toFloat(); val uy = sin(theta).toFloat()
     val proj = pts.map { (x, y) -> x * ux + y * uy }
     val extent = (proj.maxOrNull() ?: 0f) - (proj.minOrNull() ?: 0f)
-    if (extent < 14f) return false
+    if (extent < 18f) return false
     if (pathLength(pts) < extent * minRatio) return false
-    val thresh = max(4.0f, extent * 0.18f)
+    val thresh = max(4.5f, extent * 0.18f)
     var dir = 0; var anchor = proj[0]; var reversals = 0
     for (v in proj) {
         when (dir) {

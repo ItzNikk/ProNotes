@@ -66,15 +66,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pronotes.app.BuildConfigInfo
-import com.pronotes.app.UpdateCheckReceiver
 import com.pronotes.app.data.AccentColor
 import com.pronotes.app.data.AppFont
 import com.pronotes.app.data.AppSettings
 import com.pronotes.app.data.CloudSync
 import com.pronotes.app.data.DeskColor
-import com.pronotes.app.data.EraserFilter
 import com.pronotes.app.data.EraserMode
-import com.pronotes.app.data.MotionStyle
 import com.pronotes.app.data.PagePreset
 import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.data.PaperTint
@@ -96,7 +93,6 @@ import com.pronotes.app.data.Updater
 import com.pronotes.app.data.Updater.Phase as UPhase
 import com.pronotes.app.editor.ToolbarOrder
 import com.pronotes.app.library.PaperPreview
-import com.pronotes.app.support.Support
 import com.pronotes.app.ui.AppChip
 import com.pronotes.app.ui.AppChoiceRow
 import com.pronotes.app.ui.AppDialog
@@ -292,7 +288,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                     }
                     Section("Paper feel & sounds") {
                         Toggle("Writing sound", "A soft pencil-on-paper sound that follows your speed", s.paperSound) { v -> up { it.copy(paperSound = v) } }
-                        Toggle("Book page-flip sound", "Realistic paper rustle & page turn sound in the Book Reader", s.bookFlipSound) { v -> up { it.copy(bookFlipSound = v) } }
+                        Toggle("Book page-flip sound", "Realistic paper rustle & page turn sound in Reader Mode", s.bookFlipSound) { v -> up { it.copy(bookFlipSound = v) } }
                         if (s.paperSound || s.bookFlipSound) {
                             Box(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
                                 AppSliderRow(

@@ -27,7 +27,7 @@ enum class HighlighterMode(val label: String) { FREEHAND("Freehand"), AUTO("Auto
 enum class LassoMode(val label: String) { FREEFORM("Freeform"), RECT("Rectangle") }
 enum class ThemeMode(val label: String) { SYSTEM("System"), LIGHT("Light"), DARK("Dark") }
 enum class AppFont(val label: String) { MODERN_SANS("Modern Sans"), EDITORIAL_SERIF("Editorial Serif"), STUDIO_MONO("Studio Mono"), ROUNDED("Soft Rounded") }
-enum class MotionStyle(val label: String) { ULTRA_SPRING("Ultra Spring"), MINIMAL_CRISP("Crisp"), REDUCED("Reduced") }
+enum class MotionStyle(val label: String) { SPRING("Spring"), MINIMAL_CRISP("Crisp"), REDUCED("Reduced") }
 enum class PerformanceMode(
     val label: String,
     val autosaveMs: Long,
@@ -134,8 +134,8 @@ enum class UiColorScheme(
     val darkBg: Long,
     val darkSurface: Long,
 ) {
-    OBSIDIAN_STUDIO(
-        label = "Obsidian Studio",
+    SLATE_STUDIO(
+        label = "Slate Studio",
         subtitle = "Crisp studio dark & warm paper",
         seedPrimary = 0xFF0044EA,
         seedSecondary = 0xFF00A3F5,
@@ -144,7 +144,7 @@ enum class UiColorScheme(
         darkBg = 0xFF141519,
         darkSurface = 0xFF1C1C1C,
     ),
-    SAMSUNG_WARM(
+    WARM_IVORY(
         label = "Warm Ivory",
         subtitle = "Cozy cream & botanical ink",
         seedPrimary = 0xFF24483F,
@@ -297,11 +297,11 @@ data class AppSettings(
     val lassoTouching: Boolean = false,
     // look & customization
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
-    val uiColorScheme: UiColorScheme = UiColorScheme.OBSIDIAN_STUDIO,
+    val uiColorScheme: UiColorScheme = UiColorScheme.SLATE_STUDIO,
     val accent: AccentColor = AccentColor.BLUE,
     val gradientTitles: Boolean = false,
     val appFont: AppFont = AppFont.MODERN_SANS,
-    val motionStyle: MotionStyle = MotionStyle.ULTRA_SPRING,
+    val motionStyle: MotionStyle = MotionStyle.SPRING,
     val showHoverTooltips: Boolean = true,
     // library
     val thumbCovers: Boolean = false,
@@ -328,6 +328,12 @@ class SettingsStore private constructor(context: Context) {
 
     private inline fun <reified E : Enum<E>> enumOf(key: String, def: E): E =
         runCatching { enumValueOf<E>(prefs.getString(key, def.name) ?: def.name) }.getOrDefault(def)
+
+    private fun uiColorSchemeOf(key: String, def: UiColorScheme): UiColorScheme =
+        enumOf(key, def)
+
+    private fun motionStyleOf(key: String, def: MotionStyle): MotionStyle =
+        enumOf(key, def)
 
     private fun b(key: String, def: Boolean) = prefs.getBoolean(key, def)
 
@@ -404,11 +410,11 @@ class SettingsStore private constructor(context: Context) {
             ),
             lassoTouching = b("lassoTouching", d.lassoTouching),
             themeMode = enumOf("themeMode", d.themeMode),
-            uiColorScheme = enumOf("uiColorScheme", d.uiColorScheme),
+            uiColorScheme = uiColorSchemeOf("uiColorScheme", d.uiColorScheme),
             accent = enumOf("accent", d.accent),
             gradientTitles = b("gradientTitles", d.gradientTitles),
             appFont = enumOf("appFont", d.appFont),
-            motionStyle = enumOf("motionStyle", d.motionStyle),
+            motionStyle = motionStyleOf("motionStyle", d.motionStyle),
             showHoverTooltips = b("showHoverTooltips", d.showHoverTooltips),
             thumbCovers = b("thumbCovers", d.thumbCovers),
             pomodoroMinutes = prefs.getInt("pomodoroMinutes", d.pomodoroMinutes),
@@ -627,7 +633,7 @@ class SettingsStore private constructor(context: Context) {
         prefs.edit().putString("tabs", list.joinToString(",")).apply()
     }
 
-    // ------------------------------------------------------------ book reader progress
+    // ------------------------------------------------------------ Reader Mode progress
     fun readerPage(bookId: String): Int = prefs.getInt("reader_page_$bookId", 0).coerceAtLeast(0)
 
     fun setReaderPage(bookId: String, page: Int) {

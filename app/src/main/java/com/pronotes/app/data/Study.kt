@@ -56,7 +56,7 @@ enum class SlideTheme(val label: String, val gradA: Long, val gradB: Long, val a
     SUNSET_CORAL("Vibrant Orange", 0xFF9A3412, 0xFFFF8C00, 0xFFFDE047),
     EMERALD_MINT("Sky Cyan", 0xFF0369A1, 0xFF00A3F5, 0xFF7DD3FC),
     COSMIC_GOLD("Amber Gold", 0xFF78350F, 0xFFD97706, 0xFFFDE68A),
-    MIDNIGHT_PRISM("Obsidian Blue", 0xFF0F172A, 0xFF1E40AF, 0xFF38BDF8),
+    MIDNIGHT_PRISM("Midnight Blue", 0xFF0F172A, 0xFF1E40AF, 0xFF38BDF8),
     ROSE_VELVET("Magenta Rose", 0xFF831843, 0xFFF01E6B, 0xFFFDA4AF),
 }
 

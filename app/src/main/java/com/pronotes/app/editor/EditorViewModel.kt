@@ -797,7 +797,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         }.onFailure { say("Couldn't open link in browser") }
     }
 
-    // ------------------------------------------------------------- mind maps
+    // ------------------------------------------------------------- Concept Maps
 
     fun selectedMindNode(): MindNodeItem? {
         val id = activeMindNodeId ?: return null
@@ -828,7 +828,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun fitMindMapToView() {
         val p = currentPage ?: return
         val nodes = p.items.filterIsInstance<MindNodeItem>()
-        if (nodes.isEmpty()) { say("No mind map on this page yet"); return }
+        if (nodes.isEmpty()) { say("No concept map on this page yet"); return }
         val r = RectF(nodes.first().bounds)
         nodes.drop(1).forEach { r.union(it.bounds) }
         r.inset(-110f, -110f)
@@ -1093,7 +1093,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             }
         }
 
-        // Keep non-whiteboard mind maps strictly within page margins
+        // Keep non-whiteboard concept maps strictly within page margins
         if (!p.isWhiteboard && pos.isNotEmpty()) {
             var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
             var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
@@ -1134,7 +1134,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun exportMindMapOutlineToPage() {
         val p = currentPage ?: return
         val nodes = p.items.filterIsInstance<MindNodeItem>()
-        if (nodes.isEmpty()) { say("Add mind map nodes first"); return }
+        if (nodes.isEmpty()) { say("Add concept map nodes first"); return }
         val byId = nodes.associateBy { it.id }
         val roots = nodes.filter { it.parentId == null || it.parentId !in byId }
         val children = nodes.filter { it.parentId != null && it.parentId in byId }.groupBy { it.parentId!! }
@@ -1156,13 +1156,13 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val outline = sb.toString().trim()
         beginEdit(pageIndex)
         applyItems(pageIndex, p.items + TextItem(ItemIds.next(), outline, 70f, 90f, 24f, penStyle.color))
-        say("Exported mind map outline onto page")
+        say("Exported concept map outline onto page")
     }
 
     fun flashcardsFromMindMap() {
         val p = currentPage ?: return
         val nodes = p.items.filterIsInstance<MindNodeItem>()
-        if (nodes.isEmpty()) { say("Add mind map nodes first"); return }
+        if (nodes.isEmpty()) { say("Add concept map nodes first"); return }
         val byId = nodes.associateBy { it.id }
         val children = nodes.filter { it.parentId != null && it.parentId in byId }.groupBy { it.parentId!! }
         val have = cards.map { it.front.lowercase() }.toHashSet()
@@ -1194,9 +1194,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         if (add.isNotEmpty()) {
             cards = cards + add
             saveStudy()
-            say("Created ${add.size} flashcards from mind map")
+            say("Created ${add.size} flashcards from concept map")
         } else {
-            say("All mind map cards already exist")
+            say("All concept map cards already exist")
         }
     }
 
@@ -1247,7 +1247,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             val kept = nowPage.items.filterNot { it is MindNodeItem }
             applyItems(pageIdx, kept + outNodes)
             autoLayoutMindMap(MindLayout.RADIAL)
-            say("Built mind map (${outNodes.size} nodes)")
+            say("Built concept map (${outNodes.size} nodes)")
         }
     }
 
@@ -1703,7 +1703,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 val map = pages.withIndex().filter { it.value.pdfPage >= 0 }.associate { it.value.pdfPage to it.index }
                 if (index != null) hits += withContext(Dispatchers.Default) { index.search(query) { map[it] } }
             }
-            // Typed text, sticky notes, web links, write boxes, and mind map nodes are searchable.
+            // Typed text, sticky notes, web links, write boxes, and concept map nodes are searchable.
             pages.forEachIndexed { i, p ->
                 p.items.forEach { item ->
                     val text = when (item) {
@@ -1765,9 +1765,37 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     // ----------------------------------------------------------- study & selection feedback
     /** Short message shown at the bottom of the editor (null = none). */
     var toast by mutableStateOf<String?>(null)
-    private fun say(msg: String) {
+    var toastActionLabel by mutableStateOf<String?>(null)
+        private set
+    var toastAction by mutableStateOf<(() -> Unit)?>(null)
+        private set
+
+    fun dismissToast() {
+        toast = null
+        toastActionLabel = null
+        toastAction = null
+    }
+
+    private fun say(msg: String, actionLabel: String? = null, action: (() -> Unit)? = null) {
         toast = msg
-        viewModelScope.launch { delay(2600); if (toast == msg) toast = null }
+        toastActionLabel = actionLabel
+        toastAction = action
+        val duration = if (action != null) 3800L else 2600L
+        viewModelScope.launch {
+            delay(duration)
+            if (toast == msg && toastAction === action) dismissToast()
+        }
+    }
+
+    fun showHint(message: String) = say(message)
+
+    fun onScribbleErased() {
+        val app = getApplication<Application>()
+        say(
+            msg = app.getString(com.pronotes.app.R.string.msg_scribble_erased),
+            actionLabel = app.getString(com.pronotes.app.R.string.action_undo),
+            action = { undo() },
+        )
     }
     var pdfTextBusy by mutableStateOf(false)
         private set
@@ -1881,7 +1909,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         clearTextSel()
     }
 
-    /** Text to learn from: PDF text, typed text, sticky notes, web links, and mind map nodes. */
+    /** Text to learn from: PDF text, typed text, sticky notes, web links, and concept map nodes. */
     private suspend fun studyText(range: IntRange): Pair<String, String?> {
         val idx = textIndex()
         val sb = StringBuilder()
@@ -1910,9 +1938,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         return sb.toString() to firstPage
     }
 
-    // Local note text helpers (for search, slide deck builder, mind maps, and split clip)
+    // Local note text helpers (for search, slide deck builder, concept maps, and split clip)
 
-    /** Clips text (e.g. from Split Notes) directly onto the active page as a sticky note. */
+    /** Clips text (e.g. from Split View) directly onto the active page as a sticky note. */
     fun clipTextAsSticky(rawText: String, sourceTitle: String = "") {
         val p = currentPage ?: return
         val clean = rawText.trim().take(360)
@@ -1926,7 +1954,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         say("Clipped to sticky note")
     }
 
-    /** Inserts text (e.g. from Split Notes or import) onto the active page as a formatted text block. */
+    /** Inserts text (e.g. from Split View or import) onto the active page as a formatted text block. */
     fun clipTextAsPageItem(rawText: String, sourceTitle: String = "") {
         val p = currentPage ?: return
         val clean = rawText.trim().take(900)
@@ -2366,7 +2394,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     }
 
     /**
-     * Converts freehand stylus/finger strokes drawn in a Samsung Notes-style Write-to-Text box
+     * Converts freehand stylus/finger strokes drawn in a Write Box
      * into structured lines and words using geometric feature classification.
      */
     fun recognizeHandwritingStrokesToText(
@@ -2576,7 +2604,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         say("Cleared all items on page ${pageIndex + 1}")
     }
 
-    // --------------------------------------------------------------- Flashcard v13 Enhancements
+    // --------------------------------------------------------------- Flashcard Enhancements
 
     fun toggleStarCard(id: String) {
         cards = cards.map { if (it.id == id) it.copy(starred = !it.starred) else it }
@@ -2681,7 +2709,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                                     back = item.notes,
                                     pageId = page.id,
                                     created = now,
-                                    hint = item.tag.ifBlank { "Mind Map · Page ${pIdx + 1}" }
+                                    hint = item.tag.ifBlank { "Concept Map · Page ${pIdx + 1}" }
                                 )
                             }
                         }
@@ -2714,7 +2742,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 saveStudy()
                 say("Generated ${newCards.size} flashcard${if (newCards.size == 1) "" else "s"} from notes")
             } else {
-                say("Add headings, 'Term: Definition' lines, stickies, or mind map notes first")
+                say("Add headings, 'Term: Definition' lines, stickies, or concept map notes first")
             }
         }
     }

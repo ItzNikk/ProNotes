@@ -114,7 +114,7 @@ enum class ProIcon(internal val parts: List<Part>) {
         P("M12 3.2v2.4M12 18.4v2.4M3.2 12h2.4M18.4 12h2.4"),
         P("M5.8 5.8l1.7 1.7M16.5 16.5l1.7 1.7M18.2 5.8l-1.7 1.7M7.5 16.5l-1.7 1.7"),
     )),
-    // Ultra v9.11 glyphs for Web Links, Slide Show, Split, Mind Map Fit, Custom AI, and 3-dots menus
+    // Glyphs for Web Links, Slide Show, Split View, Concept Map Fit, and More menus
     WEBLINK(listOf(
         P("M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71", body = true),
         P("M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"),
@@ -192,7 +192,7 @@ internal fun adaptiveInkBorderColor(ink: Color, baseTint: Color): Color {
     val inkLum = ink.luminance()
     val tintLum = baseTint.luminance()
     return when {
-        inkLum > 0.65f -> Color(0xFF14171F) // Bright/white/yellow ink -> crisp obsidian border
+        inkLum > 0.65f -> Color(0xFF14171F) // Bright/white/yellow ink -> crisp dark border
         inkLum < 0.25f -> Color(0xFFF8FAFC) // Dark/black/navy ink -> crisp snow border
         else -> if (tintLum > 0.5f) Color(0xFFF8FAFC) else Color(0xFF14171F)
     }

@@ -78,7 +78,6 @@ import androidx.compose.material.icons.outlined.VolumeOff
 import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -461,7 +460,7 @@ fun BookReaderHubScreen(
                 }
                 Column(Modifier.weight(1f)) {
                     Text(
-                        "Book Reader",
+                        "Reader Mode",
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontFamily = FontFamily.Serif,
                             fontWeight = FontWeight.Bold,
@@ -603,7 +602,7 @@ fun BookReaderHubScreen(
             }
         }
 
-        // Bottom tab bar switching cleanly between Library and Book Reader
+        // Bottom tab bar switching cleanly between Library and Reader Mode
         Box(
             Modifier
                 .align(Alignment.BottomCenter)
@@ -780,7 +779,7 @@ private fun BookShelfTile(
 }
 
 /**
- * Full-screen dedicated Book Reader with real curved page-peel physics, tablet 2-page open book
+ * Full-screen dedicated Reader Mode with real curved page-peel physics, tablet 2-page open book
  * spread, warm paper themes, PDF skeleton page loader previews, bookmarks, contents drawer,
  * text search, and persisted reading position.
  */

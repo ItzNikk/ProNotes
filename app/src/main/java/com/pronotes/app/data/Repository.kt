@@ -82,7 +82,7 @@ class Repository private constructor(private val context: Context) {
             paper = PaperStyle.CORNELL,
             items = listOf(
                 ItemDoc.Text(
-                    text = "Welcome to Pro Notes v13",
+                    text = "Welcome to Pro Notes",
                     x = 76f,
                     y = 74f,
                     size = 38f,
@@ -91,11 +91,11 @@ class Repository private constructor(private val context: Context) {
                     bold = true
                 ),
                 ItemDoc.Text(
-                    text = "• Write-to-Text Box: Tap the Text tool to handwrite in a ruled box that converts to live text, or type directly.\n" +
+                    text = "• Write Box: Tap the Text tool to handwrite in a ruled box that converts to live text, or type directly.\n" +
                         "• Keyboard Mode: Tap the Keyboard icon in the top bar for full-page rich note typing.\n" +
-                        "• Smart Eraser Filter: Choose whether to erase Pen Ink, Highlighter, Shapes, Text, Stickies, or Images.\n" +
+                        "• Eraser Filters: Choose whether to erase pen ink, highlighter, shapes, text, stickies, or images.\n" +
                         "• Multi-Format Import: Import PDF, Word (.docx), PowerPoint (.pptx), Excel/Sheets (.xlsx/.csv), and EPUB.\n" +
-                        "• Realistic Book Reader: Enjoy 3D paper-flip physics with real paper rustle & page-turn audio.",
+                        "• Reader Mode: Enjoy curved page-turn physics with optional paper-turn audio.",
                     x = 76f,
                     y = 148f,
                     size = 24f,
@@ -108,7 +108,7 @@ class Repository private constructor(private val context: Context) {
                     w = 760f,
                     h = 260f,
                     lineSpacing = 48f,
-                    convertedText = "Samsung Notes Style Write-to-Text Box — Double-tap or use the Text tool to write or type here!",
+                    convertedText = "Write Box — Double-tap or use the Text tool to handwrite or type here.",
                     isConverted = true,
                     font = "SANS",
                     fontSize = 24f
@@ -120,7 +120,7 @@ class Repository private constructor(private val context: Context) {
                     h = 240f,
                     color = 0xFFFFF3A3.toInt(),
                     title = "Quick Tip",
-                    text = "Dock the toolbar to Top, Bottom, Left, or Right — or switch between 8 UI Color Schemes in Settings!",
+                    text = "Dock the toolbar to Top, Bottom, Left, or Right — or switch between 8 UI color schemes in Settings.",
                     fontSize = 21f
                 ),
                 ItemDoc.MindNode(
@@ -129,7 +129,7 @@ class Repository private constructor(private val context: Context) {
                     y = 820f,
                     w = 240f,
                     h = 84f,
-                    label = "Pro Notes v13",
+                    label = "Pro Notes",
                     parentId = null,
                     color = 0xFF3D6CF4.toInt(),
                     shape = "pill",
@@ -141,7 +141,7 @@ class Repository private constructor(private val context: Context) {
                     y = 760f,
                     w = 230f,
                     h = 78f,
-                    label = "Write-to-Text & Keyboard",
+                    label = "Write Box & Keyboard Mode",
                     parentId = 1001L,
                     color = 0xFF2BB673.toInt(),
                     shape = "rounded",
@@ -153,7 +153,7 @@ class Repository private constructor(private val context: Context) {
                     y = 880f,
                     w = 230f,
                     h = 78f,
-                    label = "3D Book Reader & Flashcards",
+                    label = "Reader Mode & Flashcards",
                     parentId = 1001L,
                     color = 0xFFF2994A.toInt(),
                     shape = "rounded",
@@ -169,7 +169,7 @@ class Repository private constructor(private val context: Context) {
                 notebooks = listOf(
                     NotebookMeta(
                         id = id,
-                        title = "Welcome to Pro Notes v13",
+                        title = "Welcome to Pro Notes",
                         folderId = null,
                         coverColor = CoverColors[0],
                         paper = PaperStyle.CORNELL,
@@ -187,20 +187,20 @@ class Repository private constructor(private val context: Context) {
             val starterCards = listOf(
                 Flashcard(
                     id = UUID.randomUUID().toString(),
-                    front = "How do you use the Samsung Notes-style Write-to-Text box?",
-                    back = "Select the Text tool (or Write Box) on the canvas, handwrite with your stylus inside the lined pad to auto-convert strokes to text, or switch to Keyboard mode.",
+                    front = "How do you use a Write Box?",
+                    back = "Select the Text tool on the canvas, handwrite with your stylus inside the ruled box to convert strokes to text, or switch to Keyboard Mode.",
                     pageId = page1.id,
                     created = now,
                     starred = true,
-                    hint = "Look at the Text / Write Box tool"
+                    hint = "Look at the Text tool"
                 ),
                 Flashcard(
                     id = UUID.randomUUID().toString(),
-                    front = "What file formats can Pro Notes v13 import?",
+                    front = "What file formats can Pro Notes import?",
                     back = "PDF, Word (.docx/.doc/.odt/.rtf), PowerPoint (.pptx/.ppt/.odp), Excel/Sheets (.xlsx/.xls/.ods/.csv/.tsv), EPUB books, Markdown, Text, and Images.",
                     pageId = page1.id,
                     created = now,
-                    hint = "Office + Books + Notes"
+                    hint = "Documents + Books + Notes"
                 )
             )
             studyStore.save(StudyData(cards = starterCards))
@@ -231,7 +231,6 @@ class Repository private constructor(private val context: Context) {
     fun noteDir(id: String) = File(root, id).apply { mkdirs() }
     private fun pagesDir(id: String) = File(noteDir(id), "pages").apply { mkdirs() }
     private fun manifestFile(id: String) = File(noteDir(id), "pages.index.json")
-    private fun pageFile(id: String, pageId: String) = File(pagesDir(id), "$pageId.json")
     fun pdfFile(id: String) = File(noteDir(id), "source.pdf")
     fun thumbFile(id: String) = File(noteDir(id), "thumb.png")
 
@@ -500,7 +499,7 @@ class Repository private constructor(private val context: Context) {
         id
     }
 
-    /** Creates a paginated notebook from pasted notes/Markdown/HTML/plain text copied from Notion, Obsidian, Keep, Apple Notes, etc. */
+    /** Creates a paginated notebook from pasted notes, Markdown, HTML, or plain text. */
     suspend fun importStructuredText(title: String, rawText: String, folderId: String?): String = withContext(Dispatchers.IO) {
         val id = UUID.randomUUID().toString()
         val cleanTitle = title.trim().ifBlank { deriveTitleFromText(rawText) }

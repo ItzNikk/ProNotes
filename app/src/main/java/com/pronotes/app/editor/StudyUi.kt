@@ -391,7 +391,7 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                 if (vm.cards.isEmpty()) {
                                     AppCard(hero = false, shape = appCardShape(), contentPadding = PaddingValues(18.dp), modifier = Modifier.fillMaxWidth()) {
                                         Text(
-                                            "Your deck is empty. Tap 'Auto-Generate from Notes' to build cards from your text, sticky notes, and mind map, or cut any diagram directly from a page.",
+                                            "Your deck is empty. Tap 'Auto-Generate from Notes' to build cards from your text, sticky notes, and concept map, or cut any diagram directly from a page.",
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }

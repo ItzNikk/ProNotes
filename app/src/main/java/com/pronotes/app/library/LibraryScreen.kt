@@ -212,8 +212,10 @@ fun LibraryScreen(
             LibraryNewBookPrefs(it.defaultPreset, it.defaultLandscape, it.defaultPaper, it.thumbCovers, it.defaultCoverPage)
         }
     }.collectAsStateWithLifecycle(
-        initialValue = store.settings.value.let {
-            LibraryNewBookPrefs(it.defaultPreset, it.defaultLandscape, it.defaultPaper, it.thumbCovers, it.defaultCoverPage)
+        initialValue = remember(store) {
+            store.settings.value.let {
+                LibraryNewBookPrefs(it.defaultPreset, it.defaultLandscape, it.defaultPaper, it.thumbCovers, it.defaultCoverPage)
+            }
         },
     )
     val lib by repo.library.collectAsStateWithLifecycle()
@@ -446,10 +448,10 @@ fun LibraryScreen(
                                 onClick = onOpenBookReader,
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp),
                             ) {
-                                Icon(Icons.AutoMirrored.Outlined.MenuBook, "Book Reader", Modifier.size(17.dp))
+                                Icon(Icons.AutoMirrored.Outlined.MenuBook, "Reader Mode", Modifier.size(17.dp))
                                 if (wide) {
                                     Spacer(Modifier.width(5.dp))
-                                    Text("Book Reader", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                                    Text("Reader Mode", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
                                 }
                             }
                             AppPill(
@@ -537,12 +539,12 @@ fun LibraryScreen(
                                             onOpen(id)
                                         }
                                     },
-                                    AppMenuItem("Mind map canvas", icon = { Icon(Icons.Outlined.Hub, null, Modifier.size(18.dp)) }) {
+                                    AppMenuItem("Concept map canvas", icon = { Icon(Icons.Outlined.Hub, null, Modifier.size(18.dp)) }) {
                                         scope.launch {
                                             val k = PagePreset.UNITS_PER_MM
                                             val p = PagePreset.WHITEBOARD
                                             val id = repo.createNotebook(
-                                                "Mind map", folderId, 0xFF9B51E0.toInt(), PaperStyle.DOTTED,
+                                                "Concept Map", folderId, 0xFF9B51E0.toInt(), PaperStyle.DOTTED,
                                                 width = p.wMm * k, height = p.hMm * k, isWhiteboard = true,
                                             )
                                             val pages = repo.loadPages(id).toMutableList()
@@ -1324,7 +1326,7 @@ private fun Sidebar(
             ) {
                 Icon(Icons.AutoMirrored.Outlined.MenuBook, null, tint = ProButtonPalette.VibrantOrange)
                 Spacer(Modifier.width(12.dp))
-                Text("Book Reader", color = MaterialTheme.colorScheme.onSurface)
+                Text("Reader Mode", color = MaterialTheme.colorScheme.onSurface)
             }
             Row(
                 Modifier
@@ -2047,7 +2049,7 @@ private fun NewNotebookDialog(
                             }
                             if (preset.isWhiteboard) {
                                 Text(
-                                    "Unbounded infinite canvas with pan & zoom — great for diagrams, sketching, and mind maps.",
+                                    "Unbounded infinite canvas with pan & zoom — great for diagrams, sketching, and concept maps.",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.primary,
                                 )
@@ -2108,7 +2110,7 @@ private fun UpdatePill() {
     val store = remember { SettingsStore.get(context) }
     val updatePrefs by remember(store) {
         store.select { it.autoUpdateCheck to it.updateReminders }
-    }.collectAsStateWithLifecycle(initialValue = store.settings.value.let { it.autoUpdateCheck to it.updateReminders })
+    }.collectAsStateWithLifecycle(initialValue = remember(store) { store.settings.value.let { it.autoUpdateCheck to it.updateReminders } })
     val (autoUpdateCheck, updateReminders) = updatePrefs
     LaunchedEffect(autoUpdateCheck) {
         if (autoUpdateCheck || updateReminders) Updater.check(context, quiet = true)

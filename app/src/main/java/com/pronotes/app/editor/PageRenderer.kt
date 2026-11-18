@@ -116,7 +116,9 @@ class PageRenderer(private val noteDir: File?) {
         tapeTiles.clear()
         partsCache.clear()
     }
-    val strokeRenderer: CanvasStrokeRenderer = CanvasStrokeRenderer.create()
+    private val strokeRendererOrNull: CanvasStrokeRenderer? by lazy {
+        runCatching { CanvasStrokeRenderer.create() }.getOrNull()
+    }
 
     var paperColor: Int = Color.WHITE
 
@@ -861,7 +863,7 @@ class PageRenderer(private val noteDir: File?) {
                     scratch.set(worldToScreen)
                     if (moved) scratch.preConcat(transform!!)
                     scratch.preTranslate(item.dx, item.dy)
-                    strokeRenderer.draw(canvas, item.stroke, scratch)
+                    strokeRendererOrNull?.draw(canvas, item.stroke, scratch)
                     canvas.restore()
                 }
                 is TextItem -> drawText(canvas, item)
@@ -1113,7 +1115,7 @@ class PageRenderer(private val noteDir: File?) {
             }
 
             // Top-right indicator badge
-            val badge = if (item.isConverted) "CONVERTED TEXT · Tap for Ink" else "WRITE-TO-TEXT BOX · Tap to Convert"
+            val badge = if (item.isConverted) "CONVERTED TEXT · Tap for Ink" else "WRITE BOX · Tap to Convert"
             stickyTitleText.textSize = 11.5f
             val bw = stickyTitleText.measureText(badge) + 18f
             val badgeRect = RectF(r.right - bw - 10f, r.top + 6f, r.right - 10f, r.top + 26f)

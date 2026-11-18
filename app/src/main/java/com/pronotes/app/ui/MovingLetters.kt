@@ -21,7 +21,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -63,10 +62,7 @@ fun rememberAnimatedTextState(animateOnMount: Boolean = true): AnimatedTextState
 
 private enum class LetterMotionMode {
     SCALE_IN,
-    SCALE_OUT,
     FADE,
-    JUMP,
-    ROTATE,
 }
 
 @Composable
@@ -94,26 +90,6 @@ fun ScaleInAnimatedText(
 )
 
 @Composable
-fun ScaleOutAnimatedText(
-    text: String,
-    modifier: Modifier = Modifier,
-    style: TextStyle = LocalTextStyle.current,
-    color: Color = Color.Unspecified,
-    state: AnimatedTextState = rememberAnimatedTextState(animateOnMount = true),
-    staggerMs: Long = 26L,
-    startDelayMs: Long = 0L,
-) = MovingLettersCore(
-    text = text,
-    modifier = modifier,
-    style = style,
-    color = color,
-    state = state,
-    staggerMs = staggerMs,
-    startDelayMs = startDelayMs,
-    mode = LetterMotionMode.SCALE_OUT,
-)
-
-@Composable
 fun FadeAnimatedText(
     text: String,
     modifier: Modifier = Modifier,
@@ -131,46 +107,6 @@ fun FadeAnimatedText(
     staggerMs = staggerMs,
     startDelayMs = startDelayMs,
     mode = LetterMotionMode.FADE,
-)
-
-@Composable
-fun JumpAnimatedText(
-    text: String,
-    modifier: Modifier = Modifier,
-    style: TextStyle = LocalTextStyle.current,
-    color: Color = Color.Unspecified,
-    state: AnimatedTextState = rememberAnimatedTextState(animateOnMount = true),
-    staggerMs: Long = 32L,
-    startDelayMs: Long = 0L,
-) = MovingLettersCore(
-    text = text,
-    modifier = modifier,
-    style = style,
-    color = color,
-    state = state,
-    staggerMs = staggerMs,
-    startDelayMs = startDelayMs,
-    mode = LetterMotionMode.JUMP,
-)
-
-@Composable
-fun RotateAnimatedText(
-    text: String,
-    modifier: Modifier = Modifier,
-    style: TextStyle = LocalTextStyle.current,
-    color: Color = Color.Unspecified,
-    state: AnimatedTextState = rememberAnimatedTextState(animateOnMount = true),
-    staggerMs: Long = 30L,
-    startDelayMs: Long = 0L,
-) = MovingLettersCore(
-    text = text,
-    modifier = modifier,
-    style = style,
-    color = color,
-    state = state,
-    staggerMs = staggerMs,
-    startDelayMs = startDelayMs,
-    mode = LetterMotionMode.ROTATE,
 )
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -242,15 +178,11 @@ private fun MovingLettersCore(
                         if (progress.value < 1f) {
                             delay(startDelayMs + globalIndex * staggerMs)
                             val spec = when (mode) {
-                                LetterMotionMode.JUMP, LetterMotionMode.SCALE_IN -> spring<Float>(
+                                LetterMotionMode.SCALE_IN -> spring<Float>(
                                     dampingRatio = 0.58f,
                                     stiffness = Spring.StiffnessMediumLow,
                                 )
-                                LetterMotionMode.ROTATE -> spring<Float>(
-                                    dampingRatio = 0.65f,
-                                    stiffness = 260f,
-                                )
-                                LetterMotionMode.FADE, LetterMotionMode.SCALE_OUT -> tween<Float>(
+                                LetterMotionMode.FADE -> tween<Float>(
                                     durationMillis = 360,
                                     easing = FastOutSlowInEasing,
                                 )
@@ -272,25 +204,9 @@ private fun MovingLettersCore(
                                     scaleY = s
                                     translationY = (1f - p) * 14.dp.toPx()
                                 }
-                                LetterMotionMode.SCALE_OUT -> {
-                                    alpha = p.coerceIn(0f, 1f)
-                                    val s = 1.45f - 0.45f * p
-                                    scaleX = s
-                                    scaleY = s
-                                }
                                 LetterMotionMode.FADE -> {
                                     alpha = p.coerceIn(0f, 1f)
                                     translationY = (1f - p) * 8.dp.toPx()
-                                }
-                                LetterMotionMode.JUMP -> {
-                                    alpha = p.coerceIn(0f, 1f)
-                                    translationY = -(kotlin.math.sin((p.coerceIn(0f, 1f) * kotlin.math.PI).toFloat()) * 16.dp.toPx())
-                                }
-                                LetterMotionMode.ROTATE -> {
-                                    alpha = p.coerceIn(0f, 1f)
-                                    transformOrigin = TransformOrigin(0.5f, 1f)
-                                    rotationZ = (1f - p) * -42f
-                                    translationY = (1f - p) * 10.dp.toPx()
                                 }
                             }
                         },

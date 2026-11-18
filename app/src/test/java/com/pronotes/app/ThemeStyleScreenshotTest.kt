@@ -52,7 +52,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * Screenshot, theme-parity, contrast, and persistence checks across Pro Notes v12 screens.
+ * Screenshot, theme-parity, contrast, and persistence checks across Pro Notes screens.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -162,7 +162,8 @@ class ThemeStyleScreenshotTest {
             variants = listOf(AppearanceVariant(ThemeMode.LIGHT), AppearanceVariant(ThemeMode.DARK)),
         ) {
             rule.onAllNodesWithText("Pro Notes")[0].assertIsDisplayed()
-            rule.onNodeWithText("New notebook").assertIsDisplayed()
+            rule.onAllNodesWithText("Documents")[0].assertIsDisplayed()
+            rule.onNodeWithText("New").assertIsDisplayed()
         }
     }
 
@@ -182,7 +183,7 @@ class ThemeStyleScreenshotTest {
             screenName = "books",
             variants = listOf(AppearanceVariant(ThemeMode.LIGHT), AppearanceVariant(ThemeMode.DARK)),
         ) {
-            rule.onAllNodesWithText("Book Reader")[0].assertIsDisplayed()
+            rule.onAllNodesWithText("Reader Mode")[0].assertIsDisplayed()
         }
     }
 

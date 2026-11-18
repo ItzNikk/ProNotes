@@ -16,7 +16,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
@@ -41,33 +40,15 @@ import kotlin.math.min
 val Accent = Color(0xFF1A84FF)
 
 val LocalTitleGradient = compositionLocalOf<List<Color>?> { null }
-val LocalMotionStyle = compositionLocalOf { MotionStyle.ULTRA_SPRING }
+val LocalMotionStyle = compositionLocalOf { MotionStyle.SPRING }
 val LocalCornerRoundness = compositionLocalOf<Dp> { 20.dp }
 val LocalPerformanceMode = compositionLocalOf { PerformanceMode.BALANCED }
-val LocalUiColorScheme = compositionLocalOf { UiColorScheme.OBSIDIAN_STUDIO }
+val LocalUiColorScheme = compositionLocalOf { UiColorScheme.SLATE_STUDIO }
 
 fun contrastRatio(fg: Color, bg: Color): Float {
     val l1 = fg.luminance()
     val l2 = bg.luminance()
     return (max(l1, l2) + 0.05f) / (min(l1, l2) + 0.05f)
-}
-
-fun ensureContrastOverBackgrounds(
-    surfaceColor: Color,
-    textColor: Color,
-    backdropCandidates: List<Color>,
-): Color {
-    var alpha = surfaceColor.alpha.coerceIn(0.15f, 0.96f)
-    repeat(18) {
-        val candidate = surfaceColor.copy(alpha = alpha)
-        val allPass = backdropCandidates.all { bg ->
-            val compositedSurface = candidate.compositeOver(bg)
-            contrastRatio(textColor, compositedSurface) >= 4.5f
-        }
-        if (allPass) return candidate
-        alpha = (alpha + 0.05f).coerceAtMost(0.96f)
-    }
-    return surfaceColor.copy(alpha = 0.96f)
 }
 
 private fun typographyFor(font: AppFont): Typography {
@@ -113,7 +94,7 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
     val uiScheme = settings.uiColorScheme
     val accent = settings.accent
     val schemePrimary = Color(uiScheme.seedPrimary)
-    val primary = if (uiScheme == UiColorScheme.OBSIDIAN_STUDIO) Color(accent.argb) else lerp(schemePrimary, Color(accent.argb), 0.35f)
+    val primary = if (uiScheme == UiColorScheme.SLATE_STUDIO) Color(accent.argb) else lerp(schemePrimary, Color(accent.argb), 0.35f)
     val secondary = Color(uiScheme.seedSecondary)
     val lightBg = Color(uiScheme.lightBg)
     val lightSurf = Color(uiScheme.lightSurface)
@@ -140,7 +121,7 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
     val darkBg = Color(uiScheme.darkBg)
     val darkSurf = Color(uiScheme.darkSurface)
     val darkVar = lerp(darkSurf, Color.White, 0.05f)
-    val darkPrimary = if (accent == AccentColor.GRAPHITE && uiScheme == UiColorScheme.OBSIDIAN_STUDIO) {
+    val darkPrimary = if (accent == AccentColor.GRAPHITE && uiScheme == UiColorScheme.SLATE_STUDIO) {
         Color(0xFF93C5FD)
     } else {
         lerp(primary, Color.White, 0.26f)

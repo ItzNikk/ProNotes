@@ -16,8 +16,8 @@ android {
         applicationId = "com.pronotes.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = (System.getenv("VERSION_CODE") ?: "13").toInt()
-        versionName = System.getenv("VERSION_NAME") ?: "13.0.0"
+        versionCode = (System.getenv("VERSION_CODE") ?: "14").toInt()
+        versionName = System.getenv("VERSION_NAME") ?: "13.1.0"
         // Developer support: set pronotes.upi / pronotes.upiName in gradle.properties
         // (or SUPPORT_UPI / SUPPORT_UPI_NAME in CI). Empty hides UPI payment button, while support messages remain visible.
         val upi = System.getenv("SUPPORT_UPI") ?: (project.findProperty("pronotes.upi") as String? ?: "")
@@ -91,11 +91,6 @@ android {
         buildConfig = true
     }
 
-    lint {
-        abortOnError = false
-        checkReleaseBuilds = false
-    }
-
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
@@ -125,7 +120,6 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.animation:animation")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material3:material3-adaptive-navigation-suite")
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
 
     implementation("androidx.core:core-ktx:1.16.0")
