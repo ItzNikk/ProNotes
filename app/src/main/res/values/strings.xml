@@ -62,6 +62,8 @@
     <!-- Quick Actions & Quick Insert -->
     <string name="quick_actions_title">Quick Actions</string>
     <string name="quick_actions_close">Close Quick Actions</string>
+    <string name="quick_actions_previous_tool">Previous tool</string>
+    <string name="quick_actions_tool_settings">Tool settings</string>
     <string name="quick_insert_title">Quick Insert</string>
     <string name="quick_insert_write_box">Write Box</string>
     <string name="quick_insert_text_box">Text box</string>
@@ -70,6 +72,15 @@
     <string name="quick_insert_image">Image</string>
     <string name="quick_insert_sticker">Sticker</string>
     <string name="quick_insert_paste">Paste</string>
+
+    <!-- Reader Mode accessibility -->
+    <string name="reader_previous_page">Previous page</string>
+    <string name="reader_next_page">Next page</string>
+    <string name="reader_bookmark_add">Bookmark page</string>
+    <string name="reader_bookmark_remove">Remove bookmark</string>
+    <string name="reader_display_settings">Reading display settings</string>
+    <string name="reader_contents">Table of contents and bookmarks</string>
+    <string name="reader_search">Search inside book</string>
 
     <!-- Selection (Lasso) actions -->
     <string name="selection_link">Link</string>

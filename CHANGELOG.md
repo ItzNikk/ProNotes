@@ -2,6 +2,22 @@
 
 All notable changes to Pro Notes are documented in this file.
 
+## v13.4.0 — 2026-11-18
+
+### Improved
+- **Modular Screen Architecture:** Extracted `EditorDialogs.kt` (`MindNodeDialog`, `StickerSheet`, `TextDialog`, `KeyboardNoteModeOverlay`, `StudyTimer`, `WebLinkDialog`) from `EditorScreen.kt`, `BookReaderCanvas.kt` (`BookFlipSoundEngine`, `BookCurlStage`, `BookSheetFrame`, `BookPageSurface`, `BookPageLoaderPreview`) from `BookReaderArea.kt`, and `LibraryDialogs.kt` (`PdfImportLoaderOverlay`, `ManageTagsDialog`, `FolderDialog`, `CoverDialog`, `NewNotebookDialog`, and helper dialogs) from `LibraryScreen.kt`.
+- **Naming & Copy Hygiene:** Standardised remaining masking tape documentation and eraser filter copy (`Sticky notes and masking tape`), aligned `Keyboard Mode` and `Link Preview` modal titles, and removed remaining exclamation marks from user-facing copy.
+- **Support Screen Accessibility & Motion:** Added 48 dp minimum touch sizing to the Support Back control and wired `LocalReduceMotion` to skip appreciation burst animations when system animations are disabled.
+- **Release Alignment:** Updated default application version metadata to `13.4.0` (`versionCode = 15`) and synced `docs/ARCHITECTURE.md`.
+
+## v13.3.0 — 2026-11-18
+
+### Improved
+- **Studio Toolbar Redesign & Mechanics:** Rebuilt `EditorToolbar.kt` around grouped History, borderless Tool Tray, Preset, and Layout capsules with an animated active tool pill, proportional dot `SizeDots`, horizontal and vertical drag-to-reorder, and live dock edge snap preview rails when dragging the floating toolbar.
+- **Anchored Quick Actions Popup:** Replaced the full-screen dimmed/blurred `Quick Actions` overlay with a compact native Compose `Popup` (`268 dp`) anchored at the stylus pointer without blurring the canvas, featuring Undo/Redo, Previous tool swap, a 3×3 tool matrix, quick ink swatches, and direct `Tool settings` access.
+- **Editor Modularisation:** Extracted `EditorPanels.kt` (`TabStrip`, `TopBar`, `SearchBar`, `PagesPanel`, `WriteBoxStudioBar`) and `SplitViewPanel.kt` (`SplitPanel`) out of `EditorScreen.kt`, trimming over 1,200 lines from the primary editor file.
+- **Reader Mode & Library Accessibility and Motion Compliance:** Wired `LocalReduceMotion` across `BookReaderArea.kt` (instant page turns, disabled infinite loader shimmer, snapped chrome transitions) and `LibraryScreen.kt` (snapped sidebar, grid/list switches, item motion, and PDF import loader shimmer), added localised `reader_*` accessibility strings, and enforced 48 dp minimum touch targets.
+
 ## v13.2.0 — 2026-11-18
 
 ### New

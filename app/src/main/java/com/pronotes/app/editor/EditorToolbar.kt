@@ -1,6 +1,7 @@
 package com.pronotes.app.editor
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -52,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -95,9 +97,8 @@ import com.pronotes.app.ui.ToolGlyph
 import com.pronotes.app.ui.appPillShape
 import kotlin.math.abs
 
-private val DockDarkBg = Color(0xFF1A1C23)
-private val DockLightBg = Color(0xFFFAF8F3)
-private val TealActiveTile = Color(0xFF2F7F93)
+private val DockDarkBg = Color(0xFF171A22)
+private val DockLightBg = Color(0xFFFCFBF7)
 
 @Composable
 fun toolDisplayName(t: Tool): String = when (t) {
@@ -116,9 +117,26 @@ fun toolDisplayName(t: Tool): String = when (t) {
     Tool.LASER -> stringResource(R.string.tool_laser)
 }
 
+fun shortToolLabel(t: Tool): String = when (t) {
+    Tool.PEN -> "Pen"
+    Tool.HIGHLIGHTER -> "Highlight"
+    Tool.ERASER -> "Eraser"
+    Tool.SHAPE -> "Shapes"
+    Tool.LASSO -> "Selection"
+    Tool.MINDMAP -> "Concept"
+    Tool.IMAGE -> "Image"
+    Tool.TEXT -> "Text"
+    Tool.STICKY -> "Sticky"
+    Tool.WEBLINK -> "Link"
+    Tool.TAPE -> "Tape"
+    Tool.STICKER -> "Sticker"
+    Tool.LASER -> "Laser"
+}
+
 /**
- * Full-width or full-height docked toolbar rendered outside the canvas viewport so the colour bar
- * and active tool controls never overlap the page content.
+ * Full-width or full-height studio toolbar rendered outside the canvas viewport so active tool
+ * presets, colour swatches, and controls remain separated into crisp tonal capsules without
+ * cluttering or covering the page content.
  */
 @Composable
 fun AdaptiveFixedToolbar(
@@ -135,9 +153,12 @@ fun AdaptiveFixedToolbar(
     val isVertical = settings.toolbarDock == ToolbarDock.LEFT || settings.toolbarDock == ToolbarDock.RIGHT
     val barBg = if (darkUi) DockDarkBg else DockLightBg
     val barFg = if (darkUi) Color(0xFFF3F4F6) else Color(0xFF181A1F)
-    val dividerColor = barFg.copy(alpha = 0.16f)
+    val trayBg = if (darkUi) Color.White.copy(alpha = 0.055f) else Color(0xFF0F172A).copy(alpha = 0.042f)
+    val trayBorder = if (darkUi) Color.White.copy(alpha = 0.10f) else Color(0xFF0F172A).copy(alpha = 0.08f)
+    val dividerColor = barFg.copy(alpha = 0.12f)
     val reduceEffects = LocalReduceEffects.current
-    val store = SettingsStore.get(LocalContext.current)
+    val context = LocalContext.current
+    val store = remember(context) { SettingsStore.get(context) }
     val density = LocalDensity.current.density
     val visibleTools = remember(settings.toolbarTools) { ToolbarOrder.visible(settings.toolbarTools) }
 
@@ -149,11 +170,11 @@ fun AdaptiveFixedToolbar(
         shadowElevation = if (reduceEffects) 0.dp else 4.dp,
         borderColor = dividerColor,
         contentPadding = PaddingValues(
-            horizontal = if (isVertical) 4.dp else 10.dp,
-            vertical = if (isVertical) 8.dp else 4.dp,
+            horizontal = if (isVertical) 6.dp else 12.dp,
+            vertical = if (isVertical) 8.dp else 5.dp,
         ),
         modifier = modifier
-            .then(if (isVertical) Modifier.fillMaxHeight().width(64.dp) else Modifier.fillMaxWidth()),
+            .then(if (isVertical) Modifier.fillMaxHeight().width(70.dp) else Modifier.fillMaxWidth()),
     ) {
         BoxWithConstraints(
             modifier = if (isVertical) Modifier.fillMaxHeight() else Modifier.fillMaxWidth(),
@@ -161,8 +182,8 @@ fun AdaptiveFixedToolbar(
             val availablePx = with(LocalDensity.current) {
                 if (isVertical) maxHeight.toPx().toInt() else maxWidth.toPx().toInt()
             }
-            val slotPx = (52f * density).toInt()
-            val reservedPx = if (isVertical) (180f * density).toInt() else (370f * density).toInt()
+            val slotPx = (50f * density).toInt()
+            val reservedPx = if (isVertical) (196f * density).toInt() else (390f * density).toInt()
             val layout = remember(settings.toolbarDock, settings.toolbarStyle, visibleTools, vm.tool, availablePx, slotPx, reservedPx) {
                 ToolbarGeometry.computeAdaptiveLayout(
                     dockEdge = settings.toolbarDock,
@@ -191,68 +212,37 @@ fun AdaptiveFixedToolbar(
                         .fillMaxHeight()
                         .verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    ToolbarLayoutMenuButton(
-                        settings = settings,
-                        fgColor = barFg,
-                        onSelectDock = onSelectDock,
-                        onSelectStyle = onSelectStyle,
-                        onResetPosition = onResetPosition,
-                    )
-                    ToolbarUndoRedoCluster(
-                        vm = vm,
-                        vertical = true,
-                        fgColor = barFg,
-                    )
-                    Box(Modifier.width(28.dp).height(1.dp).background(dividerColor))
-                    layout.pinnedTools.forEach { t ->
-                        ToolButton(
-                            vm = vm,
-                            t = t,
+                    // Cluster 1: Layout switcher & Undo/Redo capsule
+                    Column(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(trayBg)
+                            .border(1.dp, trayBorder, RoundedCornerShape(16.dp))
+                            .padding(vertical = 3.dp, horizontal = 3.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        ToolbarLayoutMenuButton(
                             settings = settings,
-                            darkUi = darkUi,
-                            barFg = barFg,
-                            popoverOpen = activePopoverTool == t,
-                            onOpenPopover = { onTogglePopover(t) },
-                            onReorderStep = reorderTool,
-                        )
-                    }
-                    if (layout.overflowTools.isNotEmpty()) {
-                        OverflowToolsButton(
-                            tools = layout.overflowTools,
-                            vm = vm,
                             fgColor = barFg,
-                            onPickTool = { picked ->
-                                if (vm.tool == picked) onTogglePopover(picked) else vm.tool = picked
-                            },
+                            onSelectDock = onSelectDock,
+                            onSelectStyle = onSelectStyle,
+                            onResetPosition = onResetPosition,
                         )
+                        ToolbarUndoRedoCluster(vm = vm, vertical = true, fgColor = barFg)
                     }
-                    Box(Modifier.width(28.dp).height(1.dp).background(dividerColor))
-                    ToolOptions(
-                        vm = vm,
-                        vertical = true,
-                        settings = settings,
-                        dockFg = barFg,
-                        darkDock = darkUi,
-                    )
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    ToolbarUndoRedoCluster(
-                        vm = vm,
-                        vertical = false,
-                        fgColor = barFg,
-                    )
-                    Box(Modifier.width(1.dp).height(26.dp).background(dividerColor))
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterHorizontally),
+
+                    // Cluster 2: Tool deck tray
+                    Column(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(trayBg)
+                            .border(1.dp, trayBorder, RoundedCornerShape(18.dp))
+                            .padding(vertical = 4.dp, horizontal = 3.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
                         layout.pinnedTools.forEach { t ->
                             ToolButton(
@@ -262,6 +252,7 @@ fun AdaptiveFixedToolbar(
                                 darkUi = darkUi,
                                 barFg = barFg,
                                 popoverOpen = activePopoverTool == t,
+                                verticalBar = true,
                                 onOpenPopover = { onTogglePopover(t) },
                                 onReorderStep = reorderTool,
                             )
@@ -276,35 +267,137 @@ fun AdaptiveFixedToolbar(
                                 },
                             )
                         }
-                        Box(Modifier.padding(horizontal = 4.dp).width(1.dp).height(26.dp).background(dividerColor))
-                        Row(
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                            verticalAlignment = Alignment.CenterVertically,
+                    }
+
+                    // Cluster 3: Active tool preset capsule
+                    if (toolHasInlineOptions(vm.tool)) {
+                        Column(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(trayBg)
+                                .border(1.dp, trayBorder, RoundedCornerShape(16.dp))
+                                .padding(vertical = 6.dp, horizontal = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             ToolOptions(
                                 vm = vm,
-                                vertical = false,
+                                vertical = true,
                                 settings = settings,
                                 dockFg = barFg,
                                 darkDock = darkUi,
                             )
                         }
                     }
-                    ToolbarLayoutMenuButton(
-                        settings = settings,
-                        fgColor = barFg,
-                        onSelectDock = onSelectDock,
-                        onSelectStyle = onSelectStyle,
-                        onResetPosition = onResetPosition,
-                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    // Cluster 1: History capsule
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(trayBg)
+                            .border(1.dp, trayBorder, RoundedCornerShape(16.dp))
+                            .padding(horizontal = 3.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ToolbarUndoRedoCluster(vm = vm, vertical = false, fgColor = barFg)
+                    }
+
+                    // Cluster 2: Centered tool tray + Preset capsule
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(trayBg)
+                                .border(1.dp, trayBorder, RoundedCornerShape(18.dp))
+                                .padding(horizontal = 4.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            layout.pinnedTools.forEach { t ->
+                                ToolButton(
+                                    vm = vm,
+                                    t = t,
+                                    settings = settings,
+                                    darkUi = darkUi,
+                                    barFg = barFg,
+                                    popoverOpen = activePopoverTool == t,
+                                    verticalBar = false,
+                                    onOpenPopover = { onTogglePopover(t) },
+                                    onReorderStep = reorderTool,
+                                )
+                            }
+                            if (layout.overflowTools.isNotEmpty()) {
+                                OverflowToolsButton(
+                                    tools = layout.overflowTools,
+                                    vm = vm,
+                                    fgColor = barFg,
+                                    onPickTool = { picked ->
+                                        if (vm.tool == picked) onTogglePopover(picked) else vm.tool = picked
+                                    },
+                                )
+                            }
+                        }
+
+                        if (toolHasInlineOptions(vm.tool)) {
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(trayBg)
+                                    .border(1.dp, trayBorder, RoundedCornerShape(16.dp))
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                ToolOptions(
+                                    vm = vm,
+                                    vertical = false,
+                                    settings = settings,
+                                    dockFg = barFg,
+                                    darkDock = darkUi,
+                                )
+                            }
+                        }
+                    }
+
+                    // Cluster 3: Dock & Style switcher capsule
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(trayBg)
+                            .border(1.dp, trayBorder, RoundedCornerShape(16.dp))
+                            .padding(horizontal = 2.dp, vertical = 2.dp),
+                    ) {
+                        ToolbarLayoutMenuButton(
+                            settings = settings,
+                            fgColor = barFg,
+                            onSelectDock = onSelectDock,
+                            onSelectStyle = onSelectStyle,
+                            onResetPosition = onResetPosition,
+                        )
+                    }
                 }
             }
         }
     }
 }
 
+private fun toolHasInlineOptions(t: Tool): Boolean = when (t) {
+    Tool.PEN, Tool.HIGHLIGHTER, Tool.SHAPE, Tool.ERASER, Tool.TEXT, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.MINDMAP -> true
+    else -> false
+}
+
 /**
- * Floating pill / compact toolbar rendered inside the canvas Box when Floating pill, Compact, or Free dock is active.
+ * Sleek draggable floating pill or compact toolbar rendered inside the canvas viewport.
  */
 @Composable
 fun FloatingToolbarPill(
@@ -325,11 +418,13 @@ fun FloatingToolbarPill(
 ) {
     val dockBg = if (darkUi) DockDarkBg else DockLightBg
     val dockFg = if (darkUi) Color.White else Color(0xFF1E2321)
-    val dividerColor = dockFg.copy(alpha = 0.20f)
+    val trayBg = if (darkUi) Color.White.copy(alpha = 0.06f) else Color(0xFF0F172A).copy(alpha = 0.045f)
+    val dividerColor = dockFg.copy(alpha = 0.14f)
     val reduceEffects = LocalReduceEffects.current
     val density = LocalDensity.current.density
     val visibleTools = remember(settings.toolbarTools) { ToolbarOrder.visible(settings.toolbarTools) }
-    val store = SettingsStore.get(LocalContext.current)
+    val context = LocalContext.current
+    val store = remember(context) { SettingsStore.get(context) }
 
     val layout = remember(settings.toolbarDock, settings.toolbarStyle, visibleTools, vm.tool, area, density) {
         val isVert = settings.toolbarDock == ToolbarDock.LEFT || settings.toolbarDock == ToolbarDock.RIGHT
@@ -341,7 +436,7 @@ fun FloatingToolbarPill(
             activeTool = vm.tool,
             availablePx = availablePx.coerceAtLeast((220f * density).toInt()),
             slotExtentPx = (50f * density).toInt(),
-            reservedPx = if (isVert) (110f * density).toInt() else (190f * density).toInt(),
+            reservedPx = if (isVert) (110f * density).toInt() else (196f * density).toInt(),
         )
     }
 
@@ -349,16 +444,14 @@ fun FloatingToolbarPill(
     val dens = LocalDensity.current
     val areaW = with(dens) { area.width.toDp() }
     val areaH = with(dens) { area.height.toDp() }
-    val maxDockW = if (isVertical) 62.dp else (areaW - 24.dp).coerceAtLeast(220.dp)
+    val maxDockW = if (isVertical) 68.dp else (areaW - 24.dp).coerceAtLeast(220.dp)
     val maxDockH = if (isVertical) (areaH - 24.dp).coerceAtLeast(220.dp) else 84.dp
 
     val dragHandleDesc = stringResource(R.string.toolbar_drag_handle)
 
     val dragHandleModifier = Modifier
         .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-        .clip(RoundedCornerShape(12.dp))
-        .background(dockFg.copy(alpha = 0.08f))
-        .border(1.dp, dockFg.copy(alpha = 0.22f), RoundedCornerShape(12.dp))
+        .clip(RoundedCornerShape(14.dp))
         .semantics { contentDescription = dragHandleDesc }
         .focusable()
         .pointerInput(Unit) {
@@ -382,15 +475,15 @@ fun FloatingToolbarPill(
         role = SurfaceRole.Chrome,
         containerColor = dockBg,
         contentColor = dockFg,
-        shape = if (isVertical) RoundedCornerShape(22.dp) else appPillShape(),
-        shadowElevation = if (reduceEffects) 0.dp else 10.dp,
-        borderColor = if (darkUi) Color.White.copy(alpha = 0.22f) else Color(0xFF0F172A).copy(alpha = 0.18f),
+        shape = if (isVertical) RoundedCornerShape(26.dp) else appPillShape(),
+        shadowElevation = if (reduceEffects) 0.dp else 12.dp,
+        borderColor = if (darkUi) Color.White.copy(alpha = 0.16f) else Color(0xFF0F172A).copy(alpha = 0.12f),
         contentPadding = PaddingValues(
-            horizontal = if (isVertical) 5.dp else 8.dp,
+            horizontal = if (isVertical) 6.dp else 8.dp,
             vertical = if (isVertical) 6.dp else 4.dp,
         ),
         modifier = modifier
-            .then(if (isVertical) Modifier.width(62.dp) else Modifier.widthIn(max = maxDockW))
+            .then(if (isVertical) Modifier.width(68.dp) else Modifier.widthIn(max = maxDockW))
             .height(if (isVertical) maxDockH else 60.dp)
             .graphicsLayer { alpha = overlayFade },
     ) {
@@ -413,13 +506,12 @@ fun FloatingToolbarPill(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Box(dragHandleModifier, contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Filled.DragIndicator,
-                        contentDescription = dragHandleDesc,
-                        tint = dockFg.copy(alpha = 0.85f),
-                        modifier = Modifier
-                            .size(18.dp)
-                            .graphicsLayer { rotationZ = 90f },
+                    Box(
+                        Modifier
+                            .width(24.dp)
+                            .height(4.dp)
+                            .clip(CircleShape)
+                            .background(dockFg.copy(alpha = 0.34f)),
                     )
                 }
                 ToolbarLayoutMenuButton(
@@ -429,59 +521,13 @@ fun FloatingToolbarPill(
                     onSelectStyle = onSelectStyle,
                     onResetPosition = onResetPosition,
                 )
-                Box(Modifier.height(1.dp).width(28.dp).background(dividerColor))
-                layout.pinnedTools.forEach { t ->
-                    ToolButton(
-                        vm = vm,
-                        t = t,
-                        settings = settings,
-                        darkUi = darkUi,
-                        barFg = dockFg,
-                        popoverOpen = activePopoverTool == t,
-                        onOpenPopover = { onTogglePopover(t) },
-                        onReorderStep = reorderTool,
-                    )
-                }
-                if (layout.overflowTools.isNotEmpty()) {
-                    OverflowToolsButton(
-                        tools = layout.overflowTools,
-                        vm = vm,
-                        fgColor = dockFg,
-                        onPickTool = { picked ->
-                            if (vm.tool == picked) onTogglePopover(picked) else vm.tool = picked
-                        },
-                    )
-                }
-                if (layout.showInlineOptions) {
-                    Box(Modifier.height(1.dp).width(28.dp).background(dividerColor))
-                    ToolOptions(vm = vm, vertical = true, settings = settings, dockFg = dockFg, darkDock = darkUi)
-                }
-            }
-        } else {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Box(dragHandleModifier, contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Filled.DragIndicator,
-                        contentDescription = dragHandleDesc,
-                        tint = dockFg.copy(alpha = 0.85f),
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-                ToolbarLayoutMenuButton(
-                    settings = settings,
-                    fgColor = dockFg,
-                    onSelectDock = onSelectDock,
-                    onSelectStyle = onSelectStyle,
-                    onResetPosition = onResetPosition,
-                )
-                Box(Modifier.width(1.dp).height(24.dp).background(dividerColor))
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                Column(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(trayBg)
+                        .padding(vertical = 3.dp, horizontal = 2.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     layout.pinnedTools.forEach { t ->
                         ToolButton(
@@ -491,6 +537,7 @@ fun FloatingToolbarPill(
                             darkUi = darkUi,
                             barFg = dockFg,
                             popoverOpen = activePopoverTool == t,
+                            verticalBar = true,
                             onOpenPopover = { onTogglePopover(t) },
                             onReorderStep = reorderTool,
                         )
@@ -505,11 +552,75 @@ fun FloatingToolbarPill(
                             },
                         )
                     }
-                    if (layout.showInlineOptions) {
-                        Box(Modifier.padding(horizontal = 2.dp).width(1.dp).height(24.dp).background(dividerColor))
+                }
+                if (layout.showInlineOptions && toolHasInlineOptions(vm.tool)) {
+                    Box(Modifier.height(1.dp).width(26.dp).background(dividerColor))
+                    ToolOptions(vm = vm, vertical = true, settings = settings, dockFg = dockFg, darkDock = darkUi)
+                }
+            }
+        } else {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Box(dragHandleModifier, contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Filled.DragIndicator,
+                        contentDescription = dragHandleDesc,
+                        tint = dockFg.copy(alpha = 0.56f),
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                Row(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(trayBg)
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 3.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    layout.pinnedTools.forEach { t ->
+                        ToolButton(
+                            vm = vm,
+                            t = t,
+                            settings = settings,
+                            darkUi = darkUi,
+                            barFg = dockFg,
+                            popoverOpen = activePopoverTool == t,
+                            verticalBar = false,
+                            onOpenPopover = { onTogglePopover(t) },
+                            onReorderStep = reorderTool,
+                        )
+                    }
+                    if (layout.overflowTools.isNotEmpty()) {
+                        OverflowToolsButton(
+                            tools = layout.overflowTools,
+                            vm = vm,
+                            fgColor = dockFg,
+                            onPickTool = { picked ->
+                                if (vm.tool == picked) onTogglePopover(picked) else vm.tool = picked
+                            },
+                        )
+                    }
+                }
+                if (layout.showInlineOptions && toolHasInlineOptions(vm.tool)) {
+                    Box(Modifier.padding(horizontal = 2.dp).width(1.dp).height(24.dp).background(dividerColor))
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         ToolOptions(vm = vm, vertical = false, settings = settings, dockFg = dockFg, darkDock = darkUi)
                     }
                 }
+                ToolbarLayoutMenuButton(
+                    settings = settings,
+                    fgColor = dockFg,
+                    onSelectDock = onSelectDock,
+                    onSelectStyle = onSelectStyle,
+                    onResetPosition = onResetPosition,
+                )
             }
         }
     }
@@ -527,22 +638,22 @@ private fun ToolbarUndoRedoCluster(
         Box(
             modifier = Modifier
                 .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(13.dp))
                 .focusable()
                 .clickable(enabled = vm.canUndo, role = Role.Button, onClickLabel = undoLabel, onClick = vm::undo),
             contentAlignment = Alignment.Center,
         ) {
-            ProIconView(ProIcon.UNDO, if (vm.canUndo) fgColor else fgColor.copy(alpha = 0.34f), Modifier.size(20.dp))
+            ProIconView(ProIcon.UNDO, if (vm.canUndo) fgColor else fgColor.copy(alpha = 0.28f), Modifier.size(19.dp))
         }
         Box(
             modifier = Modifier
                 .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(13.dp))
                 .focusable()
                 .clickable(enabled = vm.canRedo, role = Role.Button, onClickLabel = redoLabel, onClick = vm::redo),
             contentAlignment = Alignment.Center,
         ) {
-            ProIconView(ProIcon.REDO, if (vm.canRedo) fgColor else fgColor.copy(alpha = 0.34f), Modifier.size(20.dp))
+            ProIconView(ProIcon.REDO, if (vm.canRedo) fgColor else fgColor.copy(alpha = 0.28f), Modifier.size(19.dp))
         }
     }
     if (vertical) {
@@ -575,14 +686,21 @@ private fun OverflowToolsButton(
         Box(
             modifier = Modifier
                 .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .border(1.dp, fgColor.copy(alpha = 0.22f), RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(13.dp))
                 .semantics { contentDescription = desc }
                 .focusable()
                 .clickable(role = Role.Button, onClickLabel = desc) { open = true },
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Outlined.MoreHoriz, contentDescription = desc, tint = fgColor, modifier = Modifier.size(20.dp))
+            Icon(Icons.Outlined.MoreHoriz, contentDescription = desc, tint = fgColor.copy(alpha = 0.85f), modifier = Modifier.size(20.dp))
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 10.dp, end = 10.dp)
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(ProButtonPalette.ElectricBlue),
+            )
         }
         AppContextMenu(
             expanded = open,
@@ -606,14 +724,13 @@ private fun ToolbarLayoutMenuButton(
         Box(
             modifier = Modifier
                 .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .border(1.dp, fgColor.copy(alpha = 0.20f), RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(13.dp))
                 .semantics { contentDescription = desc }
                 .focusable()
                 .clickable(role = Role.Button, onClickLabel = desc) { open = true },
             contentAlignment = Alignment.Center,
         ) {
-            ProIconView(ProIcon.TOOLBAR, fgColor.copy(alpha = 0.85f), Modifier.size(18.dp))
+            ProIconView(ProIcon.TOOLBAR, fgColor.copy(alpha = 0.82f), Modifier.size(19.dp))
         }
         AppContextMenu(
             expanded = open,
@@ -659,12 +776,14 @@ fun ToolButton(
     darkUi: Boolean,
     barFg: Color,
     popoverOpen: Boolean,
+    verticalBar: Boolean = false,
     onOpenPopover: () -> Unit,
     onReorderStep: ((Tool, Int) -> Unit)? = null,
 ) {
     val selected = vm.tool == t
     val motion = LocalMotionStyle.current
     val reduceMotion = LocalReduceMotion.current
+    val reduceEffects = LocalReduceEffects.current
     val name = toolDisplayName(t)
     val ink = Color(
         vm.styleFor(t)?.color ?: when (t) {
@@ -674,7 +793,8 @@ fun ToolButton(
             else -> vm.penStyle.color
         },
     )
-    val sz = (38 * settings.toolbarSize.scale).coerceAtLeast(34f).dp
+    val tileW = (40 * settings.toolbarSize.scale).coerceIn(36f, 48f).dp
+    val tileH = (40 * settings.toolbarSize.scale).coerceIn(36f, 48f).dp
     val density = LocalDensity.current.density
     var hovered by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
@@ -699,7 +819,7 @@ fun ToolButton(
     )
 
     val dragReorderMod = if (onReorderStep != null) {
-        Modifier.pointerInput(t) {
+        Modifier.pointerInput(t, verticalBar) {
             val stepPx = 38f * density
             detectDragGesturesAfterLongPress(
                 onDragStart = {
@@ -725,7 +845,7 @@ fun ToolButton(
                     change.consume()
                     stretchDx = (stretchDx + amount.x).coerceIn(-26f * density, 26f * density)
                     stretchDy = (stretchDy + amount.y).coerceIn(-26f * density, 26f * density)
-                    dragAccum += amount.x
+                    dragAccum += if (verticalBar) amount.y else amount.x
                     if (abs(dragAccum) >= stepPx) {
                         val dir = if (dragAccum > 0f) 1 else -1
                         onReorderStep(t, dir)
@@ -736,19 +856,24 @@ fun ToolButton(
         }
     } else Modifier
 
-    val activeSlotBg = if (darkUi) Color(0xFFCBD5E1) else ProButtonPalette.RoyalBlue
-    val activeSlotFg = if (darkUi) Color(0xFF1A1A1A) else Color.White
+    val targetSlotBg = when {
+        dragging -> ProButtonPalette.SkyCyan
+        selected -> if (darkUi) ProButtonPalette.ElectricBlue else ProButtonPalette.RoyalBlue
+        hovered -> barFg.copy(alpha = 0.08f)
+        else -> Color.Transparent
+    }
+    val animatedSlotBg by animateColorAsState(
+        targetValue = targetSlotBg,
+        animationSpec = if (reduceMotion) snap() else spring(stiffness = Spring.StiffnessMediumLow),
+        label = "slotBg",
+    )
+    val activeSlotFg = Color.White
     val hasColorBar = t in setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.SHAPE, Tool.TEXT, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.MINDMAP)
     val inkLum = ink.luminance()
     val colorBarRim = when {
         inkLum > 0.68f -> Color(0xFF0F172A)
         inkLum < 0.24f -> Color(0xFFF8FAFC)
-        else -> if (darkUi) Color(0xFFF8FAFC) else Color(0xFF0F172A)
-    }
-    val cellBorderColor = when {
-        dragging -> ProButtonPalette.ElectricBlue
-        selected -> if (darkUi) Color.White else Color(0xFF1E3A8A)
-        else -> barFg.copy(alpha = 0.24f)
+        else -> if (selected || darkUi) Color(0xFFF8FAFC) else Color(0xFF0F172A)
     }
 
     Box(
@@ -763,23 +888,26 @@ fun ToolButton(
     ) {
         Box(
             modifier = Modifier
-                .size(sz)
+                .size(width = tileW, height = tileH)
                 .graphicsLayer {
                     translationX = offsetX
                     translationY = offsetY
+                    if (dragging && !reduceMotion) {
+                        scaleX = 1.08f
+                        scaleY = 1.08f
+                    }
                 }
-                .clip(RoundedCornerShape(12.dp))
-                .background(
-                    when {
-                        dragging -> ProButtonPalette.SkyCyan
-                        selected -> activeSlotBg
-                        else -> barFg.copy(alpha = 0.05f)
-                    },
+                .then(
+                    if ((selected || dragging) && !reduceEffects) {
+                        Modifier.shadow(4.dp, RoundedCornerShape(13.dp), ambientColor = ProButtonPalette.RoyalBlue, spotColor = ProButtonPalette.RoyalBlue)
+                    } else Modifier,
                 )
-                .border(
-                    width = if (selected || dragging) 1.5.dp else 1.dp,
-                    color = cellBorderColor,
-                    shape = RoundedCornerShape(12.dp),
+                .clip(RoundedCornerShape(13.dp))
+                .background(animatedSlotBg)
+                .then(
+                    if (selected || dragging) {
+                        Modifier.border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(13.dp))
+                    } else Modifier,
                 )
                 .pointerInput(t) {
                     awaitPointerEventScope {
@@ -800,28 +928,30 @@ fun ToolButton(
                 tool = t,
                 tint = tint,
                 inkColor = ink,
-                modifier = Modifier.size((20 * settings.toolbarSize.scale).dp),
+                modifier = Modifier
+                    .padding(bottom = if (hasColorBar) 3.dp else 0.dp)
+                    .size((20 * settings.toolbarSize.scale).dp),
                 active = selected || dragging,
             )
             if (hasColorBar) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = 2.5.dp)
-                        .size(width = 16.dp, height = 4.5.dp)
+                        .padding(bottom = 3.dp)
+                        .size(width = 16.dp, height = 3.5.dp)
                         .clip(CircleShape)
                         .background(ink)
-                        .border(0.9.dp, colorBarRim, CircleShape),
+                        .border(0.75.dp, colorBarRim.copy(alpha = 0.8f), CircleShape),
                 )
             }
             if (selected) {
                 Icon(
                     if (popoverOpen) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
                     contentDescription = null,
-                    tint = activeSlotFg.copy(alpha = 0.85f),
+                    tint = activeSlotFg.copy(alpha = 0.92f),
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(2.dp)
+                        .padding(top = 2.dp, end = 2.dp)
                         .size(11.dp),
                 )
             }
@@ -858,7 +988,8 @@ fun ToolOptions(
     dockFg: Color = MaterialTheme.colorScheme.onSurface,
     darkDock: Boolean = false,
 ) {
-    val store = SettingsStore.get(LocalContext.current)
+    val context = LocalContext.current
+    val store = remember(context) { SettingsStore.get(context) }
     val reduceMotion = LocalReduceMotion.current
     AnimatedContent(
         targetState = vm.tool,
@@ -908,8 +1039,8 @@ fun ToolOptions(
                 else -> Unit
             }
         }
-        if (vertical) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) { content() }
-        else Row(verticalAlignment = Alignment.CenterVertically) { content() }
+        if (vertical) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) { content() }
+        else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) { content() }
     }
 }
 
@@ -917,10 +1048,10 @@ fun ToolOptions(
 private fun MiniChip(label: String, onClick: () -> Unit) {
     AppPill(
         onClick = onClick,
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-        modifier = Modifier.padding(3.dp),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
+        modifier = Modifier.padding(horizontal = 2.dp),
     ) {
-        Text(label, style = MaterialTheme.typography.labelSmall)
+        Text(label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -943,13 +1074,14 @@ fun CustomSwatches(base: List<Int>, current: Int, vm: EditorViewModel, onPick: (
 fun AddSwatchButton(onClick: () -> Unit) {
     Box(
         Modifier
-            .defaultMinSize(minWidth = 36.dp, minHeight = 36.dp)
+            .defaultMinSize(minWidth = 38.dp, minHeight = 38.dp)
+            .clip(CircleShape)
             .clickable(role = Role.Button, onClickLabel = "Custom colour", onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             Modifier
-                .size(24.dp)
+                .size(22.dp)
                 .clip(CircleShape)
                 .background(
                     Brush.sweepGradient(
@@ -965,8 +1097,8 @@ fun AddSwatchButton(onClick: () -> Unit) {
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            Box(Modifier.size(15.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
-                Icon(Icons.Outlined.Add, "Custom colour", Modifier.size(11.dp))
+            Box(Modifier.size(14.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.Add, "Custom colour", Modifier.size(10.dp))
             }
         }
     }
@@ -989,9 +1121,9 @@ fun StyleOptions(
         vm.updateStyle(t, style.copy(size = sz))
     }
     if (vertical) {
-        Box(Modifier.padding(vertical = 4.dp).height(1.dp).width(22.dp).background(dockFg.copy(alpha = 0.2f)))
+        Box(Modifier.padding(vertical = 4.dp).height(1.dp).width(24.dp).background(dockFg.copy(alpha = 0.16f)))
     } else {
-        Box(Modifier.padding(horizontal = 6.dp).width(1.dp).height(22.dp).background(dockFg.copy(alpha = 0.2f)))
+        Box(Modifier.padding(horizontal = 6.dp).width(1.dp).height(20.dp).background(dockFg.copy(alpha = 0.16f)))
     }
     style.colors.forEachIndexed { i, c ->
         val selected = c == style.color
@@ -1039,23 +1171,28 @@ fun SizeDots(
     darkDock: Boolean = false,
     onPick: (Float) -> Unit,
 ) {
-    val activeBg = if (darkDock) Color(0xFF2D313B) else MaterialTheme.colorScheme.primaryContainer
+    val activeBg = if (darkDock) ProButtonPalette.ElectricBlue.copy(alpha = 0.24f) else MaterialTheme.colorScheme.primaryContainer
+    val activeStroke = if (darkDock) Color(0xFF93C5FD) else MaterialTheme.colorScheme.primary
     sizes.forEachIndexed { i, s ->
         val selected = s == current
         Box(
             Modifier
-                .padding(horizontal = 2.dp)
-                .size(36.dp)
+                .padding(horizontal = 1.dp)
+                .size(34.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(if (selected) activeBg else Color.Transparent)
+                .then(
+                    if (selected) Modifier.border(1.dp, activeStroke.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+                    else Modifier,
+                )
                 .clickable(role = Role.Button, onClickLabel = "Size ${s.toInt()}") { onPick(s) },
             contentAlignment = Alignment.Center,
         ) {
-            val w = (2 + 2.5f * i).dp
             if (ring) {
-                Box(Modifier.size((8 + 5 * i).dp).border(1.6.dp, fg, CircleShape))
+                Box(Modifier.size((8 + 5 * i).dp).border(1.6.dp, if (selected) activeStroke else fg, CircleShape))
             } else {
-                Box(Modifier.width(18.dp).height(w).clip(CircleShape).background(fg))
+                val dotDiameter = (4 + 3.5f * i).dp
+                Box(Modifier.size(dotDiameter).clip(CircleShape).background(if (selected) activeStroke else fg.copy(alpha = 0.85f)))
             }
         }
     }

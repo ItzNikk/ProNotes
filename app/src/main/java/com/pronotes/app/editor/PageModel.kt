@@ -105,7 +105,7 @@ data class ImageItem(
     override fun withId(newId: Long): PageItem = copy(id = newId)
 }
 
-/** Washi tape that hides what is under it until tapped. [revealed] is not saved. */
+/** Masking tape that hides what is under it until tapped. [revealed] is not saved. */
 @Stable
 data class TapeItem(
     override val id: Long,

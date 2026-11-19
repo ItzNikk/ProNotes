@@ -269,7 +269,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                             AppChip(
                                 selected = ef.stickyAndTape && !s.eraseHighlighterOnly,
                                 onClick = { up { it.copy(eraseHighlighterOnly = false, eraserFilter = ef.copy(stickyAndTape = !ef.stickyAndTape)) } },
-                                label = "Sticky & Washi Tape",
+                                label = "Sticky notes and masking tape",
                             )
                             AppChip(
                                 selected = ef.images && !s.eraseHighlighterOnly,

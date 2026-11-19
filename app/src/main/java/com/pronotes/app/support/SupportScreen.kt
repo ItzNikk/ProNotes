@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -61,6 +62,7 @@ import com.pronotes.app.ui.AppChip
 import com.pronotes.app.ui.AppSurface
 import com.pronotes.app.ui.AppToggle
 import com.pronotes.app.ui.GradientTitle
+import com.pronotes.app.ui.LocalReduceMotion
 import com.pronotes.app.ui.ProButtonPalette
 import com.pronotes.app.ui.ScaleInAnimatedText
 import com.pronotes.app.ui.SurfaceRole
@@ -110,6 +112,7 @@ fun SupportScreen(onBack: () -> Unit) {
                     contentPadding = PaddingValues(10.dp),
                     onClick = onBack,
                     onClickLabel = "Back",
+                    modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
                 ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onSurface)
                 }
@@ -167,7 +170,7 @@ fun SupportScreen(onBack: () -> Unit) {
                                 if (text.isNotEmpty()) {
                                     supportNote = ""
                                     thanks = true
-                                    Toast.makeText(context, "Thank you for your encouragement!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Thank you for your encouragement.", Toast.LENGTH_SHORT).show()
                                 } else {
                                     thanks = true
                                 }
@@ -262,8 +265,12 @@ private fun heartPath(cx: Float, cy: Float, r: Float): Path = Path().apply {
 /** Hearts burst out and float up, then a thank-you note. */
 @Composable
 private fun ThankYou(paid: Boolean, onClose: () -> Unit) {
-    val progress = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { progress.animateTo(1f, tween(2600, easing = LinearEasing)) }
+    val reduceMotion = LocalReduceMotion.current
+    val progress = remember { Animatable(if (reduceMotion) 1f else 0f) }
+    LaunchedEffect(reduceMotion) {
+        if (reduceMotion) progress.snapTo(1f)
+        else progress.animateTo(1f, tween(2600, easing = LinearEasing))
+    }
     val hearts = remember {
         List(36) { Triple(Random.nextFloat() * 360f, 0.4f + Random.nextFloat() * 0.6f, listOf(0xFFE5484D, 0xFFFF7EB6, 0xFF7161E0, 0xFF3987E5, 0xFFFFB224)[it % 5]) }
     }
@@ -272,23 +279,25 @@ private fun ThankYou(paid: Boolean, onClose: () -> Unit) {
             .clickable(onClick = onClose),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.fillMaxSize()) {
-            val p = progress.value
-            hearts.forEach { (angle, speed, color) ->
-                val a = Math.toRadians(angle.toDouble())
-                val dist = size.minDimension * 0.45f * speed * p
-                val x = size.width / 2 + (cos(a) * dist).toFloat()
-                val y = size.height / 2 + (sin(a) * dist).toFloat() - size.height * 0.15f * p * p
-                drawPath(heartPath(x, y, 18f + 14f * speed), Color(color).copy(alpha = (1f - p).coerceIn(0f, 1f)))
+        if (!reduceMotion) {
+            Canvas(Modifier.fillMaxSize()) {
+                val p = progress.value
+                hearts.forEach { (angle, speed, color) ->
+                    val a = Math.toRadians(angle.toDouble())
+                    val dist = size.minDimension * 0.45f * speed * p
+                    val x = size.width / 2 + (cos(a) * dist).toFloat()
+                    val y = size.height / 2 + (sin(a) * dist).toFloat() - size.height * 0.15f * p * p
+                    drawPath(heartPath(x, y, 18f + 14f * speed), Color(color).copy(alpha = (1f - p).coerceIn(0f, 1f)))
+                }
             }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             BeatingHeart(Modifier.size(90.dp))
             Spacer(Modifier.height(16.dp))
-            GradientTitle("Thank you!", MaterialTheme.typography.headlineLarge)
+            GradientTitle("Thank you", MaterialTheme.typography.headlineLarge)
             Spacer(Modifier.height(8.dp))
             Text(
-                if (paid) "Your support means a lot. Enjoy Pro Notes." else "If your payment went through, thank you so much.",
+                if (paid) "Your support means a lot. Enjoy Pro Notes." else "If your payment went through, thank you.",
                 textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

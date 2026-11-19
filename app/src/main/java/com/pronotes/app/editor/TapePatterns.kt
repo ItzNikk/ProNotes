@@ -7,7 +7,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 
-/** Washi tape patterns, drawn as small repeating tiles in the tape's colour. */
+/** Masking tape patterns, drawn as small repeating tiles in the tape's colour. */
 object TapePatterns {
     val names = listOf("stripes", "plain", "dots", "grid", "checks", "zigzag", "stars", "hearts", "waves", "flowers")
 
