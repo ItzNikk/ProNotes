@@ -527,13 +527,6 @@ fun AppSegmentedControl(
     val track = scheme.surfaceVariant
     val pillBg = scheme.surfaceContainerHigh
     val shape = appPillShape()
-    if (LocalLiquidGlass.current && !LocalClassicAppearance.current && !LocalReduceEffects.current && Build.VERSION.SDK_INT >= 33) {
-        AppSurface(modifier = modifier, role = SurfaceRole.Capsule, shape = shape, containerColor = bg,
-            contentColor = fg, onClick = onClick, contentPadding = contentPadding) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, content = content)
-        }
-        return
-    }
     Row(
         modifier = modifier
             .clip(shape)
