@@ -281,6 +281,8 @@ fun BookReaderHubScreen(
     val library by repo.library.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
+    var catalog by remember { mutableStateOf(false) }
+    if (catalog) com.pronotes.app.library.CatalogDialog(true, null, { catalog = false }, onOpenBook)
     var filterTab by remember { mutableIntStateOf(0) } // 0 = All, 1 = PDF Books, 2 = Notebooks
     var query by remember { mutableStateOf("") }
     var pdfImportProgress by remember { mutableStateOf<Triple<String, Int, Int>?>(null) }
@@ -398,6 +400,7 @@ fun BookReaderHubScreen(
                 }
             }
 
+            androidx.compose.material3.TextButton(onClick = { catalog = true }, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Find free online books") }
             // Search & Filter controls
             Column(
                 Modifier

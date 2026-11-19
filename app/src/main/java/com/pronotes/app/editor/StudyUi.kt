@@ -559,7 +559,9 @@ private fun CardRow(vm: EditorViewModel, c: Flashcard, onShow: () -> Unit) {
 @Composable
 private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> Unit) {
     var shuffleSeed by remember { mutableIntStateOf(0) }
-    val queue = remember(deck, shuffleSeed) { deck.shuffled().map { it.id } }
+    val sessionIds = remember { deck.map { it.id } }
+    var retryIds by remember { mutableStateOf<List<String>?>(null) }
+    val queue = remember(shuffleSeed, retryIds) { (retryIds ?: sessionIds).shuffled() }
     var index by remember(queue) { mutableIntStateOf(0) }
     var flipped by remember { mutableStateOf(false) }
     var showHint by remember { mutableStateOf(false) }
@@ -585,6 +587,8 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
                     modifier = Modifier
                         .clip(Pill)
                         .clickable {
+                            known = 0
+                            againIds.clear()
                             shuffleSeed++
                             index = 0
                             flipped = false
@@ -628,6 +632,17 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
             Text("$grade · Session done", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 14.dp))
             Text(line, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
             Text("$known of $total recalled · ${clock(elapsed)}", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp))
+            if (againIds.isNotEmpty()) {
+                TextButton(onClick = {
+                    retryIds = againIds.distinct()
+                    againIds.clear()
+                    known = 0
+                    shuffleSeed++
+                    flipped = false
+                    selectedQuizChoice = null
+                    showHint = false
+                }) { Text("Practice missed cards") }
+            }
             Button(
                 onClick = onDone,
                 shape = Pill,
@@ -641,7 +656,7 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
             val correctAnswer = card.back.ifBlank { "Visual answer card" }
             val choices = remember(card.id, vm.cards.size) {
                 val distractors = vm.cards
-                    .filter { it.id != card.id && it.back.isNotBlank() }
+                    .filter { it.id != card.id && it.back.isNotBlank() && it.back != correctAnswer }
                     .map { it.back }
                     .distinct()
                     .shuffled()

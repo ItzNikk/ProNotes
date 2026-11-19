@@ -436,8 +436,8 @@ private fun drawCylindricalBackBitmapMesh(
     alpha: Int,
     colorFilter: ColorFilter?,
 ) {
-    val cols = 26
-    val rows = 26
+    val cols = ((curl.sheetRight - curl.sheetLeft) / 32f).toInt().coerceIn(18, 46)
+    val rows = (curl.sheetHeight / 36f).toInt().coerceIn(18, 52)
     val verts = FloatArray((cols + 1) * (rows + 1) * 2)
     val sheetW = curl.sheetRight - curl.sheetLeft
     val sheetH = curl.sheetHeight

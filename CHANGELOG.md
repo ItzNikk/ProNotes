@@ -2,6 +2,18 @@
 
 All notable changes to Pro Notes are documented in this file.
 
+## v14.0.0 - 2026-11-19
+
+- Find online books by title or author from the reading room. Import a free Project Gutenberg text into the local library for offline reading and annotation.
+- Browse community artwork from the library Create menu. Contributors attach images to a public GitHub issue. Readers can save artwork as a cover image and add it to their sticker tray.
+- PDF Station converts images to PDF, merges files in a selectable order, rotates pages, reverses page order, extracts ranges, selects odd or even pages, and exports embedded text. Processing runs locally and writes a separate output.
+- Build notebooks from lecture, planner, sketchbook and task-list starters. Cover, paper and layout controls remain available.
+- Search sticky notes across a notebook, filter pinned notes and jump to their page from Sticky board.
+- Flashcard review keeps a stable queue while grades change. Practice missed cards again at the end of a session.
+- Notebook-specific editor tools, palettes, toolbar arrangement, scroll direction and writing options persist across sessions.
+- Keyboard mode preserves separate page annotations and commits the current text when switching notebooks. Toolbar selection has a tonal highlight and larger touch targets. Page-curl mesh resolution adapts to sheet dimensions.
+- Optional Liquid glass in Appearance uses the bundled Kyant backdrop renderer on supported Android devices. Classic appearance and Reduce effects take precedence.
+
 ## v13.6.0 — 2026-11-18
 
 ### Improved

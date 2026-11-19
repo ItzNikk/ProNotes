@@ -1,5 +1,8 @@
 package com.pronotes.app.ui
 
+import io.github.ntvien.liquidglass.internal.backdrop.drawBackdrop
+import io.github.ntvien.liquidglass.internal.backdrop.backdrops.rememberCanvasBackdrop
+import io.github.ntvien.liquidglass.internal.backdrop.effects.lens
 import android.os.Build
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -178,6 +181,7 @@ fun AppSurface(
     val scheme = MaterialTheme.colorScheme
     val classic = LocalClassicAppearance.current
     val reduceEffects = LocalReduceEffects.current
+    val glass = LocalLiquidGlass.current && !classic && !reduceEffects && Build.VERSION.SDK_INT >= 33
     val (bg, fg) = resolveSurfaceColors(role, scheme, classic, containerColor, contentColor)
     val baseElevation = if (shadowElevation > 0.dp) shadowElevation else when (role) {
         SurfaceRole.Popover -> 12.dp
@@ -192,6 +196,12 @@ fun AppSurface(
             scheme.outlineVariant
         else -> null
     }
+    val glassLayer = if (glass) {
+        val backdrop = rememberCanvasBackdrop {
+            drawRect(Brush.linearGradient(listOf(lerp(bg, scheme.primary, .16f), bg, lerp(bg, scheme.tertiary, .12f))))
+        }
+        Modifier.drawBackdrop(backdrop, { shape }, { lens(8.dp.toPx(), 12.dp.toPx()) }, shadow = null)
+    } else Modifier
     val stroke = resolvedBorderColor?.let { BorderStroke(0.85.dp, it) }
 
     val clickModifier = if (onClick != null) {
@@ -202,9 +212,10 @@ fun AppSurface(
         modifier = modifier
             .then(if (effectiveElevation > 0.dp) Modifier.shadow(effectiveElevation, shape, clip = false) else Modifier)
             .clip(shape)
+            .then(glassLayer)
             .then(clickModifier),
         shape = shape,
-        color = bg,
+        color = if (glass) Color.Transparent else bg,
         contentColor = fg,
         border = stroke,
     ) {
@@ -228,6 +239,13 @@ fun AppCard(
     val reduceEffects = LocalReduceEffects.current
     val bg = containerColor ?: if (hero) scheme.surfaceContainerHigh else scheme.surface
     val fg = if (bg.luminance() < 0.42f) Color(0xFFF3F4F6) else scheme.onSurface
+    if (LocalLiquidGlass.current && !LocalClassicAppearance.current && !reduceEffects && Build.VERSION.SDK_INT >= 33) {
+        AppSurface(modifier = modifier, shape = shape, containerColor = bg, contentColor = fg,
+            contentPadding = contentPadding, onClick = onClick, borderColor = scheme.outlineVariant) {
+            Column(content = content)
+        }
+        return
+    }
     val cardMod = modifier
         .then(if (hero && !reduceEffects) Modifier.shadow(2.dp, shape, clip = false) else Modifier)
         .clip(shape)
@@ -294,7 +312,8 @@ fun AppDialog(
         ) {
             AppDialogSurface(
                 modifier = modifier
-                    .widthIn(min = 290.dp, max = 520.dp)
+                    .widthIn(max = 600.dp)
+                        .fillMaxWidth()
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -365,6 +384,13 @@ fun AppPill(
         else -> scheme.onSurface
     }
     val shape = appPillShape()
+    if (LocalLiquidGlass.current && !LocalClassicAppearance.current && !LocalReduceEffects.current && Build.VERSION.SDK_INT >= 33) {
+        AppSurface(modifier = modifier, role = SurfaceRole.Capsule, shape = shape, containerColor = bg,
+            contentColor = fg, onClick = onClick, contentPadding = contentPadding) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, content = content)
+        }
+        return
+    }
     Row(
         modifier = modifier
             .clip(shape)
@@ -501,6 +527,13 @@ fun AppSegmentedControl(
     val track = scheme.surfaceVariant
     val pillBg = scheme.surfaceContainerHigh
     val shape = appPillShape()
+    if (LocalLiquidGlass.current && !LocalClassicAppearance.current && !LocalReduceEffects.current && Build.VERSION.SDK_INT >= 33) {
+        AppSurface(modifier = modifier, role = SurfaceRole.Capsule, shape = shape, containerColor = bg,
+            contentColor = fg, onClick = onClick, contentPadding = contentPadding) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, content = content)
+        }
+        return
+    }
     Row(
         modifier = modifier
             .clip(shape)

@@ -16,8 +16,8 @@ android {
         applicationId = "com.pronotes.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = (System.getenv("VERSION_CODE") ?: "17").toInt()
-        versionName = System.getenv("VERSION_NAME") ?: "13.6.0"
+        versionCode = (System.getenv("VERSION_CODE") ?: "18").toInt()
+        versionName = System.getenv("VERSION_NAME") ?: "14.0.0"
         // Developer support: set pronotes.upi / pronotes.upiName in gradle.properties
         // (or SUPPORT_UPI / SUPPORT_UPI_NAME in CI). Empty hides UPI payment button, while support messages remain visible.
         val upi = System.getenv("SUPPORT_UPI") ?: (project.findProperty("pronotes.upi") as String? ?: "")

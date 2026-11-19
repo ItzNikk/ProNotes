@@ -44,6 +44,7 @@ val LocalMotionStyle = compositionLocalOf { MotionStyle.SPRING }
 val LocalCornerRoundness = compositionLocalOf<Dp> { 20.dp }
 val LocalPerformanceMode = compositionLocalOf { PerformanceMode.BALANCED }
 val LocalUiColorScheme = compositionLocalOf { UiColorScheme.SLATE_STUDIO }
+val LocalLiquidGlass = compositionLocalOf { false }
 val LocalClassicAppearance = compositionLocalOf { false }
 val LocalReduceEffects = compositionLocalOf { false }
 val LocalReduceMotion = compositionLocalOf { false }
@@ -178,6 +179,7 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
         LocalCornerRoundness provides cornerDp,
         LocalPerformanceMode provides perf,
         LocalUiColorScheme provides uiScheme,
+        LocalLiquidGlass provides settings.liquidGlass,
         LocalClassicAppearance provides settings.classicAppearance,
         LocalReduceEffects provides settings.reduceEffects,
         LocalReduceMotion provides reduceMotion,

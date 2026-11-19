@@ -336,6 +336,7 @@ data class AppSettings(
     val gradientTitles: Boolean = false,
     val appFont: AppFont = AppFont.MODERN_SANS,
     val motionStyle: MotionStyle = MotionStyle.SPRING,
+    val liquidGlass: Boolean = false,
     val classicAppearance: Boolean = false,
     val reduceEffects: Boolean = false,
     val showHoverTooltips: Boolean = true,
@@ -377,8 +378,8 @@ data class AppSettings(
 data class PenPreset(val type: String, val color: Int, val size: Float, val name: String = "")
 
 /** Small key-value store; every screen observes [settings]. */
-class SettingsStore private constructor(context: Context) {
-    private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+class SettingsStore private constructor(context: Context, file: String = "settings") {
+    private val prefs = context.getSharedPreferences(file, Context.MODE_PRIVATE)
     private val _settings = MutableStateFlow(load())
     val settings: StateFlow<AppSettings> = _settings
 
@@ -491,6 +492,7 @@ class SettingsStore private constructor(context: Context) {
             gradientTitles = b("gradientTitles", d.gradientTitles),
             appFont = enumOf("appFont", d.appFont),
             motionStyle = motionStyleOf("motionStyle", d.motionStyle),
+            liquidGlass = b("liquidGlass", false),
             classicAppearance = b("classicAppearance", d.classicAppearance),
             reduceEffects = b("reduceEffects", d.reduceEffects),
             showHoverTooltips = b("showHoverTooltips", d.showHoverTooltips),
@@ -591,6 +593,7 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("gradientTitles", s.gradientTitles)
             .putString("appFont", s.appFont.name)
             .putString("motionStyle", s.motionStyle.name)
+            .putBoolean("liquidGlass", s.liquidGlass)
             .putBoolean("classicAppearance", s.classicAppearance)
             .putBoolean("reduceEffects", s.reduceEffects)
             .putBoolean("showHoverTooltips", s.showHoverTooltips)
@@ -824,6 +827,7 @@ class SettingsStore private constructor(context: Context) {
     fun lastReaderBookId(): String = prefs.getString("reader_last_book", "") ?: ""
 
     companion object {
+        internal fun notebook(context: Context, id: String) = SettingsStore(context.applicationContext, "editor_$id")
         @Volatile private var instance: SettingsStore? = null
         fun get(context: Context): SettingsStore =
             instance ?: synchronized(this) { instance ?: SettingsStore(context.applicationContext).also { instance = it } }

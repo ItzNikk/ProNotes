@@ -47,7 +47,8 @@ val MindPalette = listOf(0xFF24483F, 0xFF2E4A7A, 0xFF2F6B4F, 0xFF7A2E42, 0xFFB98
 class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(app) {
     private val repo = Repository.get(app)
     private val store = SettingsStore.get(app)
-    val settingsFlow = store.settings
+    internal val notebookSettings = com.pronotes.app.data.NotebookSettings(app, noteId, viewModelScope)
+    val settingsFlow = notebookSettings.settings
 
     val pages = mutableStateListOf<Page>()
     var pageIndex by mutableStateOf(0)
@@ -60,7 +61,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     // ---------------------------------------------------------------- tools
     /** Last session's choices: tool, pen type, colours, sizes. */
-    private val saved = store.pref("tools").split('|')
+    private val saved = store.pref("tools_$noteId", store.pref("tools")).split('|')
     private inline fun <reified E : Enum<E>> savedEnum(i: Int, def: E): E =
         saved.getOrNull(i)?.let { n -> enumValues<E>().firstOrNull { it.name == n } } ?: def
     private var _tool by mutableStateOf(savedEnum(0, Tool.PEN).takeIf { it != Tool.IMAGE && it != Tool.STICKER && it != Tool.STICKY } ?: Tool.PEN)
@@ -185,10 +186,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     /** Where the study timer sits, as fractions of the canvas (shared by all notebooks). */
     fun timerPos(): Pair<Float, Float> {
-        val p = store.pref("timerPos", "0.86,0.92").split(',')
+        val p = store.pref("timerPos_$noteId", "0.86,0.92").split(',')
         return (p.getOrNull(0)?.toFloatOrNull() ?: 0.86f) to (p.getOrNull(1)?.toFloatOrNull() ?: 0.92f)
     }
-    fun setTimerPos(x: Float, y: Float) = store.setPref("timerPos", "$x,$y")
+    fun setTimerPos(x: Float, y: Float) = store.setPref("timerPos_$noteId", "$x,$y")
 
     /** Total study time in this notebook, in milliseconds (sessions add to it). */
     fun studyTotal(): Long = store.pref("study_$noteId", "0").toLongOrNull() ?: 0L
@@ -215,7 +216,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                     _tool.name, penType.name, "${penStyle.color},${penStyle.size}", "${highlighterStyle.color},${highlighterStyle.size}",
                     "${shapeStyle.color},${shapeStyle.size}", shapeKind.name, eraserSize.toString(), tapeColor.toString(), stickyColor.toString(),
                 ).joinToString("|")
-            }.collect { store.setPref("tools", it) }
+            }.collect { store.setPref("tools_$noteId", it) }
         }
         val initTool = store.pref("startTool_$noteId").takeIf { it.isNotBlank() }?.let { n ->
             store.setPref("startTool_$noteId", "")
@@ -238,7 +239,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     }
 
     private fun style(key: String, colors: List<Int>, sizes: List<Float>, size: Float, slot: Int): ToolStyle {
-        val c = store.swatches(key, colors)
+        val c = store.swatches("${key}_$noteId", store.swatches(key, colors))
         val sel = saved.getOrNull(slot)?.split(',')
         val color = sel?.getOrNull(0)?.toIntOrNull() ?: c.first()
         val sz = sel?.getOrNull(1)?.toFloatOrNull() ?: size
@@ -294,9 +295,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     fun updateStyle(t: Tool, s: ToolStyle) {
         when (t) {
-            Tool.PEN -> { penStyle = s; store.saveSwatches("pen", s.colors) }
-            Tool.HIGHLIGHTER -> { highlighterStyle = s; store.saveSwatches("highlighter", s.colors) }
-            Tool.SHAPE -> { shapeStyle = s; store.saveSwatches("shape", s.colors) }
+            Tool.PEN -> { penStyle = s; store.saveSwatches("pen_$noteId", s.colors) }
+            Tool.HIGHLIGHTER -> { highlighterStyle = s; store.saveSwatches("highlighter_$noteId", s.colors) }
+            Tool.SHAPE -> { shapeStyle = s; store.saveSwatches("shape_$noteId", s.colors) }
             else -> Unit
         }
     }
@@ -416,7 +417,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         tool = Tool.PEN
     }
 
-    fun setPenName(name: String) = store.update { it.copy(penName = name.trim().ifBlank { "Pro Stylus" }) }
+    fun setPenName(name: String) = notebookSettings.update { it.copy(penName = name.trim().ifBlank { "Pro Stylus" }) }
 
     fun clearPageInk() {
         val p = currentPage ?: return
@@ -433,7 +434,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         targetY: Float? = null,
         onPlaced: (Int, Long) -> Unit,
     ) {
-        val td = store.settings.value.toolDefaults
+        val td = settingsFlow.value.toolDefaults
         viewModelScope.launch {
             val processed = withContext(Dispatchers.Default) {
                 if (td.stickerOpacity >= 0.99f) bmp
@@ -523,10 +524,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun pushRecent(c: Int) = store.pushRecentColor(c)
 
     fun brushFor(t: Tool): Brush {
-        val td = store.settings.value.toolDefaults
+        val td = settingsFlow.value.toolDefaults
         return when (t) {
             Tool.HIGHLIGHTER -> {
-                Brushes.highlightAlpha = (store.settings.value.highlighterOpacity.coerceIn(0.3f, 0.9f) * 255).toInt()
+                Brushes.highlightAlpha = (settingsFlow.value.highlighterOpacity.coerceIn(0.3f, 0.9f) * 255).toInt()
                 Brushes.create(Brushes.HIGHLIGHTER, highlighterStyle.color, highlighterStyle.size)
             }
             Tool.SHAPE -> Brushes.create(
@@ -820,7 +821,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         textEdit = null
         if (edit.isFullPage) keyboardMode = false
         val p = pages.getOrNull(edit.page) ?: return
-        val td = store.settings.value.toolDefaults
+        val td = settingsFlow.value.toolDefaults
         val effectiveColor = if (td.textOpacity >= 0.99f) color else Brushes.withAlpha(color, td.textOpacity)
         // New text remembers the last formatting used.
         textSize = size; textStyle = style; textColor = effectiveColor
@@ -1462,7 +1463,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         targetY: Float? = null,
         onPlaced: (Int, Long) -> Unit,
     ) {
-        val td = store.settings.value.toolDefaults
+        val td = settingsFlow.value.toolDefaults
         viewModelScope.launch {
             val savedName = runCatching { repo.saveImage(noteId, uri) }.getOrNull() ?: return@launch
             val rawBmp = withContext(Dispatchers.IO) { renderer().image(savedName) } ?: return@launch
@@ -2638,6 +2639,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var onRequestCommitText: (() -> Unit)? = null
 
     fun toggleKeyboardMode() {
+        if (readOnly) return
+        if (!keyboardMode && textEdit != null) onRequestCommitText?.invoke()
         if (keyboardMode) {
             val commitHook = onRequestCommitText
             if (commitHook != null) {
@@ -2654,7 +2657,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         // Reuse the page's primary document text item (near top-left margin) without deleting other free text boxes.
         val existingDocText = p.items.filterIsInstance<TextItem>()
             .firstOrNull { kotlin.math.abs(it.x - 76f) < 60f && kotlin.math.abs(it.y - 84f) < 80f }
-            ?: p.items.filterIsInstance<TextItem>().minByOrNull { it.y }
+
         textEdit = TextEdit(
             page = pageIndex,
             x = existingDocText?.x ?: 76f,

@@ -205,7 +205,7 @@ fun AdaptiveFixedToolbar(
                 val idx = visibleTools.indexOf(toolToMove)
                 val targetIdx = (idx + step).coerceIn(0, visibleTools.lastIndex)
                 if (idx >= 0 && targetIdx != idx) {
-                    store.update {
+                    vm.notebookSettings.update {
                         it.copy(toolbarTools = ToolbarOrder.moveVisible(it.toolbarTools, toolToMove, visibleTools[targetIdx]))
                     }
                 }
@@ -458,7 +458,7 @@ fun FloatingToolbarPill(
             val idx = visibleTools.indexOf(toolToMove)
             val targetIdx = (idx + step).coerceIn(0, visibleTools.lastIndex)
             if (idx >= 0 && targetIdx != idx) {
-                store.update {
+                vm.notebookSettings.update {
                     it.copy(toolbarTools = ToolbarOrder.moveVisible(it.toolbarTools, toolToMove, visibleTools[targetIdx]))
                 }
             }
@@ -852,7 +852,7 @@ fun ToolButton(
     val pedestalBg = if (darkUi) WorkbenchDarkElevated else WorkbenchLightElevated
     val targetSlotBg = when {
         dragging -> ProButtonPalette.ElectricBlue.copy(alpha = 0.22f)
-        selected -> pedestalBg
+        selected -> androidx.compose.ui.graphics.lerp(pedestalBg, accent, 0.15f)
         hovered -> barFg.copy(alpha = 0.06f)
         else -> Color.Transparent
     }
@@ -865,7 +865,7 @@ fun ToolButton(
 
     Box(
         modifier = Modifier
-            .defaultMinSize(minWidth = 46.dp, minHeight = 46.dp)
+            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
             .semantics { contentDescription = name }
             .focusable()
             .clickable(role = Role.Button, onClickLabel = name) {
@@ -887,7 +887,7 @@ fun ToolButton(
                 .then(
                     if ((selected || dragging) && !reduceEffects) {
                         Modifier.shadow(
-                            elevation = if (darkUi) 6.dp else 4.dp,
+                            elevation = if (darkUi) 2.dp else 1.dp,
                             shape = pedestalShape,
                             ambientColor = accent.copy(alpha = 0.35f),
                             spotColor = accent.copy(alpha = 0.35f),
@@ -1056,7 +1056,7 @@ fun ToolOptions(
                         ) {
                             val list = HighlighterMode.entries
                             val next = list[(list.indexOf(settings.highlighterMode) + 1) % list.size]
-                            store.update { it.copy(highlighterMode = next) }
+                            vm.notebookSettings.update { it.copy(highlighterMode = next) }
                         }
                     }
                     StyleOptions(vm, t, style, dockFg, darkDock, vertical)
@@ -1109,7 +1109,7 @@ fun ToolOptions(
                             fg = dockFg,
                             darkDock = darkDock,
                         ) {
-                            store.update {
+                            vm.notebookSettings.update {
                                 it.copy(eraserMode = if (it.eraserMode == EraserMode.PIXEL) EraserMode.STROKE else EraserMode.PIXEL)
                             }
                         }
@@ -1120,7 +1120,7 @@ fun ToolOptions(
                             fg = dockFg,
                             darkDock = darkDock,
                         ) {
-                            store.update { it.copy(eraseHighlighterOnly = !it.eraseHighlighterOnly) }
+                            vm.notebookSettings.update { it.copy(eraseHighlighterOnly = !it.eraseHighlighterOnly) }
                         }
                     }
                 }
@@ -1133,7 +1133,7 @@ fun ToolOptions(
                             fg = dockFg,
                             darkDock = darkDock,
                         ) {
-                            store.update {
+                            vm.notebookSettings.update {
                                 it.copy(lassoMode = if (it.lassoMode == LassoMode.RECT) LassoMode.FREEFORM else LassoMode.RECT)
                             }
                         }
@@ -1144,7 +1144,7 @@ fun ToolOptions(
                             fg = dockFg,
                             darkDock = darkDock,
                         ) {
-                            store.update { it.copy(lassoTouching = !it.lassoTouching) }
+                            vm.notebookSettings.update { it.copy(lassoTouching = !it.lassoTouching) }
                         }
                     } else {
                         StudioQuickChip(
@@ -1154,7 +1154,7 @@ fun ToolOptions(
                             fg = dockFg,
                             darkDock = darkDock,
                         ) {
-                            store.update {
+                            vm.notebookSettings.update {
                                 it.copy(lassoMode = if (it.lassoMode == LassoMode.RECT) LassoMode.FREEFORM else LassoMode.RECT)
                             }
                         }

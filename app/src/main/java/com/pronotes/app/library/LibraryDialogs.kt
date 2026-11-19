@@ -609,102 +609,21 @@ internal fun NewNotebookDialog(
             }
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                // Studio Live Preview Stage: realistic cover + peeking paper sheet + inline title & spec pills
-                AppCard(
-                    hero = false,
-                    shape = appCardShape(3f),
-                    contentPadding = PaddingValues(14.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        // Layered 3D-feel book mockup: peeking paper sheet behind bound front cover
-                        Box(
-                            modifier = Modifier.size(
-                                width = if (effectiveLandscape) 114.dp else 94.dp,
-                                height = if (effectiveLandscape) 86.dp else 112.dp,
-                            ),
-                            contentAlignment = Alignment.CenterStart,
-                        ) {
-                            // Peeking styled paper page offset to the right
-                            PaperPreview(
-                                style = paper,
-                                modifier = Modifier
-                                    .offset(x = 12.dp, y = 2.dp)
-                                    .size(
-                                        width = if (effectiveLandscape) 94.dp else 74.dp,
-                                        height = if (effectiveLandscape) 72.dp else 98.dp,
-                                    )
-                                    .shadow(3.dp, RoundedCornerShape(8.dp))
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .border(0.75.dp, Color.Black.copy(alpha = 0.12f), RoundedCornerShape(8.dp)),
-                                tint = paperColor ?: 0xFFFFFFFF.toInt(),
-                                landscape = effectiveLandscape,
-                            )
-                            // Front bound cover with spine shadow
-                            Box(
-                                modifier = Modifier
-                                    .size(
-                                        width = if (effectiveLandscape) 94.dp else 74.dp,
-                                        height = if (effectiveLandscape) 74.dp else 102.dp,
-                                    )
-                                    .shadow(8.dp, NotebookShape)
-                                    .clip(NotebookShape),
-                            ) {
-                                when (cover) {
-                                    "photo" -> Box(
-                                        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primaryContainer),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Icon(Icons.Outlined.Image, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
-                                            Text("Photo", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                                        }
-                                    }
-                                    "thumb" -> PaperPreview(
-                                        style = paper,
-                                        modifier = Modifier.fillMaxSize(),
-                                        tint = paperColor ?: 0xFFFFFFFF.toInt(),
-                                        landscape = effectiveLandscape,
-                                    )
-                                    else -> CoverArt(cover, name, null, 0, Modifier.fillMaxSize())
-                                }
-                                // Subtle bookbinding spine crease on left edge
-                                Box(
-                                    Modifier
-                                        .align(Alignment.CenterStart)
-                                        .width(8.dp)
-                                        .height(110.dp)
-                                        .background(Color.Black.copy(alpha = 0.14f)),
-                                )
-                            }
-                        }
-
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = name,
-                                onValueChange = { name = it },
-                                singleLine = true,
-                                label = { Text("Notebook title") },
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                            ) {
-                                SpecBadge(paper.label)
-                                SpecBadge(if (preset.isWhiteboard) "Infinite" else if (effectiveLandscape) "Landscape" else "Portrait")
-                                if (coverPage && cover != "thumb" && !preset.isWhiteboard) SpecBadge("Cover page")
-                            }
-                        }
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = name, onValueChange = { name = it }, singleLine = true,
+                    label = { Text("Notebook name") }, modifier = Modifier.fillMaxWidth(),
+                )
+                Text("Start with a template", style = MaterialTheme.typography.titleSmall)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Lecture" to PaperStyle.CORNELL, "Planner" to PaperStyle.PLANNER,
+                        "Sketchbook" to PaperStyle.DOTTED, "Task list" to PaperStyle.TODO).forEach { (label, template) ->
+                        AppChip(selected = paper == template, label = label, onClick = {
+                            paper = template
+                            if (name.isBlank() || name in listOf("Untitled notebook", "Lecture", "Planner", "Sketchbook", "Task list")) name = label
+                        })
                     }
                 }
-
                 // Studio navigation segmented control
                 AppSegmentedControl(
                     options = listOf("Cover", "Paper", "Layout"),

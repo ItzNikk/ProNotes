@@ -417,6 +417,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                 }
                 Category.LOOK -> {
                     Section("Appearance") {
+                        Toggle("Liquid glass", "Refractive surfaces on Android 13 and newer", s.liquidGlass) { v -> up { it.copy(liquidGlass = v) } }
                         Segmented(ThemeMode.entries.map { it.label }, s.themeMode.ordinal) { i -> up { it.copy(themeMode = ThemeMode.entries[i]) } }
                         Toggle(
                             stringResource(R.string.setting_classic_appearance),

@@ -276,6 +276,7 @@ fun EditorScreen(
     var pageColor by remember { mutableStateOf(false) }
     var wheelAt by remember { mutableStateOf<Offset?>(null) }
     var showTemplates by remember { mutableStateOf(false) }
+    var stickyBoard by remember { mutableStateOf(false) }
     var showCards by remember { mutableStateOf(false) }
     var showCollabRoom by remember { mutableStateOf(false) }
     var activePopoverTool by remember { mutableStateOf<Tool?>(null) }
@@ -334,7 +335,7 @@ fun EditorScreen(
             focus -> focus = false
             showPages -> showPages = false
             else -> {
-                vm.saveNow()
+                vm.onRequestCommitText?.invoke(); vm.saveNow()
                 onBack()
             }
         }
@@ -342,7 +343,7 @@ fun EditorScreen(
 
     DisposableEffect(Unit) {
         onDispose {
-            vm.saveNow()
+            vm.onRequestCommitText?.invoke(); vm.saveNow()
             vm.onPagesChanged = null
             vm.onScrollTo = null
             vm.onRedraw = null
@@ -386,7 +387,7 @@ fun EditorScreen(
 
     fun switchTo(id: String) {
         if (id != noteId) {
-            vm.saveNow()
+            vm.onRequestCommitText?.invoke(); vm.saveNow()
             onSwitchNote(id)
         }
     }
@@ -447,7 +448,7 @@ fun EditorScreen(
             ToolbarDock.BOTTOM -> "0.50,0.92"
             else -> "0.50,0.03"
         }
-        store.update {
+        vm.notebookSettings.update {
             it.copy(
                 toolbarDock = dock,
                 toolbarPos = defaultPos,
@@ -456,13 +457,13 @@ fun EditorScreen(
         }
     }
     val selectStyle: (ToolbarStyle) -> Unit = { nextStyle ->
-        store.update {
+        vm.notebookSettings.update {
             val nextDock = if (nextStyle == ToolbarStyle.FIXED_BAR && it.toolbarDock == ToolbarDock.FREE) ToolbarDock.TOP else it.toolbarDock
             it.copy(toolbarStyle = nextStyle, toolbarDock = nextDock)
         }
     }
     val resetToolbarPos: () -> Unit = {
-        store.update { it.copy(toolbarDock = ToolbarDock.TOP, toolbarStyle = ToolbarStyle.FIXED_BAR, toolbarPos = "0.50,0.03") }
+        vm.notebookSettings.update { it.copy(toolbarDock = ToolbarDock.TOP, toolbarStyle = ToolbarStyle.FIXED_BAR, toolbarPos = "0.50,0.03") }
     }
 
     Box(
@@ -492,7 +493,7 @@ fun EditorScreen(
                             tabStripBg = tabStripBg,
                             activeTabBg = topBarBg,
                             fgColor = topBarFg,
-                            onHome = { vm.saveNow(); onBack() },
+                            onHome = { vm.onRequestCommitText?.invoke(); vm.saveNow(); onBack() },
                             onRenameCurrent = { renaming = true },
                             onNewPageTab = { vm.addPage(atEnd = true) },
                             onSelect = ::switchTo,
@@ -500,7 +501,7 @@ fun EditorScreen(
                                 val rest = tabs - id
                                 store.closeTab(id)
                                 if (id == noteId) {
-                                    vm.saveNow()
+                                    vm.onRequestCommitText?.invoke(); vm.saveNow()
                                     if (rest.isNotEmpty()) onSwitchNote(rest.last()) else onBack()
                                 }
                             },
@@ -519,7 +520,7 @@ fun EditorScreen(
                                 showSearch = showSearch,
                                 showPages = showPages,
                                 darkUi = darkUi,
-                                onHome = { vm.saveNow(); onBack() },
+                                onHome = { vm.onRequestCommitText?.invoke(); vm.saveNow(); onBack() },
                                 onPages = { showPages = !showPages },
                                 onSearch = {
                                     showSearch = !showSearch
@@ -534,10 +535,10 @@ fun EditorScreen(
                                         vm.pageImage(vm.pageIndex)?.let { shareBitmap(context, it, "${vm.title} p${vm.pageIndex + 1}") }
                                     }
                                 },
-                                onSettings = { vm.saveNow(); onOpenSettings() },
+                                onSettings = { vm.onRequestCommitText?.invoke(); vm.saveNow(); onOpenSettings() },
                                 onGoTo = { goTo = true },
                                 onScrollToggle = {
-                                    store.update {
+                                    vm.notebookSettings.update {
                                         it.copy(
                                             scroll = if (it.scroll == ScrollDirection.VERTICAL) ScrollDirection.HORIZONTAL else ScrollDirection.VERTICAL,
                                         )
@@ -546,6 +547,7 @@ fun EditorScreen(
                                 onPaste = { vm.paste()?.let { (pg, ids) -> canvas?.selectItems(pg, ids) } },
                                 onPageColor = { pageColor = true },
                                 onCards = { showCards = true },
+                                onStickyBoard = { stickyBoard = true },
                                 onSlideShow = { vm.showSlideShow = true },
                                 onCollabRoom = { showCollabRoom = true },
                                 onAddWebLink = {
@@ -910,7 +912,7 @@ fun EditorScreen(
                                         centerY > 0.88f -> ToolbarDock.BOTTOM
                                         else -> ToolbarDock.FREE
                                     }
-                                    store.update {
+                                    vm.notebookSettings.update {
                                         it.copy(
                                             toolbarDock = nextDock,
                                             toolbarPos = String.format(Locale.US, "%.3f,%.3f", nx, ny),
@@ -1388,13 +1390,15 @@ fun EditorScreen(
                     }
                     // Unified direct-on-page inline text & keyboard editor (inside imePadding)
                     vm.textEdit?.let { edit ->
-                        InlinePageTextEditor(
-                            vm = vm,
-                            edit = edit,
-                            canvas = canvas,
-                            areaSize = areaSize,
-                            darkUi = darkUi,
-                        )
+                        androidx.compose.runtime.key(edit) {
+                            InlinePageTextEditor(
+                                vm = vm,
+                                edit = edit,
+                                canvas = canvas,
+                                areaSize = areaSize,
+                                darkUi = darkUi,
+                            )
+                        }
                     }
                 }
 
@@ -1469,6 +1473,7 @@ fun EditorScreen(
     vm.mindNodeEdit?.let { edit -> MindNodeDialog(vm, edit) }
     vm.cardDraft?.let { d -> CardEditorDialog(vm, d) }
     if (vm.linkSheet != null) LinkSheet(vm)
+    if (stickyBoard) StickyBoard(vm) { stickyBoard = false }
     if (showCards) FlashcardsDialog(vm, onClose = { showCards = false })
     if (vm.showSlideShow) SlideShowDialog(vm, onClose = { vm.showSlideShow = false })
     if (showTemplates) TemplateSheet(vm, onClose = { showTemplates = false })
@@ -1490,6 +1495,7 @@ fun EditorScreen(
         var fontSize by remember(edit) { mutableFloatStateOf(edit.item.fontSize) }
         var font by remember(edit) { mutableStateOf(edit.item.font) }
         var style by remember(edit) { mutableStateOf(edit.item.style.ifBlank { "classic" }) }
+        var formatting by remember(edit) { mutableStateOf(false) }
         var collapsed by remember(edit) { mutableStateOf(edit.item.collapsed) }
         var pinned by remember(edit) { mutableStateOf(edit.item.pinned) }
         val fonts = listOf("SANS" to "Sans", "SERIF" to "Serif", "MONO" to "Mono", "HAND" to "Hand")
@@ -1519,21 +1525,34 @@ fun EditorScreen(
                         placeholder = { Text("e.g. Exam Formula, Chapter Checklist…") },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        StickyColors.forEach { c -> Swatch(c, c == color, 20) { color = c } }
+                    OutlinedTextField(
+                        text,
+                        { text = it },
+                        minLines = 4,
+                        shape = RoundedCornerShape(16.dp),
+                        placeholder = { Text("Write a note, formula, or checklist (- [ ] Item)…") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(color).copy(alpha = 0.55f), RoundedCornerShape(16.dp)),
+                    )
+                    TextButton(onClick = { formatting = !formatting }) { Text(if (formatting) "Hide appearance" else "Customize appearance") }
+                    if (formatting) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            StickyColors.forEach { c -> Swatch(c, c == color, 20) { color = c } }
+                        }
+                        Text("STYLE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        AppSegmentedControl(
+                            options = styles.map { it.second },
+                            selectedIndex = styles.indexOfFirst { it.first == style }.coerceAtLeast(0),
+                            onSelect = { i -> style = styles[i].first },
+                        )
+                        AppSegmentedControl(
+                            options = fonts.map { it.second },
+                            selectedIndex = fonts.indexOfFirst { it.first == font }.coerceAtLeast(0),
+                            onSelect = { i -> font = fonts[i].first },
+                        )
+                        SliderRow("TEXT SIZE", "%.0f pt".format(fontSize), fontSize, 18f..48f) { fontSize = it }
                     }
-                    Text("STYLE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    AppSegmentedControl(
-                        options = styles.map { it.second },
-                        selectedIndex = styles.indexOfFirst { it.first == style }.coerceAtLeast(0),
-                        onSelect = { i -> style = styles[i].first },
-                    )
-                    AppSegmentedControl(
-                        options = fonts.map { it.second },
-                        selectedIndex = fonts.indexOfFirst { it.first == font }.coerceAtLeast(0),
-                        onSelect = { i -> font = fonts[i].first },
-                    )
-                    SliderRow("TEXT SIZE", "%.0f pt".format(fontSize), fontSize, 18f..48f) { fontSize = it }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         AppChip(
                             selected = pinned,
@@ -1549,16 +1568,7 @@ fun EditorScreen(
                             text = if (text.isBlank()) "- [ ] " else text.trimEnd() + "\n- [ ] "
                         }) { Text("+ Task") }
                     }
-                    OutlinedTextField(
-                        text,
-                        { text = it },
-                        minLines = 4,
-                        shape = RoundedCornerShape(16.dp),
-                        placeholder = { Text("Write a note, formula, or checklist (- [ ] Item)…") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color(color).copy(alpha = 0.55f), RoundedCornerShape(16.dp)),
-                    )
+
                 }
             },
             confirmButton = {

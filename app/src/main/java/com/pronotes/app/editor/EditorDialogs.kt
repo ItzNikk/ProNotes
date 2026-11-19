@@ -561,8 +561,10 @@ internal fun InlinePageTextEditor(
     val availW = areaSize.width.toFloat().coerceAtLeast(240f)
     val availH = (areaSize.height.toFloat() - barReservePx).coerceAtLeast(140f)
 
-    val rawW = (mappedRect?.width() ?: (boxW * zoomScale)).coerceIn(with(density) { 130.dp.toPx() }, (availW - sideMarginPx * 2f).coerceAtLeast(160f))
-    val rawH = (mappedRect?.height() ?: (boxH * zoomScale)).coerceIn(with(density) { 58.dp.toPx() }, (availH - topMarginPx * 2f).coerceAtLeast(80f))
+    val maxEditorWidth = (availW - sideMarginPx * 2f).coerceAtLeast(1f)
+    val maxEditorHeight = (availH - topMarginPx * 2f).coerceAtLeast(1f)
+    val rawW = (mappedRect?.width() ?: (boxW * zoomScale)).coerceIn(minOf(with(density) { 130.dp.toPx() }, maxEditorWidth), maxEditorWidth)
+    val rawH = (mappedRect?.height() ?: (boxH * zoomScale)).coerceIn(minOf(with(density) { 58.dp.toPx() }, maxEditorHeight), maxEditorHeight)
     val screenLeft = (mappedRect?.left ?: ((availW - rawW) * 0.5f))
         .coerceIn(sideMarginPx, (availW - rawW - sideMarginPx).coerceAtLeast(sideMarginPx))
     val screenTop = (mappedRect?.top ?: (topMarginPx * 2f))

@@ -198,13 +198,13 @@ fun ToolPopoverCard(
                         Tool.SHAPE -> ShapeCardContent(vm)
                         Tool.ERASER -> EraserCardContent(vm)
                         Tool.LASSO -> LassoCardContent(vm, onSelectionConverted)
-                        Tool.LASER -> LaserCardContent()
+                        Tool.LASER -> LaserCardContent(vm)
                         Tool.TEXT -> TextCardContent(vm)
-                        Tool.STICKER -> StickerCardContent(onBrowseStickers = {
+                        Tool.STICKER -> StickerCardContent(vm, onBrowseStickers = {
                             onDismiss()
                             onBrowseStickers()
                         })
-                        Tool.IMAGE -> ImageCardContent(onPickImage = {
+                        Tool.IMAGE -> ImageCardContent(vm, onPickImage = {
                             onDismiss()
                             onPickImage()
                         })
@@ -316,7 +316,7 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
     val style = vm.penStyle
     val presets by vm.presets.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val store = remember { SettingsStore.get(context) }
+    val store = vm.notebookSettings
     val s by remember(store) {
         store.select { PenCardSettings(it.penName, it.paperSound, it.paperVolume, it.paperHaptics, it.toolDefaults) }
     }.collectAsStateWithLifecycle(
@@ -492,7 +492,7 @@ private fun PresetChip(p: PenPreset, fgColor: Color, onClick: () -> Unit, onRena
 private fun HighlighterCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color) {
     val style = vm.highlighterStyle
     val context = LocalContext.current
-    val store = remember { SettingsStore.get(context) }
+    val store = vm.notebookSettings
     val s by remember(store) {
         store.select { HighlighterCardSettings(it.highlighterOpacity, it.highlighterMode, it.highlighterBehind) }
     }.collectAsStateWithLifecycle(
@@ -521,7 +521,7 @@ private fun HighlighterCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor
 @Composable
 private fun EraserCardContent(vm: EditorViewModel) {
     val context = LocalContext.current
-    val store = remember { SettingsStore.get(context) }
+    val store = vm.notebookSettings
     val fgColor = LocalContentColor.current
     val s by remember(store) {
         store.select {
@@ -632,7 +632,7 @@ private fun LassoCardContent(
     onSelectionConverted: (Long) -> Unit,
 ) {
     val context = LocalContext.current
-    val store = remember { SettingsStore.get(context) }
+    val store = vm.notebookSettings
     val fgColor = LocalContentColor.current
     val s by remember(store) {
         store.select { LassoCardSettings(it.lassoMode, it.lassoFilter, it.lassoTouching, it.circleToLasso) }
@@ -669,9 +669,9 @@ private fun LassoCardContent(
 }
 
 @Composable
-private fun LaserCardContent() {
+private fun LaserCardContent(vm: EditorViewModel) {
     val context = LocalContext.current
-    val store = remember { SettingsStore.get(context) }
+    val store = vm.notebookSettings
     val laserSeconds by remember(store) {
         store.select { it.laserSeconds }
     }.collectAsStateWithLifecycle(initialValue = remember(store) { store.settings.value.laserSeconds })
@@ -689,7 +689,7 @@ private fun LaserCardContent() {
 private fun TextCardContent(vm: EditorViewModel) {
     val context = LocalContext.current
     val fgColor = LocalContentColor.current
-    val store = remember(context) { SettingsStore.get(context) }
+    val store = vm.notebookSettings
     val settings by vm.settingsFlow.collectAsStateWithLifecycle()
     val td = settings.toolDefaults
 
@@ -738,9 +738,9 @@ private fun TextCardContent(vm: EditorViewModel) {
 }
 
 @Composable
-private fun StickerCardContent(onBrowseStickers: () -> Unit) {
+private fun StickerCardContent(vm: EditorViewModel, onBrowseStickers: () -> Unit) {
     val context = LocalContext.current
-    val store = remember { SettingsStore.get(context) }
+    val store = vm.notebookSettings
     val fgColor = LocalContentColor.current
     val td by remember(store) {
         store.select { it.toolDefaults }
@@ -774,9 +774,9 @@ private fun StickerCardContent(onBrowseStickers: () -> Unit) {
 }
 
 @Composable
-private fun ImageCardContent(onPickImage: () -> Unit) {
+private fun ImageCardContent(vm: EditorViewModel, onPickImage: () -> Unit) {
     val context = LocalContext.current
-    val store = remember { SettingsStore.get(context) }
+    val store = vm.notebookSettings
     val fgColor = LocalContentColor.current
     val td by remember(store) {
         store.select { it.toolDefaults }
@@ -867,7 +867,7 @@ private fun ShapeCardContent(vm: EditorViewModel) {
     var fillEdit by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val fgColor = LocalContentColor.current
-    val store = remember(context) { SettingsStore.get(context) }
+    val store = vm.notebookSettings
     val settings by vm.settingsFlow.collectAsStateWithLifecycle()
     val darkUi = MaterialTheme.colorScheme.background.let { (it.red * 0.299f + it.green * 0.587f + it.blue * 0.114f) < 0.4f }
 

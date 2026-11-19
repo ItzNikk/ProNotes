@@ -234,6 +234,10 @@ fun LibraryScreen(
     var sort by rememberSaveable { mutableStateOf(SortBy.MODIFIED) }
     var listView by rememberSaveable { mutableStateOf(false) }
     var sidebar by rememberSaveable { mutableStateOf(wide) }
+    var destination by rememberSaveable { mutableStateOf("") }
+    if (destination == "Books" || destination == "Marketplace") {
+        CatalogDialog(destination == "Books", folderId, { destination = "" }, onOpen)
+    }
     var newNotebook by remember { mutableStateOf(false) }
     var pasteImportOpen by remember { mutableStateOf(false) }
     var folderEdit by remember { mutableStateOf<Folder?>(null) }
@@ -260,6 +264,10 @@ fun LibraryScreen(
                 pdfImportProgress = null
             }
         }
+    }
+    if (destination == "PDF Station") PdfStation({ destination = "" }) {
+        destination = ""
+        importFilesLauncher.launch(arrayOf("*/*"))
     }
     if (pendingImport != null) {
         LaunchedEffect(pendingImport) {
@@ -592,6 +600,9 @@ fun LibraryScreen(
                                             )
                                         }
                                     },
+                                    AppMenuItem("Online books") { destination = "Books" },
+                                    AppMenuItem("Community marketplace") { destination = "Marketplace" },
+                                    AppMenuItem("PDF Station") { destination = "PDF Station" },
                                     AppMenuItem("Folder", icon = { Icon(Icons.Outlined.CreateNewFolder, null, Modifier.size(18.dp)) }) { newFolder = true },
                                     AppMenuItem("Import PDF, Word, PPT, Sheets, EPUB, Images", icon = { Icon(Icons.Outlined.UploadFile, null, Modifier.size(18.dp)) }) {
                                         importFilesLauncher.launch(arrayOf("*/*"))

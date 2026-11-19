@@ -269,6 +269,7 @@ internal fun TopBar(
     onPageColor: () -> Unit,
     onPageImage: () -> Unit,
     onCards: () -> Unit,
+    onStickyBoard: () -> Unit,
     onSlideShow: () -> Unit,
     onCollabRoom: () -> Unit,
     onAddWebLink: () -> Unit,
@@ -361,6 +362,7 @@ internal fun TopBar(
                     vm.addWriteBox(vm.pageIndex)
                 },
             )
+            add(AppMenuItem("Sticky board") { onStickyBoard() })
             add(
                 AppMenuItem(
                     "Flashcards",
