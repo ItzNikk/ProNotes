@@ -119,7 +119,7 @@ fun SupportScreen(onBack: () -> Unit) {
                 Spacer(Modifier.weight(1f))
             }
             Spacer(Modifier.height(14.dp))
-            BeatingHeart(Modifier.size(96.dp))
+            BeatingHeart(Modifier.size(60.dp))
             Spacer(Modifier.height(18.dp))
             ScaleInAnimatedText(
                 "Support Pro Notes",
@@ -134,20 +134,6 @@ fun SupportScreen(onBack: () -> Unit) {
                 Modifier.widthIn(max = 500.dp), textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(18.dp))
-
-            AppCard(
-                hero = true,
-                modifier = Modifier.widthIn(max = 500.dp).fillMaxWidth(),
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Highlights", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = ProButtonPalette.ElectricBlue)
-                    Text("- Clean dark and paper themes with high-contrast controls", style = MaterialTheme.typography.bodySmall)
-                    Text("- Dedicated Reader Mode with physical page-turn animations", style = MaterialTheme.typography.bodySmall)
-                    Text("- Writable Split View and flexible item transforms", style = MaterialTheme.typography.bodySmall)
-                    Text("- Flashcards, Concept Maps, SlideShow, and Study Timer", style = MaterialTheme.typography.bodySmall)
-                }
-            }
-            Spacer(Modifier.height(16.dp))
 
             AppCard(
                 modifier = Modifier.widthIn(max = 500.dp).fillMaxWidth(),

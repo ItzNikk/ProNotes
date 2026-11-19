@@ -198,10 +198,10 @@ private fun CategoryList(selected: Category?, modifier: Modifier, onPick: (Categ
                     Box(
                         Modifier
                             .size(38.dp)
-                            .clip(CircleShape)
-                            .background(Brush.linearGradient(listOf(Color(c.tint), Color(c.tint).copy(alpha = 0.78f)))),
+                            .clip(MaterialTheme.shapes.small)
+                            .background(if (sel) scheme.primary else scheme.surfaceVariant),
                         contentAlignment = Alignment.Center,
-                    ) { ProIconView(c.icon, Color.White, Modifier.size(22.dp)) }
+                    ) { ProIconView(c.icon, if (sel) scheme.onPrimary else scheme.onSurfaceVariant, Modifier.size(22.dp)) }
                     Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
                         Text(
                             c.label,
@@ -209,7 +209,7 @@ private fun CategoryList(selected: Category?, modifier: Modifier, onPick: (Categ
                             color = if (sel) scheme.onPrimaryContainer else scheme.onSurface,
                             fontWeight = if (sel) FontWeight.Bold else FontWeight.SemiBold,
                         )
-                        Text(c.sub, style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+                        Text(c.sub, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
                     }
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = if (sel) scheme.primary else scheme.onSurfaceVariant)
                 }

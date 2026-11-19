@@ -302,6 +302,11 @@ fun LibraryScreen(
 
     BackHandler(enabled = folderId != null) { folderId = lib.folders.firstOrNull { it.id == folderId }?.parentId }
 
+    BackHandler(enabled = searching) {
+        searching = false
+        query = ""
+    }
+
     val allAvailableTags: List<String> = remember(lib.notebooks) {
         val defaults = listOf("Important", "Study", "Lecture", "Exam", "Work", "Math", "Review")
         val used = lib.notebooks.filter { it.deletedAt == null }.flatMap { it.tags }
@@ -312,7 +317,10 @@ fun LibraryScreen(
         val q = query.trim().lowercase().removePrefix("#")
         val activeTag = selectedTag?.lowercase()
         val live = lib.notebooks.filter { n ->
-            n.deletedAt == null && (activeTag == null || n.tags.any { it.equals(activeTag, ignoreCase = true) })
+            (if (section == Section.TRASH) n.deletedAt != null else n.deletedAt == null) &&
+                (section != Section.FAVORITES || n.favorite) &&
+                (section == Section.TRASH || activeTag == null || n.tags.any { it.equals(activeTag, ignoreCase = true) }) &&
+                (n.title.contains(q, ignoreCase = true) || n.tags.any { it.contains(q, ignoreCase = true) })
         }
         fun sortNotes(l: List<NotebookMeta>) = when (sort) {
             SortBy.MODIFIED -> l.sortedByDescending { it.modified }
@@ -321,12 +329,12 @@ fun LibraryScreen(
         }
         fun folderEntry(f: Folder) = Entry.F(f, lib.notebooks.count { it.folderId == f.id && it.deletedAt == null } + lib.folders.count { it.parentId == f.id })
         when {
-            section == Section.TRASH -> lib.notebooks.filter { it.deletedAt != null }.sortedByDescending { it.deletedAt }.map { Entry.N(it) }
-            q.isNotEmpty() -> lib.folders.filter { it.name.lowercase().contains(q) || it.emoji.lowercase().contains(q) }.map(::folderEntry) +
-                sortNotes(live.filter { n -> n.title.lowercase().contains(q) || n.tags.any { it.lowercase().contains(q) } }).map { Entry.N(it) }
-            activeTag != null -> sortNotes(live).map { Entry.N(it) }
-            section == Section.FAVORITES -> sortNotes(live.filter { it.favorite }).map { Entry.N(it) }
+            section == Section.TRASH -> live.sortedByDescending { it.deletedAt }.map { Entry.N(it) }
+            section == Section.FAVORITES -> sortNotes(live).map { Entry.N(it) }
             section == Section.RECENT -> live.sortedByDescending { it.opened }.take(30).map { Entry.N(it) }
+            activeTag != null -> sortNotes(live).map { Entry.N(it) }
+            q.isNotEmpty() -> lib.folders.filter { it.name.contains(q, ignoreCase = true) || it.emoji.contains(q) }
+                .map(::folderEntry) + sortNotes(live).map { Entry.N(it) }
             else -> lib.folders.filter { it.parentId == folderId }.let { fs ->
                 if (sort == SortBy.NAME) fs.sortedBy { it.name.lowercase() } else fs.sortedByDescending { it.modified }
             }.map(::folderEntry) + sortNotes(live.filter { it.folderId == folderId }).map { Entry.N(it) }
@@ -338,8 +346,8 @@ fun LibraryScreen(
 
     val drag = remember { DragController() }
     val trashCount = lib.notebooks.count { it.deletedAt != null }
-    val deskBg = if (dark) Color(0xFF1C1C1C) else MaterialTheme.colorScheme.background
-    val topStripBg = if (dark) Color(0xFF000000) else Color(0xFFE6E3DA)
+    val deskBg = MaterialTheme.colorScheme.background
+    val topStripBg = MaterialTheme.colorScheme.surfaceContainer
 
     androidx.compose.runtime.CompositionLocalProvider(LocalDragController provides drag) {
         Box(Modifier.fillMaxSize().background(deskBg)) {
@@ -400,17 +408,6 @@ fun LibraryScreen(
                             Spacer(Modifier.width(6.dp))
                         }
 
-                        // Active Home tab indicator
-                        AppSurface(
-                            role = SurfaceRole.Frost,
-                            containerColor = if (dark) Color(0xFF1C1C1C) else MaterialTheme.colorScheme.surface,
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                        ) {
-                            ProIconView(ProIcon.HOME, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp))
-                        }
-                        Spacer(Modifier.width(6.dp))
-
                         val tabs by store.tabs.collectAsStateWithLifecycle()
                         val open = tabs.mapNotNull { id -> lib.notebooks.firstOrNull { it.id == id && it.deletedAt == null } }
                         Row(
@@ -421,7 +418,7 @@ fun LibraryScreen(
                             open.forEach { n ->
                                 AppSurface(
                                     role = SurfaceRole.Control,
-                                    containerColor = if (dark) Color(0xFF12141A) else MaterialTheme.colorScheme.surfaceVariant,
+                                    containerColor = MaterialTheme.colorScheme.surface,
                                     shape = RoundedCornerShape(10.dp),
                                     contentPadding = PaddingValues(start = 12.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
                                     onClick = { onOpen(n.id) },
@@ -726,7 +723,14 @@ fun LibraryScreen(
 
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         if (entries.isEmpty()) {
-                            EmptyState(section, onNew = { newNotebook = true })
+                            if (query.isNotBlank() || (selectedTag != null && section != Section.TRASH)) {
+                                Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("No matches", style = MaterialTheme.typography.titleLarge)
+                                    TextButton(onClick = { query = ""; selectedTag = null }) { Text("Clear filters") }
+                                }
+                            } else {
+                                EmptyState(section, inFolder = currentFolder != null, onNew = { newNotebook = true })
+                            }
                         } else {
                             AnimatedContent(
                                 targetState = Triple(section, folderId, listView),
@@ -1095,9 +1099,9 @@ private fun Sidebar(
     val syncing by CloudSync.syncing.collectAsStateWithLifecycle()
     val syncStatus by CloudSync.status.collectAsStateWithLifecycle()
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.45f
-    val sidebarBg = if (dark) Color(0xFF181818) else Color(0xFFECE9E0)
-    val activePillBg = if (dark) Color(0xFF1F3162) else MaterialTheme.colorScheme.primaryContainer
-    val activeIconTint = if (dark) Color(0xFF4FB0F5) else MaterialTheme.colorScheme.primary
+    val sidebarBg = MaterialTheme.colorScheme.surface
+    val activePillBg = MaterialTheme.colorScheme.primaryContainer
+    val activeIconTint = MaterialTheme.colorScheme.onPrimaryContainer
 
     Box(
         Modifier
@@ -1278,19 +1282,24 @@ private fun Sidebar(
 }
 
 @Composable
-private fun EmptyState(section: Section, onNew: () -> Unit) {
+private fun EmptyState(section: Section, inFolder: Boolean, onNew: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Text(
             when (section) {
                 Section.FAVORITES -> "No favorites yet"
                 Section.RECENT -> "Nothing opened yet"
                 Section.TRASH -> "Trash is empty"
-                else -> "Your library is empty"
+                else -> if (inFolder) "This folder is empty" else "Your library is empty"
             },
             style = MaterialTheme.typography.headlineSmall,
         )
         Spacer(Modifier.height(8.dp))
-        if (section == Section.TRASH) {
+        if (section == Section.FAVORITES || section == Section.RECENT) {
+            Text(
+                if (section == Section.FAVORITES) "Star a notebook to find it here." else "Open a notebook to find it here.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else if (section == Section.TRASH) {
             Text("Deleted notebooks stay here for 30 days.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
             Text("Create a notebook or import a PDF to start.", color = MaterialTheme.colorScheme.onSurfaceVariant)

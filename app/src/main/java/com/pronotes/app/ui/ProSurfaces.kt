@@ -9,6 +9,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -134,18 +136,14 @@ fun Modifier.appBackdropBlur(enabled: Boolean, radiusDp: Dp = 14.dp): Modifier {
 private fun resolveSurfaceColors(
     role: SurfaceRole,
     scheme: androidx.compose.material3.ColorScheme,
-    dark: Boolean,
     classicAppearance: Boolean,
     containerColor: Color?,
     contentColor: Color?,
 ): Pair<Color, Color> {
     val base = containerColor ?: when (role) {
-        SurfaceRole.Chrome -> if (dark) Color(0xFF1F2229) else Color(0xFFF6F4EE)
-        SurfaceRole.Frost -> if (dark) Color(0xFF1C1D22) else Color(0xFFFFFFFF)
-        SurfaceRole.Control -> if (dark) Color(0xFF262830) else Color(0xFFECEAE3)
-        SurfaceRole.Capsule -> if (dark) Color(0xFF25272F) else Color(0xFFEEECE5)
-        SurfaceRole.Popover -> if (dark) Color(0xFF1E2027) else Color(0xFFFAF8F3)
-        SurfaceRole.Sheet -> if (dark) Color(0xFF1A1B20) else Color(0xFFFDFBF6)
+        SurfaceRole.Chrome, SurfaceRole.Popover -> scheme.surfaceContainerHigh
+        SurfaceRole.Frost, SurfaceRole.Sheet -> scheme.surface
+        SurfaceRole.Control, SurfaceRole.Capsule -> scheme.surfaceVariant
     }
     val bg = when {
         classicAppearance -> base.copy(alpha = 1f)
@@ -178,10 +176,9 @@ fun AppSurface(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val dark = scheme.background.luminance() < 0.4f
     val classic = LocalClassicAppearance.current
     val reduceEffects = LocalReduceEffects.current
-    val (bg, fg) = resolveSurfaceColors(role, scheme, dark, classic, containerColor, contentColor)
+    val (bg, fg) = resolveSurfaceColors(role, scheme, classic, containerColor, contentColor)
     val baseElevation = if (shadowElevation > 0.dp) shadowElevation else when (role) {
         SurfaceRole.Popover -> 12.dp
         SurfaceRole.Sheet -> 8.dp
@@ -228,17 +225,11 @@ fun AppCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val dark = scheme.background.luminance() < 0.4f
     val reduceEffects = LocalReduceEffects.current
-    val bg = containerColor ?: when {
-        hero && dark -> Color(0xFF21242D)
-        hero && !dark -> Color(0xFFFFFFFF)
-        dark -> Color(0xFF1B1C22)
-        else -> Color(0xFFFDFBF7)
-    }
+    val bg = containerColor ?: if (hero) scheme.surfaceContainerHigh else scheme.surface
     val fg = if (bg.luminance() < 0.42f) Color(0xFFF3F4F6) else scheme.onSurface
     val cardMod = modifier
-        .then(if (hero && !reduceEffects) Modifier.shadow(6.dp, shape, clip = false) else Modifier)
+        .then(if (hero && !reduceEffects) Modifier.shadow(2.dp, shape, clip = false) else Modifier)
         .clip(shape)
         .then(
             if (onClick != null) {
@@ -251,7 +242,7 @@ fun AppCard(
         shape = shape,
         color = bg,
         contentColor = fg,
-        border = if (hero && reduceEffects) BorderStroke(1.dp, scheme.outlineVariant) else null,
+        border = BorderStroke(1.dp, scheme.outlineVariant),
     ) {
         CompositionLocalProvider(LocalContentColor provides fg) {
             Column(Modifier.padding(contentPadding), content = content)
@@ -325,6 +316,7 @@ fun AppDialog(
                         Box(
                             Modifier
                                 .fillMaxWidth()
+                                .weight(1f, fill = false)
                                 .heightIn(max = 520.dp),
                         ) {
                             text()
@@ -356,19 +348,18 @@ fun AppPill(
     val scheme = MaterialTheme.colorScheme
     val dark = scheme.background.luminance() < 0.4f
     val reduceMotion = LocalReduceMotion.current
-    val activeTint = tint ?: ProButtonPalette.ElectricBlue
+    val activeTint = tint ?: scheme.primary
     val bg by animateColorAsState(
         targetValue = when {
             selected -> activeTint
             tint != null -> tint.copy(alpha = if (dark) 0.22f else 0.14f)
-            dark -> Color(0xFF282B34)
-            else -> Color(0xFFECE9E1)
+            else -> scheme.surfaceVariant
         },
         animationSpec = if (reduceMotion) snap() else tween(180),
         label = "pillBg",
     )
     val fg = when {
-        selected -> if (activeTint.luminance() > 0.56f) Color(0xFF0F172A) else Color.White
+        selected -> if (contrastRatio(activeTint, Color(0xFF0F172A)) > contrastRatio(activeTint, Color.White)) Color(0xFF0F172A) else Color.White
         tint != null && !dark -> lerp(tint, scheme.onSurface, 0.35f)
         tint != null && dark -> lerp(tint, Color.White, 0.52f)
         else -> scheme.onSurface
@@ -436,8 +427,8 @@ fun AppToggle(
         enabled = enabled,
         modifier = modifier,
         colors = SwitchDefaults.colors(
-            checkedThumbColor = Color.White,
-            checkedTrackColor = ProButtonPalette.ElectricBlue,
+            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+            checkedTrackColor = MaterialTheme.colorScheme.primary,
             uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
             uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
             uncheckedBorderColor = Color.Transparent,
@@ -460,8 +451,8 @@ fun AppSlider(
         enabled = enabled,
         modifier = modifier,
         colors = SliderDefaults.colors(
-            thumbColor = ProButtonPalette.ElectricBlue,
-            activeTrackColor = ProButtonPalette.ElectricBlue,
+            thumbColor = MaterialTheme.colorScheme.primary,
+            activeTrackColor = MaterialTheme.colorScheme.primary,
             inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f),
         ),
     )
@@ -507,14 +498,14 @@ fun AppSegmentedControl(
     modifier: Modifier = Modifier,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val dark = scheme.background.luminance() < 0.4f
-    val track = if (dark) Color(0xFF23262F) else Color(0xFFE7E4DC)
-    val pillBg = if (dark) Color(0xFF333845) else Color.White
+    val track = scheme.surfaceVariant
+    val pillBg = scheme.surfaceContainerHigh
     val shape = appPillShape()
     Row(
         modifier = modifier
             .clip(shape)
             .background(track)
+            .selectableGroup()
             .padding(3.dp),
         horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
@@ -525,8 +516,9 @@ fun AppSegmentedControl(
                     .weight(1f)
                     .clip(shape)
                     .background(if (sel) pillBg else Color.Transparent)
-                    .clickable(role = Role.Tab) { onSelect(i) }
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                    .selectable(selected = sel, role = Role.Tab, onClick = { onSelect(i) })
+                    .heightIn(min = 44.dp)
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -560,8 +552,7 @@ fun AppContextMenu(
     modifier: Modifier = Modifier,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val dark = scheme.background.luminance() < 0.4f
-    val menuBg = if (dark) Color(0xFF20222A) else Color(0xFFFAF8F3)
+    val menuBg = scheme.surfaceContainerHigh
     MaterialTheme(
         colorScheme = scheme.copy(surface = menuBg, surfaceContainer = menuBg),
         shapes = MaterialTheme.shapes.copy(extraSmall = RoundedCornerShape(16.dp)),
@@ -757,12 +748,11 @@ fun AppSheet(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val dark = scheme.background.luminance() < 0.4f
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
-        containerColor = if (dark) Color(0xFF1A1C22) else Color(0xFFFDFBF6),
+        containerColor = scheme.surface,
         contentColor = scheme.onSurface,
         modifier = modifier,
         content = content,

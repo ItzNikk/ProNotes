@@ -32,6 +32,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asAndroidColorFilter
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
@@ -308,8 +309,8 @@ private fun computeCylindricalCurl(
     val piR = PI.toFloat() * radius
 
     // Diagonal angle starts tilted from the bottom corner and straightens smoothly toward vertical as the page settles.
-    val baseTilt = (0.14f + (clampedTouch - 0.24f) * 0.56f).coerceIn(0.14f, 0.54f)
-    val tilt = baseTilt * (1f - 0.88f * p * p)
+    val baseTilt = (clampedTouch - 0.5f) * 1.1f
+    val tilt = baseTilt * (1f - p * p)
     val cosA = kotlin.math.cos(tilt.toDouble()).toFloat()
     val sinA = sin(tilt.toDouble()).toFloat()
     val nx = if (turnDir > 0) cosA else -cosA
@@ -433,22 +434,28 @@ private fun drawCylindricalBackBitmapMesh(
     curl: CylindricalCurlGeometry,
     mirrorHorizontal: Boolean,
     alpha: Int,
+    colorFilter: ColorFilter?,
 ) {
     val cols = 26
     val rows = 26
     val verts = FloatArray((cols + 1) * (rows + 1) * 2)
     val sheetW = curl.sheetRight - curl.sheetLeft
     val sheetH = curl.sheetHeight
+    val scale = minOf(sheetW / bmp.width, sheetH / bmp.height)
+    val contentWidth = bmp.width * scale
+    val contentHeight = bmp.height * scale
+    val insetX = (sheetW - contentWidth) / 2f
+    val insetY = (sheetH - contentHeight) / 2f
     var idx = 0
     for (r in 0..rows) {
         val v = r.toFloat() / rows
-        val py = v * sheetH
+        val py = insetY + v * contentHeight
         for (c in 0..cols) {
             val u = c.toFloat() / cols
             val px = if (mirrorHorizontal) {
-                curl.sheetRight - u * sheetW
+                curl.sheetRight - insetX - u * contentWidth
             } else {
-                curl.sheetLeft + u * sheetW
+                curl.sheetLeft + insetX + u * contentWidth
             }
             val projected = curl.projectBack(px, py)
             verts[idx++] = projected.x
@@ -457,6 +464,7 @@ private fun drawCylindricalBackBitmapMesh(
     }
     val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG).apply {
         this.alpha = alpha
+        this.colorFilter = colorFilter?.asAndroidColorFilter()
     }
     nativeCanvas.drawBitmapMesh(bmp, cols, rows, verts, 0, null, 0, paint)
 }
@@ -583,7 +591,7 @@ internal fun BookCurlStage(
                     // 1) Cast shadow onto the REVEALED next page underneath the lifted cylinder crest
                     if (curl.revealedPoly.size >= 3) {
                         val revealedPath = polygonToPath(curl.revealedPoly)
-                        val shadowReach = (r * 3.1f + 26f).coerceIn(28f, w * 0.36f)
+                        val shadowReach = (r * 3.1f + 26f).coerceAtMost(w * 0.36f)
                         val s0 = curl.crestMid
                         val s1 = Offset(s0.x + nx * shadowReach, s0.y + ny * shadowReach)
                         clipPath(revealedPath) {
@@ -673,6 +681,7 @@ internal fun BookCurlStage(
                                         curl = curl,
                                         mirrorHorizontal = mirrorBackUv,
                                         alpha = backAlpha,
+                                        colorFilter = colorFilter,
                                     )
                                 }
                             }
@@ -768,38 +777,8 @@ internal fun BookSheetFrame(
     shimmer: Float,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(16.dp)
-    Box(
-        modifier = modifier
-            .shadow(10.dp, shape, clip = false)
-            .clip(shape)
-            .background(theme.pageBg)
-            .border(1.dp, theme.mutedText.copy(alpha = 0.14f), shape)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-    ) {
+    Box(modifier.background(theme.pageBg)) {
         Column(Modifier.fillMaxSize()) {
-            Row(
-                Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    title.uppercase(),
-                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Serif),
-                    color = theme.mutedText.copy(alpha = 0.78f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    if (spread && rightPageNum != null) "pp. $leftPageNum–$rightPageNum / $totalPages"
-                    else "p. $leftPageNum / $totalPages",
-                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Serif),
-                    color = theme.mutedText.copy(alpha = 0.78f),
-                )
-            }
-
             if (spread) {
                 Row(
                     Modifier.weight(1f).fillMaxWidth(),

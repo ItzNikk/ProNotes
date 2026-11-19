@@ -21,6 +21,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -389,7 +391,7 @@ fun BookReaderHubScreen(
                 ) {
                     Icon(Icons.Outlined.UploadFile, null, Modifier.size(16.dp), tint = Color.White)
                     Spacer(Modifier.width(6.dp))
-                    Text("Import Book / Doc", color = Color.White, style = MaterialTheme.typography.labelLarge)
+                    Text("Import", color = Color.White, style = MaterialTheme.typography.labelLarge)
                 }
                 IconButton(onClick = onSettings) {
                     Icon(Icons.Outlined.Settings, contentDescription = "Settings")
@@ -714,7 +716,7 @@ fun BookReaderScreen(
     var brightness by remember { mutableFloatStateOf(1f) }
     var contrast by remember { mutableFloatStateOf(1.05f) }
     var twoPageSpread by remember { mutableStateOf(true) }
-    var showChrome by remember { mutableStateOf(true) }
+    var showChrome by remember(bookId) { mutableStateOf(false) }
     var showDisplaySheet by remember { mutableStateOf(false) }
     var showContentsSheet by remember { mutableStateOf(false) }
     var showSearchSheet by remember { mutableStateOf(false) }
@@ -779,7 +781,7 @@ fun BookReaderScreen(
     val pageStep = if (effectiveSpread) 2 else 1
 
     fun canGoNext(): Boolean = currentPage + pageStep < totalPages
-    fun canGoPrev(): Boolean = currentPage - pageStep >= 0
+    fun canGoPrev(): Boolean = currentPage > 0
 
     fun toggleBookmarkAt(idx: Int) {
         if (idx !in pages.indices) return
@@ -794,28 +796,42 @@ fun BookReaderScreen(
     val appSettings by store.settings.collectAsStateWithLifecycle()
     val bookFlipSound = appSettings.bookFlipSound
 
-    fun animatePageTurn(direction: Int, normalizedY: Float = 0.86f) {
-        if (direction > 0 && !canGoNext()) return
-        if (direction < 0 && !canGoPrev()) return
-        if (turnProgress.isRunning) return
-        if (bookFlipSound) {
-            BookFlipSoundEngine.playPageTurnSwish(volume = appSettings.paperVolume, forward = direction > 0)
+    var dragProgress by remember { mutableFloatStateOf(0f) }
+    var settling by remember { mutableStateOf(false) }
+
+    fun settleTurn(commit: Boolean) {
+        if (settling || turnDir == 0) return
+        val origin = currentPage
+        val destination = (origin + turnDir * pageStep).coerceIn(0, totalPages - 1)
+        val start = dragProgress
+        if (commit && bookFlipSound) {
+            BookFlipSoundEngine.playPageTurnSwish(volume = appSettings.paperVolume, forward = turnDir > 0)
         }
-        if (flipStyle == BookFlipStyle.INSTANT || reduceMotion) {
-            currentPage = (currentPage + direction * pageStep).coerceIn(0, totalPages - 1)
-            return
-        }
-        scope.launch {
-            turnDir = direction
-            curlTouchY = normalizedY.coerceIn(0.32f, 0.96f)
-            turnProgress.snapTo(0f)
-            turnProgress.animateTo(1f, tween(durationMillis = flipSpeed.durationMs, easing = FastOutSlowInEasing))
-            currentPage = (currentPage + direction * pageStep).coerceIn(0, totalPages - 1)
-            turnDir = 0
-            turnProgress.snapTo(0f)
+        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            try {
+                turnProgress.snapTo(start)
+                settling = true
+                if (!reduceMotion && flipStyle != BookFlipStyle.INSTANT) {
+                    val end = if (commit) 1f else 0f
+                    val duration = (flipSpeed.durationMs * abs(end - start)).roundToInt().coerceAtLeast(1)
+                    turnProgress.animateTo(end, tween(duration, easing = if (start == 0f) FastOutSlowInEasing else androidx.compose.animation.core.LinearOutSlowInEasing))
+                }
+                if (commit && currentPage == origin) currentPage = destination
+            } finally {
+                turnDir = 0
+                dragProgress = 0f
+                settling = false
+            }
         }
     }
 
+    fun animatePageTurn(direction: Int, normalizedY: Float = 0.86f) {
+        if (settling || turnDir != 0) return
+        if (direction > 0 && !canGoNext() || direction < 0 && !canGoPrev()) return
+        turnDir = direction
+        curlTouchY = normalizedY.coerceIn(0.24f, 0.96f)
+        settleTurn(true)
+    }
     // Helper to render/fetch bitmap into cache
     suspend fun ensureRendered(pageIdx: Int, widthPx: Int, nightMode: Boolean): Bitmap? {
         if (pageIdx !in pages.indices) return null
@@ -913,22 +929,10 @@ fun BookReaderScreen(
         }
     }
 
-    val shimmer = if (reduceMotion) {
-        0f
-    } else {
-        val animatedShimmer by rememberInfiniteTransition(label = "bookLoader").animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(tween(1150, easing = LinearEasing), RepeatMode.Restart),
-            label = "sweep",
-        )
-        animatedShimmer
-    }
-
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
-            .background(theme.deskBg)
+            .background(theme.pageBg)
             .safeDrawingPadding(),
     ) {
         val density = LocalDensity.current
@@ -977,15 +981,27 @@ fun BookReaderScreen(
         val nextLeftBmp = if (turnDir != 0) cachedPageBmp(targetPageIdx) else null
         val nextRightBmp = if (turnDir != 0 && effectiveSpread && targetPageIdx + 1 < totalPages) cachedPageBmp(targetPageIdx + 1) else null
 
+        val shimmer = if (reduceMotion || (curLeftBmp != null && (!effectiveSpread || currentPage + 1 >= totalPages || curRightBmp != null))) {
+            0f
+        } else {
+            val animatedShimmer by rememberInfiniteTransition(label = "bookLoader").animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(tween(1150, easing = LinearEasing), RepeatMode.Restart),
+                label = "sweep",
+            )
+            animatedShimmer
+        }
+
         // Main Interactive Book Stage
         Box(
             Modifier
                 .fillMaxSize()
                 .padding(
                     horizontal = if (isWideTablet) (bookMargin.padDp + 12).dp else bookMargin.padDp.dp,
-                    vertical = if (showChrome) 74.dp else 14.dp,
+                    vertical = 6.dp,
                 )
-                .pointerInput(zoom) {
+                .pointerInput(bookId) {
                     awaitEachGesture {
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
@@ -1020,7 +1036,7 @@ fun BookReaderScreen(
                         }
                     }
                 }
-                .pointerInput(currentPage, totalPages, effectiveSpread, zoom) {
+                .pointerInput(currentPage, totalPages, effectiveSpread, zoom, flipStyle, flipSpeed, reduceMotion, bookFlipSound, appSettings.paperVolume) {
                     detectTapGestures(
                         onDoubleTap = {
                             if (zoom > 1.08f) {
@@ -1044,70 +1060,34 @@ fun BookReaderScreen(
                         },
                     )
                 }
-                .pointerInput(currentPage, totalPages, effectiveSpread, zoom) {
+                .pointerInput(currentPage, totalPages, effectiveSpread, zoom, flipStyle, flipSpeed, reduceMotion, bookFlipSound, appSettings.paperVolume) {
                     if (zoom <= 1.04f) {
                         var totalDx = 0f
+                        var tracking = false
                         detectDragGestures(
-                            onDragStart = { start ->
+                            onDragStart = {
                                 totalDx = 0f
-                                turnDir = 0
-                                curlTouchY = (start.y / size.height.coerceAtLeast(1)).coerceIn(0.24f, 0.96f)
+                                tracking = !settling
                             },
                             onDrag = { change, dragAmount ->
-                                change.consume()
-                                totalDx += dragAmount.x
-                                val w = size.width.toFloat().coerceAtLeast(1f)
-                                val h = size.height.toFloat().coerceAtLeast(1f)
-                                // Track live fingertip vertical angle while peeling diagonally from the bottom corner
-                                curlTouchY = (change.position.y / h).coerceIn(0.24f, 0.96f)
-                                if (totalDx < -8f && canGoNext()) {
-                                    turnDir = +1
-                                    if (bookFlipSound && abs(dragAmount.x) > 4f) {
+                                if (tracking) {
+                                    change.consume()
+                                    totalDx += dragAmount.x
+                                    turnDir = when {
+                                        totalDx < 0f && canGoNext() -> 1
+                                        totalDx > 0f && canGoPrev() -> -1
+                                        else -> 0
+                                    }
+                                    dragProgress = if (turnDir == 0) 0f else
+                                        (abs(totalDx) / (size.width.coerceAtLeast(1) * 0.72f)).coerceIn(0f, 1f)
+                                    curlTouchY = (change.position.y / size.height.coerceAtLeast(1)).coerceIn(0.24f, 0.96f)
+                                    if (turnDir != 0 && bookFlipSound && abs(dragAmount.x) > 4f) {
                                         BookFlipSoundEngine.playDragRustleTick(dragAmount.x, appSettings.paperVolume)
                                     }
-                                    scope.launch { turnProgress.snapTo((abs(totalDx) / (w * 0.72f)).coerceIn(0f, 1f)) }
-                                } else if (totalDx > 8f && canGoPrev()) {
-                                    turnDir = -1
-                                    if (bookFlipSound && abs(dragAmount.x) > 4f) {
-                                        BookFlipSoundEngine.playDragRustleTick(dragAmount.x, appSettings.paperVolume)
-                                    }
-                                    scope.launch { turnProgress.snapTo((abs(totalDx) / (w * 0.72f)).coerceIn(0f, 1f)) }
                                 }
                             },
-                            onDragCancel = {
-                                scope.launch {
-                                    if (reduceMotion) {
-                                        turnProgress.snapTo(0f)
-                                    } else {
-                                        turnProgress.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
-                                    }
-                                    turnDir = 0
-                                }
-                            },
-                            onDragEnd = {
-                                scope.launch {
-                                    val p = turnProgress.value
-                                    if (p >= 0.18f && turnDir != 0) {
-                                        if (bookFlipSound) {
-                                            BookFlipSoundEngine.playPageTurnSwish(volume = appSettings.paperVolume, forward = turnDir > 0)
-                                        }
-                                        if (reduceMotion || flipStyle == BookFlipStyle.INSTANT) {
-                                            turnProgress.snapTo(1f)
-                                        } else {
-                                            turnProgress.animateTo(1f, tween(280, easing = FastOutSlowInEasing))
-                                        }
-                                        currentPage = (currentPage + turnDir * pageStep).coerceIn(0, totalPages - 1)
-                                    } else {
-                                        if (reduceMotion) {
-                                            turnProgress.snapTo(0f)
-                                        } else {
-                                            turnProgress.animateTo(0f, spring(dampingRatio = 0.82f, stiffness = 360f))
-                                        }
-                                    }
-                                    turnDir = 0
-                                    turnProgress.snapTo(0f)
-                                }
-                            },
+                            onDragCancel = { if (tracking) settleTurn(false) },
+                            onDragEnd = { if (tracking) settleTurn(dragProgress >= 0.18f) },
                         )
                     }
                 },
@@ -1128,7 +1108,7 @@ fun BookReaderScreen(
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
-                val p = turnProgress.value.coerceIn(0f, 1f)
+                val p = if (settling) turnProgress.value else dragProgress
                 BookCurlStage(
                     theme = theme,
                     flipStyle = flipStyle,
@@ -1142,7 +1122,7 @@ fun BookReaderScreen(
                     nextLeftBmp = nextLeftBmp,
                     nextRightBmp = nextRightBmp,
                     turnDir = turnDir,
-                    curlProgress = p,
+                    curlProgress = if (reduceMotion || flipStyle == BookFlipStyle.INSTANT) 0f else p,
                     curlTouchY = curlTouchY,
                     colorFilter = colorFilter,
                     shimmer = shimmer,
@@ -1199,15 +1179,6 @@ fun BookReaderScreen(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Text(
-                            if (effectiveSpread && currentPage + 1 < totalPages) {
-                                "Pages ${currentPage + 1}–${currentPage + 2} of $totalPages"
-                            } else {
-                                "Page ${currentPage + 1} of $totalPages"
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = theme.mutedText,
-                        )
                     }
                     IconButton(
                         onClick = { showSearchSheet = true },
@@ -1226,32 +1197,6 @@ fun BookReaderScreen(
                         modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
                     ) {
                         Icon(Icons.Outlined.TextFields, contentDescription = stringResource(R.string.reader_display_settings), tint = theme.inkText)
-                    }
-                    if (isWideTablet) {
-                        IconButton(
-                            onClick = { twoPageSpread = !twoPageSpread },
-                            modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
-                        ) {
-                            Icon(
-                                Icons.Outlined.ViewColumn,
-                                contentDescription = "Toggle book spread",
-                                tint = if (twoPageSpread) theme.accent else theme.mutedText,
-                            )
-                        }
-                    }
-                    IconButton(
-                        onClick = {
-                            val nextVal = !bookFlipSound
-                            store.update { it.copy(bookFlipSound = nextVal) }
-                            if (nextVal) BookFlipSoundEngine.playPageTurnSwish(volume = appSettings.paperVolume, forward = true)
-                        },
-                        modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
-                    ) {
-                        Icon(
-                            if (bookFlipSound) Icons.Outlined.VolumeUp else Icons.Outlined.VolumeOff,
-                            contentDescription = "Page flip sound",
-                            tint = if (bookFlipSound) theme.accent else theme.mutedText,
-                        )
                     }
                     val isBookmarked = pages.getOrNull(currentPage)?.bookmarked == true
                     IconButton(
@@ -1360,6 +1305,7 @@ fun BookReaderScreen(
             Column(
                 Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 10.dp)
                     .navigationBarsPadding(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -1561,6 +1507,7 @@ fun BookReaderScreen(
         LaunchedEffect(searchQuery, bookId, pages.size) {
             val q = searchQuery.trim()
             if (q.length < 2) {
+                indexing = false
                 searchHits = emptyList()
                 return@LaunchedEffect
             }

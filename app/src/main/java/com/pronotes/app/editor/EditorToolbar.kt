@@ -157,7 +157,7 @@ fun AdaptiveFixedToolbar(
     modifier: Modifier = Modifier,
 ) {
     val isVertical = settings.toolbarDock == ToolbarDock.LEFT || settings.toolbarDock == ToolbarDock.RIGHT
-    val barBg = if (darkUi) WorkbenchDarkBg else WorkbenchLightBg
+    val barBg = if (darkUi == (MaterialTheme.colorScheme.surface.luminance() < 0.4f)) MaterialTheme.colorScheme.surface else if (darkUi) WorkbenchDarkBg else WorkbenchLightBg
     val barFg = if (darkUi) Color(0xFFF1F5F9) else Color(0xFF151922)
     val rimColor = if (darkUi) Color.White.copy(alpha = 0.09f) else Color(0xFF0F172A).copy(alpha = 0.09f)
     val hairlineColor = if (darkUi) Color.White.copy(alpha = 0.12f) else Color(0xFF0F172A).copy(alpha = 0.11f)
@@ -384,7 +384,7 @@ fun FloatingToolbarPill(
     onResetPosition: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val dockBg = if (darkUi) WorkbenchDarkBg.copy(alpha = 0.96f) else WorkbenchLightBg.copy(alpha = 0.97f)
+    val dockBg = if (darkUi == (MaterialTheme.colorScheme.surface.luminance() < 0.4f)) MaterialTheme.colorScheme.surface else if (darkUi) WorkbenchDarkBg else WorkbenchLightBg
     val dockFg = if (darkUi) Color(0xFFF1F5F9) else Color(0xFF151922)
     val hairlineColor = if (darkUi) Color.White.copy(alpha = 0.13f) else Color(0xFF0F172A).copy(alpha = 0.11f)
     val reduceEffects = LocalReduceEffects.current
