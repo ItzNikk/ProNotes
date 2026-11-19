@@ -1,11 +1,8 @@
 <resources>
     <string name="app_name">Pro Notes</string>
-    <string name="hint_shape_not_recognised">Shape not recognised</string>
-    <string name="msg_scribble_erased">Scribble erased</string>
     <string name="action_undo">Undo</string>
     <string name="pull_to_add_page">Pull to add a page</string>
     <string name="release_to_add_page">Release to add a page</string>
-    <string name="debug_assertion_wet_stroke">Debug assertion: in-progress stroke survived %1$s</string>
 
     <!-- Phase 2: Toolbar, Quick Actions & Selection -->
     <string name="toolbar_style_fixed">Fixed bar</string>
@@ -64,6 +61,10 @@
     <string name="quick_actions_close">Close Quick Actions</string>
     <string name="quick_actions_previous_tool">Previous tool</string>
     <string name="quick_actions_tool_settings">Tool settings</string>
+    <string name="quick_actions_palette">Colour palette</string>
+    <string name="quick_actions_thickness">Stroke thickness</string>
+    <string name="quick_actions_more_tools">More tools</string>
+    <string name="quick_actions_colour">Ink colour</string>
     <string name="quick_insert_title">Quick Insert</string>
     <string name="quick_insert_write_box">Write Box</string>
     <string name="quick_insert_text_box">Text box</string>

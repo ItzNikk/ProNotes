@@ -323,9 +323,6 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                     }
                 }
                 wetInk.removeFinishedStrokes(strokes.keys)
-                if (BuildConfig.DEBUG && strokeId == null && strokePages.isEmpty()) {
-                    layer.debugAssertion = null
-                }
             }
         })
     }
@@ -1316,7 +1313,6 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     private fun startInk(e: MotionEvent, pid: Int, t: Tool) {
         // A stroke that was never finished or cancelled would stay on screen forever as ghost ink.
         cancelActiveWetStroke(e)
-        if (BuildConfig.DEBUG) layer.debugAssertion = null
         removeCallbacks(wetAssertionRunnable)
         scribbleErased = false
         scribbleDeletedAny = false
@@ -1380,8 +1376,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 buzz(); syncFeel(); feel.cue(PaperFeel.Cue.SNAP)
                 return
             }
-            // Nothing matched: keep the drawn stroke editable and show a brief hint.
-            host.onHint(context.getString(R.string.hint_shape_not_recognised))
+            // Nothing matched: silently keep the freehand stroke editable.
         }
         // Highlighter: always straight, or straightened when it was nearly straight anyway.
         if (strokeTool == Tool.HIGHLIGHTER && points.size > 1) {
@@ -1664,16 +1659,14 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         val leaked = !touchActive && mode == Mode.NONE &&
             (strokeId != null || (staleId != null && staleId in strokePages))
         if (leaked) {
-            layer.debugAssertion = context.getString(R.string.debug_assertion_wet_stroke, "pen-up")
-            layer.invalidate()
+            android.util.Log.w("NoteCanvasView", "In-progress stroke survived pen-up")
         }
     }
 
     private fun assertNoSurvivingWetStroke(reason: String, finishedId: InProgressStrokeId? = null) {
         if (!BuildConfig.DEBUG) return
         if (strokeId != null || (reason == "cancel" && strokePages.isNotEmpty())) {
-            layer.debugAssertion = context.getString(R.string.debug_assertion_wet_stroke, reason)
-            layer.invalidate()
+            android.util.Log.w("NoteCanvasView", "In-progress stroke survived $reason")
             return
         }
         if (finishedId != null && finishedId in strokePages) {
@@ -2504,18 +2497,10 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         var tapePreview: RectF? = null
         var tapeFree: List<Pt>? = null
         var writeBoxPreview: RectF? = null
-        var debugAssertion: String? = null
         /** Hover preview: x, y, and (colour, radius in px). */
         var hoverDot: Triple<Float, Float, Pair<Int, Float>>? = null
         private val hoverPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val hoverRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.2f * density; color = 0x66000000 }
-        private val debugBannerBg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xE6B91C1C.toInt() }
-        private val debugBannerText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            textSize = 13f * density
-            isFakeBoldText = true
-            textAlign = Paint.Align.CENTER
-        }
 
         fun clearLasers() { lasers.clear(); invalidate() }
 
@@ -2777,16 +2762,6 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 canvas.drawCircle(x, y, r + 1.5f * density, hoverRing)
             }
             if (flashAlpha > 0f) canvas.drawColor(Color.argb((flashAlpha * 40).toInt(), 61, 108, 244))
-            if (BuildConfig.DEBUG) {
-                debugAssertion?.let { msg ->
-                    val bw = min(width - 32f * density, debugBannerText.measureText(msg) + 28f * density)
-                    val bx = (width - bw) / 2f
-                    val top = 16f * density
-                    val bot = top + 34f * density
-                    canvas.drawRoundRect(bx, top, bx + bw, bot, 10f * density, 10f * density, debugBannerBg)
-                    canvas.drawText(msg, width / 2f, top + 22f * density, debugBannerText)
-                }
-            }
             if (anyPdfLoading) postInvalidateDelayed(33L)
         }
 

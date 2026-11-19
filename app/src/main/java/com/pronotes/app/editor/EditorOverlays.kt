@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -35,6 +36,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Flip
 import androidx.compose.material.icons.outlined.FlipToBack
 import androidx.compose.material.icons.outlined.FlipToFront
+import androidx.compose.material.icons.outlined.FormatListBulleted
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material.icons.outlined.Link
@@ -42,7 +44,6 @@ import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.RotateRight
 import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material.icons.outlined.Style
-import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.HorizontalDivider
@@ -65,6 +66,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -78,7 +80,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -95,7 +96,6 @@ import com.pronotes.app.ui.ProButtonPalette
 import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.ProIconView
 import com.pronotes.app.ui.SurfaceRole
-import com.pronotes.app.ui.Swatch
 import com.pronotes.app.ui.ToolGlyph
 import com.pronotes.app.ui.appPillShape
 import kotlin.math.roundToInt
@@ -273,9 +273,14 @@ private fun SelectionActionIcon(
     }
 }
 
+private enum class QuickArcMode { ACTIONS, COLORS, SIZES, MORE_TOOLS }
+
 /**
- * Compact anchored Quick Actions popup triggered by a stylus side/hover button click.
- * Uses a native Compose [Popup] anchored to the pointer coordinates with no full-screen dim or blur.
+ * Curved dual-arc Quick Actions palette anchored right beside the stylus tip.
+ * Uses a transparent native Compose [Popup] with zero screen dim or canvas blur:
+ * - Inner primary arc: Undo, Redo, Pen, Eraser, Highlighter, Selection, separator, Thickness, and Active Colour dot.
+ * - Outer concentric arc: Palette, Tool settings, and More tools — dynamically expanding into live Ink Colours,
+ *   Stroke Thickness dots, or extra Pro Notes tools (Shapes, Text, Sticky, Concept Maps, Masking tape).
  */
 @Composable
 fun QuickActionsOverlay(
@@ -288,50 +293,121 @@ fun QuickActionsOverlay(
     val density = LocalDensity.current.density
     val reduceMotion = LocalReduceMotion.current
     val reduceEffects = LocalReduceEffects.current
-    val tools = remember {
-        listOf(
-            Tool.PEN,
-            Tool.HIGHLIGHTER,
-            Tool.ERASER,
-            Tool.LASSO,
-            Tool.SHAPE,
-            Tool.MINDMAP,
-            Tool.TEXT,
-            Tool.LASER,
-            Tool.TAPE,
-        )
-    }
-    val appear = remember { Animatable(if (reduceMotion) 1f else 0.86f) }
+    val darkTheme = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+
+    var outerMode by remember { mutableStateOf(QuickArcMode.ACTIONS) }
+    var openCustomColor by remember { mutableStateOf(false) }
+
+    val appear = remember { Animatable(if (reduceMotion) 1f else 0.78f) }
     LaunchedEffect(reduceMotion) {
         if (reduceMotion) {
             appear.snapTo(1f)
         } else {
-            appear.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = 480f))
+            appear.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = 520f))
         }
     }
 
-    var cardSize by remember { mutableStateOf(IntSize.Zero) }
-    val estW = if (cardSize.width > 0) cardSize.width else (268f * density).roundToInt()
-    val estH = if (cardSize.height > 0) cardSize.height else (296f * density).roundToInt()
-    val marginPx = (12f * density).roundToInt()
-    val clamped = remember(at, areaSize, estW, estH, marginPx) {
+    // Mirror across the vertical axis when the stylus is close to the left screen edge so the arcs stay clear.
+    val mirrorToRight = remember(at, areaSize, density) {
+        areaSize.width > 0 && at.x < 228f * density
+    }
+
+    val canvasW = 352.dp
+    val canvasH = 316.dp
+    val canvasWPx = (352f * density).roundToInt()
+    val canvasHPx = (316f * density).roundToInt()
+
+    // Pivot inside the popup box where the stylus tip rests inside the open curve of the arcs.
+    val pivotX = if (mirrorToRight) 108f * density else 244f * density
+    val pivotY = 222f * density
+
+    val marginPx = (8f * density).roundToInt()
+    val popupOffset = remember(at, areaSize, pivotX, pivotY, canvasWPx, canvasHPx, marginPx) {
         ToolbarGeometry.clampFloatingOffset(
-            desiredX = (at.x - estW / 2f).roundToInt(),
-            desiredY = (at.y - estH / 3f).roundToInt(),
-            pillSize = IntSize(estW, estH),
+            desiredX = (at.x - pivotX).roundToInt(),
+            desiredY = (at.y - pivotY).roundToInt(),
+            pillSize = IntSize(canvasWPx, canvasHPx),
             areaSize = areaSize,
             marginPx = marginPx,
         )
     }
 
+    val innerRadiusPx = 136f * density
+    val innerBandPx = 50f * density
+    val outerRadiusPx = 196f * density
+    val outerBandPx = 46f * density
+
+    // Map canonical left-curving angle (158°..302°) to mirrored right-curving angle when near left edge.
+    fun mapAngle(deg: Float): Float = if (mirrorToRight) 540f - deg else deg
+
+    fun arcRange(startDeg: Float, endDeg: Float): Pair<Float, Float> {
+        val a = mapAngle(startDeg)
+        val b = mapAngle(endDeg)
+        return if (a <= b) a to b else b to a
+    }
+
+    fun polarPos(radiusPx: Float, deg: Float): Offset {
+        val rad = Math.toRadians(mapAngle(deg).toDouble())
+        return Offset(
+            x = pivotX + (radiusPx * kotlin.math.cos(rad)).toFloat(),
+            y = pivotY + (radiusPx * kotlin.math.sin(rad)).toFloat(),
+        )
+    }
+
+    val innerStart = 158f
+    val innerEnd = 302f
+    val (innerDrawStart, innerDrawEnd) = arcRange(innerStart, innerEnd)
+
+    val activeStyle = vm.styleFor(vm.tool) ?: vm.penStyle
+    val activeColor = Color(activeStyle.color)
+    val paletteColors = remember(activeStyle.colors) { activeStyle.colors.take(5) }
+    val sizePresets = remember(activeStyle.sizes) {
+        val base = activeStyle.sizes.ifEmpty { listOf(2f, 4f, 8f, 14f) }
+        base.take(4)
+    }
+    val extraTools = remember {
+        listOf(Tool.SHAPE, Tool.TEXT, Tool.STICKY, Tool.MINDMAP, Tool.TAPE)
+    }
+
+    val outerAngles: List<Float> = when (outerMode) {
+        QuickArcMode.ACTIONS -> listOf(170f, 194f, 218f)
+        QuickArcMode.COLORS -> {
+            val count = paletteColors.size + 1 // swatches + custom colour button
+            val start = 154f
+            val step = 15.5f
+            List(count) { i -> start + i * step }
+        }
+        QuickArcMode.SIZES -> {
+            val count = sizePresets.size
+            val start = 166f
+            val step = 17.5f
+            List(count) { i -> start + i * step }
+        }
+        QuickArcMode.MORE_TOOLS -> {
+            val start = 158f
+            val step = 17.5f
+            List(extraTools.size) { i -> start + i * step }
+        }
+    }
+    val (outerDrawStart, outerDrawEnd) = arcRange(outerAngles.first(), outerAngles.last())
+
+    val arcSurface = if (darkTheme) Color(0xFF1F232C) else Color(0xFFFFFFFF)
+    val arcBorder = if (darkTheme) Color.White.copy(alpha = 0.14f) else Color(0xFF0F172A).copy(alpha = 0.10f)
+    val arcFg = if (darkTheme) Color(0xFFF3F4F6) else Color(0xFF1B1F2A)
+    val arcMuted = arcFg.copy(alpha = 0.30f)
+    val activeHalo = if (darkTheme) ProButtonPalette.ElectricBlue.copy(alpha = 0.28f) else ProButtonPalette.ElectricBlue.copy(alpha = 0.14f)
+
     val undoDesc = stringResource(R.string.toolbar_undo)
     val redoDesc = stringResource(R.string.toolbar_redo)
-    val prevDesc = stringResource(R.string.quick_actions_previous_tool)
-    val settingsLabel = stringResource(R.string.quick_actions_tool_settings)
+    val settingsDesc = stringResource(R.string.quick_actions_tool_settings)
+    val paletteDesc = stringResource(R.string.quick_actions_palette)
+    val thicknessDesc = stringResource(R.string.quick_actions_thickness)
+    val moreToolsDesc = stringResource(R.string.quick_actions_more_tools)
+    val colourDesc = stringResource(R.string.quick_actions_colour)
 
     Popup(
         alignment = Alignment.TopStart,
-        offset = clamped,
+        offset = popupOffset,
         onDismissRequest = onDismiss,
         properties = PopupProperties(
             focusable = true,
@@ -339,202 +415,451 @@ fun QuickActionsOverlay(
             dismissOnClickOutside = true,
         ),
     ) {
-        AppSurface(
-            role = SurfaceRole.Popover,
-            shape = RoundedCornerShape(22.dp),
-            shadowElevation = if (reduceEffects) 0.dp else 14.dp,
-            contentPadding = PaddingValues(12.dp),
+        Box(
             modifier = Modifier
-                .width(268.dp)
-                .onSizeChanged { cardSize = it }
+                .size(canvasW, canvasH)
                 .graphicsLayer {
-                    scaleX = appear.value
-                    scaleY = appear.value
-                    alpha = appear.value.coerceIn(0f, 1f)
+                    val s = appear.value
+                    scaleX = s
+                    scaleY = s
+                    alpha = ((s - 0.72f) / 0.28f).coerceIn(0f, 1f)
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(
+                        pivotFractionX = (pivotX / canvasWPx).coerceIn(0f, 1f),
+                        pivotFractionY = (pivotY / canvasHPx).coerceIn(0f, 1f),
+                    )
                 }
                 .onPreviewKeyEvent { ev ->
                     if (ev.type == KeyEventType.KeyDown && ev.key == Key.Escape) {
                         onDismiss()
                         true
                     } else false
+                }
+                .pointerInput(onDismiss) {
+                    detectTapGestures { onDismiss() }
                 },
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                // Header: Title + History & Swap actions
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+            // Draw the two concentric curved stadium ribbons with soft layered shadows and crisp borders.
+            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                val innerPath = buildCurvedArcPath(
+                    cx = pivotX,
+                    cy = pivotY,
+                    radius = innerRadiusPx,
+                    halfThickness = innerBandPx / 2f,
+                    startDeg = innerDrawStart,
+                    endDeg = innerDrawEnd,
+                )
+                val outerPath = buildCurvedArcPath(
+                    cx = pivotX,
+                    cy = pivotY,
+                    radius = outerRadiusPx,
+                    halfThickness = outerBandPx / 2f,
+                    startDeg = outerDrawStart,
+                    endDeg = outerDrawEnd,
+                )
+
+                if (!reduceEffects) {
+                    val shadowColor = if (darkTheme) Color.Black else Color(0xFF0F172A)
+                    for ((dyDp, alpha) in listOf(7f to 0.06f, 4f to 0.08f, 2f to 0.09f)) {
+                        val dy = dyDp * density
+                        drawContext.canvas.save()
+                        drawContext.canvas.translate(0f, dy)
+                        drawPath(outerPath, color = shadowColor.copy(alpha = alpha))
+                        drawPath(innerPath, color = shadowColor.copy(alpha = alpha))
+                        drawContext.canvas.restore()
+                    }
+                }
+
+                // Fill curved ribbons
+                drawPath(outerPath, color = arcSurface)
+                drawPath(innerPath, color = arcSurface)
+
+                // Crisp hairline contour borders
+                val strokeStyle = androidx.compose.ui.graphics.drawscope.Stroke(width = 1f * density)
+                drawPath(outerPath, color = arcBorder, style = strokeStyle)
+                drawPath(innerPath, color = arcBorder, style = strokeStyle)
+
+                // Radial divider separating Tools from Thickness & Colour on the inner arc
+                val divRad = Math.toRadians(mapAngle(270.5f).toDouble())
+                val cosD = kotlin.math.cos(divRad).toFloat()
+                val sinD = kotlin.math.sin(divRad).toFloat()
+                val divInner = innerRadiusPx - innerBandPx * 0.30f
+                val divOuter = innerRadiusPx + innerBandPx * 0.30f
+                drawLine(
+                    color = arcFg.copy(alpha = 0.14f),
+                    start = Offset(pivotX + divInner * cosD, pivotY + divInner * sinD),
+                    end = Offset(pivotX + divOuter * cosD, pivotY + divOuter * sinD),
+                    strokeWidth = 1.2f * density,
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                )
+            }
+
+            // -------- Inner Primary Arc Controls --------
+            // 1. Undo
+            ArcSlotButton(
+                center = polarPos(innerRadiusPx, 158f),
+                label = undoDesc,
+                enabled = vm.canUndo,
+                selected = false,
+                selectedBg = activeHalo,
+                onClick = {
+                    vm.undo()
+                    onDismiss()
+                },
+            ) {
+                ProIconView(ProIcon.UNDO, if (vm.canUndo) arcFg else arcMuted, Modifier.size(20.dp))
+            }
+
+            // 2. Redo
+            ArcSlotButton(
+                center = polarPos(innerRadiusPx, 178f),
+                label = redoDesc,
+                enabled = vm.canRedo,
+                selected = false,
+                selectedBg = activeHalo,
+                onClick = {
+                    vm.redo()
+                    onDismiss()
+                },
+            ) {
+                ProIconView(ProIcon.REDO, if (vm.canRedo) arcFg else arcMuted, Modifier.size(20.dp))
+            }
+
+            // 3-6. Primary Pro Notes tools: Pen, Eraser, Highlighter, Selection (Lasso)
+            val coreTools = remember {
+                listOf(
+                    Tool.PEN to 198.5f,
+                    Tool.ERASER to 218.5f,
+                    Tool.HIGHLIGHTER to 238.5f,
+                    Tool.LASSO to 258.5f,
+                )
+            }
+            coreTools.forEach { (toolItem, deg) ->
+                val isSelected = vm.tool == toolItem
+                val toolLabel = toolDisplayName(toolItem)
+                val ink = Color(vm.styleFor(toolItem)?.color ?: vm.penStyle.color)
+                ArcSlotButton(
+                    center = polarPos(innerRadiusPx, deg),
+                    label = toolLabel,
+                    enabled = true,
+                    selected = isSelected,
+                    selectedBg = activeHalo,
+                    onClick = {
+                        vm.tool = toolItem
+                        onDismiss()
+                    },
                 ) {
-                    Text(
-                        stringResource(R.string.quick_actions_title),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f).padding(start = 4.dp),
+                    ToolGlyph(
+                        tool = toolItem,
+                        tint = if (isSelected) ProButtonPalette.ElectricBlue else arcFg,
+                        inkColor = ink,
+                        modifier = Modifier.size(22.dp),
+                        active = isSelected,
                     )
-                    QuickHeaderIcon(
-                        label = undoDesc,
-                        enabled = vm.canUndo,
-                        onClick = {
-                            vm.undo()
-                            onDismiss()
-                        },
-                    ) {
-                        ProIconView(
-                            ProIcon.UNDO,
-                            if (vm.canUndo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.32f),
-                            Modifier.size(18.dp),
-                        )
-                    }
-                    QuickHeaderIcon(
-                        label = redoDesc,
-                        enabled = vm.canRedo,
-                        onClick = {
-                            vm.redo()
-                            onDismiss()
-                        },
-                    ) {
-                        ProIconView(
-                            ProIcon.REDO,
-                            if (vm.canRedo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.32f),
-                            Modifier.size(18.dp),
-                        )
-                    }
-                    QuickHeaderIcon(
-                        label = prevDesc,
-                        enabled = true,
-                        onClick = {
-                            vm.swapToPrevious()
-                            onDismiss()
-                        },
-                    ) {
-                        Icon(Icons.Outlined.SwapHoriz, contentDescription = prevDesc, modifier = Modifier.size(18.dp))
-                    }
                 }
+            }
 
-                // 3x3 Tool Matrix
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    tools.chunked(3).forEach { rowTools ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            rowTools.forEach { t ->
-                                val sel = vm.tool == t
-                                val fullLabel = toolDisplayName(t)
-                                val shortName = shortToolLabel(t)
-                                val ink = Color(vm.styleFor(t)?.color ?: vm.penStyle.color)
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .defaultMinSize(minHeight = 56.dp)
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .background(
-                                            if (sel) ProButtonPalette.ElectricBlue
-                                            else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.72f),
-                                        )
-                                        .border(
-                                            width = if (sel) 1.2.dp else 0.75.dp,
-                                            color = if (sel) Color.White.copy(alpha = 0.45f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
-                                            shape = RoundedCornerShape(14.dp),
-                                        )
-                                        .semantics { contentDescription = fullLabel }
-                                        .focusable()
-                                        .clickable(role = Role.Button, onClickLabel = fullLabel) {
-                                            vm.tool = t
-                                            onDismiss()
-                                        }
-                                        .padding(vertical = 7.dp, horizontal = 4.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically),
-                                ) {
-                                    ToolGlyph(
-                                        tool = t,
-                                        tint = if (sel) Color.White else MaterialTheme.colorScheme.onSurface,
-                                        inkColor = ink,
-                                        modifier = Modifier.size(20.dp),
-                                        active = sel,
-                                    )
-                                    Text(
-                                        text = shortName,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Medium,
-                                        color = if (sel) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Active tool quick ink colour row + Tool Settings trigger
-                val activeStyle = vm.styleFor(vm.tool)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
+            // 7. Stroke Thickness (3 graduated horizontal lines matching reference) -> toggles SIZES outer arc
+            ArcSlotButton(
+                center = polarPos(innerRadiusPx, 282f),
+                label = thicknessDesc,
+                enabled = true,
+                selected = outerMode == QuickArcMode.SIZES,
+                selectedBg = activeHalo,
+                onClick = {
+                    outerMode = if (outerMode == QuickArcMode.SIZES) QuickArcMode.ACTIONS else QuickArcMode.SIZES
+                },
+            ) {
+                val lineTint = if (outerMode == QuickArcMode.SIZES) ProButtonPalette.ElectricBlue else arcFg
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(3.5.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    if (activeStyle != null) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp),
-                        ) {
-                            activeStyle.colors.take(4).forEach { c ->
-                                Swatch(c, c == activeStyle.color, 18) {
-                                    vm.updateStyle(vm.tool, activeStyle.copy(color = c))
-                                    onDismiss()
-                                }
-                            }
-                        }
-                    } else {
-                        Text(
-                            toolDisplayName(vm.tool),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f).padding(start = 4.dp),
+                    Box(Modifier.width(18.dp).height(1.8.dp).clip(CircleShape).background(lineTint))
+                    Box(Modifier.width(18.dp).height(3.2.dp).clip(CircleShape).background(lineTint.copy(alpha = 0.65f)))
+                    Box(Modifier.width(18.dp).height(4.8.dp).clip(CircleShape).background(lineTint.copy(alpha = 0.35f)))
+                }
+            }
+
+            // 8. Active Ink Colour Dot -> toggles COLORS outer arc
+            ArcSlotButton(
+                center = polarPos(innerRadiusPx, 302f),
+                label = colourDesc,
+                enabled = true,
+                selected = outerMode == QuickArcMode.COLORS,
+                selectedBg = activeHalo,
+                onClick = {
+                    outerMode = if (outerMode == QuickArcMode.COLORS) QuickArcMode.ACTIONS else QuickArcMode.COLORS
+                },
+            ) {
+                val ringColor = if (outerMode == QuickArcMode.COLORS) ProButtonPalette.ElectricBlue else arcBorder
+                Box(
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clip(CircleShape)
+                        .background(activeColor)
+                        .border(
+                            width = if (outerMode == QuickArcMode.COLORS) 2.dp else 1.2.dp,
+                            color = ringColor,
+                            shape = CircleShape,
+                        ),
+                )
+            }
+
+            // -------- Outer Concentric Arc Controls --------
+            when (outerMode) {
+                QuickArcMode.ACTIONS -> {
+                    // Bottom: More Pro Notes tools
+                    ArcSlotButton(
+                        center = polarPos(outerRadiusPx, outerAngles[0]),
+                        label = moreToolsDesc,
+                        enabled = true,
+                        selected = false,
+                        selectedBg = activeHalo,
+                        onClick = { outerMode = QuickArcMode.MORE_TOOLS },
+                    ) {
+                        Icon(
+                            Icons.Outlined.FormatListBulleted,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = arcFg,
                         )
                     }
-                    Row(
-                        modifier = Modifier
-                            .defaultMinSize(minHeight = 40.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable(role = Role.Button, onClickLabel = settingsLabel) {
-                                val current = vm.tool
-                                onDismiss()
-                                onOpenToolSettings(current)
-                            }
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    // Middle: Tool settings sheet
+                    ArcSlotButton(
+                        center = polarPos(outerRadiusPx, outerAngles[1]),
+                        label = settingsDesc,
+                        enabled = true,
+                        selected = false,
+                        selectedBg = activeHalo,
+                        onClick = {
+                            val current = vm.tool
+                            onDismiss()
+                            onOpenToolSettings(current)
+                        },
                     ) {
-                        Icon(Icons.Outlined.Tune, contentDescription = null, modifier = Modifier.size(15.dp), tint = ProButtonPalette.ElectricBlue)
-                        Text(settingsLabel, style = MaterialTheme.typography.labelSmall, color = ProButtonPalette.ElectricBlue, fontWeight = FontWeight.SemiBold)
+                        Icon(
+                            Icons.Outlined.Tune,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = arcFg,
+                        )
+                    }
+                    // Top: Colour Palette
+                    ArcSlotButton(
+                        center = polarPos(outerRadiusPx, outerAngles[2]),
+                        label = paletteDesc,
+                        enabled = true,
+                        selected = false,
+                        selectedBg = activeHalo,
+                        onClick = { outerMode = QuickArcMode.COLORS },
+                    ) {
+                        Icon(
+                            Icons.Outlined.Palette,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = arcFg,
+                        )
+                    }
+                }
+
+                QuickArcMode.COLORS -> {
+                    paletteColors.forEachIndexed { idx, argb ->
+                        val isPicked = argb == activeStyle.color
+                        ArcSlotButton(
+                            center = polarPos(outerRadiusPx, outerAngles[idx]),
+                            label = colourDesc,
+                            enabled = true,
+                            selected = isPicked,
+                            selectedBg = activeHalo,
+                            onClick = {
+                                val targetTool = if (vm.styleFor(vm.tool) != null) vm.tool else Tool.PEN
+                                vm.updateStyle(targetTool, activeStyle.copy(color = argb))
+                                onDismiss()
+                            },
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(if (isPicked) 24.dp else 21.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(argb))
+                                    .border(
+                                        width = if (isPicked) 2.2.dp else 1.dp,
+                                        color = if (isPicked) ProButtonPalette.ElectricBlue else arcBorder,
+                                        shape = CircleShape,
+                                    ),
+                            )
+                        }
+                    }
+                    // Custom colour wheel trigger
+                    ArcSlotButton(
+                        center = polarPos(outerRadiusPx, outerAngles.last()),
+                        label = paletteDesc,
+                        enabled = true,
+                        selected = false,
+                        selectedBg = activeHalo,
+                        onClick = { openCustomColor = true },
+                    ) {
+                        Icon(
+                            Icons.Outlined.ColorLens,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = ProButtonPalette.MagentaPink,
+                        )
+                    }
+                }
+
+                QuickArcMode.SIZES -> {
+                    sizePresets.forEachIndexed { idx, sizeVal ->
+                        val isPicked = kotlin.math.abs(activeStyle.size - sizeVal) < 0.25f
+                        val dotDp = (6f + idx * 4.2f).coerceIn(6f, 20f).dp
+                        ArcSlotButton(
+                            center = polarPos(outerRadiusPx, outerAngles[idx]),
+                            label = thicknessDesc,
+                            enabled = true,
+                            selected = isPicked,
+                            selectedBg = activeHalo,
+                            onClick = {
+                                val targetTool = if (vm.styleFor(vm.tool) != null) vm.tool else Tool.PEN
+                                vm.updateStyle(targetTool, activeStyle.copy(size = sizeVal))
+                                onDismiss()
+                            },
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(dotDp)
+                                    .clip(CircleShape)
+                                    .background(if (isPicked) ProButtonPalette.ElectricBlue else arcFg),
+                            )
+                        }
+                    }
+                }
+
+                QuickArcMode.MORE_TOOLS -> {
+                    extraTools.forEachIndexed { idx, toolItem ->
+                        val isSelected = vm.tool == toolItem
+                        val toolLabel = toolDisplayName(toolItem)
+                        val ink = Color(vm.styleFor(toolItem)?.color ?: vm.penStyle.color)
+                        ArcSlotButton(
+                            center = polarPos(outerRadiusPx, outerAngles[idx]),
+                            label = toolLabel,
+                            enabled = true,
+                            selected = isSelected,
+                            selectedBg = activeHalo,
+                            onClick = {
+                                vm.tool = toolItem
+                                onDismiss()
+                            },
+                        ) {
+                            ToolGlyph(
+                                tool = toolItem,
+                                tint = if (isSelected) ProButtonPalette.ElectricBlue else arcFg,
+                                inkColor = ink,
+                                modifier = Modifier.size(20.dp),
+                                active = isSelected,
+                            )
+                        }
                     }
                 }
             }
         }
     }
+
+    if (openCustomColor) {
+        ColorEditorDialog(
+            initial = activeStyle.color,
+            presets = PenPalette,
+            recent = vm.recentColors(),
+            onDismiss = { openCustomColor = false },
+        ) { picked ->
+            val targetTool = if (vm.styleFor(vm.tool) != null) vm.tool else Tool.PEN
+            vm.updateStyle(targetTool, activeStyle.copy(color = picked))
+            openCustomColor = false
+            onDismiss()
+        }
+    }
+}
+
+/** Builds a smooth G1-continuous annular stadium path (curved rounded pill) from [startDeg] to [endDeg]. */
+private fun buildCurvedArcPath(
+    cx: Float,
+    cy: Float,
+    radius: Float,
+    halfThickness: Float,
+    startDeg: Float,
+    endDeg: Float,
+): androidx.compose.ui.graphics.Path {
+    val sweep = endDeg - startDeg
+    val outerR = radius + halfThickness
+    val innerR = (radius - halfThickness).coerceAtLeast(1f)
+    val startRad = Math.toRadians(startDeg.toDouble())
+    val endRad = Math.toRadians(endDeg.toDouble())
+    val endCapCx = cx + (radius * kotlin.math.cos(endRad)).toFloat()
+    val endCapCy = cy + (radius * kotlin.math.sin(endRad)).toFloat()
+    val startCapCx = cx + (radius * kotlin.math.cos(startRad)).toFloat()
+    val startCapCy = cy + (radius * kotlin.math.sin(startRad)).toFloat()
+
+    return androidx.compose.ui.graphics.Path().apply {
+        arcTo(
+            rect = androidx.compose.ui.geometry.Rect(cx - outerR, cy - outerR, cx + outerR, cy + outerR),
+            startAngleDegrees = startDeg,
+            sweepAngleDegrees = sweep,
+            forceMoveTo = true,
+        )
+        arcTo(
+            rect = androidx.compose.ui.geometry.Rect(
+                endCapCx - halfThickness,
+                endCapCy - halfThickness,
+                endCapCx + halfThickness,
+                endCapCy + halfThickness,
+            ),
+            startAngleDegrees = endDeg,
+            sweepAngleDegrees = 180f,
+            forceMoveTo = false,
+        )
+        arcTo(
+            rect = androidx.compose.ui.geometry.Rect(cx - innerR, cy - innerR, cx + innerR, cy + innerR),
+            startAngleDegrees = endDeg,
+            sweepAngleDegrees = -sweep,
+            forceMoveTo = false,
+        )
+        arcTo(
+            rect = androidx.compose.ui.geometry.Rect(
+                startCapCx - halfThickness,
+                startCapCy - halfThickness,
+                startCapCx + halfThickness,
+                startCapCy + halfThickness,
+            ),
+            startAngleDegrees = startDeg + 180f,
+            sweepAngleDegrees = 180f,
+            forceMoveTo = false,
+        )
+        close()
+    }
 }
 
 @Composable
-private fun QuickHeaderIcon(
+private fun ArcSlotButton(
+    center: Offset,
     label: String,
     enabled: Boolean,
+    selected: Boolean,
+    selectedBg: Color,
     onClick: () -> Unit,
     content: @Composable () -> Unit,
 ) {
+    val density = LocalDensity.current.density
+    val slotPx = (44f * density).roundToInt()
     Box(
         modifier = Modifier
-            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+            .offset {
+                IntOffset(
+                    x = (center.x - slotPx / 2f).roundToInt(),
+                    y = (center.y - slotPx / 2f).roundToInt(),
+                )
+            }
+            .size(44.dp)
             .clip(CircleShape)
+            .background(if (selected) selectedBg else Color.Transparent)
             .semantics { contentDescription = label }
             .focusable()
             .clickable(enabled = enabled, role = Role.Button, onClickLabel = label, onClick = onClick),

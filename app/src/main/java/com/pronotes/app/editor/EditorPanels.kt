@@ -426,7 +426,7 @@ internal fun TopBar(
                     val schemes = UiColorScheme.entries
                     val nextScheme = schemes[(settings.uiColorScheme.ordinal + 1) % schemes.size]
                     store.update { it.copy(uiColorScheme = nextScheme) }
-                    vm.toast = "UI Colour Scheme: ${nextScheme.label}"
+                    vm.showHint("Theme: ${nextScheme.label}")
                 },
             )
             add(

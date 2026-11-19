@@ -1140,13 +1140,14 @@ fun EditorScreen(
                         }
                     }
 
-                    // Toast / Undo snackbar banner
+                    // Subtle auto-dismissing status toast (import/export/error feedback only)
                     vm.toast?.let { msg ->
                         AppSurface(
                             role = SurfaceRole.Popover,
                             containerColor = Color(0xEB1B1F2A),
                             contentColor = Color.White,
                             shape = appPillShape(),
+                            onClick = { vm.dismissToast() },
                             contentPadding = PaddingValues(
                                 start = 18.dp,
                                 end = if (vm.toastActionLabel != null) 10.dp else 18.dp,
@@ -1360,6 +1361,19 @@ fun EditorScreen(
                                 quickInsert = null
                                 vm.pasteAt(req.page, req.x, req.y)?.let { (pg, ids) -> canvas?.selectItems(pg, ids) }
                             },
+                        )
+                    }
+                    // Curved dual-arc Quick Actions (stylus side button)
+                    wheelAt?.let { at ->
+                        QuickActionsOverlay(
+                            vm = vm,
+                            at = at,
+                            areaSize = areaSize,
+                            onOpenToolSettings = { t ->
+                                vm.tool = t
+                                activePopoverTool = t
+                            },
+                            onDismiss = { wheelAt = null },
                         )
                     }
                 }

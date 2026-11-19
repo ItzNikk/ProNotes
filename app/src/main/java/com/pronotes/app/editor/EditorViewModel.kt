@@ -415,7 +415,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         if (p.items.none { it is InkItem }) return
         beginEdit(pageIndex)
         applyItems(pageIndex, p.items.filterNot { it is InkItem })
-        say("Cleared ink on page ${pageIndex + 1}")
     }
 
     /** Places a sticker picture onto [targetPage] near ([targetX], [targetY]) or page centre and returns it for selection. */
@@ -700,7 +699,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val p = pages.getOrNull(selectionPage) ?: return null
         val selectedInk = p.items.filter { it.id in selection && it is InkItem }.map { it as InkItem }
         if (selectedInk.isEmpty()) {
-            toast = "Select handwritten ink first"
+            say("Select handwritten ink first")
             return null
         }
         val scratch = androidx.ink.strokes.StrokeInput()
@@ -716,7 +715,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         }
         val recognized = recognizeHandwritingStrokesToText(rawStrokes).trim()
         if (recognized.isBlank()) {
-            toast = "Could not recognise handwritten ink"
+            say("Could not recognise handwritten ink")
             return null
         }
         val newItem = TextItem(
@@ -731,7 +730,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val selectedInkIds = selectedInk.map { it.id }.toSet()
         beginEdit(selectionPage)
         applyItems(selectionPage, p.items.filterNot { it.id in selectedInkIds } + newItem)
-        toast = "Converted ink to text"
         return newItem.id
     }
 
@@ -811,7 +809,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val copy = edit.item.copy(id = ItemIds.next(), x = edit.item.x + 36f, y = edit.item.y + 36f, pinned = false)
         beginEdit(edit.page)
         applyItems(edit.page, p.items + copy)
-        say("Duplicated sticky note")
     }
 
     fun deleteSticky() {
@@ -857,7 +854,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         )
         beginEdit(pageIndex)
         applyItems(pageIndex, p.items + item)
-        say("Saved web link onto page")
     }
 
     fun commitWebLink(url: String, linkTitle: String, note: String, color: Int) {
@@ -1892,6 +1888,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     // ----------------------------------------------------------- study & selection feedback
     /** Short message shown at the bottom of the editor (null = none). */
     var toast by mutableStateOf<String?>(null)
+        private set
     var toastActionLabel by mutableStateOf<String?>(null)
         private set
     var toastAction by mutableStateOf<(() -> Unit)?>(null)
@@ -1907,7 +1904,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         toast = msg
         toastActionLabel = actionLabel
         toastAction = action
-        val duration = if (action != null) 3800L else 2600L
+        val duration = if (action != null) 3400L else 2200L
         viewModelScope.launch {
             delay(duration)
             if (toast == msg && toastAction === action) dismissToast()
@@ -1916,14 +1913,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     fun showHint(message: String) = say(message)
 
-    fun onScribbleErased() {
-        val app = getApplication<Application>()
-        say(
-            msg = app.getString(com.pronotes.app.R.string.msg_scribble_erased),
-            actionLabel = app.getString(com.pronotes.app.R.string.action_undo),
-            action = { undo() },
-        )
-    }
+    /** Scribble-to-erase provides dust particle, audio, and haptic feedback without obstructing the canvas with a banner. */
+    fun onScribbleErased() = Unit
     var pdfTextBusy by mutableStateOf(false)
         private set
 
@@ -2327,7 +2318,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         onPagesChanged?.invoke()
         onRedraw?.invoke()
         scheduleSave()
-        toast = "Write inside the box — handwriting converts to text automatically"
     }
 
     fun addWriteBox(pageIndex: Int = this.pageIndex, x: Float? = null, y: Float? = null) {
@@ -2445,7 +2435,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         onPagesChanged?.invoke()
         onRedraw?.invoke()
         scheduleSave()
-        toast = if (finalText.isNotBlank()) "Placed converted text onto page" else "Removed empty Write Box"
     }
 
     fun deleteWriteBox(pageIndex: Int, writeBoxId: Long) {
@@ -2461,7 +2450,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         onPagesChanged?.invoke()
         onRedraw?.invoke()
         scheduleSave()
-        toast = "Deleted Write Box"
     }
 
     fun toggleWriteBox(pageIndex: Int, writeBox: WriteBoxItem) {
@@ -2476,7 +2464,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             onPagesChanged?.invoke()
             onRedraw?.invoke()
             scheduleSave()
-            toast = "Showing original handwriting strokes"
         } else {
             val boxBounds = writeBox.raw
             val insideStrokes = p.items.filterIsInstance<InkItem>().filter { ink ->
@@ -2484,7 +2471,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                     boxBounds.intersects(ink.bounds.left, ink.bounds.top, ink.bounds.right, ink.bounds.bottom)
             }
             if (insideStrokes.isEmpty() && writeBox.convertedText.isBlank()) {
-                toast = "Write inside the box with your stylus or type in the bar below"
                 return
             }
             val strokeIds = insideStrokes.map { it.id }
@@ -2516,7 +2502,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             onPagesChanged?.invoke()
             onRedraw?.invoke()
             scheduleSave()
-            toast = "Converted handwriting to text"
         }
     }
 
@@ -2688,7 +2673,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         keyboardMode = !keyboardMode
         if (keyboardMode) {
             selection = emptySet()
-            say("Keyboard Mode active · Type directly on the page")
         }
     }
 
@@ -2728,7 +2712,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         if (p.items.isEmpty()) return
         beginEdit(pageIndex)
         applyItems(pageIndex, emptyList())
-        say("Cleared all items on page ${pageIndex + 1}")
     }
 
     // --------------------------------------------------------------- Flashcard Enhancements
