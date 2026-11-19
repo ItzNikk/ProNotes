@@ -123,12 +123,4 @@ if ! "$cygwin" && ! "$darwin" && ! "$nonstop" ; then
     fi
 fi
 
-# Collect all arguments for the java command, following the shell quoting and substitution rules
-DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
-
-# If gradle-wrapper.jar is missing, fall back to system gradle command if available
-if [ ! -f "$CLASSPATH" ] && command -v gradle >/dev/null 2>&1; then
-    exec gradle "$@"
-fi
-
-exec "$JAVACMD" $DEFAULT_JVM_OPTS -classpath "$CLASSPATH" org.gradle.wrapper.GradleWrapperMain "$@"
+exec "$JAVACMD" -Xmx64m -Xms64m -classpath "$CLASSPATH" org.gradle.wrapper.GradleWrapperMain "$@"
