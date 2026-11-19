@@ -328,18 +328,28 @@ internal fun TextDialog(vm: EditorViewModel, edit: EditorViewModel.TextEdit) {
     var inputMode by remember { mutableIntStateOf(0) }
     val padStrokes = remember { mutableStateListOf<List<Offset>>() }
     var activeStroke by remember { mutableStateOf<List<Offset>>(emptyList()) }
+    val padScope = rememberCoroutineScope()
 
     fun convertPadStrokes() {
         if (padStrokes.isEmpty()) return
-        val strokeCoordLists: List<List<Pair<Float, Float>>> = padStrokes.map { pts ->
-            pts.map { pt -> pt.x to pt.y }
-        }
-        val recognized = vm.recognizeHandwritingStrokesToText(strokeCoordLists)
-        if (recognized.isNotBlank()) {
-            text = if (text.isBlank()) recognized else "$text $recognized"
-        }
+        val snapshot = padStrokes.toList()
         padStrokes.clear()
         activeStroke = emptyList()
+        var runningT = 0L
+        val timed = snapshot.map { pts ->
+            val list = pts.mapIndexed { idx, pt ->
+                TimedStrokePoint(pt.x, pt.y, runningT + idx * 14L)
+            }
+            runningT = (list.lastOrNull()?.tMs ?: runningT) + 60L
+            list
+        }
+        padScope.launch {
+            val result = vm.recognizeHandwritingPad(timed, width = 640f, height = 220f, preContext = text)
+            val recognized = result.text.trim()
+            if (recognized.isNotBlank()) {
+                text = if (text.isBlank()) recognized else "$text $recognized"
+            }
+        }
     }
 
     AppDialog(

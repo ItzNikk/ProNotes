@@ -28,39 +28,39 @@ data class GestureConfig(
     val circleWindowMs: Long = 1800L,
     val circleHoldDelayMs: Long = 450L,
     val circleEndRadiusDp: Float = 40f,
-    val loopClosingRatio: Float = 0.35f,
-    val overlapLoopClosingRatio: Float = 0.25f,
-    val overlapMinLengthRatio: Float = 2.2f,
-    val minLoopSizePx: Float = 30f,
-    val minLoopScreenWdp: Float = 40f,
-    val minLoopScreenHdp: Float = 30f,
+    val loopClosingRatio: Float = 0.38f,
+    val overlapLoopClosingRatio: Float = 0.28f,
+    val overlapMinLengthRatio: Float = 2.0f,
+    val minLoopSizePx: Float = 26f,
+    val minLoopScreenWdp: Float = 36f,
+    val minLoopScreenHdp: Float = 26f,
     val scribbleSensitivity: ScribbleSensitivity = ScribbleSensitivity.BALANCED,
-    val scribbleMinLengthPx: Float = 88f,
-    val scribbleMaxNetDispRatio: Float = 0.30f,
+    val scribbleMinLengthPx: Float = 84f,
+    val scribbleMaxNetDispRatio: Float = 0.34f,
     val palmRejectionWindowMs: Long = 300L,
 ) {
     companion object {
         fun fromSensitivity(sensitivity: ScribbleSensitivity): GestureConfig = when (sensitivity) {
             ScribbleSensitivity.GENTLE -> GestureConfig(
                 scribbleSensitivity = sensitivity,
-                scribbleMinLengthPx = 120f,
-                scribbleMaxNetDispRatio = 0.24f,
+                scribbleMinLengthPx = 115f,
+                scribbleMaxNetDispRatio = 0.26f,
             )
             ScribbleSensitivity.BALANCED -> GestureConfig(
                 scribbleSensitivity = sensitivity,
-                scribbleMinLengthPx = 88f,
-                scribbleMaxNetDispRatio = 0.30f,
+                scribbleMinLengthPx = 84f,
+                scribbleMaxNetDispRatio = 0.34f,
             )
             ScribbleSensitivity.INSTANT -> GestureConfig(
                 scribbleSensitivity = sensitivity,
-                scribbleMinLengthPx = 56f,
-                scribbleMaxNetDispRatio = 0.36f,
+                scribbleMinLengthPx = 54f,
+                scribbleMaxNetDispRatio = 0.40f,
             )
         }
 
         fun fromSettings(settings: AppSettings): GestureConfig =
             fromSensitivity(settings.scribbleSensitivity).copy(
-                loopClosingRatio = if (settings.lassoTouching) 0.40f else 0.35f,
+                loopClosingRatio = if (settings.lassoTouching) 0.42f else 0.38f,
             )
     }
 }
@@ -441,42 +441,55 @@ private data class ScribbleThresholds(
     val minAxisRatio: Float,
     val minSharp: Int,
     val minZigRatio: Float,
+    val minLoopTurns: Float,
+    val minLoopRatio: Float,
 )
 
 private fun scribbleThresholds(config: GestureConfig): ScribbleThresholds = when (config.scribbleSensitivity) {
     ScribbleSensitivity.GENTLE -> ScribbleThresholds(
         minPts = 14,
-        minLen = config.scribbleMinLengthPx.coerceAtLeast(120f),
-        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtMost(0.24f),
+        minLen = config.scribbleMinLengthPx.coerceAtLeast(115f),
+        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtMost(0.26f),
         minRev = 5,
-        minAxisRatio = 2.65f,
+        minAxisRatio = 2.55f,
         minSharp = 5,
-        minZigRatio = 3.40f,
+        minZigRatio = 3.25f,
+        minLoopTurns = 2.35f,
+        minLoopRatio = 3.60f,
     )
     ScribbleSensitivity.BALANCED -> ScribbleThresholds(
-        minPts = 12,
-        minLen = config.scribbleMinLengthPx.coerceAtLeast(88f),
-        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtMost(0.30f),
+        minPts = 11,
+        minLen = config.scribbleMinLengthPx.coerceAtLeast(84f),
+        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtMost(0.34f),
         minRev = 4,
-        minAxisRatio = 2.20f,
+        minAxisRatio = 2.05f,
         minSharp = 4,
-        minZigRatio = 2.85f,
+        minZigRatio = 2.65f,
+        minLoopTurns = 1.95f,
+        minLoopRatio = 3.10f,
     )
     ScribbleSensitivity.INSTANT -> ScribbleThresholds(
         minPts = 9,
-        minLen = config.scribbleMinLengthPx.coerceAtLeast(56f),
-        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtMost(0.36f),
+        minLen = config.scribbleMinLengthPx.coerceAtLeast(54f),
+        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtMost(0.40f),
         minRev = 3,
-        minAxisRatio = 1.75f,
+        minAxisRatio = 1.70f,
         minSharp = 3,
-        minZigRatio = 2.25f,
+        minZigRatio = 2.15f,
+        minLoopTurns = 1.65f,
+        minLoopRatio = 2.55f,
     )
 }
 
+private fun matchesAnyScribblePattern(pts: List<Pt>, t: ScribbleThresholds): Boolean =
+    axisScribble(pts, t.minRev, t.minAxisRatio) ||
+        zigZagScribble(pts, t.minSharp, t.minZigRatio) ||
+        loopScrubScribble(pts, t.minLoopTurns, t.minLoopRatio)
+
 /**
- * A fast back-and-forth zig-zag means "erase this". The stroke is projected onto its
- * main direction (PCA); the motion along that axis must reverse several times while staying dense.
- * Normal cursive/letters move forward steadily and never qualify due to minimum length & net displacement checks.
+ * A fast back-and-forth zig-zag, diagonal cross-out, or tight circular scrub means "erase this".
+ * Normal handwriting advances along a baseline and is filtered by net-displacement, axis reversal,
+ * and canvas-ink-underneath checks.
  */
 fun isScribble(
     pts: List<Pt>,
@@ -487,17 +500,16 @@ fun isScribble(
     val totalLen = pathLength(pts)
     if (totalLen < t.minLen) return false
     val netDisp = dist(pts.first(), pts.last())
-    // Handwriting moves forward steadily along the line; scribbles stay concentrated in place.
     if (netDisp / totalLen > t.maxNetRatio) return false
 
-    if (axisScribble(pts, t.minRev, t.minAxisRatio) || zigZagScribble(pts, t.minSharp, t.minZigRatio)) return true
+    if (matchesAnyScribblePattern(pts, t)) return true
     for (w in intArrayOf(24, 40, 64)) {
         if (pts.size > w) {
             val sub = pts.subList(pts.size - w, pts.size)
             val subLen = pathLength(sub)
             val subDisp = dist(sub.first(), sub.last())
             if (subLen >= t.minLen && (subDisp / subLen) <= t.maxNetRatio) {
-                if (axisScribble(sub, t.minRev, t.minAxisRatio) || zigZagScribble(sub, t.minSharp, t.minZigRatio)) return true
+                if (matchesAnyScribblePattern(sub, t)) return true
             }
         }
     }
@@ -511,8 +523,8 @@ fun isScribble(
 
 /**
  * Live continuous scribble detection called while moving: inspects multi-scale trailing windows
- * so users can scrub back and forth and erase without lifting, while filtering dense hatching
- * and normal zig-zag cursive letters.
+ * so users can scrub back and forth (horizontally, diagonally, or in tight circular swirls)
+ * and erase without lifting.
  */
 fun isLiveScribble(
     pts: List<Pt>,
@@ -520,20 +532,18 @@ fun isLiveScribble(
 ): Boolean {
     val t = scribbleThresholds(config)
     if (pts.size < t.minPts) return false
-    for (w in intArrayOf(24, 40, 64)) {
+    for (w in intArrayOf(22, 38, 60)) {
         val win = if (pts.size > w) pts.subList(pts.size - w, pts.size) else pts
         if (win.size < t.minPts) continue
         val bx = box(win)
         val diag = bx.diag
-        if (diag < 20f) continue
+        if (diag < 18f) continue
         val len = pathLength(win)
         if (len < t.minLen || len < diag * t.minAxisRatio) continue
         val netDisp = dist(win.first(), win.last())
         if (netDisp / len > t.maxNetRatio) continue
 
-        if (axisScribble(win, minReversals = t.minRev, minRatio = t.minAxisRatio) ||
-            zigZagScribble(win, minSharp = t.minSharp, minRatio = t.minZigRatio)
-        ) return true
+        if (matchesAnyScribblePattern(win, t)) return true
     }
     return false
 }
@@ -543,20 +553,47 @@ fun isLiveScribble(
     sensitivity: ScribbleSensitivity,
 ): Boolean = isLiveScribble(pts, GestureConfig.fromSensitivity(sensitivity))
 
-/** Dense scrubbing that does not follow a single axis, e.g. back and forth across a word or underline. */
-private fun zigZagScribble(pts: List<Pt>, minSharp: Int = 4, minRatio: Float = 2.85f): Boolean {
+/** Dense scrubbing that does not follow a single axis, e.g. diagonal zig-zags over a word. */
+private fun zigZagScribble(pts: List<Pt>, minSharp: Int = 4, minRatio: Float = 2.65f): Boolean {
     val bx = box(pts)
     val diag = bx.diag
     if (diag < 18f) return false
     if (pathLength(pts) < diag * minRatio) return false
-    val s = simplify(pts, max(1.8f, diag * 0.03f))
+    val s = simplify(pts, max(1.6f, diag * 0.032f))
     if (s.size < 5) return false
     var sharp = 0
-    for (i in 1 until s.size - 1) if (turnAngle(s[i - 1], s[i], s[i + 1]) > 78.0) sharp++
+    for (i in 1 until s.size - 1) if (turnAngle(s[i - 1], s[i], s[i + 1]) > 74.0) sharp++
     return sharp >= minSharp
 }
 
-private fun axisScribble(pts: List<Pt>, minReversals: Int = 4, minRatio: Float = 2.20f): Boolean {
+/** Tight circular/oval swirling scrub over a word or symbol to erase it. */
+private fun loopScrubScribble(pts: List<Pt>, minTurns: Float = 1.95f, minRatio: Float = 3.10f): Boolean {
+    val bx = box(pts)
+    val diag = bx.diag
+    if (diag < 18f) return false
+    if (pathLength(pts) < diag * minRatio) return false
+    // Reject very elongated single-line strokes; circular scrubs have noticeable 2D body
+    val minSide = min(bx.w, bx.h)
+    if (minSide < diag * 0.22f) return false
+    val cx = bx.cx
+    val cy = bx.cy
+    var accum = 0.0
+    var prevAng = atan2((pts[0].second - cy).toDouble(), (pts[0].first - cx).toDouble())
+    for (i in 1 until pts.size) {
+        val (x, y) = pts[i]
+        if (hypot(x - cx, y - cy) < diag * 0.08f) continue
+        val ang = atan2((y - cy).toDouble(), (x - cx).toDouble())
+        var delta = ang - prevAng
+        while (delta > Math.PI) delta -= 2.0 * Math.PI
+        while (delta < -Math.PI) delta += 2.0 * Math.PI
+        accum += delta
+        prevAng = ang
+    }
+    val revolutions = abs(accum) / (2.0 * Math.PI)
+    return revolutions >= minTurns
+}
+
+private fun axisScribble(pts: List<Pt>, minReversals: Int = 4, minRatio: Float = 2.05f): Boolean {
     var mx = 0.0; var my = 0.0
     for ((x, y) in pts) { mx += x; my += y }
     mx /= pts.size; my /= pts.size
@@ -566,9 +603,9 @@ private fun axisScribble(pts: List<Pt>, minReversals: Int = 4, minRatio: Float =
     val ux = cos(theta).toFloat(); val uy = sin(theta).toFloat()
     val proj = pts.map { (x, y) -> x * ux + y * uy }
     val extent = (proj.maxOrNull() ?: 0f) - (proj.minOrNull() ?: 0f)
-    if (extent < 18f) return false
+    if (extent < 16f) return false
     if (pathLength(pts) < extent * minRatio) return false
-    val thresh = max(4.5f, extent * 0.18f)
+    val thresh = max(4.2f, extent * 0.16f)
     var dir = 0; var anchor = proj[0]; var reversals = 0
     for (v in proj) {
         when (dir) {
@@ -580,38 +617,102 @@ private fun axisScribble(pts: List<Pt>, minReversals: Int = 4, minRatio: Float =
     return reversals >= minReversals
 }
 
-/** Point-in-polygon test backed by the platform's Region. */
-class Lasso(points: List<Pt>, private val touching: Boolean = false, private val minInside: Float = 0.6f) {
+private fun orient2d(a: Pt, b: Pt, c: Pt): Float =
+    (b.first - a.first) * (c.second - a.second) - (b.second - a.second) * (c.first - a.first)
+
+private fun segmentsIntersect(a: Pt, b: Pt, c: Pt, d: Pt): Boolean {
+    if (max(a.first, b.first) < min(c.first, d.first) || max(c.first, d.first) < min(a.first, b.first)) return false
+    if (max(a.second, b.second) < min(c.second, d.second) || max(c.second, d.second) < min(a.second, b.second)) return false
+    val o1 = orient2d(a, b, c)
+    val o2 = orient2d(a, b, d)
+    val o3 = orient2d(c, d, a)
+    val o4 = orient2d(c, d, b)
+    return ((o1 > 0f && o2 < 0f) || (o1 < 0f && o2 > 0f)) &&
+        ((o3 > 0f && o4 < 0f) || (o3 < 0f && o4 > 0f))
+}
+
+/**
+ * High-accuracy polygon lasso selector backed by Android [Region] plus fast AABB rejection,
+ * segment-vs-edge boundary crossing (so long straight strokes passing through a small lasso
+ * are reliably caught in touching mode), and inner-box containment for large cards/images.
+ */
+class Lasso(points: List<Pt>, private val touching: Boolean = false, private val minInside: Float = 0.55f) {
     private val region = Region()
+    private val poly: List<Pt>
+    private val polyBox: Box
 
     init {
+        val bx = box(points)
+        polyBox = bx
+        // Simplify lasso outline for fast segment-intersection tests while keeping full-res Region
+        poly = if (points.size > 48) simplify(points, max(2f, bx.diag * 0.012f)) else points
         val path = Path()
         points.forEachIndexed { i, (x, y) -> if (i == 0) path.moveTo(x, y) else path.lineTo(x, y) }
         path.close()
-        val bx = box(points)
-        region.setPath(path, Region(bx.l.toInt() - 1, bx.t.toInt() - 1, bx.r.toInt() + 1, bx.b.toInt() + 1))
+        region.setPath(path, Region(bx.l.toInt() - 2, bx.t.toInt() - 2, bx.r.toInt() + 2, bx.b.toInt() + 2))
     }
 
     fun contains(x: Float, y: Float) = region.contains(x.toInt(), y.toInt())
 
-    fun selects(item: PageItem): Boolean = when (item) {
-        is InkItem -> {
-            val pts = item.worldPoints()
-            if (pts.isEmpty()) false
-            else {
-                val step = max(1, pts.size / 40)
-                var inside = 0; var total = 0
-                for (i in pts.indices step step) {
-                    total++
-                    if (contains(pts[i].first, pts[i].second)) inside++
-                }
-                if (touching) inside > 0 else inside >= total * minInside
-            }
+    private fun crossesBoundary(a: Pt, b: Pt): Boolean {
+        if (poly.size < 3) return false
+        for (i in poly.indices) {
+            val c = poly[i]
+            val d = poly[(i + 1) % poly.size]
+            if (segmentsIntersect(a, b, c, d)) return true
         }
-        else -> item.bounds.let { b ->
-            if (touching) contains(b.centerX(), b.centerY()) || contains(b.left, b.top) || contains(b.right, b.top) ||
-                contains(b.left, b.bottom) || contains(b.right, b.bottom)
-            else contains(b.centerX(), b.centerY())
+        return false
+    }
+
+    fun selects(item: PageItem): Boolean {
+        val ib = item.bounds
+        // Fast O(1) AABB reject
+        if (ib.right < polyBox.l - 4f || ib.left > polyBox.r + 4f ||
+            ib.bottom < polyBox.t - 4f || ib.top > polyBox.b + 4f
+        ) return false
+
+        return when (item) {
+            is InkItem -> {
+                val pts = item.worldPoints()
+                if (pts.isEmpty()) false
+                else if (pts.size <= 3) {
+                    pts.any { (x, y) -> contains(x, y) }
+                } else {
+                    val step = max(1, pts.size / 48)
+                    var inside = 0
+                    var total = 0
+                    var prev = pts[0]
+                    for (i in pts.indices step step) {
+                        val cur = pts[i]
+                        total++
+                        if (contains(cur.first, cur.second)) {
+                            inside++
+                            if (touching) return true
+                        } else if (touching && i > 0 && crossesBoundary(prev, cur)) {
+                            return true
+                        }
+                        prev = cur
+                    }
+                    // Check last point as well so short tails are never skipped
+                    val last = pts.last()
+                    if (touching && (contains(last.first, last.second) || crossesBoundary(prev, last))) return true
+                    inside >= total * minInside
+                }
+            }
+            else -> {
+                val cx = ib.centerX(); val cy = ib.centerY()
+                if (contains(cx, cy)) return true
+                if (!touching) {
+                    // Also allow selecting a large box/image if most of the lasso lies inside its bounds
+                    val insideBoxCount = poly.count { (x, y) -> ib.contains(x, y) }
+                    return poly.isNotEmpty() && insideBoxCount >= poly.size * 0.7f
+                }
+                val probes = listOf(
+                    ib.left to ib.top, ib.right to ib.top, ib.left to ib.bottom, ib.right to ib.bottom,
+                    cx to ib.top, cx to ib.bottom, ib.left to cy, ib.right to cy,
+                )
+                probes.any { (x, y) -> contains(x, y) } || poly.any { (x, y) -> ib.contains(x, y) }
+            }
         }
     }
 }

@@ -694,43 +694,92 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         })
     }
 
-    /** Recognises selected ink strokes into a typed [TextItem] at their bounding box in one undoable edit. */
-    fun convertSelectionToText(): Long? {
-        val p = pages.getOrNull(selectionPage) ?: return null
+    /** Live ranked candidates from the latest Write Box or Selection handwriting recognition. */
+    var handwritingCandidates by mutableStateOf<List<String>>(emptyList())
+        private set
+    var handwritingBusy by mutableStateOf(false)
+        private set
+
+    private fun extractTimedStrokes(
+        items: List<InkItem>,
+        originX: Float = 0f,
+        originY: Float = 0f,
+    ): List<List<TimedStrokePoint>> {
+        val scratch = androidx.ink.strokes.StrokeInput()
+        var runningTimeMs = 0L
+        return items.mapNotNull { ink ->
+            val count = ink.stroke.inputs.size
+            if (count <= 0) return@mapNotNull null
+            val pts = ArrayList<TimedStrokePoint>(count)
+            var strokeStartOffset = 0L
+            for (i in 0 until count) {
+                ink.stroke.inputs.populate(i, scratch)
+                val rawT = scratch.elapsedTimeMillis.coerceAtLeast(0L)
+                if (i == 0) strokeStartOffset = rawT
+                val rel = (rawT - strokeStartOffset).coerceAtLeast(i * 12L)
+                pts.add(
+                    TimedStrokePoint(
+                        x = scratch.x + ink.dx - originX,
+                        y = scratch.y + ink.dy - originY,
+                        tMs = runningTimeMs + rel,
+                    ),
+                )
+            }
+            runningTimeMs = (pts.lastOrNull()?.tMs ?: runningTimeMs) + 60L
+            pts
+        }
+    }
+
+    /**
+     * Recognises selected handwritten ink into a typed [TextItem] at its exact bounding box
+     * using on-device ML Kit Digital Ink Recognition (with offline polyline fallback) in one undoable edit.
+     */
+    fun convertSelectionToText(onConverted: (Long) -> Unit = {}) {
+        val pageIdx = selectionPage
+        val p = pages.getOrNull(pageIdx) ?: return
         val selectedInk = p.items.filter { it.id in selection && it is InkItem }.map { it as InkItem }
         if (selectedInk.isEmpty()) {
             say("Select handwritten ink first")
-            return null
+            return
         }
-        val scratch = androidx.ink.strokes.StrokeInput()
         val union = RectF(selectedInk.first().bounds)
-        val rawStrokes = selectedInk.map { ink ->
-            union.union(ink.bounds)
-            val pts = ArrayList<Pair<Float, Float>>(ink.stroke.inputs.size)
-            for (i in 0 until ink.stroke.inputs.size) {
-                ink.stroke.inputs.populate(i, scratch)
-                pts.add(scratch.x to scratch.y)
-            }
-            pts
-        }
-        val recognized = recognizeHandwritingStrokesToText(rawStrokes).trim()
-        if (recognized.isBlank()) {
-            say("Could not recognise handwritten ink")
-            return null
-        }
-        val newItem = TextItem(
-            id = ItemIds.next(),
-            text = recognized,
-            x = union.left.coerceIn(24f, (p.width - 120f).coerceAtLeast(24f)),
-            y = union.top.coerceIn(24f, (p.height - 60f).coerceAtLeast(24f)),
-            size = textSize,
-            color = selectedInk.first().stroke.brush.colorIntArgb,
-            style = textStyle,
-        )
+        selectedInk.forEach { union.union(it.bounds) }
+        val timedStrokes = extractTimedStrokes(selectedInk)
+        val estimatedSize = HandwritingRecognizer.estimateFontSize(timedStrokes, fallback = textSize)
         val selectedInkIds = selectedInk.map { it.id }.toSet()
-        beginEdit(selectionPage)
-        applyItems(selectionPage, p.items.filterNot { it.id in selectedInkIds } + newItem)
-        return newItem.id
+        val inkColor = selectedInk.first().stroke.brush.colorIntArgb
+
+        viewModelScope.launch {
+            handwritingBusy = true
+            val result = try {
+                HandwritingRecognizer.recognize(
+                    strokes = timedStrokes,
+                    writingWidth = union.width().coerceAtLeast(64f),
+                    writingHeight = union.height().coerceAtLeast(48f),
+                )
+            } finally {
+                handwritingBusy = false
+            }
+            val recognized = result.text.trim()
+            if (recognized.isBlank()) {
+                say("Could not recognise handwritten ink")
+                return@launch
+            }
+            handwritingCandidates = result.candidates
+            val latestPage = pages.getOrNull(pageIdx) ?: return@launch
+            val newItem = TextItem(
+                id = ItemIds.next(),
+                text = recognized,
+                x = union.left.coerceIn(24f, (latestPage.width - 120f).coerceAtLeast(24f)),
+                y = union.top.coerceIn(24f, (latestPage.height - 60f).coerceAtLeast(24f)),
+                size = estimatedSize,
+                color = inkColor,
+                style = textStyle,
+            )
+            beginEdit(pageIdx)
+            applyItems(pageIdx, latestPage.items.filterNot { it.id in selectedInkIds } + newItem)
+            onConverted(newItem.id)
+        }
     }
 
     fun commitText(text: String, size: Float = textSize, color: Int = textColor ?: penStyle.color, style: TextStyleSpec = textStyle) {
@@ -2334,6 +2383,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         return p.items.filterIsInstance<WriteBoxItem>().lastOrNull { it.id in selection }
     }
 
+    private var writeBoxRecognizeJob: Job? = null
+
     fun autoConvertWriteBox(pageIndex: Int, boxId: Long) {
         val p = pages.getOrNull(pageIndex) ?: return
         val writeBox = p.items.filterIsInstance<WriteBoxItem>().firstOrNull { it.id == boxId } ?: return
@@ -2344,43 +2395,51 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         }
         if (insideStrokes.isEmpty()) return
 
-        // Recognize only newly drawn strokes if the user already has text, or all strokes if starting fresh
         val newStrokes = insideStrokes.filter { it.id !in writeBox.inkItemIds }
-        val strokesToRecognize = if (writeBox.convertedText.isNotBlank() && newStrokes.isNotEmpty()) newStrokes else insideStrokes
+        val incremental = writeBox.convertedText.isNotBlank() && newStrokes.isNotEmpty() && newStrokes.size < insideStrokes.size
+        val strokesToRecognize = if (incremental) newStrokes else insideStrokes
         if (strokesToRecognize.isEmpty()) return
 
-        val strokePointLists = strokesToRecognize.map { ink ->
-            val pts = ArrayList<Pair<Float, Float>>(ink.stroke.inputs.size)
-            val scratch = androidx.ink.strokes.StrokeInput()
-            for (i in 0 until ink.stroke.inputs.size) {
-                ink.stroke.inputs.populate(i, scratch)
-                pts.add((scratch.x + ink.dx - writeBox.x) to (scratch.y + ink.dy - writeBox.y))
-            }
-            pts
-        }
-        val recognized = recognizeHandwritingStrokesToText(
-            strokes = strokePointLists,
-            lineSpacing = writeBox.lineSpacing
-        ).trim()
-        if (recognized.isBlank()) return
+        val timed = extractTimedStrokes(strokesToRecognize, originX = writeBox.x, originY = writeBox.y)
+        val allStrokeIds = insideStrokes.map { it.id }
+        val preCtx = if (incremental) writeBox.convertedText.trim() else ""
 
-        val mergedText = if (writeBox.convertedText.isNotBlank() && newStrokes.isNotEmpty() && newStrokes.size < insideStrokes.size) {
-            "${writeBox.convertedText.trim()} $recognized"
-        } else {
-            recognized
+        writeBoxRecognizeJob?.cancel()
+        writeBoxRecognizeJob = viewModelScope.launch {
+            handwritingBusy = true
+            val result = try {
+                HandwritingRecognizer.recognize(
+                    strokes = timed,
+                    writingWidth = writeBox.w,
+                    writingHeight = writeBox.h,
+                    preContext = preCtx,
+                )
+            } finally {
+                handwritingBusy = false
+            }
+            val recognized = result.text.trim()
+            if (recognized.isBlank()) return@launch
+            handwritingCandidates = result.candidates
+            val curPage = pages.getOrNull(pageIndex) ?: return@launch
+            val curBox = curPage.items.filterIsInstance<WriteBoxItem>().firstOrNull { it.id == boxId } ?: return@launch
+            val mergedText = if (incremental && curBox.convertedText.isNotBlank()) {
+                "${curBox.convertedText.trim()} $recognized"
+            } else {
+                recognized
+            }
+            val updated = curBox.copy(
+                isConverted = true,
+                convertedText = mergedText,
+                inkItemIds = allStrokeIds,
+            )
+            pages[pageIndex] = curPage.copy(items = curPage.items.map { if (it.id == boxId) updated else it })
+            activeWriteBoxPage = pageIndex
+            activeWriteBoxId = boxId
+            dirtyPageIds += curPage.id
+            onPagesChanged?.invoke()
+            onRedraw?.invoke()
+            scheduleSave()
         }
-        val updated = writeBox.copy(
-            isConverted = true,
-            convertedText = mergedText,
-            inkItemIds = insideStrokes.map { it.id },
-        )
-        pages[pageIndex] = p.copy(items = p.items.map { if (it.id == writeBox.id) updated else it })
-        activeWriteBoxPage = pageIndex
-        activeWriteBoxId = writeBox.id
-        dirtyPageIds += p.id
-        onPagesChanged?.invoke()
-        onRedraw?.invoke()
-        scheduleSave()
     }
 
     fun updateWriteBoxText(
@@ -2430,7 +2489,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             )
         } else remaining
         pages[pageIndex] = p.copy(items = updatedItems)
-        if (activeWriteBoxId == writeBoxId) activeWriteBoxId = null
+        if (activeWriteBoxId == writeBoxId) {
+            activeWriteBoxId = null
+            handwritingCandidates = emptyList()
+        }
         dirtyPageIds += p.id
         onPagesChanged?.invoke()
         onRedraw?.invoke()
@@ -2445,7 +2507,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             item.id == wb.id || (item is InkItem && (item.id in wb.inkItemIds || wb.raw.contains(item.bounds.centerX(), item.bounds.centerY())))
         }
         pages[pageIndex] = p.copy(items = remaining)
-        if (activeWriteBoxId == writeBoxId) activeWriteBoxId = null
+        if (activeWriteBoxId == writeBoxId) {
+            activeWriteBoxId = null
+            handwritingCandidates = emptyList()
+        }
         dirtyPageIds += p.id
         onPagesChanged?.invoke()
         onRedraw?.invoke()
@@ -2470,200 +2535,57 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 boxBounds.contains(ink.bounds.centerX(), ink.bounds.centerY()) ||
                     boxBounds.intersects(ink.bounds.left, ink.bounds.top, ink.bounds.right, ink.bounds.bottom)
             }
-            if (insideStrokes.isEmpty() && writeBox.convertedText.isBlank()) {
-                return
-            }
+            if (insideStrokes.isEmpty() && writeBox.convertedText.isBlank()) return
             val strokeIds = insideStrokes.map { it.id }
-            val strokePointLists = insideStrokes.map { ink ->
-                val pts = ArrayList<Pair<Float, Float>>(ink.stroke.inputs.size)
-                val scratch = androidx.ink.strokes.StrokeInput()
-                for (i in 0 until ink.stroke.inputs.size) {
-                    ink.stroke.inputs.populate(i, scratch)
-                    pts.add((scratch.x + ink.dx - writeBox.x) to (scratch.y + ink.dy - writeBox.y))
-                }
-                pts
-            }
-            val recognized = if (strokePointLists.isNotEmpty()) {
-                recognizeHandwritingStrokesToText(
-                    strokes = strokePointLists,
-                    lineSpacing = writeBox.lineSpacing
-                )
-            } else {
-                writeBox.convertedText
-            }
-            val updated = writeBox.copy(
-                isConverted = true,
-                convertedText = recognized.ifBlank { writeBox.convertedText.ifBlank { "Note" } },
-                inkItemIds = strokeIds,
-            )
-            beginEdit(pageIndex)
-            pages[pageIndex] = p.copy(items = p.items.map { if (it.id == writeBox.id) updated else it })
-            dirtyPageIds += p.id
-            onPagesChanged?.invoke()
-            onRedraw?.invoke()
-            scheduleSave()
-        }
-    }
+            val timed = extractTimedStrokes(insideStrokes, originX = writeBox.x, originY = writeBox.y)
 
-    /**
-     * Converts freehand stylus/finger strokes drawn in a Write Box
-     * into structured lines and words using geometric feature classification.
-     */
-    fun recognizeHandwritingStrokesToText(
-        strokes: List<List<Pair<Float, Float>>>,
-        lineSpacing: Float = 54f
-    ): String {
-        val validStrokes = strokes.filter { it.isNotEmpty() }
-        if (validStrokes.isEmpty()) return ""
-
-        data class StrokeBox(
-            val pts: List<Pair<Float, Float>>,
-            val minX: Float,
-            val maxX: Float,
-            val minY: Float,
-            val maxY: Float
-        ) {
-            val width: Float get() = (maxX - minX).coerceAtLeast(1f)
-            val height: Float get() = (maxY - minY).coerceAtLeast(1f)
-            val cx: Float get() = (minX + maxX) * 0.5f
-            val cy: Float get() = (minY + maxY) * 0.5f
-        }
-
-        val boxes = validStrokes.map { pts ->
-            var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE
-            var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
-            for ((x, y) in pts) {
-                if (x < minX) minX = x
-                if (x > maxX) maxX = x
-                if (y < minY) minY = y
-                if (y > maxY) maxY = y
-            }
-            StrokeBox(pts, minX, maxX, minY, maxY)
-        }
-
-        // Group strokes into horizontal writing lines
-        val rowPitch = lineSpacing.coerceAtLeast(36f)
-        val linesMap = java.util.TreeMap<Int, MutableList<StrokeBox>>()
-        for (b in boxes) {
-            val lineIdx = (b.cy / rowPitch).toInt().coerceAtLeast(0)
-            linesMap.getOrPut(lineIdx) { mutableListOf() }.add(b)
-        }
-
-        val decodedLines = mutableListOf<String>()
-        for ((_, lineStrokesRaw) in linesMap) {
-            val sorted = lineStrokesRaw.sortedBy { it.minX }
-            // Merge horizontally overlapping strokes (e.g. 't', 'i', 'f', '=') into character clusters
-            val clusters = mutableListOf<MutableList<StrokeBox>>()
-            for (sb in sorted) {
-                val prevCluster = clusters.lastOrNull()
-                if (prevCluster == null) {
-                    clusters.add(mutableListOf(sb))
-                } else {
-                    val cMinX = prevCluster.minOf { it.minX }
-                    val cMaxX = prevCluster.maxOf { it.maxX }
-                    val overlap = minOf(cMaxX, sb.maxX) - maxOf(cMinX, sb.minX)
-                    val minW = minOf(cMaxX - cMinX, sb.width).coerceAtLeast(1f)
-                    if (overlap > -4f && (overlap / minW > 0.22f || (sb.width < 12f && sb.height < 12f && kotlin.math.abs(sb.cx - (cMinX + cMaxX) * 0.5f) < 22f))) {
-                        prevCluster.add(sb)
+            writeBoxRecognizeJob?.cancel()
+            writeBoxRecognizeJob = viewModelScope.launch {
+                handwritingBusy = true
+                val result = try {
+                    if (timed.isNotEmpty()) {
+                        HandwritingRecognizer.recognize(
+                            strokes = timed,
+                            writingWidth = writeBox.w,
+                            writingHeight = writeBox.h,
+                        )
                     } else {
-                        clusters.add(mutableListOf(sb))
+                        HandwritingRecognitionResult(writeBox.convertedText)
                     }
+                } finally {
+                    handwritingBusy = false
                 }
+                val recognized = result.text.trim()
+                handwritingCandidates = result.candidates
+                val curPage = pages.getOrNull(pageIndex) ?: return@launch
+                val curBox = curPage.items.filterIsInstance<WriteBoxItem>().firstOrNull { it.id == writeBox.id } ?: return@launch
+                val updated = curBox.copy(
+                    isConverted = true,
+                    convertedText = recognized.ifBlank { curBox.convertedText.ifBlank { "Note" } },
+                    inkItemIds = strokeIds,
+                )
+                beginEdit(pageIndex)
+                pages[pageIndex] = curPage.copy(items = curPage.items.map { if (it.id == writeBox.id) updated else it })
+                dirtyPageIds += curPage.id
+                onPagesChanged?.invoke()
+                onRedraw?.invoke()
+                scheduleSave()
             }
-
-            val avgCharWidth = clusters.map { cl -> cl.maxOf { it.maxX } - cl.minOf { it.minX } }
-                .average().toFloat().coerceIn(18f, 64f)
-            val wordGapThreshold = (avgCharWidth * 0.85f).coerceAtLeast(22f)
-
-            val sbLine = StringBuilder()
-            var prevRight = Float.NaN
-            var isWordStart = true
-
-            for (cluster in clusters) {
-                val cLeft = cluster.minOf { it.minX }
-                val cRight = cluster.maxOf { it.maxX }
-                val cTop = cluster.minOf { it.minY }
-                val cBottom = cluster.maxOf { it.maxY }
-                if (!prevRight.isNaN() && (cLeft - prevRight) > wordGapThreshold) {
-                    sbLine.append(' ')
-                    isWordStart = true
-                }
-                val ch = classifyGlyphCluster(cluster.map { it.pts }, cRight - cLeft, cBottom - cTop, isWordStart)
-                sbLine.append(ch)
-                prevRight = maxOf(prevRight.takeUnless { it.isNaN() } ?: cRight, cRight)
-                isWordStart = false
-            }
-
-            val lineStr = sbLine.toString().trim()
-            if (lineStr.isNotEmpty()) decodedLines.add(lineStr)
         }
-
-        return decodedLines.joinToString("\n")
     }
 
-    private fun classifyGlyphCluster(
-        strokes: List<List<Pair<Float, Float>>>,
-        w: Float,
-        h: Float,
-        isWordStart: Boolean
-    ): Char {
-        val allPts = strokes.flatten()
-        if (allPts.isEmpty()) return 'e'
-        val aspect = w / h.coerceAtLeast(1f)
-        val first = allPts.first()
-        val last = allPts.last()
-        val endDist = kotlin.math.hypot(last.first - first.first, last.second - first.second)
-        val diag = kotlin.math.hypot(w, h).coerceAtLeast(1f)
-        val closedLoop = endDist < diag * 0.28f && allPts.size >= 6
-
-        // Compute total path length
-        var pathLen = 0f
-        var dirChangesY = 0
-        var prevDy = 0f
-        for (s in strokes) {
-            for (i in 1 until s.size) {
-                val dx = s[i].first - s[i - 1].first
-                val dy = s[i].second - s[i - 1].second
-                pathLen += kotlin.math.hypot(dx, dy)
-                if (kotlin.math.abs(dy) > 2.5f) {
-                    if (prevDy != 0f && (dy * prevDy) < 0f) dirChangesY++
-                    prevDy = dy
-                }
-            }
-        }
-
-        // Check for a small dot stroke ('i' or 'j')
-        if (strokes.size == 2) {
-            val s0 = strokes[0]; val s1 = strokes[1]
-            val h0 = (s0.maxOf { it.second } - s0.minOf { it.second })
-            val h1 = (s1.maxOf { it.second } - s1.minOf { it.second })
-            if (minOf(h0, h1) < 14f && maxOf(h0, h1) > 18f) return 'i'
-            // Check for crossbar ('t' or '+')
-            val w0 = (s0.maxOf { it.first } - s0.minOf { it.first })
-            val w1 = (s1.maxOf { it.first } - s1.minOf { it.first })
-            if (maxOf(w0, w1) > 14f && minOf(h0, h1) < 14f) return 't'
-        }
-
-        if (w < 12f && h < 12f) return '.'
-        if (aspect > 2.6f && h < 16f) return '-'
-        if (aspect < 0.34f) return if (isWordStart) 'I' else 'l'
-        if (closedLoop) {
-            return if (aspect > 0.82f) 'o' else 'a'
-        }
-        val complexity = pathLen / diag
-        val ch = when {
-            dirChangesY >= 3 && aspect > 0.95f -> if (first.second < last.second) 'w' else 'm'
-            dirChangesY >= 2 && complexity > 2.4f -> 's'
-            dirChangesY >= 2 && aspect <= 0.95f -> 'n'
-            complexity > 2.1f && first.first > last.first -> 'e'
-            first.second < last.second && first.first < last.first && dirChangesY == 1 -> 'u'
-            first.second > last.second && dirChangesY >= 1 -> 'r'
-            aspect > 0.75f && first.first > last.first -> 'c'
-            h > 38f && aspect < 0.7f -> if (first.second < last.second) 'h' else 'd'
-            else -> 'e'
-        }
-        return if (isWordStart && h > 42f) ch.uppercaseChar() else ch
-    }
+    /** Async helper for modal Write Box pad recognition (used by [TextDialog]). */
+    suspend fun recognizeHandwritingPad(
+        strokes: List<List<TimedStrokePoint>>,
+        width: Float,
+        height: Float,
+        preContext: String = "",
+    ): HandwritingRecognitionResult = HandwritingRecognizer.recognize(
+        strokes = strokes,
+        writingWidth = width,
+        writingHeight = height,
+        preContext = preContext,
+    )
 
     // --------------------------------------------------------------- Keyboard Mode & Clear All
 

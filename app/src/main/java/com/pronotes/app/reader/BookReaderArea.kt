@@ -770,7 +770,7 @@ fun BookReaderScreen(
     // Real page-curl animation state
     val turnProgress = remember { Animatable(0f) }
     var turnDir by remember { mutableIntStateOf(0) } // +1 forward (right->left), -1 backward (left->right)
-    var curlTouchY by remember { mutableFloatStateOf(0.68f) }
+    var curlTouchY by remember { mutableFloatStateOf(0.86f) }
 
     val totalPages = pages.size.coerceAtLeast(1)
     val config = LocalConfiguration.current
@@ -794,7 +794,7 @@ fun BookReaderScreen(
     val appSettings by store.settings.collectAsStateWithLifecycle()
     val bookFlipSound = appSettings.bookFlipSound
 
-    fun animatePageTurn(direction: Int, normalizedY: Float = 0.72f) {
+    fun animatePageTurn(direction: Int, normalizedY: Float = 0.86f) {
         if (direction > 0 && !canGoNext()) return
         if (direction < 0 && !canGoPrev()) return
         if (turnProgress.isRunning) return
@@ -807,7 +807,7 @@ fun BookReaderScreen(
         }
         scope.launch {
             turnDir = direction
-            curlTouchY = normalizedY.coerceIn(0.15f, 0.85f)
+            curlTouchY = normalizedY.coerceIn(0.32f, 0.96f)
             turnProgress.snapTo(0f)
             turnProgress.animateTo(1f, tween(durationMillis = flipSpeed.durationMs, easing = FastOutSlowInEasing))
             currentPage = (currentPage + direction * pageStep).coerceIn(0, totalPages - 1)
@@ -1051,7 +1051,7 @@ fun BookReaderScreen(
                             onDragStart = { start ->
                                 totalDx = 0f
                                 turnDir = 0
-                                curlTouchY = (start.y / size.height.coerceAtLeast(1)).coerceIn(0.15f, 0.85f)
+                                curlTouchY = (start.y / size.height.coerceAtLeast(1)).coerceIn(0.32f, 0.96f)
                             },
                             onHorizontalDrag = { change, dragAmount ->
                                 change.consume()

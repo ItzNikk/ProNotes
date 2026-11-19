@@ -657,7 +657,7 @@ private fun LassoCardContent(
         AppPill(
             selected = true,
             tint = ProButtonPalette.ElectricBlue,
-            onClick = { vm.convertSelectionToText()?.let(onSelectionConverted) },
+            onClick = { vm.convertSelectionToText(onSelectionConverted) },
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
             modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp),
         ) {

@@ -214,7 +214,7 @@ fun SelectionMenu(
                                 stringResource(R.string.sheet_lasso_convert),
                                 icon = { Icon(Icons.Outlined.TextFields, contentDescription = null, Modifier.size(18.dp)) },
                             ) {
-                                vm.convertSelectionToText()?.let(onConvertToText)
+                                vm.convertSelectionToText(onConvertToText)
                             },
                             AppMenuItem("Flip horizontally", icon = { Icon(Icons.Outlined.Flip, contentDescription = null, Modifier.size(18.dp)) }) {
                                 keep { vm.flipSelection() }

@@ -2,6 +2,21 @@
 
 All notable changes to Pro Notes are documented in this file.
 
+## v13.5.0 — 2026-11-18
+
+### New
+- **On-Device Handwriting-to-Text Engine (`HandwritingRecognizer.kt`):** Replaced the heuristic glyph matcher from scratch with an on-device ML Kit Digital Ink Recognition pipeline (`TimedStrokePoint` timestamps, `WritingArea`, `preContext`, and ranked top-5 candidate suggestions) backed by a clean-room directional cosine polyline offline fallback, plus tappable live candidate chips inside `WriteBoxStudioBar` and async conversion for Write Boxes, Lasso selections, and the handwriting pad.
+
+### Improved
+- **Studio Workbench Toolbar Redesign (`EditorToolbar.kt`):** Completely redesigned the fixed bar and floating dock with an open, hairline-separated architectural rail, elevated ink-tinted active tool pedestals, angled proportional stroke-weight previews, and 1-tap inline controls for Pen nibs (`Fountain` / `Ball` / `Brush` / `Dashed`), Highlighter straightening (`Auto` / `Straight` / `Free`), Shapes (`ShapeKind` & `Fill`), Eraser (`Stroke` / `Pixel` & `HL only`), Lasso (`Freeform` / `Box` & `Touch` / `Inside`), and Text sizing & colour.
+- **Scribble-to-Erase & Lasso Accuracy (`Geometry.kt`, `NoteCanvasView.kt`):** Added circular/oval swirl scrub detection alongside PCA axis and zig-zag scribble checks, gated live scribble-erase on actual erasable ink beneath the scribble (eliminating cursive false positives on blank paper), tightened scribble spatial hit-testing, upgraded `Lasso` with O(1) bounds rejection, segment-vs-boundary crossing, and inner-box containment, and added tap-to-select support in Lasso mode.
+- **Notebook Creation Studio (`LibraryDialogs.kt`):** Redesigned `NewNotebookDialog` with a layered cover + spine + peeking-paper live preview stage, categorised Cover gallery (`Page 1`, `Custom photo`, `Classic Matte`, `Textured & Studio`), live-tinted Paper Tone & Template studio, and visual Page Format & Orientation cards.
+- **Bottom-Corner Realistic Page Curl (`BookReaderCanvas.kt`, `BookReaderArea.kt`):** Replaced the full-height vertical fold with true bottom-corner perpendicular-bisector page-curl kinematics starting from the bottom-right (forward) or bottom-left (backward) corner, keeping the top corner flat until the diagonal fold reaches the top edge, with Householder-reflected backside bleed-through, cylindrical fold-normal specular lighting, and dual cast shadows.
+
+### Fixed
+- **Duplicate Stylus Profiles in Settings (`Settings.kt`, `SettingsScreen.kt`):** Added automatic pen-key normalisation and deduplication (`dedupePens`) on load/save, merged manual/generic stylus entries cleanly with real hardware digitiser names, and removed the duplicate `"While held"` side-button section above `"Your pens"`.
+- **Release Alignment:** Updated default application version metadata to `13.5.0` (`versionCode = 16`) and synced `docs/ARCHITECTURE.md`.
+
 ## v13.4.0 — 2026-11-18
 
 ### Improved

@@ -777,7 +777,11 @@ internal fun WriteBoxStudioBar(
                     color = barFg,
                 )
                 Text(
-                    if (box.isConverted) "• Converted" else "• Writing ink (auto-converts)",
+                    when {
+                        vm.handwritingBusy -> "• Recognising handwriting…"
+                        box.isConverted -> "• Converted"
+                        else -> "• Writing ink (auto-converts)"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = ProButtonPalette.ElectricBlue,
                 )
@@ -819,6 +823,39 @@ internal fun WriteBoxStudioBar(
                     modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
                 ) {
                     Icon(Icons.Filled.Close, contentDescription = "Close Write Box bar", tint = barFg.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                }
+            }
+
+            // Ranked handwriting candidate suggestions live preview bar
+            val alts = vm.handwritingCandidates
+            if (alts.size > 1) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    alts.forEach { candidate ->
+                        val picked = candidate == textValue.trim()
+                        AppPill(
+                            selected = picked,
+                            tint = ProButtonPalette.ElectricBlue,
+                            onClick = {
+                                textValue = candidate
+                                vm.updateWriteBoxText(pageIndex, box.id, candidate)
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        ) {
+                            Text(
+                                candidate,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (picked) FontWeight.SemiBold else FontWeight.Medium,
+                                color = if (picked) Color.White else barFg,
+                                maxLines = 1,
+                            )
+                        }
+                    }
                 }
             }
 

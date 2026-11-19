@@ -305,8 +305,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                         }
                         Toggle("Paper haptics", "Tiny ticks as you write, like paper grain", s.paperHaptics) { v -> up { it.copy(paperHaptics = v) } }
                     }
-                    Section("Pen side button") {
-                        Choice("While held", s.sideButton.label, SideButton.entries.map { it.label }) { i -> up { it.copy(sideButton = SideButton.entries[i]) } }
+                    Section("Stylus behaviour") {
                         Choice("Button click delay", s.penClickDelay.label, PenClickDelay.entries.map { it.label }) { i -> up { it.copy(penClickDelay = PenClickDelay.entries[i]) } }
                         Toggle("Hover preview", "Show where the pen will touch", s.hoverCursor) { v -> up { it.copy(hoverCursor = v) } }
                     }
@@ -847,8 +846,13 @@ private fun PensSection(store: SettingsStore) {
                 Button(
                     onClick = {
                         val label = alias.trim().ifBlank { brand }
-                        val id = "pen-${System.currentTimeMillis()}"
-                        store.registerPen(id, brand = brand, alias = label)
+                        val existingSameBrand = pens.firstOrNull { it.brand == brand || it.name.equals("Stylus", ignoreCase = true) }
+                        if (existingSameBrand != null) {
+                            store.updatePen(existingSameBrand.copy(brand = brand, alias = label))
+                        } else {
+                            val id = "pen-${System.currentTimeMillis()}"
+                            store.registerPen(id, brand = brand, alias = label)
+                        }
                         store.update { it.copy(penName = label) }
                         showSetup = false
                     },

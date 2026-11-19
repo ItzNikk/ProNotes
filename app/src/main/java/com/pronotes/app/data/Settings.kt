@@ -630,8 +630,39 @@ class SettingsStore private constructor(context: Context) {
 
     private fun esc(s: String): String = s.replace("\\", "\\\\").replace("\t", " ").replace("\n", " ").replace("|", "/").replace(";", ",")
 
-    private fun loadPens(): List<PenProfile> =
-        prefs.getString("pens", "")!!.split('\n').mapNotNull { line ->
+    private fun normalizePenKey(name: String): String =
+        name.trim().lowercase()
+            .replace(Regex("[-_ ]?(ble|bt|hid|stylus|pen|digitizer|touchscreen|virtual)$"), "")
+            .replace(Regex("[^a-z0-9]"), "")
+
+    private fun dedupePens(list: List<PenProfile>): List<PenProfile> {
+        if (list.size <= 1) return list
+        val result = mutableListOf<PenProfile>()
+        for (p in list) {
+            val isGeneric = p.name.equals("Stylus", ignoreCase = true) || p.name.isBlank()
+            val norm = normalizePenKey(p.name)
+            val existingIdx = result.indexOfFirst { ex ->
+                ex.name == p.name ||
+                    (isGeneric && result.isNotEmpty()) ||
+                    (norm.isNotEmpty() && norm == normalizePenKey(ex.name)) ||
+                    (ex.brand == p.brand && ex.brand != "Stylus" && (ex.name.startsWith("pen-") || p.name.startsWith("pen-")))
+            }
+            if (existingIdx >= 0) {
+                val ex = result[existingIdx]
+                // Prefer hardware device ID with user's custom alias & configured button actions
+                val keepHardwareName = if (ex.name.startsWith("pen-") && !p.name.startsWith("pen-") && !isGeneric) p.name else ex.name
+                val keepAlias = ex.alias.ifBlank { p.alias }
+                val keepBrand = if (ex.brand != "Stylus") ex.brand else p.brand
+                result[existingIdx] = ex.copy(name = keepHardwareName, brand = keepBrand, alias = keepAlias)
+            } else {
+                result.add(p)
+            }
+        }
+        return result
+    }
+
+    private fun loadPens(): List<PenProfile> {
+        val raw = prefs.getString("pens", "")!!.split('\n').mapNotNull { line ->
             val p = line.split('\t')
             if (p.size < 5) null else runCatching {
                 PenProfile(
@@ -644,31 +675,87 @@ class SettingsStore private constructor(context: Context) {
                 )
             }.getOrNull()
         }
+        val clean = dedupePens(raw)
+        if (clean.size != raw.size) {
+            prefs.edit().putString(
+                "pens",
+                clean.joinToString("\n") {
+                    "${esc(it.name)}\t${esc(it.brand)}\t${it.sideButton}\t${it.click}\t${it.doubleClick}\t${esc(it.alias)}"
+                },
+            ).apply()
+        }
+        return clean
+    }
 
     private fun savePens(list: List<PenProfile>) {
-        _pens.value = list
+        val clean = dedupePens(list)
+        _pens.value = clean
         prefs.edit().putString(
             "pens",
-            list.joinToString("\n") {
+            clean.joinToString("\n") {
                 "${esc(it.name)}\t${esc(it.brand)}\t${it.sideButton}\t${it.click}\t${it.doubleClick}\t${esc(it.alias)}"
             },
         ).apply()
     }
 
-    fun pen(name: String): PenProfile? = _pens.value.firstOrNull { it.name == name }
+    fun pen(name: String): PenProfile? {
+        val list = _pens.value
+        list.firstOrNull { it.name == name }?.let { return it }
+        val norm = normalizePenKey(name)
+        if (norm.isNotEmpty()) {
+            list.firstOrNull { normalizePenKey(it.name) == norm }?.let { return it }
+        }
+        if (name.equals("Stylus", ignoreCase = true) || name.isBlank()) {
+            return list.firstOrNull()
+        }
+        return null
+    }
 
-    /** Remembers a pen the first time it is seen. */
+    /** Remembers a pen the first time it is seen, merging duplicate hardware/manual aliases cleanly. */
     fun registerPen(name: String, brand: String? = null, alias: String? = null): PenProfile {
-        pen(name)?.let { existing ->
+        val cleanName = name.trim().ifBlank { "Stylus" }
+        val detectedBrand = brand ?: PenBrands.detect(cleanName) ?: "Stylus"
+        val current = _pens.value
+
+        // 1. Exact or normalized match
+        pen(cleanName)?.let { existing ->
             val nextBrand = brand ?: existing.brand
             val nextAlias = alias ?: existing.alias
             if (nextBrand != existing.brand || nextAlias != existing.alias) {
                 updatePen(existing.copy(brand = nextBrand, alias = nextAlias))
             }
-            return pen(name)!!
+            return pen(cleanName) ?: existing
         }
-        val p = PenProfile(name, brand ?: PenBrands.detect(name) ?: "Stylus", alias = alias ?: "")
-        savePens(_pens.value + p)
+
+        // 2. If a user manually set up a pen ("pen-...") and now touches with hardware, bind to it instead of duplicating
+        if (!cleanName.startsWith("pen-")) {
+            val manualMatch = current.firstOrNull {
+                it.name.startsWith("pen-") && (it.brand == detectedBrand || current.size == 1)
+            }
+            if (manualMatch != null) {
+                val upgraded = manualMatch.copy(
+                    name = cleanName,
+                    brand = if (manualMatch.brand != "Stylus") manualMatch.brand else detectedBrand,
+                    alias = alias ?: manualMatch.alias,
+                )
+                savePens(current.map { if (it.name == manualMatch.name) upgraded else it })
+                return upgraded
+            }
+            // Also collapse generic fallback "Stylus" into the real hardware stylus once seen
+            val genericMatch = current.firstOrNull { it.name.equals("Stylus", ignoreCase = true) }
+            if (genericMatch != null) {
+                val upgraded = genericMatch.copy(
+                    name = cleanName,
+                    brand = if (genericMatch.brand != "Stylus") genericMatch.brand else detectedBrand,
+                    alias = alias ?: genericMatch.alias,
+                )
+                savePens(current.map { if (it.name == genericMatch.name) upgraded else it })
+                return upgraded
+            }
+        }
+
+        val p = PenProfile(cleanName, detectedBrand, alias = alias ?: "")
+        savePens(current + p)
         return p
     }
 
