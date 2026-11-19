@@ -57,6 +57,8 @@ interface CanvasHost {
     fun setItems(page: Int, items: List<PageItem>)
     fun onSelectionChanged(page: Int, ids: Set<Long>, screenBounds: RectF?)
     fun onTextTap(page: Int, x: Float, y: Float, existing: TextItem?)
+    /** Called when Tool.TEXT taps or drags a new inline text box directly on the page. */
+    fun onTextBoxPlace(page: Int, x: Float, y: Float, w: Float, h: Float) { onTextTap(page, x, y, null) }
     fun onStickyTap(page: Int, x: Float, y: Float, existing: StickyItem?)
     fun onStickyChecklistToggle(page: Int, sticky: StickyItem, lineIndex: Int) {}
     fun onWebLinkTap(page: Int, x: Float, y: Float, existing: WebLinkItem?) {}
@@ -328,6 +330,17 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     }
 
     fun redraw() { layer.invalidate() }
+
+    var editingTextItemId: Long?
+        get() = renderer?.hiddenTextItemId
+        set(value) {
+            if (renderer?.hiddenTextItemId != value) {
+                renderer?.hiddenTextItemId = value
+                layer.invalidate()
+            }
+        }
+
+    fun currentZoomScale(): Float = scale
 
     fun pageToScreen(page: Int, r: RectF): RectF? {
         if (page !in pages.indices) return null
@@ -1235,12 +1248,12 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         val (x0, y0) = points.first()
                         val page = pages[activePage]
                         val dragged = hypot(wx - x0, wy - y0) > 28f
-                        val boxW = if (dragged) abs(wx - x0).coerceIn(280f, page.width - 40f) else 680f.coerceAtMost(page.width - 60f)
-                        val boxH = if (dragged) abs(wy - y0).coerceIn(130f, page.height - 40f) else 220f
-                        val boxX = (if (dragged) min(x0, wx) else (x0 - 40f)).coerceIn(24f, (page.width - boxW - 24f).coerceAtLeast(24f))
-                        val boxY = (if (dragged) min(y0, wy) else (y0 - 36f)).coerceIn(24f, (page.height - boxH - 24f).coerceAtLeast(24f))
-                        buzz()
-                        host.onPlaceWriteBox(activePage, boxX, boxY, boxW, boxH)
+                        val boxW = if (dragged) abs(wx - x0).coerceIn(240f, page.width - 40f) else 560f.coerceAtMost(page.width - 64f)
+                        val boxH = if (dragged) abs(wy - y0).coerceIn(100f, page.height - 40f) else 160f
+                        val boxX = (if (dragged) min(x0, wx) else (x0 - 24f)).coerceIn(24f, (page.width - boxW - 24f).coerceAtLeast(24f))
+                        val boxY = (if (dragged) min(y0, wy) else (y0 - 24f)).coerceIn(24f, (page.height - boxH - 24f).coerceAtLeast(24f))
+                        buzz(HapticFeedbackConstants.CLOCK_TICK)
+                        host.onTextBoxPlace(activePage, boxX, boxY, boxW, boxH)
                         layer.invalidate()
                     }
                     Mode.TAPE -> {

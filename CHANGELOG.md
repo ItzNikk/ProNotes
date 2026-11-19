@@ -2,6 +2,16 @@
 
 All notable changes to Pro Notes are documented in this file.
 
+## v13.6.0 — 2026-11-18
+
+### Improved
+- **Unified Direct-On-Page Text Tool & Keyboard Mode (`EditorDialogs.kt`, `EditorScreen.kt`, `NoteCanvasView.kt`, `PageRenderer.kt`, `EditorViewModel.kt`, `ToolSettingsSheets.kt`):** Replaced both the modal `TextDialog` and the opaque full-screen `KeyboardNoteModeOverlay` with a single unified `InlinePageTextEditor` mounted inside the `imePadding()` canvas container. Tapping or dragging with the Text tool or enabling Keyboard Mode opens a 100% transparent, resizable inline text box directly over the live notebook paper with crisp 8-point square resize handles, top Move/Delete controls, automatic word wrapping to the box width, a live native Android `EditText` (with API 33+ `isAutoHandwritingEnabled = true` for native stylus-to-text input), a 1-tap transparent ML Kit inline handwriting capture mode with candidate chips, and a slim formatting bar docked cleanly above the soft keyboard.
+- **3D Cylindrical Bottom-Corner Page Curl (`BookReaderCanvas.kt`, `BookReaderArea.kt`):** Upgraded `BookCurlStage` from a flat reflection fold to genuine 3D cylindrical curl kinematics starting from the bottom-right (forward) or bottom-left (backward) corner, rendered via a 26×26 `Canvas.drawBitmapMesh` warp with a smooth curved cylindrical tube mouth silhouette, real upright back-page content on 2-page spreads (and subtle mirrored paper bleed-through on single-page books), stationary spread-page preservation via `PathOperation.Union`, glossy specular tube highlight, deep valley crease shading, dual cast shadows, and 2D fingertip diagonal drag tracking (`detectDragGestures`).
+
+### Fixed
+- **Keyboard Mode Viewport & Undo Stability:** Mounted inline text editing inside `.imePadding()` so the soft keyboard never covers typed content or formatting controls, suppressed duplicate static canvas text rendering (`hiddenTextItemId`) during live editing, committed edits in a single atomic undo step without removing other text boxes on the page, and hooked toolbar Keyboard Mode toggle-off to commit active drafts safely.
+- **Release Alignment:** Updated default application version metadata to `13.6.0` (`versionCode = 17`) and synced `docs/ARCHITECTURE.md`.
+
 ## v13.5.0 — 2026-11-18
 
 ### New

@@ -28,7 +28,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -1047,26 +1047,29 @@ fun BookReaderScreen(
                 .pointerInput(currentPage, totalPages, effectiveSpread, zoom) {
                     if (zoom <= 1.04f) {
                         var totalDx = 0f
-                        detectHorizontalDragGestures(
+                        detectDragGestures(
                             onDragStart = { start ->
                                 totalDx = 0f
                                 turnDir = 0
-                                curlTouchY = (start.y / size.height.coerceAtLeast(1)).coerceIn(0.32f, 0.96f)
+                                curlTouchY = (start.y / size.height.coerceAtLeast(1)).coerceIn(0.24f, 0.96f)
                             },
-                            onHorizontalDrag = { change, dragAmount ->
+                            onDrag = { change, dragAmount ->
                                 change.consume()
-                                totalDx += dragAmount
+                                totalDx += dragAmount.x
                                 val w = size.width.toFloat().coerceAtLeast(1f)
-                                if (totalDx < -10f && canGoNext()) {
+                                val h = size.height.toFloat().coerceAtLeast(1f)
+                                // Track live fingertip vertical angle while peeling diagonally from the bottom corner
+                                curlTouchY = (change.position.y / h).coerceIn(0.24f, 0.96f)
+                                if (totalDx < -8f && canGoNext()) {
                                     turnDir = +1
-                                    if (bookFlipSound && abs(dragAmount) > 4f) {
-                                        BookFlipSoundEngine.playDragRustleTick(dragAmount, appSettings.paperVolume)
+                                    if (bookFlipSound && abs(dragAmount.x) > 4f) {
+                                        BookFlipSoundEngine.playDragRustleTick(dragAmount.x, appSettings.paperVolume)
                                     }
                                     scope.launch { turnProgress.snapTo((abs(totalDx) / (w * 0.72f)).coerceIn(0f, 1f)) }
-                                } else if (totalDx > 10f && canGoPrev()) {
+                                } else if (totalDx > 8f && canGoPrev()) {
                                     turnDir = -1
-                                    if (bookFlipSound && abs(dragAmount) > 4f) {
-                                        BookFlipSoundEngine.playDragRustleTick(dragAmount, appSettings.paperVolume)
+                                    if (bookFlipSound && abs(dragAmount.x) > 4f) {
+                                        BookFlipSoundEngine.playDragRustleTick(dragAmount.x, appSettings.paperVolume)
                                     }
                                     scope.launch { turnProgress.snapTo((abs(totalDx) / (w * 0.72f)).coerceIn(0f, 1f)) }
                                 }

@@ -119,7 +119,15 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         private set
 
     // --------------------------------------------------------------- dialogs
-    data class TextEdit(val page: Int, val x: Float, val y: Float, val existing: TextItem?)
+    data class TextEdit(
+        val page: Int,
+        val x: Float,
+        val y: Float,
+        val existing: TextItem?,
+        val boxWidth: Float = 560f,
+        val boxHeight: Float = 160f,
+        val isFullPage: Boolean = false,
+    )
     data class StickyEdit(val page: Int, val item: StickyItem, val isNew: Boolean)
     data class WebLinkEdit(val page: Int, val item: WebLinkItem, val isNew: Boolean)
     data class MindNodeEdit(val page: Int, val item: MindNodeItem, val isNew: Boolean)
@@ -782,23 +790,60 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         }
     }
 
-    fun commitText(text: String, size: Float = textSize, color: Int = textColor ?: penStyle.color, style: TextStyleSpec = textStyle) {
+    fun openInlineTextBox(
+        page: Int,
+        x: Float,
+        y: Float,
+        existing: TextItem? = null,
+        boxWidth: Float = 560f,
+        boxHeight: Float = 160f,
+        isFullPage: Boolean = false,
+    ) {
+        val p = pages.getOrNull(page) ?: return
+        selection = emptySet()
+        val w = if (existing != null) maxOf(existing.raw.width() + 80f, 340f).coerceAtMost(p.width - 48f) else boxWidth
+        val h = if (existing != null) maxOf(existing.raw.height() + 64f, 130f).coerceAtMost(p.height - 48f) else boxHeight
+        val rx = (existing?.x ?: x).coerceIn(24f, (p.width - w - 24f).coerceAtLeast(24f))
+        val ry = (existing?.y ?: y).coerceIn(24f, (p.height - h - 24f).coerceAtLeast(24f))
+        textEdit = TextEdit(page, rx, ry, existing, boxWidth = w, boxHeight = h, isFullPage = isFullPage)
+    }
+
+    fun commitText(
+        text: String,
+        size: Float = textSize,
+        color: Int = textColor ?: penStyle.color,
+        style: TextStyleSpec = textStyle,
+        x: Float? = null,
+        y: Float? = null,
+    ) {
         val edit = textEdit ?: return
         textEdit = null
+        if (edit.isFullPage) keyboardMode = false
         val p = pages.getOrNull(edit.page) ?: return
         val td = store.settings.value.toolDefaults
         val effectiveColor = if (td.textOpacity >= 0.99f) color else Brushes.withAlpha(color, td.textOpacity)
         // New text remembers the last formatting used.
         textSize = size; textStyle = style; textColor = effectiveColor
+        val finalX = x ?: edit.x
+        val finalY = y ?: edit.y
         val existing = edit.existing
         val items = when {
             existing != null && text.isBlank() -> p.items.filterNot { it.id == existing.id }
-            existing != null -> p.items.map { if (it.id == existing.id) existing.copy(text = text, size = size, color = effectiveColor, style = style) else it }
+            existing != null -> p.items.map {
+                if (it.id == existing.id) existing.copy(text = text, x = finalX, y = finalY, size = size, color = effectiveColor, style = style)
+                else it
+            }
             text.isBlank() -> return
-            else -> p.items + TextItem(ItemIds.next(), text, edit.x, edit.y, size, effectiveColor, style)
+            else -> p.items + TextItem(ItemIds.next(), text, finalX, finalY, size, effectiveColor, style)
         }
         beginEdit(edit.page)
         applyItems(edit.page, items)
+    }
+
+    fun dismissTextEdit() {
+        val edit = textEdit
+        textEdit = null
+        if (edit?.isFullPage == true) keyboardMode = false
     }
 
     fun openSticky(page: Int, x: Float, y: Float, existing: StickyItem?) {
@@ -2590,12 +2635,35 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     // --------------------------------------------------------------- Keyboard Mode & Clear All
 
     var keyboardMode by mutableStateOf(false)
+    var onRequestCommitText: (() -> Unit)? = null
 
     fun toggleKeyboardMode() {
-        keyboardMode = !keyboardMode
         if (keyboardMode) {
-            selection = emptySet()
+            val commitHook = onRequestCommitText
+            if (commitHook != null) {
+                commitHook.invoke()
+            } else {
+                keyboardMode = false
+                if (textEdit?.isFullPage == true) textEdit = null
+            }
+            return
         }
+        val p = pages.getOrNull(pageIndex) ?: return
+        keyboardMode = true
+        selection = emptySet()
+        // Reuse the page's primary document text item (near top-left margin) without deleting other free text boxes.
+        val existingDocText = p.items.filterIsInstance<TextItem>()
+            .firstOrNull { kotlin.math.abs(it.x - 76f) < 60f && kotlin.math.abs(it.y - 84f) < 80f }
+            ?: p.items.filterIsInstance<TextItem>().minByOrNull { it.y }
+        textEdit = TextEdit(
+            page = pageIndex,
+            x = existingDocText?.x ?: 76f,
+            y = existingDocText?.y ?: 84f,
+            existing = existingDocText,
+            boxWidth = (p.width - 152f).coerceAtLeast(360f),
+            boxHeight = (p.height - 168f).coerceAtLeast(320f),
+            isFullPage = true,
+        )
     }
 
     fun getKeyboardPageText(pageIdx: Int = pageIndex): String {
@@ -2608,21 +2676,23 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         fullText: String,
         size: Float = textSize,
         color: Int = textColor ?: penStyle.color,
-        style: TextStyleSpec = textStyle
+        style: TextStyleSpec = textStyle,
     ) {
         val p = pages.getOrNull(pageIndex) ?: return
-        val nonTextItems = p.items.filterNot { it is TextItem }
+        val existingDocText = textEdit?.existing
+            ?: p.items.filterIsInstance<TextItem>().firstOrNull { kotlin.math.abs(it.x - 76f) < 60f && kotlin.math.abs(it.y - 84f) < 80f }
+        val otherItems = if (existingDocText != null) p.items.filterNot { it.id == existingDocText.id } else p.items
         val updatedItems = if (fullText.isBlank()) {
-            nonTextItems
+            otherItems
         } else {
-            nonTextItems + TextItem(
-                id = p.items.filterIsInstance<TextItem>().firstOrNull()?.id ?: ItemIds.next(),
+            otherItems + TextItem(
+                id = existingDocText?.id ?: ItemIds.next(),
                 text = fullText,
-                x = 76f,
-                y = 84f,
+                x = existingDocText?.x ?: 76f,
+                y = existingDocText?.y ?: 84f,
                 size = size,
                 color = color,
-                style = style
+                style = style,
             )
         }
         beginEdit(pageIndex)

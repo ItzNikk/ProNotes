@@ -128,6 +128,9 @@ class PageRenderer(private val noteDir: File?) {
     /** Currently selected mind-map node (gets an active focus ring). */
     var activeMindNodeId: Long? = null
 
+    /** Text item currently being edited inline on-page (hidden on canvas to prevent double rendering). */
+    var hiddenTextItemId: Long? = null
+
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
 
     /** Shows PDF pages inverted (light text on dark) for night reading. */
@@ -850,6 +853,7 @@ class PageRenderer(private val noteDir: File?) {
         for (item in ordered) {
             if (item is MindNodeItem && item.id in hiddenNodes) continue
             if (item is InkItem && item.id in convertedInkIds) continue
+            if (item is TextItem && item.id == hiddenTextItemId) continue
             val moved = transform != null && item.id in transformIds
             if (!moved && !onScreen(item)) continue
             if (moved) {

@@ -631,7 +631,10 @@ fun EditorScreen(
                                     override fun onSelectionChanged(page: Int, ids: Set<Long>, screenBounds: android.graphics.RectF?) =
                                         vm.onSelection(page, ids, screenBounds)
                                     override fun onTextTap(page: Int, x: Float, y: Float, existing: TextItem?) {
-                                        vm.textEdit = EditorViewModel.TextEdit(page, x, y, existing)
+                                        vm.openInlineTextBox(page, x, y, existing)
+                                    }
+                                    override fun onTextBoxPlace(page: Int, x: Float, y: Float, w: Float, h: Float) {
+                                        vm.openInlineTextBox(page, x, y, existing = null, boxWidth = w, boxHeight = h)
                                     }
                                     override fun onStickyTap(page: Int, x: Float, y: Float, existing: StickyItem?) = vm.openSticky(page, x, y, existing)
                                     override fun onStickyChecklistToggle(page: Int, sticky: StickyItem, lineIndex: Int) =
@@ -1337,7 +1340,7 @@ fun EditorScreen(
                             },
                             onTextBox = {
                                 quickInsert = null
-                                vm.textEdit = EditorViewModel.TextEdit(req.page, req.x, req.y, null)
+                                vm.openInlineTextBox(req.page, req.x, req.y)
                             },
                             onSticky = {
                                 quickInsert = null
@@ -1374,6 +1377,23 @@ fun EditorScreen(
                                 activePopoverTool = t
                             },
                             onDismiss = { wheelAt = null },
+                        )
+                    }
+                    // Sync canvas hiddenTextItemId and close popovers whenever inline text editing starts
+                    LaunchedEffect(vm.textEdit, canvas) {
+                        canvas?.editingTextItemId = vm.textEdit?.existing?.id
+                        if (vm.textEdit != null) {
+                            activePopoverTool = null
+                        }
+                    }
+                    // Unified direct-on-page inline text & keyboard editor (inside imePadding)
+                    vm.textEdit?.let { edit ->
+                        InlinePageTextEditor(
+                            vm = vm,
+                            edit = edit,
+                            canvas = canvas,
+                            areaSize = areaSize,
+                            darkUi = darkUi,
                         )
                     }
                 }
@@ -1446,8 +1466,6 @@ fun EditorScreen(
     }
 
     // ------------------------------------------------------------------ dialogs & sheets
-    if (vm.keyboardMode) KeyboardNoteModeOverlay(vm, darkUi)
-    vm.textEdit?.let { edit -> TextDialog(vm, edit) }
     vm.mindNodeEdit?.let { edit -> MindNodeDialog(vm, edit) }
     vm.cardDraft?.let { d -> CardEditorDialog(vm, d) }
     if (vm.linkSheet != null) LinkSheet(vm)

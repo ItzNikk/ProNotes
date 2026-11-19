@@ -693,18 +693,18 @@ private fun TextCardContent(vm: EditorViewModel) {
     val settings by vm.settingsFlow.collectAsStateWithLifecycle()
     val td = settings.toolDefaults
 
-    Text("ON-CANVAS WRITE BOX", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.68f))
+    Text("ON-PAGE TEXT & KEYBOARD", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.68f))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         AppPill(
             selected = true,
             tint = ProButtonPalette.ElectricBlue,
-            onClick = { vm.addWriteBox(vm.pageIndex) },
+            onClick = { vm.openInlineTextBox(vm.pageIndex, 100f, 160f) },
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 9.dp),
             modifier = Modifier.weight(1f).defaultMinSize(minHeight = 48.dp),
         ) {
-            ProIconView(ProIcon.WRITE_BOX, Color.White, Modifier.size(16.dp), ink = Color.White)
+            ProIconView(ProIcon.TEXT, Color.White, Modifier.size(16.dp), ink = Color.White)
             Spacer(Modifier.width(5.dp))
-            Text("Add Write Box", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
+            Text("New Text Box", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
         }
         AppPill(
             selected = vm.keyboardMode,
@@ -731,7 +731,7 @@ private fun TextCardContent(vm: EditorViewModel) {
         TextFont.entries.indexOf(vm.textStyle.font).coerceAtMost(3),
     ) { i -> vm.textStyle = vm.textStyle.copy(font = TextFont.entries[i]) }
     Text(
-        "Tap anywhere on the page with the Text tool to type or place a Write Box. Write inside with your stylus or finger and it converts to text in place.",
+        "Tap or drag anywhere on the page with the Text tool to place a transparent, resizable text box. Type with your keyboard or write directly with a stylus inside the box.",
         style = MaterialTheme.typography.labelSmall,
         color = fgColor.copy(alpha = 0.68f),
     )

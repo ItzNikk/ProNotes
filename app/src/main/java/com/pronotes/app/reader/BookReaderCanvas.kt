@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
@@ -160,26 +161,46 @@ internal object BookFlipSoundEngine {
 }
 
 /**
- * Exact 2D perpendicular-bisector paper fold geometry starting from the bottom corner
+ * 3D cylindrical page-curl geometry starting strictly from the bottom corner
  * (`(w, h)` for forward turns, `(0, h)` for backward turns).
  *
- * The top corner remains completely flat until the diagonal fold axis naturally climbs the
- * side edge and reaches the top edge, producing authentic book-page curl kinematics.
+ * The sheet wraps smoothly around a virtual 3D cylinder of radius [radius] whose tangent axis
+ * sweeps diagonally upward and across the turning leaf. Every vertex `(px, py)` with signed
+ * distance `d = (P · n) - lineOffset` maps smoothly over the cylinder:
+ * - `d <= 0`: flat front page
+ * - `0 < d <= πR/2`: front curving crest up to silhouette `f = +R`
+ * - `πR/2 < d <= πR`: back curving cylinder tube (`f = R * sin(d / R)`)
+ * - `d > πR`: flipped flat underside (`f = πR - d`)
  */
-private data class BottomCurlGeometry(
-    val keptPoly: List<Offset>,
-    val peeledPoly: List<Offset>,
-    val backFlapPoly: List<Offset>,
-    val foldMid: Offset,
-    val foldNormal: Offset, // Unit normal pointing from flat page toward lifted corner C
-    val foldStart: Offset,
-    val foldEnd: Offset,
-    val flapReach: Float,
+private data class CylindricalCurlGeometry(
+    val sheetLeft: Float,
+    val sheetRight: Float,
+    val sheetHeight: Float,
+    val normal: Offset,          // Unit normal pointing from flat remaining page toward lifted corner
+    val tangent: Offset,         // Unit tangent along the cylinder axis (-ny, nx)
+    val lineOffset: Float,       // Signed coordinate of cylinder tangent line L along normal
+    val radius: Float,           // 3D cylinder radius R
+    val halfPiR: Float,          // π * R / 2 (silhouette crest arc distance)
+    val piR: Float,              // π * R (full half-turn around cylinder)
+    val maxD: Float,             // Maximum signed distance d reached on the turning leaf
     val arcSin: Float,
+    val keptFrontPoly: List<Offset>,   // Flat + crest-clipped region of current sheet (`P · n <= lineOffset + R`)
+    val revealedPoly: List<Offset>,    // Exposed region of next sheet (`P · n >= lineOffset + R`)
+    val backSilhouettePts: List<Offset>, // Exact 3D curved outer boundary of the rolled back leaf
+    val crestMid: Offset,        // Midpoint along the cylinder crest line `P · n = lineOffset + R`
+    val crestStart: Offset,
+    val crestEnd: Offset,
 ) {
-    fun reflect(p: Offset): Offset {
-        val d = (p.x - foldMid.x) * foldNormal.x + (p.y - foldMid.y) * foldNormal.y
-        return Offset(p.x - 2f * d * foldNormal.x, p.y - 2f * d * foldNormal.y)
+    /** Monotone projection for back-side `drawBitmapMesh` (zero self-folding). */
+    fun projectBack(px: Float, py: Float): Offset {
+        val d = px * normal.x + py * normal.y - lineOffset
+        val f = when {
+            d < halfPiR -> radius + (halfPiR - d)
+            d <= piR -> radius * sin((d / radius).toDouble()).toFloat()
+            else -> piR - d
+        }
+        val delta = f - d
+        return Offset(px + delta * normal.x, py + delta * normal.y)
     }
 }
 
@@ -212,71 +233,188 @@ private fun clipPolygonHalfPlane(
     return out
 }
 
-private fun computeBottomCurl(
+/**
+ * Intersects the infinite line `P · n = targetProj` with rectangle `[left..right, 0..height]`.
+ * Returns the two extreme endpoints sorted along tangent `t = (-ny, nx)`, or `null` if disjoint.
+ */
+private fun intersectLineWithRect(
+    left: Float,
+    right: Float,
+    height: Float,
+    nx: Float,
+    ny: Float,
+    tx: Float,
+    ty: Float,
+    targetProj: Float,
+): Pair<Offset, Offset>? {
+    var minS = Float.POSITIVE_INFINITY
+    var maxS = Float.NEGATIVE_INFINITY
+    var minPt: Offset? = null
+    var maxPt: Offset? = null
+
+    fun consider(x: Float, y: Float) {
+        val s = x * tx + y * ty
+        if (s < minS) {
+            minS = s
+            minPt = Offset(x, y)
+        }
+        if (s > maxS) {
+            maxS = s
+            maxPt = Offset(x, y)
+        }
+    }
+
+    val eps = 1e-4f
+    // Top edge y = 0, Bottom edge y = height
+    if (abs(nx) > eps) {
+        val xTop = targetProj / nx
+        if (xTop in (left - 0.5f)..(right + 0.5f)) consider(xTop.coerceIn(left, right), 0f)
+        val xBot = (targetProj - height * ny) / nx
+        if (xBot in (left - 0.5f)..(right + 0.5f)) consider(xBot.coerceIn(left, right), height)
+    }
+    // Left edge x = left, Right edge x = right
+    if (abs(ny) > eps) {
+        val yLeft = (targetProj - left * nx) / ny
+        if (yLeft in -0.5f..(height + 0.5f)) consider(left, yLeft.coerceIn(0f, height))
+        val yRight = (targetProj - right * nx) / ny
+        if (yRight in -0.5f..(height + 0.5f)) consider(right, yRight.coerceIn(0f, height))
+    }
+    val a = minPt ?: return null
+    val b = maxPt ?: return null
+    return a to b
+}
+
+private fun computeCylindricalCurl(
     w: Float,
     h: Float,
+    spread: Boolean,
     turnDir: Int,
     progress: Float,
     touchY: Float,
-): BottomCurlGeometry {
+): CylindricalCurlGeometry {
     val p = progress.coerceIn(0.001f, 1f)
     val arcSin = sin(p * PI).toFloat().coerceAtLeast(0f)
-    // Natural bottom-corner lift bias: higher drag Y keeps curl tighter near bottom;
-    // mid/upper drag smoothly broadens the diagonal angle while still starting at the bottom corner.
-    val clampedTouch = touchY.coerceIn(0.32f, 0.96f)
-    val liftFactor = (0.34f + (1f - clampedTouch) * 0.42f).coerceIn(0.28f, 0.62f)
+    val clampedTouch = touchY.coerceIn(0.24f, 0.96f)
 
-    // Corner origin C at bottom-right (forward) or bottom-left (backward)
-    val corner = if (turnDir > 0) Offset(w, h) else Offset(0f, h)
+    // In 2-page spread mode, only the active right (forward) or left (backward) leaf turns across the spine.
+    val sheetL = if (spread && turnDir > 0) w * 0.5f else 0f
+    val sheetR = if (spread && turnDir < 0) w * 0.5f else w
+    val sheetW = (sheetR - sheetL).coerceAtLeast(1f)
 
-    // Smooth curved tip trajectory from corner C across the opposite edge
-    val tipX = if (turnDir > 0) {
-        w * (1f - 2.18f * p)
+    // Cylinder radius swells smoothly into a rich 3D tube through mid-turn, then relaxes flat at settlement.
+    val swell = kotlin.math.sqrt(arcSin.coerceIn(0f, 1f))
+    val radius = (sheetW * (if (spread) (0.014f + 0.155f * swell) else (0.012f + 0.118f * swell))).coerceAtLeast(4f)
+    val halfPiR = (PI * 0.5).toFloat() * radius
+    val piR = PI.toFloat() * radius
+
+    // Diagonal angle starts tilted from the bottom corner and straightens smoothly toward vertical as the page settles.
+    val baseTilt = (0.14f + (clampedTouch - 0.24f) * 0.56f).coerceIn(0.14f, 0.54f)
+    val tilt = baseTilt * (1f - 0.88f * p * p)
+    val cosA = kotlin.math.cos(tilt.toDouble()).toFloat()
+    val sinA = sin(tilt.toDouble()).toFloat()
+    val nx = if (turnDir > 0) cosA else -cosA
+    val ny = sinA
+    val tx = -ny
+    val ty = nx
+
+    val sheetCorners = listOf(
+        Offset(sheetL, 0f),
+        Offset(sheetR, 0f),
+        Offset(sheetR, h),
+        Offset(sheetL, h),
+    )
+    val projs = sheetCorners.map { it.x * nx + it.y * ny }
+    val maxProj = projs.maxOrNull() ?: 0f // Always the bottom outer corner (sheetR, h) or (sheetL, h)
+    val minProj = projs.minOrNull() ?: 0f // Opposite top corner
+
+    // Start with cylinder crest right at the bottom corner (maxProj - halfPiR), sweep cleanly to settlement.
+    val startOffset = maxProj - halfPiR * 0.92f
+    val endOffset = if (spread) {
+        // Settle the spine edge cleanly at x = w * 0.5f so back page lays flat over the opposite half.
+        val spineProj = (w * 0.5f) * nx + (h * 0.5f) * ny
+        spineProj - halfPiR - 2f
     } else {
-        w * (2.18f * p)
+        // Clear the entire single-page sheet smoothly off the opposite edge.
+        minProj - piR - sheetW * 0.06f
     }
-    // Arch upward along a smooth sin curve so fold starts at a realistic diagonal angle from the bottom corner
-    val tipLift = h * liftFactor * sin(p * PI * 0.88).toFloat().coerceAtLeast(0f) * (1f - 0.35f * p)
-    val tip = Offset(tipX, (h - tipLift).coerceAtLeast(h * 0.14f))
+    val lineOffset = startOffset + (endOffset - startOffset) * p
 
-    val dx = corner.x - tip.x
-    val dy = corner.y - tip.y
-    val dist = hypot(dx, dy).coerceAtLeast(1f)
-    val nx = dx / dist
-    val ny = dy / dist
-    val normal = Offset(nx, ny)
-    val mid = Offset((corner.x + tip.x) * 0.5f, (corner.y + tip.y) * 0.5f)
+    val crestOffset = lineOffset + radius
+    val crestOrigin = Offset(nx * crestOffset, ny * crestOffset)
 
-    val rect = listOf(Offset(0f, 0f), Offset(w, 0f), Offset(w, h), Offset(0f, h))
-    val kept = clipPolygonHalfPlane(rect, mid, normal, keepNonPositive = true)
-    val peeled = clipPolygonHalfPlane(rect, mid, normal, keepNonPositive = false)
-
-    // Find the two intersection vertices lying directly on the fold crease line (d ≈ 0)
-    val creasePts = peeled.filter { pt ->
-        abs((pt.x - mid.x) * nx + (pt.y - mid.y) * ny) < 2.5f
-    }
-    val foldStart = creasePts.firstOrNull() ?: mid
-    val foldEnd = creasePts.lastOrNull() ?: mid
-
-    val backFlap = peeled.map { pt ->
-        val d = (pt.x - mid.x) * nx + (pt.y - mid.y) * ny
-        Offset(pt.x - 2f * d * nx, pt.y - 2f * d * ny)
+    // Clip full book stage: keep flat current pages on `P · n <= crestOffset`, reveal next pages on `P · n >= crestOffset`.
+    val fullRect = listOf(Offset(0f, 0f), Offset(w, 0f), Offset(w, h), Offset(0f, h))
+    val keptFrontPoly = if (spread) {
+        clipPolygonHalfPlane(sheetCorners, crestOrigin, Offset(nx, ny), keepNonPositive = true)
+    } else {
+        clipPolygonHalfPlane(fullRect, crestOrigin, Offset(nx, ny), keepNonPositive = true)
     }
 
-    val maxDepth = peeled.maxOfOrNull { pt ->
-        ((pt.x - mid.x) * nx + (pt.y - mid.y) * ny).coerceAtLeast(0f)
-    } ?: 1f
+    val revealedPoly = clipPolygonHalfPlane(sheetCorners, crestOrigin, Offset(nx, ny), keepNonPositive = false)
 
-    return BottomCurlGeometry(
-        keptPoly = kept,
-        peeledPoly = peeled,
-        backFlapPoly = backFlap,
-        foldMid = mid,
-        foldNormal = normal,
-        foldStart = foldStart,
-        foldEnd = foldEnd,
-        flapReach = maxDepth.coerceAtLeast(4f),
+    // Find crest segment on turning sheet
+    val crestSeg = intersectLineWithRect(sheetL, sheetR, h, nx, ny, tx, ty, lineOffset + halfPiR)
+        ?: intersectLineWithRect(sheetL, sheetR, h, nx, ny, tx, ty, crestOffset)
+    val crestStart = crestSeg?.first?.let {
+        val d = it.x * nx + it.y * ny - lineOffset
+        Offset(it.x + (radius - d) * nx, it.y + (radius - d) * ny)
+    } ?: crestOrigin
+    val crestEnd = crestSeg?.second?.let {
+        val d = it.x * nx + it.y * ny - lineOffset
+        Offset(it.x + (radius - d) * nx, it.y + (radius - d) * ny)
+    } ?: crestOrigin
+    val crestMid = Offset((crestStart.x + crestEnd.x) * 0.5f, (crestStart.y + crestEnd.y) * 0.5f)
+
+    val maxD = (maxProj - lineOffset).coerceAtLeast(halfPiR)
+
+    // Trace exact 3D curved outer silhouette of the rolled back leaf (`d` in `[halfPiR .. maxD]`).
+    val backSilhouettePts = ArrayList<Offset>(68)
+    if (maxD > halfPiR + 1.5f) {
+        val samples = ArrayList<Float>(32)
+        val arcEnd = minOf(maxD, piR)
+        val arcSteps = 18
+        for (i in 0..arcSteps) {
+            samples += halfPiR + (arcEnd - halfPiR) * (i.toFloat() / arcSteps)
+        }
+        if (maxD > piR + 1f) {
+            val flatSteps = 10
+            for (i in 1..flatSteps) {
+                samples += piR + (maxD - piR) * (i.toFloat() / flatSteps)
+            }
+        }
+        val sideA = ArrayList<Offset>(samples.size)
+        val sideB = ArrayList<Offset>(samples.size)
+        for (d in samples) {
+            val seg = intersectLineWithRect(sheetL, sheetR, h, nx, ny, tx, ty, lineOffset + d) ?: continue
+            val f = if (d <= piR) radius * sin((d / radius).toDouble()).toFloat() else piR - d
+            val delta = f - d
+            sideA += Offset(seg.first.x + delta * nx, seg.first.y + delta * ny)
+            sideB += Offset(seg.second.x + delta * nx, seg.second.y + delta * ny)
+        }
+        backSilhouettePts.addAll(sideA)
+        for (i in sideB.lastIndex downTo 0) {
+            backSilhouettePts.add(sideB[i])
+        }
+    }
+
+    return CylindricalCurlGeometry(
+        sheetLeft = sheetL,
+        sheetRight = sheetR,
+        sheetHeight = h,
+        normal = Offset(nx, ny),
+        tangent = Offset(tx, ty),
+        lineOffset = lineOffset,
+        radius = radius,
+        halfPiR = halfPiR,
+        piR = piR,
+        maxD = maxD,
         arcSin = arcSin,
+        keptFrontPoly = keptFrontPoly,
+        revealedPoly = revealedPoly,
+        backSilhouettePts = backSilhouettePts,
+        crestMid = crestMid,
+        crestStart = crestStart,
+        crestEnd = crestEnd,
     )
 }
 
@@ -289,12 +427,47 @@ private fun polygonToPath(pts: List<Offset>): Path = Path().apply {
     close()
 }
 
+private fun drawCylindricalBackBitmapMesh(
+    nativeCanvas: android.graphics.Canvas,
+    bmp: Bitmap,
+    curl: CylindricalCurlGeometry,
+    mirrorHorizontal: Boolean,
+    alpha: Int,
+) {
+    val cols = 26
+    val rows = 26
+    val verts = FloatArray((cols + 1) * (rows + 1) * 2)
+    val sheetW = curl.sheetRight - curl.sheetLeft
+    val sheetH = curl.sheetHeight
+    var idx = 0
+    for (r in 0..rows) {
+        val v = r.toFloat() / rows
+        val py = v * sheetH
+        for (c in 0..cols) {
+            val u = c.toFloat() / cols
+            val px = if (mirrorHorizontal) {
+                curl.sheetRight - u * sheetW
+            } else {
+                curl.sheetLeft + u * sheetW
+            }
+            val projected = curl.projectBack(px, py)
+            verts[idx++] = projected.x
+            verts[idx++] = projected.y
+        }
+    }
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG).apply {
+        this.alpha = alpha
+    }
+    nativeCanvas.drawBitmapMesh(bmp, cols, rows, verts, 0, null, 0, paint)
+}
+
 /**
- * Interactive 3-layer bottom-corner realistic page-curl stage:
- * 1) Target next sheet underneath with a fold-normal cast shadow inside the peeled region
- * 2) Current sheet clipped cleanly along the exact diagonal fold axis (keeping top flat initially)
- * 3) Geometrically reflected curved backside paper flap with mirrored bleed-through, cylindrical
- *    paper lighting gradient along the fold normal, and soft cast shadow onto the flat page
+ * Interactive 3D cylindrical bottom-corner page-curl stage:
+ * 1) Target next sheet underneath with a wide directional cast shadow inside the peeled region
+ * 2) Current sheet clipped cleanly along the 3D cylinder crest silhouette with subtle roll shading
+ * 3) True 3D cylindrical curved backside leaf rendered via `Canvas.drawBitmapMesh` (26×26 mesh)
+ *    with real back-side page content (two-page spread) or faint mirrored bleed-through (single page),
+ *    lush glossy cylindrical specular lighting, deep valley crease shadow, and soft floating cast shadow
  */
 @Composable
 internal fun BookCurlStage(
@@ -334,7 +507,6 @@ internal fun BookCurlStage(
             )
         }
 
-        val cornerRadiusPx = with(LocalDensity.current) { 16.dp.toPx() }
         Box(
             Modifier
                 .fillMaxSize()
@@ -347,6 +519,7 @@ internal fun BookCurlStage(
                         when {
                             !activeCurl -> base
                             flipStyle == BookFlipStyle.REALISTIC_CURL -> base.drawCurvedPageClip(
+                                spread = spread,
                                 turnDir = turnDir,
                                 progress = curlProgress,
                                 touchY = curlTouchY,
@@ -382,29 +555,45 @@ internal fun BookCurlStage(
             }
 
             if (activeCurl && flipStyle == BookFlipStyle.REALISTIC_CURL) {
-                val turningBmp = if (spread && turnDir > 0) (curRightBmp ?: curLeftBmp) else curLeftBmp
+                // On 2-page spreads, the underside of the turning leaf displays the real next facing page!
+                // On single-page sheets, the underside displays warm paper with subtle mirrored bleed-through.
+                val backBmp = when {
+                    spread && turnDir > 0 -> nextLeftBmp
+                    spread && turnDir < 0 -> nextRightBmp
+                    else -> curLeftBmp
+                }
+                // Flipping an opaque page around a vertical spine reverses UVs so text reads left-to-right upright.
+                val mirrorBackUv = spread
+                val backAlpha = when {
+                    spread && backBmp != null -> 248
+                    theme.isDark -> 34
+                    else -> 46
+                }
+
                 Canvas(Modifier.fillMaxSize()) {
                     val w = size.width
                     val h = size.height
                     if (w < 4f || h < 4f) return@Canvas
-                    val curl = computeBottomCurl(w, h, turnDir, curlProgress, curlTouchY)
-                    val nx = curl.foldNormal.x
-                    val ny = curl.foldNormal.y
+                    val curl = computeCylindricalCurl(w, h, spread, turnDir, curlProgress, curlTouchY)
+                    val nx = curl.normal.x
+                    val ny = curl.normal.y
                     val arcSin = curl.arcSin
+                    val r = curl.radius
 
-                    // 1) Cast shadow onto the REVEALED next page inside the peeled diagonal corner
-                    if (curl.peeledPoly.size >= 3) {
-                        val peeledPath = polygonToPath(curl.peeledPoly)
-                        val shadowDepth = (curl.flapReach * 0.52f).coerceIn(22f, w * 0.36f)
-                        val s0 = curl.foldMid
-                        val s1 = Offset(s0.x + nx * shadowDepth, s0.y + ny * shadowDepth)
-                        clipPath(peeledPath) {
+                    // 1) Cast shadow onto the REVEALED next page underneath the lifted cylinder crest
+                    if (curl.revealedPoly.size >= 3) {
+                        val revealedPath = polygonToPath(curl.revealedPoly)
+                        val shadowReach = (r * 3.1f + 26f).coerceIn(28f, w * 0.36f)
+                        val s0 = curl.crestMid
+                        val s1 = Offset(s0.x + nx * shadowReach, s0.y + ny * shadowReach)
+                        clipPath(revealedPath) {
                             drawRect(
                                 brush = Brush.linearGradient(
-                                    colors = listOf(
-                                        Color.Black.copy(alpha = 0.42f * arcSin.coerceAtLeast(0.25f)),
-                                        Color.Black.copy(alpha = 0.16f * arcSin.coerceAtLeast(0.20f)),
-                                        Color.Transparent,
+                                    colorStops = arrayOf(
+                                        0.00f to Color.Black.copy(alpha = 0.48f * arcSin.coerceAtLeast(0.28f)),
+                                        0.28f to Color.Black.copy(alpha = 0.22f * arcSin.coerceAtLeast(0.22f)),
+                                        0.68f to Color.Black.copy(alpha = 0.06f * arcSin.coerceAtLeast(0.15f)),
+                                        1.00f to Color.Transparent,
                                     ),
                                     start = s0,
                                     end = s1,
@@ -413,119 +602,116 @@ internal fun BookCurlStage(
                         }
                     }
 
-                    // 2) Soft floating shadow cast by the lifted curl flap onto the flat current page
-                    if (curl.keptPoly.size >= 3 && curl.backFlapPoly.size >= 3) {
-                        val keptPath = polygonToPath(curl.keptPoly)
-                        val flapShadowDepth = (curl.flapReach * 1.18f + 26f).coerceAtLeast(32f)
-                        val k0 = curl.foldMid
-                        val k1 = Offset(k0.x - nx * flapShadowDepth, k0.y - ny * flapShadowDepth)
+                    // 2) Subtle curved roll-off shading on the front cylinder lip (`lineOffset .. lineOffset + R`)
+                    if (curl.keptFrontPoly.size >= 3) {
+                        val keptPath = polygonToPath(curl.keptFrontPoly)
+                        val lipStart = Offset(curl.crestMid.x - nx * r, curl.crestMid.y - ny * r)
+                        val lipEnd = curl.crestMid
                         clipPath(keptPath) {
                             drawRect(
                                 brush = Brush.linearGradient(
-                                    colors = listOf(
-                                        Color.Black.copy(alpha = 0.24f * arcSin.coerceAtLeast(0.2f)),
-                                        Color.Black.copy(alpha = 0.08f * arcSin.coerceAtLeast(0.15f)),
-                                        Color.Transparent,
+                                    colorStops = arrayOf(
+                                        0.00f to Color.Transparent,
+                                        0.55f to Color.Black.copy(alpha = 0.06f * arcSin.coerceAtLeast(0.20f)),
+                                        1.00f to Color.Black.copy(alpha = 0.22f * arcSin.coerceAtLeast(0.28f)),
                                     ),
-                                    start = k0,
-                                    end = k1,
+                                    start = lipStart,
+                                    end = lipEnd,
                                 ),
                             )
                         }
                     }
 
-                    // 3) Reflected backside paper flap with mirrored page bleed-through & cylindrical highlight
-                    if (curl.backFlapPoly.size >= 3) {
-                        val flapPath = polygonToPath(curl.backFlapPoly)
+                    // 3) True 3D cylindrical rolled back-side paper sheet with drawBitmapMesh & specular tube lighting
+                    if (curl.backSilhouettePts.size >= 3) {
+                        val backPath = polygonToPath(curl.backSilhouettePts)
 
-                        // Soft ambient drop rim around the lifted back flap
+                        // Soft wide cast shadow under the overhanging rolled back leaf onto the underlying flat page
+                        if (curl.keptFrontPoly.size >= 3) {
+                            val keptPath = polygonToPath(curl.keptFrontPoly)
+                            val backReach = ((curl.maxD - curl.halfPiR) + r * 1.4f).coerceAtLeast(r * 2f)
+                            val k0 = curl.crestMid
+                            val k1 = Offset(k0.x - nx * backReach, k0.y - ny * backReach)
+                            clipPath(keptPath) {
+                                drawRect(
+                                    brush = Brush.linearGradient(
+                                        colorStops = arrayOf(
+                                            0.00f to Color.Black.copy(alpha = 0.28f * arcSin.coerceAtLeast(0.24f)),
+                                            0.35f to Color.Black.copy(alpha = 0.14f * arcSin.coerceAtLeast(0.18f)),
+                                            0.75f to Color.Black.copy(alpha = 0.04f * arcSin.coerceAtLeast(0.12f)),
+                                            1.00f to Color.Transparent,
+                                        ),
+                                        start = k0,
+                                        end = k1,
+                                    ),
+                                )
+                            }
+                        }
+
+                        // Soft feathered drop-shadow rim framing the curved 3D outer leaf edge
                         drawPath(
-                            path = flapPath,
-                            color = Color.Black.copy(alpha = 0.16f * arcSin.coerceAtLeast(0.2f)),
-                            style = Stroke(width = 16f),
+                            path = backPath,
+                            color = Color.Black.copy(alpha = 0.17f * arcSin.coerceAtLeast(0.20f)),
+                            style = Stroke(width = 18f),
                         )
                         drawPath(
-                            path = flapPath,
-                            color = Color.Black.copy(alpha = 0.07f * arcSin.coerceAtLeast(0.2f)),
-                            style = Stroke(width = 30f),
+                            path = backPath,
+                            color = Color.Black.copy(alpha = 0.07f * arcSin.coerceAtLeast(0.18f)),
+                            style = Stroke(width = 34f),
                         )
 
-                        clipPath(flapPath) {
-                            // Backside paper colour (slightly warmer/toned than front for realism)
+                        clipPath(backPath) {
+                            // Base backside paper colour
                             drawRect(theme.pageBg)
 
-                            // Geometrically exact Householder reflection of the turning page onto the paper back
-                            if (turningBmp != null && !turningBmp.isRecycled) {
+                            // Warped 26x26 3D cylindrical bitmap mesh of back-side page content
+                            if (backBmp != null && !backBmp.isRecycled) {
                                 drawIntoCanvas { canvas ->
-                                    val nc = canvas.nativeCanvas
-                                    nc.save()
-                                    val mx = curl.foldMid.x
-                                    val my = curl.foldMid.y
-                                    val refl = android.graphics.Matrix().apply {
-                                        // Householder reflection matrix R = I - 2 n n^T about foldMid
-                                        val r00 = 1f - 2f * nx * nx
-                                        val r01 = -2f * nx * ny
-                                        val r10 = -2f * nx * ny
-                                        val r11 = 1f - 2f * ny * ny
-                                        val tx = mx - (r00 * mx + r01 * my)
-                                        val ty = my - (r10 * mx + r11 * my)
-                                        setValues(
-                                            floatArrayOf(
-                                                r00, r01, tx,
-                                                r10, r11, ty,
-                                                0f, 0f, 1f,
-                                            ),
-                                        )
-                                    }
-                                    nc.concat(refl)
-                                    val paint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG).apply {
-                                        alpha = if (theme.isDark) 26 else 36
-                                    }
-                                    val leftRect = if (spread && turnDir > 0) w * 0.5f else 0f
-                                    val rightRect = if (spread && turnDir < 0) w * 0.5f else w
-                                    nc.drawBitmap(turningBmp, null, android.graphics.RectF(leftRect, 0f, rightRect, h), paint)
-                                    nc.restore()
+                                    drawCylindricalBackBitmapMesh(
+                                        nativeCanvas = canvas.nativeCanvas,
+                                        bmp = backBmp,
+                                        curl = curl,
+                                        mirrorHorizontal = mirrorBackUv,
+                                        alpha = backAlpha,
+                                    )
                                 }
                             }
 
-                            // Cylindrical paper-bend shading gradient orthogonal to the diagonal fold axis
-                            val gStart = curl.foldMid
-                            val gEnd = Offset(
-                                curl.foldMid.x - nx * curl.flapReach.coerceAtLeast(18f),
-                                curl.foldMid.y - ny * curl.flapReach.coerceAtLeast(18f),
-                            )
-                            val highlightAlpha = if (theme.isDark) 0.17f else 0.58f
+                            // Cylindrical 3D specular tube highlight + deep valley crease shadow across `[crest .. valley]`
+                            val tubeStart = curl.crestMid
+                            val tubeSpan = (r * 1.65f).coerceAtLeast(24f)
+                            val tubeEnd = Offset(tubeStart.x - nx * tubeSpan, tubeStart.y - ny * tubeSpan)
+                            val hiAlpha = if (theme.isDark) 0.22f else 0.72f
                             drawRect(
                                 brush = Brush.linearGradient(
                                     colorStops = arrayOf(
-                                        0.00f to Color.Black.copy(alpha = 0.28f * arcSin.coerceAtLeast(0.35f)),
-                                        0.10f to Color.White.copy(alpha = highlightAlpha * arcSin.coerceAtLeast(0.45f)),
-                                        0.24f to Color.White.copy(alpha = highlightAlpha * 0.42f),
-                                        0.48f to Color.Transparent,
-                                        0.82f to Color.Black.copy(alpha = 0.09f),
-                                        1.00f to Color.Black.copy(alpha = 0.20f * arcSin.coerceAtLeast(0.30f)),
+                                        0.00f to Color.Black.copy(alpha = 0.34f * arcSin.coerceAtLeast(0.32f)),
+                                        0.16f to Color.Black.copy(alpha = 0.10f * arcSin.coerceAtLeast(0.25f)),
+                                        0.38f to Color.White.copy(alpha = hiAlpha * arcSin.coerceAtLeast(0.45f)),
+                                        0.56f to Color.White.copy(alpha = hiAlpha * 0.40f),
+                                        0.76f to Color.Black.copy(alpha = 0.22f * arcSin.coerceAtLeast(0.30f)),
+                                        0.92f to Color.Black.copy(alpha = 0.07f * arcSin.coerceAtLeast(0.20f)),
+                                        1.00f to Color.Transparent,
                                     ),
-                                    start = gStart,
-                                    end = gEnd,
+                                    start = tubeStart,
+                                    end = tubeEnd,
                                 ),
                             )
                         }
 
-                        // Subtle crisp paper border along the curled flap & fold crease highlight
+                        // Crisp subtle paper rim along the curved 3D silhouette & soft highlight along crest
                         drawPath(
-                            path = flapPath,
-                            color = theme.mutedText.copy(alpha = 0.28f),
+                            path = backPath,
+                            color = theme.mutedText.copy(alpha = 0.26f),
                             style = Stroke(width = 1.4f),
                         )
                         drawLine(
-                            color = Color.White.copy(alpha = if (theme.isDark) 0.16f else 0.48f),
-                            start = curl.foldStart,
-                            end = curl.foldEnd,
-                            strokeWidth = 2.2f,
+                            color = Color.White.copy(alpha = if (theme.isDark) 0.14f else 0.42f),
+                            start = curl.crestStart,
+                            end = curl.crestEnd,
+                            strokeWidth = 1.8f,
                         )
                     }
-                    @Suppress("UNUSED_VARIABLE")
-                    val unusedCorner = cornerRadiusPx
                 }
             }
         }
@@ -533,6 +719,7 @@ internal fun BookCurlStage(
 }
 
 private fun Modifier.drawCurvedPageClip(
+    spread: Boolean,
     turnDir: Int,
     progress: Float,
     touchY: Float,
@@ -545,8 +732,23 @@ private fun Modifier.drawCurvedPageClip(
                 layoutDirection: LayoutDirection,
                 density: Density,
             ): Outline {
-                val curl = computeBottomCurl(size.width, size.height, turnDir, progress, touchY)
-                return Outline.Generic(polygonToPath(curl.keptPoly))
+                val w = size.width
+                val h = size.height
+                val curl = computeCylindricalCurl(w, h, spread, turnDir, progress, touchY)
+                val keptPath = polygonToPath(curl.keptFrontPoly)
+                if (!spread) return Outline.Generic(keptPath)
+                val stationaryPts = if (turnDir > 0) {
+                    listOf(Offset(0f, 0f), Offset(w * 0.5f, 0f), Offset(w * 0.5f, h), Offset(0f, h))
+                } else {
+                    listOf(Offset(w * 0.5f, 0f), Offset(w, 0f), Offset(w, h), Offset(w * 0.5f, h))
+                }
+                val stationaryPath = polygonToPath(stationaryPts)
+                val combined = if (curl.keptFrontPoly.size >= 3) {
+                    Path.combine(PathOperation.Union, stationaryPath, keptPath)
+                } else {
+                    stationaryPath
+                }
+                return Outline.Generic(combined)
             }
         }
     },

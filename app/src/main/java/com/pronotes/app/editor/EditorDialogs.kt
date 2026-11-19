@@ -1,6 +1,19 @@
 package com.pronotes.app.editor
 
+import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.RectF
+import android.graphics.Typeface
+import android.os.Build
+import android.text.Editable
+import android.text.InputType
+import android.text.TextPaint
+import android.text.TextWatcher
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,6 +26,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,12 +56,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.FormatAlignLeft
 import androidx.compose.material.icons.automirrored.outlined.FormatAlignRight
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.DragIndicator
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FormatAlignCenter
 import androidx.compose.material.icons.outlined.FormatBold
 import androidx.compose.material.icons.outlined.FormatItalic
 import androidx.compose.material.icons.outlined.FormatUnderlined
+import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
@@ -70,8 +87,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -81,15 +98,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -97,7 +112,6 @@ import com.pronotes.app.data.AppSettings
 import com.pronotes.app.ui.AppChip
 import com.pronotes.app.ui.AppContextMenu
 import com.pronotes.app.ui.AppDialog
-import com.pronotes.app.ui.AppMenuButton
 import com.pronotes.app.ui.AppMenuItem
 import com.pronotes.app.ui.AppPill
 import com.pronotes.app.ui.AppSegmentedControl
@@ -114,6 +128,7 @@ import com.pronotes.app.ui.SurfaceRole
 import com.pronotes.app.ui.Swatch
 import com.pronotes.app.ui.appPillShape
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -308,494 +323,771 @@ internal fun StickerSheet(onPick: (Bitmap) -> Unit) {
     }
 }
 
-private fun TextFont.compose(): FontFamily = when (this) {
-    TextFont.SANS, TextFont.ROUNDED, TextFont.CONDENSED -> FontFamily.SansSerif
-    TextFont.SERIF -> FontFamily.Serif
-    TextFont.MONO -> FontFamily.Monospace
-    TextFont.HAND, TextFont.CURSIVE -> FontFamily.Cursive
+/**
+ * Wraps long paragraphs at word boundaries so committed canvas [TextItem] lines
+ * never overflow outside the inline text box or page margin width.
+ */
+private fun wrapTextToBoxWidth(
+    raw: String,
+    maxWidthPageUnits: Float,
+    fontSize: Float,
+    style: TextStyleSpec,
+): String {
+    if (raw.isEmpty() || maxWidthPageUnits <= fontSize * 2f) return raw
+    val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG)
+    applyTextStyle(paint, fontSize, style)
+    val safeWidth = (maxWidthPageUnits - 12f).coerceAtLeast(fontSize * 2f)
+    val out = StringBuilder(raw.length + 16)
+    val paragraphs = raw.split('\n')
+    paragraphs.forEachIndexed { pIdx, para ->
+        if (pIdx > 0) out.append('\n')
+        if (para.isEmpty() || paint.measureText(para) <= safeWidth) {
+            out.append(para)
+        } else {
+            var start = 0
+            while (start < para.length) {
+                val count = paint.breakText(para, start, para.length, true, safeWidth, null)
+                if (count <= 0) {
+                    out.append(para[start])
+                    start++
+                    continue
+                }
+                var end = start + count
+                if (end < para.length) {
+                    val lastSpace = para.lastIndexOf(' ', end - 1)
+                    if (lastSpace > start) {
+                        end = lastSpace
+                    }
+                }
+                if (start > 0) out.append('\n')
+                out.append(para.substring(start, end).trimEnd())
+                start = end
+                while (start < para.length && para[start] == ' ') start++
+            }
+        }
+    }
+    return out.toString()
 }
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-internal fun TextDialog(vm: EditorViewModel, edit: EditorViewModel.TextEdit) {
-    val ex = edit.existing
-    var text by remember(edit) { mutableStateOf(ex?.text ?: "") }
-    var fontSize by remember(edit) { mutableFloatStateOf(ex?.size ?: vm.textSize) }
-    var color by remember(edit) { mutableIntStateOf(ex?.color ?: vm.textColor ?: vm.penStyle.color) }
-    var style by remember(edit) { mutableStateOf(ex?.style ?: vm.textStyle) }
-    var colorEdit by remember { mutableStateOf<Int?>(null) }
-    // Mode 0: Write Box Pad + Live Preview, Mode 1: Direct Keyboard Editor
-    var inputMode by remember { mutableIntStateOf(0) }
-    val padStrokes = remember { mutableStateListOf<List<Offset>>() }
-    var activeStroke by remember { mutableStateOf<List<Offset>>(emptyList()) }
-    val padScope = rememberCoroutineScope()
-
-    fun convertPadStrokes() {
-        if (padStrokes.isEmpty()) return
-        val snapshot = padStrokes.toList()
-        padStrokes.clear()
-        activeStroke = emptyList()
-        var runningT = 0L
-        val timed = snapshot.map { pts ->
-            val list = pts.mapIndexed { idx, pt ->
-                TimedStrokePoint(pt.x, pt.y, runningT + idx * 14L)
-            }
-            runningT = (list.lastOrNull()?.tMs ?: runningT) + 60L
-            list
-        }
-        padScope.launch {
-            val result = vm.recognizeHandwritingPad(timed, width = 640f, height = 220f, preContext = text)
-            val recognized = result.text.trim()
-            if (recognized.isNotBlank()) {
-                text = if (text.isBlank()) recognized else "$text $recognized"
-            }
-        }
-    }
-
-    AppDialog(
-        onDismissRequest = { vm.textEdit = null },
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ProIconView(ProIcon.WRITE_BOX, ProButtonPalette.ElectricBlue, Modifier.size(20.dp), ink = ProButtonPalette.ElectricBlue)
-                Text(if (ex != null) "Edit Text / Write Box" else "Write Box & Text Box")
-            }
-        },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                AppSegmentedControl(
-                    options = listOf("Write Box Pad", "Keyboard Box"),
-                    selectedIndex = inputMode,
-                    onSelect = { inputMode = it },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                val previewStyle = TextStyle(
-                    fontSize = (fontSize / 2f).coerceIn(13f, 34f).sp,
-                    fontFamily = style.font.compose(),
-                    fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Normal,
-                    fontStyle = if (style.italic) FontStyle.Italic else FontStyle.Normal,
-                    textDecoration = if (style.underline) TextDecoration.Underline else null,
-                    textAlign = when (style.align) {
-                        TextAlign.LEFT -> androidx.compose.ui.text.style.TextAlign.Start
-                        TextAlign.CENTER -> androidx.compose.ui.text.style.TextAlign.Center
-                        TextAlign.RIGHT -> androidx.compose.ui.text.style.TextAlign.End
-                    },
-                ).let { s ->
-                    style.gradient?.let { g -> s.copy(brush = Brush.linearGradient(listOf(Color(color), Color(g)))) } ?: s.copy(color = Color(color))
-                }
-
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    textStyle = previewStyle,
-                    minLines = 2,
-                    maxLines = 5,
-                    label = { Text("Converted / Typed Text (editable)") },
-                    placeholder = { Text("Write in the ruled box below or type with keyboard…") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                )
-
-                if (inputMode == 0) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color(0xFFFFFCF5))
-                            .border(1.5.dp, ProButtonPalette.ElectricBlue.copy(alpha = 0.55f), RoundedCornerShape(16.dp)),
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(ProButtonPalette.ElectricBlue.copy(alpha = 0.10f))
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "HANDWRITING PAD — write here with stylus or finger",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = ProButtonPalette.ElectricBlue,
-                                modifier = Modifier.weight(1f),
-                            )
-                            TextButton(
-                                onClick = { text = "$text " },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            ) { Text("Space", fontSize = 11.sp) }
-                            TextButton(
-                                onClick = { text = if (text.isEmpty()) "\n" else "$text\n" },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            ) { Text("Enter ↵", fontSize = 11.sp) }
-                            TextButton(
-                                onClick = {
-                                    if (padStrokes.isNotEmpty()) {
-                                        padStrokes.removeAt(padStrokes.lastIndex)
-                                    } else if (text.isNotEmpty()) {
-                                        text = text.dropLast(1)
-                                    }
-                                },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            ) { Text("⌫", fontSize = 12.sp) }
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(165.dp)
-                                .pointerInput(Unit) {
-                                    awaitEachGesture {
-                                        val pts = mutableListOf<Offset>()
-                                        while (true) {
-                                            val ev = awaitPointerEvent()
-                                            val ch = ev.changes.firstOrNull() ?: break
-                                            if (ch.pressed) {
-                                                pts.add(ch.position)
-                                                activeStroke = pts.toList()
-                                                ch.consume()
-                                            } else {
-                                                ch.consume()
-                                                break
-                                            }
-                                        }
-                                        if (pts.size >= 2) {
-                                            padStrokes.add(pts.toList())
-                                        }
-                                        activeStroke = emptyList()
-                                    }
-                                },
-                        ) {
-                            Canvas(Modifier.fillMaxSize()) {
-                                val canvasW = this.size.width
-                                val canvasH = this.size.height
-                                val lineGap = canvasH / 3.2f
-                                for (i in 1..2) {
-                                    val y = lineGap * i
-                                    drawLine(
-                                        color = Color(0xFF93B4E8).copy(alpha = 0.45f),
-                                        start = Offset(16.dp.toPx(), y),
-                                        end = Offset(canvasW - 16.dp.toPx(), y),
-                                        strokeWidth = 1.2.dp.toPx(),
-                                    )
-                                }
-                                drawLine(
-                                    color = Color(0xFFE57373).copy(alpha = 0.38f),
-                                    start = Offset(28.dp.toPx(), 0f),
-                                    end = Offset(28.dp.toPx(), canvasH),
-                                    strokeWidth = 1.dp.toPx(),
-                                )
-                                val strokeColor = Color(color)
-                                fun drawPts(pts: List<Offset>) {
-                                    if (pts.size < 2) return
-                                    val path = Path().apply {
-                                        moveTo(pts.first().x, pts.first().y)
-                                        for (i in 1 until pts.size) {
-                                            val prev = pts[i - 1]
-                                            val cur = pts[i]
-                                            quadraticTo(prev.x, prev.y, (prev.x + cur.x) * 0.5f, (prev.y + cur.y) * 0.5f)
-                                        }
-                                    }
-                                    drawPath(path, strokeColor, style = Stroke(width = 3.2.dp.toPx(), cap = StrokeCap.Round))
-                                }
-                                padStrokes.forEach { drawPts(it) }
-                                drawPts(activeStroke)
-                            }
-                            if (padStrokes.isEmpty() && activeStroke.isEmpty()) {
-                                Text(
-                                    "Write words here — tap Convert Strokes or Done to turn ink into neat text",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFF7A869A),
-                                    modifier = Modifier.align(Alignment.Center).padding(horizontal = 20.dp),
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                )
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            AppPill(
-                                selected = padStrokes.isNotEmpty(),
-                                tint = ProButtonPalette.ElectricBlue,
-                                onClick = { convertPadStrokes() },
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
-                            ) {
-                                Text(
-                                    "Convert Strokes → Text",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (padStrokes.isNotEmpty()) Color.White else Color(0xFF475569),
-                                )
-                            }
-                            TextButton(onClick = { padStrokes.clear(); activeStroke = emptyList() }) {
-                                Text("Clear Pad", fontSize = 12.sp)
-                            }
-                        }
-                    }
-                } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                        AppChip(false, { text = if (text.isEmpty() || text.endsWith("\n")) "${text}• " else "$text\n• " }, label = "• Bullet")
-                        AppChip(false, { text = if (text.isEmpty() || text.endsWith("\n")) "${text}☐ " else "$text\n☐ " }, label = "☐ Checklist")
-                        AppChip(false, { text = if (text.isEmpty() || text.endsWith("\n")) "${text}1. " else "$text\n1. " }, label = "1. Numbered")
-                    }
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    AppMenuButton(
-                        role = SurfaceRole.Control,
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                        buttonContent = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(style.font.label, style = MaterialTheme.typography.labelLarge)
-                                Spacer(Modifier.width(4.dp))
-                                Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(16.dp))
-                            }
-                        },
-                        items = TextFont.entries.map { f ->
-                            AppMenuItem(f.label) { style = style.copy(font = f) }
-                        },
-                    )
-                    Spacer(Modifier.weight(1f))
-                    FmtToggle(Icons.Outlined.FormatBold, style.bold, "Bold") { style = style.copy(bold = !style.bold) }
-                    FmtToggle(Icons.Outlined.FormatItalic, style.italic, "Italic") { style = style.copy(italic = !style.italic) }
-                    FmtToggle(Icons.Outlined.FormatUnderlined, style.underline, "Underline") { style = style.copy(underline = !style.underline) }
-                    FmtToggle(Icons.AutoMirrored.Outlined.FormatAlignLeft, style.align == TextAlign.LEFT, "Align left") {
-                        style = style.copy(align = TextAlign.LEFT)
-                    }
-                    FmtToggle(Icons.Outlined.FormatAlignCenter, style.align == TextAlign.CENTER, "Align centre") {
-                        style = style.copy(align = TextAlign.CENTER)
-                    }
-                    FmtToggle(Icons.AutoMirrored.Outlined.FormatAlignRight, style.align == TextAlign.RIGHT, "Align right") {
-                        style = style.copy(align = TextAlign.RIGHT)
-                    }
-                }
-                SliderRow("SIZE", "%.0f".format(fontSize), fontSize, 16f..160f) { fontSize = it }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    PenPalette.forEach { c -> Swatch(c, c == color, 20) { color = c } }
-                    AddSwatchButton { colorEdit = 0 }
-                }
-                ToggleLine("Gradient", style.gradient != null) { on ->
-                    style = style.copy(gradient = if (on) 0xFF3D6CF4.toInt() else null)
-                }
-                style.gradient?.let { g ->
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        PenPalette.forEach { c -> Swatch(c, c == g, 20) { style = style.copy(gradient = c) } }
-                        AddSwatchButton { colorEdit = 1 }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                TextButton(
-                    onClick = {
-                        if (padStrokes.isNotEmpty()) convertPadStrokes()
-                        vm.addWriteBox(vm.pageIndex, edit.x, edit.y)
-                        val latestBox = vm.currentPage?.items?.filterIsInstance<WriteBoxItem>()?.lastOrNull()
-                        if (latestBox != null && text.isNotBlank()) {
-                            vm.updateWriteBoxText(vm.pageIndex, latestBox.id, text, style.font, fontSize)
-                        }
-                        vm.textEdit = null
-                    },
-                ) { Text("Place as Write Box") }
-                TextButton(
-                    onClick = {
-                        if (padStrokes.isNotEmpty()) convertPadStrokes()
-                        vm.commitText(text, fontSize, color, style)
-                    },
-                ) { Text("Done", fontWeight = FontWeight.Bold) }
-            }
-        },
-        dismissButton = { TextButton(onClick = { vm.textEdit = null }) { Text("Cancel") } },
-    )
-
-    colorEdit?.let { which ->
-        ColorEditorDialog(if (which == 0) color else style.gradient ?: color, PenPalette, vm.recentColors(), onDismiss = { colorEdit = null }) { c ->
-            if (which == 0) color = c else style = style.copy(gradient = c)
-            vm.pushRecent(c)
-            colorEdit = null
-        }
-    }
-}
-
-@Composable
-private fun FmtToggle(icon: ImageVector, on: Boolean, description: String, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .padding(2.dp)
-            .defaultMinSize(minWidth = 40.dp, minHeight = 40.dp)
-            .clip(CircleShape)
-            .background(if (on) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, description, tint = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-    }
+private enum class BoxResizeHandle {
+    TL, T, TR, R, BR, B, BL, L
 }
 
 /**
- * Full-page Keyboard Mode overlay — allows users to type structured document notes
- * directly onto the current page using a hardware or on-screen keyboard, complete with
- * headings, checklists, bullet lists, font families, and automatic page persistence.
+ * Unified direct-on-page inline text & keyboard editor used by BOTH the Text tool and
+ * full-page Keyboard Mode.
+ *
+ * Renders a completely transparent, resizable text box directly aligned over the live notebook
+ * paper using a native Android [EditText] (supporting hardware/soft keyboard typing and native
+ * API 33+ stylus-to-text handwriting directly in place), paired with a 1-tap transparent ML Kit
+ * handwriting capture toggle and a slim formatting bar docked cleanly above the soft keyboard.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun KeyboardNoteModeOverlay(vm: EditorViewModel, darkUi: Boolean) {
-    val page = vm.currentPage
-    var bodyText by remember(page?.id) { mutableStateOf(vm.getKeyboardPageText()) }
-    var fontSize by remember { mutableFloatStateOf(vm.textSize.coerceIn(22f, 64f)) }
-    var style by remember { mutableStateOf(vm.textStyle) }
-    var textColor by remember { mutableIntStateOf(vm.textColor ?: (if (darkUi) 0xFFF8FAFC.toInt() else 0xFF1A1C1E.toInt())) }
+internal fun InlinePageTextEditor(
+    vm: EditorViewModel,
+    edit: EditorViewModel.TextEdit,
+    canvas: NoteCanvasView?,
+    areaSize: IntSize,
+    darkUi: Boolean,
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    val page = vm.pages.getOrNull(edit.page)
+    val pageW = page?.width ?: 1200f
+    val pageH = page?.height ?: 1600f
 
-    val panelBg = if (darkUi) Color(0xF5161820) else Color(0xFAFCFBF7)
-    val fg = if (darkUi) Color(0xFFF3F5F8) else Color(0xFF181C23)
-    val borderCol = if (darkUi) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.12f)
+    val ex = edit.existing
+    var text by remember(edit) { mutableStateOf(ex?.text ?: "") }
+    var fontSize by remember(edit) { mutableFloatStateOf(ex?.size ?: vm.textSize) }
+    var textColor by remember(edit) { mutableIntStateOf(ex?.color ?: vm.textColor ?: vm.penStyle.color) }
+    var style by remember(edit) { mutableStateOf(ex?.style ?: vm.textStyle) }
+    var boxX by remember(edit) { mutableFloatStateOf(edit.x) }
+    var boxY by remember(edit) { mutableFloatStateOf(edit.y) }
+    var boxW by remember(edit) { mutableFloatStateOf(edit.boxWidth) }
+    var boxH by remember(edit) { mutableFloatStateOf(edit.boxHeight) }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = 74.dp, bottom = 18.dp, start = 18.dp, end = 18.dp),
-        contentAlignment = Alignment.TopCenter,
-    ) {
-        Column(
-            modifier = Modifier
-                .widthIn(max = 820.dp)
+    var showColorPicker by remember { mutableStateOf(false) }
+    var handwriteMode by remember(edit) { mutableStateOf(false) }
+    var editTextRef by remember { mutableStateOf<EditText?>(null) }
+    var suppressWatcher by remember { mutableStateOf(false) }
+
+    // Inline transparent ML Kit handwriting capture state (universal fallback / stylus ink toggle)
+    val inkStrokes = remember(edit) { mutableStateListOf<List<TimedStrokePoint>>() }
+    var activeInkStroke by remember(edit) { mutableStateOf<List<TimedStrokePoint>>(emptyList()) }
+    var convertJob by remember { mutableStateOf<Job?>(null) }
+    var candidates by remember(edit) { mutableStateOf<List<String>>(emptyList()) }
+    var lastInsertedRange by remember(edit) { mutableStateOf<Pair<Int, Int>?>(null) }
+
+    fun hideSoftKeyboard() {
+        val et = editTextRef ?: return
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        imm?.hideSoftInputFromWindow(et.windowToken, 0)
+    }
+
+    fun showSoftKeyboard() {
+        val et = editTextRef ?: return
+        et.requestFocus()
+        et.post {
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            imm?.showSoftInput(et, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    fun commitAndClose() {
+        convertJob?.cancel()
+        hideSoftKeyboard()
+        val liveText = editTextRef?.text?.toString() ?: text
+        val wrapped = wrapTextToBoxWidth(liveText, boxW, fontSize, style)
+        vm.commitText(
+            text = wrapped,
+            size = fontSize,
+            color = textColor,
+            style = style,
+            x = boxX,
+            y = boxY,
+        )
+    }
+
+    fun deleteAndClose() {
+        convertJob?.cancel()
+        hideSoftKeyboard()
+        if (ex != null) {
+            vm.commitText("", fontSize, textColor, style, boxX, boxY)
+        } else {
+            vm.dismissTextEdit()
+        }
+    }
+
+    fun insertPrefixAtCursorLine(prefix: String) {
+        val et = editTextRef
+        val current = et?.text?.toString() ?: text
+        val sel = (et?.selectionStart ?: current.length).coerceIn(0, current.length)
+        val lineStart = current.lastIndexOf('\n', (sel - 1).coerceAtLeast(0)).let { if (it < 0) 0 else it + 1 }
+        val updated = current.substring(0, lineStart) + prefix + current.substring(lineStart)
+        val newCursor = (sel + prefix.length).coerceIn(0, updated.length)
+        text = updated
+        if (et != null) {
+            suppressWatcher = true
+            et.setText(updated)
+            et.setSelection(newCursor)
+            suppressWatcher = false
+        }
+    }
+
+    fun insertRecognizedWord(word: String, alts: List<String>) {
+        val clean = word.trim()
+        if (clean.isEmpty()) return
+        val et = editTextRef
+        val current = et?.text?.toString() ?: text
+        val selStart = (et?.selectionStart ?: current.length).coerceIn(0, current.length)
+        val selEnd = (et?.selectionEnd ?: selStart).coerceIn(selStart, current.length)
+        val needsSpace = selStart > 0 && !current[selStart - 1].isWhitespace()
+        val insertion = if (needsSpace) " $clean" else clean
+        val updated = current.substring(0, selStart) + insertion + current.substring(selEnd)
+        val wordStart = selStart + if (needsSpace) 1 else 0
+        val wordEnd = wordStart + clean.length
+        text = updated
+        lastInsertedRange = wordStart to wordEnd
+        candidates = alts.filter { it.isNotBlank() }.distinct().take(4)
+        if (et != null) {
+            suppressWatcher = true
+            et.setText(updated)
+            et.setSelection(wordEnd.coerceIn(0, updated.length))
+            suppressWatcher = false
+        }
+    }
+
+    fun replaceLastCandidate(replacement: String) {
+        val range = lastInsertedRange ?: return
+        val et = editTextRef
+        val current = et?.text?.toString() ?: text
+        val start = range.first.coerceIn(0, current.length)
+        val end = range.second.coerceIn(start, current.length)
+        val updated = current.substring(0, start) + replacement + current.substring(end)
+        val newEnd = start + replacement.length
+        text = updated
+        lastInsertedRange = start to newEnd
+        if (et != null) {
+            suppressWatcher = true
+            et.setText(updated)
+            et.setSelection(newEnd.coerceIn(0, updated.length))
+            suppressWatcher = false
+        }
+    }
+
+    fun flushInlineInk(canvasW: Float, canvasH: Float) {
+        if (inkStrokes.isEmpty()) return
+        val snapshot = inkStrokes.toList()
+        inkStrokes.clear()
+        activeInkStroke = emptyList()
+        scope.launch {
+            val res = vm.recognizeHandwritingPad(
+                strokes = snapshot,
+                width = canvasW.coerceAtLeast(160f),
+                height = canvasH.coerceAtLeast(100f),
+                preContext = text.takeLast(24),
+            )
+            if (res.text.isNotBlank()) {
+                insertRecognizedWord(res.text, res.candidates)
+            }
+        }
+    }
+
+    // Hook into ViewModel so toggling Keyboard Mode off in top bar commits cleanly
+    DisposableEffect(edit) {
+        vm.onRequestCommitText = { commitAndClose() }
+        onDispose {
+            if (vm.onRequestCommitText != null) vm.onRequestCommitText = null
+        }
+    }
+
+    BackHandler(enabled = !showColorPicker) {
+        commitAndClose()
+    }
+
+    val zoomScale = (canvas?.currentZoomScale() ?: 1f).coerceIn(0.3f, 4f)
+    val mappedRect = remember(canvas, edit.page, boxX, boxY, boxW, boxH, areaSize) {
+        canvas?.pageToScreen(edit.page, RectF(boxX, boxY, boxX + boxW, boxY + boxH))
+    }
+
+    val barReservePx = with(density) { (if (candidates.isNotEmpty()) 112.dp else 68.dp).toPx() }
+    val topMarginPx = with(density) { 12.dp.toPx() }
+    val sideMarginPx = with(density) { 12.dp.toPx() }
+    val handleSizeDp = 12.dp
+    val handleHalfPx = with(density) { (handleSizeDp / 2f).toPx() }
+    val handleTouchPx = with(density) { 28.dp.toPx() }
+
+    val availW = areaSize.width.toFloat().coerceAtLeast(240f)
+    val availH = (areaSize.height.toFloat() - barReservePx).coerceAtLeast(140f)
+
+    val rawW = (mappedRect?.width() ?: (boxW * zoomScale)).coerceIn(with(density) { 130.dp.toPx() }, (availW - sideMarginPx * 2f).coerceAtLeast(160f))
+    val rawH = (mappedRect?.height() ?: (boxH * zoomScale)).coerceIn(with(density) { 58.dp.toPx() }, (availH - topMarginPx * 2f).coerceAtLeast(80f))
+    val screenLeft = (mappedRect?.left ?: ((availW - rawW) * 0.5f))
+        .coerceIn(sideMarginPx, (availW - rawW - sideMarginPx).coerceAtLeast(sideMarginPx))
+    val screenTop = (mappedRect?.top ?: (topMarginPx * 2f))
+        .coerceIn(topMarginPx, (availH - rawH - topMarginPx).coerceAtLeast(topMarginPx))
+
+    val boxWidthDp = with(density) { rawW.toDp() }
+    val boxHeightDp = with(density) { rawH.toDp() }
+
+    val barBg = if (darkUi) Color(0xF51D2029) else Color(0xFAFFFFFF)
+    val barFg = if (darkUi) Color(0xFFF3F5F8) else Color(0xFF1A1F28)
+    val barBorder = if (darkUi) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.10f)
+    val frameBlue = ProButtonPalette.ElectricBlue
+
+    Box(Modifier.fillMaxSize()) {
+        // 1) Transparent backdrop — tapping anywhere outside the inline box commits cleanly
+        Box(
+            Modifier
                 .fillMaxSize()
-                .clip(RoundedCornerShape(22.dp))
-                .background(panelBg)
-                .border(1.5.dp, borderCol, RoundedCornerShape(22.dp))
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .pointerInput(edit) {
+                    detectTapGestures { commitAndClose() }
+                },
+        )
+
+        // 2) Top floating move/delete pill directly above the text box
+        val pillY = (screenTop - with(density) { 38.dp.toPx() }).coerceAtLeast(with(density) { 6.dp.toPx() })
+        val pillX = screenLeft.coerceIn(sideMarginPx, (availW - with(density) { 148.dp.toPx() }).coerceAtLeast(sideMarginPx))
+        Row(
+            modifier = Modifier
+                .offset { IntOffset(pillX.roundToInt(), pillY.roundToInt()) }
+                .shadow(4.dp, RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(12.dp))
+                .background(barBg)
+                .border(1.dp, barBorder, RoundedCornerShape(12.dp))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                ProIconView(ProIcon.KEYBOARD, ProButtonPalette.ElectricBlue, Modifier.size(22.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "Keyboard Mode · Page ${vm.pageIndex + 1}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = fg,
-                    )
-                    Text(
-                        "Type full-page notes with keyboard; syncs directly to the canvas page",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = fg.copy(alpha = 0.65f),
-                    )
-                }
-                TextButton(onClick = { vm.saveKeyboardPageText(bodyText) }) {
-                    Text("Save", fontWeight = FontWeight.SemiBold, color = ProButtonPalette.ElectricBlue)
-                }
-                AppPill(
-                    selected = true,
-                    tint = ProButtonPalette.ElectricBlue,
-                    onClick = {
-                        vm.saveKeyboardPageText(bodyText)
-                        vm.keyboardMode = false
-                    },
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+            if (!edit.isFullPage) {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .pointerInput(zoomScale) {
+                            detectDragGestures { change, dragAmount ->
+                                change.consume()
+                                boxX = (boxX + dragAmount.x / zoomScale).coerceIn(16f, (pageW - boxW - 16f).coerceAtLeast(16f))
+                                boxY = (boxY + dragAmount.y / zoomScale).coerceIn(16f, (pageH - boxH - 16f).coerceAtLeast(16f))
+                            }
+                        }
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
-                    Text("Done", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                    Icon(Icons.Outlined.DragIndicator, "Move text box", Modifier.size(15.dp), tint = frameBlue)
+                    Text("Move", style = MaterialTheme.typography.labelSmall, color = barFg, fontWeight = FontWeight.Medium)
                 }
+            } else {
+                Text(
+                    "Page ${edit.page + 1}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = frameBlue,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
             }
-
-            Row(
+            Box(Modifier.width(1.dp).height(14.dp).background(barBorder))
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { deleteAndClose() }
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
             ) {
-                AppChip(false, {
-                    bodyText = if (bodyText.isEmpty() || bodyText.endsWith("\n")) "${bodyText}# " else "$bodyText\n# "
-                }, label = "H1")
-                AppChip(false, {
-                    bodyText = if (bodyText.isEmpty() || bodyText.endsWith("\n")) "${bodyText}## " else "$bodyText\n## "
-                }, label = "H2")
-                AppChip(false, {
-                    bodyText = if (bodyText.isEmpty() || bodyText.endsWith("\n")) "${bodyText}• " else "$bodyText\n• "
-                }, label = "• Bullet")
-                AppChip(false, {
-                    bodyText = if (bodyText.isEmpty() || bodyText.endsWith("\n")) "${bodyText}☐ " else "$bodyText\n☐ "
-                }, label = "☐ Task")
-                AppChip(false, {
-                    bodyText = if (bodyText.isEmpty() || bodyText.endsWith("\n")) "${bodyText}☑ " else "$bodyText\n☑ "
-                }, label = "☑ Done")
-                AppChip(false, {
-                    bodyText = if (bodyText.isEmpty() || bodyText.endsWith("\n")) "${bodyText}1. " else "$bodyText\n1. "
-                }, label = "1. List")
-                FmtToggle(Icons.Outlined.FormatBold, style.bold, "Bold") {
-                    style = style.copy(bold = !style.bold)
-                    vm.textStyle = style
-                }
-                FmtToggle(Icons.Outlined.FormatItalic, style.italic, "Italic") {
-                    style = style.copy(italic = !style.italic)
-                    vm.textStyle = style
-                }
-                FmtToggle(Icons.Outlined.FormatUnderlined, style.underline, "Underline") {
-                    style = style.copy(underline = !style.underline)
-                    vm.textStyle = style
-                }
-                TextFont.entries.take(4).forEach { f ->
-                    AppChip(style.font == f, {
-                        style = style.copy(font = f)
-                        vm.textStyle = style
-                    }, label = f.label)
-                }
+                Icon(Icons.Outlined.DeleteOutline, "Delete text", Modifier.size(16.dp), tint = Color(0xFFE5484D))
             }
+        }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    PenPalette.take(8).forEach { c ->
-                        Swatch(c, c == textColor, 18) {
-                            textColor = c
-                            vm.textColor = c
+        // 3) Transparent, resizable inline text box directly over the notebook paper
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(screenLeft.roundToInt(), screenTop.roundToInt()) }
+                .size(boxWidthDp, boxHeightDp)
+                .border(
+                    width = if (edit.isFullPage) 1.25.dp else 1.5.dp,
+                    color = if (edit.isFullPage) frameBlue.copy(alpha = 0.55f) else frameBlue,
+                    shape = RoundedCornerShape(4.dp),
+                )
+                .background(Color.Transparent)
+                .pointerInput(Unit) {
+                    // Consume taps inside the box so backdrop doesn't dismiss it
+                    detectTapGestures {
+                        if (!handwriteMode) showSoftKeyboard()
+                    }
+                },
+        ) {
+            // Native Android EditText: 100% transparent, supports soft/hardware keyboard AND native API 33+ stylus-to-text
+            AndroidView(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                factory = { ctx ->
+                    EditText(ctx).apply {
+                        background = null
+                        setPadding(4, 2, 4, 2)
+                        gravity = Gravity.TOP or Gravity.START
+                        inputType = InputType.TYPE_CLASS_TEXT or
+                            InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                            InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                        isSingleLine = false
+                        isFocusable = true
+                        isFocusableInTouchMode = true
+                        isVerticalScrollBarEnabled = true
+                        hint = if (edit.isFullPage) "Type or write with stylus…" else "Type or write…"
+                        setHintTextColor(if (darkUi) 0x77CBD5E1 else 0x6664748B)
+                        if (Build.VERSION.SDK_INT >= 33) {
+                            isAutoHandwritingEnabled = true
+                        }
+                        setText(text)
+                        setSelection(text.length)
+                        addTextChangedListener(object : TextWatcher {
+                            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                            override fun afterTextChanged(s: Editable?) {
+                                if (!suppressWatcher) {
+                                    text = s?.toString() ?: ""
+                                }
+                            }
+                        })
+                        editTextRef = this
+                        post {
+                            requestFocus()
+                            if (!handwriteMode) {
+                                val imm = ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                                imm?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+                            }
                         }
                     }
+                },
+                update = { et ->
+                    val styleFlags = when {
+                        style.bold && style.italic -> Typeface.BOLD_ITALIC
+                        style.bold -> Typeface.BOLD
+                        style.italic -> Typeface.ITALIC
+                        else -> Typeface.NORMAL
+                    }
+                    et.typeface = Typeface.create(style.font.typeface, styleFlags)
+                    et.paint.isUnderlineText = style.underline
+                    et.setTextSize(TypedValue.COMPLEX_UNIT_PX, (fontSize * zoomScale).coerceIn(13f, 220f))
+                    et.setTextColor(textColor)
+                    et.gravity = Gravity.TOP or when (style.align) {
+                        TextAlign.LEFT -> Gravity.START
+                        TextAlign.CENTER -> Gravity.CENTER_HORIZONTAL
+                        TextAlign.RIGHT -> Gravity.END
+                    }
+                    et.setLineSpacing(0f, 1.15f)
+                },
+            )
+
+            // Optional transparent ML Kit inline handwriting overlay when user taps "Write"
+            if (handwriteMode) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(frameBlue.copy(alpha = 0.03f))
+                        .pointerInput(rawW, rawH) {
+                            awaitEachGesture {
+                                val pts = mutableListOf<TimedStrokePoint>()
+                                convertJob?.cancel()
+                                while (true) {
+                                    val ev = awaitPointerEvent()
+                                    val ch = ev.changes.firstOrNull() ?: break
+                                    if (ch.pressed) {
+                                        pts.add(TimedStrokePoint(ch.position.x, ch.position.y, System.currentTimeMillis()))
+                                        activeInkStroke = pts.toList()
+                                        ch.consume()
+                                    } else {
+                                        ch.consume()
+                                        break
+                                    }
+                                }
+                                if (pts.size >= 2) {
+                                    inkStrokes.add(pts.toList())
+                                }
+                                activeInkStroke = emptyList()
+                                if (inkStrokes.isNotEmpty()) {
+                                    convertJob?.cancel()
+                                    convertJob = scope.launch {
+                                        delay(720L)
+                                        flushInlineInk(rawW, rawH)
+                                    }
+                                }
+                            }
+                        },
+                ) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        val strokeCol = Color(textColor)
+                        fun drawStroke(pts: List<TimedStrokePoint>) {
+                            if (pts.size < 2) return
+                            val path = Path().apply {
+                                moveTo(pts.first().x, pts.first().y)
+                                for (i in 1 until pts.size) {
+                                    val prev = pts[i - 1]
+                                    val cur = pts[i]
+                                    quadraticTo(prev.x, prev.y, (prev.x + cur.x) * 0.5f, (prev.y + cur.y) * 0.5f)
+                                }
+                            }
+                            drawPath(path, strokeCol, style = Stroke(width = 2.8.dp.toPx(), cap = StrokeCap.Round))
+                        }
+                        inkStrokes.forEach { drawStroke(it) }
+                        drawStroke(activeInkStroke)
+                    }
                 }
-                Spacer(Modifier.weight(1f))
-                Text("${fontSize.roundToInt()} pt", style = MaterialTheme.typography.labelSmall, color = fg.copy(alpha = 0.75f))
-                TextButton(onClick = { fontSize = (fontSize - 2f).coerceAtLeast(18f); vm.textSize = fontSize }) { Text("A−") }
-                TextButton(onClick = { fontSize = (fontSize + 2f).coerceAtMost(72f); vm.textSize = fontSize }) { Text("A+") }
+            }
+        }
+
+        // 4) 8 crisp square resize handles (4 corners + 4 midpoints) aligned to the box border
+        val activeHandles = if (edit.isFullPage) {
+            listOf(BoxResizeHandle.L, BoxResizeHandle.R, BoxResizeHandle.B)
+        } else {
+            BoxResizeHandle.entries
+        }
+        val minBoxW = 160f
+        val minBoxH = 72f
+        activeHandles.forEach { handle ->
+            val hx = when (handle) {
+                BoxResizeHandle.TL, BoxResizeHandle.L, BoxResizeHandle.BL -> screenLeft
+                BoxResizeHandle.T, BoxResizeHandle.B -> screenLeft + rawW * 0.5f
+                BoxResizeHandle.TR, BoxResizeHandle.R, BoxResizeHandle.BR -> screenLeft + rawW
+            }
+            val hy = when (handle) {
+                BoxResizeHandle.TL, BoxResizeHandle.T, BoxResizeHandle.TR -> screenTop
+                BoxResizeHandle.L, BoxResizeHandle.R -> screenTop + rawH * 0.5f
+                BoxResizeHandle.BL, BoxResizeHandle.B, BoxResizeHandle.BR -> screenTop + rawH
+            }
+            Box(
+                modifier = Modifier
+                    .offset {
+                        IntOffset(
+                            (hx - handleTouchPx * 0.5f).roundToInt(),
+                            (hy - handleTouchPx * 0.5f).roundToInt(),
+                        )
+                    }
+                    .size(with(density) { handleTouchPx.toDp() })
+                    .pointerInput(handle, zoomScale) {
+                        detectDragGestures { change, drag ->
+                            change.consume()
+                            val dx = drag.x / zoomScale
+                            val dy = drag.y / zoomScale
+                            when (handle) {
+                                BoxResizeHandle.R -> {
+                                    boxW = (boxW + dx).coerceIn(minBoxW, (pageW - boxX - 16f).coerceAtLeast(minBoxW))
+                                }
+                                BoxResizeHandle.L -> {
+                                    val newX = (boxX + dx).coerceIn(16f, (boxX + boxW - minBoxW).coerceAtLeast(16f))
+                                    boxW += (boxX - newX)
+                                    boxX = newX
+                                }
+                                BoxResizeHandle.B -> {
+                                    boxH = (boxH + dy).coerceIn(minBoxH, (pageH - boxY - 16f).coerceAtLeast(minBoxH))
+                                }
+                                BoxResizeHandle.T -> {
+                                    val newY = (boxY + dy).coerceIn(16f, (boxY + boxH - minBoxH).coerceAtLeast(16f))
+                                    boxH += (boxY - newY)
+                                    boxY = newY
+                                }
+                                BoxResizeHandle.BR -> {
+                                    boxW = (boxW + dx).coerceIn(minBoxW, (pageW - boxX - 16f).coerceAtLeast(minBoxW))
+                                    boxH = (boxH + dy).coerceIn(minBoxH, (pageH - boxY - 16f).coerceAtLeast(minBoxH))
+                                }
+                                BoxResizeHandle.TR -> {
+                                    boxW = (boxW + dx).coerceIn(minBoxW, (pageW - boxX - 16f).coerceAtLeast(minBoxW))
+                                    val newY = (boxY + dy).coerceIn(16f, (boxY + boxH - minBoxH).coerceAtLeast(16f))
+                                    boxH += (boxY - newY)
+                                    boxY = newY
+                                }
+                                BoxResizeHandle.BL -> {
+                                    val newX = (boxX + dx).coerceIn(16f, (boxX + boxW - minBoxW).coerceAtLeast(16f))
+                                    boxW += (boxX - newX)
+                                    boxX = newX
+                                    boxH = (boxH + dy).coerceIn(minBoxH, (pageH - boxY - 16f).coerceAtLeast(minBoxH))
+                                }
+                                BoxResizeHandle.TL -> {
+                                    val newX = (boxX + dx).coerceIn(16f, (boxX + boxW - minBoxW).coerceAtLeast(16f))
+                                    boxW += (boxX - newX)
+                                    boxX = newX
+                                    val newY = (boxY + dy).coerceIn(16f, (boxY + boxH - minBoxH).coerceAtLeast(16f))
+                                    boxH += (boxY - newY)
+                                    boxY = newY
+                                }
+                            }
+                        }
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .size(handleSizeDp)
+                        .background(Color.White, RoundedCornerShape(2.dp))
+                        .border(1.5.dp, frameBlue, RoundedCornerShape(2.dp)),
+                )
+            }
+            @Suppress("UNUSED_VARIABLE")
+            val unusedHalf = handleHalfPx
+        }
+
+        // 5) Slim keyboard-docked formatting bar (inside imePadding, rides smoothly above keyboard)
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            if (candidates.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(barBg)
+                        .border(1.dp, barBorder, RoundedCornerShape(14.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    candidates.forEachIndexed { idx, word ->
+                        AppChip(
+                            selected = idx == 0,
+                            onClick = { replaceLastCandidate(word) },
+                            label = word,
+                        )
+                    }
+                }
             }
 
-            OutlinedTextField(
-                value = bodyText,
-                onValueChange = {
-                    bodyText = it
-                    vm.saveKeyboardPageText(it)
-                },
-                placeholder = {
-                    Text(
-                        "Start typing your notes here with the keyboard…\n• Use • Bullet, ☐ Task, or H1/H2 above\n• Everything you type is saved directly onto Page ${vm.pageIndex + 1} so you can also annotate over it with the stylus.",
-                        color = fg.copy(alpha = 0.45f),
-                    )
-                },
-                textStyle = TextStyle(
-                    fontSize = (fontSize * 0.55f).coerceIn(14f, 28f).sp,
-                    lineHeight = ((fontSize * 0.55f).coerceIn(14f, 28f) * 1.45f).sp,
-                    fontFamily = style.font.compose(),
-                    fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Normal,
-                    fontStyle = if (style.italic) FontStyle.Italic else FontStyle.Normal,
-                    textDecoration = if (style.underline) TextDecoration.Underline else null,
-                    color = Color(textColor),
-                ),
-                shape = RoundedCornerShape(16.dp),
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
-            )
+                    .shadow(6.dp, RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(barBg)
+                    .border(1.dp, barBorder, RoundedCornerShape(16.dp))
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    // Toggle between Keyboard & transparent inline ML Kit Stylus Handwriting capture
+                    AppPill(
+                        selected = handwriteMode,
+                        tint = frameBlue,
+                        onClick = {
+                            handwriteMode = !handwriteMode
+                            if (handwriteMode) {
+                                hideSoftKeyboard()
+                            } else {
+                                if (inkStrokes.isNotEmpty()) flushInlineInk(rawW, rawH)
+                                showSoftKeyboard()
+                            }
+                        },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    ) {
+                        Icon(
+                            if (handwriteMode) Icons.Outlined.Keyboard else Icons.Outlined.Edit,
+                            contentDescription = if (handwriteMode) "Switch to keyboard" else "Write with stylus",
+                            modifier = Modifier.size(15.dp),
+                            tint = if (handwriteMode) Color.White else barFg,
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            if (handwriteMode) "Keyboard" else "Write",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (handwriteMode) Color.White else barFg,
+                        )
+                    }
+
+                    // Quick structured text blocks
+                    InlineFmtChip("H1", false, barFg) { insertPrefixAtCursorLine("# ") }
+                    InlineFmtChip("H2", false, barFg) { insertPrefixAtCursorLine("## ") }
+                    InlineFmtChip("•", false, barFg) { insertPrefixAtCursorLine("• ") }
+                    InlineFmtChip("☐", false, barFg) { insertPrefixAtCursorLine("☐ ") }
+                    InlineFmtChip("1.", false, barFg) { insertPrefixAtCursorLine("1. ") }
+
+                    Box(Modifier.width(1.dp).height(18.dp).background(barBorder))
+
+                    // Bold / Italic / Underline
+                    InlineFmtIcon(Icons.Outlined.FormatBold, style.bold, "Bold", barFg) {
+                        style = style.copy(bold = !style.bold)
+                    }
+                    InlineFmtIcon(Icons.Outlined.FormatItalic, style.italic, "Italic", barFg) {
+                        style = style.copy(italic = !style.italic)
+                    }
+                    InlineFmtIcon(Icons.Outlined.FormatUnderlined, style.underline, "Underline", barFg) {
+                        style = style.copy(underline = !style.underline)
+                    }
+
+                    // Alignment cycle
+                    val alignIcon = when (style.align) {
+                        TextAlign.LEFT -> Icons.AutoMirrored.Outlined.FormatAlignLeft
+                        TextAlign.CENTER -> Icons.Outlined.FormatAlignCenter
+                        TextAlign.RIGHT -> Icons.AutoMirrored.Outlined.FormatAlignRight
+                    }
+                    InlineFmtIcon(alignIcon, false, "Alignment", barFg) {
+                        val nextAlign = when (style.align) {
+                            TextAlign.LEFT -> TextAlign.CENTER
+                            TextAlign.CENTER -> TextAlign.RIGHT
+                            TextAlign.RIGHT -> TextAlign.LEFT
+                        }
+                        style = style.copy(align = nextAlign)
+                    }
+
+                    // Font family cycle
+                    InlineFmtChip(style.font.label, false, barFg) {
+                        val entries = TextFont.entries
+                        val nextIdx = (entries.indexOf(style.font) + 1) % entries.size
+                        style = style.copy(font = entries[nextIdx])
+                    }
+
+                    // Size stepper
+                    InlineFmtChip("A−", false, barFg) { fontSize = (fontSize - 3f).coerceAtLeast(16f) }
+                    Text(
+                        "${fontSize.roundToInt()}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = barFg.copy(alpha = 0.78f),
+                        modifier = Modifier.padding(horizontal = 2.dp),
+                    )
+                    InlineFmtChip("A+", false, barFg) { fontSize = (fontSize + 3f).coerceAtMost(120f) }
+
+                    // Colour dot
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .clickable { showColorPicker = true }
+                            .padding(4.dp)
+                            .clip(CircleShape)
+                            .background(Color(textColor))
+                            .border(1.5.dp, barFg.copy(alpha = 0.35f), CircleShape),
+                    )
+                }
+
+                // Commit / Done button
+                AppPill(
+                    selected = true,
+                    tint = frameBlue,
+                    onClick = { commitAndClose() },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                    Text(
+                        "Done",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                    )
+                }
+            }
         }
+    }
+
+    if (showColorPicker) {
+        ColorEditorDialog(
+            initial = textColor,
+            presets = PenPalette,
+            recent = vm.recentColors(),
+            onDismiss = { showColorPicker = false },
+        ) { c ->
+            textColor = c
+            vm.pushRecent(c)
+            showColorPicker = false
+        }
+    }
+}
+
+@Composable
+private fun InlineFmtChip(
+    label: String,
+    active: Boolean,
+    fg: Color,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .defaultMinSize(minWidth = 30.dp, minHeight = 32.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (active) ProButtonPalette.ElectricBlue.copy(alpha = 0.16f) else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 7.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = if (active) ProButtonPalette.ElectricBlue else fg,
+        )
+    }
+}
+
+@Composable
+private fun InlineFmtIcon(
+    icon: ImageVector,
+    active: Boolean,
+    description: String,
+    fg: Color,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(32.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (active) ProButtonPalette.ElectricBlue.copy(alpha = 0.16f) else Color.Transparent)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = description,
+            modifier = Modifier.size(17.dp),
+            tint = if (active) ProButtonPalette.ElectricBlue else fg,
+        )
     }
 }
 

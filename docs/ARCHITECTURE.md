@@ -31,7 +31,7 @@ Pro Notes is a native Android application built with Kotlin, Jetpack Compose, Ma
 
 ### `com.pronotes.app.editor`
 - `EditorScreen.kt`: Editor screen scaffold, canvas hosting, dock snap edge preview rails, and export/page dialogs.
-- `EditorDialogs.kt`: Extracted editor modal and overlay sheets (`MindNodeDialog`, `StickerSheet`, `TextDialog`, `KeyboardNoteModeOverlay`, `StudyTimer`, `WebLinkDialog`).
+- `EditorDialogs.kt`: Extracted editor overlays and sheets (`InlinePageTextEditor` unified direct-on-page transparent text box and Keyboard Mode editor with native stylus-to-text `EditText`, inline ML Kit handwriting capture toggle, 8-handle resizing, and keyboard-docked formatting bar; plus `MindNodeDialog`, `StickerSheet`, `StudyTimer`, `WebLinkDialog`).
 - `EditorPanels.kt`: Notebook tab strip (`TabStrip`), workspace header bar (`TopBar`), in-note search bar (`SearchBar`), reorderable page thumbnail drawer (`PagesPanel`), and Write Box studio bar (`WriteBoxStudioBar`).
 - `SplitViewPanel.kt`: Side-by-side Split View secondary notebook panel with independent page rendering and reduced-motion loading support.
 - `EditorToolbar.kt`: Redesigned open studio workbench toolbar (`Top`, `Bottom`, `Left`, `Right` fixed rail and draggable floating dock) with elevated ink-tinted tool pedestals, hairline-separated contextual controls (1-tap Pen nib cycler, Highlighter straightening, Shape picker & fill, Eraser mode & highlighter-only filter, Lasso freeform/box & touch/inside toggles), angled stroke-weight previews, drag-to-reorder, and overflow menu.
@@ -42,7 +42,7 @@ Pro Notes is a native Android application built with Kotlin, Jetpack Compose, Ma
 - `NoteCanvasView.kt`: Android `View` canvas integrating `InProgressStrokesView` (Jetpack Ink) and `MotionEventPredictor`, handling pen/finger input, palm rejection, zoom/pan, ink-aware scribble-to-erase, tap-to-select and polygon Lasso, hold-to-shape, circle-to-select, and empty-page long-press `Quick Insert`.
 - `PageModel.kt`: Runtime canvas item and stroke models (`Page`, `InkStroke`, `TextItem`, `WriteBoxItem`, `StickyItem`, `ImageItem`, `TapeItem`, `WebLinkItem`, `MindNodeItem`).
 - `InkCodec.kt`: Binary/JSON serialisation codec preserving backward compatibility with stored notebooks and strokes, plus per-tool stroke opacity helpers.
-- `PageRenderer.kt`: High-resolution page background, PDF tile, ink stroke, shape, sticky, Write Box, and Concept Map renderer with LRU bitmap caching.
+- `PageRenderer.kt`: High-resolution page background, PDF tile, ink stroke, shape, sticky, Write Box, and Concept Map renderer with LRU bitmap caching and active inline text item suppression (`hiddenTextItemId`).
 - `Geometry.kt`: Geometric shape recogniser, closed-loop, circular-swirl/axis/zig-zag scribble detectors, and segment-intersection `Lasso` hit-testing helpers.
 - `PdfSearch.kt`: PdfBox-Android text extraction and bounding-box search highlighter.
 - `PaperFeel.kt`: Synthesised pen/paper acoustic feedback and haptic triggers.
@@ -56,8 +56,8 @@ Pro Notes is a native Android application built with Kotlin, Jetpack Compose, Ma
 - `DragDrop.kt`: Cross-platform finger and stylus drag-and-drop helpers.
 
 ### `com.pronotes.app.reader`
-- `BookReaderArea.kt`: Dedicated Reader Mode hub (`BookReaderHubScreen`) and page-turn reader (`BookReaderScreen`) with Paper/Sepia/Night themes, tablet spread layout, bottom-corner biased page-turn initiation, `LocalReduceMotion` instant-turn support, and localised 48 dp accessibility controls.
-- `BookReaderCanvas.kt`: Extracted Reader Mode bottom-corner perpendicular-bisector page-curl physics stage (`BookCurlStage`), Householder-reflected backside flap with mirrored bleed-through, cylindrical fold-normal lighting, cast shadows, page sheet surface (`BookSheetFrame`), shimmer-aware page loader preview, and synthesised paper-turn audio engine (`BookFlipSoundEngine`).
+- `BookReaderArea.kt`: Dedicated Reader Mode hub (`BookReaderHubScreen`) and page-turn reader (`BookReaderScreen`) with Paper/Sepia/Night themes, tablet spread layout, 2D diagonal bottom-corner drag tracking, `LocalReduceMotion` instant-turn support, and localised 48 dp accessibility controls.
+- `BookReaderCanvas.kt`: Extracted Reader Mode 3D cylindrical bottom-corner page-curl stage (`BookCurlStage`) rendered via `Canvas.drawBitmapMesh` (26×26 cylindrical mesh) with curved tube mouth silhouette, real back-page spread content and single-page bleed-through, glossy specular tube lighting, dual cast shadows, page sheet surface (`BookSheetFrame`), shimmer-aware loader preview, and synthesised paper-turn audio engine (`BookFlipSoundEngine`).
 
 ### `com.pronotes.app.settings` & `com.pronotes.app.support`
 - `SettingsScreen.kt`: Categorised settings screens for Stylus (with automatic pen deduplication and unified stylus behaviour card), Gestures, Workspace, Appearance (including Classic appearance and Reduced effects toggles), Backup, and About/Updates.
