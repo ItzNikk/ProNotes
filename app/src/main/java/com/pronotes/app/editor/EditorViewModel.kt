@@ -178,6 +178,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var onPagesChanged: (() -> Unit)? = null
     var onScrollTo: ((Int) -> Unit)? = null
     var onRedraw: (() -> Unit)? = null
+    var toScreen: ((Int, RectF) -> RectF?)? = null
 
     /** Read-only: the notebook can be read and scrolled, not changed. Remembered per notebook. */
     var readOnly by mutableStateOf(store.pref("ro_$noteId") == "1")

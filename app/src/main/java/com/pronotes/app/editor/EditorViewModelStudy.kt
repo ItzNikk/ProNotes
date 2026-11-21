@@ -23,8 +23,10 @@ import kotlin.math.abs
 fun EditorViewModel.dueCards(now: Long = System.currentTimeMillis()): List<Flashcard> =
     cards.filter { it.due <= now }.sortedBy { it.due }
 
-fun EditorViewModel.cardImage(name: String): Bitmap? =
-    File(study.cardDir(), name).takeIf { it.exists() }?.let { runCatching { BitmapFactory.decodeFile(it.path) }.getOrNull() }
+fun EditorViewModel.cardImage(name: String?): Bitmap? {
+    if (name.isNullOrBlank()) return null
+    return File(study.cardDir(), name).takeIf { it.exists() }?.let { runCatching { BitmapFactory.decodeFile(it.path) }.getOrNull() }
+}
 
 fun EditorViewModel.captureBack(draft: EditorViewModel.CardDraft) {
     backFor = draft
