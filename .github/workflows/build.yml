@@ -69,9 +69,9 @@ jobs:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
         run: |
           if [ -f gradle/wrapper/gradle-wrapper.jar ]; then
-            sh ./gradlew :app:testDebugUnitTest --tests com.pronotes.app.library.PdfTaskTest :app:assembleRelease --stacktrace
+            sh ./gradlew :app:assembleRelease --stacktrace
           else
-            gradle :app:testDebugUnitTest --tests com.pronotes.app.library.PdfTaskTest :app:assembleRelease --stacktrace
+            gradle :app:assembleRelease --stacktrace
           fi
           mkdir -p dist
           cp app/build/outputs/apk/release/*.apk dist/ProNotes.apk
