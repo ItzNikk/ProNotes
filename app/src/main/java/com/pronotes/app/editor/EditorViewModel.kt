@@ -87,13 +87,16 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var highlighterStyle by mutableStateOf(style("highlighter", HighlighterPalette, listOf(16f, 28f, 42f), 22f, 3))
     var shapeStyle by mutableStateOf(style("shape", PenPalette.take(5), listOf(2f, 4f, 7f), 3.6f, 4))
     var shapeKind by mutableStateOf(savedEnum(5, ShapeKind.AUTO))
-    var shapeDashed by mutableStateOf(false)
+    var shapeDashed by mutableStateOf(saved.getOrNull(12).toBoolean())
     /** Bumped when the selected image or sticker tool is tapped again. */
     var reopenTool by mutableStateOf(0)
-    var shapeFillOn by mutableStateOf(false)
-    var shapeFillColor by mutableStateOf(0xFFCDE2FB.toInt())
-    var textStyle by mutableStateOf(TextStyleSpec())
-    var textColor by mutableStateOf<Int?>(null)
+    var shapeFillOn by mutableStateOf(saved.getOrNull(13).toBoolean())
+    var shapeFillColor by mutableStateOf(saved.getOrNull(14)?.toIntOrNull() ?: 0xFFCDE2FB.toInt())
+    var textStyle by mutableStateOf(TextStyleSpec(font = savedEnum(20, TextFont.SANS),
+        bold = saved.getOrNull(21).toBoolean(), italic = saved.getOrNull(22).toBoolean(),
+        underline = saved.getOrNull(23).toBoolean(), gradient = saved.getOrNull(24)?.toIntOrNull(),
+        align = savedEnum(25, TextAlign.LEFT)))
+    var textColor by mutableStateOf(saved.getOrNull(9)?.toIntOrNull())
 
     var circleChip by mutableStateOf<RectF?>(null)
         private set
@@ -104,12 +107,13 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var hasClipboard by mutableStateOf(false)
         private set
     var eraserSize by mutableStateOf(saved.getOrNull(6)?.toIntOrNull()?.coerceIn(0, 2) ?: 1)
-    var eraserCustomDp by mutableStateOf<Float?>(null)
-    var textSize by mutableStateOf(40f)
+    var eraserCustomDp by mutableStateOf(saved.getOrNull(10)?.toFloatOrNull())
+    var textSize by mutableStateOf(saved.getOrNull(11)?.toFloatOrNull() ?: 40f)
     var tapeColor by mutableStateOf(saved.getOrNull(7)?.toIntOrNull() ?: TapeColors[0])
-    var tapeFreehand by mutableStateOf(false)
+    var tapePattern by mutableStateOf(saved.getOrNull(16) ?: "stripes")
+    var tapeFreehand by mutableStateOf(saved.getOrNull(15).toBoolean())
     var stickyColor by mutableStateOf(saved.getOrNull(8)?.toIntOrNull() ?: StickyColors[0])
-    var webLinkColor by mutableStateOf(WebLinkColors[0])
+    var webLinkColor by mutableStateOf(saved.getOrNull(26)?.toIntOrNull() ?: WebLinkColors[0])
 
     // ------------------------------------------------------------ selection
     var selection by mutableStateOf<Set<Long>>(emptySet())
@@ -138,7 +142,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var webLinkEdit by mutableStateOf<WebLinkEdit?>(null)
     var mindNodeEdit by mutableStateOf<MindNodeEdit?>(null)
     var activeMindNodeId by mutableStateOf<Long?>(null)
-    var mindColor by mutableStateOf(MindPalette[0])
+    var mindColor by mutableStateOf(saved.getOrNull(27)?.toIntOrNull() ?: MindPalette[0])
     var mindShape by mutableStateOf("pill")
     var moveMindSubtree by mutableStateOf(false)
     var fitMindMapOnCanvas: ((Int, RectF) -> Unit)? = null
@@ -211,12 +215,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         }
         // Remember tool choices as they change.
         viewModelScope.launch {
-            androidx.compose.runtime.snapshotFlow {
-                listOf(
-                    _tool.name, penType.name, "${penStyle.color},${penStyle.size}", "${highlighterStyle.color},${highlighterStyle.size}",
-                    "${shapeStyle.color},${shapeStyle.size}", shapeKind.name, eraserSize.toString(), tapeColor.toString(), stickyColor.toString(),
-                ).joinToString("|")
-            }.collect { store.setPref("tools_$noteId", it) }
+            androidx.compose.runtime.snapshotFlow { toolPreferences() }.collect { store.setPref("tools_$noteId", it) }
         }
         val initTool = store.pref("startTool_$noteId").takeIf { it.isNotBlank() }?.let { n ->
             store.setPref("startTool_$noteId", "")
@@ -243,7 +242,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val sel = saved.getOrNull(slot)?.split(',')
         val color = sel?.getOrNull(0)?.toIntOrNull() ?: c.first()
         val sz = sel?.getOrNull(1)?.toFloatOrNull() ?: size
-        return ToolStyle(c, sizes, color, sz)
+        val widths = saved.getOrNull(slot + 15)?.split(',')?.mapNotNull { it.toFloatOrNull()?.takeIf { w -> w.isFinite() && w > 0f } }
+        return ToolStyle(c, widths?.takeIf { it.size == sizes.size } ?: sizes, color, sz)
     }
 
     val currentPage: Page? get() = pages.getOrNull(pageIndex)
@@ -293,7 +293,16 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         else -> null
     }
 
+    fun shareInkColor(color: Int) {
+        penStyle = penStyle.copy(color = color)
+        highlighterStyle = highlighterStyle.copy(color = color)
+        shapeStyle = shapeStyle.copy(color = color)
+        textColor = color
+        pushRecent(color)
+    }
+
     fun updateStyle(t: Tool, s: ToolStyle) {
+        if (styleFor(t)?.color != s.color) shareInkColor(s.color)
         when (t) {
             Tool.PEN -> { penStyle = s; store.saveSwatches("pen_$noteId", s.colors) }
             Tool.HIGHLIGHTER -> { highlighterStyle = s; store.saveSwatches("highlighter_$noteId", s.colors) }
@@ -413,7 +422,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun applyPreset(p: com.pronotes.app.data.PenPreset) {
         penType = runCatching { PenType.valueOf(p.type) }.getOrDefault(PenType.FOUNTAIN)
         val colors = if (p.color in penStyle.colors) penStyle.colors else (penStyle.colors + p.color).takeLast(8)
-        penStyle = penStyle.copy(colors = colors, color = p.color, size = p.size)
+        updateStyle(Tool.PEN, penStyle.copy(colors = colors, color = p.color, size = p.size))
         tool = Tool.PEN
     }
 
@@ -520,8 +529,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         viewModelScope.launch { repo.renameNotebook(noteId, newTitle) }
     }
 
-    fun recentColors() = store.recentColors()
-    fun pushRecent(c: Int) = store.pushRecentColor(c)
+    fun recentColors() = store.pref("recentColors_$noteId").split(',').mapNotNull { it.toIntOrNull() }
+    fun pushRecent(c: Int) = store.setPref("recentColors_$noteId", (listOf(c) + recentColors()).distinct().take(12).joinToString(","))
 
     fun brushFor(t: Tool): Brush {
         val td = settingsFlow.value.toolDefaults
@@ -537,7 +546,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 td.shapeOpacity,
             )
             else -> Brushes.create(
-                penType.family,
+                if (!td.pressureEnabled && penType.family == Brushes.PEN) Brushes.MARKER else penType.family,
                 penStyle.color,
                 penStyle.size * penType.sizeFactor,
                 td.penOpacity,
@@ -569,7 +578,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var penActive by mutableStateOf(false)
 
     /** Pattern for new tape. */
-    var tapePattern by mutableStateOf("stripes")
+
 
     fun useTapeImage(uri: Uri) {
         viewModelScope.launch {
@@ -743,7 +752,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
      * Recognises selected handwritten ink into a typed [TextItem] at its exact bounding box
      * using on-device ML Kit Digital Ink Recognition (with offline polyline fallback) in one undoable edit.
      */
-    fun convertSelectionToText(onConverted: (Long) -> Unit = {}) {
+    fun convertSelectionToText(onConverted: (Long) -> Unit = {}, outputFont: TextFont? = null) {
         val pageIdx = selectionPage
         val p = pages.getOrNull(pageIdx) ?: return
         val selectedInk = p.items.filter { it.id in selection && it is InkItem }.map { it as InkItem }
@@ -751,6 +760,32 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             say("Select handwritten ink first")
             return
         }
+        recognizeInk(pageIdx, selectedInk, outputFont, onConverted)
+    }
+
+    private var writingPause: Job? = null
+    private val pendingInk = mutableListOf<InkItem>()
+    private var writingPage = ""
+
+    fun queueHandwriting(page: Int, ink: List<InkItem>) {
+        if (ink.isEmpty() || readOnly) return
+        val sheet = pages.getOrNull(page) ?: return
+        writingPause?.cancel()
+        if (writingPage != sheet.id) pendingInk.clear()
+        writingPage = sheet.id
+        pendingInk.addAll(ink)
+        writingPause = viewModelScope.launch {
+            delay(1000)
+            val index = pages.indexOfFirst { it.id == sheet.id }
+            val batch = pendingInk.filter { pages.getOrNull(index)?.items?.contains(it) == true }
+            pendingInk.clear()
+            val font = TextFont.entries.find { it.name == settingsFlow.value.toolDefaults.autoScript }
+            if (batch.isNotEmpty() && font != null && !readOnly) recognizeInk(index, batch, font) {}
+        }
+    }
+
+    private fun recognizeInk(pageIdx: Int, selectedInk: List<InkItem>, outputFont: TextFont?, onConverted: (Long) -> Unit) {
+        val pageId = pages.getOrNull(pageIdx)?.id ?: return
         val union = RectF(selectedInk.first().bounds)
         selectedInk.forEach { union.union(it.bounds) }
         val timedStrokes = extractTimedStrokes(selectedInk)
@@ -776,6 +811,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             }
             handwritingCandidates = result.candidates
             val latestPage = pages.getOrNull(pageIdx) ?: return@launch
+            if (readOnly || latestPage.id != pageId || !latestPage.items.containsAll(selectedInk)) return@launch
             val newItem = TextItem(
                 id = ItemIds.next(),
                 text = recognized,
@@ -783,7 +819,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 y = union.top.coerceIn(24f, (latestPage.height - 60f).coerceAtLeast(24f)),
                 size = estimatedSize,
                 color = inkColor,
-                style = textStyle,
+                style = outputFont?.let { textStyle.copy(font = it) } ?: textStyle,
             )
             beginEdit(pageIdx)
             applyItems(pageIdx, latestPage.items.filterNot { it.id in selectedInkIds } + newItem)
@@ -824,7 +860,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val td = settingsFlow.value.toolDefaults
         val effectiveColor = if (td.textOpacity >= 0.99f) color else Brushes.withAlpha(color, td.textOpacity)
         // New text remembers the last formatting used.
-        textSize = size; textStyle = style; textColor = effectiveColor
+        textSize = size; textStyle = style
+        if (color != (textColor ?: penStyle.color)) shareInkColor(color)
         val finalX = x ?: edit.x
         val finalY = y ?: edit.y
         val existing = edit.existing
@@ -1462,9 +1499,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         targetX: Float? = null,
         targetY: Float? = null,
         onPlaced: (Int, Long) -> Unit,
-    ) {
+    ): Job {
+        val destination = pages.getOrNull(targetPage)?.id
         val td = settingsFlow.value.toolDefaults
-        viewModelScope.launch {
+        return viewModelScope.launch {
             val savedName = runCatching { repo.saveImage(noteId, uri) }.getOrNull() ?: return@launch
             val rawBmp = withContext(Dispatchers.IO) { renderer().image(savedName) } ?: return@launch
             val finalName = if (td.imageOpacity < 0.99f || td.imageBorder) {
@@ -1479,7 +1517,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 }
                 styledName
             } else savedName
-            val idx = targetPage.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
+            val idx = pages.indexOfFirst { it.id == destination }
             val p = pages.getOrNull(idx) ?: return@launch
             val w = (p.width * td.imageWidthRatio.coerceIn(0.2f, 0.95f))
                 .coerceAtMost(rawBmp.width.toFloat().coerceAtLeast(200f))
@@ -2009,6 +2047,16 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun showHint(message: String) = say(message)
 
     /** Scribble-to-erase provides dust particle, audio, and haptic feedback without obstructing the canvas with a banner. */
+    var scribbleArmed by mutableStateOf(false)
+        private set
+    fun toggleScribbleArm() {
+        scribbleArmed = !scribbleArmed
+        if (scribbleArmed) {
+            if (tool != Tool.HIGHLIGHTER) tool = Tool.PEN
+            say("Scribble across ink now. Only the next stroke can erase.")
+        }
+    }
+    fun consumeScribbleArm(): Boolean = scribbleArmed.also { scribbleArmed = false }
     fun onScribbleErased() = Unit
     var pdfTextBusy by mutableStateOf(false)
         private set
@@ -2356,7 +2404,16 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         }
     }
 
+    private fun toolPreferences() = listOf(
+        (toolBeforeCircle ?: _tool).name, penType.name, "${penStyle.color},${penStyle.size}", "${highlighterStyle.color},${highlighterStyle.size}",
+        "${shapeStyle.color},${shapeStyle.size}", shapeKind.name, eraserSize, tapeColor, stickyColor,
+        textColor ?: "", eraserCustomDp ?: "", textSize, shapeDashed, shapeFillOn, shapeFillColor, tapeFreehand, tapePattern,
+        penStyle.sizes.joinToString(","), highlighterStyle.sizes.joinToString(","), shapeStyle.sizes.joinToString(","), textStyle.font.name,
+        textStyle.bold, textStyle.italic, textStyle.underline, textStyle.gradient ?: "", textStyle.align.name, webLinkColor, mindColor,
+    ).joinToString("|")
+
     fun saveNow() {
+        store.setPref("tools_$noteId", toolPreferences())
         if (!loaded) return
         saveJob?.cancel()
         val snapshot = pages.toList()

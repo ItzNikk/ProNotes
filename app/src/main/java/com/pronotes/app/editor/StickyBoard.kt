@@ -33,7 +33,17 @@ internal fun StickyBoard(vm: EditorViewModel, close: () -> Unit) {
                     shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp)) {
                         Text(note.title.ifBlank { "Sticky note" }, style = MaterialTheme.typography.titleMedium)
-                        Text(note.text, maxLines = 4)
+                        val lines = note.text.lines()
+                        lines.take(6).forEachIndexed { lineIndex, line ->
+                            val task = line.trimStart()
+                            if (task.startsWith("- [ ] ") || task.startsWith("- [x] ", true)) {
+                                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                    Checkbox(checked = task.startsWith("- [x]", true), enabled = !vm.readOnly,
+                                        onCheckedChange = { vm.toggleStickyCheckLine(index, note, lineIndex) })
+                                    Text(task.drop(6))
+                                }
+                            } else Text(line, maxLines = 2)
+                        }
                         TextButton(onClick = {
                             close()
                             vm.goToPage(index)

@@ -20,6 +20,8 @@ import com.pronotes.app.data.PageDoc
 /** Pen bodies offered in the pen card. All map onto Jetpack Ink stock brushes. */
 enum class PenType(val label: String, val family: String, val sizeFactor: Float) {
     FOUNTAIN("Fountain pen", Brushes.PEN, 1f),
+    FINELINER("Fineliner", Brushes.MARKER, 0.42f),
+    LETTERING("Lettering", Brushes.PEN, 1.55f),
     BALL("Ball pen", Brushes.MARKER, 0.8f),
     BRUSH("Brush pen", Brushes.PEN, 2.2f),
     DASHED("Dashed pen", Brushes.DASHED, 1f),

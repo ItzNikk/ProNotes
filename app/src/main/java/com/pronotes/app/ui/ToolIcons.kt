@@ -326,14 +326,14 @@ private fun DrawScope.drawPen(tint: Color, ink: Color, type: PenType) {
     val nibBorder = adaptiveInkBorderColor(ink, tint)
     rotate(45f) {
         when (type) {
-            PenType.FOUNTAIN -> {
+            PenType.LETTERING, PenType.FOUNTAIN -> {
                 drawRoundRect(tint, p(9.5f, 9f), Size(5f * k, 13f * k), CornerRadius(1.6f * k), style = s)
                 val nib = Path().apply { moveTo(9.5f * k, 9f * k); lineTo(12f * k, 1.8f * k); lineTo(14.5f * k, 9f * k); close() }
                 drawPath(nib, ink)
                 drawPath(nib, nibBorder, style = nibBorderStroke)
                 drawLine(nibBorder, p(12f, 4.5f), p(12f, 8f), 1.1f * k, StrokeCap.Round)
             }
-            PenType.BALL -> {
+            PenType.FINELINER, PenType.BALL -> {
                 drawRoundRect(tint, p(10f, 7f), Size(4f * k, 15f * k), CornerRadius(2f * k), style = s)
                 val nib = Path().apply { moveTo(10.5f * k, 7f * k); lineTo(12f * k, 2.5f * k); lineTo(13.5f * k, 7f * k); close() }
                 drawPath(nib, ink)

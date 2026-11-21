@@ -26,6 +26,7 @@ import com.pronotes.app.reader.BookReaderHubScreen
 import com.pronotes.app.reader.BookReaderScreen
 import com.pronotes.app.settings.SettingsScreen
 import com.pronotes.app.ui.ProNotesTheme
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 
 object BuildConfigInfo {
@@ -40,6 +41,7 @@ data class PendingImport(
 )
 
 class MainActivity : ComponentActivity() {
+    private var widgetAction by mutableStateOf("")
     private var pendingImport by mutableStateOf<PendingImport?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,6 +61,15 @@ class MainActivity : ComponentActivity() {
                 com.pronotes.app.ui.UpdateDialogHost()
                 com.pronotes.app.data.CloudSignInDialogHost()
                 val nav = rememberNavController()
+                androidx.compose.runtime.LaunchedEffect(widgetAction) {
+                    if (widgetAction.isNotEmpty()) {
+                        val recent = com.pronotes.app.data.Repository.get(this@MainActivity).library.value.notebooks
+                            .filter { it.deletedAt == null }.maxByOrNull { it.opened }
+                        nav.popBackStack("library", false)
+                        if (widgetAction == "resume_notebook" && recent != null) nav.navigate("editor/${recent.id}")
+                        widgetAction = ""
+                    }
+                }
                 NavHost(
                     navController = nav,
                     startDestination = "library",
@@ -141,6 +152,7 @@ class MainActivity : ComponentActivity() {
     private fun handleIntent(intent: Intent?) {
         if (intent == null) return
         when (intent.action) {
+            "open_library", "resume_notebook" -> widgetAction = intent.action.orEmpty()
             Intent.ACTION_VIEW -> intent.data?.let { uri ->
                 if (uri.scheme == "com.pronotes.app" && uri.host == "auth") {
                     kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {

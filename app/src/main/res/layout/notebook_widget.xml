@@ -1,0 +1,4 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:gravity="center_vertical" android:padding="12dp" android:background="#213B38">
+    <TextView android:id="@+id/widget_library" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="ProNotes" android:textSize="18sp" android:textColor="#FFFFFF"/>
+    <TextView android:id="@+id/widget_recent" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="44dp" android:gravity="center_vertical" android:text="Resume notebook" android:textColor="#C7F4DC"/>
+</LinearLayout>

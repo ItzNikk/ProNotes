@@ -328,11 +328,13 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
     var savingPreset by remember { mutableStateOf(false) }
     var renamingPreset by remember { mutableStateOf<PenPreset?>(null) }
 
+    var section by remember { mutableStateOf(0) }
+    SheetSegments(listOf("Brush", "Presets", "Stylus"), section) { section = it }
     val tileBg = if (darkUi) Color(0xFF2C2C2C) else MaterialTheme.colorScheme.primaryContainer
     val tileIdleBg = if (darkUi) Color(0xFF232326) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
     val mutedFg = fgColor.copy(alpha = 0.68f)
 
-    AppCard(
+    if (section == 2) AppCard(
         onClick = { editingPenName = true },
         containerColor = tileIdleBg,
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 9.dp),
@@ -349,6 +351,20 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
         }
     }
 
+    if (section == 0) {
+    Text("Automatic handwriting", style = MaterialTheme.typography.titleSmall)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        AppChip(s.toolDefaults.autoScript.isEmpty(), { store.update { it.copy(toolDefaults = it.toolDefaults.copy(autoScript = "")) } }, label = "Off")
+        TextFont.entries.forEach { face ->
+            AppChip(s.toolDefaults.autoScript == face.name, { store.update { it.copy(toolDefaults = it.toolDefaults.copy(autoScript = face.name)) } }, label = face.label)
+        }
+    }
+    SheetToggleLine("Stylus pressure for fountain and brush tips", s.toolDefaults.pressureEnabled, fgColor) { v ->
+        store.update { it.copy(toolDefaults = it.toolDefaults.copy(pressureEnabled = v)) }
+    }
+    SheetToggleLine("Tap objects with the pen to select", s.toolDefaults.tapSelect, fgColor) { v ->
+        store.update { it.copy(toolDefaults = it.toolDefaults.copy(tapSelect = v)) }
+    }
     StrokePreview(
         Color(style.color).copy(alpha = s.toolDefaults.penOpacity),
         style.size * vm.penType.sizeFactor * 2.2f,
@@ -356,12 +372,12 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
         darkUi,
     )
 
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         PenType.entries.forEach { type ->
             val sel = vm.penType == type
             Column(
                 Modifier
-                    .weight(1f)
+                    .width(90.dp)
                     .defaultMinSize(minHeight = 56.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(if (sel) tileBg else tileIdleBg)
@@ -389,6 +405,8 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
         store.update { it.copy(toolDefaults = it.toolDefaults.copy(penOpacity = v)) }
     }
 
+    }
+    if (section == 1) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text("FAVOURITE PENS", style = MaterialTheme.typography.labelSmall, color = mutedFg, modifier = Modifier.weight(1f))
         TextButton(onClick = { savingPreset = true }, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
@@ -412,6 +430,8 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
     }
 
     HorizontalDivider(color = fgColor.copy(alpha = 0.08f))
+    }
+    if (section == 2) {
     Text("SETTINGS", style = MaterialTheme.typography.labelSmall, color = mutedFg, letterSpacing = 0.8.sp)
     SheetToggleLine("Writing sound", s.paperSound, fgColor) { v -> store.update { it.copy(paperSound = v) } }
     if (s.paperSound) {
@@ -421,6 +441,7 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
     }
     SheetToggleLine("Paper haptics", s.paperHaptics, fgColor) { v -> store.update { it.copy(paperHaptics = v) } }
 
+    }
     if (editingPenName) {
         var name by remember(s.penName) { mutableStateOf(s.penName) }
         AppDialog(
@@ -654,6 +675,19 @@ private fun LassoCardContent(
     SheetToggleLine("Select anything the lasso touches", s.lassoTouching, fgColor) { v -> store.update { it.copy(lassoTouching = v) } }
     SheetToggleLine("Circle and hold with the pen", s.circleToLasso, fgColor) { v -> store.update { it.copy(circleToLasso = v) } }
     if (vm.selection.isNotEmpty()) {
+        var script by remember { mutableStateOf(TextFont.CURSIVE) }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            TextButton(onClick = { vm.copySelection() }) { Text("Copy") }
+            TextButton(onClick = { vm.rotateSelection(90f) }) { Text("Rotate 90°") }
+            TextButton(onClick = { vm.flipSelection() }) { Text("Flip") }
+        }
+        Text("Beautify handwriting")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(TextFont.CURSIVE, TextFont.SCRIPT, TextFont.HAND, TextFont.BOOK).forEach {
+                AppChip(script == it, { script = it }, label = it.label)
+            }
+        }
+        TextButton(onClick = { vm.convertSelectionToText(onSelectionConverted, script) }) { Text("Recognize and restyle ink") }
         AppPill(
             selected = true,
             tint = ProButtonPalette.ElectricBlue,
@@ -720,7 +754,7 @@ private fun TextCardContent(vm: EditorViewModel) {
     }
     Text(stringResource(R.string.sheet_colour_set), style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.68f))
     Row(verticalAlignment = Alignment.CenterVertically) {
-        CustomSwatches(PenPalette.take(6), vm.textColor ?: vm.penStyle.color, vm) { vm.textColor = it }
+        CustomSwatches(PenPalette.take(6), vm.textColor ?: vm.penStyle.color, vm) { vm.shareInkColor(it) }
     }
     SheetSliderRow("TEXT SIZE", "%.0f pt".format(vm.textSize), vm.textSize, 16f..96f) { vm.textSize = it }
     SheetSliderRow(stringResource(R.string.sheet_opacity), "%.0f%%".format(td.textOpacity * 100), td.textOpacity, 0.2f..1f) { v ->

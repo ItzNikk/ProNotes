@@ -15,6 +15,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -204,15 +205,21 @@ fun AppSurface(
     } else Modifier
     val stroke = resolvedBorderColor?.let { BorderStroke(0.85.dp, it) }
 
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val stretch by animateFloatAsState(if (glass && pressed && !LocalReduceMotion.current) 1f else 0f,
+        animationSpec = spring(), label = "Glass press")
     val clickModifier = if (onClick != null) {
-        Modifier.clickable(enabled = enabled, onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
+        Modifier.clickable(interactionSource = interaction, indication = androidx.compose.foundation.LocalIndication.current, enabled = enabled, onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
     } else Modifier
 
     Surface(
         modifier = modifier
             .then(if (effectiveElevation > 0.dp) Modifier.shadow(effectiveElevation, shape, clip = false) else Modifier)
             .clip(shape)
+            .graphicsLayer { scaleX = 1f + 0.025f * stretch; scaleY = 1f - 0.035f * stretch }
             .then(glassLayer)
+            .then(if (glass && pressed) Modifier.border(1.dp, scheme.primary.copy(alpha = .65f), shape) else Modifier)
             .then(clickModifier),
         shape = shape,
         color = if (glass) Color.Transparent else bg,

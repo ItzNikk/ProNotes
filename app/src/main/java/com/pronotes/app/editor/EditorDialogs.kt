@@ -235,7 +235,8 @@ internal fun SliderRow(
 }
 
 @Composable
-internal fun StickerSheet(onPick: (Bitmap) -> Unit) {
+internal fun StickerSheet(onDragStarted: () -> Unit, onPick: (Bitmap) -> Unit) {
+    val view = androidx.compose.ui.platform.LocalView.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var tab by remember { mutableIntStateOf(0) }
@@ -312,7 +313,25 @@ internal fun StickerSheet(onPick: (Bitmap) -> Unit) {
                         .padding(4.dp)
                         .aspectRatio(1f)
                         .clip(RoundedCornerShape(18.dp))
-                        .clickable { pick(st) },
+                        .pointerInput(st) {
+                            detectTapGestures(onTap = { pick(st) }, onLongPress = {
+                                val image = preview ?: return@detectTapGestures
+                                val shadow = object : android.view.View.DragShadowBuilder(view) {
+                                    override fun onProvideShadowMetrics(size: android.graphics.Point, touch: android.graphics.Point) {
+                                        size.set(image.width, image.height)
+                                        touch.set(image.width / 2, image.height / 2)
+                                    }
+                                    override fun onDrawShadow(canvas: android.graphics.Canvas) { canvas.drawBitmap(image, 0f, 0f, null) }
+                                }
+                                val code = when (st) {
+                                    is Sticker.Builtin -> "b:" + st.id
+                                    is Sticker.Emoji -> "e:" + st.text
+                                    is Sticker.Custom -> "c:" + st.file.name
+                                }
+                                val clip = android.content.ClipData("ProNotes sticker", arrayOf("application/vnd.pronotes.sticker"), android.content.ClipData.Item(code))
+                                if (view.startDragAndDrop(clip, shadow, st, android.view.View.DRAG_FLAG_GLOBAL)) onDragStarted()
+                            })
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
                     preview?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize().padding(6.dp)) }
@@ -589,6 +608,7 @@ internal fun InlinePageTextEditor(
         )
 
         // 2) Top floating move/delete pill directly above the text box
+        if (!edit.isFullPage) {
         val pillY = (screenTop - with(density) { 38.dp.toPx() }).coerceAtLeast(with(density) { 6.dp.toPx() })
         val pillX = screenLeft.coerceIn(sideMarginPx, (availW - with(density) { 148.dp.toPx() }).coerceAtLeast(sideMarginPx))
         Row(
@@ -640,6 +660,7 @@ internal fun InlinePageTextEditor(
             }
         }
 
+        }
         // 3) Transparent, resizable inline text box directly over the notebook paper
         Box(
             modifier = Modifier
@@ -647,7 +668,7 @@ internal fun InlinePageTextEditor(
                 .size(boxWidthDp, boxHeightDp)
                 .border(
                     width = if (edit.isFullPage) 1.25.dp else 1.5.dp,
-                    color = if (edit.isFullPage) frameBlue.copy(alpha = 0.55f) else frameBlue,
+                    color = if (edit.isFullPage) Color.Transparent else frameBlue,
                     shape = RoundedCornerShape(4.dp),
                 )
                 .background(Color.Transparent)
@@ -780,7 +801,7 @@ internal fun InlinePageTextEditor(
 
         // 4) 8 crisp square resize handles (4 corners + 4 midpoints) aligned to the box border
         val activeHandles = if (edit.isFullPage) {
-            listOf(BoxResizeHandle.L, BoxResizeHandle.R, BoxResizeHandle.B)
+            emptyList()
         } else {
             BoxResizeHandle.entries
         }

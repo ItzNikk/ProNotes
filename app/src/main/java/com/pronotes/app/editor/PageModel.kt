@@ -54,6 +54,11 @@ enum class TextFont(val label: String, val typeface: Typeface) {
     MONO("Mono", Typeface.MONOSPACE),
     ROUNDED("Rounded", Typeface.create("sans-serif-medium", Typeface.NORMAL)),
     CONDENSED("Condensed", Typeface.create("sans-serif-condensed", Typeface.NORMAL)),
+    LIGHT("Light", Typeface.create("sans-serif-light", Typeface.NORMAL)),
+    FINE("Fine italic", Typeface.create("sans-serif-light", Typeface.ITALIC)),
+    SERIF_BOLD("Book bold", Typeface.create("serif", Typeface.BOLD)),
+    SCRIPT("Script italic", Typeface.create("cursive", Typeface.ITALIC)),
+    BOOK("Book italic", Typeface.create("serif", Typeface.ITALIC)),
     HAND("Casual", Typeface.create("casual", Typeface.NORMAL)),
     CURSIVE("Cursive", Typeface.create("cursive", Typeface.NORMAL)),
 }

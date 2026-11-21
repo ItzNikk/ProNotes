@@ -25,6 +25,13 @@
         android:largeHeap="true"
         android:theme="@style/Theme.ProNotes">
 
+        <receiver android:name=".NotebookWidget" android:exported="false" android:label="ProNotes notebooks">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/notebook_widget" />
+        </receiver>
+        <activity android:name=".VideoActivity" android:exported="false"
+            android:supportsPictureInPicture="true" android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

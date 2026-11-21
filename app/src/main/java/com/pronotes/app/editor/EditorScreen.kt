@@ -267,6 +267,43 @@ fun EditorScreen(
     val scope = rememberCoroutineScope()
 
     var canvas by remember { mutableStateOf<NoteCanvasView?>(null) }
+    DisposableEffect(canvas, vm) {
+        val target = canvas
+        target?.setOnDragListener { _, event ->
+            when (event.action) {
+                android.view.DragEvent.ACTION_DRAG_STARTED -> !vm.readOnly && (event.localState is Sticker || event.clipDescription?.hasMimeType("application/vnd.pronotes.sticker") == true || event.clipDescription?.hasMimeType("image/*") == true)
+                android.view.DragEvent.ACTION_DROP -> {
+                    val point = target.dropPoint(event.x, event.y)
+                    if (point == null || vm.readOnly) false else {
+                        val sticker = event.localState as? Sticker ?: if (event.clipDescription.hasMimeType("application/vnd.pronotes.sticker")) {
+                            val code = event.clipData.getItemAt(0).text?.toString().orEmpty()
+                            when {
+                                code.startsWith("b:") -> StickerLibrary.builtins.find { it.id == code.drop(2) }
+                                code.startsWith("c:") -> StickerLibrary.custom(context).find { it.file.name == code.drop(2) }
+                                code.startsWith("e:") -> Sticker.Emoji(code.drop(2).take(16))
+                                else -> null
+                            }
+                        } else null
+                        if (sticker != null) scope.launch {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { StickerLibrary.bitmap(sticker) }?.let {
+                                vm.insertStickerBitmap(it, point.first, point.second, point.third) { pg, id -> target.selectItems(pg, setOf(id)) }
+                            }
+                        } else {
+                            val grant = (context as? android.app.Activity)?.requestDragAndDropPermissions(event)
+                            val clip = event.clipData
+                            val jobs = (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri }.filter { it.scheme == "content" }.mapIndexed { i, uri ->
+                                vm.insertImage(uri, point.first, point.second + i * 16f, point.third + i * 16f) { pg, id -> target.selectItems(pg, setOf(id)) }
+                            }
+                            scope.launch { try { jobs.forEach { it.join() } } finally { grant?.release() } }
+                        }
+                        true
+                    }
+                }
+                else -> true
+            }
+        }
+        onDispose { target?.setOnDragListener(null) }
+    }
     var showPages by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
     var showStickers by remember { mutableStateOf(false) }
@@ -276,6 +313,17 @@ fun EditorScreen(
     var pageColor by remember { mutableStateOf(false) }
     var wheelAt by remember { mutableStateOf<Offset?>(null) }
     var showTemplates by remember { mutableStateOf(false) }
+    var videoUrl by remember { mutableStateOf<String?>(null) }
+    videoUrl?.let { value ->
+        val uri = android.net.Uri.parse(value.trim())
+        AppDialog(onDismissRequest = { videoUrl = null }, title = { Text("Floating video") },
+            text = { OutlinedTextField(value, { videoUrl = it }, singleLine = true, label = { Text("Direct HTTPS video or stream URL") }) },
+            confirmButton = { TextButton(enabled = uri.scheme == "https" && !uri.host.isNullOrBlank(), onClick = {
+                vm.onRequestCommitText?.invoke()
+                context.startActivity(android.content.Intent(context, com.pronotes.app.VideoActivity::class.java).setData(uri))
+                videoUrl = null
+            }) { Text("Play") } })
+    }
     var stickyBoard by remember { mutableStateOf(false) }
     var showCards by remember { mutableStateOf(false) }
     var showCollabRoom by remember { mutableStateOf(false) }
@@ -547,6 +595,7 @@ fun EditorScreen(
                                 onPaste = { vm.paste()?.let { (pg, ids) -> canvas?.selectItems(pg, ids) } },
                                 onPageColor = { pageColor = true },
                                 onCards = { showCards = true },
+                                onVideo = { videoUrl = "" },
                                 onStickyBoard = { stickyBoard = true },
                                 onSlideShow = { vm.showSlideShow = true },
                                 onCollabRoom = { showCollabRoom = true },
@@ -628,6 +677,8 @@ fun EditorScreen(
                                     override fun eraserRadius() = vm.eraserRadiusPx(density)
                                     override fun tapeColor() = vm.tapeColor
                                     override fun tapeFreehand() = vm.tapeFreehand
+                                    override fun consumeScribbleArm() = vm.consumeScribbleArm()
+                                    override fun onFreshInk(page: Int, ink: List<InkItem>) = vm.queueHandwriting(page, ink)
                                     override fun beginEdit(page: Int) = vm.beginEdit(page)
                                     override fun setItems(page: Int, items: List<PageItem>) = vm.setItems(page, items)
                                     override fun onSelectionChanged(page: Int, ids: Set<Long>, screenBounds: android.graphics.RectF?) =
@@ -1639,7 +1690,7 @@ fun EditorScreen(
             pendingInsertCoords = null
             vm.tool = Tool.LASSO
         }) {
-            StickerSheet { bmp ->
+            StickerSheet(onDragStarted = { showStickers = false; pendingInsertCoords = null }) { bmp ->
                 val coords = pendingInsertCoords
                 pendingInsertCoords = null
                 showStickers = false

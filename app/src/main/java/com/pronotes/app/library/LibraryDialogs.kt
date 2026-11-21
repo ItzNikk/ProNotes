@@ -617,10 +617,11 @@ internal fun NewNotebookDialog(
                 Text("Start with a template", style = MaterialTheme.typography.titleSmall)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("Lecture" to PaperStyle.CORNELL, "Planner" to PaperStyle.PLANNER,
-                        "Sketchbook" to PaperStyle.DOTTED, "Task list" to PaperStyle.TODO).forEach { (label, template) ->
+                        "Graph notebook" to PaperStyle.GRID, "Music manuscript" to PaperStyle.MUSIC,
+                        "Journal" to PaperStyle.RULED, "Sketchbook" to PaperStyle.DOTTED, "Task list" to PaperStyle.TODO).forEach { (label, template) ->
                         AppChip(selected = paper == template, label = label, onClick = {
                             paper = template
-                            if (name.isBlank() || name in listOf("Untitled notebook", "Lecture", "Planner", "Sketchbook", "Task list")) name = label
+                            if (name.isBlank() || name in listOf("Untitled notebook", "Lecture", "Planner", "Sketchbook", "Task list", "Journal", "Music manuscript", "Graph notebook")) name = label
                         })
                     }
                 }

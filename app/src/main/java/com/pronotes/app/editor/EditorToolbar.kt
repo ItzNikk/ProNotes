@@ -1024,6 +1024,8 @@ fun ToolOptions(
                         val nibShort = when (vm.penType) {
                             PenType.FOUNTAIN -> "Fountain"
                             PenType.BALL -> "Ball"
+                            PenType.FINELINER -> "Fine"
+                            PenType.LETTERING -> "Lettering"
                             PenType.BRUSH -> "Brush"
                             PenType.DASHED -> "Dashed"
                         }
@@ -1164,7 +1166,7 @@ fun ToolOptions(
                     SizeDots(listOf(28f, 40f, 64f), vm.textSize, fg = dockFg, darkDock = darkDock) { vm.textSize = it }
                     if (!vertical) {
                         Box(Modifier.padding(horizontal = 3.dp).width(1.dp).height(18.dp).background(dockFg.copy(alpha = 0.14f)))
-                        CustomSwatches(PenPalette.take(4), vm.textColor ?: PenPalette.first(), vm) { vm.textColor = it }
+                        CustomSwatches(PenPalette.take(4), vm.textColor ?: PenPalette.first(), vm) { vm.shareInkColor(it) }
                     }
                 }
                 t == Tool.TAPE -> {

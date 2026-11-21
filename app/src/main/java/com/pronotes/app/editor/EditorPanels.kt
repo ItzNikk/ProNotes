@@ -270,6 +270,7 @@ internal fun TopBar(
     onPageImage: () -> Unit,
     onCards: () -> Unit,
     onStickyBoard: () -> Unit,
+    onVideo: () -> Unit,
     onSlideShow: () -> Unit,
     onCollabRoom: () -> Unit,
     onAddWebLink: () -> Unit,
@@ -362,6 +363,10 @@ internal fun TopBar(
                     vm.addWriteBox(vm.pageIndex)
                 },
             )
+            if (!vm.readOnly && vm.settingsFlow.value.scribbleToErase) add(AppMenuItem(
+                if (vm.scribbleArmed) "Cancel scribble erase" else "Scribble erase next stroke"
+            ) { vm.toggleScribbleArm() })
+            add(AppMenuItem("Floating video") { onVideo() })
             add(AppMenuItem("Sticky board") { onStickyBoard() })
             add(
                 AppMenuItem(

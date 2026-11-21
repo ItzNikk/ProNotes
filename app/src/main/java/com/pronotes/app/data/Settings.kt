@@ -26,6 +26,9 @@ enum class ToolbarSize(val label: String, val scale: Float) { COMPACT("Compact",
 /** Persisted per-tool defaults (size, opacity, colour behaviour, aspect lock). */
 @Immutable
 data class ToolDefaults(
+    val autoScript: String = "",
+    val pressureEnabled: Boolean = true,
+    val tapSelect: Boolean = false,
     val penOpacity: Float = 1f,
     val shapeOpacity: Float = 1f,
     val textOpacity: Float = 1f,
@@ -428,6 +431,9 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             toolbarStyle = enumOf("toolbarStyle", d.toolbarStyle),
             toolbarPos = prefs.getString("toolbarPos", d.toolbarPos) ?: d.toolbarPos,
             toolDefaults = ToolDefaults(
+                autoScript = prefs.getString("autoScript", "").orEmpty(),
+                pressureEnabled = b("pressureEnabled", true),
+                tapSelect = b("tapSelect", false),
                 penOpacity = prefs.getFloat("tdPenOp", d.toolDefaults.penOpacity).coerceIn(0.15f, 1f),
                 shapeOpacity = prefs.getFloat("tdShapeOp", d.toolDefaults.shapeOpacity).coerceIn(0.15f, 1f),
                 textOpacity = prefs.getFloat("tdTextOp", d.toolDefaults.textOpacity).coerceIn(0.2f, 1f),
@@ -531,6 +537,9 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             .putString("toolbarDock", s.toolbarDock.name)
             .putString("toolbarStyle", s.toolbarStyle.name)
             .putString("toolbarPos", s.toolbarPos)
+            .putString("autoScript", s.toolDefaults.autoScript)
+            .putBoolean("pressureEnabled", s.toolDefaults.pressureEnabled)
+            .putBoolean("tapSelect", s.toolDefaults.tapSelect)
             .putFloat("tdPenOp", s.toolDefaults.penOpacity.coerceIn(0.15f, 1f))
             .putFloat("tdShapeOp", s.toolDefaults.shapeOpacity.coerceIn(0.15f, 1f))
             .putFloat("tdTextOp", s.toolDefaults.textOpacity.coerceIn(0.2f, 1f))
