@@ -59,7 +59,7 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
                 return
             }
             val (cx, cy) = focus(e)
-            if (hypot(cx - fingerStartX, cy - fingerStartY) > touchSlop * 2) {
+            if (hypot(cx - fingerStartX, cy - fingerStartY) > effectiveTouchSlop * 2f) {
                 fingerMoved = true
                 removeCallbacks(textPressRunnable)
             }
@@ -155,8 +155,14 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
                 val (lx, ly) = toLocal(e.x, e.y, pi)
                 val pItems = pages.getOrNull(pi)?.items.orEmpty()
                 val taskSticky = if (!readOnly) pItems.lastOrNull { it is StickyItem && it.bounds.contains(lx, ly) } as StickyItem? else null
-                val taskIdx = taskSticky?.let { findStickyChecklistLine(it, lx, ly) }
-                if (taskSticky != null && taskIdx != null) {
+                val hitCollapse = taskSticky != null && lx >= taskSticky.raw.right - 56f && ly <= taskSticky.raw.top + 48f
+                val taskIdx = if (!hitCollapse) taskSticky?.let { findStickyChecklistLine(it, lx, ly) } else null
+                if (taskSticky != null && hitCollapse) {
+                    buzz(HapticFeedbackConstants.CLOCK_TICK)
+                    host.onStickyToggleCollapse(pi, taskSticky)
+                    lastTapTime = 0L
+                    null
+                } else if (taskSticky != null && taskIdx != null) {
                     buzz(HapticFeedbackConstants.CLOCK_TICK)
                     host.onStickyChecklistToggle(pi, taskSticky, taskIdx)
                     lastTapTime = 0L
@@ -176,7 +182,7 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
                 lastTapTime = 0L
             } else if (action == MotionEvent.ACTION_UP && maxFingers == 1 && quick && !fingerMoved) {
                 val now = SystemClock.uptimeMillis()
-                if (now - lastTapTime < 320 && hypot(e.x - lastTapX, e.y - lastTapY) < touchSlop * 3) {
+                if (now - lastTapTime < 320 && hypot(e.x - lastTapX, e.y - lastTapY) < effectiveTouchSlop * 3f) {
                     val (dx, dy) = toDoc(e.x, e.y)
                     val pi = pageAt(dx, dy)
                     val (lx, ly) = toLocal(e.x, e.y, pi)

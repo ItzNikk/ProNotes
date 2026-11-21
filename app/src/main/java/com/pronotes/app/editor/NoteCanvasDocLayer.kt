@@ -5,6 +5,8 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.DashPathEffect
@@ -12,6 +14,7 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import java.io.File
 import android.os.SystemClock
 import android.text.TextPaint
 import android.view.View
@@ -45,10 +48,33 @@ internal class NoteCanvasDocLayer(
     var hoverDot: Triple<Float, Float, Pair<Int, Float>>? = null
 
     private val hoverPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val hoverBmpPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val hoverRing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 1.2f * owner.density
         color = 0x66000000
+    }
+    private var cachedHoverPath = ""
+    private var cachedHoverBmp: Bitmap? = null
+    private val hoverDestRect = RectF()
+
+    private fun customHoverBitmap(): Bitmap? {
+        val path = owner.settings.customHoverIconPath
+        if (path == cachedHoverPath) return cachedHoverBmp
+        cachedHoverPath = path
+        cachedHoverBmp?.recycle()
+        cachedHoverBmp = null
+        if (path.isBlank()) return null
+        val f = File(path)
+        if (!f.exists()) return null
+        cachedHoverBmp = runCatching {
+            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(f.absolutePath, opts)
+            var sample = 1
+            while (opts.outWidth / sample > 256 || opts.outHeight / sample > 256) sample *= 2
+            BitmapFactory.decodeFile(f.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
+        }.getOrNull()
+        return cachedHoverBmp
     }
 
     fun clearLasers() {
@@ -366,10 +392,17 @@ internal class NoteCanvasDocLayer(
         }
         drawLaser(canvas)
         hoverDot?.let { (x, y, cs) ->
-            val rad = (cs.second / 2f).coerceIn(2f * density, 40f * density)
-            hoverPaint.color = (cs.first and 0x00FFFFFF) or (0x99 shl 24)
-            canvas.drawCircle(x, y, rad, hoverPaint)
-            canvas.drawCircle(x, y, rad + 1.5f * density, hoverRing)
+            val customBmp = customHoverBitmap()
+            if (customBmp != null && !customBmp.isRecycled) {
+                val half = (owner.settings.hoverIconSizeDp.coerceIn(14f, 64f) * density) / 2f
+                hoverDestRect.set(x - half, y - half, x + half, y + half)
+                canvas.drawBitmap(customBmp, null, hoverDestRect, hoverBmpPaint)
+            } else {
+                val rad = (cs.second / 2f).coerceIn(2f * density, 40f * density)
+                hoverPaint.color = (cs.first and 0x00FFFFFF) or (0x99 shl 24)
+                canvas.drawCircle(x, y, rad, hoverPaint)
+                canvas.drawCircle(x, y, rad + 1.5f * density, hoverRing)
+            }
         }
         if (flashAlpha > 0f) canvas.drawColor(Color.argb((flashAlpha * 40).toInt(), 61, 108, 244))
         if (anyPdfLoading) postInvalidateDelayed(33L)

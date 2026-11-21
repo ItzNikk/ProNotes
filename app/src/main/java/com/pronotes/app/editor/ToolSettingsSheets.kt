@@ -200,6 +200,7 @@ fun ToolPopoverCard(
                         Tool.LASSO -> LassoCardContent(vm, onSelectionConverted)
                         Tool.LASER -> LaserCardContent(vm)
                         Tool.TEXT -> TextCardContent(vm)
+                        Tool.AUTO_TEXT -> AutoTextCardContent(vm, cardFg)
                         Tool.STICKER -> StickerCardContent(vm, onBrowseStickers = {
                             onDismiss()
                             onBrowseStickers()
@@ -281,6 +282,7 @@ private data class PenCardSettings(
     val paperSound: Boolean,
     val paperVolume: Float,
     val paperHaptics: Boolean,
+    val touchSensitivity: Float,
     val toolDefaults: ToolDefaults,
 )
 
@@ -317,10 +319,10 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
     val context = LocalContext.current
     val store = vm.notebookSettings
     val s by remember(store) {
-        store.select { PenCardSettings(it.penName, it.paperSound, it.paperVolume, it.paperHaptics, it.toolDefaults) }
+        store.select { PenCardSettings(it.penName, it.paperSound, it.paperVolume, it.paperHaptics, it.touchSensitivity, it.toolDefaults) }
     }.collectAsStateWithLifecycle(
         initialValue = remember(store) {
-            store.settings.value.let { PenCardSettings(it.penName, it.paperSound, it.paperVolume, it.paperHaptics, it.toolDefaults) }
+            store.settings.value.let { PenCardSettings(it.penName, it.paperSound, it.paperVolume, it.paperHaptics, it.touchSensitivity, it.toolDefaults) }
         },
     )
     var editingPenName by remember { mutableStateOf(false) }
@@ -378,6 +380,27 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
         SheetToggleLine("Stylus pressure", s.toolDefaults.pressureEnabled, fgColor) { enabled ->
             store.update { it.copy(toolDefaults = it.toolDefaults.copy(pressureEnabled = enabled)) }
         }
+        if (s.toolDefaults.pressureEnabled) {
+            SheetSliderRow(
+                "PRESSURE RESPONSE",
+                "${(s.toolDefaults.pressureSensitivity * 100).roundToInt()}%",
+                s.toolDefaults.pressureSensitivity,
+                0.3f..2.0f,
+            ) { v ->
+                store.update { it.copy(toolDefaults = it.toolDefaults.copy(pressureSensitivity = v)) }
+            }
+        }
+        SheetSliderRow(
+            "TOUCH SENSITIVITY",
+            "${(s.touchSensitivity * 100).roundToInt()}%",
+            s.touchSensitivity,
+            0.4f..2.0f,
+        ) { v ->
+            store.update { it.copy(touchSensitivity = v) }
+        }
+        SheetToggleLine("Tilt shading", s.toolDefaults.penTiltShading, fgColor) { enabled ->
+            store.update { it.copy(toolDefaults = it.toolDefaults.copy(penTiltShading = enabled)) }
+        }
         SheetToggleLine("Tap objects with the pen to select", s.toolDefaults.tapSelect, fgColor) { enabled ->
             store.update { it.copy(toolDefaults = it.toolDefaults.copy(tapSelect = enabled)) }
         }
@@ -421,6 +444,29 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
     }
     SheetSliderRow(stringResource(R.string.sheet_opacity), "%.0f%%".format(s.toolDefaults.penOpacity * 100), s.toolDefaults.penOpacity, 0.15f..1f) { v ->
         store.update { it.copy(toolDefaults = it.toolDefaults.copy(penOpacity = v)) }
+    }
+    Text("STROKE STYLE", style = MaterialTheme.typography.labelSmall, color = mutedFg)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        listOf("solid" to "Solid", "dashed" to "Dashed", "dotted" to "Dotted").forEach { (key, label) ->
+            AppChip(
+                selected = s.toolDefaults.penStrokeStyle == key,
+                onClick = { store.update { it.copy(toolDefaults = it.toolDefaults.copy(penStrokeStyle = key)) } },
+                label = label,
+                tint = ProButtonPalette.ElectricBlue,
+            )
+        }
+    }
+    SheetSliderRow("NIB ROUNDNESS", "${(s.toolDefaults.penNibRoundness * 100).roundToInt()}%", s.toolDefaults.penNibRoundness, 0.1f..1f) { v ->
+        store.update { it.copy(toolDefaults = it.toolDefaults.copy(penNibRoundness = v)) }
+    }
+    SheetSliderRow("NIB ANGLE", "${s.toolDefaults.penNibAngleDeg.roundToInt()}°", s.toolDefaults.penNibAngleDeg, 0f..180f) { v ->
+        store.update { it.copy(toolDefaults = it.toolDefaults.copy(penNibAngleDeg = v)) }
+    }
+    SheetSliderRow("STABILIZATION", "${(s.toolDefaults.penStabilization * 100).roundToInt()}%", s.toolDefaults.penStabilization, 0f..1f) { v ->
+        store.update { it.copy(toolDefaults = it.toolDefaults.copy(penStabilization = v)) }
+    }
+    SheetSliderRow("TIP TAPER", "${(s.toolDefaults.penTaper * 100).roundToInt()}%", s.toolDefaults.penTaper, 0f..1f) { v ->
+        store.update { it.copy(toolDefaults = it.toolDefaults.copy(penTaper = v)) }
     }
 
     }
@@ -1028,4 +1074,42 @@ private fun SheetSliderRow(label: String, value: String, v: Float, range: Closed
         valueRange = range,
         onValueChange = onChange,
     )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AutoTextCardContent(vm: EditorViewModel, fgColor: Color) {
+    val store = vm.notebookSettings
+    val settings by vm.settingsFlow.collectAsStateWithLifecycle()
+    val td = settings.toolDefaults
+    Text(
+        "Write naturally on the page — pauses automatically convert your handwriting into editable text.",
+        style = MaterialTheme.typography.bodySmall,
+        color = fgColor.copy(alpha = 0.78f),
+    )
+    SheetToggleLine("Align converted text to paper lines", td.alignHandwriting, fgColor) { enabled ->
+        store.update { it.copy(toolDefaults = it.toolDefaults.copy(alignHandwriting = enabled)) }
+    }
+    Text("Recognition language", style = MaterialTheme.typography.titleSmall, color = fgColor)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        HandwritingRecognizer.languages.forEach { (tag, label) ->
+            AppChip(
+                selected = td.handwritingLanguage == tag,
+                onClick = { store.update { it.copy(toolDefaults = it.toolDefaults.copy(handwritingLanguage = tag)) } },
+                label = label,
+                tint = ProButtonPalette.ElectricBlue,
+            )
+        }
+    }
+    Text("Converted text font", style = MaterialTheme.typography.titleSmall, color = fgColor)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        TextFont.entries.forEach { font ->
+            AppChip(
+                selected = td.autoScript == font.name,
+                onClick = { store.update { it.copy(toolDefaults = it.toolDefaults.copy(autoScript = font.name)) } },
+                label = font.label,
+                tint = ProButtonPalette.ElectricBlue,
+            )
+        }
+    }
 }

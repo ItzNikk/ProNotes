@@ -850,9 +850,17 @@ class PageRenderer(private val noteDir: File?) {
         allItems: List<PageItem>,
     ) {
         val convertedInkIds = allItems.filterIsInstance<WriteBoxItem>().filter { it.isConverted }.flatMap { it.inkItemIds }.toSet()
+        val collapsedStickyRects = allItems.filterIsInstance<StickyItem>()
+            .filter { it.collapsed }
+            .map { RectF(it.x, it.y, it.x + it.w, it.y + it.h) }
         for (item in ordered) {
             if (item is MindNodeItem && item.id in hiddenNodes) continue
             if (item is InkItem && item.id in convertedInkIds) continue
+            if (item is InkItem && collapsedStickyRects.isNotEmpty()) {
+                val cx = item.bounds.centerX()
+                val cy = item.bounds.centerY()
+                if (collapsedStickyRects.any { it.contains(cx, cy) }) continue
+            }
             if (item is TextItem && item.id == hiddenTextItemId) continue
             val moved = transform != null && item.id in transformIds
             if (!moved && !onScreen(item)) continue
@@ -951,30 +959,46 @@ class PageRenderer(private val noteDir: File?) {
             }
 
             // Top header bar
-            val barH = minOf(r.height(), if (item.title.isNotBlank()) 38f else 30f)
+            val barH = minOf(r.height(), if (item.title.isNotBlank()) 38f else 34f)
             fillPaint.color = if (style == "outline") ((item.color and 0x00FFFFFF) or (0x28 shl 24)) else 0x16000000
             canvas.drawRect(r.left, r.top, r.right, r.top + barH, fillPaint)
 
+            // Always show a top-right Collapse / Expand toggle pill (▾ / ▸)
+            val toggleW = 30f
+            val toggleR = RectF(r.right - toggleW - 8f, r.top + 5f, r.right - 8f, r.top + barH - 5f)
+            fillPaint.color = 0x22000000
+            canvas.drawRoundRect(toggleR, 8f, 8f, fillPaint)
+            stickyText.textSize = 15f
+            stickyText.isFakeBoldText = true
+            stickyText.color = fg
+            val toggleGlyph = if (item.collapsed) "▸" else "▾"
+            val gw = stickyText.measureText(toggleGlyph)
+            canvas.drawText(toggleGlyph, toggleR.centerX() - gw / 2f, toggleR.centerY() + 5f, stickyText)
+            stickyText.isFakeBoldText = false
+
+            var rightReserved = toggleW + 16f
             if (item.pinned || item.collapsed) {
                 val badge = listOfNotNull(
                     if (item.pinned) "PIN" else null,
                     if (item.collapsed) "FOLDED" else null,
                 ).joinToString(" · ")
-                stickyText.textSize = 12f
+                stickyText.textSize = 11.5f
                 stickyText.isFakeBoldText = true
-                val bw = stickyText.measureText(badge) + 14f
+                val bw = stickyText.measureText(badge) + 12f
                 fillPaint.color = if (item.pinned) 0x44D95926 else 0x26000000
-                canvas.drawRoundRect(RectF(r.right - bw - 8f, r.top + 6f, r.right - 8f, r.top + barH - 6f), 8f, 8f, fillPaint)
+                canvas.drawRoundRect(RectF(r.right - rightReserved - bw, r.top + 6f, r.right - rightReserved, r.top + barH - 6f), 8f, 8f, fillPaint)
                 stickyText.color = fg
-                canvas.drawText(badge, r.right - bw - 1f, r.top + barH / 2f + 4f, stickyText)
+                canvas.drawText(badge, r.right - rightReserved - bw + 6f, r.top + barH / 2f + 4f, stickyText)
                 stickyText.isFakeBoldText = false
+                rightReserved += bw + 8f
             }
 
-            if (item.title.isNotBlank()) {
+            val headerTitle = item.title.trim().ifBlank { if (item.collapsed && item.text.isBlank()) "Sticky note" else "" }
+            if (headerTitle.isNotBlank()) {
                 stickyTitleText.color = fg
-                stickyTitleText.textSize = (barH * 0.46f).coerceIn(14f, 20f)
-                val maxTitleW = r.width() - (if (item.pinned || item.collapsed) 110f else 28f)
-                val tTitle = android.text.TextUtils.ellipsize(item.title.trim(), stickyTitleText, maxTitleW.coerceAtLeast(30f), android.text.TextUtils.TruncateAt.END).toString()
+                stickyTitleText.textSize = (barH * 0.44f).coerceIn(13f, 19f)
+                val maxTitleW = r.width() - rightReserved - 18f
+                val tTitle = android.text.TextUtils.ellipsize(headerTitle, stickyTitleText, maxTitleW.coerceAtLeast(30f), android.text.TextUtils.TruncateAt.END).toString()
                 canvas.drawText(tTitle, r.left + 14f, r.top + barH / 2f + stickyTitleText.textSize * 0.35f, stickyTitleText)
             }
 
@@ -1003,7 +1027,12 @@ class PageRenderer(private val noteDir: File?) {
                 canvas.drawPath(corner, fillPaint)
             }
 
-            if (item.text.isNotEmpty()) {
+            if (item.text.isEmpty() && !item.collapsed) {
+                stickyText.color = (fg and 0x00FFFFFF) or (0x44 shl 24)
+                stickyText.textSize = 16f
+                stickyText.isFakeBoldText = false
+                canvas.drawText("Write here…", r.left + 14f, r.top + barH + 24f, stickyText)
+            } else if (item.text.isNotEmpty()) {
                 stickyText.typeface = when (item.font) {
                     "SERIF" -> android.graphics.Typeface.SERIF
                     "MONO" -> android.graphics.Typeface.MONOSPACE

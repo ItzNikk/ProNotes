@@ -40,6 +40,7 @@ import kotlin.math.min
 val Accent = Color(0xFF1A84FF)
 
 val LocalTitleGradient = compositionLocalOf<List<Color>?> { null }
+val LocalColorfulUiText = compositionLocalOf { true }
 val LocalMotionStyle = compositionLocalOf { MotionStyle.SPRING }
 val LocalCornerRoundness = compositionLocalOf<Dp> { 20.dp }
 val LocalPerformanceMode = compositionLocalOf { PerformanceMode.BALANCED }
@@ -55,7 +56,7 @@ fun contrastRatio(fg: Color, bg: Color): Float {
     return (max(l1, l2) + 0.05f) / (min(l1, l2) + 0.05f)
 }
 
-private fun typographyFor(font: AppFont): Typography {
+private fun typographyFor(font: AppFont, headingGradient: List<Color>?, subGradient: List<Color>?): Typography {
     val bodyFamily = when (font) {
         AppFont.MODERN_SANS -> FontFamily.SansSerif
         AppFont.EDITORIAL_SERIF -> FontFamily.SansSerif
@@ -67,21 +68,25 @@ private fun typographyFor(font: AppFont): Typography {
         AppFont.MODERN_SANS, AppFont.ROUNDED -> FontFamily.SansSerif
         AppFont.STUDIO_MONO -> FontFamily.Monospace
     }
-    val trackingBoost = if (font == AppFont.ROUNDED) 0.15f else 0f
+    val trackingBoost = if (font == AppFont.ROUNDED) 0.18f else 0f
+    val headBrush = headingGradient?.let { Brush.linearGradient(it) }
+    val subBrush = subGradient?.let { Brush.linearGradient(it) }
+
+    // Varied, expressive typographic hierarchy with vibrant gradient headings and high-contrast readable body/button text.
     return Typography(
-        displaySmall = TextStyle(fontFamily = headingFamily, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5 + trackingBoost).sp),
-        headlineLarge = TextStyle(fontFamily = headingFamily, fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.4 + trackingBoost).sp),
-        headlineMedium = TextStyle(fontFamily = headingFamily, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3 + trackingBoost).sp),
-        headlineSmall = TextStyle(fontFamily = headingFamily, fontSize = 20.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2 + trackingBoost).sp),
-        titleLarge = TextStyle(fontFamily = headingFamily, fontSize = 21.sp, lineHeight = 27.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.1 + trackingBoost).sp),
-        titleMedium = TextStyle(fontFamily = bodyFamily, fontSize = 15.5.sp, lineHeight = 21.sp, fontWeight = FontWeight.SemiBold, letterSpacing = trackingBoost.sp),
-        titleSmall = TextStyle(fontFamily = bodyFamily, fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (0.05 + trackingBoost).sp),
-        bodyLarge = TextStyle(fontFamily = bodyFamily, fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.Normal),
+        displaySmall = TextStyle(fontFamily = headingFamily, fontSize = 38.sp, lineHeight = 44.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.7 + trackingBoost).sp, brush = headBrush),
+        headlineLarge = TextStyle(fontFamily = headingFamily, fontSize = 33.sp, lineHeight = 39.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.5 + trackingBoost).sp, brush = headBrush),
+        headlineMedium = TextStyle(fontFamily = headingFamily, fontSize = 27.sp, lineHeight = 33.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.35 + trackingBoost).sp, brush = headBrush),
+        headlineSmall = TextStyle(fontFamily = headingFamily, fontSize = 23.sp, lineHeight = 29.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.2 + trackingBoost).sp, brush = headBrush),
+        titleLarge = TextStyle(fontFamily = headingFamily, fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.15 + trackingBoost).sp, brush = headBrush),
+        titleMedium = TextStyle(fontFamily = bodyFamily, fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = trackingBoost.sp, brush = subBrush),
+        titleSmall = TextStyle(fontFamily = bodyFamily, fontSize = 14.5.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = (0.12 + trackingBoost).sp, brush = subBrush),
+        bodyLarge = TextStyle(fontFamily = bodyFamily, fontSize = 16.5.sp, lineHeight = 24.sp, fontWeight = FontWeight.Normal),
         bodyMedium = TextStyle(fontFamily = bodyFamily, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Normal),
-        bodySmall = TextStyle(fontFamily = bodyFamily, fontSize = 12.5.sp, lineHeight = 17.sp, fontWeight = FontWeight.Normal),
-        labelLarge = TextStyle(fontFamily = bodyFamily, fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium, letterSpacing = (0.1 + trackingBoost).sp),
-        labelMedium = TextStyle(fontFamily = bodyFamily, fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, letterSpacing = (0.15 + trackingBoost).sp),
-        labelSmall = TextStyle(fontFamily = bodyFamily, fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (0.3 + trackingBoost).sp),
+        bodySmall = TextStyle(fontFamily = bodyFamily, fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.Normal),
+        labelLarge = TextStyle(fontFamily = bodyFamily, fontSize = 13.5.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (0.12 + trackingBoost).sp),
+        labelMedium = TextStyle(fontFamily = bodyFamily, fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (0.2 + trackingBoost).sp),
+        labelSmall = TextStyle(fontFamily = bodyFamily, fontSize = 10.5.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = (0.35 + trackingBoost).sp),
     )
 }
 
@@ -171,12 +176,40 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
         outlineVariant = lerp(darkSurf, Color.White, 0.12f),
         error = Color(0xFFF28B82),
     )
-    val gradient = if (colorful) {
-        if (dark) listOf(darkPrimary, Color(0xFFFFA8BB)) else listOf(primary, Color(0xFF9B284D))
-    } else if (settings.gradientTitles) listOf(primary, Color(accent.argb2)).let { g ->
-        if (dark) g.map { lerp(it, Color.White, 0.26f) } else g
-    } else null
-    val typography = remember(settings.appFont) { typographyFor(settings.appFont) }
+
+    // Vibrant multi-stop colorful UI gradient for headings & expressive titles.
+    val enableGradients = settings.gradientTitles || settings.colorfulUiText || colorful
+    val gradient = if (enableGradients) {
+        if (dark) {
+            listOf(
+                lerp(darkPrimary, Color(0xFF60A5FA), 0.35f),
+                Color(0xFFC084FC),
+                Color(0xFFFF7EB6),
+                Color(0xFFFBBF24),
+            )
+        } else {
+            listOf(
+                lerp(primary, Color(0xFF2563EB), 0.3f),
+                Color(0xFF8B5CF6),
+                Color(0xFFEC4899),
+                Color(0xFFF97316),
+            )
+        }
+    } else {
+        null
+    }
+    val subGradient = if (settings.colorfulUiText) {
+        if (dark) {
+            listOf(Color(0xFF7DD3FC), Color(0xFFD8B4FE), Color(0xFFF9A8D4))
+        } else {
+            listOf(Color(0xFF1D4ED8), Color(0xFF7C3AED), Color(0xFFDB2777))
+        }
+    } else {
+        null
+    }
+    val typography = remember(settings.appFont, gradient, subGradient) {
+        typographyFor(settings.appFont, gradient, subGradient)
+    }
     val roundnessValue = settings.cornerRoundnessDp.coerceIn(8f, 32f)
     val cornerDp = roundnessValue.dp
     val shapes = remember(roundnessValue) {
@@ -200,6 +233,7 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
     val effectiveMotion = if (reduceMotion) MotionStyle.REDUCED else settings.motionStyle
     CompositionLocalProvider(
         LocalTitleGradient provides gradient,
+        LocalColorfulUiText provides settings.colorfulUiText,
         LocalMotionStyle provides effectiveMotion,
         LocalCornerRoundness provides cornerDp,
         LocalPerformanceMode provides perf,
@@ -227,6 +261,18 @@ fun GradientTitle(text: String, style: TextStyle, modifier: Modifier = Modifier,
         maxLines = maxLines,
         overflow = TextOverflow.Ellipsis,
         style = if (g != null) style.copy(brush = Brush.linearGradient(g)) else style.copy(color = MaterialTheme.colorScheme.onBackground),
+    )
+}
+
+@Composable
+fun GradientText(text: String, style: TextStyle = MaterialTheme.typography.bodyMedium, modifier: Modifier = Modifier, maxLines: Int = Int.MAX_VALUE) {
+    val g = LocalTitleGradient.current
+    Text(
+        text,
+        modifier = modifier,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+        style = if (g != null) style.copy(brush = Brush.linearGradient(g)) else style,
     )
 }
 

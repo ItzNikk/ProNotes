@@ -728,6 +728,7 @@ fun EditorScreen(
                                         vm.openInlineTextBox(page, x, y, existing = null, boxWidth = w, boxHeight = h)
                                     }
                                     override fun onStickyTap(page: Int, x: Float, y: Float, existing: StickyItem?) = vm.openSticky(page, x, y, existing)
+                                    override fun onStickyToggleCollapse(page: Int, sticky: StickyItem) = vm.toggleStickyCollapse(page, sticky)
                                     override fun onStickyChecklistToggle(page: Int, sticky: StickyItem, lineIndex: Int) =
                                         vm.toggleStickyCheckLine(page, sticky, lineIndex)
                                     override fun onWebLinkTap(page: Int, x: Float, y: Float, existing: WebLinkItem?) =

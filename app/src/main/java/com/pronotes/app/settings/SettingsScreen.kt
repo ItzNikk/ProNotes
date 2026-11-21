@@ -27,11 +27,24 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.DragHandle
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import java.io.File
+import java.io.FileOutputStream
+import com.pronotes.app.support.FeedbackDialog
+import com.pronotes.app.editor.Tool
+import com.pronotes.app.editor.toolDisplayName
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -235,6 +248,15 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                     Section("Drawing") {
                         Toggle("Draw with stylus only", "Fingers scroll and zoom, they never draw", s.stylusOnly) { v -> up { it.copy(stylusOnly = v) } }
                         Toggle("Palm rejection", "Ignore touches right after the pen", s.palmRejection) { v -> up { it.copy(palmRejection = v) } }
+                        Box(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+                            AppSliderRow(
+                                title = "Touch sensitivity",
+                                valueText = "${(s.touchSensitivity * 100).toInt()}%",
+                                value = s.touchSensitivity.coerceIn(0.4f, 2.0f),
+                                valueRange = 0.4f..2.0f,
+                                onValueChange = { v -> up { it.copy(touchSensitivity = v.coerceIn(0.4f, 2.0f)) } },
+                            )
+                        }
                         Toggle("Haptic feedback", "Small buzz on shapes, selection and page add", s.haptics) { v -> up { it.copy(haptics = v) } }
                         Toggle("Pen touch tick", "A light tick when the pen lands", s.penHaptics) { v -> up { it.copy(penHaptics = v) } }
                     }
@@ -313,6 +335,82 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                     Section("Stylus behaviour") {
                         Choice("Button click delay", s.penClickDelay.label, PenClickDelay.entries.map { it.label }) { i -> up { it.copy(penClickDelay = PenClickDelay.entries[i]) } }
                         Toggle("Hover preview", "Show where the pen will touch", s.hoverCursor) { v -> up { it.copy(hoverCursor = v) } }
+                        val hoverScope = rememberCoroutineScope()
+                        val hoverPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+                            if (uri != null) {
+                                hoverScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                    val savedPath = runCatching {
+                                        val raw = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } ?: return@runCatching null
+                                        val maxSide = maxOf(raw.width, raw.height)
+                                        val scaled = if (maxSide > 192) {
+                                            val f = 192f / maxSide
+                                            android.graphics.Bitmap.createScaledBitmap(raw, (raw.width * f).toInt().coerceAtLeast(16), (raw.height * f).toInt().coerceAtLeast(16), true)
+                                        } else raw
+                                        val outFile = File(context.filesDir, "custom_hover_icon_${System.currentTimeMillis()}.png")
+                                        FileOutputStream(outFile).use { scaled.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                                        if (scaled !== raw) scaled.recycle()
+                                        raw.recycle()
+                                        outFile.absolutePath
+                                    }.getOrNull()
+                                    if (savedPath != null) {
+                                        up { it.copy(customHoverIconPath = savedPath, hoverCursor = true) }
+                                    }
+                                }
+                            }
+                        }
+                        val customBmp = remember(s.customHoverIconPath) {
+                            if (s.customHoverIconPath.isNotBlank() && File(s.customHoverIconPath).exists()) {
+                                runCatching { BitmapFactory.decodeFile(s.customHoverIconPath)?.asImageBitmap() }.getOrNull()
+                            } else null
+                        }
+                        HorizontalDivider(Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { hoverPicker.launch("image/*") }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f))
+                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (customBmp != null) {
+                                    Image(customBmp, contentDescription = "Custom hover icon", contentScale = ContentScale.Fit, modifier = Modifier.size(32.dp))
+                                } else {
+                                    Icon(Icons.Outlined.Image, contentDescription = null, tint = ProButtonPalette.ElectricBlue, modifier = Modifier.size(20.dp))
+                                }
+                            }
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("Custom hover icon", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium)
+                                Text(
+                                    if (customBmp != null) "Custom image active · Tap to change" else "Import any PNG or photo as your stylus hover cursor",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (customBmp != null) {
+                                TextButton(onClick = { up { it.copy(customHoverIconPath = "") } }) {
+                                    Text("Reset")
+                                }
+                            }
+                        }
+                        if (customBmp != null) {
+                            Box(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+                                AppSliderRow(
+                                    title = "Hover icon size",
+                                    valueText = "${s.hoverIconSizeDp.toInt()} dp",
+                                    value = s.hoverIconSizeDp.coerceIn(14f, 64f),
+                                    valueRange = 14f..64f,
+                                    onValueChange = { v -> up { it.copy(hoverIconSizeDp = v.coerceIn(14f, 64f)) } },
+                                )
+                            }
+                        }
                     }
                     Section("Personal handwriting") {
                         val hwContext = LocalContext.current
@@ -472,6 +570,9 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                             stringResource(R.string.setting_reduce_effects_sub),
                             s.reduceEffects,
                         ) { v -> up { it.copy(reduceEffects = v) } }
+                        Toggle("Colorful gradient text", "Vibrant multi-color gradients on titles, headers, and sections", s.colorfulUiText) { v ->
+                            up { it.copy(colorfulUiText = v, gradientTitles = v) }
+                        }
                         Box(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
                             AppSliderRow(
                                 title = "Corner roundness",
@@ -603,20 +704,40 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                     Section("Backup") { BackupRows() }
                 }
                 Category.ABOUT -> {
-                    Section("Pro Notes Studio") {
+                    var showFeedback by remember { mutableStateOf(false) }
+                    Section("Pro Notes") {
                         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             ProIconView(ProIcon.INFO, ProButtonPalette.ElectricBlue, Modifier.size(22.dp))
                             Spacer(Modifier.size(16.dp))
                             Column(Modifier.weight(1f)) {
-                                GradientTitle("Pro Notes", MaterialTheme.typography.titleMedium)
+                                GradientTitle("Pro Notes", MaterialTheme.typography.titleLarge)
                                 Text("Version ${BuildConfigInfo.versionName(context)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("Precision Note-Taking & PDF Studio ┬╖ Apache License 2.0", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Precision Note-Taking & PDF Studio · Apache License 2.0", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
+                        }
+                        HorizontalDivider(Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { showFeedback = true }
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Outlined.BugReport, contentDescription = null, tint = ProButtonPalette.VibrantOrange, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.size(16.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("Report a bug or give feedback", fontWeight = FontWeight.SemiBold)
+                                Text("Free direct message to the developer · GitHub · Email", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         HorizontalDivider(Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                         UpdateRow()
                         HorizontalDivider(Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                         Toggle("Check for updates automatically", "Check when the library opens", s.autoUpdateCheck) { v -> up { it.copy(autoUpdateCheck = v) } }
+                    }
+                    if (showFeedback) {
+                        FeedbackDialog(onDismiss = { showFeedback = false })
                     }
                 }
             }
@@ -627,10 +748,9 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
 @Composable
 private fun Section(title: String, content: @Composable () -> Unit) {
     Column(Modifier.widthIn(max = 720.dp).fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
-        Text(
+        GradientTitle(
             title,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(start = 16.dp, bottom = 6.dp),
         )
         AppSurface(
@@ -705,38 +825,78 @@ private fun Info(text: String) {
 
 @Composable
 private fun ToolbarEditor(spec: String, onChange: (String) -> Unit) {
-    var list by remember(spec) { mutableStateOf(ToolbarOrder.parse(spec)) }
-    val listState = rememberLazyListState()
-    val reorder = rememberReorderableLazyListState(listState) { from, to ->
-        list = list.toMutableList().apply { add(to.index, removeAt(from.index)) }
-        onChange(ToolbarOrder.encode(list))
-    }
-    LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().height((list.size * 56).dp), userScrollEnabled = false) {
-        items(list.size, key = { list[it].first.name }) { i ->
-            val (tool, visible) = list[i]
-            ReorderableItem(reorder, key = tool.name) { dragging ->
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(56.dp)
-                        .background(if (dragging) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else Color.Transparent)
-                        .padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Outlined.DragHandle, "Drag", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.longPressDraggableHandle())
-                    Spacer(Modifier.width(12.dp))
-                    ProIconView(iconFor(tool), MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Text(tool.name.lowercase().replaceFirstChar { it.uppercase() }, Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
-                    AppToggle(
-                        checked = visible,
-                        onCheckedChange = { v ->
-                            if (!v && list.count { it.second } <= 1) return@AppToggle
-                            list = list.toMutableList().also { it[i] = tool to v }
-                            onChange(ToolbarOrder.encode(list))
-                        },
+    val entries = remember(spec) { ToolbarOrder.parse(spec) }
+    Column(Modifier.fillMaxWidth()) {
+        entries.forEachIndexed { i, (tool, visible) ->
+            if (i > 0) {
+                HorizontalDivider(Modifier.padding(start = 54.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
+            }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        onChange(ToolbarOrder.setVisible(spec, tool, !visible))
+                    }
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ProIconView(iconFor(tool), MaterialTheme.colorScheme.onSurface, Modifier.size(22.dp))
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = toolDisplayName(tool),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Medium,
                     )
+                    if (tool == Tool.AUTO_TEXT) {
+                        Text(
+                            "Optional · Write & auto-convert handwriting to text",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
+                IconButton(
+                    enabled = i > 0,
+                    onClick = {
+                        val next = entries.toMutableList().apply {
+                            val item = removeAt(i)
+                            add(i - 1, item)
+                        }
+                        onChange(ToolbarOrder.encode(next))
+                    },
+                    modifier = Modifier.size(34.dp),
+                ) {
+                    Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Move up", modifier = Modifier.size(18.dp))
+                }
+                IconButton(
+                    enabled = i < entries.lastIndex,
+                    onClick = {
+                        val next = entries.toMutableList().apply {
+                            val item = removeAt(i)
+                            add(i + 1, item)
+                        }
+                        onChange(ToolbarOrder.encode(next))
+                    },
+                    modifier = Modifier.size(34.dp),
+                ) {
+                    Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Move down", modifier = Modifier.size(18.dp))
+                }
+                Spacer(Modifier.width(4.dp))
+                AppToggle(
+                    checked = visible,
+                    onCheckedChange = { v ->
+                        onChange(ToolbarOrder.setVisible(spec, tool, v))
+                    },
+                )
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            TextButton(onClick = { onChange("") }) {
+                Text("Reset default tools")
             }
         }
     }
@@ -850,7 +1010,7 @@ private fun PensSection(store: SettingsStore) {
                     Spacer(Modifier.size(14.dp))
                     Column(Modifier.weight(1f)) {
                         Text(p.displayName(), fontWeight = FontWeight.SemiBold)
-                        Text("${p.brand} ┬╖ ${p.name}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        Text("${p.brand} · ${p.name}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     }
                     IconButton(onClick = { renameTarget = p }) { Icon(Icons.Outlined.Edit, "Rename pen") }
                     TextButton(onClick = { store.forgetPen(p.name) }) { Text("Forget") }

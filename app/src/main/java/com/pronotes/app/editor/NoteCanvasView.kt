@@ -44,7 +44,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-enum class Tool { PEN, HIGHLIGHTER, ERASER, SHAPE, LASSO, MINDMAP, TEXT, IMAGE, STICKY, WEBLINK, TAPE, STICKER, LASER }
+enum class Tool { PEN, HIGHLIGHTER, ERASER, SHAPE, LASSO, MINDMAP, TEXT, AUTO_TEXT, IMAGE, STICKY, WEBLINK, TAPE, STICKER, LASER }
 
 /** Callbacks from the canvas to the editor state. Page indices refer to the notebook's page list. */
 interface CanvasHost {
@@ -60,6 +60,7 @@ interface CanvasHost {
     /** Called when Tool.TEXT taps or drags a new inline text box directly on the page. */
     fun onTextBoxPlace(page: Int, x: Float, y: Float, w: Float, h: Float) { onTextTap(page, x, y, null) }
     fun onStickyTap(page: Int, x: Float, y: Float, existing: StickyItem?)
+    fun onStickyToggleCollapse(page: Int, sticky: StickyItem) {}
     fun onStickyChecklistToggle(page: Int, sticky: StickyItem, lineIndex: Int) {}
     fun onWebLinkTap(page: Int, x: Float, y: Float, existing: WebLinkItem?) {}
     fun onMindMapTap(page: Int, x: Float, y: Float, existing: MindNodeItem?) {}
@@ -140,6 +141,8 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
     private val wetInk = InProgressStrokesView(context)
     private val predictor = MotionEventPredictor.newInstance(this)
     internal val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+    internal val effectiveTouchSlop: Float
+        get() = (touchSlop / settings.touchSensitivity.coerceIn(0.4f, 2.0f)).coerceIn(2f, touchSlop * 2.5f)
     internal val density = resources.displayMetrics.density
     internal val scroller = OverScroller(context, DecelerateInterpolator(1.6f))
     internal var velocity: VelocityTracker? = null
@@ -293,6 +296,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
     internal var liveScaleY = 1f
 
     private val strokePages = HashMap<InProgressStrokeId, Int>()
+    private val strokeTools = HashMap<InProgressStrokeId, Tool>()
     private val consumedCircleStrokes = HashSet<InProgressStrokeId>()
 
     init {
@@ -304,24 +308,31 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                 val byPage = strokes.entries.groupBy { strokePages.remove(it.key) ?: currentIndex }
                 for ((pi, entries) in byPage) {
                     val p = pages.getOrNull(pi)
+                    val entryTools = entries.associate { it.key to (strokeTools.remove(it.key) ?: tool) }
                     val keptEntries = if (p == null) emptyList() else entries.filterNot { e ->
                         consumedCircleStrokes.remove(e.key)
                     }
                     if (p == null || keptEntries.isEmpty()) continue
                     val added = ArrayList<InkItem>(keptEntries.size)
+                    val autoTextAdded = ArrayList<InkItem>()
                     for (e in keptEntries) {
                         val item = InkItem(ItemIds.next(), e.value)
                         if (!circleDetector.attachItemId(e.key, item.id)) {
                             added += item
+                            if (entryTools[e.key] == Tool.AUTO_TEXT) autoTextAdded += item
                         }
                     }
                     if (added.isEmpty()) continue
                     host.beginEdit(pi)
                     updatePage(pi, p.items + added)
                     val boxes = pages.getOrNull(pi)?.items?.filterIsInstance<WriteBoxItem>().orEmpty()
-                    if (settings.toolDefaults.autoHandwriting) host.onFreshInk(pi, added.filter { ink ->
-                        !ink.isHighlighter && boxes.none { RectF.intersects(it.raw, ink.bounds) }
-                    })
+                    if (autoTextAdded.isNotEmpty()) {
+                        host.onFreshInk(pi, autoTextAdded)
+                    } else if (settings.toolDefaults.autoHandwriting) {
+                        host.onFreshInk(pi, added.filter { ink ->
+                            !ink.isHighlighter && boxes.none { RectF.intersects(it.raw, ink.bounds) }
+                        })
+                    }
                     if (boxes.isNotEmpty()) {
                         for (wb in boxes) {
                             val boxRect = wb.raw
@@ -710,7 +721,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         lastTouchEvent = MotionEvent.obtain(e)
     }
 
-    private fun holdSlopPx(): Float = max(touchSlop.toFloat(), gestureConfig.holdSlopDp * density)
+    private fun holdSlopPx(): Float = max(effectiveTouchSlop, gestureConfig.holdSlopDp * density / settings.touchSensitivity.coerceIn(0.5f, 1.8f))
 
     internal var mode = Mode.NONE
     private var activePointer = -1
@@ -797,7 +808,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         }
         linkPress?.let { lp ->
             when (event.actionMasked) {
-                MotionEvent.ACTION_MOVE -> if (hypot(event.x - linkPressX, event.y - linkPressY) > touchSlop * 5) { removeCallbacks(linkLongRunnable); linkPress = null }
+                MotionEvent.ACTION_MOVE -> if (hypot(event.x - linkPressX, event.y - linkPressY) > effectiveTouchSlop * 5) { removeCallbacks(linkLongRunnable); linkPress = null }
                 MotionEvent.ACTION_UP -> { removeCallbacks(linkLongRunnable); linkPress = null; if (!linkLongFired) jumpTo(lp) }
                 MotionEvent.ACTION_CANCEL -> { removeCallbacks(linkLongRunnable); linkPress = null }
             }
@@ -855,7 +866,8 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
 
         // --- fingers
         if (action == MotionEvent.ACTION_DOWN) {
-            ignoreFingers = settings.stylusOnly && settings.palmRejection && sawStylus && now - lastStylusTime < gestureConfig.palmRejectionWindowMs
+            val palmMs = (gestureConfig.palmRejectionWindowMs / settings.touchSensitivity.coerceIn(0.4f, 2.0f)).toLong()
+            ignoreFingers = settings.stylusOnly && settings.palmRejection && sawStylus && now - lastStylusTime < palmMs
         }
         if (ignoreFingers) {
             if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) ignoreFingers = false
@@ -952,8 +964,20 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             if (wasCircle) { mode = Mode.IGNORE; return }
         }
 
+        // Top-right collapse/expand pill on any sticky note works with Pen, Sticky, Text, Auto-Text, or Highlighter.
+        if (t in setOf(Tool.PEN, Tool.AUTO_TEXT, Tool.STICKY, Tool.TEXT, Tool.HIGHLIGHTER)) {
+            val hitSticky = pages.getOrNull(activePage)?.items?.filterIsInstance<StickyItem>()
+                ?.lastOrNull { s -> s.raw.contains(wx, wy) && wx >= s.raw.right - 56f && wy <= s.raw.top + 48f }
+            if (hitSticky != null) {
+                buzz(HapticFeedbackConstants.CLOCK_TICK)
+                host.onStickyToggleCollapse(activePage, hitSticky)
+                mode = Mode.IGNORE
+                return
+            }
+        }
+
         when (t) {
-            Tool.PEN, Tool.HIGHLIGHTER -> {
+            Tool.PEN, Tool.HIGHLIGHTER, Tool.AUTO_TEXT -> {
                 if (t == Tool.PEN) {
                     val hitBox = pages.getOrNull(activePage)?.items?.filterIsInstance<WriteBoxItem>()?.lastOrNull { it.raw.contains(wx, wy) }
                     if (hitBox != null) {
@@ -1196,7 +1220,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                         val (wx, wy) = toLocal(e.getX(idx), e.getY(idx), dragMindOrigPage)
                         val dx = wx - dragMindDownWx
                         val dy = wy - dragMindDownWy
-                        if (!dragMindMoved && hypot(dx, dy) * scale > touchSlop * 0.6f) {
+                        if (!dragMindMoved && hypot(dx, dy) * scale > effectiveTouchSlop * 0.6f) {
                             dragMindMoved = true
                             host.beginEdit(dragMindOrigPage)
                         }
@@ -1236,7 +1260,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                     assertNoSurvivingWetStroke("pen-up", null)
                     return
                 }
-                val isTap = SystemClock.uptimeMillis() - downTime < 350 && hypot(px - downX, py - downY) < touchSlop
+                val isTap = SystemClock.uptimeMillis() - downTime < 350 && hypot(px - downX, py - downY) < effectiveTouchSlop
                 val upStrokeId = strokeId
                 when (mode) {
                     Mode.INK -> finishInk(e, isTap)
@@ -1284,7 +1308,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                         val shapes = (if (hypot(ex - sx, ey - sy) >= 6f) runCatching { ShapeBuilder.build(host.shapeKind(), sx, sy, ex, ey) }.getOrNull() else null)
                             ?: layer.shapePreview
                         layer.shapePreview = null
-                        val moved = hypot(px - downX, py - downY) > touchSlop * 0.6f
+                        val moved = hypot(px - downX, py - downY) > effectiveTouchSlop * 0.6f
                         if (shapes != null && (!isTap || moved)) addShapes(shapes, fillable = host.shapeKind().closed)
                         layer.invalidate()
                     }
@@ -1410,6 +1434,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         val id = wetInk.startStroke(e, pid, host.brush(t), toWorld, Matrix())
         strokeId = id
         strokePages[id] = activePage
+        strokeTools[id] = t
         if (shouldTrackHold()) postDelayed(holdRunnable, gestureConfig.holdDelayMs)
     }
 
@@ -1636,6 +1661,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         val id = strokeId ?: return
         strokeId = null
         strokePages.remove(id)
+        strokeTools.remove(id)
         val ev = if (event != null) {
             MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
         } else {
@@ -1900,10 +1926,11 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                 MotionEvent.ACTION_HOVER_MOVE, MotionEvent.ACTION_HOVER_ENTER -> {
                     val erasing = effectiveTool(event) == Tool.ERASER
                     layer.hoverAt = if (erasing) event.x to event.y else null
-                    // Hover preview: a dot in the pen's colour and size where it will touch.
+                    // Hover preview: custom imported hover cursor or a dot in the pen's colour and size.
+                    val hasCustomHover = settings.customHoverIconPath.isNotBlank()
                     layer.hoverDot = if (!erasing && settings.hoverCursor && stylusPointer == -1 && mode == Mode.NONE &&
-                        (tool == Tool.PEN || tool == Tool.HIGHLIGHTER || tool == Tool.SHAPE))
-                        host.hoverInk()?.let { (c, s) -> Triple(event.x, event.y, c to s * scale) } else null
+                        (hasCustomHover || tool == Tool.PEN || tool == Tool.AUTO_TEXT || tool == Tool.HIGHLIGHTER || tool == Tool.SHAPE))
+                        (host.hoverInk() ?: (0xFF3D6CF4.toInt() to 6f)).let { (c, s) -> Triple(event.x, event.y, c to s * scale) } else null
                     layer.invalidate()
                     // Some pens never send HOVER_EXIT: drop the dot when hover reports stop.
                     removeCallbacks(hoverTimeout); postDelayed(hoverTimeout, 350)

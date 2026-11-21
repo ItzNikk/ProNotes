@@ -148,21 +148,35 @@ object ToolbarGeometry {
 object ToolbarOrder {
     val defaults = listOf(
         Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.SHAPE, Tool.LASSO, Tool.MINDMAP,
-        Tool.IMAGE, Tool.TEXT, Tool.STICKY, Tool.WEBLINK, Tool.TAPE, Tool.STICKER, Tool.LASER,
+        Tool.IMAGE, Tool.TEXT, Tool.AUTO_TEXT, Tool.STICKY, Tool.WEBLINK, Tool.TAPE, Tool.STICKER, Tool.LASER,
     )
+
+    /** Tools that are optional and start disabled unless explicitly enabled by the user. */
+    private val optionalByDefault = setOf(Tool.AUTO_TEXT)
 
     fun parse(spec: String): List<Pair<Tool, Boolean>> {
         val parsed = spec.split(',').filter { it.isNotBlank() }.mapNotNull { s ->
-            val hidden = s.startsWith("-")
-            runCatching { Tool.valueOf(s.removePrefix("-")) }.getOrNull()?.let { it to !hidden }
+            val trimmed = s.trim()
+            val hidden = trimmed.startsWith("-")
+            runCatching { Tool.valueOf(trimmed.removePrefix("-")) }.getOrNull()?.let { it to !hidden }
         }.distinctBy { it.first }
-        // Tools added in a later version show up at the end.
-        return parsed + defaults.filter { t -> parsed.none { it.first == t } }.map { it to true }
+        // Tools added in a later version show up at the end (optional tools default to off).
+        return parsed + defaults.filter { t -> parsed.none { it.first == t } }.map { it to (it !in optionalByDefault) }
     }
 
     fun encode(list: List<Pair<Tool, Boolean>>) = list.joinToString(",") { (t, v) -> (if (v) "" else "-") + t.name }
 
     fun visible(spec: String) = parse(spec).filter { it.second }.map { it.first }
+
+    /** Toggles visibility of a specific [tool] while keeping at least one tool enabled. */
+    fun setVisible(spec: String, tool: Tool, visible: Boolean): String {
+        val all = parse(spec).toMutableList()
+        val idx = all.indexOfFirst { it.first == tool }
+        if (idx < 0) return spec
+        if (!visible && all.count { it.second } <= 1) return spec
+        all[idx] = tool to visible
+        return encode(all)
+    }
 
     /** Reorders visible tool [fromTool] to match [toTool]'s slot in the full persisted list. */
     fun moveVisible(spec: String, fromTool: Tool, toTool: Tool): String {

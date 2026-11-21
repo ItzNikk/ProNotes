@@ -266,6 +266,7 @@ fun iconFor(tool: Tool): ProIcon = when (tool) {
     Tool.SHAPE -> ProIcon.SHAPES
     Tool.LASSO -> ProIcon.LASSO
     Tool.TEXT -> ProIcon.TEXT
+    Tool.AUTO_TEXT -> ProIcon.WRITE_BOX
     Tool.IMAGE -> ProIcon.IMAGE
     Tool.STICKY -> ProIcon.STICKY
     Tool.WEBLINK -> ProIcon.WEBLINK
@@ -283,13 +284,13 @@ fun ToolGlyph(tool: Tool, tint: Color, inkColor: Color, modifier: Modifier = Mod
         return
     }
     val ink = when (tool) {
-        Tool.PEN, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.HIGHLIGHTER, Tool.TEXT, Tool.MINDMAP -> inkColor
+        Tool.PEN, Tool.AUTO_TEXT, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.HIGHLIGHTER, Tool.TEXT, Tool.MINDMAP -> inkColor
         Tool.LASER -> if (active) Color(0xFFFF3B30) else null
         else -> null
     }
     val alpha = when {
         tool == Tool.HIGHLIGHTER -> 0.72f
-        tool == Tool.TEXT -> 0.35f
+        tool == Tool.TEXT || tool == Tool.AUTO_TEXT -> 0.45f
         active -> 0.94f
         else -> 0.85f
     }
@@ -349,6 +350,21 @@ private fun DrawScope.drawPen(tint: Color, ink: Color, type: PenType) {
                     drawLine(nibBorder, p(12f, y), p(12f, y + 2f), 2.1f * k, StrokeCap.Round)
                     drawLine(ink, p(12f, y), p(12f, y + 2f), 1.3f * k, StrokeCap.Round)
                 }
+            }
+            PenType.CALLIGRAPHY -> {
+                drawRoundRect(tint, p(9.2f, 9f), Size(5.6f * k, 13f * k), CornerRadius(1.4f * k), style = s)
+                val nib = Path().apply { moveTo(9.2f * k, 9f * k); lineTo(10.6f * k, 2.2f * k); lineTo(13.8f * k, 3.6f * k); lineTo(14.8f * k, 9f * k); close() }
+                drawPath(nib, ink)
+                drawPath(nib, nibBorder, style = nibBorderStroke)
+                drawLine(nibBorder, p(10.6f, 2.2f), p(13.8f, 3.6f), 1.4f * k, StrokeCap.Round)
+            }
+            PenType.PENCIL -> {
+                drawRoundRect(tint, p(9.8f, 8.5f), Size(4.4f * k, 12.5f * k), CornerRadius(1.0f * k), style = s)
+                drawLine(tint, p(12f, 8.5f), p(12f, 21f), 1.0f * k, StrokeCap.Round)
+                val cone = Path().apply { moveTo(9.8f * k, 8.5f * k); lineTo(12f * k, 2.2f * k); lineTo(14.2f * k, 8.5f * k); close() }
+                drawPath(cone, nibBorder, style = nibBorderStroke)
+                val tip = Path().apply { moveTo(11.1f * k, 4.8f * k); lineTo(12f * k, 2.2f * k); lineTo(12.9f * k, 4.8f * k); close() }
+                drawPath(tip, ink)
             }
             PenType.BRUSH -> {
                 drawRoundRect(tint, p(10f, 11f), Size(4f * k, 11f * k), CornerRadius(1.5f * k), style = s)

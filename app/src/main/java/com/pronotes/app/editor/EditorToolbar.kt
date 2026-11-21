@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -44,9 +45,11 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -116,6 +119,7 @@ fun toolDisplayName(t: Tool): String = when (t) {
     Tool.MINDMAP -> stringResource(R.string.tool_concept_maps)
     Tool.IMAGE -> stringResource(R.string.tool_image)
     Tool.TEXT -> stringResource(R.string.tool_text)
+    Tool.AUTO_TEXT -> "Auto-Text"
     Tool.STICKY -> stringResource(R.string.tool_sticky)
     Tool.WEBLINK -> stringResource(R.string.tool_weblink)
     Tool.TAPE -> stringResource(R.string.tool_tape)
@@ -132,6 +136,7 @@ fun shortToolLabel(t: Tool): String = when (t) {
     Tool.MINDMAP -> "Concept"
     Tool.IMAGE -> "Image"
     Tool.TEXT -> "Text"
+    Tool.AUTO_TEXT -> "Auto-Text"
     Tool.STICKY -> "Sticky"
     Tool.WEBLINK -> "Link"
     Tool.TAPE -> "Tape"
@@ -167,6 +172,11 @@ fun AdaptiveFixedToolbar(
     val store = remember(context) { SettingsStore.get(context) }
     val density = LocalDensity.current.density
     val visibleTools = remember(settings.toolbarTools) { ToolbarOrder.visible(settings.toolbarTools) }
+    androidx.compose.runtime.LaunchedEffect(visibleTools) {
+        if (visibleTools.isNotEmpty() && vm.tool !in visibleTools) {
+            vm.tool = visibleTools.first()
+        }
+    }
 
     AppSurface(
         role = SurfaceRole.Chrome,
@@ -358,7 +368,7 @@ private fun StudioHairline(vertical: Boolean, color: Color) {
 }
 
 private fun toolHasInlineOptions(t: Tool): Boolean = when (t) {
-    Tool.PEN, Tool.HIGHLIGHTER, Tool.SHAPE, Tool.ERASER, Tool.LASSO, Tool.TEXT,
+    Tool.PEN, Tool.AUTO_TEXT, Tool.HIGHLIGHTER, Tool.SHAPE, Tool.ERASER, Tool.LASSO, Tool.TEXT,
     Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.MINDMAP,
     -> true
     else -> false
@@ -392,6 +402,11 @@ fun FloatingToolbarPill(
     val reduceEffects = LocalReduceEffects.current
     val density = LocalDensity.current.density
     val visibleTools = remember(settings.toolbarTools) { ToolbarOrder.visible(settings.toolbarTools) }
+    LaunchedEffect(visibleTools) {
+        if (visibleTools.isNotEmpty() && vm.tool !in visibleTools) {
+            vm.tool = visibleTools.first()
+        }
+    }
     val context = LocalContext.current
     val store = remember(context) { SettingsStore.get(context) }
 
@@ -686,6 +701,9 @@ private fun ToolbarLayoutMenuButton(
     onResetPosition: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
+    var showCustomize by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val store = remember(context) { SettingsStore.get(context) }
     val desc = stringResource(R.string.toolbar_layout_menu)
     Box {
         Box(
@@ -703,6 +721,7 @@ private fun ToolbarLayoutMenuButton(
             expanded = open,
             onDismissRequest = { open = false },
             items = listOf(
+                AppMenuItem("Customize tools…") { showCustomize = true },
                 AppMenuItem(stringResource(R.string.toolbar_style_fixed), selected = settings.toolbarStyle == ToolbarStyle.FIXED_BAR) {
                     onSelectStyle(ToolbarStyle.FIXED_BAR)
                 },
@@ -733,6 +752,110 @@ private fun ToolbarLayoutMenuButton(
             ),
         )
     }
+    if (showCustomize) {
+        CustomizeToolbarDialog(
+            spec = settings.toolbarTools,
+            onSpecChange = { newSpec -> store.update { it.copy(toolbarTools = newSpec) } },
+            onDismiss = { showCustomize = false },
+        )
+    }
+}
+
+@Composable
+private fun CustomizeToolbarDialog(
+    spec: String,
+    onSpecChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val entries = remember(spec) { ToolbarOrder.parse(spec) }
+    com.pronotes.app.ui.AppDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            com.pronotes.app.ui.GradientTitle("Customize Toolbar Tools", MaterialTheme.typography.titleLarge)
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    "Enable or disable specific tools, or toggle optional Auto-Text.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 6.dp),
+                )
+                entries.forEachIndexed { idx, (tool, visible) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable {
+                                onSpecChange(ToolbarOrder.setVisible(spec, tool, !visible))
+                            }
+                            .padding(horizontal = 6.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ProIconView(com.pronotes.app.ui.iconFor(tool), MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = toolDisplayName(tool),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            if (tool == Tool.AUTO_TEXT) {
+                                Text(
+                                    "Optional · Writes & auto-converts ink to text",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        IconButton(
+                            enabled = idx > 0,
+                            onClick = {
+                                val next = entries.toMutableList().apply {
+                                    val moved = removeAt(idx)
+                                    add(idx - 1, moved)
+                                }
+                                onSpecChange(ToolbarOrder.encode(next))
+                            },
+                            modifier = Modifier.size(32.dp),
+                        ) {
+                            Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Move up", modifier = Modifier.size(18.dp))
+                        }
+                        IconButton(
+                            enabled = idx < entries.lastIndex,
+                            onClick = {
+                                val next = entries.toMutableList().apply {
+                                    val moved = removeAt(idx)
+                                    add(idx + 1, moved)
+                                }
+                                onSpecChange(ToolbarOrder.encode(next))
+                            },
+                            modifier = Modifier.size(32.dp),
+                        ) {
+                            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Move down", modifier = Modifier.size(18.dp))
+                        }
+                        com.pronotes.app.ui.AppToggle(
+                            checked = visible,
+                            onCheckedChange = { checked ->
+                                onSpecChange(ToolbarOrder.setVisible(spec, tool, checked))
+                            },
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Done") }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = { onSpecChange("") }) { Text("Reset defaults") }
+        },
+    )
 }
 
 /**
@@ -765,7 +888,7 @@ fun ToolButton(
             else -> vm.penStyle.color
         },
     )
-    val hasColorBar = t in setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.SHAPE, Tool.TEXT, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.MINDMAP)
+    val hasColorBar = t in setOf(Tool.PEN, Tool.AUTO_TEXT, Tool.HIGHLIGHTER, Tool.SHAPE, Tool.TEXT, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.MINDMAP)
     val accent = if (hasColorBar) {
         // Ensure near-white or near-black ink still reads distinctly as an accent rim
         val lum = ink.luminance()
@@ -1027,6 +1150,8 @@ fun ToolOptions(
                             PenType.FOUNTAIN -> "Fountain"
                             PenType.BALL -> "Ball"
                             PenType.FINELINER -> "Fine"
+                            PenType.CALLIGRAPHY -> "Calligraphy"
+                            PenType.PENCIL -> "Pencil"
                             PenType.LETTERING -> "Lettering"
                             PenType.BRUSH -> "Brush"
                             PenType.DASHED -> "Dashed"
@@ -1043,6 +1168,18 @@ fun ToolOptions(
                         }
                     }
                     StyleOptions(vm, t, style, dockFg, darkDock, vertical)
+                }
+                t == Tool.AUTO_TEXT -> {
+                    if (!vertical) {
+                        StudioQuickChip(
+                            label = "Auto → Text",
+                            active = true,
+                            accent = ProButtonPalette.ElectricBlue,
+                            fg = dockFg,
+                            darkDock = darkDock,
+                        ) {}
+                    }
+                    StyleOptions(vm, Tool.PEN, vm.penStyle, dockFg, darkDock, vertical)
                 }
                 t == Tool.HIGHLIGHTER && style != null -> {
                     if (!vertical) {

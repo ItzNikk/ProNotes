@@ -31,6 +31,13 @@ data class ToolDefaults(
     val autoHandwriting: Boolean = false,
     val alignHandwriting: Boolean = true,
     val pressureEnabled: Boolean = true,
+    val pressureSensitivity: Float = 1.0f,
+    val penStabilization: Float = 0.25f,
+    val penTaper: Float = 0.35f,
+    val penTiltShading: Boolean = true,
+    val penNibRoundness: Float = 1.0f,
+    val penNibAngleDeg: Float = 35f,
+    val penStrokeStyle: String = "SOLID",
     val tapSelect: Boolean = false,
     val penOpacity: Float = 1f,
     val shapeOpacity: Float = 1f,
@@ -270,6 +277,7 @@ data class AppSettings(
     val stylusOnly: Boolean = true,
     val sideButton: SideButton = SideButton.ERASER,
     val palmRejection: Boolean = true,
+    val touchSensitivity: Float = 1.0f,
     val haptics: Boolean = true,
     // gestures
     val scribbleToErase: Boolean = true,
@@ -327,6 +335,8 @@ data class AppSettings(
     // pens
     val penName: String = "Pro Stylus",
     val hoverCursor: Boolean = true,
+    val customHoverIconPath: String = "",
+    val hoverIconSizeDp: Float = 24f,
     val penClickDelay: PenClickDelay = PenClickDelay.NORMAL,
     val onboardingDone: Boolean = false,
     val supportReminders: Boolean = true,
@@ -348,7 +358,8 @@ data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val uiColorScheme: UiColorScheme = UiColorScheme.SLATE_STUDIO,
     val accent: AccentColor = AccentColor.BLUE,
-    val gradientTitles: Boolean = false,
+    val gradientTitles: Boolean = true,
+    val colorfulUiText: Boolean = true,
     val appFont: AppFont = AppFont.MODERN_SANS,
     val motionStyle: MotionStyle = MotionStyle.SPRING,
     val liveBlur: Boolean = true,
@@ -420,6 +431,7 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             stylusOnly = !b("fingerDrawingOptIn", false),
             sideButton = enumOf("sideButton", d.sideButton),
             palmRejection = b("palmRejection", d.palmRejection),
+            touchSensitivity = prefs.getFloat("touchSensitivity", d.touchSensitivity).coerceIn(0.4f, 2.0f),
             haptics = b("haptics", d.haptics),
             scribbleToErase = b("scribble", d.scribbleToErase),
             scribbleSensitivity = enumOf("scribbleSens", d.scribbleSensitivity),
@@ -447,6 +459,13 @@ class SettingsStore private constructor(context: Context, file: String = "settin
                 autoHandwriting = b("autoHandwriting", prefs.getString("autoScript", null).orEmpty().isNotBlank()),
                 alignHandwriting = b("alignHandwriting", true),
                 pressureEnabled = b("pressureEnabled", true),
+                pressureSensitivity = prefs.getFloat("tdPressSens", d.toolDefaults.pressureSensitivity).coerceIn(0.3f, 2.0f),
+                penStabilization = prefs.getFloat("tdPenStab", d.toolDefaults.penStabilization).coerceIn(0f, 1f),
+                penTaper = prefs.getFloat("tdPenTaper", d.toolDefaults.penTaper).coerceIn(0f, 1f),
+                penTiltShading = b("tdPenTilt", d.toolDefaults.penTiltShading),
+                penNibRoundness = prefs.getFloat("tdPenRound", d.toolDefaults.penNibRoundness).coerceIn(0.25f, 1f),
+                penNibAngleDeg = prefs.getFloat("tdPenAngle", d.toolDefaults.penNibAngleDeg).coerceIn(0f, 180f),
+                penStrokeStyle = prefs.getString("tdPenStyle", d.toolDefaults.penStrokeStyle) ?: d.toolDefaults.penStrokeStyle,
                 tapSelect = b("tapSelect", false),
                 penOpacity = prefs.getFloat("tdPenOp", d.toolDefaults.penOpacity).coerceIn(0.15f, 1f),
                 shapeOpacity = prefs.getFloat("tdShapeOp", d.toolDefaults.shapeOpacity).coerceIn(0.15f, 1f),
@@ -481,6 +500,8 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             cornerRoundnessDp = prefs.getFloat("cornerRoundnessDp", d.cornerRoundnessDp).coerceIn(8f, 32f),
             penName = prefs.getString("penName", d.penName) ?: d.penName,
             hoverCursor = b("hoverCursor", d.hoverCursor),
+            customHoverIconPath = prefs.getString("customHoverIconPath", "") ?: "",
+            hoverIconSizeDp = prefs.getFloat("hoverIconSizeDp", d.hoverIconSizeDp).coerceIn(12f, 48f),
             penClickDelay = enumOf("penClickDelay", d.penClickDelay),
             onboardingDone = b("onboardingDone", d.onboardingDone),
             supportReminders = b("supportReminders", d.supportReminders),
@@ -510,6 +531,7 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             uiColorScheme = uiColorSchemeOf("uiColorScheme", d.uiColorScheme),
             accent = enumOf("accent", d.accent),
             gradientTitles = b("gradientTitles", d.gradientTitles),
+            colorfulUiText = b("colorfulUiText", d.colorfulUiText),
             appFont = enumOf("appFont", d.appFont),
             motionStyle = motionStyleOf("motionStyle", d.motionStyle),
             liveBlur = b("liveBlur", true),
@@ -532,6 +554,7 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             .putBoolean("fingerDrawingOptIn", !s.stylusOnly)
             .putString("sideButton", s.sideButton.name)
             .putBoolean("palmRejection", s.palmRejection)
+            .putFloat("touchSensitivity", s.touchSensitivity.coerceIn(0.4f, 2.0f))
             .putBoolean("haptics", s.haptics)
             .putBoolean("scribble", s.scribbleToErase)
             .putString("scribbleSens", s.scribbleSensitivity.name)
@@ -555,6 +578,13 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             .putString("handwritingLanguage", s.toolDefaults.handwritingLanguage)
             .putString("autoScript", s.toolDefaults.autoScript)
             .putBoolean("pressureEnabled", s.toolDefaults.pressureEnabled)
+            .putFloat("tdPressSens", s.toolDefaults.pressureSensitivity.coerceIn(0.3f, 2.0f))
+            .putFloat("tdPenStab", s.toolDefaults.penStabilization.coerceIn(0f, 1f))
+            .putFloat("tdPenTaper", s.toolDefaults.penTaper.coerceIn(0f, 1f))
+            .putBoolean("tdPenTilt", s.toolDefaults.penTiltShading)
+            .putFloat("tdPenRound", s.toolDefaults.penNibRoundness.coerceIn(0.25f, 1f))
+            .putFloat("tdPenAngle", s.toolDefaults.penNibAngleDeg.coerceIn(0f, 180f))
+            .putString("tdPenStyle", s.toolDefaults.penStrokeStyle)
             .putBoolean("tapSelect", s.toolDefaults.tapSelect)
             .putFloat("tdPenOp", s.toolDefaults.penOpacity.coerceIn(0.15f, 1f))
             .putFloat("tdShapeOp", s.toolDefaults.shapeOpacity.coerceIn(0.15f, 1f))
@@ -588,6 +618,8 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             .putFloat("cornerRoundnessDp", s.cornerRoundnessDp.coerceIn(8f, 32f))
             .putString("penName", s.penName)
             .putBoolean("hoverCursor", s.hoverCursor)
+            .putString("customHoverIconPath", s.customHoverIconPath)
+            .putFloat("hoverIconSizeDp", s.hoverIconSizeDp.coerceIn(12f, 48f))
             .putString("penClickDelay", s.penClickDelay.name)
             .putBoolean("onboardingDone", s.onboardingDone)
             .putBoolean("supportReminders", s.supportReminders)
@@ -616,6 +648,7 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             .putString("uiColorScheme", s.uiColorScheme.name)
             .putString("accent", s.accent.name)
             .putBoolean("gradientTitles", s.gradientTitles)
+            .putBoolean("colorfulUiText", s.colorfulUiText)
             .putString("appFont", s.appFont.name)
             .putString("motionStyle", s.motionStyle.name)
             .putBoolean("liveBlur", s.liveBlur)

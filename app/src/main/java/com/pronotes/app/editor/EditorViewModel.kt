@@ -554,11 +554,16 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 shapeStyle.size,
                 td.shapeOpacity,
             )
-            else -> Brushes.create(
-                if (!td.pressureEnabled && penType.family == Brushes.PEN) Brushes.MARKER else penType.family,
-                penStyle.color,
-                penStyle.size * penType.sizeFactor,
-                td.penOpacity,
+            else -> Brushes.createCustomPen(
+                baseFamily = penType.family,
+                color = penStyle.color,
+                size = penStyle.size * penType.sizeFactor,
+                opacity = td.penOpacity,
+                pressureEnabled = td.pressureEnabled,
+                pressureSensitivity = td.pressureSensitivity,
+                nibRoundness = td.penNibRoundness,
+                nibAngleDeg = td.penNibAngleDeg,
+                strokeStyle = td.penStrokeStyle,
             )
         }
     }
@@ -788,14 +793,15 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     }
 
     fun queueHandwriting(page: Int, ink: List<InkItem>) {
-        if (ink.isEmpty() || readOnly || !settingsFlow.value.toolDefaults.autoHandwriting) return
+        val viaAutoTool = tool == Tool.AUTO_TEXT
+        if (ink.isEmpty() || readOnly || (!settingsFlow.value.toolDefaults.autoHandwriting && !viaAutoTool)) return
         val sheet = pages.getOrNull(page) ?: return
         pendingInk.getOrPut(sheet.id) { mutableListOf() }.addAll(ink)
         writingPause?.cancel()
         writingPause = viewModelScope.launch {
             do { delay(700) } while (penActive || handwritingBusy)
             val options = settingsFlow.value.toolDefaults
-            if (!options.autoHandwriting || readOnly) {
+            if ((!options.autoHandwriting && tool != Tool.AUTO_TEXT) || readOnly) {
                 pendingInk.clear()
                 return@launch
             }
@@ -862,7 +868,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             val page = pages.getOrNull(idx) ?: return
             if (readOnly || !page.items.containsAll(selectedInk)) return
             val text = if (automatic) result.text.trim().replace(Regex("\\s+"), " ") else result.text.trim()
-            if (automatic && (!options.autoHandwriting || penActive || !result.usedMlKit || text.count { it.isLetterOrDigit() } < 2)) return
+            if (automatic && ((!options.autoHandwriting && tool != Tool.AUTO_TEXT) || penActive || !result.usedMlKit || text.count { it.isLetterOrDigit() } < 2)) return
             if (text.isBlank()) {
                 say("Could not recognise handwritten ink")
                 return
@@ -1003,8 +1009,30 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     }
 
     fun openSticky(page: Int, x: Float, y: Float, existing: StickyItem?) {
-        stickyEdit = if (existing != null) StickyEdit(page, existing, false)
-        else StickyEdit(page, StickyItem(ItemIds.next(), x - 150f, y - 150f, 300f, 300f, stickyColor, ""), true)
+        val p = pages.getOrNull(page) ?: return
+        if (existing == null) {
+            // Place sticky note directly on the page (no popup!) and switch to Pen so the user can write right on it.
+            val w = 320f
+            val h = 300f
+            val sx = (x - w / 2f).coerceIn(16f, (p.width - w - 16f).coerceAtLeast(16f))
+            val sy = (y - h / 2f).coerceIn(16f, (p.height - h - 16f).coerceAtLeast(16f))
+            val placed = StickyItem(ItemIds.next(), sx, sy, w, h, stickyColor, "")
+            beginEdit(page)
+            applyItems(page, p.items + placed)
+            tool = Tool.PEN
+            say("Sticky note placed — write directly on it, or tap ▾ to collapse")
+        } else if (existing.collapsed) {
+            toggleStickyCollapse(page, existing)
+        } else {
+            stickyEdit = StickyEdit(page, existing, false)
+        }
+    }
+
+    fun toggleStickyCollapse(page: Int, sticky: StickyItem) {
+        val p = pages.getOrNull(page) ?: return
+        val updated = sticky.copy(collapsed = !sticky.collapsed)
+        beginEdit(page)
+        applyItems(page, p.items.map { if (it.id == sticky.id) updated else it })
     }
 
     fun commitSticky(

@@ -1160,10 +1160,10 @@ private fun Sidebar(
                     Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(Color.White),
                 )
                 Spacer(Modifier.width(10.dp))
-                Column {
-                    Text("Pro Notes", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
-                    Text("v13 Studio", style = MaterialTheme.typography.labelSmall, color = activeIconTint)
-                }
+                com.pronotes.app.ui.GradientTitle(
+                    "Pro Notes",
+                    MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold),
+                )
             }
 
             Section.entries.forEach { s ->
@@ -1285,7 +1285,7 @@ private fun Sidebar(
             ) {
                 Icon(Icons.Outlined.Groups, null, tint = ProButtonPalette.SkyCyan)
                 Spacer(Modifier.width(12.dp))
-                Text("Live Study Room", color = MaterialTheme.colorScheme.onSurface)
+                Text("Study Friends & Files", color = MaterialTheme.colorScheme.onSurface)
             }
             Spacer(Modifier.weight(1f))
             if (Support.enabled) {

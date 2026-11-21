@@ -244,12 +244,14 @@ internal fun StickerSheet(onDragStarted: () -> Unit, onPick: (Bitmap) -> Unit) {
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
             scope.launch {
-                val imported = withContext(Dispatchers.IO) { StickerLibrary.import(context, uri) }
+                val imported = withContext(Dispatchers.IO) { StickerLibrary.import(context, uri, autoRemoveBg = true) }
                 if (imported == null) {
                     Toast.makeText(context, "Could not import sticker image.", Toast.LENGTH_SHORT).show()
                 } else {
                     mine = StickerLibrary.custom(context)
                     tab = 2
+                    val msg = if (StickerLibrary.lastImportCutout) "Subject detected — background removed!" else "Sticker imported!"
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                 }
             }
         }

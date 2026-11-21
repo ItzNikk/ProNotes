@@ -47,7 +47,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -91,6 +93,8 @@ fun SupportScreen(onBack: () -> Unit) {
     val canPay = chooseInApp || amountValue in 1..100_000
     var thanks by remember { mutableStateOf<Boolean?>(null) }   // true = paid/sent, false = not sure
     var supportNote by remember { mutableStateOf("") }
+    var showBugDialog by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val pay = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         val response = res.data?.getStringExtra("response") ?: res.data?.getStringExtra("Status") ?: ""
         thanks = when {
@@ -156,14 +160,27 @@ fun SupportScreen(onBack: () -> Unit) {
                                 if (text.isNotEmpty()) {
                                     supportNote = ""
                                     thanks = true
-                                    Toast.makeText(context, "Thank you for your encouragement.", Toast.LENGTH_SHORT).show()
+                                    scope.launch {
+                                        DeveloperFeedbackClient.sendDirect(
+                                            category = "General Feedback",
+                                            title = "Appreciation / Feature Idea",
+                                            message = text,
+                                            contact = "",
+                                            deviceInfo = null,
+                                        )
+                                    }
+                                    Toast.makeText(context, "Sent directly to the developer — thank you!", Toast.LENGTH_SHORT).show()
                                 } else {
                                     thanks = true
                                 }
                             },
                             shape = CircleShape,
                             modifier = Modifier.weight(1f),
-                        ) { Text(if (supportNote.isBlank()) "Send Applause" else "Send Note") }
+                        ) { Text(if (supportNote.isBlank()) "Send Applause" else "Send Free") }
+                        OutlinedButton(
+                            onClick = { showBugDialog = true },
+                            shape = CircleShape,
+                        ) { Text("Report Bug") }
                         OutlinedButton(
                             onClick = {
                                 val send = Intent(Intent.ACTION_SEND)
@@ -173,9 +190,12 @@ fun SupportScreen(onBack: () -> Unit) {
                                 context.startActivity(Intent.createChooser(send, "Share Pro Notes"))
                             },
                             shape = CircleShape,
-                        ) { Text("Share App") }
+                        ) { Text("Share") }
                     }
                 }
+            }
+            if (showBugDialog) {
+                FeedbackDialog(initialCategory = "Bug Report", onDismiss = { showBugDialog = false })
             }
 
             if (Support.upiEnabled) {

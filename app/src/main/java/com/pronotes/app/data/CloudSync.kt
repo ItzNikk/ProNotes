@@ -93,6 +93,22 @@ data class CollabSharedNote(
     val itemsJson: String,
 )
 
+data class CollabSharedFile(
+    val id: String,
+    val authorName: String,
+    val fileName: String,
+    val downloadUrl: String,
+    val sizeBytes: Long = 0L,
+    val createdAt: Long = 0L,
+    val isDriveLink: Boolean = false,
+)
+
+data class SavedStudyRoom(
+    val roomId: String,
+    val title: String,
+    val joinedAt: Long,
+)
+
 /**
  * 100% Free, Zero-Secret Cloud Sync & Live Collab Engine.
  *
@@ -834,6 +850,158 @@ object CloudSync {
                 Unit
             }
         }
+
+    // ---------------------------------------------------------------- Free File Sharing & Saved Study Friends Rooms
+
+    fun savedStudyRooms(context: Context): List<SavedStudyRoom> {
+        val raw = prefs(context).getString("saved_study_rooms", "").orEmpty()
+        if (raw.isBlank()) return emptyList()
+        return raw.split('\n').mapNotNull { line ->
+            val parts = line.split('|')
+            if (parts.size < 2) return@mapNotNull null
+            SavedStudyRoom(
+                roomId = parts[0],
+                title = parts[1],
+                joinedAt = parts.getOrNull(2)?.toLongOrNull() ?: 0L,
+            )
+        }.sortedByDescending { it.joinedAt }
+    }
+
+    fun rememberStudyRoom(context: Context, roomId: String, title: String) {
+        val existing = savedStudyRooms(context).filterNot { it.roomId.equals(roomId, ignoreCase = true) }
+        val updated = (listOf(SavedStudyRoom(roomId.uppercase(), title.replace("|", " ").replace("\n", " "), System.currentTimeMillis())) + existing).take(12)
+        val encoded = updated.joinToString("\n") { "${it.roomId}|${it.title}|${it.joinedAt}" }
+        prefs(context).edit().putString("saved_study_rooms", encoded).apply()
+    }
+
+    fun forgetStudyRoom(context: Context, roomId: String) {
+        val updated = savedStudyRooms(context).filterNot { it.roomId.equals(roomId, ignoreCase = true) }
+        val encoded = updated.joinToString("\n") { "${it.roomId}|${it.title}|${it.joinedAt}" }
+        prefs(context).edit().putString("saved_study_rooms", encoded).apply()
+    }
+
+    /**
+     * Uploads any file (PDF, image, notebook backup, slides — up to 15 MB) completely free via ntfy.sh's
+     * built-in file attachment relay, and broadcasts the download link to everyone in the study room.
+     */
+    suspend fun uploadFileToRoom(
+        context: Context,
+        roomId: String,
+        uri: Uri,
+        fallbackName: String = "shared_file",
+    ): Result<CollabSharedFile> = withContext(Dispatchers.IO) {
+        runCatching {
+            val u = ensureRoomParticipant(context)
+            val displayName = resolveUriFileName(context, uri) ?: fallbackName
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                ?: error("Could not read selected file")
+            require(bytes.isNotEmpty()) { "Selected file is empty." }
+            require(bytes.size <= 15 * 1024 * 1024) { "File exceeds 15 MB free relay limit — use Share Drive Link for larger files." }
+
+            val fileTopic = "${roomTopic(roomId)}_files"
+            val conn = (URL("$FREE_RELAY_BASE/$fileTopic").openConnection() as HttpURLConnection).apply {
+                requestMethod = "PUT"
+                doOutput = true
+                connectTimeout = 15_000
+                readTimeout = 30_000
+                setRequestProperty("Filename", displayName.replace(Regex("[^A-Za-z0-9._ -]"), "_").take(96))
+                setRequestProperty("Title", "Shared by ${u.displayName}")
+            }
+            val responseText = try {
+                conn.outputStream.use { it.write(bytes) }
+                val code = conn.responseCode
+                val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                    ?.bufferedReader()?.use { it.readText() }.orEmpty()
+                check(code in 200..299) { "Upload failed (HTTP $code)" }
+                body
+            } finally {
+                conn.disconnect()
+            }
+            val respObj = json.parseToJsonElement(responseText).jsonObject
+            val attachUrl = respObj["attachment"]?.jsonObject?.get("url")?.jsonPrimitive?.content
+                ?: error("Free relay did not return a download link")
+            val now = System.currentTimeMillis()
+            val fileId = "f_${now}_${UUID.randomUUID().toString().take(6)}"
+            val authorName = u.displayName.ifBlank { "Student" }.take(60)
+            val pkt = buildJsonObject {
+                put("kind", "file")
+                put("id", fileId)
+                put("authorName", authorName)
+                put("fileName", displayName.take(120))
+                put("url", attachUrl)
+                put("sizeBytes", bytes.size.toLong())
+                put("isDriveLink", false)
+                put("createdAt", now)
+            }
+            appendLocalRoomEvent(context, roomId, pkt)
+            runCatching { postFreeRelayMessage(roomTopic(roomId), pkt.toString()) }
+            CollabSharedFile(fileId, authorName, displayName, attachUrl, bytes.size.toLong(), now, isDriveLink = false)
+        }
+    }
+
+    /** Shares a Google Drive (or any cloud storage) link with study friends in the room. */
+    suspend fun shareDriveOrUrlToRoom(
+        context: Context,
+        roomId: String,
+        label: String,
+        urlInput: String,
+    ): Result<CollabSharedFile> = withContext(Dispatchers.IO) {
+        runCatching {
+            val u = ensureRoomParticipant(context)
+            val cleanUrl = urlInput.trim().let { if (it.startsWith("http://") || it.startsWith("https://")) it else "https://$it" }
+            require(cleanUrl.length >= 10) { "Please paste a valid Google Drive or file URL." }
+            val now = System.currentTimeMillis()
+            val fileId = "d_${now}_${UUID.randomUUID().toString().take(6)}"
+            val authorName = u.displayName.ifBlank { "Student" }.take(60)
+            val isDrive = cleanUrl.contains("drive.google.com", ignoreCase = true) || cleanUrl.contains("docs.google.com", ignoreCase = true)
+            val title = label.trim().ifBlank { if (isDrive) "Google Drive File" else "Shared File Link" }.take(120)
+            val pkt = buildJsonObject {
+                put("kind", "file")
+                put("id", fileId)
+                put("authorName", authorName)
+                put("fileName", title)
+                put("url", cleanUrl.take(900))
+                put("sizeBytes", 0L)
+                put("isDriveLink", isDrive)
+                put("createdAt", now)
+            }
+            appendLocalRoomEvent(context, roomId, pkt)
+            runCatching { postFreeRelayMessage(roomTopic(roomId), pkt.toString()) }
+            CollabSharedFile(fileId, authorName, title, cleanUrl, 0L, now, isDriveLink = isDrive)
+        }
+    }
+
+    suspend fun fetchRoomFiles(context: Context, roomId: String): Result<List<CollabSharedFile>> = withContext(Dispatchers.IO) {
+        runCatching {
+            val remoteEvents = fetchFreeRelayMessages(roomTopic(roomId), since = "24h")
+            val localEvents = readLocalRoomEvents(context, roomId)
+            val map = LinkedHashMap<String, CollabSharedFile>()
+            for (ev in localEvents + remoteEvents) {
+                if (ev["kind"]?.jsonPrimitive?.content == "file") {
+                    val id = ev["id"]?.jsonPrimitive?.content ?: continue
+                    map[id] = CollabSharedFile(
+                        id = id,
+                        authorName = ev["authorName"]?.jsonPrimitive?.content ?: "Student",
+                        fileName = ev["fileName"]?.jsonPrimitive?.content ?: "File",
+                        downloadUrl = ev["url"]?.jsonPrimitive?.content.orEmpty(),
+                        sizeBytes = ev["sizeBytes"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
+                        createdAt = ev["createdAt"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
+                        isDriveLink = ev["isDriveLink"]?.jsonPrimitive?.content?.toBoolean() ?: false,
+                    )
+                }
+            }
+            map.values.sortedByDescending { it.createdAt }
+        }
+    }
+
+    private fun resolveUriFileName(context: Context, uri: Uri): String? {
+        runCatching {
+            context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) return c.getString(0)
+            }
+        }
+        return uri.lastPathSegment?.substringAfterLast('/')
+    }
 
     // ---------------------------------------------------------------- Free Cloud Relay & Local Cache Helpers
 
