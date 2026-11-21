@@ -21,6 +21,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -34,6 +37,9 @@ import java.io.File
 import java.io.RandomAccessFile
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.ByteBuffer
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Resumable background-capable in-app updates from public GitHub releases:
@@ -65,11 +71,17 @@ object Updater {
         private set
     var etaSeconds by mutableStateOf<Long?>(null)
         private set
+    var activeStreams by mutableStateOf(1)
+        private set
     var error by mutableStateOf<String?>(null)
         private set
     var showDialog by mutableStateOf(false)
     var remindedThisLaunch = false
     var pendingConfirm by mutableStateOf<Intent?>(null)
+
+    private const val PARALLEL_STREAMS = 4
+    private const val MIN_PARALLEL_BYTES = 1_500_000L
+    private const val IO_BUFFER_BYTES = 128 * 1024
 
     private var apk: File? = null
     private var waitingForPermission = false
@@ -83,6 +95,7 @@ object Updater {
     private fun updateDir(context: Context) = File(context.cacheDir, "updates").apply { mkdirs() }
     private fun partFile(context: Context) = File(updateDir(context), "ProNotes.apk.part")
     private fun metaFile(context: Context) = File(updateDir(context), "ProNotes.apk.meta")
+    private fun segmentsFile(context: Context) = File(updateDir(context), "ProNotes.apk.seg")
     private fun finalApkFile(context: Context) = File(updateDir(context), "ProNotes.apk")
 
     fun startDownload(context: Context) {
@@ -149,11 +162,13 @@ object Updater {
         downloadJob = null
         partFile(app).delete()
         metaFile(app).delete()
+        segmentsFile(app).delete()
         downloadedBytes = 0L
         totalBytes = release?.size ?: 0L
         progress = 0f
         speedBytesPerSec = 0L
         etaSeconds = null
+        activeStreams = 1
         error = null
         phase = if (release != null) Phase.AVAILABLE else Phase.IDLE
         runCatching { app.startService(UpdateDownloadService.cancelIntent(app)) }
@@ -170,6 +185,8 @@ object Updater {
     private fun prefs(c: Context) = c.getSharedPreferences("updater", Context.MODE_PRIVATE)
     fun autoOpen(c: Context) = prefs(c).getBoolean("autoOpen", false)
     fun setAutoOpen(c: Context, on: Boolean) { prefs(c).edit().putBoolean("autoOpen", on).apply() }
+    fun fastDownload(c: Context) = prefs(c).getBoolean("fastDownload", true)
+    fun setFastDownload(c: Context, on: Boolean) { prefs(c).edit().putBoolean("fastDownload", on).apply() }
 
     /** True while waiting for the user to return from "Allow from this source" (survives process restart). */
     fun isWaitingForInstall(c: Context): Boolean {
@@ -226,7 +243,15 @@ object Updater {
             if (rel != null && isNewer(rel.tag, currentVersion(context))) {
                 val partial = partFile(context)
                 val meta = readMeta(context)
-                if (partial.exists() && partial.length() > 0L && meta?.first == rel.tag) {
+                val savedSegs = readSegments(context, rel.tag)
+                if (partial.exists() && partial.length() > 0L && savedSegs != null) {
+                    val segDone = savedSegs.sumOf { (it.cursor - it.start).coerceAtLeast(0L) }
+                    val segTotal = savedSegs.lastOrNull()?.let { it.end + 1L } ?: rel.size
+                    downloadedBytes = segDone
+                    totalBytes = segTotal
+                    if (segTotal > 0L) progress = (segDone.toFloat() / segTotal).coerceIn(0f, 1f)
+                    phase = Phase.PAUSED
+                } else if (partial.exists() && partial.length() > 0L && meta?.first == rel.tag) {
                     downloadedBytes = partial.length()
                     totalBytes = meta.third.takeIf { it > 0L } ?: rel.size
                     if (totalBytes > 0L) progress = (downloadedBytes.toFloat() / totalBytes).coerceIn(0f, 1f)
@@ -314,6 +339,232 @@ object Updater {
         data object Cancelled : DownloadOutcome()
     }
 
+    private data class SegmentState(val start: Long, val end: Long, @Volatile var cursor: Long)
+
+    private fun readSegments(context: Context, expectedTag: String, expectedETag: String? = null, expectedTotal: Long = 0L): List<SegmentState>? {
+        val sf = segmentsFile(context)
+        if (!sf.exists()) return null
+        val lines = runCatching { sf.readLines() }.getOrNull().orEmpty()
+        if (lines.size < 4) return null
+        val tag = lines[0]
+        val etag = lines[1]
+        val total = lines[2].toLongOrNull() ?: return null
+        if (tag != expectedTag) return null
+        if (expectedTotal > 0L && total != expectedTotal) return null
+        if (!expectedETag.isNullOrBlank() && etag.isNotBlank() && etag != expectedETag) return null
+        val segs = lines.drop(3).mapNotNull { line ->
+            val p = line.split(',')
+            if (p.size != 3) return@mapNotNull null
+            val s = p[0].toLongOrNull() ?: return@mapNotNull null
+            val e = p[1].toLongOrNull() ?: return@mapNotNull null
+            val c = p[2].toLongOrNull() ?: return@mapNotNull null
+            if (s < 0L || e < s || c < s || c > e + 1L) return@mapNotNull null
+            SegmentState(s, e, c)
+        }
+        return segs.takeIf { it.isNotEmpty() }
+    }
+
+    private fun writeSegments(context: Context, tag: String, etag: String, total: Long, segs: List<SegmentState>) {
+        runCatching {
+            val sb = StringBuilder()
+            sb.append(tag).append('\n').append(etag).append('\n').append(total).append('\n')
+            for (s in segs) {
+                sb.append(s.start).append(',').append(s.end).append(',').append(s.cursor).append('\n')
+            }
+            segmentsFile(context).writeText(sb.toString())
+        }
+    }
+
+    private data class ProbeInfo(val resolvedUrl: URL, val totalBytes: Long, val etag: String, val supportsRange: Boolean)
+
+    private fun probeRemoteAsset(rawUrl: String): ProbeInfo? {
+        var url = URL(rawUrl)
+        var hops = 0
+        while (hops++ < 8) {
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = false
+                connectTimeout = 12000
+                readTimeout = 15000
+                setRequestProperty("User-Agent", USER_AGENT)
+                setRequestProperty("Range", "bytes=0-0")
+            }
+            try {
+                val code = conn.responseCode
+                if (code in 300..399) {
+                    val next = conn.getHeaderField("Location") ?: return null
+                    url = URL(url, next)
+                    continue
+                }
+                val etag = conn.getHeaderField("ETag").orEmpty()
+                if (code == HttpURLConnection.HTTP_PARTIAL) {
+                    val total = conn.getHeaderField("Content-Range")?.substringAfterLast('/')?.toLongOrNull() ?: 0L
+                    return ProbeInfo(url, total, etag, total > 0L)
+                }
+                if (code in 200..299) {
+                    val total = conn.contentLengthLong.takeIf { it > 0L } ?: 0L
+                    val accepts = conn.getHeaderField("Accept-Ranges").orEmpty().contains("bytes", ignoreCase = true)
+                    return ProbeInfo(url, total, etag, accepts && total > 0L)
+                }
+                return null
+            } finally {
+                conn.disconnect()
+            }
+        }
+        return null
+    }
+
+    private suspend fun downloadParallel(
+        app: Context,
+        rel: Release,
+        probe: ProbeInfo,
+    ): DownloadOutcome = coroutineScope {
+        val part = partFile(app)
+        val out = finalApkFile(app)
+        val total = probe.totalBytes
+        val existingSegs = if (part.exists() && part.length() == total) {
+            readSegments(app, rel.tag, probe.etag, total)
+        } else null
+
+        val segments = existingSegs ?: run {
+            part.delete()
+            metaFile(app).delete()
+            RandomAccessFile(part, "rw").use { it.setLength(total) }
+            val chunkSize = total / PARALLEL_STREAMS
+            List(PARALLEL_STREAMS) { i ->
+                val start = i * chunkSize
+                val end = if (i == PARALLEL_STREAMS - 1) total - 1L else (start + chunkSize - 1L)
+                SegmentState(start, end, start)
+            }
+        }
+        writeMeta(app, rel.tag, probe.etag, total)
+        writeSegments(app, rel.tag, probe.etag, total, segments)
+
+        val completedCounter = AtomicLong(segments.sumOf { (it.cursor - it.start).coerceAtLeast(0L) })
+        val windowBytes = AtomicLong(0L)
+        val windowStartMs = AtomicLong(SystemClock.uptimeMillis())
+        val lastUiMs = AtomicLong(0L)
+        val lastSegSaveMs = AtomicLong(SystemClock.uptimeMillis())
+        val workerError = AtomicReference<Throwable?>(null)
+
+        withContext(Dispatchers.Main) {
+            activeStreams = segments.size
+            downloadedBytes = completedCounter.get()
+            totalBytes = total
+            progress = (completedCounter.get().toFloat() / total).coerceIn(0f, 1f)
+        }
+
+        fun publishProgress(force: Boolean = false) {
+            val now = SystemClock.uptimeMillis()
+            val prevUi = lastUiMs.get()
+            if (!force && now - prevUi < 160L) return
+            if (!lastUiMs.compareAndSet(prevUi, now) && !force) return
+
+            val done = completedCounter.get().coerceAtMost(total)
+            val wStart = windowStartMs.get()
+            val elapsedMs = (now - wStart).coerceAtLeast(1L)
+            val spd = (windowBytes.get() * 1000L) / elapsedMs
+            if (elapsedMs >= 1500L && windowStartMs.compareAndSet(wStart, now)) {
+                windowBytes.set(0L)
+            }
+            val pct = (done.toFloat() / total).coerceIn(0f, 1f)
+            val remaining = (total - done).coerceAtLeast(0L)
+            val eta = if (spd > 2048L) remaining / spd else null
+            scope.launch {
+                downloadedBytes = done
+                totalBytes = total
+                progress = pct
+                speedBytesPerSec = spd
+                etaSeconds = eta
+            }
+            UpdateDownloadService.notifyProgress(app, rel.tag, pct, done, total, spd, eta)
+
+            val prevSave = lastSegSaveMs.get()
+            if (now - prevSave >= 600L && lastSegSaveMs.compareAndSet(prevSave, now)) {
+                writeSegments(app, rel.tag, probe.etag, total, segments)
+            }
+        }
+
+        val jobs = segments.map { seg ->
+            async(Dispatchers.IO) {
+                if (seg.cursor > seg.end) return@async
+                var url = probe.resolvedUrl
+                var conn: HttpURLConnection
+                var hops = 0
+                while (true) {
+                    conn = (url.openConnection() as HttpURLConnection).apply {
+                        instanceFollowRedirects = false
+                        connectTimeout = 15000
+                        readTimeout = 30000
+                        setRequestProperty("User-Agent", USER_AGENT)
+                        setRequestProperty("Range", "bytes=${seg.cursor}-${seg.end}")
+                    }
+                    val code = conn.responseCode
+                    if (code in 300..399 && hops++ < 6) {
+                        val next = conn.getHeaderField("Location") ?: throw IllegalStateException("Redirect missing Location")
+                        url = URL(url, next)
+                        conn.disconnect()
+                        continue
+                    }
+                    if (code != HttpURLConnection.HTTP_PARTIAL) {
+                        conn.disconnect()
+                        throw IllegalStateException("Parallel range rejected (HTTP $code)")
+                    }
+                    break
+                }
+                try {
+                    conn.inputStream.use { input ->
+                        RandomAccessFile(part, "rw").use { raf ->
+                            val channel = raf.channel
+                            val buf = ByteArray(IO_BUFFER_BYTES)
+                            while (seg.cursor <= seg.end) {
+                                if (controlSignal != null || workerError.get() != null) break
+                                val remainingInSeg = (seg.end - seg.cursor + 1L).coerceAtMost(buf.size.toLong()).toInt()
+                                val n = input.read(buf, 0, remainingInSeg)
+                                if (n < 0) break
+                                val writePos = seg.cursor
+                                val bb = ByteBuffer.wrap(buf, 0, n)
+                                var offset = 0
+                                while (bb.hasRemaining()) {
+                                    offset += channel.write(bb, writePos + offset)
+                                }
+                                seg.cursor += n
+                                completedCounter.addAndGet(n.toLong())
+                                windowBytes.addAndGet(n.toLong())
+                                publishProgress()
+                            }
+                        }
+                    }
+                } catch (t: Throwable) {
+                    workerError.compareAndSet(null, t)
+                    throw t
+                } finally {
+                    conn.disconnect()
+                }
+            }
+        }
+
+        val firstErr = runCatching { jobs.awaitAll() }.exceptionOrNull() ?: workerError.get()
+        writeSegments(app, rel.tag, probe.etag, total, segments)
+
+        if (controlSignal == ControlSignal.PAUSE) return@coroutineScope DownloadOutcome.Paused
+        if (controlSignal == ControlSignal.CANCEL) return@coroutineScope DownloadOutcome.Cancelled
+        if (firstErr != null) throw firstErr
+
+        val allComplete = segments.all { it.cursor > it.end }
+        if (!allComplete || !part.exists() || part.length() < total) {
+            throw IllegalStateException("Parallel download ended early.")
+        }
+        publishProgress(force = true)
+        out.delete()
+        if (!part.renameTo(out)) {
+            part.copyTo(out, overwrite = true)
+            part.delete()
+        }
+        segmentsFile(app).delete()
+        metaFile(app).delete()
+        DownloadOutcome.Completed(out)
+    }
+
     suspend fun download(context: Context) {
         val rel = release ?: return
         val app = context.applicationContext
@@ -330,7 +581,26 @@ object Updater {
                 if (savedMeta != null && savedMeta.first != rel.tag) {
                     part.delete()
                     metaFile(app).delete()
+                    segmentsFile(app).delete()
                 }
+
+                // Fast parallel multi-connection download (4 concurrent HTTP Range streams)
+                if (fastDownload(app)) {
+                    val probe = runCatching { probeRemoteAsset(rel.apkUrl) }.getOrNull()
+                    if (probe != null && probe.supportsRange && probe.totalBytes >= MIN_PARALLEL_BYTES) {
+                        val parallelRes = runCatching { downloadParallel(app, rel, probe) }
+                        if (parallelRes.isSuccess) {
+                            return@runCatching parallelRes.getOrThrow()
+                        }
+                        if (controlSignal == ControlSignal.PAUSE) return@runCatching DownloadOutcome.Paused
+                        if (controlSignal == ControlSignal.CANCEL) return@runCatching DownloadOutcome.Cancelled
+                        // Server rejected parallel ranges or transient chunk failure: clean up segments and fall back seamlessly
+                        segmentsFile(app).delete()
+                        part.delete()
+                    }
+                }
+
+                withContext(Dispatchers.Main) { activeStreams = 1 }
                 val initialOffset = if (part.exists() && part.length() > 0L) part.length() else 0L
 
                 var url = URL(rel.apkUrl)
@@ -408,7 +678,7 @@ object Updater {
                     conn.inputStream.use { input ->
                         RandomAccessFile(part, "rw").use { raf ->
                             raf.seek(existingBytes)
-                            val buf = ByteArray(64 * 1024)
+                            val buf = ByteArray(IO_BUFFER_BYTES)
                             while (true) {
                                 when (controlSignal) {
                                     ControlSignal.PAUSE -> return@runCatching DownloadOutcome.Paused
@@ -462,6 +732,7 @@ object Updater {
                     part.copyTo(out, overwrite = true)
                     part.delete()
                 }
+                segmentsFile(app).delete()
                 metaFile(app).delete()
                 DownloadOutcome.Completed(out)
             }

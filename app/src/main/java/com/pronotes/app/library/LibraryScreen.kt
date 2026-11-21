@@ -257,9 +257,20 @@ fun LibraryScreen(
     val importFilesLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) scope.launch {
             try {
-                repo.importFiles(uris, folderId) { title, page, total ->
-                    pdfImportProgress = Triple(title, page, total)
-                }?.let(onOpen)
+                runCatching {
+                    repo.importFiles(uris, folderId) { title, page, total ->
+                        pdfImportProgress = Triple(title, page, total)
+                    }
+                }.onSuccess { id ->
+                    id?.let(onOpen)
+                }.onFailure { err ->
+                    val msg = if (err is SecurityException) {
+                        "This PDF is password-protected or locked."
+                    } else {
+                        "Could not import file. It may be corrupted or unreadable."
+                    }
+                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+                }
             } finally {
                 pdfImportProgress = null
             }
@@ -272,13 +283,22 @@ fun LibraryScreen(
     if (pendingImport != null) {
         LaunchedEffect(pendingImport) {
             val id = try {
-                when {
-                    pendingImport.uris.isNotEmpty() -> repo.importFiles(pendingImport.uris, null) { title, page, total ->
-                        pdfImportProgress = Triple(title, page, total)
+                runCatching {
+                    when {
+                        pendingImport.uris.isNotEmpty() -> repo.importFiles(pendingImport.uris, null) { title, page, total ->
+                            pdfImportProgress = Triple(title, page, total)
+                        }
+                        !pendingImport.text.isNullOrBlank() -> repo.importStructuredText(pendingImport.title ?: "", pendingImport.text, null)
+                        else -> null
                     }
-                    !pendingImport.text.isNullOrBlank() -> repo.importStructuredText(pendingImport.title ?: "", pendingImport.text, null)
-                    else -> null
-                }
+                }.onFailure { err ->
+                    val msg = if (err is SecurityException) {
+                        "This PDF is password-protected or locked."
+                    } else {
+                        "Could not import shared file."
+                    }
+                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+                }.getOrNull()
             } finally {
                 pdfImportProgress = null
             }
@@ -885,8 +905,13 @@ fun LibraryScreen(
                 isWhiteboard = b.isWhiteboard,
             )
             if (b.photo != null) {
-                val spec = repo.saveCoverImage(id, b.photo)
-                if (!usePhotoPage || !repo.setCoverPage(id, spec)) repo.setCover(id, spec)
+                runCatching { repo.saveCoverImage(id, b.photo) }
+                    .onSuccess { spec ->
+                        if (!usePhotoPage || !repo.setCoverPage(id, spec)) repo.setCover(id, spec)
+                    }
+                    .onFailure {
+                        android.widget.Toast.makeText(context, "Could not read cover photo. Using default cover.", android.widget.Toast.LENGTH_SHORT).show()
+                    }
             }
             onOpen(id)
         }
@@ -984,7 +1009,13 @@ fun LibraryScreen(
         CoverDialog(n.coverSpec, onDismiss = { coverFor = null }) { spec, photo ->
             coverFor = null
             scope.launch {
-                val s = if (photo != null) repo.saveCoverImage(n.id, photo) else spec
+                val s = if (photo != null) {
+                    runCatching { repo.saveCoverImage(n.id, photo) }
+                        .onFailure {
+                            android.widget.Toast.makeText(context, "Could not read cover photo.", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        .getOrNull() ?: return@launch
+                } else spec
                 if (s == "thumb" || !repo.setCoverPage(n.id, s)) repo.setCover(n.id, s)
             }
         }

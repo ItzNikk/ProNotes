@@ -50,14 +50,41 @@ object StickerLibrary {
     fun custom(context: Context): List<Sticker.Custom> =
         dir(context).listFiles()?.filter { it.isFile }?.sortedByDescending { it.lastModified() }?.map { Sticker.Custom(it) } ?: emptyList()
 
-    /** Copies a picked picture into the sticker library (scaled down to 800 px). */
+    /** Copies a picked picture into the sticker library (downsampled & scaled down to 800 px). */
     fun import(context: Context, uri: Uri): File? = runCatching {
-        val src = context.contentResolver.openInputStream(uri)!!.use { BitmapFactory.decodeStream(it) } ?: return null
-        val s = (800f / maxOf(src.width, src.height)).coerceAtMost(1f)
-        val bmp = Bitmap.createScaledBitmap(src, (src.width * s).toInt().coerceAtLeast(1), (src.height * s).toInt().coerceAtLeast(1), true)
-        val f = File(dir(context), "s_${UUID.randomUUID()}.png")
-        f.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        f
+        val maxSide = 800
+        val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        (context.contentResolver.openInputStream(uri) ?: error("Can't open file")).use {
+            BitmapFactory.decodeStream(it, null, boundsOpts)
+        }
+        var sample = 1
+        val rawMax = maxOf(boundsOpts.outWidth, boundsOpts.outHeight)
+        if (rawMax > maxSide) {
+            while (rawMax / (sample * 2) >= maxSide) {
+                sample *= 2
+            }
+        }
+        val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sample }
+        val src = (context.contentResolver.openInputStream(uri) ?: error("Can't open file")).use {
+            BitmapFactory.decodeStream(it, null, decodeOpts)
+        } ?: return null
+        var scaled: Bitmap? = null
+        try {
+            val s = (maxSide.toFloat() / maxOf(src.width, src.height)).coerceAtMost(1f)
+            val targetW = (src.width * s).toInt().coerceAtLeast(1)
+            val targetH = (src.height * s).toInt().coerceAtLeast(1)
+            val outBmp = if (targetW < src.width || targetH < src.height) {
+                Bitmap.createScaledBitmap(src, targetW, targetH, true).also { scaled = it }
+            } else {
+                src
+            }
+            val f = File(dir(context), "s_${UUID.randomUUID()}.png")
+            f.outputStream().use { outBmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            f
+        } finally {
+            if (scaled != null && scaled !== src) scaled?.recycle()
+            src.recycle()
+        }
     }.getOrNull()
 
     fun bitmap(sticker: Sticker, size: Int = 360): Bitmap? = when (sticker) {

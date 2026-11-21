@@ -780,11 +780,40 @@ private fun TextCardContent(vm: EditorViewModel) {
             AppChip(vm.textStyle.font == font, { vm.textStyle = vm.textStyle.copy(font = font) }, label = font.label)
         }
     }
+    val hwStore = remember(context) { HandwritingFontStore.get(context) }
+    val hwProfile by hwStore.profile.collectAsStateWithLifecycle()
+    var showHwStudio by remember { mutableStateOf(false) }
+
+    AppPill(
+        selected = hwProfile.trainedCharCount() > 0,
+        tint = ProButtonPalette.Emerald,
+        onClick = { showHwStudio = true },
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 46.dp),
+    ) {
+        Icon(
+            Icons.Outlined.Edit,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = if (hwProfile.trainedCharCount() > 0) Color.White else fgColor,
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            "My Handwriting Style (${hwProfile.trainedCharCount()}/${HandwritingFontChars.ALL.size})",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = if (hwProfile.trainedCharCount() > 0) Color.White else fgColor,
+        )
+    }
     Text(
-        "Tap or drag anywhere on the page with the Text tool to place a transparent, resizable text box. Type with your keyboard or write directly with a stylus inside the box.",
+        "Tap or drag anywhere on the page with the Text tool to place a transparent, resizable text box. Type with your keyboard, write with a stylus, or tap My Ink to convert typed text into your own handwriting.",
         style = MaterialTheme.typography.labelSmall,
         color = fgColor.copy(alpha = 0.68f),
     )
+
+    if (showHwStudio) {
+        HandwritingStudioDialog(onDismiss = { showHwStudio = false })
+    }
 }
 
 @Composable

@@ -72,6 +72,7 @@ fun UpdateDialogHost() {
     if (!Updater.showDialog) return
     val rel = Updater.release ?: run { Updater.showDialog = false; return }
     var autoOpen by remember { mutableStateOf(Updater.autoOpen(context)) }
+    var fastDownload by remember { mutableStateOf(Updater.fastDownload(context)) }
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     fun startOrResume() {
@@ -111,8 +112,9 @@ fun UpdateDialogHost() {
                             val doneMb = "%.1f".format(Updater.downloadedBytes / 1048576.0)
                             val totalMb = if (Updater.totalBytes > 0L) " / %.1f MB".format(Updater.totalBytes / 1048576.0) else " MB"
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                val fastTag = if (isDownloading && Updater.activeStreams > 1) " · ${Updater.activeStreams}× Fast" else ""
                                 Text(
-                                    if (isDownloading) "Downloading $pct%" else "Paused at $pct%",
+                                    if (isDownloading) "Downloading $pct%$fastTag" else "Paused at $pct%",
                                     style = MaterialTheme.typography.labelLarge,
                                     fontWeight = FontWeight.SemiBold,
                                 )
@@ -144,6 +146,23 @@ fun UpdateDialogHost() {
                     MiniMarkdown(notes)
                 }
                 Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f).padding(end = 10.dp)) {
+                        Text("Fast parallel download")
+                        Text(
+                            "Splits the update into 4 parallel streams for faster downloads.",
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    AppToggle(
+                        checked = fastDownload,
+                        onCheckedChange = { on ->
+                            fastDownload = on
+                            Updater.setFastDownload(context, on)
+                        },
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).padding(end = 10.dp)) {
                         Text("Open after updating")

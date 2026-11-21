@@ -292,18 +292,30 @@ fun BookReaderHubScreen(
     ) { uri ->
         if (uri != null) {
             scope.launch {
-                val mime = context.contentResolver.getType(uri)?.lowercase() ?: ""
-                val id = if (mime.contains("pdf")) {
-                    repo.importPdf(uri, null) { title, page, total ->
-                        pdfImportProgress = Triple(title, page, total)
-                    }
-                } else {
-                    repo.importFiles(listOf(uri), null) { title, page, total ->
-                        pdfImportProgress = Triple(title, page, total)
-                    }
+                val importedId = try {
+                    runCatching {
+                        val mime = context.contentResolver.getType(uri)?.lowercase() ?: ""
+                        if (mime.contains("pdf")) {
+                            repo.importPdf(uri, null) { title, page, total ->
+                                pdfImportProgress = Triple(title, page, total)
+                            }
+                        } else {
+                            repo.importFiles(listOf(uri), null) { title, page, total ->
+                                pdfImportProgress = Triple(title, page, total)
+                            }
+                        }
+                    }.onFailure { err ->
+                        val msg = if (err is SecurityException) {
+                            "This PDF is password-protected or locked."
+                        } else {
+                            "Could not open file. It may be broken or locked."
+                        }
+                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+                    }.getOrNull()
+                } finally {
+                    pdfImportProgress = null
                 }
-                pdfImportProgress = null
-                if (id != null) onOpenBook(id)
+                if (importedId != null) onOpenBook(importedId)
             }
         }
     }

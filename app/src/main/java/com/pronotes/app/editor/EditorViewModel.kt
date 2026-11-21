@@ -45,8 +45,8 @@ val WebLinkColors = listOf(0xFF24483F, 0xFF2E4A7A, 0xFF2F6B4F, 0xFF7A2E42, 0xFFB
 val MindPalette = listOf(0xFF24483F, 0xFF2E4A7A, 0xFF2F6B4F, 0xFF7A2E42, 0xFFB98A2E, 0xFF35655A, 0xFF5A5F58).map { it.toInt() }
 
 class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(app) {
-    private val repo = Repository.get(app)
-    private val store = SettingsStore.get(app)
+    internal val repo = Repository.get(app)
+    internal val store = SettingsStore.get(app)
     internal val notebookSettings = com.pronotes.app.data.NotebookSettings(app, noteId, viewModelScope)
     val settingsFlow = notebookSettings.settings
 
@@ -160,14 +160,14 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         private set
     var searching by mutableStateOf(false)
         private set
-    private var pdfIndex: PdfTextIndex? = null
+    internal var pdfIndex: PdfTextIndex? = null
     private var searchJob: Job? = null
 
-    private val undoStack = ArrayDeque<Pair<Int, List<PageItem>>>()
-    private val redoStack = ArrayDeque<Pair<Int, List<PageItem>>>()
+    internal val undoStack = ArrayDeque<Pair<Int, List<PageItem>>>()
+    internal val redoStack = ArrayDeque<Pair<Int, List<PageItem>>>()
     private var saveJob: Job? = null
-    private val dirtyPageIds = Collections.synchronizedSet(HashSet<String>())
-    @Volatile private var structureDirty = false
+    internal val dirtyPageIds = Collections.synchronizedSet(HashSet<String>())
+    @Volatile internal var structureDirty = false
     private var pdf: PdfPages? = null
     private val pendingPdf = HashSet<Int>()
     /** When each PDF page was last asked for by the canvas, and the width it wants now. */
@@ -367,7 +367,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     fun cutSelection() { copySelection(); deleteSelection() }
 
-    private fun selectionUnion(): RectF? {
+    internal fun selectionUnion(): RectF? {
         val p = pages.getOrNull(selectionPage) ?: return null
         val items = p.items.filter { it.id in selection }
         if (items.isEmpty()) return null
@@ -590,7 +590,11 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     fun useTapeImage(uri: Uri) {
         viewModelScope.launch {
-            val name = runCatching { repo.saveImage(noteId, uri) }.getOrNull() ?: return@launch
+            val name = runCatching { repo.saveImage(noteId, uri) }.getOrNull()
+            if (name == null) {
+                say("Could not read image.")
+                return@launch
+            }
             tapePattern = "image:$name"
             tool = Tool.TAPE
         }
@@ -628,7 +632,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         scheduleSave(); onPagesChanged?.invoke()
     }
 
-    private fun applyItems(page: Int, items: List<PageItem>) {
+    internal fun applyItems(page: Int, items: List<PageItem>) {
         setItems(page, items)
         onPagesChanged?.invoke()
     }
@@ -646,7 +650,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         if (idx != pageIndex) onScrollTo?.invoke(idx)
     }
 
-    private fun refreshUndo() {
+    internal fun refreshUndo() {
         canUndo = undoStack.isNotEmpty(); canRedo = redoStack.isNotEmpty()
     }
 
@@ -726,7 +730,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var handwritingBusy by mutableStateOf(false)
         private set
 
-    private fun extractTimedStrokes(
+    internal fun extractTimedStrokes(
         items: List<InkItem>,
         originX: Float = 0f,
         originY: Float = 0f,
@@ -937,6 +941,60 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         applyItems(edit.page, items)
     }
 
+    /**
+     * Converts typed text into native Jetpack Ink [InkItem] strokes using the user's
+     * recorded Personal Handwriting letter library (or clean fallback vector strokes),
+     * aligned to paper rules and wrapped to the text box width.
+     */
+    fun commitTextAsHandwriting(
+        text: String,
+        size: Float = textSize,
+        color: Int = textColor ?: penStyle.color,
+        x: Float? = null,
+        y: Float? = null,
+        maxWidth: Float? = null,
+    ) {
+        val edit = textEdit ?: return
+        textEdit = null
+        if (edit.isFullPage) keyboardMode = false
+        val p = pages.getOrNull(edit.page) ?: return
+        val existing = edit.existing
+        if (text.isBlank()) {
+            if (existing != null) {
+                beginEdit(edit.page)
+                applyItems(edit.page, p.items.filterNot { it.id == existing.id })
+            }
+            return
+        }
+        textSize = size
+        textColor = color
+        val finalX = x ?: edit.x
+        val finalY = y ?: edit.y
+        val availW = (maxWidth ?: edit.boxWidth).coerceAtMost((p.width - finalX - 24f).coerceAtLeast(160f))
+        val profile = HandwritingFontStore.get(getApplication()).profile.value
+        val inkItems = HandwritingSynthesizer.synthesizeInkItems(
+            text = text,
+            startX = finalX,
+            startY = finalY,
+            maxWidth = availW,
+            fontSize = size,
+            color = color,
+            paper = p.paper,
+            lineScale = p.lineScale,
+            baseBrush = brushFor(Tool.PEN),
+            profile = profile,
+        )
+        if (inkItems.isEmpty()) return
+        val baseItems = if (existing != null) p.items.filterNot { it.id == existing.id } else p.items
+        beginEdit(edit.page)
+        applyItems(edit.page, baseItems + inkItems)
+        if (profile.trainedCharCount() == 0) {
+            say("Placed as ink. Train your letters in My Handwriting Style.")
+        } else {
+            say("Placed in your handwriting")
+        }
+    }
+
     fun dismissTextEdit() {
         val edit = textEdit
         textEdit = null
@@ -1091,458 +1149,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     // ------------------------------------------------------------- Concept Maps
 
-    fun selectedMindNode(): MindNodeItem? {
-        val id = activeMindNodeId ?: return null
-        return currentPage?.items?.filterIsInstance<MindNodeItem>()?.firstOrNull { it.id == id }
-    }
-
-    private fun mindBoxSize(label: String, shape: String, notes: String = ""): Pair<Float, Float> {
-        val clean = label.trim().ifBlank { "Idea" }
-        val baseLen = maxOf(clean.length, if (notes.isNotBlank()) 18 else 0)
-        val w = (baseLen * 13.5f + 78f).coerceIn(180f, 360f)
-        val extra = if (notes.isNotBlank()) 32f else 0f
-        val h = when (shape) {
-            "circle" -> (w * 0.64f + extra).coerceIn(114f, 196f)
-            "diamond" -> 116f
-            else -> (if (clean.length > 22) 96f else 78f) + extra
-        }
-        return w to h
-    }
-
-    private fun clampMindPos(page: Page, x: Float, y: Float, w: Float, h: Float): Pair<Float, Float> {
-        if (page.isWhiteboard) return x to y
-        val pad = 56f
-        val maxX = (page.width - w - pad).coerceAtLeast(pad)
-        val maxY = (page.height - h - pad).coerceAtLeast(pad)
-        return x.coerceIn(pad, maxX) to y.coerceIn(pad, maxY)
-    }
-
-    fun fitMindMapToView() {
-        val p = currentPage ?: return
-        val nodes = p.items.filterIsInstance<MindNodeItem>()
-        if (nodes.isEmpty()) { say("No concept map on this page yet"); return }
-        val r = RectF(nodes.first().bounds)
-        nodes.drop(1).forEach { r.union(it.bounds) }
-        r.inset(-110f, -110f)
-        if (!p.isWhiteboard) {
-            r.left = r.left.coerceAtLeast(0f)
-            r.top = r.top.coerceAtLeast(0f)
-            r.right = r.right.coerceAtMost(p.width)
-            r.bottom = r.bottom.coerceAtMost(p.height)
-        }
-        fitMindMapOnCanvas?.invoke(pageIndex, r)
-    }
-
-    fun onMindMapTap(page: Int, x: Float, y: Float, existing: MindNodeItem?) {
-        if (existing != null) {
-            if (activeMindNodeId == existing.id) {
-                mindNodeEdit = MindNodeEdit(page, existing, false)
-            } else {
-                activeMindNodeId = existing.id
-                mindColor = existing.color
-                mindShape = existing.shape
-                onRedraw?.invoke()
-            }
-            return
-        }
-        val p = pages.getOrNull(page) ?: return
-        val existingNodes = p.items.filterIsInstance<MindNodeItem>()
-        val parent = activeMindNodeId?.let { aid -> existingNodes.firstOrNull { it.id == aid } }
-            ?: existingNodes.firstOrNull { it.parentId == null }
-        val (w, h) = mindBoxSize(if (parent == null) "Central Topic" else "New idea", mindShape)
-        val col = if (parent == null) mindColor else MindPalette[(existingNodes.size + 1) % MindPalette.size]
-        val (cx, cy) = clampMindPos(p, x - w / 2f, y - h / 2f, w, h)
-        val draft = MindNodeItem(
-            id = ItemIds.next(),
-            x = cx,
-            y = cy,
-            w = w,
-            h = h,
-            label = if (parent == null) "Central Topic" else "",
-            parentId = parent?.id,
-            color = col,
-            shape = mindShape,
-        )
-        mindNodeEdit = MindNodeEdit(page, draft, true)
-    }
-
-    fun openEditSelectedMindNode() {
-        val n = selectedMindNode() ?: return
-        mindNodeEdit = MindNodeEdit(pageIndex, n, false)
-    }
-
-    fun addChildMindNode() {
-        val p = currentPage ?: return
-        val nodes = p.items.filterIsInstance<MindNodeItem>()
-        val parent = selectedMindNode() ?: nodes.firstOrNull { it.parentId == null } ?: nodes.firstOrNull()
-        val siblings = if (parent != null) nodes.count { it.parentId == parent.id } else 0
-        val rawX = if (parent != null) parent.x + parent.w + 110f else p.width / 2f - 110f
-        val rawY = if (parent != null) parent.y + (siblings - 0.5f) * 110f else p.height / 2f - 44f
-        val col = MindPalette[(nodes.size + 1) % MindPalette.size]
-        val (w, h) = mindBoxSize("New idea", mindShape)
-        val (cx, cy) = clampMindPos(p, rawX, rawY, w, h)
-        val draft = MindNodeItem(
-            id = ItemIds.next(),
-            x = cx,
-            y = cy,
-            w = w,
-            h = h,
-            label = "",
-            parentId = parent?.id,
-            color = col,
-            shape = mindShape,
-        )
-        mindNodeEdit = MindNodeEdit(pageIndex, draft, true)
-    }
-
-    fun addSiblingMindNode() {
-        val sel = selectedMindNode() ?: return
-        val p = currentPage ?: return
-        val nodes = p.items.filterIsInstance<MindNodeItem>()
-        val sameParent = nodes.count { it.parentId == sel.parentId }
-        val col = MindPalette[(nodes.size + 1) % MindPalette.size]
-        val (w, h) = mindBoxSize("New idea", sel.shape)
-        val (cx, cy) = clampMindPos(p, sel.x, sel.y + sel.h + 44f + (sameParent % 2) * 12f, w, h)
-        val draft = MindNodeItem(
-            id = ItemIds.next(),
-            x = cx,
-            y = cy,
-            w = w,
-            h = h,
-            label = "",
-            parentId = sel.parentId,
-            color = col,
-            shape = sel.shape,
-        )
-        mindNodeEdit = MindNodeEdit(pageIndex, draft, true)
-    }
-
-    fun commitMindNode(label: String, color: Int, shape: String, notes: String = "", tag: String = "") {
-        val edit = mindNodeEdit ?: return
-        mindNodeEdit = null
-        val p = pages.getOrNull(edit.page) ?: return
-        val clean = label.trim().ifBlank { if (edit.item.parentId == null) "Central Topic" else "Idea" }
-        val cleanNotes = notes.trim()
-        val cleanTag = tag.trim()
-        val (w, h) = mindBoxSize(clean, shape, cleanNotes)
-        val (cx, cy) = clampMindPos(p, edit.item.x, edit.item.y, w, h)
-        val updated = edit.item.copy(
-            x = cx,
-            y = cy,
-            label = clean,
-            color = color,
-            shape = shape,
-            w = w,
-            h = h,
-            notes = cleanNotes,
-            tag = cleanTag,
-        )
-        mindColor = color
-        mindShape = shape
-        activeMindNodeId = updated.id
-        beginEdit(edit.page)
-        val expanded = p.items.map {
-            if (it is MindNodeItem && it.id == updated.parentId && it.collapsed) it.copy(collapsed = false) else it
-        }
-        applyItems(
-            edit.page,
-            if (edit.isNew) expanded + updated else expanded.map { if (it.id == updated.id) updated else it },
-        )
-    }
-
-    fun deleteMindNode(nodeId: Long? = activeMindNodeId) {
-        val id = nodeId ?: return
-        mindNodeEdit = null
-        val p = currentPage ?: return
-        val nodes = p.items.filterIsInstance<MindNodeItem>()
-        if (nodes.none { it.id == id }) return
-        val dead = HashSet<Long>().apply { add(id) }
-        var grew = true
-        while (grew) {
-            grew = false
-            nodes.forEach { n -> if (n.parentId in dead && dead.add(n.id)) grew = true }
-        }
-        if (activeMindNodeId in dead) activeMindNodeId = null
-        beginEdit(pageIndex)
-        applyItems(pageIndex, p.items.filterNot { it.id in dead })
-    }
-
-    fun toggleCollapseMindNode(nodeId: Long? = activeMindNodeId) {
-        val id = nodeId ?: return
-        val p = currentPage ?: return
-        if (p.items.none { it is MindNodeItem && it.id == id }) return
-        beginEdit(pageIndex)
-        applyItems(pageIndex, p.items.map { if (it is MindNodeItem && it.id == id) it.copy(collapsed = !it.collapsed) else it })
-    }
-
-    fun recolorMindNode(nodeId: Long? = activeMindNodeId, color: Int) {
-        val id = nodeId ?: return
-        val p = currentPage ?: return
-        mindColor = color
-        if (p.items.none { it is MindNodeItem && it.id == id }) return
-        beginEdit(pageIndex)
-        applyItems(pageIndex, p.items.map { if (it is MindNodeItem && it.id == id) it.copy(color = color) else it })
-    }
-
-    fun autoLayoutMindMap(layout: MindLayout = MindLayout.RADIAL) {
-        val p = currentPage ?: return
-        val nodes = p.items.filterIsInstance<MindNodeItem>()
-        if (nodes.isEmpty()) return
-        val byId = nodes.associateBy { it.id }
-        val roots = nodes.filter { it.parentId == null || it.parentId !in byId }
-        val children = nodes.filter { it.parentId != null && it.parentId in byId }.groupBy { it.parentId!! }
-        val pos = HashMap<Long, Pair<Float, Float>>()
-        val cx = p.width / 2f
-        val cy = p.height / 2f
-
-        when (layout) {
-            MindLayout.RADIAL -> {
-                fun countLeaves(id: Long, seen: HashSet<Long>): Int {
-                    if (!seen.add(id)) return 1
-                    val ch = children[id].orEmpty()
-                    return if (ch.isEmpty()) 1 else ch.sumOf { countLeaves(it.id, seen) }
-                }
-                fun placeSubtree(id: Long, cxNode: Float, cyNode: Float, aStart: Double, aEnd: Double, depth: Int, seen: HashSet<Long>) {
-                    if (!seen.add(id)) return
-                    val n = byId[id] ?: return
-                    pos[id] = (cxNode - n.w / 2f) to (cyNode - n.h / 2f)
-                    val ch = children[id].orEmpty()
-                    if (ch.isEmpty()) return
-                    val totalLeaves = ch.sumOf { countLeaves(it.id, HashSet()) }.coerceAtLeast(1)
-                    val radius = if (depth == 0) 320f else 250f
-                    var cursor = aStart
-                    for (c in ch) {
-                        val weight = countLeaves(c.id, HashSet()).toDouble() / totalLeaves
-                        val span = (aEnd - aStart) * weight
-                        val mid = cursor + span / 2.0
-                        val nx = cxNode + (radius * kotlin.math.cos(mid)).toFloat()
-                        val ny = cyNode + (radius * kotlin.math.sin(mid)).toFloat()
-                        placeSubtree(c.id, nx, ny, mid - span / 2.0, mid + span / 2.0, depth + 1, seen)
-                        cursor += span
-                    }
-                }
-                roots.forEachIndexed { idx, root ->
-                    val rx = cx + (idx - (roots.size - 1) / 2f) * 680f
-                    placeSubtree(root.id, rx, cy, -Math.PI, Math.PI, 0, HashSet())
-                }
-            }
-            MindLayout.TREE -> {
-                val rowGap = 118f
-                val colGap = 295f
-                fun subtreeHeight(id: Long, seen: HashSet<Long>): Float {
-                    if (!seen.add(id)) return rowGap
-                    val ch = children[id].orEmpty()
-                    return if (ch.isEmpty()) rowGap else ch.sumOf { subtreeHeight(it.id, seen).toDouble() }.toFloat()
-                }
-                fun placeTree(id: Long, xCenter: Float, yTop: Float, spanH: Float, seen: HashSet<Long>) {
-                    if (!seen.add(id)) return
-                    val n = byId[id] ?: return
-                    pos[id] = (xCenter - n.w / 2f) to (yTop + spanH / 2f - n.h / 2f)
-                    val ch = children[id].orEmpty()
-                    var curY = yTop
-                    for (c in ch) {
-                        val chH = subtreeHeight(c.id, HashSet())
-                        placeTree(c.id, xCenter + colGap, curY, chH, seen)
-                        curY += chH
-                    }
-                }
-                var curTop = cy - roots.sumOf { subtreeHeight(it.id, HashSet()).toDouble() }.toFloat() / 2f
-                val startX = (cx - 280f).coerceAtLeast(140f)
-                roots.forEach { r ->
-                    val h = subtreeHeight(r.id, HashSet())
-                    placeTree(r.id, startX, curTop, h, HashSet())
-                    curTop += h + 60f
-                }
-            }
-            MindLayout.ORG_CHART -> {
-                val colGap = 240f
-                val rowGap = 185f
-                fun subtreeWidth(id: Long, seen: HashSet<Long>): Float {
-                    if (!seen.add(id)) return colGap
-                    val ch = children[id].orEmpty()
-                    return if (ch.isEmpty()) colGap else ch.sumOf { subtreeWidth(it.id, seen).toDouble() }.toFloat()
-                }
-                fun placeOrg(id: Long, xLeft: Float, yCenter: Float, spanW: Float, seen: HashSet<Long>) {
-                    if (!seen.add(id)) return
-                    val n = byId[id] ?: return
-                    pos[id] = (xLeft + spanW / 2f - n.w / 2f) to (yCenter - n.h / 2f)
-                    val ch = children[id].orEmpty()
-                    var curX = xLeft
-                    for (c in ch) {
-                        val cw = subtreeWidth(c.id, HashSet())
-                        placeOrg(c.id, curX, yCenter + rowGap, cw, seen)
-                        curX += cw
-                    }
-                }
-                val totalW = roots.sumOf { subtreeWidth(it.id, HashSet()).toDouble() }.toFloat()
-                var curX = (cx - totalW / 2f).coerceAtLeast(80f)
-                val startY = 180f
-                roots.forEach { r ->
-                    val w = subtreeWidth(r.id, HashSet())
-                    placeOrg(r.id, curX, startY, w, HashSet())
-                    curX += w + 40f
-                }
-            }
-        }
-
-        // Keep non-whiteboard concept maps strictly within page margins
-        if (!p.isWhiteboard && pos.isNotEmpty()) {
-            var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
-            var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
-            for ((id, xy) in pos) {
-                val n = byId[id] ?: continue
-                minX = minOf(minX, xy.first)
-                minY = minOf(minY, xy.second)
-                maxX = maxOf(maxX, xy.first + n.w)
-                maxY = maxOf(maxY, xy.second + n.h)
-            }
-            val availW = (p.width - 112f).coerceAtLeast(240f)
-            val availH = (p.height - 112f).coerceAtLeast(240f)
-            val spanW = (maxX - minX).coerceAtLeast(1f)
-            val spanH = (maxY - minY).coerceAtLeast(1f)
-            val sx = if (spanW > availW) availW / spanW else 1f
-            val sy = if (spanH > availH) availH / spanH else 1f
-            val boxCx = (minX + maxX) / 2f
-            val boxCy = (minY + maxY) / 2f
-            for ((id, xy) in pos.toMap()) {
-                val n = byId[id] ?: continue
-                val ncx = xy.first + n.w / 2f
-                val ncy = xy.second + n.h / 2f
-                val scaledX = cx + (ncx - boxCx) * sx - n.w / 2f
-                val scaledY = cy + (ncy - boxCy) * sy - n.h / 2f
-                pos[id] = clampMindPos(p, scaledX, scaledY, n.w, n.h)
-            }
-        }
-
-        beginEdit(pageIndex)
-        applyItems(
-            pageIndex,
-            p.items.map { item ->
-                if (item is MindNodeItem) pos[item.id]?.let { (nx, ny) -> item.copy(x = nx, y = ny) } ?: item else item
-            },
-        )
-    }
-
-    fun exportMindMapOutlineToPage() {
-        val p = currentPage ?: return
-        val nodes = p.items.filterIsInstance<MindNodeItem>()
-        if (nodes.isEmpty()) { say("Add concept map nodes first"); return }
-        val byId = nodes.associateBy { it.id }
-        val roots = nodes.filter { it.parentId == null || it.parentId !in byId }
-        val children = nodes.filter { it.parentId != null && it.parentId in byId }.groupBy { it.parentId!! }
-        val sb = StringBuilder()
-        fun walk(n: MindNodeItem, depth: Int, seen: HashSet<Long>) {
-            if (!seen.add(n.id)) return
-            val prefix = when (depth) {
-                0 -> ""
-                else -> "  ".repeat(depth) + "• "
-            }
-            sb.append(prefix).append(n.label)
-            if (n.tag.isNotBlank()) sb.append(" [").append(n.tag).append("]")
-            if (n.notes.isNotBlank()) sb.append(" — ").append(n.notes.trim())
-            sb.append('\n')
-            children[n.id].orEmpty().forEach { walk(it, depth + 1, seen) }
-        }
-        val seen = HashSet<Long>()
-        roots.forEach { walk(it, 0, seen) }
-        val outline = sb.toString().trim()
-        beginEdit(pageIndex)
-        applyItems(pageIndex, p.items + TextItem(ItemIds.next(), outline, 70f, 90f, 24f, penStyle.color))
-        say("Exported concept map outline onto page")
-    }
-
-    fun flashcardsFromMindMap() {
-        val p = currentPage ?: return
-        val nodes = p.items.filterIsInstance<MindNodeItem>()
-        if (nodes.isEmpty()) { say("Add concept map nodes first"); return }
-        val byId = nodes.associateBy { it.id }
-        val children = nodes.filter { it.parentId != null && it.parentId in byId }.groupBy { it.parentId!! }
-        val have = cards.map { it.front.lowercase() }.toHashSet()
-        val add = ArrayList<com.pronotes.app.data.Flashcard>()
-        for (n in nodes) {
-            val ch = children[n.id].orEmpty()
-            val front = when {
-                ch.isNotEmpty() -> "Key branches of ${n.label}?"
-                n.notes.isNotBlank() -> n.label
-                n.parentId != null -> "${byId[n.parentId]?.label ?: title}: ${n.label}"
-                else -> continue
-            }
-            val back = when {
-                n.notes.isNotBlank() -> n.notes.trim()
-                ch.isNotEmpty() -> ch.joinToString("\n• ", prefix = "• ") { it.label }
-                else -> n.label
-            }
-            if (front.lowercase() !in have) {
-                have += front.lowercase()
-                add += com.pronotes.app.data.Flashcard(
-                    id = UUID.randomUUID().toString(),
-                    front = front,
-                    back = back,
-                    pageId = p.id,
-                    created = System.currentTimeMillis(),
-                )
-            }
-        }
-        if (add.isNotEmpty()) {
-            cards = cards + add
-            saveStudy()
-            say("Created ${add.size} flashcards from concept map")
-        } else {
-            say("All concept map cards already exist")
-        }
-    }
-
-    fun buildMindMapFromNotes() {
-        val pageIdx = pageIndex
-        pages.getOrNull(pageIdx) ?: return
-        viewModelScope.launch {
-            val (rawText, _) = studyText(pageIdx..pageIdx)
-            val lines = rawText.split('\n', '.', '•', ';')
-                .map { it.trim().trim('-', '*', ' ') }
-                .filter { it.length >= 3 }
-                .distinct()
-            val rootTitle = title.ifBlank { "Central Topic" }.take(36)
-            val branchSeeds = lines.take(6).ifEmpty { listOf("Key Concepts", "Examples", "Questions", "Summary") }
-
-            val nowPage = pages.getOrNull(pageIdx) ?: return@launch
-            val outNodes = ArrayList<MindNodeItem>()
-            val (rw, rh) = mindBoxSize(rootTitle, "pill")
-            val rootId = ItemIds.next()
-            outNodes += MindNodeItem(
-                id = rootId,
-                x = nowPage.width / 2f - rw / 2f,
-                y = nowPage.height / 2f - rh / 2f,
-                w = rw,
-                h = rh,
-                label = rootTitle,
-                parentId = null,
-                color = MindPalette[0],
-                shape = "pill",
-            )
-            val remaining = lines.drop(branchSeeds.size)
-            branchSeeds.forEachIndexed { bIdx, branchRaw ->
-                val branchColor = MindPalette[(bIdx + 1) % MindPalette.size]
-                val branchTitle = branchRaw.take(32)
-                val (bw, bh) = mindBoxSize(branchTitle, "rect")
-                val bid = ItemIds.next()
-                outNodes += MindNodeItem(bid, 0f, 0f, bw, bh, branchTitle, rootId, branchColor, "rect")
-                val childIdx = bIdx
-                remaining.getOrNull(childIdx)?.let { childRaw ->
-                    val childLabel = childRaw.take(30)
-                    val (cw, ch) = mindBoxSize(childLabel, "pill")
-                    outNodes += MindNodeItem(ItemIds.next(), 0f, 0f, cw, ch, childLabel, bid, branchColor, "pill")
-                }
-            }
-            tool = Tool.MINDMAP
-            activeMindNodeId = rootId
-            beginEdit(pageIdx)
-            val kept = nowPage.items.filterNot { it is MindNodeItem }
-            applyItems(pageIdx, kept + outNodes)
-            autoLayoutMindMap(MindLayout.RADIAL)
-            say("Built concept map (${outNodes.size} nodes)")
-        }
-    }
-
     /** Emoji stickers are large text items placed in the middle of the visible page. */
     fun insertSticker(emoji: String): Pair<Int, Long>? {
         val p = currentPage ?: return null
@@ -1562,8 +1168,16 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val destination = pages.getOrNull(targetPage)?.id
         val td = settingsFlow.value.toolDefaults
         return viewModelScope.launch {
-            val savedName = runCatching { repo.saveImage(noteId, uri) }.getOrNull() ?: return@launch
-            val rawBmp = withContext(Dispatchers.IO) { renderer().image(savedName) } ?: return@launch
+            val savedName = runCatching { repo.saveImage(noteId, uri) }.getOrNull()
+            if (savedName == null) {
+                say("Could not read image.")
+                return@launch
+            }
+            val rawBmp = withContext(Dispatchers.IO) { renderer().image(savedName) }
+            if (rawBmp == null) {
+                say("Could not decode image.")
+                return@launch
+            }
             val finalName = if (td.imageOpacity < 0.99f || td.imageBorder) {
                 val processed = withContext(Dispatchers.Default) {
                     applyBitmapEffects(rawBmp, td.imageOpacity, td.imageBorder)
@@ -1609,7 +1223,11 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun setPageBackground(uri: Uri?) {
         val idx = pageIndex
         viewModelScope.launch {
-            val name = if (uri == null) null else runCatching { repo.saveImage(noteId, uri) }.getOrNull() ?: return@launch
+            val name = if (uri == null) null else runCatching { repo.saveImage(noteId, uri) }.getOrNull()
+            if (uri != null && name == null) {
+                say("Could not read background image.")
+                return@launch
+            }
             val p = pages.getOrNull(idx) ?: return@launch
             pages[idx] = p.copy(bgImage = name)
             dirtyPageIds += p.id
@@ -1749,7 +1367,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     }
 
     /** Thumbnails are cached until the page changes (pages are immutable, so identity is enough). */
-    private val thumbs = object : android.util.LruCache<String, Bitmap>(24 * 1024 * 1024) {
+    internal val thumbs = object : android.util.LruCache<String, Bitmap>(24 * 1024 * 1024) {
         override fun sizeOf(key: String, value: Bitmap) = value.byteCount
     }
 
@@ -1781,21 +1399,21 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         bmp
     }
 
-    private val thumbLock = kotlinx.coroutines.sync.Mutex()
-    private var thumbRenderer: PageRenderer? = null
+    internal val thumbLock = kotlinx.coroutines.sync.Mutex()
+    internal var thumbRenderer: PageRenderer? = null
     private var thumbPdfInstance: PdfPages? = null
 
     @Synchronized
-    private fun thumbPdf(): PdfPages = thumbPdfInstance ?: PdfPages(repo.pdfFile(noteId)).also { thumbPdfInstance = it }
+    internal fun thumbPdf(): PdfPages = thumbPdfInstance ?: PdfPages(repo.pdfFile(noteId)).also { thumbPdfInstance = it }
 
     // ------------------------------------------------------- flashcards + ink links
-    private val study = com.pronotes.app.data.StudyStore(repo.noteDir(noteId))
+    internal val study = com.pronotes.app.data.StudyStore(repo.noteDir(noteId))
     var cards by mutableStateOf<List<com.pronotes.app.data.Flashcard>>(emptyList())
-        private set
+        internal set
     var links by mutableStateOf<List<com.pronotes.app.data.InkLink>>(emptyList())
-        private set
+        internal set
     var slides by mutableStateOf<List<com.pronotes.app.data.SlideCard>>(emptyList())
-        private set
+        internal set
     var showSlideShow by mutableStateOf(false)
     /** Canvas is waiting for the user to drag a box for a new flashcard. */
     var capturingCard by mutableStateOf(false)
@@ -1807,201 +1425,15 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var linkToDelete by mutableStateOf<String?>(null)
 
     private fun loadStudy() { val d = study.load(); cards = d.cards; links = d.links; slides = d.slides }
-    private fun saveStudy() {
+    internal fun saveStudy() {
         val d = com.pronotes.app.data.StudyData(cards, links, slides)
         viewModelScope.launch(Dispatchers.IO) { runCatching { study.save(d) } }
     }
 
-    fun dueCards(now: Long = System.currentTimeMillis()) = cards.filter { it.due <= now }
-
-    fun cardImage(name: String?): Bitmap? = name?.let { runCatching { android.graphics.BitmapFactory.decodeFile(java.io.File(study.cardDir(), it).path) }.getOrNull() }
-
     /** Card waiting for its answer to be cut from the page. */
     var backFor by mutableStateOf<CardDraft?>(null)
-
-    fun captureBack(d: CardDraft) { backFor = d; cardDraft = null; capturingCard = true }
-
-    fun onAreaPicked(pageIdx: Int, r: RectF) {
-        capturingCard = false
-        backFor?.let { d ->
-            backFor = null
-            val page = pages.getOrNull(pageIdx) ?: return
-            viewModelScope.launch {
-                val bmp = regionImage(page, r) ?: run { cardDraft = d; return@launch }
-                val name = "${d.card.id}-back.png"
-                withContext(Dispatchers.IO) { java.io.File(study.cardDir(), name).outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) } }
-                // Also read any PDF text in the box as the written answer.
-                val txt = if (page.pdfPage >= 0) indexFor(page.pdfPage)?.let { idx ->
-                    val a = idx.charAt(page.pdfPage, r.left + 4f, r.top + 4f); val b = idx.charAt(page.pdfPage, r.right - 4f, r.bottom - 4f)
-                    if (a != null && b != null && b >= a) idx.text(page.pdfPage, a..b) else null
-                } else null
-                cardDraft = d.copy(card = d.card.copy(backImage = name, back = d.card.back.ifBlank { txt ?: "" }))
-            }
-            return
-        }
-        startCardFromArea(pageIdx, r)
-    }
-
-    /** Cuts a picture of [r] on page [pageIdx] (paper, PDF and ink) and opens the card editor. */
-    fun startCardFromArea(pageIdx: Int, r: RectF) {
-        val page = pages.getOrNull(pageIdx) ?: return
-        viewModelScope.launch {
-            val bmp = regionImage(page, r) ?: return@launch
-            val id = UUID.randomUUID().toString()
-            val name = "$id-front.png"
-            withContext(Dispatchers.IO) { java.io.File(study.cardDir(), name).outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) } }
-            cardDraft = CardDraft(com.pronotes.app.data.Flashcard(id, frontImage = name, pageId = page.id, created = System.currentTimeMillis()), true)
-        }
-    }
-
-    fun cardFromSelection() {
-        val r = selectionUnion() ?: return
-        r.inset(-20f, -20f)
-        startCardFromArea(selectionPage, r)
-    }
-
-    fun newTextCard() {
-        cardDraft = CardDraft(com.pronotes.app.data.Flashcard(UUID.randomUUID().toString(), pageId = currentPage?.id, created = System.currentTimeMillis()), true)
-    }
-
-    fun saveCard(card: com.pronotes.app.data.Flashcard) {
-        val isNew = cards.none { it.id == card.id }
-        cards = if (!isNew) cards.map { if (it.id == card.id) card else it } else cards + card
-        cardDraft = null
-        saveStudy()
-    }
-
-    fun deleteCard(id: String) {
-        val c = cards.firstOrNull { it.id == id } ?: return
-        cards = cards.filterNot { it.id == id }
-        listOfNotNull(c.frontImage, c.backImage).forEach { java.io.File(study.cardDir(), it).delete() }
-        saveStudy()
-    }
-
-    fun gradeCard(id: String, grade: Int) {
-        cards = cards.map { if (it.id == id) com.pronotes.app.data.StudyStore.review(it, grade) else it }
-        saveStudy()
-    }
-
-    fun showCardSource(card: com.pronotes.app.data.Flashcard) {
-        val i = pages.indexOfFirst { it.id == card.pageId }
-        if (i >= 0) goToPage(i)
-    }
-
-    /** All cards as a CSV file (front, back) for other flashcard apps. */
-    fun cardsCsv(): String = buildString {
-        append("front,back\n")
-        cards.forEach { c ->
-            fun q(s: String) = "\"" + s.replace("\"", "\"\"") + "\""
-            append(q(c.front.ifBlank { if (c.frontImage != null) "[picture]" else "" })).append(",").append(q(c.back)).append("\n")
-        }
-    }
-
-    private suspend fun regionImage(page: Page, r: RectF): Bitmap? = withContext(Dispatchers.Default) {
-        val s = (1400f / maxOf(r.width(), r.height(), 1f)).coerceIn(0.5f, 3f).coerceAtMost(3200f / page.width)
-        val pw = (page.width * s).toInt().coerceAtLeast(1)
-        val ph = (page.height * s).toInt().coerceAtLeast(1)
-        val out = Bitmap.createBitmap((r.width() * s).toInt().coerceAtLeast(1), (r.height() * s).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
-        val bg = if (page.pdfPage >= 0) withContext(Dispatchers.IO) { thumbPdf().render(page.pdfPage, pw, ph, useCache = false) } else null
-        val c = Canvas(out)
-        c.translate(-r.left * s, -r.top * s)
-        thumbLock.withLock {
-            val rr = thumbRenderer ?: renderer().also { thumbRenderer = it }
-            rr.paperColor = settingsFlow.value.paperTint.argb
-            rr.renderPage(c, page, s, bg)
-        }
-        out
-    }
-
-    /** Selected content waiting for a link target (page id + box), shown in the link sheet. */
+    /** Selected region waiting for link destination (page or URL). */
     var linkSheet by mutableStateOf<Pair<String, RectF>?>(null)
-
-    /** Top menu "Add link…": switch to the lasso and explain the next step. */
-    fun beginLinkFlow() {
-        if (selection.isNotEmpty()) { startLinkFromSelection(); return }
-        tool = Tool.LASSO
-        say("Circle what you want to link, then tap Link")
-    }
-
-    fun startLinkFromSelection() {
-        val r = selectionUnion() ?: return
-        val page = pages.getOrNull(selectionPage) ?: return
-        r.inset(-8f, -8f)
-        linkSheet = page.id to r
-    }
-
-    private fun withoutOverlap(pid: String, r: RectF) = links.filterNot { l ->
-        l.aPage == pid && l.box.size == 4 && RectF.intersects(RectF(l.box[0], l.box[1], l.box[2], l.box[3]), r)
-    }
-
-    /** Link the selected content to page [target] of this notebook. */
-    fun linkToPage(target: Int) {
-        val (pid, r) = linkSheet ?: return
-        val tp = pages.getOrNull(target) ?: return
-        linkSheet = null
-        links = withoutOverlap(pid, r) + com.pronotes.app.data.InkLink(
-            UUID.randomUUID().toString(), pid, r.right, r.top, tp.id, tp.width / 2f, 0f, listOf(r.left, r.top, r.right, r.bottom),
-        )
-        saveStudy()
-    }
-
-    /** Link the selected content to a web address. */
-    fun linkToUrl(raw: String) {
-        val (pid, r) = linkSheet ?: return
-        val u = raw.trim().let { if (it.startsWith("http://") || it.startsWith("https://")) it else "https://$it" }
-        linkSheet = null
-        links = withoutOverlap(pid, r) + com.pronotes.app.data.InkLink(
-            UUID.randomUUID().toString(), pid, r.right, r.top, box = listOf(r.left, r.top, r.right, r.bottom), url = u,
-        )
-        saveStudy()
-    }
-
-    /** Text for the link list: where each link on this page goes. */
-    fun linkLabel(e: LinkEnd): String = e.url ?: "Page ${e.toPage + 1}"
-
-    fun finishLink(pageIdx: Int, x: Float, y: Float) {
-        val from = linkFrom ?: return
-        linkFrom = null
-        val page = pages.getOrNull(pageIdx) ?: return
-        if (page.id == from.first && kotlin.math.hypot(x - from.second, y - from.third) < 40f) return
-        links = links + com.pronotes.app.data.InkLink(UUID.randomUUID().toString(), from.first, from.second, from.third, page.id, x, y)
-        saveStudy()
-    }
-
-    /** Links whose box overlaps the current selection. */
-    fun selectionLinks(): List<String> {
-        val r = selectionUnion() ?: return emptyList()
-        val pid = pages.getOrNull(selectionPage)?.id ?: return emptyList()
-        return links.filter { it.aPage == pid && it.box.size == 4 && RectF.intersects(RectF(it.box[0], it.box[1], it.box[2], it.box[3]), r) }.map { it.id }
-    }
-
-    fun unlinkSelection() {
-        val ids = selectionLinks().toSet()
-        if (ids.isEmpty()) return
-        links = links.filterNot { it.id in ids }
-        saveStudy(); onRedraw?.invoke()
-        say("Link removed")
-    }
-
-    fun deleteLink(id: String) { links = links.filterNot { it.id == id }; linkToDelete = null; saveStudy(); onRedraw?.invoke() }
-
-    /** Link ends as page indexes, for drawing badges and jumping. */
-    fun linkEnds(): List<LinkEnd> {
-        if (links.isEmpty()) return emptyList()
-        val index = HashMap<String, Int>(pages.size * 2)
-        pages.forEachIndexed { i, p -> index[p.id] = i }
-        val out = ArrayList<LinkEnd>()
-        for (l in links) {
-            val a = index[l.aPage] ?: continue
-            val box = if (l.box.size == 4) RectF(l.box[0], l.box[1], l.box[2], l.box[3]) else null
-            if (l.url != null) { out += LinkEnd(l.id, a, l.ax, l.ay, -1, 0f, 0f, box, l.url); continue }
-            val b = index[l.bPage] ?: continue
-            out += LinkEnd(l.id, a, l.ax, l.ay, b, l.bx, l.by, box)
-            // Old point links (v6.0) keep a badge at both ends.
-            if (box == null) out += LinkEnd(l.id, b, l.bx, l.by, a, l.ax, l.ay)
-        }
-        return out
-    }
 
     // --------------------------------------------------------------- search
 
@@ -2047,7 +1479,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     }
 
     /** PDF text with character boxes, built once on first use. */
-    private suspend fun textIndex(): PdfTextIndex? {
+    internal suspend fun textIndex(): PdfTextIndex? {
         if (!isPdf) return null
         pdfIndex?.let { return it }
         val widths = pages.filter { it.pdfPage >= 0 }.associate { it.pdfPage to it.width }
@@ -2096,7 +1528,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         toastAction = null
     }
 
-    private fun say(msg: String, actionLabel: String? = null, action: (() -> Unit)? = null) {
+    internal fun say(msg: String, actionLabel: String? = null, action: (() -> Unit)? = null) {
         toast = msg
         toastActionLabel = actionLabel
         toastAction = action
@@ -2112,291 +1544,17 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     /** Scribble-to-erase provides dust particle, audio, and haptic feedback without obstructing the canvas with a banner. */
     fun onScribbleErased() = Unit
     var pdfTextBusy by mutableStateOf(false)
-        private set
-
-    /** Lasso -> save the selection as a picture in Photos. */
-    fun saveSelectionScreenshot() {
-        viewModelScope.launch {
-            val bmp = selectionImage() ?: return@launch
-            val ok = withContext(Dispatchers.IO) {
-                runCatching {
-                    val cv = android.content.ContentValues().apply {
-                        put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "ProNotes-${System.currentTimeMillis()}.png")
-                        put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/png")
-                        if (android.os.Build.VERSION.SDK_INT >= 29) put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Pro Notes")
-                    }
-                    val cr = getApplication<Application>().contentResolver
-                    val uri = cr.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv)!!
-                    cr.openOutputStream(uri)!!.use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                }.isSuccess
-            }
-            say(if (ok) "Saved to Photos" else "Couldn't save the picture")
-        }
-    }
+        internal set
 
     // ---------------------------------------------------------------- PDF text selection
     data class TextSel(val page: Int, val pdfPage: Int, val anchor: IntRange, val range: IntRange, val rects: List<RectF>, val text: String)
     var textSel by mutableStateOf<TextSel?>(null)
-        private set
+        internal set
     var textMenu by mutableStateOf<RectF?>(null)
 
     /** Text of single PDF pages, read on demand so long-press works at once even on huge PDFs. */
-    private val pageTextIdx = java.util.concurrent.ConcurrentHashMap<Int, PdfTextIndex>()
-    private var pageTextJob: Job? = null
-
-    private fun indexFor(pdfPage: Int): PdfTextIndex? = pdfIndex ?: pageTextIdx[pdfPage]
-
-    fun textPress(page: Int, x: Float, y: Float): Boolean {
-        val pg = pages.getOrNull(page) ?: return false
-        if (pg.pdfPage < 0) return false
-        val idx = indexFor(pg.pdfPage)
-        if (idx == null) {
-            // Read just this page, then finish the long-press.
-            if (pageTextJob?.isActive != true) pageTextJob = viewModelScope.launch {
-                pdfTextBusy = true
-                val one = withContext(Dispatchers.IO) {
-                    runCatching { PdfTextIndex.build(getApplication(), repo.pdfFile(noteId), only = setOf(pg.pdfPage)) { if (it == pg.pdfPage) pg.width else null } }.getOrNull()
-                }
-                pdfTextBusy = false
-                if (one == null) { say("This PDF has no selectable text (it may be a scan)"); return@launch }
-                pageTextIdx[pg.pdfPage] = one
-                if (!textPress(page, x, y)) say("No text here. Long-press on a word.")
-                else textMenu = textSel?.let { s -> s.rects.takeIf { it.isNotEmpty() }?.let { rs -> val u = RectF(rs.first()); rs.drop(1).forEach { u.union(it) }; toScreen?.invoke(s.page, u) } }
-            }
-            return false
-        }
-        val c = idx.charAt(pg.pdfPage, x, y) ?: return false
-        val w = idx.wordAt(pg.pdfPage, c)
-        textSel = TextSel(page, pg.pdfPage, w, w, idx.rects(pg.pdfPage, w), idx.text(pg.pdfPage, w))
-        textMenu = null
-        return true
-    }
-
-    /** Maps a page-space box to the screen (set by the editor; used to place the text menu). */
-    var toScreen: ((Int, RectF) -> RectF?)? = null
-
-    fun textDrag(x: Float, y: Float) {
-        val s = textSel ?: return
-        val idx = indexFor(s.pdfPage) ?: return
-        val c = idx.charAt(s.pdfPage, x, y) ?: return
-        val w = idx.wordAt(s.pdfPage, c)
-        val r = minOf(s.anchor.first, w.first)..maxOf(s.anchor.last, w.last)
-        if (r == s.range) return
-        textSel = s.copy(range = r, rects = idx.rects(s.pdfPage, r), text = idx.text(s.pdfPage, r))
-    }
-
-    fun textEnd(screen: RectF?) { textMenu = screen }
-    fun clearTextSel() { textSel = null; textMenu = null }
-    fun textSelection(page: Int): List<RectF> = textSel?.takeIf { it.page == page }?.rects ?: emptyList()
-
-    fun highlightTextSel(colorPick: Int? = null) {
-        val s = textSel ?: return
-        val p = pages.getOrNull(s.page) ?: return
-        val color = colorPick ?: highlighterStyle.color
-        val items = s.rects.map { r ->
-            val brush = Brushes.create(Brushes.HIGHLIGHTER, color, r.height() * 1.05f)
-            val pts = (0..12).map { k -> (r.left + r.width() * k / 12f) to r.centerY() }
-            InkItem(ItemIds.next(), InkCodec.strokeFromPoints(pts, brush))
-        }
-        beginEdit(s.page)
-        applyItems(s.page, p.items + items)
-        clearTextSel()
-    }
-
-    /** Thin pen line under (or through, with [strike]) the selected PDF text. */
-    fun lineTextSel(strike: Boolean) {
-        val s = textSel ?: return
-        val p = pages.getOrNull(s.page) ?: return
-        val items = s.rects.map { r ->
-            val y = if (strike) r.centerY() else r.bottom - r.height() * 0.08f
-            val brush = Brushes.create(Brushes.MARKER, if (strike) 0xFFE5484D.toInt() else penStyle.color, (r.height() * 0.08f).coerceIn(2f, 6f))
-            InkItem(ItemIds.next(), InkCodec.strokeFromPoints((0..10).map { k -> (r.left + r.width() * k / 10f) to y }, brush))
-        }
-        beginEdit(s.page)
-        applyItems(s.page, p.items + items)
-        clearTextSel()
-    }
-
-    fun cardFromTextSel() {
-        val s = textSel ?: return
-        cardDraft = CardDraft(com.pronotes.app.data.Flashcard(UUID.randomUUID().toString(), front = s.text, pageId = pages.getOrNull(s.page)?.id, created = System.currentTimeMillis()), true)
-        clearTextSel()
-    }
-
-    /** Text to learn from: PDF text, typed text, sticky notes, web links, and concept map nodes. */
-    private suspend fun studyText(range: IntRange): Pair<String, String?> {
-        val idx = textIndex()
-        val sb = StringBuilder()
-        var firstPage: String? = null
-        for (i in range) {
-            val p = pages.getOrNull(i) ?: continue
-            val before = sb.length
-            if (p.pdfPage >= 0 && idx != null) sb.append(idx.pageText(p.pdfPage)).append('\n')
-            p.items.forEach {
-                (it as? TextItem)?.text?.let { t -> sb.append(t).append(". ") }
-                (it as? StickyItem)?.let { st ->
-                    if (st.title.isNotBlank()) sb.append(st.title).append(": ")
-                    sb.append(st.text).append(". ")
-                }
-                (it as? WebLinkItem)?.let { wl ->
-                    if (wl.title.isNotBlank()) sb.append(wl.title).append(". ")
-                    if (wl.note.isNotBlank()) sb.append(wl.note).append(". ")
-                }
-                (it as? MindNodeItem)?.let { m ->
-                    sb.append(m.label).append(". ")
-                    if (m.notes.isNotBlank()) sb.append(m.notes).append(". ")
-                }
-            }
-            if (sb.length > before && firstPage == null) firstPage = p.id
-        }
-        return sb.toString() to firstPage
-    }
-
-    // Local note text helpers (for search, slide deck builder, concept maps, and split clip)
-
-    /** Clips text (e.g. from Split View) directly onto the active page as a sticky note. */
-    fun clipTextAsSticky(rawText: String, sourceTitle: String = "") {
-        val p = currentPage ?: return
-        val clean = rawText.trim().take(360)
-        if (clean.isBlank()) { say("Nothing to clip on this split page"); return }
-        val body = if (sourceTitle.isNotBlank()) "[$sourceTitle]\n$clean" else clean
-        beginEdit(pageIndex)
-        applyItems(
-            pageIndex,
-            p.items + StickyItem(ItemIds.next(), (p.width - 320f).coerceAtLeast(60f) / 2f, 120f, 320f, 280f, stickyColor, body, fontSize = 24f),
-        )
-        say("Clipped to sticky note")
-    }
-
-    /** Inserts text (e.g. from Split View or import) onto the active page as a formatted text block. */
-    fun clipTextAsPageItem(rawText: String, sourceTitle: String = "") {
-        val p = currentPage ?: return
-        val clean = rawText.trim().take(900)
-        if (clean.isBlank()) { say("Nothing to insert on this page"); return }
-        val body = if (sourceTitle.isNotBlank()) "$sourceTitle\n$clean" else clean
-        beginEdit(pageIndex)
-        applyItems(pageIndex, p.items + TextItem(ItemIds.next(), body, 80f, 120f, 26f, penStyle.color))
-        say("Inserted onto page")
-    }
-
-    /** Imports PDFs, images, Markdown/TXT/HTML/CSV/JSON files as new pages inside this notebook. */
-    fun importFilesIntoCurrent(uris: List<Uri>) {
-        if (uris.isEmpty()) return
-        viewModelScope.launch {
-            val built = repo.buildPagesFromUris(noteId, uris)
-            if (built.isEmpty()) { say("Could not read any pages from those files"); return@launch }
-            val insertAt = (pageIndex + 1).coerceIn(0, pages.size)
-            pages.addAll(insertAt, built)
-            built.forEach { dirtyPageIds += it.id }
-            structureDirty = true
-            undoStack.clear(); redoStack.clear(); refreshUndo()
-            scheduleSave(); onPagesChanged?.invoke()
-            onScrollTo?.invoke(insertAt)
-            say("Imported ${built.size} page${if (built.size == 1) "" else "s"}")
-        }
-    }
-
-    // ---------------------------------------------------------------- Slide Show Chapter Revision
-
-    fun buildSlideShow(startPage: Int = pageIndex, endPage: Int = pageIndex, slideCount: Int = 7) {
-        val lo = startPage.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
-        val hi = endPage.coerceIn(lo, (pages.size - 1).coerceAtLeast(0))
-        val count = slideCount.coerceIn(3, 15)
-        viewModelScope.launch {
-            val (text, _) = studyText(lo..hi)
-            val chapterLabel = when {
-                lo == 0 && hi == pages.size - 1 -> title
-                lo == hi -> "$title · Page ${lo + 1}"
-                else -> "$title · Pages ${lo + 1}-${hi + 1}"
-            }
-            val segments = withContext(Dispatchers.Default) {
-                text.split('\n', '.', ';')
-                    .map { it.trim().trim('-', '*', '•', ' ') }
-                    .filter { it.length >= 4 }
-                    .distinct()
-            }
-            val themes = com.pronotes.app.data.SlideTheme.entries
-            val built = ArrayList<com.pronotes.app.data.SlideCard>(count)
-            built += com.pronotes.app.data.SlideCard(
-                id = UUID.randomUUID().toString(),
-                kind = com.pronotes.app.data.SlideKind.TITLE,
-                theme = themes[0],
-                title = chapterLabel.ifBlank { "Revision Deck" },
-                subtitle = "Structured review · ${hi - lo + 1} page${if (hi == lo) "" else "s"}",
-                bullets = segments.take(3),
-                badge = "Overview",
-            )
-            val middleSlots = (count - 2).coerceAtLeast(1)
-            for (slot in 0 until middleSlots) {
-                val baseIdx = slot * 2
-                val primaryLine = segments.getOrNull(baseIdx)
-                val secondLine = segments.getOrNull(baseIdx + 1)
-                val thirdLine = segments.getOrNull(baseIdx + 2)
-                val theme = themes[(slot + 1) % themes.size]
-                val kind = when {
-                    primaryLine != null && ('=' in primaryLine || '≈' in primaryLine || '→' in primaryLine) -> com.pronotes.app.data.SlideKind.FORMULA
-                    slot % 3 == 2 -> com.pronotes.app.data.SlideKind.CHECK_QA
-                    else -> com.pronotes.app.data.SlideKind.CONCEPT
-                }
-                val bullets = listOfNotNull(primaryLine, secondLine, thirdLine).take(3)
-                built += if (kind == com.pronotes.app.data.SlideKind.CHECK_QA) {
-                    val topic = primaryLine?.take(56) ?: "Key concept ${slot + 1}"
-                    com.pronotes.app.data.SlideCard(
-                        id = UUID.randomUUID().toString(),
-                        kind = kind,
-                        theme = theme,
-                        title = "Recall Check",
-                        subtitle = chapterLabel,
-                        question = "Explain: $topic",
-                        answer = secondLine ?: primaryLine ?: "Review page ${lo + 1} notes",
-                        badge = "Check Q&A",
-                    )
-                } else {
-                    com.pronotes.app.data.SlideCard(
-                        id = UUID.randomUUID().toString(),
-                        kind = kind,
-                        theme = theme,
-                        title = primaryLine?.take(44) ?: "Key Point ${slot + 1}",
-                        subtitle = chapterLabel,
-                        bullets = bullets,
-                        callout = if (kind == com.pronotes.app.data.SlideKind.FORMULA) (primaryLine ?: "") else "",
-                        badge = kind.label,
-                    )
-                }
-            }
-            built += com.pronotes.app.data.SlideCard(
-                id = UUID.randomUUID().toString(),
-                kind = com.pronotes.app.data.SlideKind.SUMMARY,
-                theme = themes[(count - 1) % themes.size],
-                title = "Chapter Recap",
-                subtitle = chapterLabel,
-                bullets = segments.takeLast(4).ifEmpty { listOf("Review key definitions", "Practice with Flashcards") },
-                badge = "Recap",
-            )
-            slides = built.take(count)
-            saveStudy()
-            say("Built ${slides.size} revision slides")
-        }
-    }
-
-    fun saveSlide(card: com.pronotes.app.data.SlideCard) {
-        slides = if (slides.any { it.id == card.id }) slides.map { if (it.id == card.id) card else it } else slides + card
-        saveStudy()
-    }
-
-    fun deleteSlide(id: String) {
-        slides = slides.filterNot { it.id == id }
-        saveStudy()
-    }
-
-    fun moveSlide(from: Int, to: Int) {
-        if (from !in slides.indices || to !in slides.indices || from == to) return
-        val mutable = slides.toMutableList()
-        val item = mutable.removeAt(from)
-        mutable.add(to, item)
-        slides = mutable
-        saveStudy()
-    }
+    internal val pageTextIdx = java.util.concurrent.ConcurrentHashMap<Int, PdfTextIndex>()
+    internal var pageTextJob: Job? = null
 
     // --------------------------------------------------------------- collab & reader helpers
 
@@ -2436,7 +1594,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     // --------------------------------------------------------------- save
 
-    private fun scheduleSave() {
+    internal fun scheduleSave() {
         saveJob?.cancel()
         val debounceMs = store.settings.value.performanceMode.autosaveMs
         saveJob = viewModelScope.launch {
@@ -2489,478 +1647,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     var activeWriteBoxId by mutableStateOf<Long?>(null)
     var activeWriteBoxPage by mutableStateOf(0)
-
-    fun activeWriteBox(): WriteBoxItem? {
-        val bid = activeWriteBoxId ?: return selectedWriteBox()
-        val p = pages.getOrNull(activeWriteBoxPage) ?: currentPage ?: return null
-        return p.items.filterIsInstance<WriteBoxItem>().firstOrNull { it.id == bid } ?: selectedWriteBox()
-    }
-
-    fun selectWriteBox(pageIndex: Int, boxId: Long?) {
-        activeWriteBoxPage = pageIndex
-        activeWriteBoxId = boxId
-    }
-
-    fun placeWriteBox(pageIndex: Int, x: Float, y: Float, w: Float, h: Float) {
-        val p = pages.getOrNull(pageIndex) ?: return
-        val item = WriteBoxItem(
-            id = ItemIds.next(),
-            x = x,
-            y = y,
-            w = w,
-            h = h,
-            lineSpacing = 46f,
-            strokeColor = 0xAA3D6CF4.toInt(),
-            fillColor = 0x123D6CF4,
-            fontSize = textSize.coerceIn(18f, 44f),
-            font = textStyle.font,
-        )
-        beginEdit(pageIndex)
-        pages[pageIndex] = p.copy(items = p.items + item)
-        activeWriteBoxPage = pageIndex
-        activeWriteBoxId = item.id
-        dirtyPageIds += p.id
-        onPagesChanged?.invoke()
-        onRedraw?.invoke()
-        scheduleSave()
-    }
-
-    fun addWriteBox(pageIndex: Int = this.pageIndex, x: Float? = null, y: Float? = null) {
-        val p = pages.getOrNull(pageIndex) ?: return
-        val w = (p.width * 0.72f).coerceIn(400f, 760f)
-        val h = 240f
-        val bx = x ?: ((p.width - w) / 2f).coerceAtLeast(40f)
-        val by = y ?: ((p.height - h) / 2f).coerceAtLeast(80f)
-        placeWriteBox(pageIndex, bx, by, w, h)
-    }
-
-    fun selectedWriteBox(): WriteBoxItem? {
-        val p = pages.getOrNull(selectionPage) ?: return null
-        return p.items.filterIsInstance<WriteBoxItem>().lastOrNull { it.id in selection }
-    }
-
-    private var writeBoxRecognizeJob: Job? = null
-
-    fun autoConvertWriteBox(pageIndex: Int, boxId: Long) {
-        val p = pages.getOrNull(pageIndex) ?: return
-        val writeBox = p.items.filterIsInstance<WriteBoxItem>().firstOrNull { it.id == boxId } ?: return
-        val boxBounds = writeBox.raw
-        val insideStrokes = p.items.filterIsInstance<InkItem>().filter { ink ->
-            boxBounds.contains(ink.bounds.centerX(), ink.bounds.centerY()) ||
-                boxBounds.intersects(ink.bounds.left, ink.bounds.top, ink.bounds.right, ink.bounds.bottom)
-        }
-        if (insideStrokes.isEmpty()) return
-
-        val newStrokes = insideStrokes.filter { it.id !in writeBox.inkItemIds }
-        val incremental = writeBox.convertedText.isNotBlank() && newStrokes.isNotEmpty() && newStrokes.size < insideStrokes.size
-        val strokesToRecognize = if (incremental) newStrokes else insideStrokes
-        if (strokesToRecognize.isEmpty()) return
-
-        val timed = extractTimedStrokes(strokesToRecognize, originX = writeBox.x, originY = writeBox.y)
-        val allStrokeIds = insideStrokes.map { it.id }
-        val preCtx = if (incremental) writeBox.convertedText.trim() else ""
-
-        writeBoxRecognizeJob?.cancel()
-        writeBoxRecognizeJob = viewModelScope.launch {
-            handwritingBusy = true
-            val result = try {
-                HandwritingRecognizer.recognize(
-                    strokes = timed,
-                    writingWidth = writeBox.w,
-                    writingHeight = writeBox.h,
-                    preContext = preCtx,
-                )
-            } finally {
-                handwritingBusy = false
-            }
-            val recognized = result.text.trim()
-            if (recognized.isBlank()) return@launch
-            handwritingCandidates = result.candidates
-            val curPage = pages.getOrNull(pageIndex) ?: return@launch
-            val curBox = curPage.items.filterIsInstance<WriteBoxItem>().firstOrNull { it.id == boxId } ?: return@launch
-            val mergedText = if (incremental && curBox.convertedText.isNotBlank()) {
-                "${curBox.convertedText.trim()} $recognized"
-            } else {
-                recognized
-            }
-            val updated = curBox.copy(
-                isConverted = true,
-                convertedText = mergedText,
-                inkItemIds = allStrokeIds,
-            )
-            pages[pageIndex] = curPage.copy(items = curPage.items.map { if (it.id == boxId) updated else it })
-            activeWriteBoxPage = pageIndex
-            activeWriteBoxId = boxId
-            dirtyPageIds += curPage.id
-            onPagesChanged?.invoke()
-            onRedraw?.invoke()
-            scheduleSave()
-        }
-    }
-
-    fun updateWriteBoxText(
-        pageIndex: Int,
-        writeBoxId: Long,
-        newText: String,
-        font: TextFont? = null,
-        fontSize: Float? = null,
-    ) {
-        val p = pages.getOrNull(pageIndex) ?: return
-        beginEdit(pageIndex)
-        pages[pageIndex] = p.copy(
-            items = p.items.map {
-                if (it is WriteBoxItem && it.id == writeBoxId) {
-                    it.copy(
-                        convertedText = newText,
-                        isConverted = newText.isNotBlank() || it.isConverted,
-                        font = font ?: it.font,
-                        fontSize = fontSize ?: it.fontSize,
-                    )
-                } else it
-            }
-        )
-        dirtyPageIds += p.id
-        onPagesChanged?.invoke()
-        onRedraw?.invoke()
-        scheduleSave()
-    }
-
-    fun flattenWriteBoxToText(pageIndex: Int, writeBoxId: Long) {
-        val p = pages.getOrNull(pageIndex) ?: return
-        val wb = p.items.filterIsInstance<WriteBoxItem>().firstOrNull { it.id == writeBoxId } ?: return
-        val finalText = wb.convertedText.trim()
-        beginEdit(pageIndex)
-        val remaining = p.items.filterNot { item ->
-            item.id == wb.id || (item is InkItem && (item.id in wb.inkItemIds || wb.raw.contains(item.bounds.centerX(), item.bounds.centerY())))
-        }
-        val updatedItems = if (finalText.isNotBlank()) {
-            remaining + TextItem(
-                id = ItemIds.next(),
-                text = finalText,
-                x = wb.x + 18f,
-                y = wb.y + 20f,
-                size = wb.fontSize,
-                color = textColor ?: penStyle.color,
-                style = TextStyleSpec(font = wb.font),
-            )
-        } else remaining
-        pages[pageIndex] = p.copy(items = updatedItems)
-        if (activeWriteBoxId == writeBoxId) {
-            activeWriteBoxId = null
-            handwritingCandidates = emptyList()
-        }
-        dirtyPageIds += p.id
-        onPagesChanged?.invoke()
-        onRedraw?.invoke()
-        scheduleSave()
-    }
-
-    fun deleteWriteBox(pageIndex: Int, writeBoxId: Long) {
-        val p = pages.getOrNull(pageIndex) ?: return
-        val wb = p.items.filterIsInstance<WriteBoxItem>().firstOrNull { it.id == writeBoxId } ?: return
-        beginEdit(pageIndex)
-        val remaining = p.items.filterNot { item ->
-            item.id == wb.id || (item is InkItem && (item.id in wb.inkItemIds || wb.raw.contains(item.bounds.centerX(), item.bounds.centerY())))
-        }
-        pages[pageIndex] = p.copy(items = remaining)
-        if (activeWriteBoxId == writeBoxId) {
-            activeWriteBoxId = null
-            handwritingCandidates = emptyList()
-        }
-        dirtyPageIds += p.id
-        onPagesChanged?.invoke()
-        onRedraw?.invoke()
-        scheduleSave()
-    }
-
-    fun toggleWriteBox(pageIndex: Int, writeBox: WriteBoxItem) {
-        val p = pages.getOrNull(pageIndex) ?: return
-        activeWriteBoxPage = pageIndex
-        activeWriteBoxId = writeBox.id
-        if (writeBox.isConverted) {
-            val updated = writeBox.copy(isConverted = false)
-            beginEdit(pageIndex)
-            pages[pageIndex] = p.copy(items = p.items.map { if (it.id == writeBox.id) updated else it })
-            dirtyPageIds += p.id
-            onPagesChanged?.invoke()
-            onRedraw?.invoke()
-            scheduleSave()
-        } else {
-            val boxBounds = writeBox.raw
-            val insideStrokes = p.items.filterIsInstance<InkItem>().filter { ink ->
-                boxBounds.contains(ink.bounds.centerX(), ink.bounds.centerY()) ||
-                    boxBounds.intersects(ink.bounds.left, ink.bounds.top, ink.bounds.right, ink.bounds.bottom)
-            }
-            if (insideStrokes.isEmpty() && writeBox.convertedText.isBlank()) return
-            val strokeIds = insideStrokes.map { it.id }
-            val timed = extractTimedStrokes(insideStrokes, originX = writeBox.x, originY = writeBox.y)
-
-            writeBoxRecognizeJob?.cancel()
-            writeBoxRecognizeJob = viewModelScope.launch {
-                handwritingBusy = true
-                val result = try {
-                    if (timed.isNotEmpty()) {
-                        HandwritingRecognizer.recognize(
-                            strokes = timed,
-                            writingWidth = writeBox.w,
-                            writingHeight = writeBox.h,
-                        )
-                    } else {
-                        HandwritingRecognitionResult(writeBox.convertedText)
-                    }
-                } finally {
-                    handwritingBusy = false
-                }
-                val recognized = result.text.trim()
-                handwritingCandidates = result.candidates
-                val curPage = pages.getOrNull(pageIndex) ?: return@launch
-                val curBox = curPage.items.filterIsInstance<WriteBoxItem>().firstOrNull { it.id == writeBox.id } ?: return@launch
-                val updated = curBox.copy(
-                    isConverted = true,
-                    convertedText = recognized.ifBlank { curBox.convertedText.ifBlank { "Note" } },
-                    inkItemIds = strokeIds,
-                )
-                beginEdit(pageIndex)
-                pages[pageIndex] = curPage.copy(items = curPage.items.map { if (it.id == writeBox.id) updated else it })
-                dirtyPageIds += curPage.id
-                onPagesChanged?.invoke()
-                onRedraw?.invoke()
-                scheduleSave()
-            }
-        }
-    }
-
-    /** Async helper for modal Write Box pad recognition (used by [TextDialog]). */
-    suspend fun recognizeHandwritingPad(
-        strokes: List<List<TimedStrokePoint>>,
-        width: Float,
-        height: Float,
-        preContext: String = "",
-    ): HandwritingRecognitionResult = HandwritingRecognizer.recognize(
-        strokes = strokes,
-        writingWidth = width,
-        writingHeight = height,
-        preContext = preContext,
-    )
-
-    // --------------------------------------------------------------- Keyboard Mode & Clear All
-
     var keyboardMode by mutableStateOf(false)
     var onRequestCommitText: (() -> Unit)? = null
-
-    fun toggleKeyboardMode() {
-        if (readOnly) return
-        if (!keyboardMode && textEdit != null) onRequestCommitText?.invoke()
-        if (keyboardMode) {
-            val commitHook = onRequestCommitText
-            if (commitHook != null) {
-                commitHook.invoke()
-            } else {
-                keyboardMode = false
-                if (textEdit?.isFullPage == true) textEdit = null
-            }
-            return
-        }
-        val p = pages.getOrNull(pageIndex) ?: return
-        keyboardMode = true
-        selection = emptySet()
-        // Reuse the page's primary document text item (near top-left margin) without deleting other free text boxes.
-        val existingDocText = p.items.filterIsInstance<TextItem>()
-            .firstOrNull { kotlin.math.abs(it.x - 76f) < 60f && kotlin.math.abs(it.y - 84f) < 80f }
-
-        textEdit = TextEdit(
-            page = pageIndex,
-            x = existingDocText?.x ?: 76f,
-            y = existingDocText?.y ?: 84f,
-            existing = existingDocText,
-            boxWidth = (p.width - 152f).coerceAtLeast(360f),
-            boxHeight = (p.height - 168f).coerceAtLeast(320f),
-            isFullPage = true,
-        )
-    }
-
-    fun getKeyboardPageText(pageIdx: Int = pageIndex): String {
-        val p = pages.getOrNull(pageIdx) ?: return ""
-        val textItems = p.items.filterIsInstance<TextItem>().sortedBy { it.y }
-        return textItems.joinToString("\n\n") { it.text }
-    }
-
-    fun saveKeyboardPageText(
-        fullText: String,
-        size: Float = textSize,
-        color: Int = textColor ?: penStyle.color,
-        style: TextStyleSpec = textStyle,
-    ) {
-        val p = pages.getOrNull(pageIndex) ?: return
-        val existingDocText = textEdit?.existing
-            ?: p.items.filterIsInstance<TextItem>().firstOrNull { kotlin.math.abs(it.x - 76f) < 60f && kotlin.math.abs(it.y - 84f) < 80f }
-        val otherItems = if (existingDocText != null) p.items.filterNot { it.id == existingDocText.id } else p.items
-        val updatedItems = if (fullText.isBlank()) {
-            otherItems
-        } else {
-            otherItems + TextItem(
-                id = existingDocText?.id ?: ItemIds.next(),
-                text = fullText,
-                x = existingDocText?.x ?: 76f,
-                y = existingDocText?.y ?: 84f,
-                size = size,
-                color = color,
-                style = style,
-            )
-        }
-        beginEdit(pageIndex)
-        applyItems(pageIndex, updatedItems)
-    }
-
-    fun clearPageAll() {
-        val p = currentPage ?: return
-        if (p.items.isEmpty()) return
-        beginEdit(pageIndex)
-        applyItems(pageIndex, emptyList())
-    }
-
-    // --------------------------------------------------------------- Flashcard Enhancements
-
-    fun toggleStarCard(id: String) {
-        cards = cards.map { if (it.id == id) it.copy(starred = !it.starred) else it }
-        saveStudy()
-    }
-
-    fun autoGenerateFlashcards() {
-        viewModelScope.launch {
-            val newCards = mutableListOf<com.pronotes.app.data.Flashcard>()
-            val existingFronts = cards.map { it.front.trim().lowercase() }.toHashSet()
-            val now = System.currentTimeMillis()
-
-            for ((pIdx, page) in pages.withIndex()) {
-                for (item in page.items) {
-                    when (item) {
-                        is TextItem -> {
-                            val lines = item.text.lines().map { it.trim() }.filter { it.isNotBlank() }
-                            for (i in lines.indices) {
-                                val line = lines[i].trimStart('•', '-', '*', ' ')
-                                if (':' in line && line.indexOf(':') in 3..65) {
-                                    val q = line.substringBefore(':').trim()
-                                    val a = line.substringAfter(':').trim()
-                                    if (q.length >= 3 && a.length >= 3 && q.lowercase() !in existingFronts) {
-                                        existingFronts += q.lowercase()
-                                        newCards += com.pronotes.app.data.Flashcard(
-                                            id = UUID.randomUUID().toString(),
-                                            front = q,
-                                            back = a,
-                                            pageId = page.id,
-                                            created = now,
-                                            hint = "Page ${pIdx + 1}"
-                                        )
-                                    }
-                                } else if (" — " in line) {
-                                    val q = line.substringBefore(" — ").trim()
-                                    val a = line.substringAfter(" — ").trim()
-                                    if (q.length >= 3 && a.length >= 3 && q.lowercase() !in existingFronts) {
-                                        existingFronts += q.lowercase()
-                                        newCards += com.pronotes.app.data.Flashcard(
-                                            id = UUID.randomUUID().toString(),
-                                            front = q,
-                                            back = a,
-                                            pageId = page.id,
-                                            created = now,
-                                            hint = "Page ${pIdx + 1}"
-                                        )
-                                    }
-                                } else if (line.endsWith("?") && i + 1 < lines.size) {
-                                    val ans = lines[i + 1].trimStart('•', '-', '*', ' ')
-                                    if (ans.isNotBlank() && line.lowercase() !in existingFronts) {
-                                        existingFronts += line.lowercase()
-                                        newCards += com.pronotes.app.data.Flashcard(
-                                            id = UUID.randomUUID().toString(),
-                                            front = line,
-                                            back = ans,
-                                            pageId = page.id,
-                                            created = now,
-                                            hint = "Page ${pIdx + 1}"
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        is StickyItem -> {
-                            val q = item.title.ifBlank { "Note on Page ${pIdx + 1}" }
-                            val a = item.text.trim()
-                            if (a.length >= 4 && q.lowercase() !in existingFronts) {
-                                existingFronts += q.lowercase()
-                                newCards += com.pronotes.app.data.Flashcard(
-                                    id = UUID.randomUUID().toString(),
-                                    front = q,
-                                    back = a,
-                                    pageId = page.id,
-                                    created = now,
-                                    hint = "Sticky Note · Page ${pIdx + 1}"
-                                )
-                            }
-                        }
-                        is WriteBoxItem -> {
-                            val text = item.convertedText.trim()
-                            if (text.length >= 6) {
-                                val q = "Write Box Summary (Page ${pIdx + 1})"
-                                if (q.lowercase() !in existingFronts) {
-                                    existingFronts += q.lowercase()
-                                    newCards += com.pronotes.app.data.Flashcard(
-                                        id = UUID.randomUUID().toString(),
-                                        front = q,
-                                        back = text,
-                                        pageId = page.id,
-                                        created = now,
-                                        hint = "Write Box · Page ${pIdx + 1}"
-                                    )
-                                }
-                            }
-                        }
-                        is MindNodeItem -> {
-                            if (item.notes.isNotBlank() && item.label.lowercase() !in existingFronts) {
-                                existingFronts += item.label.lowercase()
-                                newCards += com.pronotes.app.data.Flashcard(
-                                    id = UUID.randomUUID().toString(),
-                                    front = item.label,
-                                    back = item.notes,
-                                    pageId = page.id,
-                                    created = now,
-                                    hint = item.tag.ifBlank { "Concept Map · Page ${pIdx + 1}" }
-                                )
-                            }
-                        }
-                        else -> {}
-                    }
-                }
-            }
-
-            if (newCards.isEmpty()) {
-                // Fallback: create cards from top sentences on the active page
-                val summary = extractPageSummaryText(pageIndex)
-                val sentences = summary.split('\n', '.').map { it.trim() }.filter { it.length >= 12 }.take(4)
-                sentences.forEachIndexed { idx, s ->
-                    val front = "Key Point #${idx + 1} (${title.ifBlank { "Page ${pageIndex + 1}" }})"
-                    if (front.lowercase() !in existingFronts) {
-                        newCards += com.pronotes.app.data.Flashcard(
-                            id = UUID.randomUUID().toString(),
-                            front = front,
-                            back = s,
-                            pageId = currentPage?.id,
-                            created = now,
-                            hint = "Page ${pageIndex + 1}"
-                        )
-                    }
-                }
-            }
-
-            if (newCards.isNotEmpty()) {
-                cards = cards + newCards
-                saveStudy()
-                say("Generated ${newCards.size} flashcard${if (newCards.size == 1) "" else "s"} from notes")
-            } else {
-                say("Add headings, 'Term: Definition' lines, stickies, or concept map notes first")
-            }
-        }
-    }
 
     override fun onCleared() {
         if (saveJob?.isActive == true || synchronized(dirtyPageIds) { dirtyPageIds.isNotEmpty() } || structureDirty) {

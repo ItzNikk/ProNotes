@@ -134,15 +134,15 @@ interface CanvasHost {
  *  - fingers -> scroll / fling / pinch-zoom; 2-finger tap = undo, 3-finger tap = redo
  */
 @SuppressLint("ViewConstructor", "ClickableViewAccessibility")
-class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayout(context) {
+class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLayout(context) {
 
-    private val layer = DocLayer(context)
+    internal val layer = NoteCanvasDocLayer(context, this)
     private val wetInk = InProgressStrokesView(context)
     private val predictor = MotionEventPredictor.newInstance(this)
-    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
-    private val density = resources.displayMetrics.density
-    private val scroller = OverScroller(context, DecelerateInterpolator(1.6f))
-    private var velocity: VelocityTracker? = null
+    internal val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+    internal val density = resources.displayMetrics.density
+    internal val scroller = OverScroller(context, DecelerateInterpolator(1.6f))
+    internal var velocity: VelocityTracker? = null
 
     var activeMindNodeId: Long? = null
         set(value) {
@@ -180,8 +180,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     private var linkPressY = 0f
     private val linkLongRunnable = Runnable { linkPress?.let { linkLongFired = true; buzz(); host.onLinkLongPress(it.id) } }
     /** Target of the last link jump, pulsed for a moment so the eye finds it. */
-    private var linkFlash: Triple<Int, Float, Float>? = null
-    private var linkFlashAt = 0L
+    internal var linkFlash: Triple<Int, Float, Float>? = null
+    internal var linkFlashAt = 0L
 
     private fun linkAt(x: Float, y: Float): LinkEnd? {
         val ends = host.linkEnds()
@@ -195,7 +195,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     }
 
     /** A finger tap (or any tap in read-only mode) inside linked content. */
-    private fun linkBoxAt(x: Float, y: Float): LinkEnd? {
+    internal fun linkBoxAt(x: Float, y: Float): LinkEnd? {
         val ends = host.linkEnds()
         if (ends.isEmpty()) return null
         val (dx, dy) = toDoc(x, y)
@@ -204,7 +204,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         return ends.firstOrNull { e -> e.page == pi && e.box != null && RectF(e.box).apply { inset(-12f, -12f) }.contains(lx, ly) }
     }
 
-    private fun jumpTo(e: LinkEnd) {
+    internal fun jumpTo(e: LinkEnd) {
         buzz()
         e.url?.let { host.onOpenUrl(it); return }
         if (e.toPage !in pages.indices) return
@@ -231,12 +231,12 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     var darkUi = false
         set(value) { field = value; layer.invalidate() }
 
-    private fun deskArgb(): Int = when (settings.deskColor) {
+    internal fun deskArgb(): Int = when (settings.deskColor) {
         com.pronotes.app.data.DeskColor.AUTO -> if (darkUi) 0xFF141518.toInt() else 0xFFECEEF1.toInt()
         else -> settings.deskColor.argb
     }
 
-    private var gestureConfig = GestureConfig.fromSettings(AppSettings())
+    internal var gestureConfig = GestureConfig.fromSettings(AppSettings())
 
     var settings = AppSettings()
         set(value) {
@@ -253,44 +253,44 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
 
     // ------------------------------------------------------------ document layout
-    private var pages: List<Page> = emptyList()
+    internal var pages: List<Page> = emptyList()
     private var origins = FloatArray(0)      // x0, y0 per page in document units
-    private var docW = 0f
-    private var docH = 0f
+    internal var docW = 0f
+    internal var docH = 0f
     private val gap = 56f
     var currentIndex = 0
         private set
 
     // view transform: document -> screen
-    private val viewMatrix = Matrix()
+    internal val viewMatrix = Matrix()
     private val inverse = Matrix()
-    private var scale = 1f
-    private var transX = 0f
-    private var transY = 0f
+    internal var scale = 1f
+    internal var transX = 0f
+    internal var transY = 0f
     private var fitted = false
     /** Page to show on first layout (the one the notebook was closed on). */
     var startPage = 0
-    private var pull = 0f                      // overscroll past the last page, screen px
-    private val pullTrigger get() = 110f * density
+    internal var pull = 0f                      // overscroll past the last page, screen px
+    internal val pullTrigger get() = 110f * density
 
     // selection lives on a single page
     var selection: Set<Long> = emptySet()
         private set
-    private var selectionPage = -1
+    internal var selectionPage = -1
     /** Live move / resize / rotate of the selection, in page coordinates. Baked in on release. */
-    private var liveMatrix: Matrix? = null
-    private enum class Grab { MOVE, SCALE, STRETCH_L, STRETCH_R, STRETCH_T, STRETCH_B, ROTATE }
-    private var grab = Grab.MOVE
-    private var anchorX = 0f
-    private var anchorY = 0f
-    private var grabStartX = 0f
-    private var grabStartY = 0f
-    private var liveScale = 1f
-    private var liveDeg = 0f
-    private val grabBase = RectF()
-    private val liveBox = RectF()
-    private var liveScaleX = 1f
-    private var liveScaleY = 1f
+    internal var liveMatrix: Matrix? = null
+    internal enum class Grab { MOVE, SCALE, STRETCH_L, STRETCH_R, STRETCH_T, STRETCH_B, ROTATE }
+    internal var grab = Grab.MOVE
+    internal var anchorX = 0f
+    internal var anchorY = 0f
+    internal var grabStartX = 0f
+    internal var grabStartY = 0f
+    internal var liveScale = 1f
+    internal var liveDeg = 0f
+    internal val grabBase = RectF()
+    internal val liveBox = RectF()
+    internal var liveScaleX = 1f
+    internal var liveScaleY = 1f
 
     private val strokePages = HashMap<InProgressStrokeId, Int>()
     private val consumedCircleStrokes = HashSet<InProgressStrokeId>()
@@ -431,7 +431,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         reportSelection()
     }
 
-    private fun updatePage(index: Int, items: List<PageItem>) {
+    internal fun updatePage(index: Int, items: List<PageItem>) {
         val p = pages.getOrNull(index) ?: return
         pages = pages.toMutableList().also { it[index] = p.copy(items = items) }
         host.setItems(index, items)
@@ -461,8 +461,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         if (vertical) { docW = maxW; docH = max(0f, cursor - gap) } else { docW = max(0f, cursor - gap); docH = maxH }
     }
 
-    private fun ox(i: Int) = origins.getOrElse(i * 2) { 0f }
-    private fun oy(i: Int) = origins.getOrElse(i * 2 + 1) { 0f }
+    internal fun ox(i: Int) = origins.getOrElse(i * 2) { 0f }
+    internal fun oy(i: Int) = origins.getOrElse(i * 2 + 1) { 0f }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
@@ -474,7 +474,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         if (pages.isNotEmpty() && (!fitted || w != oldw)) fit(page) else if (settings.scroll == ScrollDirection.HORIZONTAL && pages.isNotEmpty()) { centerOn(page); updateMatrix() } else { clamp(); updateMatrix() }
     }
 
-    private fun fitScale(i: Int = currentIndex): Float {
+    internal fun fitScale(i: Int = currentIndex): Float {
         val p = pages.getOrNull(i) ?: return 1f
         val margin = 40f * density
         return if (settings.scroll == ScrollDirection.VERTICAL) min((width - margin) / p.width, 3f)
@@ -507,7 +507,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         updateMatrix()
     }
 
-    private fun centerOn(index: Int) {
+    internal fun centerOn(index: Int) {
         val p = pages.getOrNull(index) ?: return
         if (settings.scroll == ScrollDirection.VERTICAL) {
             transY = -oy(index) * scale + 20f * density
@@ -520,12 +520,12 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     }
 
     /** transX that centres page [i] horizontally at the current scale. */
-    private fun pageCenterX(i: Int): Float {
+    internal fun pageCenterX(i: Int): Float {
         val p = pages.getOrNull(i) ?: return transX
         return (width - p.width * scale) / 2f - ox(i) * scale
     }
 
-    private var lastTarget = 0
+    internal var lastTarget = 0
 
     fun scrollToPage(index: Int, animate: Boolean) {
         if (index !in pages.indices || width == 0) return
@@ -574,10 +574,10 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
     }
 
-    private val isWhiteboard: Boolean
+    internal val isWhiteboard: Boolean
         get() = pages.getOrNull(currentIndex)?.isWhiteboard == true
 
-    private fun clamp(allowPull: Boolean = false) {
+    internal fun clamp(allowPull: Boolean = false) {
         if (isWhiteboard) {
             pull = 0f
             return
@@ -597,7 +597,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         pull = if (!allowPull) 0f else if (vertical) max(0f, restY - transY) else max(0f, restX - transX)
     }
 
-    private fun updateMatrix() {
+    internal fun updateMatrix() {
         viewMatrix.reset()
         viewMatrix.postScale(scale, scale)
         viewMatrix.postTranslate(transX, transY)
@@ -653,13 +653,13 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
     }
 
-    private fun toDoc(x: Float, y: Float): Pt {
+    internal fun toDoc(x: Float, y: Float): Pt {
         val a = floatArrayOf(x, y)
         inverse.mapPoints(a)
         return a[0] to a[1]
     }
 
-    private fun pageAt(dx: Float, dy: Float): Int {
+    internal fun pageAt(dx: Float, dy: Float): Int {
         if (pages.isEmpty()) return -1
         val vertical = settings.scroll == ScrollDirection.VERTICAL
         pages.forEachIndexed { i, p ->
@@ -674,18 +674,18 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         return best
     }
 
-    private fun toLocal(x: Float, y: Float, page: Int): Pt {
+    internal fun toLocal(x: Float, y: Float, page: Int): Pt {
         val (dx, dy) = toDoc(x, y)
         return (dx - ox(page)) to (dy - oy(page))
     }
 
-    private fun pageMatrix(page: Int, out: Matrix): Matrix {
+    internal fun pageMatrix(page: Int, out: Matrix): Matrix {
         out.set(viewMatrix); out.preTranslate(ox(page), oy(page)); return out
     }
 
     // ------------------------------------------------------------------ input
 
-    private enum class Mode { NONE, INK, ERASE, LASSO, MOVE, LASER, PAN, TAP, SHAPE_DRAG, TAPE, MIND_DRAG, WRITE_BOX_DRAG, IGNORE }
+    internal enum class Mode { NONE, INK, ERASE, LASSO, MOVE, LASER, PAN, TAP, SHAPE_DRAG, TAPE, MIND_DRAG, WRITE_BOX_DRAG, IGNORE }
 
     private var pendingConvertPage = -1
     private var pendingConvertBoxId = -1L
@@ -712,14 +712,14 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
     private fun holdSlopPx(): Float = max(touchSlop.toFloat(), gestureConfig.holdSlopDp * density)
 
-    private var mode = Mode.NONE
+    internal var mode = Mode.NONE
     private var activePointer = -1
-    private var activePage = 0
+    internal var activePage = 0
     private var strokeId: InProgressStrokeId? = null
     private var strokeTool = Tool.PEN
     private val points = ArrayList<Pt>()       // page-local points of the current gesture
     private val lassoPoints = ArrayList<Pt>()  // screen points
-    private var lastErase: Pt? = null
+    internal var lastErase: Pt? = null
     private var dragMindId: Long = -1L
     private var dragMindOrigX = 0f
     private var dragMindOrigY = 0f
@@ -736,32 +736,32 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     private var sawStylus = false
 
     // finger gesture state
-    private var panLastX = 0f
-    private var panLastY = 0f
-    private var pinchStartDist = 0f
-    private var pinchStartScale = 1f
+    internal var panLastX = 0f
+    internal var panLastY = 0f
+    internal var pinchStartDist = 0f
+    internal var pinchStartScale = 1f
     /** True once two fingers zoomed in this gesture: then no page turning and no fling. */
-    private var pinched = false
+    internal var pinched = false
     /** Fit size of the page the gesture started on, fixed for the whole pinch. */
-    private var gestureFit = 1f
-    private var maxFingers = 0
-    private var fingerDownTime = 0L
-    private var fingerMoved = false
-    private var fingerStartX = 0f
-    private var fingerStartY = 0f
+    internal var gestureFit = 1f
+    internal var maxFingers = 0
+    internal var fingerDownTime = 0L
+    internal var fingerMoved = false
+    internal var fingerStartX = 0f
+    internal var fingerStartY = 0f
 
     private val holdRunnable = Runnable { onHold() }
 
     override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean = true
 
     private var stylusPointer = -1          // pointer id of the pen while it touches the screen
-    private var touchActive = false
-    private var pageAtGestureStart = 0
+    internal var touchActive = false
+    internal var pageAtGestureStart = 0
     private var lastStylusTime = 0L
     private var ignoreFingers = false       // swallow the rest of a palm / finger gesture
-    private var lastTapTime = 0L
-    private var lastTapX = 0f
-    private var lastTapY = 0f
+    internal var lastTapTime = 0L
+    internal var lastTapX = 0f
+    internal var lastTapY = 0f
 
     private fun isPen(type: Int) = type == MotionEvent.TOOL_TYPE_STYLUS || type == MotionEvent.TOOL_TYPE_ERASER
 
@@ -892,7 +892,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         clamp(); updateMatrix()
     }
 
-    private fun buzz(kind: Int = HapticFeedbackConstants.LONG_PRESS) {
+    internal fun buzz(kind: Int = HapticFeedbackConstants.LONG_PRESS) {
         if (settings.haptics) performHapticFeedback(kind)
     }
 
@@ -1373,8 +1373,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
     }
 
-    private val feel = PaperFeel(context, this)
-    private fun syncFeel() { feel.sound = settings.paperSound; feel.haptics = settings.paperHaptics; feel.volume = settings.paperVolume }
+    internal val feel = PaperFeel(context, this)
+    internal fun syncFeel() { feel.sound = settings.paperSound; feel.haptics = settings.paperHaptics; feel.volume = settings.paperVolume }
     private var feelX = 0f
     private var feelY = 0f
     private var feelT = 0L
@@ -1388,6 +1388,10 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         removeCallbacks(textPressRunnable)
         removeCallbacks(hoverTimeout)
         removeCallbacks(wetAssertionRunnable)
+        pendingClick?.let { removeCallbacks(it) }; pendingClick = null
+        zoomAnim?.cancel(); zoomAnim = null
+        layer.stopAnts()
+        velocity?.recycle(); velocity = null
         armedDownEvent?.recycle(); armedDownEvent = null
         lastTouchEvent?.recycle(); lastTouchEvent = null
         feel.release()
@@ -1494,7 +1498,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         return p.items.filter { lassoAllows(it) && lasso.selects(it) }.map { it.id }.toSet()
     }
 
-    private val circleDetector = CircleDetector()
+    internal val circleDetector = CircleDetector()
     private var armedDownEvent: MotionEvent? = null
     private val circleHoldRunnable = Runnable { fireCircleHold() }
 
@@ -1646,7 +1650,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     }
 
     /** Lasso filter from settings: which kinds of content can be selected. */
-    private fun lassoAllows(item: PageItem): Boolean {
+    internal fun lassoAllows(item: PageItem): Boolean {
         val f = settings.lassoFilter
         return when (item) {
             is InkItem -> if (item.isHighlighter) f.highlighter else f.ink
@@ -1803,152 +1807,12 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         layer.laserEnd()
     }
 
-    // ----------------------------------------------------------- eraser
-
-    private fun eraserAllows(item: PageItem): Boolean {
-        if (settings.eraseHighlighterOnly) {
-            return item is InkItem && item.isHighlighter
-        }
-        val ef = settings.eraserFilter
-        return when (item) {
-            is InkItem -> if (item.isHighlighter) ef.highlighter else ef.ink
-            is FillItem -> ef.shapes
-            is TextItem, is WriteBoxItem -> ef.text
-            is StickyItem, is TapeItem, is WebLinkItem, is MindNodeItem -> ef.stickyAndTape
-            is ImageItem -> ef.images
-        }
-    }
-
-    /** Require repeated contact with an ink stroke completely inside the scrub area. */
-    private fun scribbleHitIds(page: Int, pts: List<Pt>): Set<Long> {
-        val sheet = pages.getOrNull(page) ?: return emptySet()
-        val padding = (4f * density / scale).coerceIn(2f, 12f)
-        val envelope = RectF(pts.minOf { it.first }, pts.minOf { it.second }, pts.maxOf { it.first }, pts.maxOf { it.second })
-            .apply { inset(-padding, -padding) }
-        val sweep = MutableParallelogram()
-        return sheet.items.asSequence().filterIsInstance<InkItem>()
-            .filter { !it.isHighlighter && eraserAllows(it) && envelope.contains(it.bounds) }
-            .filter { item ->
-                var touching = false
-                var passes = 0
-                for (i in 1 until pts.size) {
-                    val a = pts[i - 1]
-                    val b = pts[i]
-                    val segment = MutableSegment(MutableVec(a.first - item.dx, a.second - item.dy),
-                        MutableVec(b.first - item.dx, b.second - item.dy))
-                    sweep.populateFromSegmentAndPadding(segment, padding * .65f)
-                    val hit = item.stroke.shape.intersects(sweep, AffineTransform.IDENTITY)
-                    if (hit && !touching) passes++
-                    if (passes >= 2) break
-                    touching = hit
-                }
-                passes >= 2
-            }.map { it.id }.toSet()
-    }
-
-    /** Finds the topmost selectable item under a tap in Lasso mode. */
-    private fun topSelectableItemAt(page: Int, wx: Float, wy: Float): Long? {
-        val p = pages.getOrNull(page) ?: return null
-        val r = (18f / scale).coerceIn(8f, 36f)
-        val para = MutableParallelogram()
-        val seg = MutableSegment(MutableVec(wx - 0.5f, wy - 0.5f), MutableVec(wx + 0.5f, wy + 0.5f))
-        for (item in p.items.asReversed()) {
-            if (!lassoAllows(item)) continue
-            when (item) {
-                is InkItem -> {
-                    val b = item.bounds
-                    if (!b.intersects(wx - r, wy - r, wx + r, wy + r)) continue
-                    val localSeg = MutableSegment(
-                        MutableVec(wx - item.dx - 0.5f, wy - item.dy - 0.5f),
-                        MutableVec(wx - item.dx + 0.5f, wy - item.dy + 0.5f),
-                    )
-                    para.populateFromSegmentAndPadding(localSeg, r)
-                    if (item.stroke.shape.intersects(para, AffineTransform.IDENTITY)) return item.id
-                }
-                else -> {
-                    val b = RectF(item.bounds).apply { inset(-r * 0.35f, -r * 0.35f) }
-                    if (b.contains(wx, wy)) return item.id
-                }
-            }
-        }
-        @Suppress("UNUSED_VARIABLE")
-        val unusedSeg = seg
-        return null
-    }
-
-    private fun eraseAt(wx: Float, wy: Float) {
-        val p = pages.getOrNull(activePage) ?: return
-        val prev = lastErase ?: (wx to wy)
-        lastErase = wx to wy
-        val r = host.eraserRadius() / scale
-        if (settings.eraserMode == com.pronotes.app.data.EraserMode.PIXEL) { pixelErase(p, prev, wx, wy, r); return }
-        val hit = HashSet<Long>()
-        val para = MutableParallelogram()
-        for (item in p.items) {
-            if (!eraserAllows(item)) continue
-            when (item) {
-                is InkItem -> {
-                    val b = item.bounds
-                    if (!b.intersects(min(prev.first, wx) - r, min(prev.second, wy) - r, max(prev.first, wx) + r, max(prev.second, wy) + r)) continue
-                    val seg = MutableSegment(
-                        MutableVec(prev.first - item.dx, prev.second - item.dy),
-                        MutableVec(wx - item.dx, wy - item.dy),
-                    )
-                    para.populateFromSegmentAndPadding(seg, r)
-                    if (item.stroke.shape.intersects(para, AffineTransform.IDENTITY)) hit += item.id
-                }
-                else -> if (item.bounds.contains(wx, wy)) hit += item.id
-            }
-        }
-        if (hit.isNotEmpty()) {
-            updatePage(activePage, p.items.filterNot { it.id in hit })
-        }
-    }
-
-    /** Pixel eraser: cuts strokes where the eraser passes and keeps the rest. */
-    private fun pixelErase(p: Page, prev: Pt, wx: Float, wy: Float, r: Float) {
-        val steps = max(1, (hypot(wx - prev.first, wy - prev.second) / (r * 0.5f)).toInt())
-        var items = p.items
-        var changed = false
-        for (s in 1..steps) {
-            val t = s / steps.toFloat()
-            val cx = prev.first + (wx - prev.first) * t
-            val cy = prev.second + (wy - prev.second) * t
-            val next = ArrayList<PageItem>(items.size)
-            for (item in items) {
-                if (!eraserAllows(item)) {
-                    next += item
-                    continue
-                }
-                if (item !is InkItem) {
-                    if (item.bounds.contains(cx, cy)) { changed = true; continue }
-                    next += item; continue
-                }
-                val b = item.bounds
-                if (cx < b.left - r || cx > b.right + r || cy < b.top - r || cy > b.bottom + r) { next += item; continue }
-                val pieces = InkCodec.eraseFrom(item.stroke, cx - item.dx, cy - item.dy, r + item.stroke.brush.size / 2f)
-                if (pieces == null) next += item
-                else {
-                    changed = true
-                    pieces.forEach { next += InkItem(ItemIds.next(), it, item.dx, item.dy) }
-                }
-            }
-            items = next
-        }
-        if (changed) updatePage(activePage, items)
-    }
-
-
-    // ----------------------------------------------------------- selection
-
-    private fun select(page: Int, lasso: Lasso, outline: List<Pt>? = null) {
-        val p = pages.getOrNull(page) ?: return
-        selectItems(page, p.items.filter { lassoAllows(it) && lasso.selects(it) }.map { it.id }.toSet(), outline)
-    }
+    // ----------------------------------------------------------- selection & gesture state (implementations in NoteCanvasEraser/Selection/Gestures/DocLayer.kt)
 
     /** Page-space loop drawn around a lasso selection (null = plain box). */
-    private var selectionOutline: List<Pt>? = null
+    internal var selectionOutline: List<Pt>? = null
     private var circleSelect = false
+    internal val tmpMatrix = Matrix()
 
     fun selectItems(page: Int, ids: Set<Long>, outline: List<Pt>? = null) {
         selection = ids
@@ -1969,341 +1833,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         reportSelection()
     }
 
-    private fun selectionPageBounds(): RectF? {
-        val p = pages.getOrNull(selectionPage) ?: return null
-        val items = p.items.filter { it.id in selection }
-        if (items.isEmpty()) return null
-        val r = RectF(items.first().bounds)
-        items.drop(1).forEach { r.union(it.bounds) }
-        r.inset(-12f, -12f)
-        liveMatrix?.let { if (grab != Grab.ROTATE) it.mapRect(r) }
-        return r
-    }
-
-    /** Selection box without live transform, for hit testing and rotate drawing. */
-    private fun selectionBaseBounds(): RectF? {
-        val keep = liveMatrix; liveMatrix = null
-        val r = selectionPageBounds(); liveMatrix = keep
-        return r
-    }
-
-    private fun handleRadius() = 22f * density
-    private fun rotateHandleOffset() = 30f * density
-
-    /** Starts move / resize / stretch / rotate when the pen lands on the selection or one of its handles. */
-    private fun beginGrab(px: Float, py: Float): Boolean {
-        val base = selectionBaseBounds() ?: return false
-        val p = pages.getOrNull(selectionPage)
-        if (p != null && selection.isNotEmpty() && p.items.filter { it.id in selection }.all { it is StickyItem && it.pinned }) {
-            return false
-        }
-        val sb = RectF(base); pageMatrix(selectionPage, tmpMatrix).mapRect(sb)
-        val (lx, ly) = toLocal(px, py, selectionPage)
-        val corners = listOf(sb.left to sb.top, sb.right to sb.top, sb.right to sb.bottom, sb.left to sb.bottom)
-        val baseCorners = listOf(base.left to base.top, base.right to base.top, base.right to base.bottom, base.left to base.bottom)
-        val hit = corners.indexOfFirst { (cx, cy) -> hypot(px - cx, py - cy) < handleRadius() }
-        val midHit = listOf(
-            (sb.left to sb.centerY()) to Grab.STRETCH_L,
-            (sb.right to sb.centerY()) to Grab.STRETCH_R,
-            (sb.centerX() to sb.top) to Grab.STRETCH_T,
-            (sb.centerX() to sb.bottom) to Grab.STRETCH_B,
-        ).firstOrNull { (pt, _) -> hypot(px - pt.first, py - pt.second) < handleRadius() * 0.85f }?.second
-        grab = when {
-            hit >= 0 -> { val opp = baseCorners[(hit + 2) % 4]; anchorX = opp.first; anchorY = opp.second; Grab.SCALE }
-            midHit != null -> midHit
-            hypot(px - sb.centerX(), py - (sb.top - rotateHandleOffset())) < handleRadius() -> {
-                anchorX = base.centerX(); anchorY = base.centerY(); Grab.ROTATE
-            }
-            sb.contains(px, py) -> Grab.MOVE
-            else -> return false
-        }
-        activePage = selectionPage
-        mode = Mode.MOVE
-        grabStartX = lx; grabStartY = ly
-        grabBase.set(base)
-        liveBox.set(base)
-        liveScale = 1f; liveScaleX = 1f; liveScaleY = 1f; liveDeg = 0f
-        liveMatrix = Matrix()
-        return true
-    }
-
-    private fun updateGrab(x: Float, y: Float) {
-        val m = Matrix()
-        when (grab) {
-            Grab.MOVE -> m.setTranslate(x - grabStartX, y - grabStartY)
-            Grab.SCALE -> {
-                val d0 = hypot(grabStartX - anchorX, grabStartY - anchorY).coerceAtLeast(1f)
-                liveScale = (hypot(x - anchorX, y - anchorY) / d0).coerceIn(0.1f, 12f)
-                m.setScale(liveScale, liveScale, anchorX, anchorY)
-            }
-            Grab.STRETCH_L, Grab.STRETCH_R, Grab.STRETCH_T, Grab.STRETCH_B -> {
-                val dx = x - grabStartX
-                val dy = y - grabStartY
-                liveBox.set(grabBase)
-                when (grab) {
-                    Grab.STRETCH_L -> liveBox.left = (grabBase.left + dx).coerceAtMost(grabBase.right - 36f)
-                    Grab.STRETCH_R -> liveBox.right = (grabBase.right + dx).coerceAtLeast(grabBase.left + 36f)
-                    Grab.STRETCH_T -> liveBox.top = (grabBase.top + dy).coerceAtMost(grabBase.bottom - 36f)
-                    Grab.STRETCH_B -> liveBox.bottom = (grabBase.bottom + dy).coerceAtLeast(grabBase.top + 36f)
-                    else -> Unit
-                }
-                liveScaleX = (liveBox.width() / grabBase.width().coerceAtLeast(1f)).coerceIn(0.15f, 8f)
-                liveScaleY = (liveBox.height() / grabBase.height().coerceAtLeast(1f)).coerceIn(0.15f, 8f)
-                m.setRectToRect(grabBase, liveBox, Matrix.ScaleToFit.FILL)
-            }
-            Grab.ROTATE -> {
-                val a0 = Math.toDegrees(kotlin.math.atan2((grabStartY - anchorY).toDouble(), (grabStartX - anchorX).toDouble()))
-                val a1 = Math.toDegrees(kotlin.math.atan2((y - anchorY).toDouble(), (x - anchorX).toDouble()))
-                var deg = (a1 - a0).toFloat()
-                val snapped = (Math.round(deg / 15f) * 15).toFloat()
-                if (abs(deg - snapped) < 4f) deg = snapped   // snap to 15° steps
-                liveDeg = deg
-                m.setRotate(deg, anchorX, anchorY)
-            }
-        }
-        liveMatrix = m
-    }
-
-    private val tmpMatrix = Matrix()
-
-    private fun reportSelection() {
-        val wb = if (selection.isEmpty()) null else selectionPageBounds()
-        if (wb == null) { host.onSelectionChanged(selectionPage, emptySet(), null); return }
-        val sb = RectF(wb)
-        pageMatrix(selectionPage, tmpMatrix).mapRect(sb)
-        host.onSelectionChanged(selectionPage, selection, sb)
-    }
-
-    private fun commitMove() {
-        val p = pages.getOrNull(selectionPage) ?: return
-        val m = liveMatrix
-        liveMatrix = null
-        if (m != null && !m.isIdentity) {
-            host.beginEdit(selectionPage)
-            val items = when (grab) {
-                Grab.MOVE -> {
-                    val v = FloatArray(9); m.getValues(v)
-                    p.items.map {
-                        if (it.id in selection) {
-                            val movedItem = it.translated(v[Matrix.MTRANS_X], v[Matrix.MTRANS_Y])
-                            if (movedItem is MindNodeItem && !p.isWhiteboard) {
-                                val maxX = (p.width - movedItem.w - 56f).coerceAtLeast(56f)
-                                val maxY = (p.height - movedItem.h - 56f).coerceAtLeast(56f)
-                                movedItem.copy(x = movedItem.x.coerceIn(56f, maxX), y = movedItem.y.coerceIn(56f, maxY))
-                            } else movedItem
-                        } else it
-                    }
-                }
-                Grab.SCALE -> p.items.map { if (it.id in selection) it.transformed(m, liveScale, 0f) else it }
-                Grab.STRETCH_L, Grab.STRETCH_R, Grab.STRETCH_T, Grab.STRETCH_B -> p.items.map {
-                    if (it.id in selection) it.stretched(grabBase, liveBox) else it
-                }
-                Grab.ROTATE -> p.items.map { if (it.id in selection) it.transformed(m, 1f, liveDeg) else it }
-            }
-            updatePage(selectionPage, items)
-            // The lasso loop follows the content.
-            selectionOutline = selectionOutline?.map { (x, y) -> val a = floatArrayOf(x, y); m.mapPoints(a); a[0] to a[1] }
-        }
-        liveScale = 1f; liveScaleX = 1f; liveScaleY = 1f; liveDeg = 0f
-        reportSelection()
-    }
-
-    /** Returns the line index in [item.text] when (wx, wy) hits a checklist checkbox gutter, else null. */
-    private fun findStickyChecklistLine(item: StickyItem, wx: Float, wy: Float): Int? {
-        if (item.collapsed || item.text.isBlank()) return null
-        val r = item.raw
-        val barH = minOf(r.height(), if (item.title.isNotBlank()) 38f else 30f)
-        if (wx > r.left + 64f || wy < r.top + barH) return null
-        val fSize = item.fontSize.coerceIn(14f, 64f) * (r.width() / 280f).coerceIn(0.45f, 3.5f)
-        val lineStep = (fSize * 1.45f).coerceAtLeast(24f)
-        var cy = r.top + barH + 10f
-        item.text.split('\n').forEachIndexed { idx, line ->
-            val tr = line.trimStart()
-            val isTask = tr.startsWith("- [ ] ") || tr.startsWith("- [x] ", ignoreCase = true) || tr.startsWith("☐ ") || tr.startsWith("☑ ")
-            if (wy >= cy - 4f && wy <= cy + lineStep + 6f) {
-                return if (isTask) idx else null
-            }
-            cy += lineStep
-        }
-        return null
-    }
-
-    // ----------------------------------------------------------- fingers
-
-    private fun handleFingers(e: MotionEvent, action: Int) {
-        if (velocity == null) velocity = VelocityTracker.obtain()
-        velocity?.addMovement(e)
-        when (action) {
-            MotionEvent.ACTION_DOWN -> {
-                scroller.forceFinished(true)
-                zoomAnim?.cancel()
-                mode = Mode.PAN
-                panLastX = e.x; panLastY = e.y
-                fingerStartX = e.x; fingerStartY = e.y
-                maxFingers = 1
-                fingerDownTime = SystemClock.uptimeMillis()
-                fingerMoved = false
-                pinched = false
-                textSelecting = false
-                // Long-press on PDF text selects it.
-                removeCallbacks(textPressRunnable)
-                postDelayed(textPressRunnable, 450)
-            }
-            MotionEvent.ACTION_POINTER_DOWN -> {
-                removeCallbacks(textPressRunnable)
-                if (textSelecting) return
-                mode = Mode.PAN
-                maxFingers = max(maxFingers, e.pointerCount)
-                if (fingerDownTime == 0L) fingerDownTime = SystemClock.uptimeMillis()
-                if (e.pointerCount >= 2) {
-                    if (!pinched) gestureFit = fitScale(pageAtGestureStart.coerceIn(0, max(0, pages.size - 1)))
-                    pinched = true
-                    scroller.forceFinished(true)
-                    pinchStartDist = spacing(e)
-                    pinchStartScale = scale
-                }
-                val (cx, cy) = focus(e)
-                panLastX = cx; panLastY = cy
-            }
-            MotionEvent.ACTION_MOVE -> {
-                if (textSelecting) {
-                    val (lx, ly) = toLocal(e.x, e.y, textPage)
-                    host.onTextDrag(lx, ly)
-                    layer.invalidate()
-                    return
-                }
-                val (cx, cy) = focus(e)
-                if (hypot(cx - fingerStartX, cy - fingerStartY) > touchSlop * 2) { fingerMoved = true; removeCallbacks(textPressRunnable) }
-                if (e.pointerCount >= 2 && pinchStartDist > 0f) {
-                    val minScale = if (isWhiteboard) 0.16f else gestureFit * 0.9f
-                    val maxScale = if (isWhiteboard) 8f else 6f
-                    val newScale = (pinchStartScale * spacing(e) / pinchStartDist).coerceIn(minScale, maxScale)
-                    if (abs(newScale - scale) > 0.001f) {
-                        fingerMoved = true
-                        host.onZoom((newScale / gestureFit * 100f).toInt())
-                        val (fx, fy) = toDoc(cx, cy)
-                        scale = newScale
-                        transX = cx - fx * scale
-                        transY = cy - fy * scale
-                    }
-                }
-                var dx = cx - panLastX; var dy = cy - panLastY
-                if (pull > 0f) { dx *= 0.45f; dy *= 0.45f }   // rubber band while pulling
-                // Horizontal paging at fit size: pages slide sideways only (disabled on infinite whiteboards).
-                val horizontal = settings.scroll == ScrollDirection.HORIZONTAL
-                val paging = !isWhiteboard && !pinched && horizontal && e.pointerCount == 1 && scale <= fitScale() * 1.05f
-                if (paging) dy = 0f
-                transX += dx
-                // Zoomed in (horizontal mode): pan inside the current page only, never across pages.
-                if (horizontal && !paging && !isWhiteboard && e.pointerCount == 1 && pages.isNotEmpty()) {
-                    val (lo, hi) = pageXRange(pageAtGestureStart.coerceIn(0, pages.size - 1))
-                    transX = transX.coerceIn(lo, hi)
-                }
-                // One swipe = one page: the drag can reach the next or previous page, no further.
-                if (paging && pages.isNotEmpty()) {
-                    val last = pageAtGestureStart >= pages.size - 1
-                    var lo = pageCenterX((pageAtGestureStart + 1).coerceAtMost(pages.size - 1))
-                    val hi = pageCenterX((pageAtGestureStart - 1).coerceAtLeast(0))
-                    // On the last page the drag may go past it, so "pull to add a page" can trigger.
-                    if (last && settings.pullToAddPage) lo -= 220f * density
-                    transX = transX.coerceIn(min(lo, hi), max(lo, hi))
-                }
-                transY += dy
-                panLastX = cx; panLastY = cy
-                clamp(allowPull = e.pointerCount == 1)
-                updateMatrix()
-            }
-            MotionEvent.ACTION_POINTER_UP -> {
-                val remaining = (0 until e.pointerCount).filter { it != e.actionIndex }
-                if (remaining.isNotEmpty()) {
-                    panLastX = remaining.map { e.getX(it) }.average().toFloat()
-                    panLastY = remaining.map { e.getY(it) }.average().toFloat()
-                }
-                pinchStartDist = 0f
-                if (e.pointerCount - 1 >= 2) {
-                    pinchStartDist = spacing(e, skip = e.actionIndex)
-                    pinchStartScale = scale
-                }
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                removeCallbacks(textPressRunnable)
-                if (textSelecting) {
-                    textSelecting = false
-                    val rects = host.textSelection(textPage)
-                    val sb = if (rects.isEmpty()) null else RectF(rects.first()).also { r -> rects.drop(1).forEach { r.union(it) }; pageMatrix(textPage, tmpMatrix).mapRect(r) }
-                    host.onTextEnd(sb)
-                    mode = Mode.NONE; maxFingers = 0; fingerDownTime = 0L
-                    velocity?.recycle(); velocity = null
-                    return
-                }
-                val quick = SystemClock.uptimeMillis() - fingerDownTime < 300
-                if (action == MotionEvent.ACTION_UP && quick && !fingerMoved && maxFingers == 1) host.onTextClear()
-                if (action == MotionEvent.ACTION_UP && quick && !fingerMoved && settings.fingerTapUndo && !readOnly) {
-                    when (maxFingers) {
-                        2 -> { host.undo(); syncFeel(); feel.cue(PaperFeel.Cue.UNDO) }
-                        3 -> { host.redo(); syncFeel(); feel.cue(PaperFeel.Cue.UNDO) }
-                    }
-                }
-                val link = if (action == MotionEvent.ACTION_UP && maxFingers == 1 && quick && !fingerMoved) linkBoxAt(e.x, e.y) else null
-                val webCard = if (link == null && action == MotionEvent.ACTION_UP && maxFingers == 1 && quick && !fingerMoved) {
-                    val (dx, dy) = toDoc(e.x, e.y)
-                    val pi = pageAt(dx, dy)
-                    val (lx, ly) = toLocal(e.x, e.y, pi)
-                    val pItems = pages.getOrNull(pi)?.items.orEmpty()
-                    val taskSticky = if (!readOnly) pItems.lastOrNull { it is StickyItem && it.bounds.contains(lx, ly) } as StickyItem? else null
-                    val taskIdx = taskSticky?.let { findStickyChecklistLine(it, lx, ly) }
-                    if (taskSticky != null && taskIdx != null) {
-                        buzz(HapticFeedbackConstants.CLOCK_TICK)
-                        host.onStickyChecklistToggle(pi, taskSticky, taskIdx)
-                        lastTapTime = 0L
-                        null
-                    } else {
-                        pItems.lastOrNull { it is WebLinkItem && it.bounds.contains(lx, ly) } as WebLinkItem?
-                    }
-                } else null
-                if (link != null) { jumpTo(link); lastTapTime = 0L }
-                else if (webCard != null) { buzz(); host.onOpenUrl(webCard.url); lastTapTime = 0L }
-                else if (action == MotionEvent.ACTION_UP && maxFingers == 1 && quick && !fingerMoved) {
-                    val now = SystemClock.uptimeMillis()
-                    if (now - lastTapTime < 320 && hypot(e.x - lastTapX, e.y - lastTapY) < touchSlop * 3) {
-                        val (dx, dy) = toDoc(e.x, e.y)
-                        val pi = pageAt(dx, dy)
-                        val (lx, ly) = toLocal(e.x, e.y, pi)
-                        val writeBox = pages.getOrNull(pi)?.items?.filterIsInstance<WriteBoxItem>()?.lastOrNull { it.bounds.contains(lx, ly) }
-                        if (writeBox != null && !readOnly) {
-                            buzz(HapticFeedbackConstants.CONTEXT_CLICK)
-                            host.onWriteBoxDoubleTap(pi, writeBox)
-                            lastTapTime = 0L
-                        } else if (settings.doubleTapZoom) {
-                            toggleZoom(e.x, e.y)
-                            lastTapTime = 0L
-                        }
-                    } else {
-                        lastTapTime = now; lastTapX = e.x; lastTapY = e.y
-                        if (selection.isNotEmpty()) clearSelection()
-                        clearCircleCandidate()
-                    }
-                }
-                host.onZoom(null)
-                val pulled = pull >= pullTrigger
-                if (pulled) {
-                    buzz(); syncFeel(); feel.cue(PaperFeel.Cue.ADD)
-                    host.onPullAddPage()
-                }
-                pull = 0f
-                releaseFling(pulled)
-                mode = Mode.NONE
-                maxFingers = 0
-                fingerDownTime = 0L
-                pinchStartDist = 0f
-                velocity?.recycle(); velocity = null
-            }
-        }
-    }
-
-    private var textSelecting = false
-    private var textPage = 0
-    private val textPressRunnable = Runnable {
+    internal var textSelecting = false
+    internal var textPage = 0
+    internal val textPressRunnable = Runnable {
         if (fingerMoved || maxFingers != 1 || mode != Mode.PAN) return@Runnable
         val (dx, dy) = toDoc(fingerStartX, fingerStartY)
         val pi = pageAt(dx, dy)
@@ -2324,103 +1856,8 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
     }
 
-    /** transX range that keeps page [i] filling the screen sideways (or centred when narrower). */
-    private fun pageXRange(i: Int): Pair<Float, Float> {
-        val p = pages[i]
-        val left = -ox(i) * scale
-        val w = p.width * scale
-        if (w <= width) { val c = (width - w) / 2f + left; return c to c }
-        return (width - w + left) to left
-    }
-
-    private fun releaseFling(pulled: Boolean) {
-        if (pinched) { pinched = false; settleAfterPinch(); return }
-        val vt = velocity ?: return
-        vt.computeCurrentVelocity(1000)
-        val vx = vt.xVelocity; val vy = vt.yVelocity
-        val horizontal = settings.scroll == ScrollDirection.HORIZONTAL
-        // A plain tap must not move the page at all, and after a pull the new page's scroll animation must not be overridden by a fling.
-        if (!fingerMoved || pulled) return
-        if (isWhiteboard) {
-            scroller.fling(
-                transX.toInt(), transY.toInt(), vx.toInt(), vy.toInt(),
-                -1_000_000, 1_000_000, -1_000_000, 1_000_000,
-            )
-            postInvalidateOnAnimation()
-            return
-        }
-        val atFit = scale <= fitScale() * 1.05f
-        if (horizontal && !atFit && pages.isNotEmpty()) {
-            // Zoomed in: fling inside the current page only.
-            val (lo, hi) = pageXRange(pageAtGestureStart.coerceIn(0, pages.size - 1))
-            val ch = docH * scale
-            scroller.fling(
-                transX.toInt(), transY.toInt(), vx.toInt(), vy.toInt(), lo.toInt(), hi.toInt(),
-                min(0f, height - ch - 24f * density).toInt(), (24f * density).toInt(),
-            )
-            postInvalidateOnAnimation()
-            return
-        }
-        if (horizontal && atFit && !pulled) {
-            // Page-by-page snapping, like turning pages: at most one page per swipe.
-            val start = pageAtGestureStart.coerceIn(0, max(0, pages.size - 1))
-            var target = currentIndex.coerceIn((start - 1).coerceAtLeast(0), (start + 1).coerceAtMost(pages.size - 1))
-            if (vx < -400) target = (start + 1).coerceAtMost(pages.size - 1)
-            else if (vx > 400) target = (start - 1).coerceAtLeast(0)
-            scale = fitScale(target)
-            scrollToPage(target, animate = true)
-            return
-        }
-        val cw = docW * scale; val ch = docH * scale
-        scroller.fling(
-            transX.toInt(), transY.toInt(), vx.toInt(), vy.toInt(),
-            min(0f, width - cw - 24f * density).toInt(), (24f * density).toInt(),
-            min(0f, height - ch - 24f * density).toInt(), (24f * density).toInt(),
-        )
-        clamp(); updateMatrix()
-        postInvalidateOnAnimation()
-    }
-
-    /**
-     * After a pinch: stay on the page you were on. Near fit size in page mode it eases back to that
-     * page; zoomed out past fit it eases back to fit; zoomed in it simply stays where you left it.
-     */
-    private fun settleAfterPinch() {
-        if (pages.isEmpty() || width == 0) return
-        if (isWhiteboard) {
-            updateMatrix()
-            return
-        }
-        val horizontal = settings.scroll == ScrollDirection.HORIZONTAL
-        val page = pageAtGestureStart.coerceIn(0, pages.size - 1)
-        val fromS = scale; val fromX = transX; val fromY = transY
-        when {
-            horizontal && scale <= gestureFit * 1.3f -> { scale = fitScale(page); centerOn(page); lastTarget = page }
-            scale < gestureFit -> {
-                val (fx, fy) = toDoc(width / 2f, height / 2f)
-                scale = gestureFit
-                transX = width / 2f - fx * scale; transY = height / 2f - fy * scale
-                clamp()
-            }
-            else -> { clamp(); updateMatrix(); return }
-        }
-        val toS = scale; val toX = transX; val toY = transY
-        scale = fromS; transX = fromX; transY = fromY
-        ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 240; interpolator = DecelerateInterpolator()
-            addUpdateListener {
-                val t = it.animatedValue as Float
-                scale = fromS + (toS - fromS) * t
-                transX = fromX + (toX - fromX) * t
-                transY = fromY + (toY - fromY) * t
-                updateMatrix()
-            }
-            start()
-        }
-    }
-
     /** Double-tap with a finger: zoom in to 2x around the tap, or back to fit. */
-    private var zoomAnim: ValueAnimator? = null
+    internal var zoomAnim: ValueAnimator? = null
 
     fun resetWhiteboardView() {
         if (pages.isEmpty() || width == 0) return
@@ -2445,104 +1882,13 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
     }
 
-    /**
-     * Works out the end state first (scale and position), then eases there, so a double tap
-     * never lands between pages or on the wrong one.
-     */
-    private fun toggleZoom(x: Float, y: Float) {
-        if (pages.isEmpty()) return
-        zoomAnim?.cancel()
-        scroller.forceFinished(true)
-        val page = currentIndex
-        val fit = fitScale(page)
-        val zoomIn = scale <= fit * 1.3f
-        val fromS = scale; val fromX = transX; val fromY = transY
-        val (fx, fy) = toDoc(x, y)
-        if (zoomIn) {
-            scale = fit * 2f
-            transX = x - fx * scale; transY = y - fy * scale
-            clamp()
-        } else {
-            scale = fit
-            if (isWhiteboard) {
-                val p = pages[page]
-                transX = (width - p.width * scale) / 2f - ox(page) * scale
-                transY = (height - p.height * scale) / 2f - oy(page) * scale
-            } else if (settings.scroll == ScrollDirection.VERTICAL) {
-                // Same spot of the page stays under the finger, centred left to right.
-                transY = y - fy * scale
-                transX = (width - docW * scale) / 2f
-                clamp()
-            } else centerOn(page)
-            lastTarget = page
-        }
-        val toS = scale; val toX = transX; val toY = transY
-        scale = fromS; transX = fromX; transY = fromY
-        zoomAnim = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 260; interpolator = DecelerateInterpolator()
-            addUpdateListener {
-                val t = it.animatedValue as Float
-                scale = fromS + (toS - fromS) * t
-                transX = fromX + (toX - fromX) * t
-                transY = fromY + (toY - fromY) * t
-                updateMatrix()
-            }
-            start()
-        }
-    }
-
-    private fun focus(e: MotionEvent): Pair<Float, Float> {
-        var sx = 0f; var sy = 0f
-        for (i in 0 until e.pointerCount) { sx += e.getX(i); sy += e.getY(i) }
-        return sx / e.pointerCount to sy / e.pointerCount
-    }
-
-    private fun spacing(e: MotionEvent, skip: Int = -1): Float {
-        val idx = (0 until e.pointerCount).filter { it != skip }
-        if (idx.size < 2) return 0f
-        return hypot(e.getX(idx[0]) - e.getX(idx[1]), e.getY(idx[0]) - e.getY(idx[1]))
-    }
-
     // ------------------------------------------------ pen button click / double click (hovering)
-    private var lastPenTouchAt = 0L      // last time the pen touched the screen
-    private var buttonDown = false
-    private var buttonDownAt = 0L
-    private var lastClickAt = 0L
-    private var pendingClick: Runnable? = null
-
-    private fun trackPenButton(e: MotionEvent) {
-        val held = e.buttonState and (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_SECONDARY) != 0 ||
-            e.actionMasked == MotionEvent.ACTION_BUTTON_PRESS
-        val now = SystemClock.uptimeMillis()
-        if (held && !buttonDown) { buttonDown = true; buttonDownAt = now; return }
-        val released = (!held && buttonDown) || e.actionMasked == MotionEvent.ACTION_BUTTON_RELEASE
-        if (!released || !buttonDown) return
-        buttonDown = false
-        val pressMs = now - buttonDownAt
-        // Brushes against the button, long holds, and presses right after writing are not clicks.
-        if (pressMs < 40 || pressMs > 450) return
-        if (now - lastPenTouchAt < 600) return
-        val x = e.x; val y = e.y
-        val name = e.device?.name ?: "Stylus"
-        pendingClick?.let { removeCallbacks(it) }
-        if (now - lastClickAt < 450) {
-            pendingClick = null; lastClickAt = 0L
-            host.onPenButton(true, x, y, name)
-        } else {
-            lastClickAt = now
-            // Wait so a double click is not also read as a single one; the wait is a setting.
-            val wait = settings.penClickDelay.ms.coerceAtLeast(500L)
-            pendingClick = Runnable { pendingClick = null; host.onPenButton(false, x, y, name) }.also { postDelayed(it, wait) }
-        }
-    }
-
-    private val hoverTimeout = Runnable { clearHover() }
-
-    /** Removes the hover dot / eraser ring (pen left, touched down, or stopped reporting hover). */
-    private fun clearHover() {
-        removeCallbacks(hoverTimeout)
-        if (layer.hoverDot != null || layer.hoverAt != null) { layer.hoverDot = null; layer.hoverAt = null; layer.invalidate() }
-    }
+    internal var lastPenTouchAt = 0L      // last time the pen touched the screen
+    internal var buttonDown = false
+    internal var buttonDownAt = 0L
+    internal var lastClickAt = 0L
+    internal var pendingClick: Runnable? = null
+    internal val hoverTimeout = Runnable { clearHover() }
 
     // Stylus hover: show the eraser ring when the side button is held over the page.
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
@@ -2569,465 +1915,4 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     }
 
     fun refresh() = layer.invalidate()
-
-    // ================================================================ layer
-
-    private class LaserStroke(val pts: ArrayList<Pt>, var end: Long = Long.MAX_VALUE)
-
-    @SuppressLint("ViewConstructor")
-    private inner class DocLayer(context: Context) : View(context) {
-        var lasso: List<Pt>? = null
-        var eraserAt: Pair<Float, Float>? = null
-        var hoverAt: Pair<Float, Float>? = null
-        var shapePreview: List<List<Pt>>? = null
-        var tapePreview: RectF? = null
-        var tapeFree: List<Pt>? = null
-        var writeBoxPreview: RectF? = null
-        /** Hover preview: x, y, and (colour, radius in px). */
-        var hoverDot: Triple<Float, Float, Pair<Int, Float>>? = null
-        private val hoverPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val hoverRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.2f * density; color = 0x66000000 }
-
-        fun clearLasers() { lasers.clear(); invalidate() }
-
-        private val lassoPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE; strokeWidth = 1.6f * density; color = 0xFF3D6CF4.toInt()
-        }
-        private val lassoFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x143D6CF4 }
-        private val selPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE; strokeWidth = 1.5f * density; color = 0xFF3D6CF4.toInt()
-            pathEffect = DashPathEffect(floatArrayOf(8f * density, 5f * density), 0f)
-        }
-        private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt() }
-        private val handleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
-        private val selRing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE; strokeWidth = 1.8f * density; color = 0xFF3D6CF4.toInt()
-        }
-        private val eraserPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE; strokeWidth = 1.5f * density; color = 0x99000000.toInt()
-        }
-        private val eraserFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x22FFFFFF }
-        private val previewPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE; strokeWidth = 2f * density; color = 0xFF3D6CF4.toInt()
-            strokeJoin = Paint.Join.ROUND; strokeCap = Paint.Cap.ROUND
-        }
-        private val tapePreviewPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x993D6CF4.toInt() }
-        private val laserCore = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
-        }
-        private val pullPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt() }
-        private val pullText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 14f * density; color = 0xFF5B6475.toInt(); textAlign = Paint.Align.CENTER
-        }
-        private val pagePaintBg = Paint().apply { color = 0xFFE9ECF1.toInt() }
-        private val pageNumberPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 12f * density; textAlign = Paint.Align.CENTER }
-        private val lasers = ArrayList<LaserStroke>()
-        private var antsPhase = 0f
-        private var antsAnim: ValueAnimator? = null
-        private var selScale = 1f
-        private var flashAlpha = 0f
-        private val tmpPath = Path()
-        private val m = Matrix()
-
-        fun startAnts() {
-            antsAnim?.cancel()
-            antsAnim = ValueAnimator.ofFloat(0f, 26f * density).apply {
-                duration = 600; repeatCount = ValueAnimator.INFINITE
-                addUpdateListener { antsPhase = it.animatedValue as Float; invalidate() }
-                start()
-            }
-        }
-
-        fun stopAnts() { antsAnim?.cancel(); antsAnim = null }
-
-        fun popSelection() {
-            ValueAnimator.ofFloat(0.92f, 1f).apply {
-                duration = 220; interpolator = OvershootInterpolator(2f)
-                addUpdateListener { selScale = it.animatedValue as Float; invalidate() }
-                start()
-            }
-        }
-
-        fun flashErase() {
-            ValueAnimator.ofFloat(1f, 0f).apply {
-                duration = 350
-                addUpdateListener { flashAlpha = it.animatedValue as Float; invalidate() }
-                start()
-            }
-        }
-
-        private var morph: List<Pt>? = null
-        private var morphT = 0f
-
-        private var puffs: List<RectF> = emptyList()
-        private var puffT = 0f
-        private val puffPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-        private val puffRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeCap = Paint.Cap.ROUND
-        }
-        private val puffSeeds = FloatArray(64) { kotlin.random.Random(it * 17 + 11).nextFloat() }
-        private val greyShades = intArrayOf(
-            0xFF94A3B8.toInt(),
-            0xFF64748B.toInt(),
-            0xFFCBD5E1.toInt(),
-            0xFF475569.toInt(),
-            0xFF9CA3AF.toInt(),
-        )
-
-        /** Scribble-erase: classic grey crumbling dust particles dispersing from erased ink. */
-        fun puff(rects: List<RectF>) {
-            if (rects.isEmpty()) return
-            puffs = rects
-            ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = 440; interpolator = DecelerateInterpolator()
-                addUpdateListener { puffT = it.animatedValue as Float; invalidate() }
-                addListener(object : android.animation.AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: android.animation.Animator) { puffs = emptyList(); invalidate() }
-                })
-                start()
-            }
-        }
-
-        private fun drawPuffs(canvas: Canvas) {
-            if (puffs.isEmpty()) return
-            val t = puffT
-            val ease = 1f - (1f - t) * (1f - t)
-            val fade = (1f - t).coerceIn(0f, 1f)
-            puffs.forEachIndexed { rIdx, r ->
-                val cx = r.centerX()
-                val cy = r.centerY()
-                val span = max(r.width(), r.height()).coerceAtLeast(22f * density)
-
-                // Soft expanding grey dust ring
-                val ringRadius = (6f * density) + (span.coerceAtMost(120f * density) * 0.45f) * ease
-                puffRingPaint.color = 0xFF94A3B8.toInt()
-                puffRingPaint.strokeWidth = 1.6f * density * fade
-                puffRingPaint.alpha = (fade * 85f).toInt().coerceIn(0, 255)
-                canvas.drawCircle(cx, cy, ringRadius, puffRingPaint)
-
-                // Grey dust specks & puffs distributed across the erased bounds
-                val rw = r.width().coerceAtLeast(10f * density)
-                val rh = r.height().coerceAtLeast(10f * density)
-                for (k in 0 until 14) {
-                    val s1 = puffSeeds[(k + rIdx * 7) % 64]
-                    val s2 = puffSeeds[(k * 3 + 13 + rIdx) % 64]
-                    val s3 = puffSeeds[(k * 5 + 29) % 64]
-                    val ang = k * (2.0 * Math.PI / 14.0) + s1 * 0.7
-                    val speed = (14f + 30f * s2) * density * ease
-                    val startX = r.left + s1 * rw
-                    val startY = r.top + s2 * rh
-                    val px = startX + kotlin.math.cos(ang).toFloat() * speed
-                    val py = startY + kotlin.math.sin(ang).toFloat() * speed - (10f * density * ease)
-                    val radius = (2.2f + 3.6f * s3) * density * (1f - t * 0.4f)
-                    puffPaint.color = greyShades[(k + rIdx) % greyShades.size]
-                    puffPaint.alpha = (fade * (135f + 65f * s3)).toInt().coerceIn(0, 255)
-                    canvas.drawCircle(px, py, radius, puffPaint)
-                }
-            }
-        }
-
-        /** Circle-and-hold: the ink loop glows, turns into a dashed lasso, then [onDone] selects. */
-        fun playLassoMorph(screen: List<Pt>, onDone: () -> Unit) {
-            morph = screen
-            ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = 420; interpolator = DecelerateInterpolator()
-                addUpdateListener { morphT = it.animatedValue as Float; invalidate() }
-                addListener(object : android.animation.AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: android.animation.Animator) {
-                        morph = null; invalidate(); onDone()
-                    }
-                })
-                start()
-            }
-        }
-
-        fun drawMorph(canvas: Canvas) {
-            val pts = morph ?: return
-            if (pts.size < 2) return
-            tmpPath.reset()
-            pts.forEachIndexed { i, (x, y) -> if (i == 0) tmpPath.moveTo(x, y) else tmpPath.lineTo(x, y) }
-            tmpPath.close()
-            val t = morphT
-            lassoFill.alpha = (0x14 + 36 * t).toInt().coerceAtMost(255)
-            canvas.drawPath(tmpPath, lassoFill)
-            lassoPaint.pathEffect = DashPathEffect(floatArrayOf(9f * density * t + 0.1f, 4f * density * t + 0.1f), t * 40f)
-            canvas.drawPath(tmpPath, lassoPaint)
-            lassoFill.alpha = 0x14
-        }
-
-        fun laserBegin(p: Pt) { lasers += LaserStroke(arrayListOf(p)); invalidate() }
-        fun laserAdd(p: Pt) { lasers.lastOrNull()?.pts?.add(p); invalidate() }
-        fun laserEnd(): List<Pt>? {
-            val s = lasers.lastOrNull() ?: return null
-            s.end = SystemClock.uptimeMillis()
-            invalidate()
-            return s.pts
-        }
-        fun laserDropLast() { if (lasers.isNotEmpty()) lasers.removeAt(lasers.size - 1); invalidate() }
-
-        override fun onDraw(canvas: Canvas) {
-            val r = renderer ?: return
-            pagePaintBg.color = deskArgb()
-            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), pagePaintBg)
-            r.paperColor = settings.paperTint.argb
-            r.highlighterBehind = settings.highlighterBehind
-            pageNumberPaint.color = if (Color.luminance(deskArgb()) < 0.4f) 0xFFB0B6C0.toInt() else 0xFF7B8391.toInt()
-            val view = RectF(0f, 0f, width.toFloat(), height.toFloat())
-            val active = host.activeHighlight()
-            val loaderPhase = ((SystemClock.uptimeMillis() % 1200L) / 1200f)
-            var anyPdfLoading = false
-            pages.forEachIndexed { i, p ->
-                val sr = RectF(0f, 0f, p.width, p.height)
-                pageMatrix(i, m).mapRect(sr)
-                if (!p.isWhiteboard && !RectF.intersects(sr, view)) return@forEachIndexed
-                if (p.isWhiteboard && i != currentIndex && !RectF.intersects(sr, view)) return@forEachIndexed
-                r.darkPdf = settings.darkPdf
-                if (p.isWhiteboard) {
-                    r.drawInfiniteBackdrop(canvas, m, width.toFloat(), height.toFloat(), p)
-                }
-                canvas.save()
-                canvas.concat(m)
-                val pdf = if (p.pdfPage >= 0) host.pdfBitmap(p, (p.width * scale).toInt()) { postInvalidate() } else null
-                if (p.pdfPage >= 0 && pdf == null) anyPdfLoading = true
-                if (!p.isWhiteboard) {
-                    r.drawPaper(canvas, p, pdf, shadow = true, loaderPhase = loaderPhase)
-                    host.pdfDetail(i)?.let { d -> r.drawPdfDetail(canvas, d.bmp, d.region) }
-                }
-                val hl = host.highlights(i)
-                if (hl.isNotEmpty()) r.drawHighlights(canvas, hl, active?.takeIf { it.first == i }?.second)
-                host.textSelection(i).forEach { canvas.drawRoundRect(it, 4f, 4f, textSelPaint) }
-                if (i == selectionPage) r.drawItems(canvas, p.items, m, transform = liveMatrix, transformIds = selection)
-                else r.drawItems(canvas, p.items, m)
-                tapePreview?.takeIf { i == activePage }?.let { canvas.drawRoundRect(it, 6f, 6f, tapePreviewPaint) }
-                tapeFree?.takeIf { i == activePage && it.size > 1 }?.let { pts ->
-                    tmpPath.reset()
-                    pts.forEachIndexed { k, (x, y) -> if (k == 0) tmpPath.moveTo(x, y) else tmpPath.lineTo(x, y) }
-                    tapePreviewPaint.style = Paint.Style.STROKE; tapePreviewPaint.strokeWidth = 46f; tapePreviewPaint.strokeJoin = Paint.Join.ROUND
-                    canvas.drawPath(tmpPath, tapePreviewPaint)
-                    tapePreviewPaint.style = Paint.Style.FILL
-                }
-                shapePreview?.takeIf { i == activePage }?.forEach { line ->
-                    tmpPath.reset()
-                    line.forEachIndexed { k, (x, y) -> if (k == 0) tmpPath.moveTo(x, y) else tmpPath.lineTo(x, y) }
-                    previewPaint.strokeWidth = 2f * density / scale
-                    canvas.drawPath(tmpPath, previewPaint)
-                }
-                writeBoxPreview?.takeIf { i == activePage }?.let { wb ->
-                    canvas.drawRoundRect(wb, 12f, 12f, linkBoxFill)
-                    canvas.drawRoundRect(wb, 12f, 12f, selPaint)
-                    var gy = wb.top + 56f
-                    while (gy < wb.bottom - 18f) {
-                        canvas.drawLine(wb.left + 16f, gy, wb.right - 16f, gy, linkBoxLine)
-                        gy += 44f
-                    }
-                }
-                canvas.restore()
-                if (!p.isWhiteboard && settings.pageNumbers && pages.size > 1) {
-                    canvas.drawText("${i + 1}", sr.centerX(), sr.bottom + 18f * density, pageNumberPaint)
-                }
-            }
-
-            drawLinks(canvas)
-            drawPuffs(canvas)
-            drawPull(canvas)
-            drawSelection(canvas)
-            lasso?.let { drawLasso(canvas, it) }
-            drawMorph(canvas)
-            drawLoopEnd(canvas)
-            (eraserAt ?: hoverAt)?.let { (x, y) ->
-                val rad = host.eraserRadius()
-                canvas.drawCircle(x, y, rad, eraserFill)
-                canvas.drawCircle(x, y, rad, eraserPaint)
-            }
-            drawLaser(canvas)
-            hoverDot?.let { (x, y, cs) ->
-                val r = (cs.second / 2f).coerceIn(2f * density, 40f * density)
-                hoverPaint.color = (cs.first and 0x00FFFFFF) or (0x99 shl 24)
-                canvas.drawCircle(x, y, r, hoverPaint)
-                canvas.drawCircle(x, y, r + 1.5f * density, hoverRing)
-            }
-            if (flashAlpha > 0f) canvas.drawColor(Color.argb((flashAlpha * 40).toInt(), 61, 108, 244))
-            if (anyPdfLoading) postInvalidateDelayed(33L)
-        }
-
-        private fun drawPull(canvas: Canvas) {
-            if (pull <= 0f || pages.isEmpty()) return
-            val progress = (pull / pullTrigger).coerceIn(0f, 1f)
-            val vertical = settings.scroll == ScrollDirection.VERTICAL
-            val last = pages.size - 1
-            val end = RectF(0f, 0f, pages[last].width, pages[last].height)
-            pageMatrix(last, m).mapRect(end)
-            val cx = if (vertical) width / 2f else end.right + pull / 2f
-            val cy = if (vertical) end.bottom + pull / 2f else height / 2f
-            val rad = 22f * density * (0.6f + 0.4f * progress)
-            pullPaint.alpha = (90 + 165 * progress).toInt()
-            canvas.drawCircle(cx, cy, rad, pullPaint)
-            val arm = rad * 0.45f
-            handleFill.strokeWidth = 3f * density
-            canvas.save(); canvas.rotate(progress * 180f, cx, cy)
-            canvas.drawLine(cx - arm, cy, cx + arm, cy, handleFill.apply { style = Paint.Style.STROKE })
-            canvas.drawLine(cx, cy - arm, cx, cy + arm, handleFill)
-            canvas.restore()
-            handleFill.style = Paint.Style.FILL
-            val label = context.getString(if (progress >= 1f) R.string.release_to_add_page else R.string.pull_to_add_page)
-            canvas.drawText(label, cx, cy + rad + 22f * density, pullText)
-        }
-
-        private val outlinePath = Path()
-        private val textSelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x553D6CF4 }
-        private val linkFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt(); setShadowLayer(6f, 0f, 2f, 0x40000000) }
-        private val linkGlyph = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Color.WHITE; strokeWidth = 1.8f * density; strokeCap = Paint.Cap.ROUND }
-        private val linkBoxFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x143D6CF4 }
-        private val linkBoxLine = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE; strokeWidth = 1.5f * density; color = 0x993D6CF4.toInt()
-            pathEffect = DashPathEffect(floatArrayOf(6f * density, 4f * density), 0f)
-        }
-        private val linkRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0xFF3D6CF4.toInt(); strokeWidth = 3f * density }
-
-        /** Blue chain badges at both ends of every ink link, plus a pulse where the last jump landed. */
-        private fun drawLinks(canvas: Canvas) {
-            val ends = host.linkEnds()
-            val a = FloatArray(2)
-            val r = 12f * density
-            for (e in ends) {
-                if (e.page !in pages.indices) continue
-                e.box?.let { b ->
-                    val sb = RectF(b); pageMatrix(e.page, m).mapRect(sb)
-                    if (RectF.intersects(sb, RectF(0f, 0f, width.toFloat(), height.toFloat()))) {
-                        canvas.drawRoundRect(sb, 8f * density, 8f * density, linkBoxFill)
-                        canvas.drawRoundRect(sb, 8f * density, 8f * density, linkBoxLine)
-                    }
-                }
-                a[0] = e.x; a[1] = e.y; pageMatrix(e.page, m).mapPoints(a)
-                if (a[0] < -r || a[1] < -r || a[0] > width + r || a[1] > height + r) continue
-                canvas.drawCircle(a[0], a[1], r, linkFill)
-                canvas.save(); canvas.rotate(-45f, a[0], a[1])
-                val w = 4.2f * density; val h = 2.6f * density
-                canvas.drawRoundRect(a[0] - w - 1.2f * density, a[1] - h, a[0] + 1.2f * density, a[1] + h, h, h, linkGlyph)
-                canvas.drawRoundRect(a[0] - 1.2f * density, a[1] - h, a[0] + w + 1.2f * density, a[1] + h, h, h, linkGlyph)
-                canvas.restore()
-            }
-            val f = linkFlash ?: return
-            val age = SystemClock.uptimeMillis() - linkFlashAt
-            if (age > 1400 || f.first !in pages.indices) { linkFlash = null; return }
-            a[0] = f.second; a[1] = f.third; pageMatrix(f.first, m).mapPoints(a)
-            val t = (age % 700) / 700f
-            linkRing.alpha = ((1f - t) * 255).toInt()
-            canvas.drawCircle(a[0], a[1], (14f + 26f * t) * density, linkRing)
-            postInvalidateOnAnimation()
-        }
-        private val loopHint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f * density; color = 0xFF3D6CF4.toInt() }
-        private val loopDot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt() }
-
-        /** Pulsing dot at the end of a fresh loop: "press and hold here to select". */
-        private fun drawLoopEnd(canvas: Canvas) {
-            val ageNow = SystemClock.uptimeMillis()
-            val pc = circleDetector.activeCandidate(ageNow, gestureConfig) ?: return
-            val age = ageNow - pc.createdAtMs
-            if (age > gestureConfig.circleWindowMs) return
-            val a = floatArrayOf(pc.endX, pc.endY); pageMatrix(pc.page, m).mapPoints(a)
-            val armed = circleDetector.isHoldArmed()
-            val t = if (armed) 1f else (age % 1100) / 1100f
-            loopHint.alpha = if (armed) 230 else ((1f - t) * 200).toInt()
-            canvas.drawCircle(a[0], a[1], (7f + 12f * t) * density, loopHint)
-            canvas.drawCircle(a[0], a[1], 4.5f * density, loopDot)
-            postInvalidateOnAnimation()
-        }
-
-        private fun drawSelection(canvas: Canvas) {
-            val loop = selectionOutline
-            if (loop != null && selection.isNotEmpty() && loop.size > 2) {
-                outlinePath.reset()
-                loop.forEachIndexed { i, (x, y) -> if (i == 0) outlinePath.moveTo(x, y) else outlinePath.lineTo(x, y) }
-                outlinePath.close()
-                liveMatrix?.let { outlinePath.transform(it) }
-                outlinePath.transform(pageMatrix(selectionPage, m))
-                lassoFill.alpha = 0x10
-                canvas.drawPath(outlinePath, lassoFill)
-                lassoFill.alpha = 0x14
-                canvas.drawPath(outlinePath, selPaint)
-            }
-            val rotating = grab == Grab.ROTATE && liveMatrix != null
-            val wb = (if (rotating) selectionBaseBounds() else selectionPageBounds()) ?: return
-            val sb = RectF(wb)
-            pageMatrix(selectionPage, m).mapRect(sb)
-            canvas.save()
-            canvas.scale(selScale, selScale, sb.centerX(), sb.centerY())
-            if (rotating) canvas.rotate(liveDeg, sb.centerX(), sb.centerY())
-            val rad = 10f * density
-            if (loop == null) canvas.drawRoundRect(sb, rad, rad, selPaint)
-            val hr = 6f * density
-            // rotate handle
-            val ry = sb.top - rotateHandleOffset()
-            canvas.drawLine(sb.centerX(), sb.top, sb.centerX(), ry + hr, handlePaint.apply { strokeWidth = 1.5f * density })
-            canvas.drawCircle(sb.centerX(), ry, hr + 2f * density, handleFill)
-            canvas.drawCircle(sb.centerX(), ry, hr + 2f * density, selRing)
-            canvas.drawArc(RectF(sb.centerX() - hr * 0.6f, ry - hr * 0.6f, sb.centerX() + hr * 0.6f, ry + hr * 0.6f), -60f, 280f, false, selRing)
-            for ((x, y) in listOf(sb.left to sb.top, sb.right to sb.top, sb.left to sb.bottom, sb.right to sb.bottom)) {
-                canvas.drawCircle(x, y, hr, handleFill)
-                canvas.drawCircle(x, y, hr, selRing)
-            }
-            // Mid-edge X/Y free stretch pill handles
-            val pw = 8f * density
-            val ph = 3.5f * density
-            val hTop = RectF(sb.centerX() - pw, sb.top - ph, sb.centerX() + pw, sb.top + ph)
-            val hBot = RectF(sb.centerX() - pw, sb.bottom - ph, sb.centerX() + pw, sb.bottom + ph)
-            val hLeft = RectF(sb.left - ph, sb.centerY() - pw, sb.left + ph, sb.centerY() + pw)
-            val hRight = RectF(sb.right - ph, sb.centerY() - pw, sb.right + ph, sb.centerY() + pw)
-            for (hRect in listOf(hTop, hBot, hLeft, hRight)) {
-                canvas.drawRoundRect(hRect, ph, ph, handleFill)
-                canvas.drawRoundRect(hRect, ph, ph, selRing)
-            }
-            canvas.restore()
-            if (rotating) {
-                pullText.color = 0xFF3D6CF4.toInt()
-                canvas.drawText("${liveDeg.roundToInt()}°", sb.centerX(), sb.bottom + 24f * density, pullText)
-                pullText.color = 0xFF5B6475.toInt()
-            } else if (grab == Grab.SCALE && liveMatrix != null) {
-                pullText.color = 0xFF3D6CF4.toInt()
-                canvas.drawText("${(liveScale * 100).roundToInt()}%", sb.centerX(), sb.bottom + 24f * density, pullText)
-                pullText.color = 0xFF5B6475.toInt()
-            } else if (grab in setOf(Grab.STRETCH_L, Grab.STRETCH_R, Grab.STRETCH_T, Grab.STRETCH_B) && liveMatrix != null) {
-                pullText.color = 0xFF3D6CF4.toInt()
-                canvas.drawText("${(liveScaleX * 100).roundToInt()}% × ${(liveScaleY * 100).roundToInt()}%", sb.centerX(), sb.bottom + 24f * density, pullText)
-                pullText.color = 0xFF5B6475.toInt()
-            }
-        }
-
-        private fun drawLasso(canvas: Canvas, pts: List<Pt>) {
-            if (pts.size < 2) return
-            tmpPath.reset()
-            pts.forEachIndexed { i, (x, y) -> if (i == 0) tmpPath.moveTo(x, y) else tmpPath.lineTo(x, y) }
-            canvas.drawPath(tmpPath, lassoFill)
-            lassoPaint.pathEffect = DashPathEffect(floatArrayOf(9f * density, 4f * density), antsPhase)
-            canvas.drawPath(tmpPath, lassoPaint)
-        }
-
-        /** Laser ink stays like a pen for a few seconds, then fades out. */
-        private fun drawLaser(canvas: Canvas) {
-            if (lasers.isEmpty()) return
-            val now = SystemClock.uptimeMillis()
-            val hold = (settings.laserSeconds * 1000).toLong()
-            val fade = 500L
-            // While the pen or a finger is on the screen, laser ink stays put.
-            if (touchActive) lasers.forEach { if (it.end != Long.MAX_VALUE && now - it.end <= hold + fade) it.end = now }
-            lasers.removeAll { it.end != Long.MAX_VALUE && now - it.end > hold + fade }
-            val pt = FloatArray(2)
-            for (s in lasers) {
-                val age = if (s.end == Long.MAX_VALUE) 0L else now - s.end
-                val life = if (age <= hold) 1f else 1f - (age - hold) / fade.toFloat()
-                if (s.pts.size < 2) continue
-                tmpPath.reset()
-                s.pts.forEachIndexed { i, (x, y) ->
-                    pt[0] = x; pt[1] = y; viewMatrix.mapPoints(pt)
-                    if (i == 0) tmpPath.moveTo(pt[0], pt[1]) else tmpPath.lineTo(pt[0], pt[1])
-                }
-                laserCore.color = Color.argb((life * 255).toInt(), 255, 59, 48)
-                laserCore.strokeWidth = 3.8f * density
-                canvas.drawPath(tmpPath, laserCore)
-            }
-            if (lasers.isNotEmpty()) postInvalidateOnAnimation()
-        }
-    }
 }

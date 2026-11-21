@@ -2,6 +2,27 @@
 
 All notable changes to Pro Notes are documented in this file.
 
+## v15.1.0 - 2026-11-21
+
+### Added
+
+- **Personal Handwriting Style (offline letter library).** Record up to 3 samples each for `a–z`, `A–Z`, `0–9`, and `. , ? !` inside the new **My Handwriting Style** studio (available in the inline text bar, Text tool settings, and Settings -> Stylus & input) with a live ruled-paper preview.
+- **Type to My Ink.** Tap **My Ink** in any inline text box or Keyboard Mode to convert typed sentences directly into real Jetpack Ink strokes in your own handwriting—randomly selecting recorded copies, applying subtle natural size, tilt, baseline, and spacing variation, aligning baselines to ruled paper lines, and wrapping cleanly at the box edge so Eraser, Lasso, Resize, Recolor, and Undo work natively.
+- **Fast parallel in-app updater.** Enabled 4-stream concurrent HTTP Range downloading (`128 KB` buffers) with resumable per-segment state persistence, live throughput/ETA and active stream indicator (`4× Fast`), a fast-download toggle in the update dialog, and automatic single-stream fallback when a server does not support parallel ranges.
+
+### Improved
+
+- **Modular editor architecture.** Split the two largest editor files by responsibility to make maintenance and debugging cleaner: extracted `EditorViewModelMindMap.kt`, `EditorViewModelStudy.kt`, and `EditorViewModelWriteBox.kt` from `EditorViewModel.kt`, and extracted `NoteCanvasEraser.kt`, `NoteCanvasSelection.kt`, `NoteCanvasGestures.kt`, and `NoteCanvasDocLayer.kt` from `NoteCanvasView.kt` while keeping all public APIs unchanged.
+
+### Fixed
+
+- **Locked or corrupted PDF import crash.** Wrapped Reader Mode, Library, and in-editor (`importFilesIntoCurrent`) PDF imports in error handling that always clears progress overlays and displays a clear toast when a file is password-protected or unreadable.
+- **Unreadable cover photo and image imports.** Guarded `saveCoverImage`, sticker imports, tape image fills, editor image insertions, and custom page backgrounds against unreadable URIs and surfaced clear user feedback instead of crashing or failing silently.
+- **Null content-stream and MediaStore crashes.** Replaced forced non-null `openInputStream(uri)!!` calls in `Repository.kt` and MediaStore screenshot saves in `EditorViewModelWriteBox.kt` with explicit error handling caught at callers.
+- **Bitmap and canvas detach memory leaks.** Recycled temporary rendered PDF bitmaps in `finally` blocks during thumbnail generation, PDF export, flashcard region capture (`regionImage`), and selection screenshots, and cleaned up active zoom/lasso animators, hover click callbacks, and `VelocityTracker` on `NoteCanvasView.onDetachedFromWindow()`.
+- **Large sticker photo out-of-memory risk.** Upgraded `StickerLibrary.import` to two-pass `BitmapFactory` bounds decoding with power-of-2 `inSampleSize` downsampling and guaranteed source bitmap recycling.
+- **Orphaned files on failed PDF import.** Cleaned up copied PDF files and empty notebook directories automatically whenever PDF import fails halfway.
+
 ## v15.0.0 - 2026-11-21
 
 ### Added

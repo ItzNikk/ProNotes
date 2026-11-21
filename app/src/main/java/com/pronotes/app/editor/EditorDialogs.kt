@@ -12,6 +12,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -243,9 +244,13 @@ internal fun StickerSheet(onDragStarted: () -> Unit, onPick: (Bitmap) -> Unit) {
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
             scope.launch {
-                withContext(Dispatchers.IO) { StickerLibrary.import(context, uri) }
-                mine = StickerLibrary.custom(context)
-                tab = 2
+                val imported = withContext(Dispatchers.IO) { StickerLibrary.import(context, uri) }
+                if (imported == null) {
+                    Toast.makeText(context, "Could not import sticker image.", Toast.LENGTH_SHORT).show()
+                } else {
+                    mine = StickerLibrary.custom(context)
+                    tab = 2
+                }
             }
         }
     }
@@ -452,6 +457,26 @@ internal fun InlinePageTextEditor(
         }
     }
 
+    var showHandwritingStudio by remember { mutableStateOf(false) }
+
+    fun commitAsHandwriting() {
+        convertJob?.cancel()
+        hideSoftKeyboard()
+        val liveText = editTextRef?.text?.toString() ?: text
+        if (liveText.isBlank()) {
+            showHandwritingStudio = true
+            return
+        }
+        vm.commitTextAsHandwriting(
+            text = liveText,
+            size = fontSize,
+            color = textColor,
+            x = boxX,
+            y = boxY,
+            maxWidth = boxW,
+        )
+    }
+
     fun commitAndClose() {
         convertJob?.cancel()
         hideSoftKeyboard()
@@ -560,7 +585,7 @@ internal fun InlinePageTextEditor(
         }
     }
 
-    BackHandler(enabled = !showColorPicker) {
+    BackHandler(enabled = !showColorPicker && !showHandwritingStudio) {
         commitAndClose()
     }
 
@@ -1012,6 +1037,12 @@ internal fun InlinePageTextEditor(
                     )
                     InlineFmtChip("A+", false, barFg) { fontSize = (fontSize + 3f).coerceAtMost(120f) }
 
+                    // Train personal handwriting library
+                    InlineFmtChip("Train", false, barFg) {
+                        hideSoftKeyboard()
+                        showHandwritingStudio = true
+                    }
+
                     // Colour dot
                     Box(
                         modifier = Modifier
@@ -1022,6 +1053,21 @@ internal fun InlinePageTextEditor(
                             .clip(CircleShape)
                             .background(Color(textColor))
                             .border(1.5.dp, barFg.copy(alpha = 0.35f), CircleShape),
+                    )
+                }
+
+                // Convert typed text into Personal Handwriting Ink strokes
+                AppPill(
+                    selected = text.isNotBlank(),
+                    tint = ProButtonPalette.Emerald,
+                    onClick = { commitAsHandwriting() },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                ) {
+                    Text(
+                        "My Ink",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (text.isNotBlank()) Color.White else barFg,
                     )
                 }
 
@@ -1054,6 +1100,10 @@ internal fun InlinePageTextEditor(
             vm.pushRecent(c)
             showColorPicker = false
         }
+    }
+
+    if (showHandwritingStudio) {
+        HandwritingStudioDialog(onDismiss = { showHandwritingStudio = false })
     }
 }
 

@@ -270,7 +270,7 @@ class Repository private constructor(private val context: Context) {
     suspend fun saveCoverImage(id: String, uri: Uri): String = withContext(Dispatchers.IO) {
         val name = "cover_${System.currentTimeMillis()}.img"
         val target = File(noteDir(id), name)
-        context.contentResolver.openInputStream(uri)!!.use { input ->
+        (context.contentResolver.openInputStream(uri) ?: error("Can't open file")).use { input ->
             AtomicFiles.writeBytesAtomic(target) { out -> input.copyTo(out) }
         }
         "image:$name"
@@ -354,33 +354,43 @@ class Repository private constructor(private val context: Context) {
         val target = pdfFile(id)
         val title = displayName(uri)?.removeSuffix(".pdf")?.removeSuffix(".PDF") ?: "Imported PDF"
         onProgress?.invoke(title, 0, 0)
-        context.contentResolver.openInputStream(uri)!!.use { input ->
-            AtomicFiles.writeBytesAtomic(target) { out -> input.copyTo(out) }
-        }
-        val pages = ArrayList<PageDoc>()
-        PdfRenderer(ParcelFileDescriptor.open(target, ParcelFileDescriptor.MODE_READ_ONLY)).use { r ->
-            val total = r.pageCount.coerceAtLeast(1)
-            onProgress?.invoke(title, 0, total)
-            for (i in 0 until r.pageCount) {
-                r.openPage(i).use { p ->
-                    // Scale so the shorter side is about one notebook page wide (landscape slides and
-                    // small PDFs get the same pen feel as an A4 page).
-                    val k = (PageSize.WIDTH / minOf(p.width, p.height).toFloat()).coerceIn(1f, 4f)
-                    pages += PageDoc(UUID.randomUUID().toString(), p.width * k, p.height * k, PaperStyle.BLANK, pdfPage = i)
-                }
-                if ((i + 1) % 2 == 0 || i == r.pageCount - 1) {
-                    onProgress?.invoke(title, i + 1, total)
+        try {
+            (context.contentResolver.openInputStream(uri) ?: error("Can't open file")).use { input ->
+                AtomicFiles.writeBytesAtomic(target) { out -> input.copyTo(out) }
+            }
+            val pages = ArrayList<PageDoc>()
+            PdfRenderer(ParcelFileDescriptor.open(target, ParcelFileDescriptor.MODE_READ_ONLY)).use { r ->
+                val total = r.pageCount.coerceAtLeast(1)
+                onProgress?.invoke(title, 0, total)
+                for (i in 0 until r.pageCount) {
+                    r.openPage(i).use { p ->
+                        // Scale so the shorter side is about one notebook page wide (landscape slides and
+                        // small PDFs get the same pen feel as an A4 page).
+                        val k = (PageSize.WIDTH / minOf(p.width, p.height).toFloat()).coerceIn(1f, 4f)
+                        pages += PageDoc(UUID.randomUUID().toString(), p.width * k, p.height * k, PaperStyle.BLANK, pdfPage = i)
+                    }
+                    if ((i + 1) % 2 == 0 || i == r.pageCount - 1) {
+                        onProgress?.invoke(title, i + 1, total)
+                    }
                 }
             }
+            if (pages.isEmpty()) error("PDF has no readable pages")
+            writePageDocsIncremental(id, pages, dirtyIds = null, structureChanged = true, writeFullSnapshot = true)
+            val now = System.currentTimeMillis()
+            updateIndex {
+                it.copy(notebooks = it.notebooks + NotebookMeta(id, title, folderId, CoverColors[0], PaperStyle.BLANK, now, now, pages.size, fromPdf = true))
+            }
+            onProgress?.invoke(title, pages.size, pages.size)
+            runCatching { writeThumbnail(id, pages.map { InkCodec.fromDoc(it) }) }
+            id
+        } catch (t: Throwable) {
+            runCatching { target.delete() }
+            runCatching {
+                val dir = noteDir(id)
+                if (dir.exists()) dir.deleteRecursively()
+            }
+            throw t
         }
-        writePageDocsIncremental(id, pages, dirtyIds = null, structureChanged = true, writeFullSnapshot = true)
-        val now = System.currentTimeMillis()
-        updateIndex {
-            it.copy(notebooks = it.notebooks + NotebookMeta(id, title, folderId, CoverColors[0], PaperStyle.BLANK, now, now, pages.size, fromPdf = true))
-        }
-        onProgress?.invoke(title, pages.size, pages.size)
-        runCatching { writeThumbnail(id, pages.map { InkCodec.fromDoc(it) }) }
-        id
     }
 
     /** Imports PDFs, Word, PowerPoint, Excel/Sheets, EPUB, images, Markdown/TXT/HTML/CSV files, or JSON note exports into a new notebook. */
@@ -896,16 +906,26 @@ class Repository private constructor(private val context: Context) {
         val h = (page.height * scale).toInt().coerceAtLeast(1)
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         bmp.eraseColor(Color.WHITE)
-        val pdf = if (page.pdfPage >= 0) PdfPages(pdfFile(id)).let { pp ->
-            pp.render(page.pdfPage, w, h).also { pp.close() }
-        } else null
-        // Render the PDF bitmap at thumbnail size, so draw it with scale 1.
-        val canvas = Canvas(bmp)
-        PageRenderer(noteDir(id)).renderPage(canvas, page, scale, pdf)
-        AtomicFiles.writeBytesAtomic(thumbFile(id)) { out ->
-            bmp.compress(Bitmap.CompressFormat.PNG, 90, out)
+        var pdf: Bitmap? = null
+        try {
+            pdf = if (page.pdfPage >= 0) {
+                val pp = PdfPages(pdfFile(id))
+                try {
+                    pp.render(page.pdfPage, w, h, useCache = false)
+                } finally {
+                    pp.close()
+                }
+            } else null
+            // Render the PDF bitmap at thumbnail size, so draw it with scale 1.
+            val canvas = Canvas(bmp)
+            PageRenderer(noteDir(id)).renderPage(canvas, page, scale, pdf)
+            AtomicFiles.writeBytesAtomic(thumbFile(id)) { out ->
+                bmp.compress(Bitmap.CompressFormat.PNG, 90, out)
+            }
+        } finally {
+            pdf?.recycle()
+            bmp.recycle()
         }
-        bmp.recycle()
     }
 
     /** Writes the notebook as a PDF: original PDF pages as backgrounds, ink on top. */
@@ -920,8 +940,12 @@ class Repository private constructor(private val context: Context) {
                 val bg = if (page.pdfPage >= 0 && pdfPages.exists) {
                     pdfPages.render(page.pdfPage, page.width.toInt(), page.height.toInt(), useCache = false)
                 } else null
-                renderer.renderPage(pdfPage.canvas, page, 0.5f, bg)
-                doc.finishPage(pdfPage)
+                try {
+                    renderer.renderPage(pdfPage.canvas, page, 0.5f, bg)
+                    doc.finishPage(pdfPage)
+                } finally {
+                    bg?.recycle()
+                }
             }
             doc.writeTo(out)
         } finally {
@@ -933,7 +957,7 @@ class Repository private constructor(private val context: Context) {
     suspend fun saveImage(noteId: String, uri: Uri): String = withContext(Dispatchers.IO) {
         val name = "img_${UUID.randomUUID()}.img"
         val target = File(noteDir(noteId), name)
-        context.contentResolver.openInputStream(uri)!!.use { input ->
+        (context.contentResolver.openInputStream(uri) ?: error("Can't open file")).use { input ->
             AtomicFiles.writeBytesAtomic(target) { out -> input.copyTo(out) }
         }
         name

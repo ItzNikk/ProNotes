@@ -89,6 +89,9 @@ import com.pronotes.app.data.ToolbarStyle
 import com.pronotes.app.data.UiColorScheme
 import com.pronotes.app.data.Updater
 import com.pronotes.app.data.Updater.Phase as UPhase
+import com.pronotes.app.editor.HandwritingFontChars
+import com.pronotes.app.editor.HandwritingFontStore
+import com.pronotes.app.editor.HandwritingStudioDialog
 import com.pronotes.app.editor.ToolbarOrder
 import com.pronotes.app.library.PaperPreview
 import com.pronotes.app.ui.AppChip
@@ -310,6 +313,43 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                     Section("Stylus behaviour") {
                         Choice("Button click delay", s.penClickDelay.label, PenClickDelay.entries.map { it.label }) { i -> up { it.copy(penClickDelay = PenClickDelay.entries[i]) } }
                         Toggle("Hover preview", "Show where the pen will touch", s.hoverCursor) { v -> up { it.copy(hoverCursor = v) } }
+                    }
+                    Section("Personal handwriting") {
+                        val hwContext = LocalContext.current
+                        val hwStore = remember(hwContext) { HandwritingFontStore.get(hwContext) }
+                        val hwProfile by hwStore.profile.collectAsStateWithLifecycle()
+                        var showHwStudio by remember { mutableStateOf(false) }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showHwStudio = true }
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Outlined.Edit,
+                                contentDescription = null,
+                                tint = ProButtonPalette.Emerald,
+                                modifier = Modifier.size(22.dp),
+                            )
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("My Handwriting Style")
+                                Text(
+                                    "${hwProfile.trainedCharCount()} / ${HandwritingFontChars.ALL.size} characters recorded · Type to place ink in your own hand",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (showHwStudio) {
+                            HandwritingStudioDialog(onDismiss = { showHwStudio = false })
+                        }
                     }
                     PensSection(store)
                 }
@@ -748,14 +788,15 @@ private fun UpdateRow() {
     val scope = rememberCoroutineScope()
     val u = Updater
     val pct = (u.progress * 100).toInt().coerceIn(0, 100)
-    val speedStr = if (u.speedBytesPerSec > 0L) " ┬╖ ${"%.1f".format(u.speedBytesPerSec / (1024f * 1024f))} MB/s" else ""
-    val etaStr = u.etaSeconds?.let { sec -> if (sec > 0) " ┬╖ ~${sec}s left" else "" }.orEmpty()
+    val speedStr = if (u.speedBytesPerSec > 0L) " · ${"%.1f".format(u.speedBytesPerSec / (1024f * 1024f))} MB/s" else ""
+    val etaStr = u.etaSeconds?.let { sec -> if (sec > 0) " · ~${sec}s left" else "" }.orEmpty()
+    val streamTag = if (u.activeStreams > 1) " (${u.activeStreams}× Fast)" else ""
     val (title, sub) = when (u.phase) {
         UPhase.IDLE -> "Check for updates" to "Version ${u.currentVersion(context)}"
         UPhase.CHECKING -> "Checking for updates" to "Version ${u.currentVersion(context)}"
         UPhase.UP_TO_DATE -> "Pro Notes is up to date" to "Version ${u.currentVersion(context)}"
         UPhase.AVAILABLE -> "Update to ${u.release?.tag}" to "Tap to see what changed"
-        UPhase.DOWNLOADING -> "Downloading $pct%$speedStr" to "Background download active$etaStr ┬╖ Tap to manage"
+        UPhase.DOWNLOADING -> "Downloading $pct%$speedStr$streamTag" to "Background download active$etaStr · Tap to manage"
         UPhase.PAUSED -> "Download paused at $pct%" to "Tap to resume anytime (progress saved)"
         UPhase.READY -> "Install update" to "Tap to open the installer"
         UPhase.INSTALLING -> "Installing update..." to "Confirm when prompted"

@@ -1,1 +1,5 @@
-<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android" android:minWidth="140dp" android:minHeight="104dp" android:initialLayout="@layout/notebook_widget" android:updatePeriodMillis="0" android:resizeMode="horizontal|vertical" android:widgetCategory="home_screen"/>
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:initialLayout="@layout/widget_notebook"
+    android:minWidth="110dp"
+    android:minHeight="40dp" />
