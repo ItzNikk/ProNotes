@@ -3,11 +3,6 @@ package com.pronotes.app.settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -133,42 +128,48 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
     val store = remember { SettingsStore.get(context) }
     val s by store.settings.collectAsStateWithLifecycle()
     val wide = LocalConfiguration.current.screenWidthDp >= 700
-    var selected by rememberSaveable { mutableStateOf(if (wide) Category.STYLUS else null) }
+    var selected by rememberSaveable { mutableStateOf<Category?>(null) }
+    val current = selected ?: if (wide) Category.STYLUS else null
+    val scrollState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+    val back: () -> Unit = { if (!wide && selected != null) selected = null else onBack() }
 
-    BackHandler(enabled = !wide && selected != null) { selected = null }
+    BackHandler(enabled = !wide && selected != null, onBack = back)
 
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    Box(Modifier.fillMaxSize().background(com.pronotes.app.ui.workspaceBackground())) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 AppSurface(
                     role = SurfaceRole.Control,
                     shape = appPillShape(),
-                    contentPadding = PaddingValues(10.dp),
-                    onClick = { if (!wide && selected != null) selected = null else onBack() },
+                    contentPadding = PaddingValues(12.dp),
+                    onClick = back,
                     onClickLabel = "Back",
                 ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onSurface)
                 }
-                GradientTitle(if (!wide) selected?.label ?: "Settings" else "Settings", MaterialTheme.typography.headlineLarge)
+                GradientTitle(if (wide) "Settings" else current?.label ?: "Settings",
+                    MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f), maxLines = 2)
             }
             if (wide) {
-                Row(Modifier.fillMaxSize()) {
-                    CategoryList(selected, Modifier.width(300.dp).fillMaxHeight()) { selected = it }
-                    AnimatedContent(
-                        targetState = selected ?: Category.STYLUS,
-                        transitionSpec = { (fadeIn() + slideInHorizontally { it / 12 }) togetherWith fadeOut() },
-                        label = "detail",
-                        modifier = Modifier.weight(1f),
-                    ) { c -> Detail(c, s, store, onSupport) }
+                Row(Modifier.fillMaxSize().padding(end = 16.dp)) {
+                    scrollState.SaveableStateProvider("categories") {
+                        CategoryList(current, Modifier.width(280.dp).fillMaxHeight()) { selected = it }
+                    }
+                    Box(Modifier.weight(1f)) {
+                        val category = current ?: Category.STYLUS
+                        scrollState.SaveableStateProvider(category.name) { Detail(category, s, store, onSupport) }
+                    }
+                }
+            } else if (current == null) {
+                scrollState.SaveableStateProvider("categories") {
+                    CategoryList(null, Modifier.fillMaxSize()) { selected = it }
                 }
             } else {
-                AnimatedContent(targetState = selected, label = "phone") { c ->
-                    if (c == null) CategoryList(null, Modifier.fillMaxSize()) { selected = it } else Detail(c, s, store, onSupport)
-                }
+                scrollState.SaveableStateProvider(current.name) { Detail(current, s, store, onSupport) }
             }
         }
     }
@@ -185,6 +186,7 @@ private fun CategoryList(selected: Category?, modifier: Modifier, onPick: (Categ
         items(Category.entries.size, key = { Category.entries[it].name }) { i ->
             val c = Category.entries[i]
             val sel = c == selected
+            val iconBackground = androidx.compose.ui.graphics.lerp(scheme.surface, Color(c.tint), if (sel) .24f else .14f)
             AppSurface(
                 modifier = Modifier.fillMaxWidth(),
                 role = SurfaceRole.Frost,
@@ -199,9 +201,9 @@ private fun CategoryList(selected: Category?, modifier: Modifier, onPick: (Categ
                         Modifier
                             .size(38.dp)
                             .clip(MaterialTheme.shapes.small)
-                            .background(if (sel) scheme.primary else scheme.surfaceVariant),
+                            .background(iconBackground),
                         contentAlignment = Alignment.Center,
-                    ) { ProIconView(c.icon, if (sel) scheme.onPrimary else scheme.onSurfaceVariant, Modifier.size(22.dp)) }
+                    ) { ProIconView(c.icon, scheme.onSurface, Modifier.size(22.dp)) }
                     Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
                         Text(
                             c.label,
@@ -315,7 +317,6 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                     Section("Pen gestures") {
                         Toggle("Scribble to erase", "Zig-zag or scrub over ink to delete it", s.scribbleToErase) { v -> up { it.copy(scribbleToErase = v) } }
                         if (s.scribbleToErase) {
-                            Toggle("Erase live while writing", "Cuts scribbles immediately mid-stroke without lifting the pen", s.liveScribbleErase) { v -> up { it.copy(liveScribbleErase = v) } }
                             Text("SCRIBBLE SENSITIVITY", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 16.dp, top = 8.dp))
                             Segmented(ScribbleSensitivity.entries.map { it.label }, s.scribbleSensitivity.ordinal) { i ->
                                 up { it.copy(scribbleSensitivity = ScribbleSensitivity.entries[i]) }
@@ -417,7 +418,9 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                 }
                 Category.LOOK -> {
                     Section("Appearance") {
-                        Toggle("Liquid glass", "Refractive surfaces on Android 13 and newer", s.liquidGlass) { v -> up { it.copy(liquidGlass = v) } }
+                        Toggle("Live blur", "Soften the page behind editor panels and dialogs on Android 12 or later", s.liveBlur) { enabled ->
+                            up { it.copy(liveBlur = enabled) }
+                        }
                         Segmented(ThemeMode.entries.map { it.label }, s.themeMode.ordinal) { i -> up { it.copy(themeMode = ThemeMode.entries[i]) } }
                         Toggle(
                             stringResource(R.string.setting_classic_appearance),
@@ -439,7 +442,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                             )
                         }
                     }
-                    Section("UI Colour Scheme") {
+                    Section("Color themes") {
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             UiColorScheme.entries.chunked(2).forEach { pair ->
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -567,7 +570,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                             Column(Modifier.weight(1f)) {
                                 GradientTitle("Pro Notes", MaterialTheme.typography.titleMedium)
                                 Text("Version ${BuildConfigInfo.versionName(context)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("Precision Note-Taking & PDF Studio · Apache License 2.0", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Precision Note-Taking & PDF Studio ┬╖ Apache License 2.0", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         HorizontalDivider(Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
@@ -585,8 +588,8 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
 private fun Section(title: String, content: @Composable () -> Unit) {
     Column(Modifier.widthIn(max = 720.dp).fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
         Text(
-            title.uppercase(),
-            style = MaterialTheme.typography.labelSmall,
+            title,
+            style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 16.dp, bottom = 6.dp),
         )
@@ -745,14 +748,14 @@ private fun UpdateRow() {
     val scope = rememberCoroutineScope()
     val u = Updater
     val pct = (u.progress * 100).toInt().coerceIn(0, 100)
-    val speedStr = if (u.speedBytesPerSec > 0L) " · ${"%.1f".format(u.speedBytesPerSec / (1024f * 1024f))} MB/s" else ""
-    val etaStr = u.etaSeconds?.let { sec -> if (sec > 0) " · ~${sec}s left" else "" }.orEmpty()
+    val speedStr = if (u.speedBytesPerSec > 0L) " ┬╖ ${"%.1f".format(u.speedBytesPerSec / (1024f * 1024f))} MB/s" else ""
+    val etaStr = u.etaSeconds?.let { sec -> if (sec > 0) " ┬╖ ~${sec}s left" else "" }.orEmpty()
     val (title, sub) = when (u.phase) {
         UPhase.IDLE -> "Check for updates" to "Version ${u.currentVersion(context)}"
         UPhase.CHECKING -> "Checking for updates" to "Version ${u.currentVersion(context)}"
         UPhase.UP_TO_DATE -> "Pro Notes is up to date" to "Version ${u.currentVersion(context)}"
         UPhase.AVAILABLE -> "Update to ${u.release?.tag}" to "Tap to see what changed"
-        UPhase.DOWNLOADING -> "Downloading $pct%$speedStr" to "Background download active$etaStr · Tap to manage"
+        UPhase.DOWNLOADING -> "Downloading $pct%$speedStr" to "Background download active$etaStr ┬╖ Tap to manage"
         UPhase.PAUSED -> "Download paused at $pct%" to "Tap to resume anytime (progress saved)"
         UPhase.READY -> "Install update" to "Tap to open the installer"
         UPhase.INSTALLING -> "Installing update..." to "Confirm when prompted"
@@ -806,7 +809,7 @@ private fun PensSection(store: SettingsStore) {
                     Spacer(Modifier.size(14.dp))
                     Column(Modifier.weight(1f)) {
                         Text(p.displayName(), fontWeight = FontWeight.SemiBold)
-                        Text("${p.brand} · ${p.name}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        Text("${p.brand} ┬╖ ${p.name}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     }
                     IconButton(onClick = { renameTarget = p }) { Icon(Icons.Outlined.Edit, "Rename pen") }
                     TextButton(onClick = { store.forgetPen(p.name) }) { Text("Forget") }
@@ -930,7 +933,7 @@ private fun CloudAccountSection(s: AppSettings) {
                         onClick = { scope.launch { CloudSync.syncAll(context) } },
                         shape = CircleShape,
                         colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.Emerald, contentColor = Color.White),
-                    ) { Text(if (syncing) "Syncing…" else "Sync Now") }
+                    ) { Text(if (syncing) "SyncingΓÇª" else "Sync Now") }
                     OutlinedButton(onClick = { CloudSync.signOut(context) }, shape = CircleShape) { Text("Sign Out") }
                 }
             }

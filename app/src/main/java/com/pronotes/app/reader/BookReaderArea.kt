@@ -337,7 +337,10 @@ fun BookReaderHubScreen(
     Box(
         Modifier
             .fillMaxSize()
-            .background(warmDeskBg),
+            .background(com.pronotes.app.ui.workspaceBackground(
+                if (com.pronotes.app.ui.LocalUiColorScheme.current == com.pronotes.app.data.UiColorScheme.COLORFUL)
+                    MaterialTheme.colorScheme.background else warmDeskBg,
+            )),
     ) {
         Column(
             Modifier
@@ -359,26 +362,19 @@ fun BookReaderHubScreen(
                     Modifier
                         .size(40.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF24483F)),
+                        .background(MaterialTheme.colorScheme.secondaryContainer),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         Icons.AutoMirrored.Outlined.MenuBook,
                         contentDescription = null,
-                        tint = Color(0xFFF4EEDF),
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
                         modifier = Modifier.size(22.dp),
                     )
                 }
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        "Reader Mode",
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontFamily = FontFamily.Serif,
-                            fontWeight = FontWeight.Bold,
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    com.pronotes.app.ui.GradientTitle("Reading room",
+                        MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold))
                     Text(
                         "${pdfBooks.size} PDF books · ${noteBooks.size} notebooks",
                         style = MaterialTheme.typography.labelSmall,
@@ -387,13 +383,13 @@ fun BookReaderHubScreen(
                 }
                 AppPill(
                     selected = true,
-                    tint = Color(0xFF24483F),
+                    tint = MaterialTheme.colorScheme.secondary,
                     onClick = { importBookLauncher.launch(arrayOf("*/*")) },
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
                 ) {
-                    Icon(Icons.Outlined.UploadFile, null, Modifier.size(16.dp), tint = Color.White)
+                    Icon(Icons.Outlined.UploadFile, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("Import", color = Color.White, style = MaterialTheme.typography.labelLarge)
+                    Text("Import", style = MaterialTheme.typography.labelLarge)
                 }
                 IconButton(onClick = onSettings) {
                     Icon(Icons.Outlined.Settings, contentDescription = "Settings")

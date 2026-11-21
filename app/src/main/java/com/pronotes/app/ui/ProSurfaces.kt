@@ -1,8 +1,5 @@
 package com.pronotes.app.ui
 
-import io.github.ntvien.liquidglass.internal.backdrop.drawBackdrop
-import io.github.ntvien.liquidglass.internal.backdrop.backdrops.rememberCanvasBackdrop
-import io.github.ntvien.liquidglass.internal.backdrop.effects.lens
 import android.os.Build
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -15,7 +12,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -126,15 +122,21 @@ fun appContentBottomPadding(extra: Dp = 16.dp): Dp {
 @Composable
 fun Modifier.appBackdropBlur(enabled: Boolean, radiusDp: Dp = 14.dp): Modifier {
     val classic = LocalClassicAppearance.current
-    if (!enabled || classic || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return this
+    if (!enabled || !LocalLiveBlur.current || classic || LocalReduceEffects.current || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return this
     val radiusPx = with(LocalDensity.current) { radiusDp.toPx() }.coerceAtLeast(1f)
-    return graphicsLayer {
-        renderEffect = android.graphics.RenderEffect.createBlurEffect(
+    val blur = remember(radiusPx) {
+        android.graphics.RenderEffect.createBlurEffect(
             radiusPx,
             radiusPx,
             android.graphics.Shader.TileMode.CLAMP,
         ).asComposeRenderEffect()
     }
+    return graphicsLayer { renderEffect = blur }
+}
+
+private fun readableSurfaceText(background: Color, preferred: Color): Color {
+    if (contrastRatio(background, preferred) >= 4.5f) return preferred
+    return if (contrastRatio(background, Color.White) >= contrastRatio(background, Color.Black)) Color.White else Color.Black
 }
 
 private fun resolveSurfaceColors(
@@ -157,7 +159,7 @@ private fun resolveSurfaceColors(
         }
         else -> base
     }
-    val fg = contentColor ?: if (bg.luminance() < 0.42f) Color(0xFFF1F5F9) else scheme.onSurface
+    val fg = contentColor ?: readableSurfaceText(bg, scheme.onSurface)
     return bg to fg
 }
 
@@ -182,7 +184,6 @@ fun AppSurface(
     val scheme = MaterialTheme.colorScheme
     val classic = LocalClassicAppearance.current
     val reduceEffects = LocalReduceEffects.current
-    val glass = LocalLiquidGlass.current && !classic && !reduceEffects && Build.VERSION.SDK_INT >= 33
     val (bg, fg) = resolveSurfaceColors(role, scheme, classic, containerColor, contentColor)
     val baseElevation = if (shadowElevation > 0.dp) shadowElevation else when (role) {
         SurfaceRole.Popover -> 12.dp
@@ -193,36 +194,22 @@ fun AppSurface(
     val effectiveElevation = if (reduceEffects) 0.dp else baseElevation
     val resolvedBorderColor = when {
         borderColor != null -> borderColor
-        reduceEffects && effectiveElevation == 0.dp && (role == SurfaceRole.Chrome || role == SurfaceRole.Popover) ->
-            scheme.outlineVariant
+        role == SurfaceRole.Chrome || role == SurfaceRole.Popover || role == SurfaceRole.Sheet -> scheme.outlineVariant
         else -> null
     }
-    val glassLayer = if (glass) {
-        val backdrop = rememberCanvasBackdrop {
-            drawRect(Brush.linearGradient(listOf(lerp(bg, scheme.primary, .16f), bg, lerp(bg, scheme.tertiary, .12f))))
-        }
-        Modifier.drawBackdrop(backdrop, { shape }, { lens(8.dp.toPx(), 12.dp.toPx()) }, shadow = null)
-    } else Modifier
     val stroke = resolvedBorderColor?.let { BorderStroke(0.85.dp, it) }
 
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val stretch by animateFloatAsState(if (glass && pressed && !LocalReduceMotion.current) 1f else 0f,
-        animationSpec = spring(), label = "Glass press")
     val clickModifier = if (onClick != null) {
-        Modifier.clickable(interactionSource = interaction, indication = androidx.compose.foundation.LocalIndication.current, enabled = enabled, onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
+        Modifier.clickable(enabled = enabled, onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
     } else Modifier
 
     Surface(
         modifier = modifier
             .then(if (effectiveElevation > 0.dp) Modifier.shadow(effectiveElevation, shape, clip = false) else Modifier)
             .clip(shape)
-            .graphicsLayer { scaleX = 1f + 0.025f * stretch; scaleY = 1f - 0.035f * stretch }
-            .then(glassLayer)
-            .then(if (glass && pressed) Modifier.border(1.dp, scheme.primary.copy(alpha = .65f), shape) else Modifier)
             .then(clickModifier),
         shape = shape,
-        color = if (glass) Color.Transparent else bg,
+        color = bg,
         contentColor = fg,
         border = stroke,
     ) {
@@ -245,14 +232,7 @@ fun AppCard(
     val scheme = MaterialTheme.colorScheme
     val reduceEffects = LocalReduceEffects.current
     val bg = containerColor ?: if (hero) scheme.surfaceContainerHigh else scheme.surface
-    val fg = if (bg.luminance() < 0.42f) Color(0xFFF3F4F6) else scheme.onSurface
-    if (LocalLiquidGlass.current && !LocalClassicAppearance.current && !reduceEffects && Build.VERSION.SDK_INT >= 33) {
-        AppSurface(modifier = modifier, shape = shape, containerColor = bg, contentColor = fg,
-            contentPadding = contentPadding, onClick = onClick, borderColor = scheme.outlineVariant) {
-            Column(content = content)
-        }
-        return
-    }
+    val fg = readableSurfaceText(bg, scheme.onSurface)
     val cardMod = modifier
         .then(if (hero && !reduceEffects) Modifier.shadow(2.dp, shape, clip = false) else Modifier)
         .clip(shape)
@@ -305,10 +285,10 @@ fun AppDialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
+        LiveDialogBackdrop()
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.42f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -320,7 +300,7 @@ fun AppDialog(
             AppDialogSurface(
                 modifier = modifier
                     .widthIn(max = 600.dp)
-                        .fillMaxWidth()
+                    .fillMaxWidth()
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -328,7 +308,7 @@ fun AppDialog(
                     ),
             ) {
                 Column(
-                    modifier = Modifier.padding(22.dp),
+                    modifier = Modifier.padding(horizontal = 22.dp, vertical = 20.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     if (title != null) {
@@ -391,13 +371,6 @@ fun AppPill(
         else -> scheme.onSurface
     }
     val shape = appPillShape()
-    if (LocalLiquidGlass.current && !LocalClassicAppearance.current && !LocalReduceEffects.current && Build.VERSION.SDK_INT >= 33) {
-        AppSurface(modifier = modifier, role = SurfaceRole.Capsule, shape = shape, containerColor = bg,
-            contentColor = fg, onClick = onClick, contentPadding = contentPadding) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, content = content)
-        }
-        return
-    }
     Row(
         modifier = modifier
             .clip(shape)

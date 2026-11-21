@@ -26,7 +26,10 @@ enum class ToolbarSize(val label: String, val scale: Float) { COMPACT("Compact",
 /** Persisted per-tool defaults (size, opacity, colour behaviour, aspect lock). */
 @Immutable
 data class ToolDefaults(
-    val autoScript: String = "",
+    val handwritingLanguage: String = "en-US",
+    val autoScript: String = "CURSIVE",
+    val autoHandwriting: Boolean = false,
+    val alignHandwriting: Boolean = true,
     val pressureEnabled: Boolean = true,
     val tapSelect: Boolean = false,
     val penOpacity: Float = 1f,
@@ -179,6 +182,16 @@ enum class UiColorScheme(
         darkBg = 0xFF141519,
         darkSurface = 0xFF1C1C1C,
     ),
+    COLORFUL(
+        label = "Colorful",
+        subtitle = "Violet, teal, coral and indigo",
+        seedPrimary = 0xFF6134C4,
+        seedSecondary = 0xFF007C79,
+        lightBg = 0xFFF3EDFF,
+        lightSurface = 0xFFFFFAFF,
+        darkBg = 0xFF16132B,
+        darkSurface = 0xFF242045,
+    ),
     WARM_IVORY(
         label = "Warm Ivory",
         subtitle = "Cozy cream & botanical ink",
@@ -260,7 +273,6 @@ data class AppSettings(
     val haptics: Boolean = true,
     // gestures
     val scribbleToErase: Boolean = true,
-    val liveScribbleErase: Boolean = true,
     val scribbleSensitivity: ScribbleSensitivity = ScribbleSensitivity.BALANCED,
     val holdToShape: Boolean = true,
     val circleToLasso: Boolean = true,
@@ -339,7 +351,7 @@ data class AppSettings(
     val gradientTitles: Boolean = false,
     val appFont: AppFont = AppFont.MODERN_SANS,
     val motionStyle: MotionStyle = MotionStyle.SPRING,
-    val liquidGlass: Boolean = false,
+    val liveBlur: Boolean = true,
     val classicAppearance: Boolean = false,
     val reduceEffects: Boolean = false,
     val showHoverTooltips: Boolean = true,
@@ -405,12 +417,11 @@ class SettingsStore private constructor(context: Context, file: String = "settin
         val d = AppSettings()
         val legacyStraight = prefs.getBoolean("hlStraight", false)
         return AppSettings(
-            stylusOnly = b("stylusOnly", d.stylusOnly),
+            stylusOnly = !b("fingerDrawingOptIn", false),
             sideButton = enumOf("sideButton", d.sideButton),
             palmRejection = b("palmRejection", d.palmRejection),
             haptics = b("haptics", d.haptics),
             scribbleToErase = b("scribble", d.scribbleToErase),
-            liveScribbleErase = b("liveScribble", d.liveScribbleErase),
             scribbleSensitivity = enumOf("scribbleSens", d.scribbleSensitivity),
             holdToShape = b("holdShape", d.holdToShape),
             circleToLasso = b("circleLasso", d.circleToLasso),
@@ -431,7 +442,10 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             toolbarStyle = enumOf("toolbarStyle", d.toolbarStyle),
             toolbarPos = prefs.getString("toolbarPos", d.toolbarPos) ?: d.toolbarPos,
             toolDefaults = ToolDefaults(
-                autoScript = prefs.getString("autoScript", "").orEmpty(),
+                handwritingLanguage = prefs.getString("handwritingLanguage", "en-US") ?: "en-US",
+                autoScript = prefs.getString("autoScript", null).orEmpty().ifBlank { d.toolDefaults.autoScript },
+                autoHandwriting = b("autoHandwriting", prefs.getString("autoScript", null).orEmpty().isNotBlank()),
+                alignHandwriting = b("alignHandwriting", true),
                 pressureEnabled = b("pressureEnabled", true),
                 tapSelect = b("tapSelect", false),
                 penOpacity = prefs.getFloat("tdPenOp", d.toolDefaults.penOpacity).coerceIn(0.15f, 1f),
@@ -498,7 +512,7 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             gradientTitles = b("gradientTitles", d.gradientTitles),
             appFont = enumOf("appFont", d.appFont),
             motionStyle = motionStyleOf("motionStyle", d.motionStyle),
-            liquidGlass = b("liquidGlass", false),
+            liveBlur = b("liveBlur", true),
             classicAppearance = b("classicAppearance", d.classicAppearance),
             reduceEffects = b("reduceEffects", d.reduceEffects),
             showHoverTooltips = b("showHoverTooltips", d.showHoverTooltips),
@@ -515,12 +529,11 @@ class SettingsStore private constructor(context: Context, file: String = "settin
         val s = block(_settings.value)
         _settings.value = s
         prefs.edit()
-            .putBoolean("stylusOnly", s.stylusOnly)
+            .putBoolean("fingerDrawingOptIn", !s.stylusOnly)
             .putString("sideButton", s.sideButton.name)
             .putBoolean("palmRejection", s.palmRejection)
             .putBoolean("haptics", s.haptics)
             .putBoolean("scribble", s.scribbleToErase)
-            .putBoolean("liveScribble", s.liveScribbleErase)
             .putString("scribbleSens", s.scribbleSensitivity.name)
             .putBoolean("holdShape", s.holdToShape)
             .putBoolean("circleLasso", s.circleToLasso)
@@ -537,6 +550,9 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             .putString("toolbarDock", s.toolbarDock.name)
             .putString("toolbarStyle", s.toolbarStyle.name)
             .putString("toolbarPos", s.toolbarPos)
+            .putBoolean("autoHandwriting", s.toolDefaults.autoHandwriting)
+            .putBoolean("alignHandwriting", s.toolDefaults.alignHandwriting)
+            .putString("handwritingLanguage", s.toolDefaults.handwritingLanguage)
             .putString("autoScript", s.toolDefaults.autoScript)
             .putBoolean("pressureEnabled", s.toolDefaults.pressureEnabled)
             .putBoolean("tapSelect", s.toolDefaults.tapSelect)
@@ -602,7 +618,7 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             .putBoolean("gradientTitles", s.gradientTitles)
             .putString("appFont", s.appFont.name)
             .putString("motionStyle", s.motionStyle.name)
-            .putBoolean("liquidGlass", s.liquidGlass)
+            .putBoolean("liveBlur", s.liveBlur)
             .putBoolean("classicAppearance", s.classicAppearance)
             .putBoolean("reduceEffects", s.reduceEffects)
             .putBoolean("showHoverTooltips", s.showHoverTooltips)

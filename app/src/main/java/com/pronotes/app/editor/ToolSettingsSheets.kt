@@ -299,7 +299,6 @@ private data class EraserCardSettings(
     val eraserFilter: EraserFilter,
     val eraserAutoSwitch: Boolean,
     val scribbleToErase: Boolean,
-    val liveScribbleErase: Boolean,
 )
 
 @Immutable
@@ -329,12 +328,12 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
     var renamingPreset by remember { mutableStateOf<PenPreset?>(null) }
 
     var section by remember { mutableStateOf(0) }
-    SheetSegments(listOf("Brush", "Presets", "Stylus"), section) { section = it }
+    SheetSegments(listOf("Brush", "Writing", "Presets", "Stylus"), section) { section = it }
     val tileBg = if (darkUi) Color(0xFF2C2C2C) else MaterialTheme.colorScheme.primaryContainer
     val tileIdleBg = if (darkUi) Color(0xFF232326) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
     val mutedFg = fgColor.copy(alpha = 0.68f)
 
-    if (section == 2) AppCard(
+    if (section == 3) AppCard(
         onClick = { editingPenName = true },
         containerColor = tileIdleBg,
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 9.dp),
@@ -351,20 +350,39 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
         }
     }
 
-    if (section == 0) {
-    Text("Automatic handwriting", style = MaterialTheme.typography.titleSmall)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        AppChip(s.toolDefaults.autoScript.isEmpty(), { store.update { it.copy(toolDefaults = it.toolDefaults.copy(autoScript = "")) } }, label = "Off")
-        TextFont.entries.forEach { face ->
-            AppChip(s.toolDefaults.autoScript == face.name, { store.update { it.copy(toolDefaults = it.toolDefaults.copy(autoScript = face.name)) } }, label = face.label)
+    if (section == 1) {
+        SheetToggleLine("Automatic handwriting", s.toolDefaults.autoHandwriting, fgColor, onChange = vm::setAutoHandwriting)
+        SheetToggleLine("Align to nearby paper rules", s.toolDefaults.alignHandwriting, fgColor) { enabled ->
+            store.update { it.copy(toolDefaults = it.toolDefaults.copy(alignHandwriting = enabled)) }
+        }
+        Text("Write with the pen and pause to convert handwriting to editable text.", style = MaterialTheme.typography.bodySmall)
+        Text("Recognition language", style = MaterialTheme.typography.titleSmall)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            HandwritingRecognizer.languages.forEach { (tag, label) ->
+                AppChip(s.toolDefaults.handwritingLanguage == tag, {
+                    store.update { it.copy(toolDefaults = it.toolDefaults.copy(handwritingLanguage = tag)) }
+                }, label = label)
+            }
+        }
+        val model by HandwritingRecognizer.modelState.collectAsStateWithLifecycle()
+        if (model == HandwritingModelState.DOWNLOADING) Text("Downloading handwriting model…", style = MaterialTheme.typography.bodySmall)
+        Text("Writing font", style = MaterialTheme.typography.titleSmall)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextFont.entries.forEach { font ->
+                AppChip(s.toolDefaults.autoScript == font.name,
+                    { store.update { it.copy(toolDefaults = it.toolDefaults.copy(autoScript = font.name)) } }, label = font.label)
+            }
         }
     }
-    SheetToggleLine("Stylus pressure for fountain and brush tips", s.toolDefaults.pressureEnabled, fgColor) { v ->
-        store.update { it.copy(toolDefaults = it.toolDefaults.copy(pressureEnabled = v)) }
+    if (section == 3) {
+        SheetToggleLine("Stylus pressure", s.toolDefaults.pressureEnabled, fgColor) { enabled ->
+            store.update { it.copy(toolDefaults = it.toolDefaults.copy(pressureEnabled = enabled)) }
+        }
+        SheetToggleLine("Tap objects with the pen to select", s.toolDefaults.tapSelect, fgColor) { enabled ->
+            store.update { it.copy(toolDefaults = it.toolDefaults.copy(tapSelect = enabled)) }
+        }
     }
-    SheetToggleLine("Tap objects with the pen to select", s.toolDefaults.tapSelect, fgColor) { v ->
-        store.update { it.copy(toolDefaults = it.toolDefaults.copy(tapSelect = v)) }
-    }
+    if (section == 0) {
     StrokePreview(
         Color(style.color).copy(alpha = s.toolDefaults.penOpacity),
         style.size * vm.penType.sizeFactor * 2.2f,
@@ -406,7 +424,7 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
     }
 
     }
-    if (section == 1) {
+    if (section == 2) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text("FAVOURITE PENS", style = MaterialTheme.typography.labelSmall, color = mutedFg, modifier = Modifier.weight(1f))
         TextButton(onClick = { savingPreset = true }, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
@@ -431,7 +449,7 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
 
     HorizontalDivider(color = fgColor.copy(alpha = 0.08f))
     }
-    if (section == 2) {
+    if (section == 3) {
     Text("SETTINGS", style = MaterialTheme.typography.labelSmall, color = mutedFg, letterSpacing = 0.8.sp)
     SheetToggleLine("Writing sound", s.paperSound, fgColor) { v -> store.update { it.copy(paperSound = v) } }
     if (s.paperSound) {
@@ -553,7 +571,6 @@ private fun EraserCardContent(vm: EditorViewModel) {
                 it.eraserFilter,
                 it.eraserAutoSwitch,
                 it.scribbleToErase,
-                it.liveScribbleErase,
             )
         }
     }.collectAsStateWithLifecycle(
@@ -566,7 +583,6 @@ private fun EraserCardContent(vm: EditorViewModel) {
                     it.eraserFilter,
                     it.eraserAutoSwitch,
                     it.scribbleToErase,
-                    it.liveScribbleErase,
                 )
             }
         },
@@ -614,7 +630,6 @@ private fun EraserCardContent(vm: EditorViewModel) {
     SheetToggleLine("Highlighter only quick-lock", s.eraseHighlighterOnly, fgColor) { v -> store.update { it.copy(eraseHighlighterOnly = v) } }
     SheetToggleLine("Switch back after erasing", s.eraserAutoSwitch, fgColor) { v -> store.update { it.copy(eraserAutoSwitch = v) } }
     SheetToggleLine("Scribble to erase with the pen", s.scribbleToErase, fgColor) { v -> store.update { it.copy(scribbleToErase = v) } }
-    SheetToggleLine("Erase mid-stroke while writing", s.liveScribbleErase, fgColor) { v -> store.update { it.copy(liveScribbleErase = v) } }
     HorizontalDivider(color = fgColor.copy(alpha = 0.08f))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -754,16 +769,17 @@ private fun TextCardContent(vm: EditorViewModel) {
     }
     Text(stringResource(R.string.sheet_colour_set), style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.68f))
     Row(verticalAlignment = Alignment.CenterVertically) {
-        CustomSwatches(PenPalette.take(6), vm.textColor ?: vm.penStyle.color, vm) { vm.shareInkColor(it) }
+        CustomSwatches(PenPalette.take(6), vm.textColor ?: vm.penStyle.color, vm) { vm.textColor = it; vm.pushRecent(it) }
     }
     SheetSliderRow("TEXT SIZE", "%.0f pt".format(vm.textSize), vm.textSize, 16f..96f) { vm.textSize = it }
     SheetSliderRow(stringResource(R.string.sheet_opacity), "%.0f%%".format(td.textOpacity * 100), td.textOpacity, 0.2f..1f) { v ->
         store.update { it.copy(toolDefaults = it.toolDefaults.copy(textOpacity = v)) }
     }
-    SheetSegments(
-        TextFont.entries.take(4).map { it.label },
-        TextFont.entries.indexOf(vm.textStyle.font).coerceAtMost(3),
-    ) { i -> vm.textStyle = vm.textStyle.copy(font = TextFont.entries[i]) }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        TextFont.entries.forEach { font ->
+            AppChip(vm.textStyle.font == font, { vm.textStyle = vm.textStyle.copy(font = font) }, label = font.label)
+        }
+    }
     Text(
         "Tap or drag anywhere on the page with the Text tool to place a transparent, resizable text box. Type with your keyboard or write directly with a stylus inside the box.",
         style = MaterialTheme.typography.labelSmall,

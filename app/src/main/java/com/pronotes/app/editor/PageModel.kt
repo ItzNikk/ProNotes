@@ -57,6 +57,10 @@ enum class TextFont(val label: String, val typeface: Typeface) {
     LIGHT("Light", Typeface.create("sans-serif-light", Typeface.NORMAL)),
     FINE("Fine italic", Typeface.create("sans-serif-light", Typeface.ITALIC)),
     SERIF_BOLD("Book bold", Typeface.create("serif", Typeface.BOLD)),
+    HUMANIST("Humanist", Typeface.create("sans-serif", Typeface.ITALIC)),
+    MEDIUM_SCRIPT("Medium script", Typeface.create("cursive", Typeface.BOLD)),
+    TYPEWRITER("Serif mono", Typeface.create("serif-monospace", Typeface.NORMAL)),
+    NARROW_ITALIC("Narrow italic", Typeface.create("sans-serif-condensed", Typeface.ITALIC)),
     SCRIPT("Script italic", Typeface.create("cursive", Typeface.ITALIC)),
     BOOK("Book italic", Typeface.create("serif", Typeface.ITALIC)),
     HAND("Casual", Typeface.create("casual", Typeface.NORMAL)),
@@ -440,15 +444,14 @@ fun PageItem.stretched(oldBox: RectF, newBox: RectF): PageItem {
 
 val textPaint = TextPaint(TextPaint.ANTI_ALIAS_FLAG)
 
+internal fun TextStyleSpec.resolvedTypeface(): Typeface {
+    val explicitStyle = (if (bold) Typeface.BOLD else 0) or (if (italic) Typeface.ITALIC else 0)
+    return Typeface.create(font.typeface, font.typeface.style or explicitStyle)
+}
+
 fun applyTextStyle(paint: TextPaint, size: Float, style: TextStyleSpec) {
     paint.textSize = size
-    val styleFlags = when {
-        style.bold && style.italic -> Typeface.BOLD_ITALIC
-        style.bold -> Typeface.BOLD
-        style.italic -> Typeface.ITALIC
-        else -> Typeface.NORMAL
-    }
-    paint.typeface = Typeface.create(style.font.typeface, styleFlags)
+    paint.typeface = style.resolvedTypeface()
     paint.isUnderlineText = style.underline
     paint.textAlign = android.graphics.Paint.Align.LEFT
 }

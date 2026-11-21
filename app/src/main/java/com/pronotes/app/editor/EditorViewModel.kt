@@ -96,7 +96,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         bold = saved.getOrNull(21).toBoolean(), italic = saved.getOrNull(22).toBoolean(),
         underline = saved.getOrNull(23).toBoolean(), gradient = saved.getOrNull(24)?.toIntOrNull(),
         align = savedEnum(25, TextAlign.LEFT)))
-    var textColor by mutableStateOf(saved.getOrNull(9)?.toIntOrNull())
+    var textColor by mutableStateOf(saved.getOrNull(9)?.toIntOrNull() ?: 0xFF202124.toInt())
 
     var circleChip by mutableStateOf<RectF?>(null)
         private set
@@ -225,6 +225,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         viewModelScope.launch {
             val loadedPages = withContext(Dispatchers.IO) { repo.loadPages(noteId) }
             startPage = store.pref("page_$noteId", "0").toIntOrNull()?.coerceIn(0, (loadedPages.size - 1).coerceAtLeast(0)) ?: 0
+            pageIndex = startPage
             pages.clear(); pages.addAll(loadedPages)
             if (repo.pdfFile(noteId).exists()) pdf = PdfPages(repo.pdfFile(noteId))
             loaded = true
@@ -240,10 +241,11 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     private fun style(key: String, colors: List<Int>, sizes: List<Float>, size: Float, slot: Int): ToolStyle {
         val c = store.swatches("${key}_$noteId", store.swatches(key, colors))
         val sel = saved.getOrNull(slot)?.split(',')
-        val color = sel?.getOrNull(0)?.toIntOrNull() ?: c.first()
+        val color = if (key == "shape") penStyle.color else sel?.getOrNull(0)?.toIntOrNull() ?: c.first()
         val sz = sel?.getOrNull(1)?.toFloatOrNull() ?: size
         val widths = saved.getOrNull(slot + 15)?.split(',')?.mapNotNull { it.toFloatOrNull()?.takeIf { w -> w.isFinite() && w > 0f } }
-        return ToolStyle(c, widths?.takeIf { it.size == sizes.size } ?: sizes, color, sz)
+        val palette = if (color in c) c else (c + color).takeLast(8)
+        return ToolStyle(palette, widths?.takeIf { it.size == sizes.size } ?: sizes, color, sz)
     }
 
     val currentPage: Page? get() = pages.getOrNull(pageIndex)
@@ -293,16 +295,22 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         else -> null
     }
 
-    fun shareInkColor(color: Int) {
-        penStyle = penStyle.copy(color = color)
-        highlighterStyle = highlighterStyle.copy(color = color)
-        shapeStyle = shapeStyle.copy(color = color)
-        textColor = color
+    private fun shareInkColor(source: Tool, color: Int) {
+        val target = if (source == Tool.PEN) Tool.SHAPE else Tool.PEN
+        val current = styleFor(target) ?: return
+        val palette = if (color in current.colors) current.colors else (current.colors + color).takeLast(8)
+        val updated = current.copy(colors = palette, color = color)
+        if (target == Tool.PEN) penStyle = updated else shapeStyle = updated
+        val key = if (target == Tool.PEN) "pen" else "shape"
+        store.saveSwatches("${key}_$noteId", palette)
         pushRecent(color)
     }
 
     fun updateStyle(t: Tool, s: ToolStyle) {
-        if (styleFor(t)?.color != s.color) shareInkColor(s.color)
+        if (styleFor(t)?.color != s.color) {
+            if (t == Tool.PEN || t == Tool.SHAPE) shareInkColor(t, s.color)
+            else if (t == Tool.HIGHLIGHTER) pushRecent(s.color)
+        }
         when (t) {
             Tool.PEN -> { penStyle = s; store.saveSwatches("pen_$noteId", s.colors) }
             Tool.HIGHLIGHTER -> { highlighterStyle = s; store.saveSwatches("highlighter_$noteId", s.colors) }
@@ -760,72 +768,123 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             say("Select handwritten ink first")
             return
         }
-        recognizeInk(pageIdx, selectedInk, outputFont, onConverted)
+        viewModelScope.launch { recognizeInk(p.id, selectedInk, outputFont, automatic = false, onConverted) }
     }
 
     private var writingPause: Job? = null
-    private val pendingInk = mutableListOf<InkItem>()
-    private var writingPage = ""
+    private val pendingInk = linkedMapOf<String, MutableList<InkItem>>()
 
-    fun queueHandwriting(page: Int, ink: List<InkItem>) {
-        if (ink.isEmpty() || readOnly) return
-        val sheet = pages.getOrNull(page) ?: return
-        writingPause?.cancel()
-        if (writingPage != sheet.id) pendingInk.clear()
-        writingPage = sheet.id
-        pendingInk.addAll(ink)
-        writingPause = viewModelScope.launch {
-            delay(1000)
-            val index = pages.indexOfFirst { it.id == sheet.id }
-            val batch = pendingInk.filter { pages.getOrNull(index)?.items?.contains(it) == true }
+    fun setAutoHandwriting(enabled: Boolean) {
+        notebookSettings.update { it.copy(toolDefaults = it.toolDefaults.copy(autoHandwriting = enabled)) }
+        if (!enabled) {
+            writingPause?.cancel()
             pendingInk.clear()
-            val font = TextFont.entries.find { it.name == settingsFlow.value.toolDefaults.autoScript }
-            if (batch.isNotEmpty() && font != null && !readOnly) recognizeInk(index, batch, font) {}
         }
     }
 
-    private fun recognizeInk(pageIdx: Int, selectedInk: List<InkItem>, outputFont: TextFont?, onConverted: (Long) -> Unit) {
-        val pageId = pages.getOrNull(pageIdx)?.id ?: return
+    fun queueHandwriting(page: Int, ink: List<InkItem>) {
+        if (ink.isEmpty() || readOnly || !settingsFlow.value.toolDefaults.autoHandwriting) return
+        val sheet = pages.getOrNull(page) ?: return
+        pendingInk.getOrPut(sheet.id) { mutableListOf() }.addAll(ink)
+        writingPause?.cancel()
+        writingPause = viewModelScope.launch {
+            do { delay(700) } while (penActive || handwritingBusy)
+            val options = settingsFlow.value.toolDefaults
+            if (!options.autoHandwriting || readOnly) {
+                pendingInk.clear()
+                return@launch
+            }
+            val font = TextFont.entries.find { it.name == options.autoScript } ?: TextFont.CURSIVE
+            for ((id, strokes) in pendingInk.toMap()) {
+                val current = pages.firstOrNull { it.id == id }
+                val surviving = strokes.filter { current?.items?.contains(it) == true }
+                for (line in handwritingLines(surviving)) {
+                    while (penActive) delay(150)
+                    recognizeInk(id, line, font, automatic = true) {}
+                    pendingInk[id]?.removeAll(line.toSet())
+                }
+                pendingInk.remove(id)
+            }
+        }
+    }
+
+    data class HandwritingReview(val pageId: String, val item: TextItem, val ink: List<InkItem>, val alternatives: List<String>)
+
+    var handwritingReview by mutableStateOf<HandwritingReview?>(null)
+        private set
+
+    fun applyHandwritingReview(alternative: String?): Boolean {
+        val review = handwritingReview ?: return false
+        val index = pages.indexOfFirst { it.id == review.pageId }
+        val page = pages.getOrNull(index) ?: return false
+        if (readOnly || review.item !in page.items) return false
+        val replacement = alternative?.let { text ->
+            val item = review.item.copy(text = text)
+            if (item.bounds.right > page.width || page.items.any {
+                    it.id != item.id && it is TextItem && RectF.intersects(it.bounds, item.bounds)
+                }) return false
+            listOf(item)
+        } ?: review.ink
+        beginEdit(index)
+        applyItems(index, page.items.flatMap { if (it.id == review.item.id) replacement else listOf(it) })
+        handwritingReview = null
+        return true
+    }
+
+    private suspend fun recognizeInk(
+        pageId: String,
+        selectedInk: List<InkItem>,
+        outputFont: TextFont?,
+        automatic: Boolean,
+        onConverted: (Long) -> Unit,
+    ) {
+        if (handwritingBusy || readOnly) return
         val union = RectF(selectedInk.first().bounds)
         selectedInk.forEach { union.union(it.bounds) }
         val timedStrokes = extractTimedStrokes(selectedInk)
         val estimatedSize = HandwritingRecognizer.estimateFontSize(timedStrokes, fallback = textSize)
-        val selectedInkIds = selectedInk.map { it.id }.toSet()
-        val inkColor = selectedInk.first().stroke.brush.colorIntArgb
-
-        viewModelScope.launch {
-            handwritingBusy = true
-            val result = try {
-                HandwritingRecognizer.recognize(
-                    strokes = timedStrokes,
-                    writingWidth = union.width().coerceAtLeast(64f),
-                    writingHeight = union.height().coerceAtLeast(48f),
-                )
-            } finally {
-                handwritingBusy = false
-            }
-            val recognized = result.text.trim()
-            if (recognized.isBlank()) {
-                say("Could not recognise handwritten ink")
-                return@launch
-            }
-            handwritingCandidates = result.candidates
-            val latestPage = pages.getOrNull(pageIdx) ?: return@launch
-            if (readOnly || latestPage.id != pageId || !latestPage.items.containsAll(selectedInk)) return@launch
-            val newItem = TextItem(
-                id = ItemIds.next(),
-                text = recognized,
-                x = union.left.coerceIn(24f, (latestPage.width - 120f).coerceAtLeast(24f)),
-                y = union.top.coerceIn(24f, (latestPage.height - 60f).coerceAtLeast(24f)),
-                size = estimatedSize,
-                color = inkColor,
-                style = outputFont?.let { textStyle.copy(font = it) } ?: textStyle,
+        handwritingBusy = true
+        try {
+            val result = HandwritingRecognizer.recognize(
+                strokes = timedStrokes,
+                writingWidth = union.width().coerceAtLeast(64f),
+                writingHeight = union.height().coerceAtLeast(48f),
+                languageTag = settingsFlow.value.toolDefaults.handwritingLanguage,
+                allowFallback = !automatic && settingsFlow.value.toolDefaults.handwritingLanguage.startsWith("en"),
             )
-            beginEdit(pageIdx)
-            applyItems(pageIdx, latestPage.items.filterNot { it.id in selectedInkIds } + newItem)
-            onConverted(newItem.id)
+            val options = settingsFlow.value.toolDefaults
+            val idx = pages.indexOfFirst { it.id == pageId }
+            val page = pages.getOrNull(idx) ?: return
+            if (readOnly || !page.items.containsAll(selectedInk)) return
+            val text = if (automatic) result.text.trim().replace(Regex("\\s+"), " ") else result.text.trim()
+            if (automatic && (!options.autoHandwriting || penActive || !result.usedMlKit || text.count { it.isLetterOrDigit() } < 2)) return
+            if (text.isBlank()) {
+                say("Could not recognise handwritten ink")
+                return
+            }
+            val style = if (automatic) TextStyleSpec(font = outputFont ?: TextFont.CURSIVE)
+                else outputFont?.let { textStyle.copy(font = it) } ?: textStyle
+            val x = union.left.coerceAtLeast(0f).coerceAtMost(page.width)
+            val layout = if (automatic) singleLineLayout(page, text, style.font, x, union, estimatedSize, options.alignHandwriting) ?: return
+                else estimatedSize to union.top.coerceAtLeast(0f)
+            val ids = selectedInk.map { it.id }.toSet()
+            val item = TextItem(ItemIds.next(), text, x, layout.second, layout.first,
+                selectedInk.first().stroke.brush.colorIntArgb, style)
+            if (automatic && page.items.any { it.id !in ids && it is TextItem && RectF.intersects(it.bounds, item.bounds) }) return
+            if (!automatic) handwritingCandidates = result.candidates
+            beginEdit(idx)
+            applyItems(idx, page.items.filterNot { it.id in ids } + item)
+            if (automatic) {
+                val alternatives = result.candidates.map { it.trim().replace(Regex("\\s+"), " ") }
+                    .filter { it.isNotBlank() && it != item.text }.distinct().take(4)
+                handwritingReview = HandwritingReview(page.id, item, selectedInk, alternatives)
+            }
+            onConverted(item.id)
+        } finally {
+            handwritingBusy = false
         }
     }
+
 
     fun openInlineTextBox(
         page: Int,
@@ -861,7 +920,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val effectiveColor = if (td.textOpacity >= 0.99f) color else Brushes.withAlpha(color, td.textOpacity)
         // New text remembers the last formatting used.
         textSize = size; textStyle = style
-        if (color != (textColor ?: penStyle.color)) shareInkColor(color)
+        textColor = color
         val finalX = x ?: edit.x
         val finalY = y ?: edit.y
         val existing = edit.existing
@@ -1949,7 +2008,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun search(query: String) {
         searchQuery = query
         searchJob?.cancel()
-        if (query.isBlank()) { searchHits = emptyList(); activeHit = -1; return }
+        if (query.isBlank()) {
+            clearSearch()
+            return
+        }
         searchJob = viewModelScope.launch {
             delay(250)
             searching = true
@@ -2009,6 +2071,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     fun clearSearch() {
         searchJob?.cancel()
+        searching = false
         searchQuery = ""
         searchHits = emptyList()
         activeHit = -1
@@ -2047,16 +2110,6 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun showHint(message: String) = say(message)
 
     /** Scribble-to-erase provides dust particle, audio, and haptic feedback without obstructing the canvas with a banner. */
-    var scribbleArmed by mutableStateOf(false)
-        private set
-    fun toggleScribbleArm() {
-        scribbleArmed = !scribbleArmed
-        if (scribbleArmed) {
-            if (tool != Tool.HIGHLIGHTER) tool = Tool.PEN
-            say("Scribble across ink now. Only the next stroke can erase.")
-        }
-    }
-    fun consumeScribbleArm(): Boolean = scribbleArmed.also { scribbleArmed = false }
     fun onScribbleErased() = Unit
     var pdfTextBusy by mutableStateOf(false)
         private set

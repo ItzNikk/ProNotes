@@ -481,6 +481,23 @@ private fun scribbleThresholds(config: GestureConfig): ScribbleThresholds = when
     )
 }
 
+/** Match the whole scrub at screen scale so a dense letter or the tail of a word cannot erase. */
+internal fun isDeliberateScribble(points: List<Pt>, pageToDp: Float, durationMs: Long, config: GestureConfig): Boolean {
+    if (durationMs !in 110L..1300L || points.size < 9) return false
+    val path = points.map { (x, y) -> x * pageToDp to y * pageToDp }
+    val width = path.maxOf { it.first } - path.minOf { it.first }
+    val height = path.maxOf { it.second } - path.minOf { it.second }
+    val span = maxOf(width, height)
+    if (span !in 18f..270f || minOf(width, height) < 5f) return false
+    val t = scribbleThresholds(config)
+    val length = pathLength(path)
+    if (length < maxOf(t.minLen, span * 3.4f) || length * 1000f / durationMs < 145f) return false
+    if (dist(path.first(), path.last()) > span * .62f) return false
+    return axisScribble(path, maxOf(t.minRev, 4), maxOf(t.minAxisRatio, 2.6f)) ||
+        zigZagScribble(path, maxOf(t.minSharp, 4), maxOf(t.minZigRatio, 3.1f)) ||
+        loopScrubScribble(path, maxOf(t.minLoopTurns, 2.35f), maxOf(t.minLoopRatio, 3.6f))
+}
+
 private fun matchesAnyScribblePattern(pts: List<Pt>, t: ScribbleThresholds): Boolean =
     axisScribble(pts, t.minRev, t.minAxisRatio) ||
         zigZagScribble(pts, t.minSharp, t.minZigRatio) ||

@@ -62,6 +62,9 @@ enum class HandwritingModelState {
  *    line/word segmentation so conversion never blocks or fails when offline.
  */
 object HandwritingRecognizer {
+    val languages = linkedMapOf("en-US" to "English", "hi" to "Hindi", "fr" to "French",
+        "de" to "German", "es" to "Spanish", "it" to "Italian", "pt" to "Portuguese")
+
     private val recognizers = ConcurrentHashMap<String, DigitalInkRecognizer>()
     private val _modelState = MutableStateFlow(HandwritingModelState.IDLE)
     val modelState: StateFlow<HandwritingModelState> = _modelState.asStateFlow()
@@ -95,6 +98,7 @@ object HandwritingRecognizer {
         writingHeight: Float = 0f,
         preContext: String = "",
         languageTag: String = "en-US",
+        allowFallback: Boolean = true,
     ): HandwritingRecognitionResult = withContext(Dispatchers.Default) {
         val cleaned = strokes.filter { it.isNotEmpty() }
         if (cleaned.isEmpty()) return@withContext HandwritingRecognitionResult("")
@@ -110,6 +114,8 @@ object HandwritingRecognizer {
         if (mlResult != null && mlResult.text.isNotBlank()) {
             return@withContext mlResult
         }
+
+        if (!allowFallback) return@withContext HandwritingRecognitionResult("")
 
         // Tier 2: Offline resampled vector template matcher fallback
         val fallbackText = OfflineStrokeRecognizer.recognize(cleaned)

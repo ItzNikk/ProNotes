@@ -3,7 +3,6 @@ package com.pronotes.app.editor
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.RectF
-import android.graphics.Typeface
 import android.os.Build
 import android.text.Editable
 import android.text.InputType
@@ -696,7 +695,7 @@ internal fun InlinePageTextEditor(
                         isFocusable = true
                         isFocusableInTouchMode = true
                         isVerticalScrollBarEnabled = true
-                        hint = if (edit.isFullPage) "Type or write with stylus…" else "Type or write…"
+                        hint = if (edit.isFullPage) null else "Type or write…"
                         setHintTextColor(if (darkUi) 0x77CBD5E1 else 0x6664748B)
                         if (Build.VERSION.SDK_INT >= 33) {
                             isAutoHandwritingEnabled = true
@@ -723,13 +722,7 @@ internal fun InlinePageTextEditor(
                     }
                 },
                 update = { et ->
-                    val styleFlags = when {
-                        style.bold && style.italic -> Typeface.BOLD_ITALIC
-                        style.bold -> Typeface.BOLD
-                        style.italic -> Typeface.ITALIC
-                        else -> Typeface.NORMAL
-                    }
-                    et.typeface = Typeface.create(style.font.typeface, styleFlags)
+                    et.typeface = style.resolvedTypeface()
                     et.paint.isUnderlineText = style.underline
                     et.setTextSize(TypedValue.COMPLEX_UNIT_PX, (fontSize * zoomScale).coerceIn(13f, 220f))
                     et.setTextColor(textColor)

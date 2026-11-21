@@ -117,7 +117,6 @@ interface CanvasHost {
     fun onHint(message: String) {}
     /** Called when scribble-to-erase removed one or more items so an undo snackbar can appear. */
     fun onFreshInk(page: Int, ink: List<InkItem>) {}
-    fun consumeScribbleArm(): Boolean = false
     fun onScribbleErased() {}
     /** Long-press on empty page space (not PDF text and not an existing item): opens Quick Insert. */
     fun onEmptyPageLongPress(page: Int, x: Float, y: Float, screenX: Float, screenY: Float) {}
@@ -245,7 +244,11 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 (value.scroll == ScrollDirection.HORIZONTAL && field.toolbarDock != value.toolbarDock)
             field = value
             gestureConfig = GestureConfig.fromSettings(value)
-            if (relayout) { val keep = currentIndex; layout(pages); fit(keep) }
+            if (relayout && pages.isNotEmpty()) {
+                val keep = if (fitted) currentIndex else startPage
+                layout(pages)
+                fit(keep)
+            }
             layer.invalidate()
         }
 
@@ -316,7 +319,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                     host.beginEdit(pi)
                     updatePage(pi, p.items + added)
                     val boxes = pages.getOrNull(pi)?.items?.filterIsInstance<WriteBoxItem>().orEmpty()
-                    if (settings.toolDefaults.autoScript.isNotEmpty()) host.onFreshInk(pi, added.filter { ink ->
+                    if (settings.toolDefaults.autoHandwriting) host.onFreshInk(pi, added.filter { ink ->
                         !ink.isHighlighter && boxes.none { RectF.intersects(it.raw, ink.bounds) }
                     })
                     if (boxes.isNotEmpty()) {
@@ -332,6 +335,58 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 wetInk.removeFinishedStrokes(strokes.keys)
             }
         })
+    }
+
+    private var dragLocation: Pt? = null
+    private val scrollDuringDrop = object : Runnable {
+        override fun run() {
+            val (x, y) = dragLocation ?: return
+            val horizontal = settings.scroll == ScrollDirection.HORIZONTAL
+            val edge = 44f * density
+            val distance = if (horizontal) x else y
+            val extent = if (horizontal) width else height
+            val step = when {
+                distance < edge -> (1f - distance / edge).coerceIn(0f, 1f)
+                distance > extent - edge -> -((distance - (extent - edge)) / edge).coerceIn(0f, 1f)
+                else -> 0f
+            } * 12f * density
+            if (step != 0f) {
+                scroller.forceFinished(true)
+                if (horizontal) transX += step else transY += step
+                if (!isWhiteboard) clamp()
+                updateMatrix()
+            }
+            invalidate()
+            postOnAnimation(this)
+        }
+    }
+
+    fun previewDrop(x: Float, y: Float) {
+        val first = dragLocation == null
+        dragLocation = x to y
+        if (first) postOnAnimation(scrollDuringDrop)
+    }
+
+    fun clearDropPreview() {
+        dragLocation = null
+        removeCallbacks(scrollDuringDrop)
+        invalidate()
+    }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        val (x, y) = dragLocation ?: return
+        if (dropPoint(x, y) == null) return
+        val paint = dropPreviewPaint
+        canvas.drawCircle(x, y, 17f * density, paint)
+        canvas.drawLine(x - 24f * density, y, x + 24f * density, y, paint)
+        canvas.drawLine(x, y - 24f * density, x, y + 24f * density, paint)
+    }
+
+    private val dropPreviewPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF357EF5.toInt()
+        style = Paint.Style.STROKE
+        strokeWidth = 3f * density
     }
 
     fun dropPoint(x: Float, y: Float): Triple<Int, Float, Float>? {
@@ -362,11 +417,11 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
     /** Replaces the page list (after undo, page add/delete, recolour...). */
     fun setPages(newPages: List<Page>) {
-        val structural = newPages.size != pages.size || newPages.zip(pages).any { (a, b) -> a.id != b.id || a.width != b.width }
+        val structural = newPages.size != pages.size || newPages.zip(pages).any { (a, b) -> a.id != b.id || a.width != b.width || a.height != b.height }
         val keepSel = selectionPage in newPages.indices && pages.getOrNull(selectionPage)?.id == newPages[selectionPage].id
         pages = newPages
         if (structural) layout(newPages)
-        if (!fitted && width > 0) fit(startPage.coerceIn(0, (newPages.size - 1).coerceAtLeast(0)))
+        if (!fitted && width > 0 && newPages.isNotEmpty()) fit(startPage.coerceIn(0, (newPages.size - 1).coerceAtLeast(0)))
         if (keepSel) {
             val ids = newPages[selectionPage].items.map { it.id }.toSet()
             selection = selection.filter { it in ids }.toSet()
@@ -548,7 +603,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         viewMatrix.postTranslate(transX, transY)
         viewMatrix.invert(inverse)
         val idx = computeCurrent()
-        if (idx != currentIndex) {
+        if (pages.isNotEmpty() && idx != currentIndex) {
             currentIndex = idx; host.onCurrentPage(idx)
             if (settings.scroll == ScrollDirection.HORIZONTAL) { syncFeel(); feel.cue(PaperFeel.Cue.PAGE) }
         }
@@ -665,8 +720,6 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
     private val points = ArrayList<Pt>()       // page-local points of the current gesture
     private val lassoPoints = ArrayList<Pt>()  // screen points
     private var lastErase: Pt? = null
-    private var scribbleErased = false
-    private var scribbleDeletedAny = false
     private var dragMindId: Long = -1L
     private var dragMindOrigX = 0f
     private var dragMindOrigY = 0f
@@ -802,7 +855,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
 
         // --- fingers
         if (action == MotionEvent.ACTION_DOWN) {
-            ignoreFingers = settings.palmRejection && sawStylus && now - lastStylusTime < gestureConfig.palmRejectionWindowMs
+            ignoreFingers = settings.stylusOnly && settings.palmRejection && sawStylus && now - lastStylusTime < gestureConfig.palmRejectionWindowMs
         }
         if (ignoreFingers) {
             if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) ignoreFingers = false
@@ -815,10 +868,13 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         val fingerDraws = !settings.stylusOnly
         if (fingerDraws && mode != Mode.PAN) {
             if (event.pointerCount == 1) {
+                if (action == MotionEvent.ACTION_DOWN) host.onPenActive(true)
+                if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) host.onPenActive(false)
                 handleDraw(event, action, event.getPointerId(0))
                 return true
             }
             // A second finger while finger-drawing: switch to scroll / zoom.
+            host.onPenActive(false)
             cancelCurrent(event)
             mode = Mode.PAN
             handleFingers(event, MotionEvent.ACTION_POINTER_DOWN)
@@ -867,7 +923,6 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         return tool
     }
 
-    private var intentionalScribble = false
 
     private fun beginDrawDown(e: MotionEvent, pIdx: Int, pid: Int, px: Float, py: Float) {
         val (ddx, ddy) = toDoc(px, py)
@@ -880,7 +935,6 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         lastMovePt = wx to wy
         val t = effectiveTool(e, pIdx)
         strokeTool = t
-        intentionalScribble = host.consumeScribbleArm() && (t == Tool.PEN || t == Tool.HIGHLIGHTER)
         if (capturing) {
             mode = Mode.LASSO; capturingDrag = true
             lassoPoints.clear(); lassoPoints += px to py
@@ -1065,28 +1119,6 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                         points += cur
                         trackHold(cur)
                         if (holdFired) return
-                        if (intentionalScribble && settings.scribbleToErase && settings.liveScribbleErase &&
-                            (strokeTool == Tool.PEN || strokeTool == Tool.HIGHLIGHTER) &&
-                            isLiveScribble(points, gestureConfig)
-                        ) {
-                            val recent = if (points.size > 44) points.subList(points.size - 44, points.size) else points
-                            val isHl = strokeTool == Tool.HIGHLIGHTER
-                            // Only switch into live erase when real erasable ink/items lie under the scribble;
-                            // prevents false positives while writing dense cursive or shading on blank paper.
-                            if (scribbleHitIds(activePage, recent, isHl).isNotEmpty()) {
-                                cancelActiveWetStroke(e)
-                                removeCallbacks(holdRunnable)
-                                mode = Mode.ERASE
-                                scribbleErased = true
-                                scribbleDeletedAny = false
-                                lastErase = cur
-                                host.beginEdit(activePage)
-                                eraseScribbleWindow(activePage, recent, highlighter = isHl)
-                                layer.eraserAt = fx to fy
-                                layer.invalidate()
-                                return
-                            }
-                        }
                         val predicted = predictor.predict()
                         try {
                             wetInk.addToStroke(e, activePointer, id, predicted)
@@ -1096,7 +1128,6 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                     }
                     Mode.ERASE -> {
                         // A recognized scribble erases its target once. The trailing lift must never become a free eraser.
-                        if (scribbleErased) return
                         feel.move(hypot(e.getX(idx) - feelX, e.getY(idx) - feelY), e.eventTime - feelT)
                         feelX = e.getX(idx); feelY = e.getY(idx); feelT = e.eventTime
                         for (h in 0 until e.historySize) {
@@ -1210,10 +1241,7 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
                 when (mode) {
                     Mode.INK -> finishInk(e, isTap)
                     Mode.ERASE -> {
-                        val wasScribble = scribbleErased
-                        val deletedAny = scribbleDeletedAny
-                        if (wasScribble && deletedAny) host.onScribbleErased()
-                        if (!wasScribble && strokeTool == Tool.ERASER && tool == Tool.ERASER) host.onEraserLifted()
+                        if (strokeTool == Tool.ERASER && tool == Tool.ERASER) host.onEraserLifted()
                     }
                     Mode.LASSO -> {
                         val local = lassoPoints.map { toLocal(it.first, it.second, activePage) }
@@ -1369,8 +1397,6 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         // A stroke that was never finished or cancelled would stay on screen forever as ghost ink.
         cancelActiveWetStroke(e)
         removeCallbacks(wetAssertionRunnable)
-        scribbleErased = false
-        scribbleDeletedAny = false
         mode = Mode.INK
         syncFeel()
         val ptrIdx = e.findPointerIndex(pid).coerceAtLeast(0)
@@ -1407,9 +1433,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             }
         }
         // Scribble-to-erase: uses the same surgical hit-testing & eraser policy as live scribble.
-        if (intentionalScribble && settings.scribbleToErase && (strokeTool == Tool.PEN || strokeTool == Tool.HIGHLIGHTER) && isScribble(points, gestureConfig)) {
-            val highlighter = strokeTool == Tool.HIGHLIGHTER
-            val hit = scribbleHitIds(activePage, points, highlighter)
+        if (!isTap && strokeTool == Tool.PEN && settings.scribbleToErase &&
+            isDeliberateScribble(points, scale / density, e.eventTime - e.downTime, gestureConfig)) {
+            val hit = scribbleHitIds(activePage, points)
             if (hit.isNotEmpty()) {
                 cancelActiveWetStroke(e)
                 val gone = p.items.filter { it.id in hit }.map { RectF(it.bounds).also { r -> pageMatrix(activePage, tmpMatrix).mapRect(r) } }
@@ -1568,7 +1594,9 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         pages.getOrNull(activePage) ?: return
         if (points.size < 6 || pathLength(points) < 30f) return
         // A scribble that ends with a pause is still a scribble (erase), never a shape.
-        if (intentionalScribble && settings.scribbleToErase && (strokeTool == Tool.PEN || strokeTool == Tool.HIGHLIGHTER) && isScribble(points, gestureConfig)) return
+        if (strokeTool == Tool.PEN && settings.scribbleToErase &&
+            isDeliberateScribble(points, scale / density, SystemClock.uptimeMillis() - downTime, gestureConfig) &&
+            scribbleHitIds(activePage, points).isNotEmpty()) return
 
         // Circle to lasso: uses the exact same closed-loop rule as post-lift circle detection.
         if (settings.circleToLasso && strokeTool == Tool.PEN && tool == Tool.PEN &&
@@ -1753,8 +1781,6 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         clearHover()
         liveMatrix = null
         lastErase = null
-        scribbleErased = false
-        scribbleDeletedAny = false
         holdFired = false
         capturingDrag = false
         dragMindId = -1L
@@ -1793,44 +1819,31 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         }
     }
 
-    /** Shared scribble-to-erase policy: delegates to [eraserAllows] so protected items stay untouched. */
-    private fun scribbleAllows(item: PageItem, highlighter: Boolean): Boolean {
-        if (!eraserAllows(item)) return false
-        return when (item) {
-            is InkItem -> item.isHighlighter == highlighter
-            is FillItem -> !highlighter
-            is TextItem, is WriteBoxItem -> !highlighter
-            else -> false
-        }
-    }
-
-    /**
-     * Surgical scribble target finder: hits items whose actual stroke geometry is crossed by
-     * the scribble path, plus items substantially covered by the scribble envelope (avoiding
-     * accidental deletion of adjacent words whose bounding box merely grazes a corner).
-     */
-    private fun scribbleHitIds(page: Int, pts: List<Pt>, highlighter: Boolean): Set<Long> {
-        if (pts.size < 2) return emptySet()
-        val p = pages.getOrNull(page) ?: return emptySet()
-        val sb = RectF(pts.minOf { it.first }, pts.minOf { it.second }, pts.maxOf { it.first }, pts.maxOf { it.second })
-            .apply { inset(-10f, -10f) }
-        val touched = itemsUnder(page, pts)
-        return p.items.filter { item ->
-            if (!scribbleAllows(item, highlighter)) return@filter false
-            item is InkItem && item.id in touched && sb.contains(item.bounds)
-        }.map { it.id }.toSet()
-    }
-
-    private fun eraseScribbleWindow(page: Int, pts: List<Pt>, highlighter: Boolean) {
-        val p = pages.getOrNull(page) ?: return
-        val hit = scribbleHitIds(page, pts, highlighter)
-        if (hit.isNotEmpty()) {
-            scribbleDeletedAny = true
-            val gone = p.items.filter { it.id in hit }.map { RectF(it.bounds).also { r -> pageMatrix(page, tmpMatrix).mapRect(r) } }
-            updatePage(page, p.items.filterNot { it.id in hit })
-            layer.puff(gone)
-            buzz(HapticFeedbackConstants.CLOCK_TICK)
-        }
+    /** Require repeated contact with an ink stroke completely inside the scrub area. */
+    private fun scribbleHitIds(page: Int, pts: List<Pt>): Set<Long> {
+        val sheet = pages.getOrNull(page) ?: return emptySet()
+        val padding = (4f * density / scale).coerceIn(2f, 12f)
+        val envelope = RectF(pts.minOf { it.first }, pts.minOf { it.second }, pts.maxOf { it.first }, pts.maxOf { it.second })
+            .apply { inset(-padding, -padding) }
+        val sweep = MutableParallelogram()
+        return sheet.items.asSequence().filterIsInstance<InkItem>()
+            .filter { !it.isHighlighter && eraserAllows(it) && envelope.contains(it.bounds) }
+            .filter { item ->
+                var touching = false
+                var passes = 0
+                for (i in 1 until pts.size) {
+                    val a = pts[i - 1]
+                    val b = pts[i]
+                    val segment = MutableSegment(MutableVec(a.first - item.dx, a.second - item.dy),
+                        MutableVec(b.first - item.dx, b.second - item.dy))
+                    sweep.populateFromSegmentAndPadding(segment, padding * .65f)
+                    val hit = item.stroke.shape.intersects(sweep, AffineTransform.IDENTITY)
+                    if (hit && !touching) passes++
+                    if (passes >= 2) break
+                    touching = hit
+                }
+                passes >= 2
+            }.map { it.id }.toSet()
     }
 
     /** Finds the topmost selectable item under a tap in Lasso mode. */
@@ -1868,13 +1881,11 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         val prev = lastErase ?: (wx to wy)
         lastErase = wx to wy
         val r = host.eraserRadius() / scale
-        if (settings.eraserMode == com.pronotes.app.data.EraserMode.PIXEL && !scribbleErased) { pixelErase(p, prev, wx, wy, r); return }
+        if (settings.eraserMode == com.pronotes.app.data.EraserMode.PIXEL) { pixelErase(p, prev, wx, wy, r); return }
         val hit = HashSet<Long>()
         val para = MutableParallelogram()
         for (item in p.items) {
-            if (scribbleErased) {
-                if (!scribbleAllows(item, strokeTool == Tool.HIGHLIGHTER)) continue
-            } else if (!eraserAllows(item)) continue
+            if (!eraserAllows(item)) continue
             when (item) {
                 is InkItem -> {
                     val b = item.bounds
@@ -1890,7 +1901,6 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
             }
         }
         if (hit.isNotEmpty()) {
-            if (scribbleErased) scribbleDeletedAny = true
             updatePage(activePage, p.items.filterNot { it.id in hit })
         }
     }
@@ -1928,23 +1938,6 @@ class NoteCanvasView(context: Context, private val host: CanvasHost) : FrameLayo
         if (changed) updatePage(activePage, items)
     }
 
-    private fun itemsUnder(page: Int, path: List<Pt>): Set<Long> {
-        val p = pages.getOrNull(page) ?: return emptySet()
-        val hit = HashSet<Long>()
-        val para = MutableParallelogram()
-        for (i in 1 until path.size) {
-            val a = path[i - 1]; val b = path[i]
-            for (item in p.items) {
-                if (item.id in hit) continue
-                if (item is InkItem) {
-                    val seg = MutableSegment(MutableVec(a.first - item.dx, a.second - item.dy), MutableVec(b.first - item.dx, b.second - item.dy))
-                    para.populateFromSegmentAndPadding(seg, 10f)
-                    if (item.stroke.shape.intersects(para, AffineTransform.IDENTITY)) hit += item.id
-                } else if (item.bounds.contains(b.first, b.second)) hit += item.id
-            }
-        }
-        return hit
-    }
 
     // ----------------------------------------------------------- selection
 

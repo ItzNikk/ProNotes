@@ -651,6 +651,28 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
             return@Column
         }
 
+        val source = vm.pages.indexOfFirst { it.id == card.pageId }
+        var showingSource by remember(card.id) { mutableStateOf(false) }
+        if (source >= 0) {
+            TextButton(onClick = { showingSource = !showingSource }) {
+                Text(if (showingSource) "Return to flashcard" else "View source page")
+            }
+            if (showingSource) {
+                val result by androidx.compose.runtime.produceState<Pair<Boolean, android.graphics.Bitmap?>>(false to null, card.pageId) {
+                    value = true to vm.thumbnail(source, 880)
+                }
+                val preview = result.second
+                if (preview != null) {
+                    Image(preview.asImageBitmap(), "Source page " + (source + 1),
+                        Modifier.fillMaxWidth().height(320.dp), contentScale = ContentScale.Fit)
+                } else if (result.first) {
+                    Text("Source preview unavailable")
+                } else {
+                    androidx.compose.material3.CircularProgressIndicator()
+                }
+                return@Column
+            }
+        }
         if (studyMode == 1) {
             // Multiple-choice quiz mode
             val correctAnswer = card.back.ifBlank { "Visual answer card" }

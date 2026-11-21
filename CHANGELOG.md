@@ -2,6 +2,34 @@
 
 All notable changes to Pro Notes are documented in this file.
 
+## v15.0.0 - 2026-11-21
+
+### Added
+
+- **Automatic handwriting.** Turn it on from the editor's More menu or the pen's Writing tab. After a short pause, nearby pen strokes can become editable text. Choose a font and optionally align the result to nearby writing or a paper rule.
+- **Home screen widget.** Open the library, resume the most recent notebook, or create a Quick Note.
+- **Page bookmarks.** Jump directly to bookmarked pages from More.
+- **Flashcards.** Preview the source page during review and return to the same card.
+- **Handwriting review.** Choose a recognition language for each notebook, then review alternate readings or restore ink from the latest automatic conversion.
+- **Floating video.** Play a direct HTTPS video or stream in Android picture-in-picture on supported devices.
+- **Writing tools.** Added Fineliner and Lettering tips, a stylus pressure toggle, optional tap-to-select, and more font choices. Added Graph Notebook, Music Manuscript, and Journal templates.
+
+### Improved
+
+- **Canvas drag and drop.** Images and stickers show a placement guide and scroll the canvas near the edges.
+- **Editor layout.** Pen controls are grouped into Brush, Writing, Presets, and Stylus. Compact screens move search, page navigation, and sharing into More. Full-page keyboard mode opens without placeholder text.
+- **Sticky notes and selection.** Check off tasks directly from the sticky board. The lasso panel also offers copy, flip, 90° rotation, and handwriting restyling.
+- **Appearance overhaul.** Colorful adds a violet, teal, coral, and indigo theme for light and dark mode. Shared cards, controls, editor toolbars, and reading and library backgrounds use the new palette.
+- **Live blur.** Android 12 and newer can blur live content behind editor panels and dialogs. The Appearance toggle and Reduce effects control it. Removed Liquid Glass.
+- **Settings navigation.** Settings uses a stable category layout on phones and tablets. Returning to a notebook restores the current page.
+
+### Fixed
+
+- **Handwriting placement.** Nearby strokes are grouped by writing line. Each converted group stays on one line, and the source ink is preserved when recognition fails or the result would overlap or fit poorly.
+- **Scribble erase.** Automatic recognition waits until lift and requires a dense gesture that crosses the same pen ink repeatedly. Fingers scroll and zoom by default, including after upgrading. Enable Draw with finger in More to use touch for ink. Clearing a search also resets its progress indicator.
+- **Notebook preferences.** Pen and shape share a color in each notebook. Highlighter and text keep independent colors. Tool thickness, width presets, eraser size, and text formatting are remembered.
+
+
 ## v14.0.0 - 2026-11-19
 
 - Find online books by title or author from the reading room. Import a free Project Gutenberg text into the local library for offline reading and annotation.

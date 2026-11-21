@@ -1,1 +1,1 @@
-<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android" android:minWidth="140dp" android:minHeight="60dp" android:initialLayout="@layout/notebook_widget" android:updatePeriodMillis="0" android:resizeMode="horizontal|vertical" android:widgetCategory="home_screen"/>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android" android:minWidth="140dp" android:minHeight="104dp" android:initialLayout="@layout/notebook_widget" android:updatePeriodMillis="0" android:resizeMode="horizontal|vertical" android:widgetCategory="home_screen"/>

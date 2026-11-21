@@ -9,10 +9,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.getValue
 import com.pronotes.app.data.SettingsStore
 import androidx.compose.runtime.mutableStateOf
@@ -61,28 +57,37 @@ class MainActivity : ComponentActivity() {
                 com.pronotes.app.ui.UpdateDialogHost()
                 com.pronotes.app.data.CloudSignInDialogHost()
                 val nav = rememberNavController()
+                val reduceMotion = com.pronotes.app.ui.LocalReduceMotion.current
+                val openSettings: () -> Unit = {
+                    if (nav.currentDestination?.route != "settings") nav.navigate("settings") { launchSingleTop = true }
+                }
                 androidx.compose.runtime.LaunchedEffect(widgetAction) {
                     if (widgetAction.isNotEmpty()) {
-                        val recent = com.pronotes.app.data.Repository.get(this@MainActivity).library.value.notebooks
-                            .filter { it.deletedAt == null }.maxByOrNull { it.opened }
+                        val repo = com.pronotes.app.data.Repository.get(this@MainActivity)
+                        val id = when (widgetAction) {
+                            "resume_notebook" -> repo.library.value.notebooks.filter { it.deletedAt == null }.maxByOrNull { it.opened }?.id
+                            "quick_note" -> repo.createNotebook("Quick note", null, 0xFF007C79.toInt(),
+                                SettingsStore.get(this@MainActivity).settings.value.defaultPaper)
+                            else -> null
+                        }
                         nav.popBackStack("library", false)
-                        if (widgetAction == "resume_notebook" && recent != null) nav.navigate("editor/${recent.id}")
+                        if (id != null) nav.navigate("editor/$id")
                         widgetAction = ""
                     }
                 }
                 NavHost(
                     navController = nav,
                     startDestination = "library",
-                    enterTransition = { fadeIn() + scaleIn(initialScale = 0.96f) },
-                    exitTransition = { fadeOut() },
-                    popEnterTransition = { fadeIn() },
-                    popExitTransition = { fadeOut() + scaleOut(targetScale = 0.96f) },
+                    enterTransition = { if (reduceMotion) androidx.compose.animation.EnterTransition.None else fadeIn() },
+                    exitTransition = { if (reduceMotion) androidx.compose.animation.ExitTransition.None else fadeOut() },
+                    popEnterTransition = { if (reduceMotion) androidx.compose.animation.EnterTransition.None else fadeIn() },
+                    popExitTransition = { if (reduceMotion) androidx.compose.animation.ExitTransition.None else fadeOut() },
                 ) {
                     composable("support") { com.pronotes.app.support.SupportScreen(onBack = { nav.popBackStack() }) }
                     composable("library") {
                         LibraryScreen(
                             onOpen = { id -> nav.navigate("editor/$id") },
-                            onSettings = { nav.navigate("settings") },
+                            onSettings = openSettings,
                             pendingImport = pendingImport,
                             onImportConsumed = { pendingImport = null },
                             onSupport = { nav.navigate("support") },
@@ -93,7 +98,7 @@ class MainActivity : ComponentActivity() {
                         BookReaderHubScreen(
                             onOpenBook = { id -> nav.navigate("reader/$id") },
                             onBackToLibrary = { nav.popBackStack("library", inclusive = false) },
-                            onSettings = { nav.navigate("settings") },
+                            onSettings = openSettings,
                         )
                     }
                     composable("reader/{id}") { entry ->
@@ -108,14 +113,16 @@ class MainActivity : ComponentActivity() {
                         EditorScreen(
                             noteId = id,
                             onBack = { nav.popBackStack("library", inclusive = false) },
-                            onOpenSettings = { nav.navigate("settings") },
+                            onOpenSettings = openSettings,
                             onSwitchNote = { other -> nav.navigate("editor/$other") { popUpTo("library") } },
                         )
                     }
                     composable(
                         "settings",
-                        enterTransition = { slideInHorizontally { it / 3 } + fadeIn() },
-                        popExitTransition = { slideOutHorizontally { it / 3 } + fadeOut() },
+                        enterTransition = { androidx.compose.animation.EnterTransition.None },
+                        exitTransition = { androidx.compose.animation.ExitTransition.None },
+                        popEnterTransition = { androidx.compose.animation.EnterTransition.None },
+                        popExitTransition = { androidx.compose.animation.ExitTransition.None },
                     ) {
                         SettingsScreen(
                             onBack = { nav.popBackStack() },
@@ -152,7 +159,7 @@ class MainActivity : ComponentActivity() {
     private fun handleIntent(intent: Intent?) {
         if (intent == null) return
         when (intent.action) {
-            "open_library", "resume_notebook" -> widgetAction = intent.action.orEmpty()
+            "open_library", "resume_notebook", "quick_note" -> widgetAction = intent.action.orEmpty()
             Intent.ACTION_VIEW -> intent.data?.let { uri ->
                 if (uri.scheme == "com.pronotes.app" && uri.host == "auth") {
                     kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {

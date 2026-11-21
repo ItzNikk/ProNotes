@@ -272,7 +272,13 @@ fun EditorScreen(
         target?.setOnDragListener { _, event ->
             when (event.action) {
                 android.view.DragEvent.ACTION_DRAG_STARTED -> !vm.readOnly && (event.localState is Sticker || event.clipDescription?.hasMimeType("application/vnd.pronotes.sticker") == true || event.clipDescription?.hasMimeType("image/*") == true)
+                android.view.DragEvent.ACTION_DRAG_LOCATION -> { target.previewDrop(event.x, event.y); true }
+                android.view.DragEvent.ACTION_DRAG_EXITED, android.view.DragEvent.ACTION_DRAG_ENDED -> {
+                    target.clearDropPreview()
+                    true
+                }
                 android.view.DragEvent.ACTION_DROP -> {
+                    target.clearDropPreview()
                     val point = target.dropPoint(event.x, event.y)
                     if (point == null || vm.readOnly) false else {
                         val sticker = event.localState as? Sticker ?: if (event.clipDescription.hasMimeType("application/vnd.pronotes.sticker")) {
@@ -302,7 +308,35 @@ fun EditorScreen(
                 else -> true
             }
         }
-        onDispose { target?.setOnDragListener(null) }
+        onDispose { target?.clearDropPreview(); target?.setOnDragListener(null) }
+    }
+    var reviewHandwriting by remember { mutableStateOf(false) }
+    var reviewError by remember { mutableStateOf("") }
+    val review = vm.handwritingReview
+    if (reviewHandwriting && review != null) {
+        AppDialog(
+            onDismissRequest = { reviewHandwriting = false },
+            title = { Text("Review handwriting") },
+            text = {
+                Column {
+                    Text(review.item.text, style = MaterialTheme.typography.titleMedium)
+                    review.alternatives.forEach { alternative ->
+                        TextButton(onClick = {
+                            if (vm.applyHandwritingReview(alternative)) reviewHandwriting = false
+                            else reviewError = "That reading cannot be placed here. You can restore the ink."
+                        }) { Text(alternative) }
+                    }
+                    if (reviewError.isNotEmpty()) Text(reviewError)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    if (vm.applyHandwritingReview(null)) reviewHandwriting = false
+                    else reviewError = "The original conversion has since been edited."
+                }) { Text("Restore ink") }
+            },
+            confirmButton = { TextButton(onClick = { reviewHandwriting = false }) { Text("Done") } },
+        )
     }
     var showPages by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
@@ -400,12 +434,16 @@ fun EditorScreen(
 
     LaunchedEffect(canvas) {
         val c = canvas ?: return@LaunchedEffect
-        vm.onPagesChanged = { c.setPages(vm.pages.toList()) }
+        vm.onPagesChanged = {
+            c.startPage = vm.pageIndex
+            c.setPages(vm.pages.toList())
+        }
         vm.onScrollTo = { i -> c.scrollToPage(i, animate = true) }
         vm.onRedraw = { c.redraw() }
         vm.toScreen = { pg, r -> c.pageToScreen(pg, r) }
         vm.fitMindMapOnCanvas = { pg, r -> c.fitRect(pg, r) }
-        c.startPage = vm.startPage
+        c.settings = vm.settingsFlow.value
+        c.startPage = vm.pageIndex
         c.setPages(vm.pages.toList())
     }
     LaunchedEffect(vm.reopenTool) {
@@ -596,6 +634,7 @@ fun EditorScreen(
                                 onPageColor = { pageColor = true },
                                 onCards = { showCards = true },
                                 onVideo = { videoUrl = "" },
+                                onReviewHandwriting = { reviewError = ""; reviewHandwriting = true },
                                 onStickyBoard = { stickyBoard = true },
                                 onSlideShow = { vm.showSlideShow = true },
                                 onCollabRoom = { showCollabRoom = true },
@@ -677,7 +716,6 @@ fun EditorScreen(
                                     override fun eraserRadius() = vm.eraserRadiusPx(density)
                                     override fun tapeColor() = vm.tapeColor
                                     override fun tapeFreehand() = vm.tapeFreehand
-                                    override fun consumeScribbleArm() = vm.consumeScribbleArm()
                                     override fun onFreshInk(page: Int, ink: List<InkItem>) = vm.queueHandwriting(page, ink)
                                     override fun beginEdit(page: Int) = vm.beginEdit(page)
                                     override fun setItems(page: Int, items: List<PageItem>) = vm.setItems(page, items)

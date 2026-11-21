@@ -354,8 +354,9 @@ fun LibraryScreen(
 
     val drag = remember { DragController() }
     val trashCount = lib.notebooks.count { it.deletedAt != null }
-    val deskBg = MaterialTheme.colorScheme.background
-    val topStripBg = MaterialTheme.colorScheme.surfaceContainer
+    val deskBg = com.pronotes.app.ui.workspaceBackground()
+    val topStripBg = if (com.pronotes.app.ui.LocalUiColorScheme.current == com.pronotes.app.data.UiColorScheme.COLORFUL)
+        MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer
 
     androidx.compose.runtime.CompositionLocalProvider(LocalDragController provides drag) {
         Box(Modifier.fillMaxSize().background(deskBg)) {
@@ -514,17 +515,11 @@ fun LibraryScreen(
                         }
                         AnimatedContent(
                             targetState = title,
-                            transitionSpec = { (fadeIn() + slideInHorizontally { it / 6 }) togetherWith (fadeOut() + slideOutHorizontally { -it / 6 }) },
+                            transitionSpec = { if (reduceMotion) fadeIn(snap()) togetherWith fadeOut(snap()) else fadeIn() togetherWith fadeOut() },
                             label = "title",
                             modifier = Modifier.weight(1f),
                         ) { t ->
-                            Text(
-                                t,
-                                style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onBackground,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            com.pronotes.app.ui.GradientTitle(t, MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold))
                         }
 
                         if (section == Section.TRASH) {

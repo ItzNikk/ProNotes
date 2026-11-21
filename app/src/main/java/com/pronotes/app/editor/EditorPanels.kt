@@ -60,6 +60,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -270,6 +271,7 @@ internal fun TopBar(
     onPageImage: () -> Unit,
     onCards: () -> Unit,
     onStickyBoard: () -> Unit,
+    onReviewHandwriting: () -> Unit,
     onVideo: () -> Unit,
     onSlideShow: () -> Unit,
     onCollabRoom: () -> Unit,
@@ -282,6 +284,8 @@ internal fun TopBar(
     val store = remember(context) { SettingsStore.get(context) }
     val fgColor = LocalContentColor.current
     val dividerColor = fgColor.copy(alpha = 0.20f)
+    val compact = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 540
+    val automaticHandwriting = vm.settingsFlow.collectAsState().value.toolDefaults.autoHandwriting
 
     Row(
         modifier = Modifier
@@ -295,8 +299,8 @@ internal fun TopBar(
             BarIcon(ProIcon.HOME, "Library", fgColor = fgColor, onClick = onHome)
         }
         BarIcon(ProIcon.SIDEBAR, "Pages", active = showPages, fgColor = fgColor, onClick = onPages)
-        BarIcon(ProIcon.SEARCH, "Search", active = showSearch, fgColor = fgColor, onClick = onSearch)
-        BarIcon(ProIcon.PAGES, "Jump to page", fgColor = fgColor, onClick = onGoTo)
+        if (!compact) BarIcon(ProIcon.SEARCH, "Search", active = showSearch, fgColor = fgColor, onClick = onSearch)
+        if (!compact) BarIcon(ProIcon.PAGES, "Jump to page", fgColor = fgColor, onClick = onGoTo)
         BarIcon(ProIcon.KEYBOARD, "Keyboard Mode", active = vm.keyboardMode, fgColor = fgColor, onClick = { vm.toggleKeyboardMode() })
 
         Text(
@@ -318,7 +322,7 @@ internal fun TopBar(
         Box(Modifier.padding(horizontal = 4.dp).width(1.dp).height(22.dp).background(dividerColor))
 
         AppMenuButton(
-            contentDescription = "Add page or template",
+            contentDescription = "Insert into notebook",
             containerColor = ProButtonPalette.Emerald.copy(alpha = if (darkUi) 0.24f else 0.16f),
             contentPadding = PaddingValues(7.dp),
             buttonContent = {
@@ -327,13 +331,16 @@ internal fun TopBar(
             items = listOf(
                 AppMenuItem("New page after this") { vm.addPage() },
                 AppMenuItem("New page at the end") { vm.addPage(atEnd = true) },
-                AppMenuItem("Add Write Box") { vm.addWriteBox() },
+                AppMenuItem("Add write box") { vm.addWriteBox() },
+                AppMenuItem("Import file") { onImportFiles() },
+                AppMenuItem("Add web link") { onAddWebLink() },
+                AppMenuItem("Floating video") { onVideo() },
                 AppMenuItem("Infinite whiteboard page") { vm.addPage(paper = PaperStyle.DOTTED, isWhiteboard = true) },
                 AppMenuItem("Choose a template…") { onTemplates() },
             ),
         )
         Spacer(Modifier.width(3.dp))
-        AppMenuButton(
+        if (!compact) AppMenuButton(
             contentDescription = "Share and export",
             containerColor = ProButtonPalette.SkyCyan.copy(alpha = if (darkUi) 0.24f else 0.16f),
             contentPadding = PaddingValues(7.dp),
@@ -348,6 +355,19 @@ internal fun TopBar(
         )
         Spacer(Modifier.width(3.dp))
         val moreEntries = buildList {
+            if (!vm.readOnly) add(AppMenuItem("Draw with finger", selected = !vm.settingsFlow.value.stylusOnly) {
+                store.update { it.copy(stylusOnly = !it.stylusOnly) }
+            })
+            if (!vm.readOnly) add(AppMenuItem(
+                "Automatic handwriting", selected = automaticHandwriting,
+            ) { vm.setAutoHandwriting(!automaticHandwriting) })
+            if (compact) {
+                add(AppMenuItem("Search notebook", selected = showSearch) { onSearch() })
+                add(AppMenuItem("Jump to page") { onGoTo() })
+                add(AppMenuItem("Export as PDF") { onExport() })
+                add(AppMenuItem("Share PDF") { onShare() })
+                add(AppMenuItem("Share page as image") { onSharePage() })
+            }
             add(
                 AppMenuItem(
                     if (vm.keyboardMode) "Exit Keyboard Mode" else "Keyboard Mode (Full Page)",
@@ -363,10 +383,12 @@ internal fun TopBar(
                     vm.addWriteBox(vm.pageIndex)
                 },
             )
-            if (!vm.readOnly && vm.settingsFlow.value.scribbleToErase) add(AppMenuItem(
-                if (vm.scribbleArmed) "Cancel scribble erase" else "Scribble erase next stroke"
-            ) { vm.toggleScribbleArm() })
-            add(AppMenuItem("Floating video") { onVideo() })
+            if (!vm.readOnly && vm.handwritingReview != null) {
+                add(AppMenuItem("Review last handwriting conversion") { onReviewHandwriting() })
+            }
+            vm.pages.forEachIndexed { index, page ->
+                if (page.bookmarked) add(AppMenuItem("Bookmark · Page " + (index + 1)) { vm.goToPage(index) })
+            }
             add(AppMenuItem("Sticky board") { onStickyBoard() })
             add(
                 AppMenuItem(
@@ -403,12 +425,6 @@ internal fun TopBar(
             )
             add(
                 AppMenuItem(
-                    "Add web link card…",
-                    icon = { ProIconView(ProIcon.WEBLINK, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp), ink = ProButtonPalette.ElectricBlue) },
-                ) { onAddWebLink() },
-            )
-            add(
-                AppMenuItem(
                     "Link item to page/URL…",
                     icon = { Icon(Icons.Outlined.Link, null, Modifier.size(18.dp)) },
                 ) { vm.beginLinkFlow() },
@@ -441,12 +457,6 @@ internal fun TopBar(
                     if (vm.currentPage?.isWhiteboard == true) "Switch to standard page" else "Infinite whiteboard",
                     icon = { Icon(Icons.Outlined.AllInclusive, null, Modifier.size(18.dp)) },
                 ) { vm.toggleCurrentWhiteboard() },
-            )
-            add(
-                AppMenuItem(
-                    "Import PDF, Word, PPT, Sheets, EPUB…",
-                    icon = { Icon(Icons.Outlined.UploadFile, null, Modifier.size(18.dp)) },
-                ) { onImportFiles() },
             )
             add(
                 AppMenuItem(
@@ -900,7 +910,7 @@ internal fun WriteBoxStudioBar(
                 ) {
                     Text("A+", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                 }
-                val nextFont = TextFont.entries[(TextFont.entries.indexOf(box.font) + 1) % 4]
+                val nextFont = TextFont.entries[(TextFont.entries.indexOf(box.font) + 1) % TextFont.entries.size]
                 AppPill(
                     onClick = {
                         vm.updateWriteBoxText(pageIndex, box.id, textValue, font = nextFont)

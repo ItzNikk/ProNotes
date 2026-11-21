@@ -45,7 +45,6 @@ private fun AppSettings.withEditorOptions(note: AppSettings) = copy(
     scribbleSensitivity = note.scribbleSensitivity,
     eraserAutoSwitch = note.eraserAutoSwitch,
     scribbleToErase = note.scribbleToErase,
-    liveScribbleErase = note.liveScribbleErase,
     lassoMode = note.lassoMode,
     lassoTouching = note.lassoTouching,
     lassoFilter = note.lassoFilter,

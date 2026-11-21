@@ -44,7 +44,7 @@ val LocalMotionStyle = compositionLocalOf { MotionStyle.SPRING }
 val LocalCornerRoundness = compositionLocalOf<Dp> { 20.dp }
 val LocalPerformanceMode = compositionLocalOf { PerformanceMode.BALANCED }
 val LocalUiColorScheme = compositionLocalOf { UiColorScheme.SLATE_STUDIO }
-val LocalLiquidGlass = compositionLocalOf { false }
+val LocalLiveBlur = compositionLocalOf { true }
 val LocalClassicAppearance = compositionLocalOf { false }
 val LocalReduceEffects = compositionLocalOf { false }
 val LocalReduceMotion = compositionLocalOf { false }
@@ -95,14 +95,25 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
+    val view = androidx.compose.ui.platform.LocalView.current
+    if (!view.isInEditMode) {
+        androidx.compose.runtime.SideEffect {
+            (context as? android.app.Activity)?.window?.let { window ->
+                val controller = androidx.core.view.WindowCompat.getInsetsController(window, view)
+                controller.isAppearanceLightStatusBars = !dark
+                controller.isAppearanceLightNavigationBars = !dark
+            }
+        }
+    }
     val uiScheme = settings.uiColorScheme
+    val colorful = uiScheme == UiColorScheme.COLORFUL
     val accent = settings.accent
     val schemePrimary = Color(uiScheme.seedPrimary)
-    val primary = if (uiScheme == UiColorScheme.SLATE_STUDIO) Color(accent.argb) else lerp(schemePrimary, Color(accent.argb), 0.35f)
+    val primary = if (uiScheme == UiColorScheme.SLATE_STUDIO) Color(accent.argb) else if (colorful) schemePrimary else lerp(schemePrimary, Color(accent.argb), 0.35f)
     val secondary = Color(uiScheme.seedSecondary)
     val lightBg = Color(uiScheme.lightBg)
     val lightSurf = Color(uiScheme.lightSurface)
-    val lightVar = lerp(lightBg, schemePrimary, 0.06f)
+    val lightVar = if (colorful) Color(0xFFE9E4FB) else lerp(lightBg, schemePrimary, 0.06f)
 
     val light = lightColorScheme(
         primary = primary,
@@ -110,6 +121,12 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
         primaryContainer = lerp(primary, lightSurf, 0.84f),
         onPrimaryContainer = lerp(primary, Color(0xFF1F2421), 0.35f),
         secondary = secondary,
+        onSecondary = if (colorful) Color.White else Color(0xFF111827),
+        tertiary = if (colorful) Color(0xFFB53C58) else primary,
+        tertiaryContainer = if (colorful) Color(0xFFFFD9E1) else lightVar,
+        onTertiaryContainer = if (colorful) Color(0xFF450C20) else Color(0xFF181A1F),
+        secondaryContainer = if (colorful) Color(0xFFB5F2E8) else lightVar,
+        onSecondaryContainer = if (colorful) Color(0xFF093E3B) else Color(0xFF181A1F),
         background = lightBg,
         onBackground = Color(0xFF181A1F),
         surface = lightSurf,
@@ -117,7 +134,7 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
         surfaceVariant = lightVar,
         onSurfaceVariant = Color(0xFF565B64),
         surfaceContainer = lightVar,
-        surfaceContainerHigh = lerp(lightSurf, Color.White, 0.64f),
+        surfaceContainerHigh = if (colorful) Color(0xFFF1E8FF) else lerp(lightSurf, Color.White, 0.64f),
         outline = Color(0xFF9EA3AE),
         outlineVariant = lerp(lightVar, Color(0xFF9EA3AE), 0.25f),
         error = Color(0xFFDC2626),
@@ -135,7 +152,13 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
         onPrimary = Color(0xFF0A0D14),
         primaryContainer = lerp(darkSurf, primary, 0.34f),
         onPrimaryContainer = Color(0xFFF1F5F9),
-        secondary = lerp(secondary, Color.White, 0.18f),
+        secondary = if (colorful) Color(0xFF7ADFD3) else lerp(secondary, Color.White, 0.18f),
+        onSecondary = Color(0xFF0A2020),
+        tertiary = if (colorful) Color(0xFFFFA8BB) else darkPrimary,
+        tertiaryContainer = if (colorful) Color(0xFF58213A) else darkVar,
+        onTertiaryContainer = if (colorful) Color(0xFFFFD9E1) else Color(0xFFF3F4F6),
+        secondaryContainer = if (colorful) Color(0xFF154944) else darkVar,
+        onSecondaryContainer = if (colorful) Color(0xFFB5F2E8) else Color(0xFFF3F4F6),
         background = darkBg,
         onBackground = Color(0xFFF3F4F6),
         surface = darkSurf,
@@ -143,12 +166,14 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
         surfaceVariant = darkVar,
         onSurfaceVariant = Color(0xFFA7ACB8),
         surfaceContainer = lerp(darkBg, darkSurf, 0.65f),
-        surfaceContainerHigh = lerp(darkSurf, Color.White, 0.08f),
+        surfaceContainerHigh = if (colorful) Color(0xFF342754) else lerp(darkSurf, Color.White, 0.08f),
         outline = Color(0xFF5A5E6A),
         outlineVariant = lerp(darkSurf, Color.White, 0.12f),
         error = Color(0xFFF28B82),
     )
-    val gradient = if (settings.gradientTitles) listOf(primary, Color(accent.argb2)).let { g ->
+    val gradient = if (colorful) {
+        if (dark) listOf(darkPrimary, Color(0xFFFFA8BB)) else listOf(primary, Color(0xFF9B284D))
+    } else if (settings.gradientTitles) listOf(primary, Color(accent.argb2)).let { g ->
         if (dark) g.map { lerp(it, Color.White, 0.26f) } else g
     } else null
     val typography = remember(settings.appFont) { typographyFor(settings.appFont) }
@@ -179,7 +204,7 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
         LocalCornerRoundness provides cornerDp,
         LocalPerformanceMode provides perf,
         LocalUiColorScheme provides uiScheme,
-        LocalLiquidGlass provides settings.liquidGlass,
+        LocalLiveBlur provides settings.liveBlur,
         LocalClassicAppearance provides settings.classicAppearance,
         LocalReduceEffects provides settings.reduceEffects,
         LocalReduceMotion provides reduceMotion,
@@ -203,4 +228,15 @@ fun GradientTitle(text: String, style: TextStyle, modifier: Modifier = Modifier,
         overflow = TextOverflow.Ellipsis,
         style = if (g != null) style.copy(brush = Brush.linearGradient(g)) else style.copy(color = MaterialTheme.colorScheme.onBackground),
     )
+}
+
+/** A shared backdrop for library, settings and reading surfaces. */
+@Composable
+internal fun workspaceBackground(base: Color = MaterialTheme.colorScheme.background): Brush {
+    val scheme = MaterialTheme.colorScheme
+    val stops = if (LocalUiColorScheme.current == UiColorScheme.COLORFUL) {
+        listOf(lerp(base, scheme.primaryContainer, .58f), base,
+            lerp(base, scheme.secondaryContainer, .38f), lerp(base, scheme.tertiaryContainer, .34f))
+    } else listOf(base, base)
+    return Brush.verticalGradient(stops)
 }
