@@ -822,6 +822,10 @@ class Repository private constructor(private val context: Context) {
         }
     }
 
+    /** Returns up-to-date serialized library index JSON for storage mirroring/sync. */
+    fun readSerializedLibraryIndex(): String =
+        json.encodeToString(LibraryIndex.serializer(), _library.value)
+
     /** Returns up-to-date serialized NoteDoc JSON for sync/export without stale snapshot drift. */
     fun readSerializedNoteDoc(id: String): String {
         val docs = loadPageDocsSync(id)
@@ -895,6 +899,22 @@ class Repository private constructor(private val context: Context) {
             it.copy(notebooks = it.notebooks.map { n ->
                 if (n.id == id) n.copy(modified = System.currentTimeMillis(), pageCount = pages.size) else n
             })
+        }
+        val treeUri = SettingsStore.get(context).settings.value.storageFolderUri
+        if (treeUri.isNotBlank()) {
+            val title = meta(id)?.title ?: "Notebook"
+            val libJson = readSerializedLibraryIndex()
+            val noteJson = readSerializedNoteDoc(id)
+            appScope.launch {
+                StorageFolderSync.mirrorNotebook(
+                    context = context,
+                    treeUriStr = treeUri,
+                    libraryJson = libJson,
+                    noteId = id,
+                    noteTitle = title,
+                    noteJson = noteJson,
+                )
+            }
         }
     }
 

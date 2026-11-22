@@ -1,8 +1,10 @@
 package com.pronotes.app.editor
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.RectF
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.text.Editable
 import android.text.InputType
@@ -448,22 +450,35 @@ internal fun InlinePageTextEditor(
     val autoSpellCheck = toolDefaults.autoSpellCheck
     val showGuideLine = toolDefaults.alignGuideLine
 
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val hasExternalKeyboard = remember(context) {
+        val cfg = context.resources.configuration
+        cfg.keyboard != Configuration.KEYBOARD_NOKEYS &&
+            cfg.hardKeyboardHidden == Configuration.HARDKEYBOARDHIDDEN_NO
+    }
+
     fun hideSoftKeyboard() {
+        keyboardController?.hide()
         val et = editTextRef ?: return
         val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
         imm?.hideSoftInputFromWindow(et.windowToken, 0)
     }
 
-    fun showSoftKeyboard() {
+    fun showSoftKeyboard(forceIfNoExternal: Boolean = false) {
         val et = editTextRef ?: return
         et.isFocusable = true
         et.isFocusableInTouchMode = true
+        et.isCursorVisible = true
         et.requestFocus()
+        if (forceIfNoExternal && hasExternalKeyboard) return
+        keyboardController?.show()
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        imm?.showSoftInput(et, InputMethodManager.SHOW_IMPLICIT)
         et.postDelayed({
             et.requestFocus()
-            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            keyboardController?.show()
             imm?.showSoftInput(et, InputMethodManager.SHOW_IMPLICIT)
-        }, 90L)
+        }, 70L)
     }
 
     // Live spell-check suggestions for the word currently being typed
@@ -660,12 +675,18 @@ internal fun InlinePageTextEditor(
     val frameBlue = ProButtonPalette.ElectricBlue
 
     Box(Modifier.fillMaxSize()) {
-        // 1) Transparent backdrop — tapping anywhere outside the inline box commits cleanly
+        // 1) Transparent backdrop — in Text Box mode tapping outside commits; in Keyboard Mode tapping the page focuses the on-page cursor directly
         Box(
             Modifier
                 .fillMaxSize()
                 .pointerInput(edit) {
-                    detectTapGestures { commitAndClose() }
+                    detectTapGestures {
+                        if (edit.isFullPage) {
+                            if (!handwriteMode) showSoftKeyboard(forceIfNoExternal = true)
+                        } else {
+                            commitAndClose()
+                        }
+                    }
                 },
         )
 
@@ -723,26 +744,31 @@ internal fun InlinePageTextEditor(
         }
 
         }
-        // 3) Transparent, resizable inline text box directly over the notebook paper
+        // 3) In Keyboard Mode: completely borderless direct-on-page typing with live cursor.
+        //    In Text Box mode: transparent resizable inline text box over the paper.
         Box(
             modifier = Modifier
                 .offset { IntOffset(screenLeft.roundToInt(), screenTop.roundToInt()) }
                 .size(boxWidthDp, boxHeightDp)
-                .border(
-                    width = if (edit.isFullPage) 1.5.dp else 1.5.dp,
-                    color = if (edit.isFullPage) frameBlue.copy(alpha = 0.32f) else frameBlue,
-                    shape = RoundedCornerShape(if (edit.isFullPage) 10.dp else 4.dp),
+                .then(
+                    if (edit.isFullPage) {
+                        Modifier
+                    } else {
+                        Modifier.border(
+                            width = 1.5.dp,
+                            color = frameBlue,
+                            shape = RoundedCornerShape(4.dp),
+                        )
+                    },
                 )
-                .background(if (edit.isFullPage) frameBlue.copy(alpha = 0.025f) else Color.Transparent)
-                .pointerInput(Unit) {
-                    // Consume taps inside the box so backdrop doesn't dismiss it
+                .pointerInput(edit.isFullPage, handwriteMode) {
                     detectTapGestures {
-                        if (!handwriteMode) showSoftKeyboard()
+                        if (!handwriteMode) showSoftKeyboard(forceIfNoExternal = edit.isFullPage)
                     }
                 },
         ) {
             // Subtle writing guide baseline under text lines when guide line is enabled
-            if (showGuideLine) {
+            if (showGuideLine && !edit.isFullPage) {
                 Canvas(Modifier.fillMaxSize()) {
                     val lineStepPx = (fontSize * zoomScale * 1.15f).coerceIn(22f, 260f)
                     val firstY = (fontSize * zoomScale * 1.06f + 6.dp.toPx()).coerceAtMost(size.height - 4f)
@@ -758,11 +784,11 @@ internal fun InlinePageTextEditor(
                     }
                 }
             }
-            // Native Android EditText: 100% transparent, supports soft/hardware keyboard AND native API 33+ stylus-to-text
+            // Native Android EditText: 100% transparent direct-on-page pointer, supports soft/hardware keyboard AND native API 33+ stylus-to-text
             AndroidView(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                    .padding(horizontal = if (edit.isFullPage) 2.dp else 6.dp, vertical = if (edit.isFullPage) 2.dp else 4.dp),
                 factory = { ctx ->
                     EditText(ctx).apply {
                         background = null
@@ -775,9 +801,18 @@ internal fun InlinePageTextEditor(
                         isSingleLine = false
                         isFocusable = true
                         isFocusableInTouchMode = true
+                        isCursorVisible = true
                         isVerticalScrollBarEnabled = true
-                        hint = if (edit.isFullPage) "Start typing on this page…" else "Type or write…"
-                        setHintTextColor(if (darkUi) 0x88CBD5E1.toInt() else 0x7764748B)
+                        if (Build.VERSION.SDK_INT >= 29) {
+                            val cursorW = (2.5f * ctx.resources.displayMetrics.density).roundToInt().coerceAtLeast(3)
+                            textCursorDrawable = GradientDrawable().apply {
+                                setSize(cursorW, 0)
+                                setColor(0xFF3D6CF4.toInt())
+                                cornerRadius = cursorW / 2f
+                            }
+                        }
+                        hint = if (edit.isFullPage) "Type directly on the page…" else "Type or write…"
+                        setHintTextColor(if (darkUi) 0x66CBD5E1.toInt() else 0x5564748B)
                         if (Build.VERSION.SDK_INT >= 33) {
                             isAutoHandwritingEnabled = true
                         }
@@ -793,13 +828,17 @@ internal fun InlinePageTextEditor(
                             }
                         })
                         editTextRef = this
-                        postDelayed({
+                        val openImeIfNeeded = {
                             requestFocus()
-                            if (!handwriteMode) {
+                            setSelection(length())
+                            if (!handwriteMode && !hasExternalKeyboard) {
+                                keyboardController?.show()
                                 val imm = ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
                                 imm?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
                             }
-                        }, 110L)
+                        }
+                        post { openImeIfNeeded() }
+                        postDelayed({ openImeIfNeeded() }, 140L)
                     }
                 },
                 update = { et ->

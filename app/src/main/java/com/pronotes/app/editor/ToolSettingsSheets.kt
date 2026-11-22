@@ -768,7 +768,7 @@ private fun LassoCardContent(
         AppChip(f.other, { store.update { it.copy(lassoFilter = f.copy(other = !f.other)) } }, label = "Notes and tape")
     }
     SheetToggleLine("Select anything the lasso touches", s.lassoTouching, fgColor) { v -> store.update { it.copy(lassoTouching = v) } }
-    SheetToggleLine("Circle and hold with the pen", s.circleToLasso, fgColor) { v -> store.update { it.copy(circleToLasso = v) } }
+    SheetToggleLine("Hold circle dot after looping to select", s.circleToLasso, fgColor) { v -> store.update { it.copy(circleToLasso = v) } }
     if (vm.selection.isNotEmpty()) {
         var script by remember { mutableStateOf(TextFont.CURSIVE) }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

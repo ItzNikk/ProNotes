@@ -2,6 +2,7 @@ package com.pronotes.app.ui
 
 import android.os.Build
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -77,6 +78,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
@@ -419,18 +421,31 @@ fun AnimatedGradientSearchPlaceholder(
 ) {
     val reduceMotion = LocalReduceMotion.current
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.4f
+    val transition = rememberInfiniteTransition(label = "searchGrad")
     val shift = if (reduceMotion) {
         0.35f
     } else {
-        val transition = rememberInfiniteTransition(label = "searchGrad")
         transition.animateFloat(
             initialValue = 0f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 3200, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse,
+                animation = tween(durationMillis = 2200, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
             ),
             label = "searchGradShift",
+        ).value
+    }
+    val pulse = if (reduceMotion) {
+        1f
+    } else {
+        transition.animateFloat(
+            initialValue = 0.78f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1400, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "searchPulse",
         ).value
     }
     val palette = if (dark) {
@@ -438,7 +453,9 @@ fun AnimatedGradientSearchPlaceholder(
             Color(0xFF60A5FA),
             Color(0xFFC084FC),
             Color(0xFFF472B6),
+            Color(0xFFFBBF24),
             Color(0xFF34D399),
+            Color(0xFF38BDF8),
             Color(0xFF60A5FA),
         )
     } else {
@@ -446,14 +463,19 @@ fun AnimatedGradientSearchPlaceholder(
             Color(0xFF2563EB),
             Color(0xFF7C3AED),
             Color(0xFFDB2777),
+            Color(0xFFEA580C),
             Color(0xFF059669),
+            Color(0xFF0284C7),
             Color(0xFF2563EB),
         )
     }
+    val span = 520f
+    val offset = shift * span
     val brush = Brush.linearGradient(
         colors = palette,
-        start = Offset(x = -180f + shift * 360f, y = 0f),
-        end = Offset(x = 340f + shift * 360f, y = 40f),
+        start = Offset(x = -span + offset, y = 0f),
+        end = Offset(x = offset, y = 32f),
+        tileMode = TileMode.Repeated,
     )
     Text(
         text = text,
@@ -463,19 +485,19 @@ fun AnimatedGradientSearchPlaceholder(
         ),
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
-        modifier = modifier,
+        modifier = modifier.graphicsLayer { alpha = pulse },
     )
 }
 
 /**
  * Soft progressive top scroll blur powered by skydoves/Cloudy.
- * Activates smoothly when scrolled down so content sliding beneath the top chrome blurs softly.
+ * Activates gently when scrolled down so content sliding beneath the top chrome feathers softly.
  */
 @Composable
 fun TopScrollCloudyBackdrop(
     scrolled: Boolean,
     enabled: Boolean,
-    height: Dp = 84.dp,
+    height: Dp = 76.dp,
     modifier: Modifier = Modifier,
 ) {
     val classic = LocalClassicAppearance.current
@@ -483,13 +505,13 @@ fun TopScrollCloudyBackdrop(
     val liveBlur = LocalLiveBlur.current
     val active = enabled && scrolled && !classic && !reduceEffects && liveBlur
     val blurRadius by animateIntAsState(
-        targetValue = if (active) 20 else 0,
-        animationSpec = tween(220),
+        targetValue = if (active) 8 else 0,
+        animationSpec = tween(260),
         label = "cloudyTopRadius",
     )
     val scrimAlpha by animateFloatAsState(
-        targetValue = if (scrolled) 0.90f else 0f,
-        animationSpec = tween(220),
+        targetValue = if (scrolled) 0.36f else 0f,
+        animationSpec = tween(260),
         label = "cloudyTopAlpha",
     )
     if (scrimAlpha <= 0.01f && blurRadius == 0) return
@@ -506,7 +528,9 @@ fun TopScrollCloudyBackdrop(
             .background(
                 Brush.verticalGradient(
                     0.0f to surface.copy(alpha = scrimAlpha),
-                    0.58f to surface.copy(alpha = scrimAlpha * 0.72f),
+                    0.26f to surface.copy(alpha = scrimAlpha * 0.65f),
+                    0.55f to surface.copy(alpha = scrimAlpha * 0.28f),
+                    0.82f to surface.copy(alpha = scrimAlpha * 0.07f),
                     1.0f to Color.Transparent,
                 ),
             ),

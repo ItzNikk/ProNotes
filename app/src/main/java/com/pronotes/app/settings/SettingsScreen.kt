@@ -494,7 +494,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                             }
                         }
                         Toggle("Draw and hold for shapes", "Hold the pen still at the end of a line", s.holdToShape) { v -> up { it.copy(holdToShape = v) } }
-                        Toggle("Circle and hold to select", "Loop around ink, then hold the pen still", s.circleToLasso) { v -> up { it.copy(circleToLasso = v) } }
+                        Toggle("Circle and hold to select", "Loop around ink, lift, then press and hold the circle dot", s.circleToLasso) { v -> up { it.copy(circleToLasso = v) } }
                     }
                     Section("Finger gestures") {
                         Toggle("Tap to undo / redo", "Two-finger tap undo, three-finger tap redo", s.fingerTapUndo) { v -> up { it.copy(fingerTapUndo = v) } }
@@ -734,6 +734,9 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                 }
                 Category.LIBRARY -> {
                     CloudAccountSection(s)
+                    Section("Notes storage folder") {
+                        StorageFolderRows(s) { block -> up(block) }
+                    }
                     Section("Covers") {
                         Toggle("First page as cover", "New notebooks show page 1 on the cover", s.thumbCovers) { v -> up { it.copy(thumbCovers = v) } }
                     }
@@ -943,6 +946,122 @@ private fun ToolbarEditor(spec: String, onChange: (String) -> Unit) {
             }
         }
     }
+}
+
+@Composable
+private fun StorageFolderRows(
+    s: AppSettings,
+    up: ((AppSettings) -> AppSettings) -> Unit,
+) {
+    val context = LocalContext.current
+    val repo = remember { Repository.get(context) }
+    val scope = rememberCoroutineScope()
+    var status by remember { mutableStateOf<String?>(null) }
+    var syncing by remember { mutableStateOf(false) }
+
+    val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            runCatching {
+                val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(uri, flags)
+            }
+            val label = com.pronotes.app.data.StorageFolderSync.friendlyFolderName(uri)
+            up { it.copy(storageFolderUri = uri.toString(), storageFolderLabel = label) }
+            scope.launch {
+                syncing = true
+                status = runCatching {
+                    val count = com.pronotes.app.data.StorageFolderSync.syncAllNotebooks(context, uri, repo)
+                    "Saved $count notebook(s) to $label"
+                }.getOrElse { "Could not save to folder: ${it.message}" }
+                syncing = false
+            }
+        }
+    }
+
+    val hasCustom = s.storageFolderUri.isNotBlank()
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable { pickFolder.launch(null) }
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ProIconView(ProIcon.FOLDER, Color(0xFF7C3AED), Modifier.size(22.dp))
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (hasCustom) "Storage location" else "Choose storage folder",
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                if (hasCustom) s.storageFolderLabel.ifBlank { s.storageFolderUri }
+                else "Default app storage · Tap to pick any folder on your device",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+
+    if (hasCustom) {
+        HorizontalDivider(Modifier.padding(start = 54.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(enabled = !syncing) {
+                    val uri = runCatching { android.net.Uri.parse(s.storageFolderUri) }.getOrNull() ?: return@clickable
+                    scope.launch {
+                        syncing = true
+                        status = runCatching {
+                            val count = com.pronotes.app.data.StorageFolderSync.syncAllNotebooks(context, uri, repo)
+                            "Synced $count notebook(s) to folder."
+                        }.getOrElse { "Sync failed: ${it.message}" }
+                        syncing = false
+                    }
+                }
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ProIconView(ProIcon.RESTORE, ProButtonPalette.Emerald, Modifier.size(22.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(if (syncing) "Syncing notes to folder…" else "Sync all notes now")
+                Text(
+                    "Mirror every notebook into your selected storage folder",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        HorizontalDivider(Modifier.padding(start = 54.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable {
+                    up { it.copy(storageFolderUri = "", storageFolderLabel = "") }
+                    status = "Switched back to default app storage."
+                }
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ProIconView(ProIcon.INFO, ProButtonPalette.VibrantOrange, Modifier.size(22.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Use default app storage")
+                Text(
+                    "Stop mirroring notes to the custom folder",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+    status?.let { Info(it) }
 }
 
 @Composable

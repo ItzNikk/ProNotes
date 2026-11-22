@@ -537,11 +537,11 @@ fun EditorViewModel.toggleKeyboardMode() {
         keyboardMode = true
         openInlineTextBox(
             page = pageIndex,
-            x = existing?.x ?: 52f,
-            y = existing?.y ?: 68f,
+            x = existing?.x ?: 56f,
+            y = existing?.y ?: 64f,
             existing = existing,
-            boxWidth = (p.width - 104f).coerceAtLeast(360f),
-            boxHeight = (p.height - 140f).coerceAtLeast(320f),
+            boxWidth = (p.width - 112f).coerceAtLeast(360f),
+            boxHeight = (p.height - 128f).coerceAtLeast(320f),
             isFullPage = true,
         )
     }

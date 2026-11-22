@@ -865,6 +865,11 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         selectedInk.forEach { union.union(it.bounds) }
         val timedStrokes = extractTimedStrokes(selectedInk)
         val estimatedSize = HandwritingRecognizer.estimateFontSize(timedStrokes, fallback = textSize)
+        val idxPre = pages.indexOfFirst { it.id == pageId }
+        val pagePre = pages.getOrNull(idxPre)
+        val targetStickyPre = pagePre?.items?.filterIsInstance<StickyItem>()?.lastOrNull { s ->
+            !s.collapsed && (s.bounds.contains(union.centerX(), union.centerY()) || RectF.intersects(s.bounds, union))
+        }
         handwritingBusy = true
         try {
             val result = HandwritingRecognizer.recognize(
@@ -872,7 +877,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 writingWidth = union.width().coerceAtLeast(64f),
                 writingHeight = union.height().coerceAtLeast(48f),
                 languageTag = settingsFlow.value.toolDefaults.handwritingLanguage,
-                allowFallback = !automatic && settingsFlow.value.toolDefaults.handwritingLanguage.startsWith("en"),
+                allowFallback = (!automatic || targetStickyPre != null) && settingsFlow.value.toolDefaults.handwritingLanguage.startsWith("en"),
             )
             val options = settingsFlow.value.toolDefaults
             val idx = pages.indexOfFirst { it.id == pageId }
@@ -880,6 +885,29 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             if (readOnly || !page.items.containsAll(selectedInk)) return
             val rawText = if (automatic) result.text.trim().replace(Regex("\\s+"), " ") else result.text.trim()
             val text = if (options.autoSpellCheck) AutoSpellChecker.autoCorrect(rawText) else rawText
+            val targetSticky = page.items.filterIsInstance<StickyItem>().lastOrNull { s ->
+                !s.collapsed && (s.bounds.contains(union.centerX(), union.centerY()) || RectF.intersects(s.bounds, union))
+            }
+            if (targetSticky != null) {
+                // Writing on an expanded sticky note with Auto Handwriting converts straight into the sticky note's text!
+                if (automatic && ((!options.autoHandwriting && tool != Tool.AUTO_TEXT) || penActive)) return
+                if (text.isBlank() || (automatic && text.none { it.isLetterOrDigit() })) return
+                val ids = selectedInk.map { it.id }.toSet()
+                val existingText = targetSticky.text.trimEnd()
+                val sep = when {
+                    existingText.isEmpty() -> ""
+                    union.top > targetSticky.y + 88f && existingText.isNotEmpty() && !existingText.endsWith("\n") -> "\n"
+                    else -> " "
+                }
+                val updatedSticky = targetSticky.copy(text = existingText + sep + text)
+                beginEdit(idx)
+                applyItems(
+                    idx,
+                    page.items.filterNot { it.id in ids }.map { if (it.id == targetSticky.id) updatedSticky else it },
+                )
+                onConverted(updatedSticky.id)
+                return
+            }
             if (automatic && ((!options.autoHandwriting && tool != Tool.AUTO_TEXT) || penActive || !result.usedMlKit || text.count { it.isLetterOrDigit() } < 2)) return
             if (text.isBlank()) {
                 say("Could not recognise handwritten ink")
@@ -934,10 +962,14 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     ) {
         val p = pages.getOrNull(page) ?: return
         selection = emptySet()
-        val w = if (existing != null) maxOf(existing.raw.width() + 80f, 340f).coerceAtMost(p.width - 48f) else boxWidth
-        val h = if (existing != null) maxOf(existing.raw.height() + 64f, 130f).coerceAtMost(p.height - 48f) else boxHeight
-        val rx = (existing?.x ?: x).coerceIn(24f, (p.width - w - 24f).coerceAtLeast(24f))
-        val ry = (existing?.y ?: y).coerceIn(24f, (p.height - h - 24f).coerceAtLeast(24f))
+        val w = if (isFullPage) boxWidth.coerceAtMost(p.width - 48f)
+            else if (existing != null) maxOf(existing.raw.width() + 80f, 340f).coerceAtMost(p.width - 48f)
+            else boxWidth
+        val h = if (isFullPage) boxHeight.coerceAtMost(p.height - 64f)
+            else if (existing != null) maxOf(existing.raw.height() + 64f, 130f).coerceAtMost(p.height - 48f)
+            else boxHeight
+        val rx = (if (isFullPage) x else (existing?.x ?: x)).coerceIn(24f, (p.width - w - 24f).coerceAtLeast(24f))
+        val ry = (if (isFullPage) y else (existing?.y ?: y)).coerceIn(24f, (p.height - h - 24f).coerceAtLeast(24f))
         textEdit = TextEdit(page, rx, ry, existing, boxWidth = w, boxHeight = h, isFullPage = isFullPage)
     }
 
@@ -1045,7 +1077,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             val placed = StickyItem(ItemIds.next(), sx, sy, w, h, stickyColor, "")
             beginEdit(page)
             applyItems(page, p.items + placed)
-            tool = Tool.PEN
+            if (tool == Tool.STICKY) {
+                tool = if (settingsFlow.value.toolDefaults.autoHandwriting) Tool.AUTO_TEXT else Tool.PEN
+            }
             say("Sticky note placed — write directly on it, or tap ▾ to collapse")
         } else if (existing.collapsed) {
             toggleStickyCollapse(page, existing)

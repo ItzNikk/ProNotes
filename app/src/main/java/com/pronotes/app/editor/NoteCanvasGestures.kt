@@ -30,12 +30,36 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
             fingerMoved = false
             pinched = false
             textSelecting = false
-            // Long-press on PDF text selects it.
+            clearStickyDrag()
+            // Hold on a collapsed sticky note icon to move it; quick tap still expands it.
+            val hitCollapsedSticky = if (!readOnly && pages.isNotEmpty()) {
+                val (ddx, ddy) = toDoc(e.x, e.y)
+                val pi = pageAt(ddx, ddy)
+                val (lx, ly) = toLocal(e.x, e.y, pi)
+                val s = pages.getOrNull(pi)?.items?.filterIsInstance<StickyItem>()
+                    ?.lastOrNull { it.collapsed && it.bounds.contains(lx, ly) }
+                if (s != null) Triple(pi, s, lx to ly) else null
+            } else null
             removeCallbacks(textPressRunnable)
-            postDelayed(textPressRunnable, 450)
+            if (hitCollapsedSticky != null) {
+                val (pi, s, pt) = hitCollapsedSticky
+                dragStickyId = s.id
+                dragStickyPage = pi
+                dragStickyOrigX = s.x
+                dragStickyOrigY = s.y
+                dragStickyDownWx = pt.first
+                dragStickyDownWy = pt.second
+                dragStickyActive = false
+                dragStickyFromFinger = true
+                postDelayed(stickyHoldRunnable, 280L)
+            } else {
+                // Long-press on PDF text selects it.
+                postDelayed(textPressRunnable, 450)
+            }
         }
         MotionEvent.ACTION_POINTER_DOWN -> {
             removeCallbacks(textPressRunnable)
+            clearStickyDrag()
             if (textSelecting) return
             mode = NoteCanvasView.Mode.PAN
             maxFingers = max(maxFingers, e.pointerCount)
@@ -52,6 +76,10 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
             panLastY = cy
         }
         MotionEvent.ACTION_MOVE -> {
+            if (dragStickyActive && dragStickyFromFinger) {
+                moveDraggedSticky(e.x, e.y)
+                return
+            }
             if (textSelecting) {
                 val (lx, ly) = toLocal(e.x, e.y, textPage)
                 host.onTextDrag(lx, ly)
@@ -62,6 +90,7 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
             if (hypot(cx - fingerStartX, cy - fingerStartY) > effectiveTouchSlop * 2f) {
                 fingerMoved = true
                 removeCallbacks(textPressRunnable)
+                if (dragStickyFromFinger && !dragStickyActive) clearStickyDrag()
             }
             if (e.pointerCount >= 2 && pinchStartDist > 0f) {
                 val minScale = if (isWhiteboard) 0.16f else gestureFit * 0.9f
@@ -117,6 +146,18 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
         }
         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
             removeCallbacks(textPressRunnable)
+            if (dragStickyActive && dragStickyFromFinger) {
+                val sp = pages.getOrNull(dragStickyPage)
+                if (sp != null) updatePage(dragStickyPage, sp.items)
+                clearStickyDrag()
+                mode = NoteCanvasView.Mode.NONE
+                maxFingers = 0
+                fingerDownTime = 0L
+                velocity?.recycle()
+                velocity = null
+                return
+            }
+            clearStickyDrag()
             if (textSelecting) {
                 textSelecting = false
                 val rects = host.textSelection(textPage)

@@ -121,17 +121,20 @@ internal class NoteCanvasDocLayer(
         style = Paint.Style.STROKE
         strokeWidth = 2.6f
         strokeCap = Paint.Cap.ROUND
-        color = 0xB83D6CF4.toInt()
+        color = 0xE63D6CF4.toInt()
     }
     private val guideXHeightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 1.6f
-        color = 0x553D6CF4
-        pathEffect = DashPathEffect(floatArrayOf(12f, 9f), 0f)
+        color = 0x773D6CF4
+    }
+    private val guideBandPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0x163D6CF4
     }
     private val guidePillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = 0xCC3D6CF4.toInt()
+        color = 0xEE3D6CF4.toInt()
     }
     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt() }
     private val handleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
@@ -158,6 +161,9 @@ internal class NoteCanvasDocLayer(
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
+    }
+    private val laserTipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
     }
     private val pullPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt() }
     private val pullText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -413,16 +419,36 @@ internal class NoteCanvasDocLayer(
             }
             // Writing guide line in Auto-Text mode or Align Handwriting mode so user can write cleanly above it
             val showGuide = owner.settings.toolDefaults.alignGuideLine &&
-                (owner.tool == Tool.AUTO_TEXT || (owner.tool == Tool.PEN && owner.settings.toolDefaults.alignHandwriting))
-            if (showGuide && guideLinePage == i && guideLineY > 24f && guideLineY < p.height - 16f) {
-                val gxLeft = (guideLineX - 240f).coerceAtLeast(36f)
-                val gxRight = (guideLineX + 520f).coerceAtMost(p.width - 36f)
-                // Soft dashed x-height line above baseline
-                canvas.drawLine(gxLeft, guideLineY - 38f, gxRight, guideLineY - 38f, guideXHeightPaint)
-                // Crisp baseline guide right beneath handwriting
-                canvas.drawLine(gxLeft, guideLineY, gxRight, guideLineY, guideBaselinePaint)
-                // Small start-anchor tick
-                canvas.drawCircle(gxLeft, guideLineY, 4.5f, guidePillPaint)
+                (owner.tool == Tool.AUTO_TEXT || (owner.tool == Tool.PEN && (owner.settings.toolDefaults.alignHandwriting || owner.settings.toolDefaults.autoHandwriting)))
+            val activeGuidePage = if (guideLinePage >= 0) guideLinePage else owner.currentIndex
+            val effectiveGuideY = if (guideLinePage == i && guideLineY > 24f && guideLineY < p.height - 16f) {
+                guideLineY
+            } else if (guideLinePage < 0 && i == activeGuidePage) {
+                owner.defaultGuideBaselineY(p)
+            } else {
+                -1f
+            }
+            if (showGuide && i == activeGuidePage && effectiveGuideY > 24f && effectiveGuideY < p.height - 16f) {
+                val invScale = (1f / owner.scale.coerceAtLeast(0.25f))
+                val gxLeft = 48f.coerceAtMost(p.width * 0.12f)
+                val gxRight = (p.width - 48f).coerceAtLeast(gxLeft + 120f)
+                val bandH = owner.guideLineBandHeight(p)
+                val xHeightY = (effectiveGuideY - bandH).coerceAtLeast(12f)
+                // Soft translucent writing lane above the baseline
+                canvas.drawRect(gxLeft, xHeightY, gxRight, effectiveGuideY, guideBandPaint)
+                // Zoom-independent dashed cap/x-height guide
+                guideXHeightPaint.strokeWidth = (1.3f * density * invScale).coerceIn(1.2f, 4.5f)
+                guideXHeightPaint.pathEffect = DashPathEffect(
+                    floatArrayOf((8f * density * invScale).coerceIn(6f, 24f), (6f * density * invScale).coerceIn(5f, 18f)),
+                    0f,
+                )
+                canvas.drawLine(gxLeft, xHeightY, gxRight, xHeightY, guideXHeightPaint)
+                // Crisp baseline right beneath the writing line
+                guideBaselinePaint.strokeWidth = (2.2f * density * invScale).coerceIn(2.0f, 6.5f)
+                canvas.drawLine(gxLeft, effectiveGuideY, gxRight, effectiveGuideY, guideBaselinePaint)
+                // Anchor pill dot on left margin so the active writing line is unmistakable
+                val dotR = (4.2f * density * invScale).coerceIn(3.5f, 10f)
+                canvas.drawCircle(gxLeft, effectiveGuideY, dotR, guidePillPaint)
             }
             canvas.restore()
             if (!p.isWhiteboard && owner.settings.pageNumbers && owner.pages.size > 1) {
@@ -669,18 +695,42 @@ internal class NoteCanvasDocLayer(
         val pt = FloatArray(2)
         for (s in lasers) {
             val age = if (s.end == Long.MAX_VALUE) 0L else now - s.end
-            val life = if (age <= hold) 1f else 1f - (age - hold) / fade.toFloat()
+            val life = (if (age <= hold) 1f else 1f - (age - hold) / fade.toFloat()).coerceIn(0f, 1f)
             if (s.pts.size < 2) continue
             tmpPath.reset()
+            var tipX = 0f
+            var tipY = 0f
             s.pts.forEachIndexed { i, (x, y) ->
                 pt[0] = x
                 pt[1] = y
                 owner.viewMatrix.mapPoints(pt)
+                tipX = pt[0]
+                tipY = pt[1]
                 if (i == 0) tmpPath.moveTo(pt[0], pt[1]) else tmpPath.lineTo(pt[0], pt[1])
             }
-            laserCore.color = Color.argb((life * 255).toInt(), 255, 59, 48)
-            laserCore.strokeWidth = 3.8f * density
+            // 1. Wide soft outer crimson bloom
+            laserCore.color = Color.argb((life * 44).toInt(), 255, 38, 66)
+            laserCore.strokeWidth = 17.5f * density
             canvas.drawPath(tmpPath, laserCore)
+            // 2. Luminous mid-glow aura
+            laserCore.color = Color.argb((life * 105).toInt(), 255, 52, 62)
+            laserCore.strokeWidth = 9.5f * density
+            canvas.drawPath(tmpPath, laserCore)
+            // 3. Saturated laser beam
+            laserCore.color = Color.argb((life * 245).toInt(), 255, 64, 58)
+            laserCore.strokeWidth = 4.4f * density
+            canvas.drawPath(tmpPath, laserCore)
+            // 4. Hot glowing white-pink filament core
+            laserCore.color = Color.argb((life * 225).toInt(), 255, 236, 238)
+            laserCore.strokeWidth = 1.7f * density
+            canvas.drawPath(tmpPath, laserCore)
+            // 5. Glowing pointer tip flare while actively pointing
+            if (s.end == Long.MAX_VALUE || age < 180L) {
+                laserTipPaint.color = Color.argb((life * 95).toInt(), 255, 58, 72)
+                canvas.drawCircle(tipX, tipY, 10f * density, laserTipPaint)
+                laserTipPaint.color = Color.argb((life * 245).toInt(), 255, 245, 246)
+                canvas.drawCircle(tipX, tipY, 3.2f * density, laserTipPaint)
+            }
         }
         if (lasers.isNotEmpty()) postInvalidateOnAnimation()
     }

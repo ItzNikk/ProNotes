@@ -2,6 +2,28 @@
 
 All notable changes to Pro Notes are documented in this file.
 
+## v15.2.1 - 2026-11-22
+
+### Added
+
+- **Custom Device Storage Folder Picker.** Choose any folder inside your device's internal or external storage (via Android SAF) from **Library -> Save Folder…** or **Settings -> Library & backup -> Notes storage folder** to save and automatically mirror your notebooks and library index.
+- **Hold-to-Move Collapsed Sticky Notes.** Press and hold any folded sticky note icon (~280ms) with stylus or finger to drag and reposition it anywhere on the page, while a quick tap expands it.
+- **Circle-to-Lasso in Auto Handwriting.** Circle around strokes or text while using the **Auto-Text** tool to trigger Circle-to-Lasso via the pulsing blue indicator without auto-handwriting prematurely converting your loop into text.
+
+### Improved
+
+- **Revamped Direct-on-Page Keyboard Mode.** Removed the text box frame, tint, and header chrome in Keyboard Mode so a crisp blinking pointer sits directly on the live page; automatically detects whether an external hardware keyboard is attached and immediately opens the on-screen keyboard if none is connected.
+- **Glowing Laser Ink.** Upgraded the Laser Pointer with a multi-layer outer bloom, vibrant crimson halo, hot white-pink filament core, and glowing active pointer tip flare.
+- **Softer Top Scroll Blur.** Reduced Cloudy blur intensity and scrim opacity with a silky 5-stop feathered vertical gradient so scrolled content melts gently under the top chrome.
+- **Lively Animated Search Placeholder.** Upgraded `"What are you looking for?"` with a continuous repeating multi-color gradient sweep and subtle breathing shimmer.
+
+### Fixed
+
+- **Fixed Writing Guide Line.** Snaps cleanly to ruled/college/narrow/wide/Cornell/grid paper lines, tracks your active writing baseline across strokes, uses zoom-independent crisp rendering with a subtle writing lane, and appears immediately when entering Auto-Text or Align Handwriting mode.
+- **Fixed Scribble-to-Erase Triggering While Writing.** Tightened scrub-density, reversal, self-crossing, and multi-pass intersection checks so normal print and cursive handwriting never falsely erases while writing.
+- **Fixed Sticky Notes with Auto Handwriting.** Handwriting inside an expanded sticky note while Auto Handwriting is active now converts directly into the sticky note's text instead of colliding or failing, and placing a sticky note respects active Auto-Text mode.
+- **Shape Hold vs. Circle-to-Lasso Separation.** Drawing and holding a shape snaps strictly to shapes; Circle-to-Lasso triggers only when pressing and holding the pulsing blue circle indicator.
+
 ## v15.2.0 - 2026-11-22
 
 ### Added

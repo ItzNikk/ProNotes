@@ -31,9 +31,9 @@ internal fun NoteCanvasView.eraserAllows(item: PageItem): Boolean {
  * or cursive line erases cleanly without requiring the scribble to swallow every tail pixel.
  */
 internal fun NoteCanvasView.scribbleHitIds(page: Int, pts: List<Pt>): Set<Long> {
-    if (pts.size < 4) return emptySet()
+    if (pts.size < 6) return emptySet()
     val sheet = pages.getOrNull(page) ?: return emptySet()
-    val padding = (10f * density / scale).coerceIn(6f, 28f)
+    val padding = (7f * density / scale).coerceIn(4f, 18f)
     val envelope = RectF(
         pts.minOf { it.first },
         pts.minOf { it.second },
@@ -46,7 +46,6 @@ internal fun NoteCanvasView.scribbleHitIds(page: Int, pts: List<Pt>): Set<Long> 
     return sheet.items.asSequence().filterIsInstance<InkItem>()
         .filter { eraserAllows(it) && RectF.intersects(envelope, it.bounds) }
         .filter { item ->
-            // Fast path: if stroke sits mostly inside the scribble envelope, it's clearly targeted
             val b = item.bounds
             val insideX = (min(envelope.right, b.right) - max(envelope.left, b.left)).coerceAtLeast(0f)
             val insideY = (min(envelope.bottom, b.bottom) - max(envelope.top, b.top)).coerceAtLeast(0f)
@@ -66,12 +65,12 @@ internal fun NoteCanvasView.scribbleHitIds(page: Int, pts: List<Pt>): Set<Long> 
                 sweep.populateFromSegmentAndPadding(segment, padding)
                 val hit = item.stroke.shape.intersects(sweep, AffineTransform.IDENTITY)
                 if (hit && !touching) hits++
-                if (hits >= 1 && overlapRatio >= 0.28f) return@filter true
                 if (hits >= 2) return@filter true
+                if (hits >= 1 && overlapRatio >= 0.48f) return@filter true
                 touching = hit
                 i += step
             }
-            hits >= 1 || overlapRatio >= 0.55f
+            hits >= 2 || (hits >= 1 && overlapRatio >= 0.48f)
         }.map { it.id }.toSet()
 }
 

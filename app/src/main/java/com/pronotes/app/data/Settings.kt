@@ -380,6 +380,9 @@ data class AppSettings(
     val googleEmail: String = "",
     val googleName: String = "",
     val lastCloudSyncMs: Long = 0L,
+    /** Optional Android SAF tree URI where notes are mirrored/saved inside user storage. */
+    val storageFolderUri: String = "",
+    val storageFolderLabel: String = "",
 ) {
     fun toolbarState(): ToolbarState {
         val parts = toolbarPos.split(',')
@@ -558,6 +561,8 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             googleEmail = prefs.getString("googleEmail", "") ?: "",
             googleName = prefs.getString("googleName", "") ?: "",
             lastCloudSyncMs = prefs.getLong("lastCloudSyncMs", 0L),
+            storageFolderUri = prefs.getString("storageFolderUri", "") ?: "",
+            storageFolderLabel = prefs.getString("storageFolderLabel", "") ?: "",
         )
     }
 
@@ -682,6 +687,8 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             .putString("googleEmail", s.googleEmail)
             .putString("googleName", s.googleName)
             .putLong("lastCloudSyncMs", s.lastCloudSyncMs)
+            .putString("storageFolderUri", s.storageFolderUri)
+            .putString("storageFolderLabel", s.storageFolderLabel)
             .apply()
     }
 

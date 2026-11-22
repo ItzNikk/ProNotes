@@ -198,6 +198,7 @@ internal data class LibraryNewBookPrefs(
     val thumbCovers: Boolean,
     val defaultCoverPage: Boolean,
     val topScrollBlur: Boolean,
+    val storageFolderLabel: String = "",
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -215,15 +216,37 @@ fun LibraryScreen(
     val store = remember { SettingsStore.get(context) }
     val newBookPrefs by remember(store) {
         store.select {
-            LibraryNewBookPrefs(it.defaultPreset, it.defaultLandscape, it.defaultPaper, it.thumbCovers, it.defaultCoverPage, it.topScrollBlur)
+            LibraryNewBookPrefs(it.defaultPreset, it.defaultLandscape, it.defaultPaper, it.thumbCovers, it.defaultCoverPage, it.topScrollBlur, it.storageFolderLabel)
         }
     }.collectAsStateWithLifecycle(
         initialValue = remember(store) {
             store.settings.value.let {
-                LibraryNewBookPrefs(it.defaultPreset, it.defaultLandscape, it.defaultPaper, it.thumbCovers, it.defaultCoverPage, it.topScrollBlur)
+                LibraryNewBookPrefs(it.defaultPreset, it.defaultLandscape, it.defaultPaper, it.thumbCovers, it.defaultCoverPage, it.topScrollBlur, it.storageFolderLabel)
             }
         },
     )
+    val libScope = rememberCoroutineScope()
+    val pickStorageFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            runCatching {
+                val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(uri, flags)
+            }
+            val label = com.pronotes.app.data.StorageFolderSync.friendlyFolderName(uri)
+            store.update { it.copy(storageFolderUri = uri.toString(), storageFolderLabel = label) }
+            libScope.launch {
+                val count = runCatching {
+                    com.pronotes.app.data.StorageFolderSync.syncAllNotebooks(context, uri, repo)
+                }.getOrDefault(0)
+                android.widget.Toast.makeText(
+                    context,
+                    "Notes storage set to $label ($count synced)",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
     val lib by repo.library.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val wide = LocalConfiguration.current.screenWidthDp >= 720
@@ -641,6 +664,11 @@ fun LibraryScreen(
                                     AppMenuItem("Community marketplace") { destination = "Marketplace" },
                                     AppMenuItem("PDF Station") { destination = "PDF Station" },
                                     AppMenuItem("Folder", icon = { Icon(Icons.Outlined.CreateNewFolder, null, Modifier.size(18.dp)) }) { newFolder = true },
+                                    AppMenuItem(
+                                        if (newBookPrefs.storageFolderLabel.isBlank()) "Choose Storage Folder…"
+                                        else "Storage: ${newBookPrefs.storageFolderLabel}",
+                                        icon = { Icon(Icons.Outlined.Folder, null, Modifier.size(18.dp)) },
+                                    ) { pickStorageFolder.launch(null) },
                                     AppMenuItem("Import PDF, Word, PPT, Sheets, EPUB, Images", icon = { Icon(Icons.Outlined.UploadFile, null, Modifier.size(18.dp)) }) {
                                         importFilesLauncher.launch(arrayOf("*/*"))
                                     },
@@ -753,6 +781,12 @@ fun LibraryScreen(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            AppChip(
+                                selected = newBookPrefs.storageFolderLabel.isNotBlank(),
+                                onClick = { pickStorageFolder.launch(null) },
+                                label = if (newBookPrefs.storageFolderLabel.isBlank()) "Save Folder…" else "💾 ${newBookPrefs.storageFolderLabel}",
+                                tint = Color(0xFF7C3AED),
+                            )
                             AppChip(
                                 selected = selectedTag == null,
                                 onClick = { selectedTag = null },

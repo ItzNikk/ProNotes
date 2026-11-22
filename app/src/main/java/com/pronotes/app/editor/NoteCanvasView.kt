@@ -169,8 +169,76 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             if (field == Tool.LASER && value != Tool.LASER) layer.clearLasers()
             field = value
             layer.hoverDot = null; layer.hoverAt = null
+            val showGuide = settings.toolDefaults.alignGuideLine &&
+                (value == Tool.AUTO_TEXT || (value == Tool.PEN && (settings.toolDefaults.alignHandwriting || settings.toolDefaults.autoHandwriting)))
+            if (showGuide) {
+                val p = pages.getOrNull(currentIndex)
+                if (p != null && (layer.guideLinePage != currentIndex || layer.guideLineY <= 24f)) {
+                    layer.guideLinePage = currentIndex
+                    layer.guideLineX = 48f
+                    layer.guideLineY = defaultGuideBaselineY(p)
+                }
+            } else {
+                layer.guideLinePage = -1
+            }
             layer.invalidate()
         }
+
+    internal fun guideLineBandHeight(p: Page): Float {
+        val g = p.lineScale.coerceIn(0.6f, 2.0f)
+        val step = when (p.paper) {
+            com.pronotes.app.data.PaperStyle.NARROW -> 38f * g
+            com.pronotes.app.data.PaperStyle.COLLEGE -> 42f * g
+            com.pronotes.app.data.PaperStyle.WIDE -> 64f * g
+            com.pronotes.app.data.PaperStyle.HANDWRITING,
+            com.pronotes.app.data.PaperStyle.SEYES,
+            com.pronotes.app.data.PaperStyle.CALLIGRAPHY -> 56f * g
+            else -> 52f * g
+        }
+        return (step * 0.66f).coerceIn(24f, 64f)
+    }
+
+    internal fun defaultGuideBaselineY(p: Page): Float {
+        val g = p.lineScale.coerceIn(0.6f, 2.0f)
+        val y = when (p.paper) {
+            com.pronotes.app.data.PaperStyle.NARROW -> 160f + 38f * g
+            com.pronotes.app.data.PaperStyle.COLLEGE -> 170f + 42f * g
+            com.pronotes.app.data.PaperStyle.WIDE -> 190f + 64f * g
+            com.pronotes.app.data.PaperStyle.RULED,
+            com.pronotes.app.data.PaperStyle.CORNELL,
+            com.pronotes.app.data.PaperStyle.LEGAL,
+            com.pronotes.app.data.PaperStyle.HANDWRITING,
+            com.pronotes.app.data.PaperStyle.SEYES,
+            com.pronotes.app.data.PaperStyle.CALLIGRAPHY -> 180f + 52f * g
+            else -> 220f
+        }
+        return y.coerceIn(64f, (p.height - 48f).coerceAtLeast(64f))
+    }
+
+    internal fun snapGuideBaselineY(p: Page, rawY: Float): Float {
+        val g = p.lineScale.coerceIn(0.6f, 2.0f)
+        val (start, step) = when (p.paper) {
+            com.pronotes.app.data.PaperStyle.RULED,
+            com.pronotes.app.data.PaperStyle.CORNELL,
+            com.pronotes.app.data.PaperStyle.LEGAL,
+            com.pronotes.app.data.PaperStyle.MEETING,
+            com.pronotes.app.data.PaperStyle.STUDY,
+            com.pronotes.app.data.PaperStyle.DAILY,
+            com.pronotes.app.data.PaperStyle.TODO,
+            com.pronotes.app.data.PaperStyle.PLANNER,
+            com.pronotes.app.data.PaperStyle.TWO_COLUMN -> 180f to (52f * g)
+            com.pronotes.app.data.PaperStyle.NARROW -> 160f to (38f * g)
+            com.pronotes.app.data.PaperStyle.COLLEGE -> 170f to (42f * g)
+            com.pronotes.app.data.PaperStyle.WIDE -> 190f to (64f * g)
+            com.pronotes.app.data.PaperStyle.GRID,
+            com.pronotes.app.data.PaperStyle.DOTTED -> 40f to (40f * g)
+            com.pronotes.app.data.PaperStyle.SMALL_GRID,
+            com.pronotes.app.data.PaperStyle.GRAPH -> 24f to (24f * g)
+            else -> return rawY.coerceIn(56f, (p.height - 32f).coerceAtLeast(56f))
+        }
+        val idx = ((rawY - start) / step).roundToInt().coerceAtLeast(0)
+        return (start + idx * step).coerceIn(56f, (p.height - 32f).coerceAtLeast(56f))
+    }
 
     /** Waiting for a dragged box (new flashcard) or a tap (other end of an ink link). */
     var capturing = false
@@ -315,22 +383,35 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                     if (p == null || keptEntries.isEmpty()) continue
                     val added = ArrayList<InkItem>(keptEntries.size)
                     val autoTextAdded = ArrayList<InkItem>()
+                    val circleCandKey = circleDetector.activeCandidate(SystemClock.uptimeMillis(), gestureConfig)?.strokeKey
                     for (e in keptEntries) {
                         val item = InkItem(ItemIds.next(), e.value)
                         if (!circleDetector.attachItemId(e.key, item.id)) {
                             added += item
-                            if (entryTools[e.key] == Tool.AUTO_TEXT) autoTextAdded += item
+                            // Never hand an active Circle-to-Lasso loop stroke to Auto Handwriting so it stays ready to hold
+                            if (entryTools[e.key] == Tool.AUTO_TEXT && e.key != circleCandKey) autoTextAdded += item
                         }
                     }
                     if (added.isEmpty()) continue
                     host.beginEdit(pi)
                     updatePage(pi, p.items + added)
+                    // Keep the writing guide line aligned directly beneath the finished stroke baseline
+                    if (settings.toolDefaults.alignGuideLine &&
+                        (tool == Tool.AUTO_TEXT || (tool == Tool.PEN && (settings.toolDefaults.alignHandwriting || settings.toolDefaults.autoHandwriting)))
+                    ) {
+                        val lastInk = added.last()
+                        layer.guideLinePage = pi
+                        layer.guideLineX = lastInk.bounds.left
+                        layer.guideLineY = snapGuideBaselineY(p, lastInk.bounds.bottom + 4f)
+                        layer.invalidate()
+                    }
                     val boxes = pages.getOrNull(pi)?.items?.filterIsInstance<WriteBoxItem>().orEmpty()
                     if (autoTextAdded.isNotEmpty()) {
                         host.onFreshInk(pi, autoTextAdded)
                     } else if (settings.toolDefaults.autoHandwriting) {
+                        val circleItemId = circleDetector.activeCandidate(SystemClock.uptimeMillis(), gestureConfig)?.itemId ?: -1L
                         host.onFreshInk(pi, added.filter { ink ->
-                            !ink.isHighlighter && boxes.none { RectF.intersects(it.raw, ink.bounds) }
+                            !ink.isHighlighter && ink.id != circleItemId && boxes.none { RectF.intersects(it.raw, ink.bounds) }
                         })
                     }
                     if (boxes.isNotEmpty()) {
@@ -696,7 +777,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
 
     // ------------------------------------------------------------------ input
 
-    internal enum class Mode { NONE, INK, ERASE, LASSO, MOVE, LASER, PAN, TAP, SHAPE_DRAG, TAPE, MIND_DRAG, WRITE_BOX_DRAG, IGNORE }
+    internal enum class Mode { NONE, INK, ERASE, LASSO, MOVE, LASER, PAN, TAP, SHAPE_DRAG, TAPE, MIND_DRAG, WRITE_BOX_DRAG, STICKY_DRAG, IGNORE }
 
     private var pendingConvertPage = -1
     private var pendingConvertBoxId = -1L
@@ -739,6 +820,47 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
     private var dragMindMoved = false
     private var dragMindDownWx = 0f
     private var dragMindDownWy = 0f
+    // Hold-to-move state for collapsed (closed) sticky note icons
+    internal var dragStickyId: Long = -1L
+    internal var dragStickyPage: Int = -1
+    internal var dragStickyOrigX = 0f
+    internal var dragStickyOrigY = 0f
+    internal var dragStickyDownWx = 0f
+    internal var dragStickyDownWy = 0f
+    internal var dragStickyActive = false
+    internal var dragStickyFromFinger = false
+    internal val stickyHoldRunnable = Runnable {
+        if (dragStickyId == -1L || dragStickyPage !in pages.indices) return@Runnable
+        dragStickyActive = true
+        mode = Mode.STICKY_DRAG
+        buzz(HapticFeedbackConstants.LONG_PRESS)
+        host.beginEdit(dragStickyPage)
+        layer.invalidate()
+    }
+    internal fun moveDraggedSticky(screenX: Float, screenY: Float) {
+        val p = pages.getOrNull(dragStickyPage) ?: return
+        val (wx, wy) = toLocal(screenX, screenY, dragStickyPage)
+        val dx = wx - dragStickyDownWx
+        val dy = wy - dragStickyDownWy
+        val updated = p.items.map { item ->
+            if (item is StickyItem && item.id == dragStickyId) {
+                val bw = item.bounds.width()
+                val bh = item.bounds.height()
+                val nx = (dragStickyOrigX + dx).coerceIn(16f, (p.width - bw - 16f).coerceAtLeast(16f))
+                val ny = (dragStickyOrigY + dy).coerceIn(16f, (p.height - bh - 16f).coerceAtLeast(16f))
+                item.copy(x = nx, y = ny)
+            } else item
+        }
+        pages = pages.toMutableList().also { it[dragStickyPage] = p.copy(items = updated) }
+        layer.invalidate()
+    }
+    internal fun clearStickyDrag() {
+        removeCallbacks(stickyHoldRunnable)
+        dragStickyId = -1L
+        dragStickyPage = -1
+        dragStickyActive = false
+        dragStickyFromFinger = false
+    }
     private var holdFired = false
     private var lastMovePt: Pt? = null
     private var downTime = 0L
@@ -964,7 +1086,8 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             if (wasCircle) { mode = Mode.IGNORE; return }
         }
 
-        // Collapsed sticky messaging icon expands on any tap; expanded sticky folds via top-right pill.
+        // Collapsed sticky messaging icon: quick tap expands, press & hold (~280ms) drags to move it!
+        // Expanded sticky folds via its top-right pill.
         if (t in setOf(Tool.PEN, Tool.CRAYON, Tool.AUTO_TEXT, Tool.STICKY, Tool.TEXT, Tool.HIGHLIGHTER)) {
             val hitSticky = pages.getOrNull(activePage)?.items?.filterIsInstance<StickyItem>()
                 ?.lastOrNull { s ->
@@ -972,10 +1095,25 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                     else s.raw.contains(wx, wy) && wx >= s.raw.right - 56f && wy <= s.raw.top + 48f
                 }
             if (hitSticky != null) {
-                buzz(HapticFeedbackConstants.CLOCK_TICK)
-                host.onStickyToggleCollapse(activePage, hitSticky)
-                mode = Mode.IGNORE
-                return
+                if (hitSticky.collapsed) {
+                    clearStickyDrag()
+                    dragStickyId = hitSticky.id
+                    dragStickyPage = activePage
+                    dragStickyOrigX = hitSticky.x
+                    dragStickyOrigY = hitSticky.y
+                    dragStickyDownWx = wx
+                    dragStickyDownWy = wy
+                    dragStickyActive = false
+                    dragStickyFromFinger = false
+                    mode = Mode.STICKY_DRAG
+                    postDelayed(stickyHoldRunnable, 280L)
+                    return
+                } else {
+                    buzz(HapticFeedbackConstants.CLOCK_TICK)
+                    host.onStickyToggleCollapse(activePage, hitSticky)
+                    mode = Mode.IGNORE
+                    return
+                }
             }
         }
 
@@ -988,10 +1126,17 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                         host.onSelectWriteBox(activePage, hitBox.id)
                     }
                 }
-                if (settings.toolDefaults.alignGuideLine && (t == Tool.AUTO_TEXT || (t == Tool.PEN && settings.toolDefaults.alignHandwriting))) {
-                    layer.guideLinePage = activePage
-                    layer.guideLineX = wx
-                    layer.guideLineY = wy + 22f
+                if (settings.toolDefaults.alignGuideLine && (t == Tool.AUTO_TEXT || (t == Tool.PEN && (settings.toolDefaults.alignHandwriting || settings.toolDefaults.autoHandwriting)))) {
+                    val curP = pages.getOrNull(activePage)
+                    if (curP != null) {
+                        val sameLine = layer.guideLinePage == activePage && abs((wy + 20f) - layer.guideLineY) < 42f
+                        layer.guideLinePage = activePage
+                        layer.guideLineX = wx
+                        if (!sameLine) {
+                            layer.guideLineY = snapGuideBaselineY(curP, wy + 22f)
+                        }
+                        layer.invalidate()
+                    }
                 }
                 startInk(e, pid, t)
             }
@@ -1092,12 +1237,12 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                 requestUnbufferedDispatch(e)
                 activePointer = pid
                 val now = SystemClock.uptimeMillis()
-                // Circle to select: press and hold the end of a closed loop drawn within the short window.
+                // Circle to select: press and hold the pulsing blue circle at the end of a closed loop.
                 val armed = circleDetector.tryArmHold(
                     px = px,
                     py = py,
                     nowMs = now,
-                    isPen = isPen(e.getToolType(pIdx)),
+                    isPen = isPen(e.getToolType(pIdx)) || !settings.stylusOnly,
                     density = density,
                     config = gestureConfig,
                 ) { page, x, y ->
@@ -1256,6 +1401,13 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                             layer.invalidate()
                         }
                     }
+                    Mode.STICKY_DRAG -> {
+                        if (dragStickyActive) {
+                            moveDraggedSticky(e.getX(idx), e.getY(idx))
+                        } else if (hypot(e.getX(idx) - downX, e.getY(idx) - downY) > effectiveTouchSlop * 2f) {
+                            removeCallbacks(stickyHoldRunnable)
+                        }
+                    }
                     else -> Unit
                 }
             }
@@ -1371,6 +1523,20 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                         dragMindMoved = false
                         dragMindOrigPos = emptyMap()
                     }
+                    Mode.STICKY_DRAG -> {
+                        removeCallbacks(stickyHoldRunnable)
+                        val sp = pages.getOrNull(dragStickyPage)
+                        if (dragStickyActive && sp != null) {
+                            updatePage(dragStickyPage, sp.items)
+                        } else if (sp != null) {
+                            val sticky = sp.items.filterIsInstance<StickyItem>().firstOrNull { it.id == dragStickyId }
+                            if (sticky != null) {
+                                buzz(HapticFeedbackConstants.CLOCK_TICK)
+                                host.onStickyToggleCollapse(dragStickyPage, sticky)
+                            }
+                        }
+                        clearStickyDrag()
+                    }
                     Mode.TAP -> {
                         val (wx, wy) = toLocal(px, py, activePage)
                         val items = pages[activePage].items
@@ -1419,6 +1585,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         super.onDetachedFromWindow()
         removeCallbacks(holdRunnable)
         removeCallbacks(circleHoldRunnable)
+        removeCallbacks(stickyHoldRunnable)
         removeCallbacks(autoConvertRunnable)
         removeCallbacks(linkLongRunnable)
         removeCallbacks(textPressRunnable)
@@ -1529,7 +1696,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
     }
 
     private fun shouldTrackHold(): Boolean =
-        strokeTool == Tool.SHAPE || settings.holdToShape || settings.circleToLasso
+        strokeTool == Tool.SHAPE || strokeTool == Tool.HIGHLIGHTER || settings.holdToShape
 
     private fun finishInk(e: MotionEvent, isTap: Boolean) {
         val id = strokeId ?: return
@@ -1588,8 +1755,11 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                 return
             }
         }
-        // Offer unified circle-to-select when a closed pen loop encloses selectable content.
-        if (settings.circleToLasso && strokeTool == Tool.PEN && tool == Tool.PEN && !sideButtonHeld(e) &&
+        // Offer unified circle-to-select when a closed pen or auto-handwriting loop encloses selectable content.
+        if (settings.circleToLasso &&
+            (strokeTool == Tool.PEN || strokeTool == Tool.AUTO_TEXT) &&
+            (tool == Tool.PEN || tool == Tool.AUTO_TEXT) &&
+            !sideButtonHeld(e) &&
             circleDetector.isValidLoopCandidate(points, scale, density, gestureConfig)
         ) {
             val ids = loopSelects(activePage, points)
@@ -1722,13 +1892,8 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             isDeliberateScribble(points, scale / density, SystemClock.uptimeMillis() - downTime, gestureConfig) &&
             scribbleHitIds(activePage, points).isNotEmpty()) return
 
-        // Circle to lasso: uses the exact same closed-loop rule as post-lift circle detection.
-        if (settings.circleToLasso && strokeTool == Tool.PEN && tool == Tool.PEN &&
-            circleDetector.isValidLoopCandidate(points, scale, density, gestureConfig)
-        ) {
-            val ids = loopSelects(activePage, points)
-            if (ids.isNotEmpty()) { fireLiveCircle(ids); return }
-        }
+        // Draw-and-hold snaps to shapes (never hijacks into lasso).
+        // Converting a loop to lasso only happens when pressing & holding the pulsing circle indicator after lifting.
 
         // Highlighter holds snap to shapes or straight highlight lines.
         if (strokeTool == Tool.HIGHLIGHTER) {
@@ -1911,6 +2076,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         dragMindId = -1L
         dragMindMoved = false
         dragMindOrigPos = emptyMap()
+        clearStickyDrag()
         mode = Mode.NONE
         activePointer = -1
         layer.invalidate()
