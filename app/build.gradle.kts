@@ -16,8 +16,8 @@ android {
         applicationId = "com.pronotes.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = (System.getenv("VERSION_CODE") ?: "20").toInt()
-        versionName = System.getenv("VERSION_NAME") ?: "15.1.0"
+        versionCode = (System.getenv("VERSION_CODE") ?: "21").toInt()
+        versionName = System.getenv("VERSION_NAME") ?: "15.2.0"
         // Developer support: set pronotes.upi / pronotes.upiName in gradle.properties
         // (or SUPPORT_UPI / SUPPORT_UPI_NAME in CI). Empty hides UPI payment button, while support messages remain visible.
         val upi = System.getenv("SUPPORT_UPI") ?: (project.findProperty("pronotes.upi") as String? ?: "")
@@ -150,6 +150,8 @@ dependencies {
     implementation("androidx.graphics:graphics-shapes:1.0.1")
     // Colour wheel + brightness slider for custom colours.
     implementation("com.github.skydoves:colorpicker-compose:1.1.2")
+    // Soft progressive top scroll blur (skydoves/Cloudy).
+    implementation("com.github.skydoves:cloudy:0.2.6")
     // PDF text extraction for in-document search.
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     // On-device handwriting-to-text recognition (ML Kit Digital Ink Recognition).

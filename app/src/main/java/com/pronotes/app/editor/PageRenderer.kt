@@ -630,6 +630,176 @@ class PageRenderer(private val noteDir: File?) {
                     y += 150f
                 }
             }
+            PaperStyle.SEYES -> {
+                // Classic French Seyès grid: 8mm vertical + 2mm horizontal sub-lines, bold every 4th line.
+                val sub = 18f * g
+                val major = sub * 4f
+                val subPaint = Paint(linePaint).apply { strokeWidth = 1.2f; alpha = 120 }
+                var y = 140f
+                var row = 0
+                while (y < h - 40f) {
+                    canvas.drawLine(0f, y, w, y, if (row % 4 == 0) boldLine else subPaint)
+                    y += sub; row++
+                }
+                var x = major
+                while (x < w) {
+                    canvas.drawLine(x, 0f, x, h, subPaint)
+                    x += major
+                }
+                canvas.drawLine(145f, 0f, 145f, h, marginPaint)
+            }
+            PaperStyle.CALLIGRAPHY -> {
+                // Penmanship baseline + x-height + ascender/descender + 55-degree slant guides.
+                val band = 110f * g
+                val slantPaint = Paint(linePaint).apply { strokeWidth = 1.1f; alpha = 95 }
+                val dash = Paint(linePaint).apply { pathEffect = android.graphics.DashPathEffect(floatArrayOf(10f, 10f), 0f) }
+                // 55 deg slant lines across page
+                val dx = (h / kotlin.math.tan(Math.toRadians(55.0))).toFloat()
+                var sx = -dx
+                while (sx < w + dx) {
+                    canvas.drawLine(sx, h, sx + dx, 0f, slantPaint)
+                    sx += 68f * g
+                }
+                var y = 160f
+                while (y + band < h - 60f) {
+                    canvas.drawLine(60f, y, w - 60f, y, dash)
+                    canvas.drawLine(60f, y + band * 0.35f, w - 60f, y + band * 0.35f, linePaint)
+                    canvas.drawLine(60f, y + band * 0.72f, w - 60f, y + band * 0.72f, boldLine)
+                    canvas.drawLine(60f, y + band, w - 60f, y + band, dash)
+                    y += band * 1.45f
+                }
+            }
+            PaperStyle.ENGINEERING -> {
+                // Classic engineering calculation pad: subtle green minor/major grid + top title header & margin frame.
+                val engMinor = Paint(linePaint).apply { color = if (isDark) 0x3036B37E else 0x302E8B57; strokeWidth = 1.1f }
+                val engMajor = Paint(linePaint).apply { color = if (isDark) 0x6636B37E else 0x552E8B57; strokeWidth = 2.2f }
+                val frame = Paint(boldLine).apply { color = if (isDark) 0x9936B37E.toInt() else 0x882E8B57.toInt(); style = Paint.Style.STROKE }
+                val left = 96f; val top = 160f; val right = w - 64f; val bottom = h - 72f
+                val step = 24f * g
+                var x = left
+                var ci = 0
+                while (x <= right) {
+                    canvas.drawLine(x, top, x, bottom, if (ci % 5 == 0) engMajor else engMinor)
+                    x += step; ci++
+                }
+                var y = top
+                var ri = 0
+                while (y <= bottom) {
+                    canvas.drawLine(left, y, right, y, if (ri % 5 == 0) engMajor else engMinor)
+                    y += step; ri++
+                }
+                canvas.drawRect(left, top, right, bottom, frame)
+                // Header boxes across top
+                canvas.drawRect(left, 64f, right, 132f, frame)
+                canvas.drawLine(left + (right - left) * 0.55f, 64f, left + (right - left) * 0.55f, 132f, frame)
+                canvas.drawLine(left + (right - left) * 0.80f, 64f, left + (right - left) * 0.80f, 132f, frame)
+                canvas.drawText("PROJECT / TOPIC", left + 16f, 92f, labelPaint)
+                canvas.drawText("DATE", left + (right - left) * 0.55f + 16f, 92f, labelPaint)
+                canvas.drawText("SHEET", left + (right - left) * 0.80f + 16f, 92f, labelPaint)
+            }
+            PaperStyle.CORNELL_GRID -> {
+                canvas.drawLine(0f, 200f, w, 200f, boldLine)
+                canvas.drawLine(w * 0.3f, 200f, w * 0.3f, h * 0.8f, boldLine)
+                canvas.drawLine(0f, h * 0.8f, w, h * 0.8f, boldLine)
+                val step = 36f * g
+                var x = w * 0.3f + step
+                while (x < w - 20f) { canvas.drawLine(x, 200f, x, h * 0.8f, linePaint); x += step }
+                var y = 200f + step
+                while (y < h * 0.8f - 10f) { canvas.drawLine(w * 0.3f, y, w, y, linePaint); y += step }
+                canvas.drawText("CUES", 40f, 240f, labelPaint)
+                canvas.drawText("NOTES (GRID)", w * 0.3f + 24f, 175f, labelPaint)
+                canvas.drawText("SUMMARY", 40f, h * 0.8f + 44f, labelPaint)
+            }
+            PaperStyle.DOT_CORNELL -> {
+                canvas.drawLine(0f, 200f, w, 200f, boldLine)
+                canvas.drawLine(w * 0.3f, 200f, w * 0.3f, h * 0.8f, boldLine)
+                canvas.drawLine(0f, h * 0.8f, w, h * 0.8f, boldLine)
+                val st = 38f * g
+                var y = 200f + st
+                while (y < h * 0.8f - 12f) {
+                    var x = w * 0.3f + st
+                    while (x < w - 16f) { canvas.drawCircle(x, y, 2.5f, dotPaint); x += st }
+                    y += st
+                }
+                canvas.drawText("CUES", 40f, 240f, labelPaint)
+                canvas.drawText("DOT NOTES", w * 0.3f + 24f, 175f, labelPaint)
+                canvas.drawText("SUMMARY", 40f, h * 0.8f + 44f, labelPaint)
+            }
+            PaperStyle.HABIT_TRACKER -> {
+                canvas.drawText("HABIT TRACKER", 70f, 110f, labelPaint)
+                canvas.drawText("MONTH:", w * 0.58f, 110f, labelPaint)
+                canvas.drawLine(w * 0.68f, 114f, w - 70f, 114f, linePaint)
+                val top = 180f; val left = 60f; val nameCol = 320f; val right = w - 60f
+                val days = 31
+                val cellW = (right - (left + nameCol)) / days
+                val rows = 14
+                val rowH = ((h - top - 110f) / rows).coerceIn(48f, 88f)
+                val smallLbl = TextPaint(labelPaint).apply { textSize = 15f; textAlign = Paint.Align.CENTER }
+                canvas.drawText("HABIT", left + 16f, top - 16f, labelPaint)
+                for (d in 1..days) {
+                    val cx = left + nameCol + (d - 0.5f) * cellW
+                    canvas.drawText("$d", cx, top - 16f, smallLbl)
+                }
+                for (r in 0..rows) {
+                    val ry = top + r * rowH
+                    canvas.drawLine(left, ry, right, ry, if (r == 0) boldLine else linePaint)
+                }
+                canvas.drawLine(left, top, left, top + rows * rowH, boldLine)
+                canvas.drawLine(left + nameCol, top, left + nameCol, top + rows * rowH, boldLine)
+                for (d in 1..days) {
+                    val vx = left + nameCol + d * cellW
+                    canvas.drawLine(vx, top, vx, top + rows * rowH, linePaint)
+                }
+            }
+            PaperStyle.DAY_TIMEBLOCK -> {
+                canvas.drawText("TIME-BLOCK SCHEDULE", 70f, 108f, labelPaint)
+                canvas.drawLine(400f, 112f, w - 70f, 112f, linePaint)
+                val split = w * 0.58f
+                val top = 175f
+                val hours = 16 // 06:00 to 21:00
+                val rowH = (h - top - 80f) / hours
+                for (idx in 0 until hours) {
+                    val hy = top + idx * rowH
+                    canvas.drawText("%02d:00".format(6 + idx), 64f, hy + 26f, labelPaint)
+                    canvas.drawRoundRect(RectF(165f, hy + 4f, split - 24f, hy + rowH - 6f), 10f, 10f, boxPaint)
+                }
+                // Right column: Top Priorities, Deep Work, Reflection
+                val rx = split + 20f
+                val rw = w - rx - 60f
+                canvas.drawText("PRIORITY GOALS", rx, 198f, labelPaint)
+                canvas.drawRoundRect(RectF(rx, 214f, rx + rw, 460f), 16f, 16f, boxPaint)
+                for (k in 0 until 3) {
+                    val cy = 264f + k * 62f
+                    canvas.drawCircle(rx + 28f, cy - 8f, 12f, boxPaint)
+                    canvas.drawLine(rx + 54f, cy, rx + rw - 20f, cy, linePaint)
+                }
+                canvas.drawText("DEEP WORK / TASKS", rx, 520f, labelPaint)
+                canvas.drawRoundRect(RectF(rx, 536f, rx + rw, h * 0.75f), 16f, 16f, boxPaint)
+                var ty = 590f
+                while (ty < h * 0.75f - 24f) { canvas.drawLine(rx + 20f, ty, rx + rw - 20f, ty, linePaint); ty += 52f * g }
+                canvas.drawText("END-OF-DAY REFLECTION", rx, h * 0.75f + 56f, labelPaint)
+                canvas.drawRoundRect(RectF(rx, h * 0.75f + 72f, rx + rw, h - 80f), 16f, 16f, boxPaint)
+            }
+            PaperStyle.COMIC_PANELS -> {
+                val panelPaint = Paint(boldLine).apply { style = Paint.Style.STROKE; strokeWidth = 4.2f }
+                val padX = 72f; val padY = 96f; val gutter = 28f
+                val availW = w - padX * 2f; val availH = h - padY * 2f
+                val rowH = (availH - gutter * 2f) / 3f
+                // Row 1: Wide hero panel
+                canvas.drawRect(padX, padY, padX + availW, padY + rowH, panelPaint)
+                // Row 2: Two side-by-side panels (60% / 40%)
+                val r2Top = padY + rowH + gutter
+                val split1 = padX + availW * 0.56f
+                canvas.drawRect(padX, r2Top, split1 - gutter / 2f, r2Top + rowH, panelPaint)
+                canvas.drawRect(split1 + gutter / 2f, r2Top, padX + availW, r2Top + rowH, panelPaint)
+                // Row 3: Three equal beat panels
+                val r3Top = r2Top + rowH + gutter
+                val colW = (availW - gutter * 2f) / 3f
+                for (c in 0 until 3) {
+                    val cx = padX + c * (colW + gutter)
+                    canvas.drawRect(cx, r3Top, cx + colW, r3Top + rowH, panelPaint)
+                }
+            }
         }
     }
 
@@ -872,10 +1042,14 @@ class PageRenderer(private val noteDir: File?) {
                 is InkItem -> {
                     canvas.save()
                     canvas.translate(item.dx, item.dy)
-                    scratch.set(worldToScreen)
-                    if (moved) scratch.preConcat(transform!!)
-                    scratch.preTranslate(item.dx, item.dy)
-                    strokeRendererOrNull?.draw(canvas, item.stroke, scratch)
+                    if (item.isCrayon) {
+                        drawCrayonStroke(canvas, item)
+                    } else {
+                        scratch.set(worldToScreen)
+                        if (moved) scratch.preConcat(transform!!)
+                        scratch.preTranslate(item.dx, item.dy)
+                        strokeRendererOrNull?.draw(canvas, item.stroke, scratch)
+                    }
                     canvas.restore()
                 }
                 is TextItem -> drawText(canvas, item)
@@ -922,6 +1096,73 @@ class PageRenderer(private val noteDir: File?) {
         }
     }
 
+    private val crayonShaders = HashMap<Int, android.graphics.BitmapShader>()
+    private val crayonPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val crayonPath = Path()
+
+    /** Generates a repeating waxy paper-tooth grain tile in [color] for authentic Crayon rendering. */
+    private fun crayonShaderFor(color: Int): android.graphics.BitmapShader {
+        crayonShaders[color]?.let { return it }
+        if (crayonShaders.size > 24) crayonShaders.clear()
+        val sz = 48
+        val bmp = Bitmap.createBitmap(sz, sz, Bitmap.Config.ARGB_8888)
+        val r = Color.red(color); val g = Color.green(color); val b = Color.blue(color)
+        val baseA = ((color ushr 24) and 0xFF).coerceIn(90, 255)
+        val rnd = java.util.Random(0xC8A701L)
+        val pixels = IntArray(sz * sz)
+        for (i in pixels.indices) {
+            // Wax texture: dense paper grain peaks with porous micro-gaps
+            val n1 = rnd.nextFloat()
+            val n2 = rnd.nextFloat()
+            val grain = if (n1 < 0.24f) 0.14f else if (n1 < 0.45f) 0.52f else (0.78f + 0.22f * n2)
+            val a = (baseA * grain).toInt().coerceIn(0, 255)
+            // Subtle warm wax highlight variation
+            val jitter = ((n2 - 0.5f) * 14f).toInt()
+            val rr = (r + jitter).coerceIn(0, 255)
+            val gg = (g + jitter).coerceIn(0, 255)
+            val bb = (b + jitter).coerceIn(0, 255)
+            pixels[i] = Color.argb(a, rr, gg, bb)
+        }
+        bmp.setPixels(pixels, 0, sz, 0, 0, sz, sz)
+        return android.graphics.BitmapShader(bmp, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT)
+            .also { crayonShaders[color] = it }
+    }
+
+    /** Renders a Crayon InkItem with dry waxy texture grain and organic double-pass tooth. */
+    private fun drawCrayonStroke(canvas: Canvas, item: InkItem) {
+        val inputs = item.stroke.inputs
+        if (inputs.size == 0) return
+        val color = item.stroke.brush.colorIntArgb
+        val width = item.stroke.brush.size.coerceAtLeast(4f)
+        crayonPath.reset()
+        val p0 = inputs.get(0)
+        crayonPath.moveTo(p0.x, p0.y)
+        if (inputs.size == 1) {
+            crayonPath.lineTo(p0.x + 0.5f, p0.y + 0.5f)
+        } else {
+            for (i in 1 until inputs.size) {
+                val p = inputs.get(i)
+                crayonPath.lineTo(p.x, p.y)
+            }
+        }
+        crayonPaint.shader = crayonShaderFor(color)
+        crayonPaint.strokeWidth = width
+        crayonPaint.alpha = 245
+        canvas.drawPath(crayonPath, crayonPaint)
+        // Secondary offset dry-edge wax pass for authentic broad crayon tooth
+        crayonPaint.strokeWidth = width * 0.72f
+        crayonPaint.alpha = 145
+        canvas.save()
+        canvas.translate(width * 0.12f, -width * 0.10f)
+        canvas.drawPath(crayonPath, crayonPaint)
+        canvas.restore()
+        crayonPaint.shader = null
+    }
+
     private fun drawSticky(canvas: Canvas, item: StickyItem) {
         val r = item.raw
         val style = item.style
@@ -932,6 +1173,53 @@ class PageRenderer(private val noteDir: File?) {
             if (lum < 0.36f) Color.WHITE else 0xFF1B1F2A.toInt()
         }
         val fgMuted = (fg and 0x00FFFFFF) or (0x99 shl 24)
+
+        // Compact messaging/chat-bubble icon when folded (~76x76 world units) — tap anywhere to expand!
+        if (item.collapsed) {
+            rotated(canvas, r, item.rot) {
+                val cx = r.centerX()
+                val cy = r.centerY()
+                val bubble = RectF(r.left + 5f, r.top + 5f, r.right - 5f, r.bottom - 11f)
+                val rad = 22f
+                val bubblePath = Path().apply {
+                    addRoundRect(bubble, rad, rad, Path.Direction.CW)
+                    // Little chat-bubble pointer tail at bottom-left
+                    moveTo(bubble.left + 12f, bubble.bottom - 2f)
+                    lineTo(bubble.left + 4f, r.bottom - 2f)
+                    lineTo(bubble.left + 26f, bubble.bottom - 1f)
+                    close()
+                }
+                stickyPaint.color = if (style == "outline") (if (isDark) 0xEE181C24.toInt() else 0xF8FFFFFF.toInt()) else item.color
+                canvas.drawPath(bubblePath, stickyPaint)
+                stickyStroke.color = if (style == "outline") item.color else ((fg and 0x00FFFFFF) or (0x33 shl 24))
+                stickyStroke.strokeWidth = if (style == "outline") 3.2f else 2f
+                canvas.drawPath(bubblePath, stickyStroke)
+
+                // Clean messaging glyph lines inside the compact bubble
+                stickyStroke.color = fg
+                stickyStroke.strokeWidth = 3.2f
+                stickyStroke.strokeCap = Paint.Cap.ROUND
+                val lx = bubble.left + 16f
+                val rx = bubble.right - 16f
+                val ly1 = bubble.centerY() - 8f
+                val ly2 = bubble.centerY() + 1f
+                val ly3 = bubble.centerY() + 10f
+                canvas.drawLine(lx, ly1, rx, ly1, stickyStroke)
+                canvas.drawLine(lx, ly2, rx - 5f, ly2, stickyStroke)
+                canvas.drawLine(lx, ly3, lx + (rx - lx) * 0.58f, ly3, stickyStroke)
+
+                // Tiny notification dot on top-right if sticky contains text or title
+                if (item.text.isNotBlank() || item.title.isNotBlank()) {
+                    fillPaint.color = 0xFF3D6CF4.toInt()
+                    canvas.drawCircle(r.right - 10f, r.top + 10f, 8f, fillPaint)
+                    stickyStroke.color = Color.WHITE
+                    stickyStroke.strokeWidth = 2f
+                    canvas.drawCircle(r.right - 10f, r.top + 10f, 8f, stickyStroke)
+                }
+            }
+            return
+        }
+
         rotated(canvas, r, item.rot) {
             canvas.save()
             val clipPath = Path().apply { addRoundRect(r, 18f, 18f, Path.Direction.CW) }

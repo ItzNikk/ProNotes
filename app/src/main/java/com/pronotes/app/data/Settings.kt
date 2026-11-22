@@ -28,8 +28,12 @@ enum class ToolbarSize(val label: String, val scale: Float) { COMPACT("Compact",
 data class ToolDefaults(
     val handwritingLanguage: String = "en-US",
     val autoScript: String = "CURSIVE",
+    val customHandwritingFontPath: String = "",
     val autoHandwriting: Boolean = false,
     val alignHandwriting: Boolean = true,
+    val alignGuideLine: Boolean = true,
+    val dynamicBoldHandwriting: Boolean = true,
+    val autoSpellCheck: Boolean = true,
     val pressureEnabled: Boolean = true,
     val pressureSensitivity: Float = 1.0f,
     val penStabilization: Float = 0.25f,
@@ -38,6 +42,8 @@ data class ToolDefaults(
     val penNibRoundness: Float = 1.0f,
     val penNibAngleDeg: Float = 35f,
     val penStrokeStyle: String = "SOLID",
+    val crayonGrain: Float = 0.65f,
+    val crayonOpacity: Float = 0.88f,
     val tapSelect: Boolean = false,
     val penOpacity: Float = 1f,
     val shapeOpacity: Float = 1f,
@@ -363,6 +369,7 @@ data class AppSettings(
     val appFont: AppFont = AppFont.MODERN_SANS,
     val motionStyle: MotionStyle = MotionStyle.SPRING,
     val liveBlur: Boolean = true,
+    val topScrollBlur: Boolean = true,
     val classicAppearance: Boolean = false,
     val reduceEffects: Boolean = false,
     val showHoverTooltips: Boolean = true,
@@ -456,8 +463,12 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             toolDefaults = ToolDefaults(
                 handwritingLanguage = prefs.getString("handwritingLanguage", "en-US") ?: "en-US",
                 autoScript = prefs.getString("autoScript", null).orEmpty().ifBlank { d.toolDefaults.autoScript },
+                customHandwritingFontPath = prefs.getString("customHwFont", "") ?: "",
                 autoHandwriting = b("autoHandwriting", prefs.getString("autoScript", null).orEmpty().isNotBlank()),
                 alignHandwriting = b("alignHandwriting", true),
+                alignGuideLine = b("alignGuideLine", d.toolDefaults.alignGuideLine),
+                dynamicBoldHandwriting = b("dynamicBoldHw", d.toolDefaults.dynamicBoldHandwriting),
+                autoSpellCheck = b("autoSpellCheck", d.toolDefaults.autoSpellCheck),
                 pressureEnabled = b("pressureEnabled", true),
                 pressureSensitivity = prefs.getFloat("tdPressSens", d.toolDefaults.pressureSensitivity).coerceIn(0.3f, 2.0f),
                 penStabilization = prefs.getFloat("tdPenStab", d.toolDefaults.penStabilization).coerceIn(0f, 1f),
@@ -466,6 +477,8 @@ class SettingsStore private constructor(context: Context, file: String = "settin
                 penNibRoundness = prefs.getFloat("tdPenRound", d.toolDefaults.penNibRoundness).coerceIn(0.25f, 1f),
                 penNibAngleDeg = prefs.getFloat("tdPenAngle", d.toolDefaults.penNibAngleDeg).coerceIn(0f, 180f),
                 penStrokeStyle = prefs.getString("tdPenStyle", d.toolDefaults.penStrokeStyle) ?: d.toolDefaults.penStrokeStyle,
+                crayonGrain = prefs.getFloat("tdCrayonGrain", d.toolDefaults.crayonGrain).coerceIn(0.15f, 1f),
+                crayonOpacity = prefs.getFloat("tdCrayonOp", d.toolDefaults.crayonOpacity).coerceIn(0.35f, 1f),
                 tapSelect = b("tapSelect", false),
                 penOpacity = prefs.getFloat("tdPenOp", d.toolDefaults.penOpacity).coerceIn(0.15f, 1f),
                 shapeOpacity = prefs.getFloat("tdShapeOp", d.toolDefaults.shapeOpacity).coerceIn(0.15f, 1f),
@@ -535,6 +548,7 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             appFont = enumOf("appFont", d.appFont),
             motionStyle = motionStyleOf("motionStyle", d.motionStyle),
             liveBlur = b("liveBlur", true),
+            topScrollBlur = b("topScrollBlur", d.topScrollBlur),
             classicAppearance = b("classicAppearance", d.classicAppearance),
             reduceEffects = b("reduceEffects", d.reduceEffects),
             showHoverTooltips = b("showHoverTooltips", d.showHoverTooltips),
@@ -575,8 +589,12 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             .putString("toolbarPos", s.toolbarPos)
             .putBoolean("autoHandwriting", s.toolDefaults.autoHandwriting)
             .putBoolean("alignHandwriting", s.toolDefaults.alignHandwriting)
+            .putBoolean("alignGuideLine", s.toolDefaults.alignGuideLine)
+            .putBoolean("dynamicBoldHw", s.toolDefaults.dynamicBoldHandwriting)
+            .putBoolean("autoSpellCheck", s.toolDefaults.autoSpellCheck)
             .putString("handwritingLanguage", s.toolDefaults.handwritingLanguage)
             .putString("autoScript", s.toolDefaults.autoScript)
+            .putString("customHwFont", s.toolDefaults.customHandwritingFontPath)
             .putBoolean("pressureEnabled", s.toolDefaults.pressureEnabled)
             .putFloat("tdPressSens", s.toolDefaults.pressureSensitivity.coerceIn(0.3f, 2.0f))
             .putFloat("tdPenStab", s.toolDefaults.penStabilization.coerceIn(0f, 1f))
@@ -585,6 +603,8 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             .putFloat("tdPenRound", s.toolDefaults.penNibRoundness.coerceIn(0.25f, 1f))
             .putFloat("tdPenAngle", s.toolDefaults.penNibAngleDeg.coerceIn(0f, 180f))
             .putString("tdPenStyle", s.toolDefaults.penStrokeStyle)
+            .putFloat("tdCrayonGrain", s.toolDefaults.crayonGrain.coerceIn(0.15f, 1f))
+            .putFloat("tdCrayonOp", s.toolDefaults.crayonOpacity.coerceIn(0.35f, 1f))
             .putBoolean("tapSelect", s.toolDefaults.tapSelect)
             .putFloat("tdPenOp", s.toolDefaults.penOpacity.coerceIn(0.15f, 1f))
             .putFloat("tdShapeOp", s.toolDefaults.shapeOpacity.coerceIn(0.15f, 1f))
@@ -652,6 +672,7 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             .putString("appFont", s.appFont.name)
             .putString("motionStyle", s.motionStyle.name)
             .putBoolean("liveBlur", s.liveBlur)
+            .putBoolean("topScrollBlur", s.topScrollBlur)
             .putBoolean("classicAppearance", s.classicAppearance)
             .putBoolean("reduceEffects", s.reduceEffects)
             .putBoolean("showHoverTooltips", s.showHoverTooltips)

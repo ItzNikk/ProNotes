@@ -2,10 +2,17 @@ package com.pronotes.app.ui
 
 import android.os.Build
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import com.skydoves.cloudy.cloudy
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -77,6 +84,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -371,10 +379,21 @@ fun AppPill(
         else -> scheme.onSurface
     }
     val shape = appPillShape()
+    val borderTint = when {
+        selected -> Color.White.copy(alpha = if (dark) 0.24f else 0.28f)
+        tint != null -> tint.copy(alpha = if (dark) 0.34f else 0.24f)
+        else -> scheme.outlineVariant.copy(alpha = if (dark) 0.55f else 0.72f)
+    }
     Row(
         modifier = modifier
+            .then(
+                if (selected && !LocalReduceEffects.current) {
+                    Modifier.shadow(3.dp, shape, ambientColor = activeTint.copy(alpha = 0.28f), spotColor = activeTint.copy(alpha = 0.28f))
+                } else Modifier,
+            )
             .clip(shape)
             .background(bg)
+            .border(0.9.dp, borderTint, shape)
             .then(
                 if (onClick != null) {
                     Modifier.clickable(role = Role.Button, onClick = onClick)
@@ -388,6 +407,110 @@ fun AppPill(
             content()
         }
     }
+}
+
+/**
+ * Animated sweeping multi-colour gradient placeholder text for search inputs.
+ */
+@Composable
+fun AnimatedGradientSearchPlaceholder(
+    text: String = "What are you looking for?",
+    modifier: Modifier = Modifier,
+) {
+    val reduceMotion = LocalReduceMotion.current
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.4f
+    val shift = if (reduceMotion) {
+        0.35f
+    } else {
+        val transition = rememberInfiniteTransition(label = "searchGrad")
+        transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 3200, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "searchGradShift",
+        ).value
+    }
+    val palette = if (dark) {
+        listOf(
+            Color(0xFF60A5FA),
+            Color(0xFFC084FC),
+            Color(0xFFF472B6),
+            Color(0xFF34D399),
+            Color(0xFF60A5FA),
+        )
+    } else {
+        listOf(
+            Color(0xFF2563EB),
+            Color(0xFF7C3AED),
+            Color(0xFFDB2777),
+            Color(0xFF059669),
+            Color(0xFF2563EB),
+        )
+    }
+    val brush = Brush.linearGradient(
+        colors = palette,
+        start = Offset(x = -180f + shift * 360f, y = 0f),
+        end = Offset(x = 340f + shift * 360f, y = 40f),
+    )
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodyMedium.copy(
+            brush = brush,
+            fontWeight = FontWeight.SemiBold,
+        ),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier,
+    )
+}
+
+/**
+ * Soft progressive top scroll blur powered by skydoves/Cloudy.
+ * Activates smoothly when scrolled down so content sliding beneath the top chrome blurs softly.
+ */
+@Composable
+fun TopScrollCloudyBackdrop(
+    scrolled: Boolean,
+    enabled: Boolean,
+    height: Dp = 84.dp,
+    modifier: Modifier = Modifier,
+) {
+    val classic = LocalClassicAppearance.current
+    val reduceEffects = LocalReduceEffects.current
+    val liveBlur = LocalLiveBlur.current
+    val active = enabled && scrolled && !classic && !reduceEffects && liveBlur
+    val blurRadius by animateIntAsState(
+        targetValue = if (active) 20 else 0,
+        animationSpec = tween(220),
+        label = "cloudyTopRadius",
+    )
+    val scrimAlpha by animateFloatAsState(
+        targetValue = if (scrolled) 0.90f else 0f,
+        animationSpec = tween(220),
+        label = "cloudyTopAlpha",
+    )
+    if (scrimAlpha <= 0.01f && blurRadius == 0) return
+    val surface = MaterialTheme.colorScheme.background
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .then(
+                if (blurRadius > 0) {
+                    Modifier.cloudy(radius = blurRadius, enabled = true)
+                } else Modifier,
+            )
+            .background(
+                Brush.verticalGradient(
+                    0.0f to surface.copy(alpha = scrimAlpha),
+                    0.58f to surface.copy(alpha = scrimAlpha * 0.72f),
+                    1.0f to Color.Transparent,
+                ),
+            ),
+    )
 }
 
 @Composable

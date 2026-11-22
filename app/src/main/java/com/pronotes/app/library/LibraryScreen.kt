@@ -54,7 +54,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -195,6 +197,7 @@ internal data class LibraryNewBookPrefs(
     val defaultPaper: PaperStyle,
     val thumbCovers: Boolean,
     val defaultCoverPage: Boolean,
+    val topScrollBlur: Boolean,
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -212,12 +215,12 @@ fun LibraryScreen(
     val store = remember { SettingsStore.get(context) }
     val newBookPrefs by remember(store) {
         store.select {
-            LibraryNewBookPrefs(it.defaultPreset, it.defaultLandscape, it.defaultPaper, it.thumbCovers, it.defaultCoverPage)
+            LibraryNewBookPrefs(it.defaultPreset, it.defaultLandscape, it.defaultPaper, it.thumbCovers, it.defaultCoverPage, it.topScrollBlur)
         }
     }.collectAsStateWithLifecycle(
         initialValue = remember(store) {
             store.settings.value.let {
-                LibraryNewBookPrefs(it.defaultPreset, it.defaultLandscape, it.defaultPaper, it.thumbCovers, it.defaultCoverPage)
+                LibraryNewBookPrefs(it.defaultPreset, it.defaultLandscape, it.defaultPaper, it.thumbCovers, it.defaultCoverPage, it.topScrollBlur)
             }
         },
     )
@@ -552,6 +555,25 @@ fun LibraryScreen(
                                 Text("Empty trash", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                             }
                         } else {
+                            if (section == Section.DOCUMENTS) {
+                                AppPill(
+                                    selected = false,
+                                    tint = ProButtonPalette.Violet,
+                                    onClick = { newFolder = true },
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                ) {
+                                    Icon(Icons.Outlined.CreateNewFolder, "New folder", Modifier.size(17.dp))
+                                    if (wide) {
+                                        Spacer(Modifier.width(5.dp))
+                                        Text(
+                                            if (folderId != null) "Subfolder" else "Folder",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.width(6.dp))
+                            }
                             AppMenuButton(
                                 contentPadding = PaddingValues(0.dp),
                                 items = listOf(
@@ -682,6 +704,46 @@ fun LibraryScreen(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
                     )
 
+                    // Nested Folder Breadcrumb Trail (Documents > Folder > Subfolder)
+                    if (section == Section.DOCUMENTS && folderId != null) {
+                        val trail = remember(lib.folders, folderId) {
+                            val list = ArrayList<Folder>()
+                            var cur = folderId
+                            var guard = 0
+                            while (cur != null && guard < 16) {
+                                val f = lib.folders.firstOrNull { it.id == cur } ?: break
+                                list.add(0, f)
+                                cur = f.parentId
+                                guard++
+                            }
+                            list
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 24.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            AppChip(
+                                selected = false,
+                                onClick = { folderId = null },
+                                label = "Documents",
+                                tint = ProButtonPalette.ElectricBlue,
+                            )
+                            trail.forEachIndexed { idx, f ->
+                                Text("›", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                AppChip(
+                                    selected = idx == trail.lastIndex,
+                                    onClick = { folderId = f.id },
+                                    label = "${f.emoji.ifBlank { "📁" }} ${f.name}",
+                                    tint = Color(f.color),
+                                )
+                            }
+                        }
+                    }
+
                     if (section != Section.TRASH) {
                         Row(
                             modifier = Modifier
@@ -719,7 +781,9 @@ fun LibraryScreen(
                             OutlinedTextField(
                                 query,
                                 { query = it },
-                                placeholder = { Text("Search notebooks, folders, or #tags") },
+                                placeholder = {
+                                    com.pronotes.app.ui.AnimatedGradientSearchPlaceholder("What are you looking for?")
+                                },
                                 singleLine = true,
                                 leadingIcon = { Icon(Icons.Outlined.Search, null) },
                                 shape = RoundedCornerShape(14.dp),
@@ -746,6 +810,13 @@ fun LibraryScreen(
                     )
 
                     val listBottomPad = appContentBottomPadding()
+                    val listScrollState = rememberLazyListState()
+                    val gridScrollState = rememberLazyGridState()
+                    val libraryScrolled = if (listView) {
+                        listScrollState.firstVisibleItemIndex > 0 || listScrollState.firstVisibleItemScrollOffset > 8
+                    } else {
+                        gridScrollState.firstVisibleItemIndex > 0 || gridScrollState.firstVisibleItemScrollOffset > 8
+                    }
 
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         if (entries.isEmpty()) {
@@ -771,7 +842,8 @@ fun LibraryScreen(
                             ) { (_, _, asList) ->
                                 if (asList) {
                                     LazyColumn(
-                                        Modifier.fillMaxSize(),
+                                        state = listScrollState,
+                                        modifier = Modifier.fillMaxSize(),
                                         contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 12.dp, bottom = listBottomPad),
                                     ) {
                                         items(entries, key = { keyOf(it) }) { e ->
@@ -780,6 +852,7 @@ fun LibraryScreen(
                                     }
                                 } else {
                                     LazyVerticalGrid(
+                                        state = gridScrollState,
                                         columns = GridCells.Adaptive(154.dp),
                                         modifier = Modifier.fillMaxSize(),
                                         contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 14.dp, bottom = listBottomPad),
@@ -798,6 +871,12 @@ fun LibraryScreen(
                                 }
                             }
                         }
+                        com.pronotes.app.ui.TopScrollCloudyBackdrop(
+                            scrolled = libraryScrolled,
+                            enabled = newBookPrefs.topScrollBlur,
+                            height = 54.dp,
+                            modifier = Modifier.align(Alignment.TopCenter),
+                        )
                     }
                 }
             }

@@ -38,6 +38,7 @@ object Brushes {
     const val DASHED = "dashed"
     const val CALLIGRAPHY = "calligraphy"
     const val PENCIL = "pencil"
+    const val CRAYON = "crayon"
 
     /** Highlighter ink opacity (set from settings); swatches stay opaque. */
     @Volatile var highlightAlpha = 0x73
@@ -48,6 +49,7 @@ object Brushes {
     private val dashed by lazy { StockBrushes.dashedLine() }
     private val calligraphy by lazy { buildCalligraphy(0.32f, 35f) }
     private val pencil by lazy { buildPencil() }
+    private val crayon by lazy { buildCrayon() }
 
     @SuppressLint("RestrictedApi")
     private fun buildHighlighter(): BrushFamily =
@@ -78,12 +80,25 @@ object Brushes {
             paint = BrushPaint(),
         )
 
+    @SuppressLint("RestrictedApi")
+    private fun buildCrayon(): BrushFamily =
+        BrushFamily(
+            tip = BrushTip(
+                scaleX = 1.18f,
+                scaleY = 0.92f,
+                cornerRounding = 0.65f,
+                behaviors = emptyList(),
+            ),
+            paint = BrushPaint(),
+        )
+
     fun family(name: String): BrushFamily = when (name) {
         HIGHLIGHTER -> highlighter
         MARKER -> marker
         DASHED -> dashed
         CALLIGRAPHY -> calligraphy
         PENCIL -> pencil
+        CRAYON -> crayon
         else -> pen
     }
 
@@ -93,6 +108,7 @@ object Brushes {
         dashed -> DASHED
         calligraphy -> CALLIGRAPHY
         pencil -> PENCIL
+        crayon -> CRAYON
         else -> PEN
     }
 
@@ -104,7 +120,11 @@ object Brushes {
     }
 
     fun create(family: String, color: Int, size: Float, opacity: Float = 1f): Brush {
-        val effOpacity = if (family == PENCIL) (opacity * 0.72f).coerceIn(0.2f, 0.9f) else opacity
+        val effOpacity = when (family) {
+            PENCIL -> (opacity * 0.72f).coerceIn(0.2f, 0.9f)
+            CRAYON -> (opacity * 0.86f).coerceIn(0.35f, 0.96f)
+            else -> opacity
+        }
         val c = if (family == HIGHLIGHTER) {
             (color and 0x00FFFFFF) or (highlightAlpha shl 24)
         } else if (effOpacity >= 0.995f) {
@@ -115,7 +135,7 @@ object Brushes {
         return Brush.createWithColorIntArgb(family(family), c, size, 0.1f)
     }
 
-    /** Creates a customized pen brush applying stroke style, nib geometry, and pressure sensitivity. */
+    /** Creates a customized pen brush applying stroke style, nib geometry, and real pressure sensitivity. */
     @SuppressLint("RestrictedApi")
     fun createCustomPen(
         baseFamily: String,
@@ -128,9 +148,18 @@ object Brushes {
         nibAngleDeg: Float,
         strokeStyle: String,
     ): Brush {
-        val effectiveSize = (size * (0.75f + 0.25f * pressureSensitivity.coerceIn(0.3f, 2.0f))).coerceIn(0.4f, 120f)
-        val effOpacity = if (baseFamily == PENCIL) (opacity * 0.72f).coerceIn(0.2f, 0.9f) else opacity
+        val sens = pressureSensitivity.coerceIn(0.3f, 2.0f)
+        // Keep base stroke size accurate; dynamic pressure remapping in NoteCanvasView drives live thin-to-thick variation.
+        val effectiveSize = (if (pressureEnabled) size * (0.85f + 0.18f * sens) else size).coerceIn(0.4f, 120f)
+        val effOpacity = when (baseFamily) {
+            PENCIL -> (opacity * 0.72f).coerceIn(0.2f, 0.9f)
+            CRAYON -> (opacity * 0.86f).coerceIn(0.35f, 0.96f)
+            else -> opacity
+        }
         val c = if (effOpacity >= 0.995f) opaque(color) else withAlpha(color, effOpacity)
+        if (baseFamily == CRAYON) {
+            return Brush.createWithColorIntArgb(crayon, c, effectiveSize, 0.1f)
+        }
         if (strokeStyle == "DASHED" || strokeStyle == "DOTTED" || baseFamily == DASHED) {
             return Brush.createWithColorIntArgb(dashed, c, effectiveSize, 0.1f)
         }
@@ -139,9 +168,9 @@ object Brushes {
             return Brush.createWithColorIntArgb(customFamily, c, effectiveSize, 0.1f)
         }
         val resolvedFamily = when {
-            baseFamily == PENCIL -> pencil
-            !pressureEnabled && baseFamily == PEN -> marker
-            else -> family(baseFamily)
+            baseFamily == PENCIL -> if (pressureEnabled) pen else pencil
+            pressureEnabled -> pen
+            else -> marker
         }
         return Brush.createWithColorIntArgb(resolvedFamily, c, effectiveSize, 0.1f)
     }
@@ -255,6 +284,7 @@ object InkCodec {
                     font = item.style.font.name, bold = item.style.bold, italic = item.style.italic,
                     underline = item.style.underline, gradient = item.style.gradient, align = item.style.align.name,
                     rot = item.rot,
+                    customFontPath = item.style.customFontPath,
                 )
                 is FillItem -> ItemDoc.Fill(item.points.toList(), item.color, item.dx, item.dy)
                 is ImageItem -> ItemDoc.Image(item.file, item.x, item.y, item.w, item.h, item.rot)
@@ -309,6 +339,7 @@ object InkCodec {
                                 font = runCatching { TextFont.valueOf(item.font) }.getOrDefault(TextFont.SANS),
                                 bold = item.bold, italic = item.italic, underline = item.underline, gradient = item.gradient,
                                 align = runCatching { TextAlign.valueOf(item.align) }.getOrDefault(TextAlign.LEFT),
+                                customFontPath = item.customFontPath,
                             ),
                             item.rot,
                         )

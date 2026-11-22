@@ -527,11 +527,23 @@ fun EditorViewModel.toggleWriteBox(page: Int, item: WriteBoxItem) {
 fun EditorViewModel.toggleKeyboardMode() {
     if (keyboardMode) {
         onRequestCommitText?.invoke()
+        if (textEdit?.isFullPage == true) textEdit = null
         keyboardMode = false
     } else {
         onSelection(-1, emptySet(), null)
         activeWriteBoxId = null
+        val p = pages.getOrNull(pageIndex) ?: return
+        val existing = p.items.filterIsInstance<TextItem>().firstOrNull()
         keyboardMode = true
+        openInlineTextBox(
+            page = pageIndex,
+            x = existing?.x ?: 52f,
+            y = existing?.y ?: 68f,
+            existing = existing,
+            boxWidth = (p.width - 104f).coerceAtLeast(360f),
+            boxHeight = (p.height - 140f).coerceAtLeast(320f),
+            isFullPage = true,
+        )
     }
 }
 

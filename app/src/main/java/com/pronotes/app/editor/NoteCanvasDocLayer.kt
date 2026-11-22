@@ -43,6 +43,10 @@ internal class NoteCanvasDocLayer(
     var tapePreview: RectF? = null
     var tapeFree: List<Pt>? = null
     var writeBoxPreview: RectF? = null
+    /** Active writing guide line in Auto-Text or Align Handwriting mode (page space). */
+    var guideLinePage: Int = -1
+    var guideLineX: Float = -1f
+    var guideLineY: Float = -1f
 
     /** Hover preview: x, y, and (colour, radius in px). */
     var hoverDot: Triple<Float, Float, Pair<Int, Float>>? = null
@@ -82,17 +86,52 @@ internal class NoteCanvasDocLayer(
         invalidate()
     }
 
+    private val lassoHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 5.4f * owner.density
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        color = 0xCCFFFFFF.toInt()
+    }
     private val lassoPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1.6f * owner.density
+        strokeWidth = 3.2f * owner.density
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
         color = 0xFF3D6CF4.toInt()
     }
-    private val lassoFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x143D6CF4 }
+    private val lassoFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x183D6CF4 }
+    private val selHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 5.0f * owner.density
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        color = 0xCCFFFFFF.toInt()
+        pathEffect = DashPathEffect(floatArrayOf(13f * owner.density, 7f * owner.density), 0f)
+    }
     private val selPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1.5f * owner.density
+        strokeWidth = 3.0f * owner.density
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
         color = 0xFF3D6CF4.toInt()
-        pathEffect = DashPathEffect(floatArrayOf(8f * owner.density, 5f * owner.density), 0f)
+        pathEffect = DashPathEffect(floatArrayOf(13f * owner.density, 7f * owner.density), 0f)
+    }
+    private val guideBaselinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2.6f
+        strokeCap = Paint.Cap.ROUND
+        color = 0xB83D6CF4.toInt()
+    }
+    private val guideXHeightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.6f
+        color = 0x553D6CF4
+        pathEffect = DashPathEffect(floatArrayOf(12f, 9f), 0f)
+    }
+    private val guidePillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0xCC3D6CF4.toInt()
     }
     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt() }
     private val handleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
@@ -372,6 +411,19 @@ internal class NoteCanvasDocLayer(
                     gy += 44f
                 }
             }
+            // Writing guide line in Auto-Text mode or Align Handwriting mode so user can write cleanly above it
+            val showGuide = owner.settings.toolDefaults.alignGuideLine &&
+                (owner.tool == Tool.AUTO_TEXT || (owner.tool == Tool.PEN && owner.settings.toolDefaults.alignHandwriting))
+            if (showGuide && guideLinePage == i && guideLineY > 24f && guideLineY < p.height - 16f) {
+                val gxLeft = (guideLineX - 240f).coerceAtLeast(36f)
+                val gxRight = (guideLineX + 520f).coerceAtMost(p.width - 36f)
+                // Soft dashed x-height line above baseline
+                canvas.drawLine(gxLeft, guideLineY - 38f, gxRight, guideLineY - 38f, guideXHeightPaint)
+                // Crisp baseline guide right beneath handwriting
+                canvas.drawLine(gxLeft, guideLineY, gxRight, guideLineY, guideBaselinePaint)
+                // Small start-anchor tick
+                canvas.drawCircle(gxLeft, guideLineY, 4.5f, guidePillPaint)
+            }
             canvas.restore()
             if (!p.isWhiteboard && owner.settings.pageNumbers && owner.pages.size > 1) {
                 canvas.drawText("${i + 1}", sr.centerX(), sr.bottom + 18f * density, pageNumberPaint)
@@ -531,7 +583,8 @@ internal class NoteCanvasDocLayer(
             outlinePath.transform(owner.pageMatrix(owner.selectionPage, m))
             lassoFill.alpha = 0x10
             canvas.drawPath(outlinePath, lassoFill)
-            lassoFill.alpha = 0x14
+            lassoFill.alpha = 0x18
+            canvas.drawPath(outlinePath, selHaloPaint)
             canvas.drawPath(outlinePath, selPaint)
         }
         val rotating = owner.grab == NoteCanvasView.Grab.ROTATE && owner.liveMatrix != null
@@ -542,7 +595,10 @@ internal class NoteCanvasDocLayer(
         canvas.scale(selScale, selScale, sb.centerX(), sb.centerY())
         if (rotating) canvas.rotate(owner.liveDeg, sb.centerX(), sb.centerY())
         val rad = 10f * density
-        if (loop == null) canvas.drawRoundRect(sb, rad, rad, selPaint)
+        if (loop == null) {
+            canvas.drawRoundRect(sb, rad, rad, selHaloPaint)
+            canvas.drawRoundRect(sb, rad, rad, selPaint)
+        }
         val hr = 6f * density
         val ry = sb.top - owner.rotateHandleOffset()
         canvas.drawLine(sb.centerX(), sb.top, sb.centerX(), ry + hr, handlePaint.apply { strokeWidth = 1.5f * density })
@@ -596,7 +652,10 @@ internal class NoteCanvasDocLayer(
         tmpPath.reset()
         pts.forEachIndexed { i, (x, y) -> if (i == 0) tmpPath.moveTo(x, y) else tmpPath.lineTo(x, y) }
         canvas.drawPath(tmpPath, lassoFill)
-        lassoPaint.pathEffect = DashPathEffect(floatArrayOf(9f * density, 4f * density), antsPhase)
+        val dash = DashPathEffect(floatArrayOf(14f * density, 8f * density), antsPhase)
+        lassoHaloPaint.pathEffect = dash
+        lassoPaint.pathEffect = dash
+        canvas.drawPath(tmpPath, lassoHaloPaint)
         canvas.drawPath(tmpPath, lassoPaint)
     }
 

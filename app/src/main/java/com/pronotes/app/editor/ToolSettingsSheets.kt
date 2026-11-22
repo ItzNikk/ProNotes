@@ -174,16 +174,33 @@ fun ToolPopoverCard(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(ProButtonPalette.ElectricBlue.copy(alpha = if (darkUi) 0.22f else 0.12f))
+                                .border(1.dp, ProButtonPalette.ElectricBlue.copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            ProIconView(
+                                com.pronotes.app.ui.iconFor(tool),
+                                ProButtonPalette.ElectricBlue,
+                                Modifier.size(18.dp),
+                                ink = Color(vm.styleFor(tool)?.color ?: vm.penStyle.color),
+                            )
+                        }
+                        Spacer(Modifier.width(10.dp))
                         ScaleInAnimatedText(
                             text = if (tool == Tool.PEN) vm.penType.label else toolDisplayName(tool),
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                             color = cardFg,
                             modifier = Modifier.weight(1f),
                         )
                         Box(
                             modifier = Modifier
-                                .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                                .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
                                 .clip(CircleShape)
+                                .background(cardFg.copy(alpha = 0.06f))
                                 .focusable()
                                 .clickable(role = Role.Button, onClickLabel = "Close settings sheet", onClick = onDismiss),
                             contentAlignment = Alignment.Center,
@@ -194,6 +211,7 @@ fun ToolPopoverCard(
 
                     when (tool) {
                         Tool.PEN -> PenCardContent(vm, darkUi, cardFg)
+                        Tool.CRAYON -> CrayonCardContent(vm, darkUi, cardFg)
                         Tool.HIGHLIGHTER -> HighlighterCardContent(vm, darkUi, cardFg)
                         Tool.SHAPE -> ShapeCardContent(vm)
                         Tool.ERASER -> EraserCardContent(vm)
@@ -357,9 +375,18 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
         SheetToggleLine("Align to nearby paper rules", s.toolDefaults.alignHandwriting, fgColor) { enabled ->
             store.update { it.copy(toolDefaults = it.toolDefaults.copy(alignHandwriting = enabled)) }
         }
-        Text("Write with the pen and pause to convert handwriting to editable text.", style = MaterialTheme.typography.bodySmall)
+        SheetToggleLine("Show writing guide line", s.toolDefaults.alignGuideLine, fgColor) { enabled ->
+            store.update { it.copy(toolDefaults = it.toolDefaults.copy(alignGuideLine = enabled)) }
+        }
+        SheetToggleLine("Dynamic bold (large strokes → bold)", s.toolDefaults.dynamicBoldHandwriting, fgColor) { enabled ->
+            store.update { it.copy(toolDefaults = it.toolDefaults.copy(dynamicBoldHandwriting = enabled)) }
+        }
+        SheetToggleLine("Auto spell check", s.toolDefaults.autoSpellCheck, fgColor) { enabled ->
+            store.update { it.copy(toolDefaults = it.toolDefaults.copy(autoSpellCheck = enabled)) }
+        }
+        Text("Write with the pen and pause to convert handwriting to editable text.", style = MaterialTheme.typography.bodySmall, color = mutedFg)
         Text("Recognition language", style = MaterialTheme.typography.titleSmall)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             HandwritingRecognizer.languages.forEach { (tag, label) ->
                 AppChip(s.toolDefaults.handwritingLanguage == tag, {
                     store.update { it.copy(toolDefaults = it.toolDefaults.copy(handwritingLanguage = tag)) }
@@ -371,10 +398,17 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
         Text("Writing font", style = MaterialTheme.typography.titleSmall)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             TextFont.entries.forEach { font ->
-                AppChip(s.toolDefaults.autoScript == font.name,
-                    { store.update { it.copy(toolDefaults = it.toolDefaults.copy(autoScript = font.name)) } }, label = font.label)
+                AppChip(s.toolDefaults.customHandwritingFontPath.isBlank() && s.toolDefaults.autoScript == font.name,
+                    { store.update { it.copy(toolDefaults = it.toolDefaults.copy(autoScript = font.name, customHandwritingFontPath = "")) } }, label = font.label)
             }
         }
+        CustomHandwritingFontPicker(
+            selectedPath = s.toolDefaults.customHandwritingFontPath,
+            fgColor = fgColor,
+            onSelect = { path ->
+                store.update { it.copy(toolDefaults = it.toolDefaults.copy(customHandwritingFontPath = path)) }
+            },
+        )
     }
     if (section == 3) {
         SheetToggleLine("Stylus pressure", s.toolDefaults.pressureEnabled, fgColor) { enabled ->
@@ -823,8 +857,16 @@ private fun TextCardContent(vm: EditorViewModel) {
     }
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         TextFont.entries.forEach { font ->
-            AppChip(vm.textStyle.font == font, { vm.textStyle = vm.textStyle.copy(font = font) }, label = font.label)
+            AppChip(vm.textStyle.customFontPath.isBlank() && vm.textStyle.font == font, { vm.textStyle = vm.textStyle.copy(font = font, customFontPath = "") }, label = font.label)
         }
+    }
+    CustomHandwritingFontPicker(
+        selectedPath = vm.textStyle.customFontPath,
+        fgColor = fgColor,
+        onSelect = { path -> vm.textStyle = vm.textStyle.copy(customFontPath = path) },
+    )
+    SheetToggleLine("Auto spell check while typing", td.autoSpellCheck, fgColor) { enabled ->
+        store.update { it.copy(toolDefaults = it.toolDefaults.copy(autoSpellCheck = enabled)) }
     }
     val hwStore = remember(context) { HandwritingFontStore.get(context) }
     val hwProfile by hwStore.profile.collectAsStateWithLifecycle()
@@ -1076,6 +1118,119 @@ private fun SheetSliderRow(label: String, value: String, v: Float, range: Closed
     )
 }
 
+@Composable
+private fun CrayonCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color) {
+    val style = vm.crayonStyle
+    val store = vm.notebookSettings
+    val settings by vm.settingsFlow.collectAsStateWithLifecycle()
+    val td = settings.toolDefaults
+
+    StrokePreview(
+        Color(style.color).copy(alpha = td.crayonOpacity),
+        style.size * 1.45f,
+        taper = false,
+        darkUi = darkUi,
+    )
+    Text("CRAYON COLOURS", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.68f))
+    StyleOptions(vm, Tool.CRAYON, style, fgColor, darkUi, vertical = false)
+    HorizontalDivider(color = fgColor.copy(alpha = 0.08f))
+    SheetSliderRow("WAX TIP SIZE", "%.1f pt".format(style.size), style.size, 4f..40f) { v ->
+        val sizes = style.sizes.map { if (it == style.size) v else it }
+        vm.updateStyle(Tool.CRAYON, style.copy(size = v, sizes = sizes))
+    }
+    SheetSliderRow("WAX GRAIN TEXTURE", "${(td.crayonGrain * 100).roundToInt()}%", td.crayonGrain, 0.15f..1.0f) { v ->
+        store.update { it.copy(toolDefaults = it.toolDefaults.copy(crayonGrain = v)) }
+    }
+    SheetSliderRow("WAX OPACITY", "${(td.crayonOpacity * 100).roundToInt()}%", td.crayonOpacity, 0.35f..1.0f) { v ->
+        store.update { it.copy(toolDefaults = it.toolDefaults.copy(crayonOpacity = v)) }
+    }
+    Text(
+        "Textured dry-wax crayon with paper grain modulation. Great for sketching, shading, and diagrams.",
+        style = MaterialTheme.typography.labelSmall,
+        color = fgColor.copy(alpha = 0.68f),
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun CustomHandwritingFontPicker(
+    selectedPath: String,
+    fgColor: Color,
+    onSelect: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    var fonts by remember { mutableStateOf(CustomFontRegistry.listFonts(context)) }
+    var status by remember { mutableStateOf<String?>(null) }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val imported = CustomFontRegistry.importFont(context, uri)
+            if (imported != null) {
+                fonts = CustomFontRegistry.listFonts(context)
+                onSelect(imported.path)
+                status = "Imported ${imported.displayName}"
+            } else {
+                status = "Could not read font file (.ttf / .otf)"
+            }
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                "CUSTOM FONTS (.TTF / .OTF)",
+                style = MaterialTheme.typography.labelSmall,
+                color = fgColor.copy(alpha = 0.68f),
+                modifier = Modifier.weight(1f),
+            )
+            AppPill(
+                selected = false,
+                tint = ProButtonPalette.ElectricBlue,
+                onClick = {
+                    importLauncher.launch(arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "application/octet-stream", "*/*"))
+                },
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
+            ) {
+                Text("+ Import font", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        if (fonts.isNotEmpty()) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                AppChip(
+                    selected = selectedPath.isBlank(),
+                    onClick = { onSelect("") },
+                    label = "Built-in",
+                    tint = ProButtonPalette.ElectricBlue,
+                )
+                fonts.forEach { entry ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AppChip(
+                            selected = selectedPath == entry.path,
+                            onClick = { onSelect(entry.path) },
+                            label = entry.displayName,
+                            tint = ProButtonPalette.Violet,
+                        )
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .clickable {
+                                    CustomFontRegistry.deleteFont(entry.path)
+                                    if (selectedPath == entry.path) onSelect("")
+                                    fonts = CustomFontRegistry.listFonts(context)
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Filled.Close, contentDescription = "Remove font", tint = fgColor.copy(alpha = 0.55f), modifier = Modifier.size(13.dp))
+                        }
+                    }
+                }
+            }
+        }
+        status?.let {
+            Text(it, style = MaterialTheme.typography.labelSmall, color = ProButtonPalette.Emerald)
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AutoTextCardContent(vm: EditorViewModel, fgColor: Color) {
@@ -1083,12 +1238,21 @@ private fun AutoTextCardContent(vm: EditorViewModel, fgColor: Color) {
     val settings by vm.settingsFlow.collectAsStateWithLifecycle()
     val td = settings.toolDefaults
     Text(
-        "Write naturally on the page — pauses automatically convert your handwriting into editable text.",
+        "Write naturally above the guide line — pauses automatically convert your handwriting into editable text with spell check and dynamic bold.",
         style = MaterialTheme.typography.bodySmall,
         color = fgColor.copy(alpha = 0.78f),
     )
     SheetToggleLine("Align converted text to paper lines", td.alignHandwriting, fgColor) { enabled ->
         store.update { it.copy(toolDefaults = it.toolDefaults.copy(alignHandwriting = enabled)) }
+    }
+    SheetToggleLine("Show writing guide line under text", td.alignGuideLine, fgColor) { enabled ->
+        store.update { it.copy(toolDefaults = it.toolDefaults.copy(alignGuideLine = enabled)) }
+    }
+    SheetToggleLine("Dynamic bold (auto-bold large writing)", td.dynamicBoldHandwriting, fgColor) { enabled ->
+        store.update { it.copy(toolDefaults = it.toolDefaults.copy(dynamicBoldHandwriting = enabled)) }
+    }
+    SheetToggleLine("Auto spell check", td.autoSpellCheck, fgColor) { enabled ->
+        store.update { it.copy(toolDefaults = it.toolDefaults.copy(autoSpellCheck = enabled)) }
     }
     Text("Recognition language", style = MaterialTheme.typography.titleSmall, color = fgColor)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1105,11 +1269,18 @@ private fun AutoTextCardContent(vm: EditorViewModel, fgColor: Color) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         TextFont.entries.forEach { font ->
             AppChip(
-                selected = td.autoScript == font.name,
-                onClick = { store.update { it.copy(toolDefaults = it.toolDefaults.copy(autoScript = font.name)) } },
+                selected = td.customHandwritingFontPath.isBlank() && td.autoScript == font.name,
+                onClick = { store.update { it.copy(toolDefaults = it.toolDefaults.copy(autoScript = font.name, customHandwritingFontPath = "")) } },
                 label = font.label,
                 tint = ProButtonPalette.ElectricBlue,
             )
         }
     }
+    CustomHandwritingFontPicker(
+        selectedPath = td.customHandwritingFontPath,
+        fgColor = fgColor,
+        onSelect = { path ->
+            store.update { it.copy(toolDefaults = it.toolDefaults.copy(customHandwritingFontPath = path)) }
+        },
+    )
 }

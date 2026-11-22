@@ -241,7 +241,15 @@ private fun CategoryList(selected: Category?, modifier: Modifier, onPick: (Categ
 private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport: () -> Unit) {
     val context = LocalContext.current
     fun up(block: (AppSettings) -> AppSettings) = store.update(block)
-    LazyColumn(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, contentPadding = PaddingValues(bottom = 48.dp)) {
+    val detailListState = rememberLazyListState()
+    val scrolled = detailListState.firstVisibleItemIndex > 0 || detailListState.firstVisibleItemScrollOffset > 10
+    Box(Modifier.fillMaxSize()) {
+    LazyColumn(
+        state = detailListState,
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        contentPadding = PaddingValues(bottom = 48.dp),
+    ) {
         item {
             when (c) {
                 Category.STYLUS -> {
@@ -448,6 +456,31 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                         if (showHwStudio) {
                             HandwritingStudioDialog(onDismiss = { showHwStudio = false })
                         }
+                        HorizontalDivider(Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                        Toggle(
+                            "Writing guide line",
+                            "Show a baseline guide under text in Align & Auto-Text modes",
+                            s.toolDefaults.alignGuideLine,
+                        ) { v -> up { it.copy(toolDefaults = it.toolDefaults.copy(alignGuideLine = v)) } }
+                        Toggle(
+                            "Dynamic bold for large handwriting",
+                            "Automatically bold larger headings during handwriting conversion",
+                            s.toolDefaults.dynamicBoldHandwriting,
+                        ) { v -> up { it.copy(toolDefaults = it.toolDefaults.copy(dynamicBoldHandwriting = v)) } }
+                        Toggle(
+                            "Auto spell check",
+                            "Automatically correct typos in converted handwriting and typed notes",
+                            s.toolDefaults.autoSpellCheck,
+                        ) { v -> up { it.copy(toolDefaults = it.toolDefaults.copy(autoSpellCheck = v)) } }
+                        Box(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                            com.pronotes.app.editor.CustomHandwritingFontPicker(
+                                selectedPath = s.toolDefaults.customHandwritingFontPath,
+                                fgColor = MaterialTheme.colorScheme.onSurface,
+                                onSelect = { path ->
+                                    up { it.copy(toolDefaults = it.toolDefaults.copy(customHandwritingFontPath = path)) }
+                                },
+                            )
+                        }
                     }
                     PensSection(store)
                 }
@@ -558,6 +591,9 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                     Section("Appearance") {
                         Toggle("Live blur", "Soften the page behind editor panels and dialogs on Android 12 or later", s.liveBlur) { enabled ->
                             up { it.copy(liveBlur = enabled) }
+                        }
+                        Toggle("Top soft scroll blur (Cloudy)", "Apply a soft progressive top blur when scrolling down lists and pages", s.topScrollBlur) { enabled ->
+                            up { it.copy(topScrollBlur = enabled) }
                         }
                         Segmented(ThemeMode.entries.map { it.label }, s.themeMode.ordinal) { i -> up { it.copy(themeMode = ThemeMode.entries[i]) } }
                         Toggle(
@@ -742,6 +778,13 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                 }
             }
         }
+    }
+    com.pronotes.app.ui.TopScrollCloudyBackdrop(
+        scrolled = scrolled,
+        enabled = s.topScrollBlur,
+        height = 56.dp,
+        modifier = Modifier.align(Alignment.TopCenter),
+    )
     }
 }
 

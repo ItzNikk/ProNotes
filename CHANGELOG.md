@@ -2,6 +2,33 @@
 
 All notable changes to Pro Notes are documented in this file.
 
+## v15.2.0 - 2026-11-22
+
+### Added
+
+- **Top Soft Scroll Blur (`skydoves/Cloudy`).** Added progressive Cloudy blur along the top edge when scrolling down across the Library, Settings, and Editor canvas (toggleable under **Settings -> Appearance -> Top soft scroll blur**).
+- **Crayon Tool.** Added a textured dry-wax **Crayon** instrument to the toolbar with procedural paper-grain texture rendering, dedicated crayon colour palette, wax tip size, grain texture slider, and opacity control.
+- **Custom Fonts for Auto Handwriting.** Import any `.ttf` or `.otf` font file directly from **Pen -> Writing**, **Auto-Text**, **Text**, or **Settings** to render converted handwriting and typed notes in custom fonts.
+- **Dynamic Bold for Auto Handwriting.** Automatically applies bold styling when larger heading strokes are converted during automatic handwriting recognition.
+- **Writing Guide Line.** Displays a crisp baseline & x-height guide line beneath your writing area whenever **Align to nearby paper rules** or **Auto-Text** mode is active.
+- **Auto Spell Check.** Added an offline Damerau-Levenshtein & OCR-typo spell checker with live tappable suggestion chips in inline text editing and automatic typo correction for typed text and converted handwriting.
+- **Handwriting-Aware Search & Animated Gradient Prompt.** Upgraded in-notebook search to recognize human handwriting strokes (with per-page caching and fuzzy matching) alongside typed text and PDFs, paired with an animated multi-color gradient `"What are you looking for?"` search prompt.
+- **8 New Page Templates.** Added **French Seyès**, **Calligraphy**, **Engineering Grid**, **Cornell Grid**, **Dot Cornell**, **Habit Tracker**, **Day Timeblock**, and **Comic Panels** (plus exposed **Handwriting** guide sheets).
+- **Quick Folders & Nested Folder Breadcrumbs.** Added a 1-tap **+ Folder / Subfolder** button in the Library header and a clickable nested breadcrumb trail (`Documents › Folder › Subfolder`) for effortless multi-level organization.
+
+### Improved
+
+- **Upgraded Studio Buttons & Inside-Tool Screens.** Refined tonal borders, active micro-elevation, and crisp icon-badged tool popover headers across the workbench toolbar and tool settings panels.
+- **Thicker Dashed Lasso Borders.** Increased Lasso selection loop and active bounding-box stroke weight with a high-contrast white halo so selections remain unmistakable on every paper background.
+- **Compact Messaging-Icon Collapsed Sticky Notes.** Folded sticky notes now shrink down to a compact `76×76` speech-bubble messaging icon on the page; tap anywhere on the icon to expand it back into a full note.
+- **Upgraded Study Friends Chat.** Added live chat search, pinned study messages banner, tap-to-reply quote threads, quick emoji reactions (`👍 ❤️ 🔥 💡 ✅`), formatted message timestamps, and 1-tap **Share Page Notes** right from the editor.
+
+### Fixed
+
+- **Scribble-to-Erase Overhaul.** Fixed spatial hit-testing (`RectF.intersects` with sweep padding instead of strict full-containment), broadened deliberate scribble thresholds, and added self-crossing scrub detection so scribble-to-erase works reliably on natural strokes.
+- **Keyboard Mode & Unwired Settings.** Fixed **Keyboard Mode** so toggling it reliably opens the full-page inline editor with automatic soft-keyboard focus, and wired every newly exposed setting into persistence and live rendering.
+- **Real Stylus Pressure Sensitivity.** Fixed pressure-sensitive ink brushes (`StockBrushes.pressurePen`) and real-time gamma curve remapping (`pressureSensitivity`) so light and heavy strokes dynamically vary ink thickness.
+
 ## v15.1.0 - 2026-11-21
 
 ### Added

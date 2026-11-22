@@ -36,6 +36,7 @@ class InkItem(
     val localBounds: RectF = cachedLocal ?: strokeBounds(stroke)
 
     val isHighlighter: Boolean get() = Brushes.nameOf(stroke.brush) == Brushes.HIGHLIGHTER
+    val isCrayon: Boolean get() = Brushes.nameOf(stroke.brush) == Brushes.CRAYON
 
     override val bounds: RectF
         get() = RectF(localBounds).apply { offset(dx, dy) }
@@ -78,6 +79,7 @@ data class TextStyleSpec(
     val underline: Boolean = false,
     val gradient: Int? = null,
     val align: TextAlign = TextAlign.LEFT,
+    val customFontPath: String = "",
 )
 
 @Immutable
@@ -162,7 +164,7 @@ data class StickyItem(
     val title: String = "",
     val style: String = "classic",
 ) : PageItem {
-    val raw: RectF get() = RectF(x, y, x + w, y + (if (collapsed) 58f else h))
+    val raw: RectF get() = if (collapsed) RectF(x, y, x + 76f, y + 76f) else RectF(x, y, x + w, y + h)
     override val bounds: RectF get() = rotatedBounds(raw, rot)
     override fun translated(dx: Float, dy: Float): PageItem = if (pinned) this else copy(x = x + dx, y = y + dy)
     override fun withId(newId: Long): PageItem = copy(id = newId)
@@ -446,7 +448,12 @@ val textPaint = TextPaint(TextPaint.ANTI_ALIAS_FLAG)
 
 internal fun TextStyleSpec.resolvedTypeface(): Typeface {
     val explicitStyle = (if (bold) Typeface.BOLD else 0) or (if (italic) Typeface.ITALIC else 0)
-    return Typeface.create(font.typeface, font.typeface.style or explicitStyle)
+    val base = if (customFontPath.isNotBlank()) {
+        CustomFontRegistry.loadTypeface(customFontPath) ?: font.typeface
+    } else {
+        font.typeface
+    }
+    return Typeface.create(base, base.style or explicitStyle)
 }
 
 fun applyTextStyle(paint: TextPaint, size: Float, style: TextStyleSpec) {

@@ -81,6 +81,10 @@ data class CollabChatMsg(
     val authorName: String,
     val text: String,
     val createdAt: Long,
+    val replyToId: String = "",
+    val replyPreview: String = "",
+    val reactions: Map<String, Int> = emptyMap(),
+    val pinned: Boolean = false,
 )
 
 data class CollabSharedNote(
@@ -698,13 +702,32 @@ object CloudSync {
                             }
                             "chat" -> {
                                 val id = ev["id"]?.jsonPrimitive?.content ?: continue
+                                val existing = msgMap[id]
                                 msgMap[id] = CollabChatMsg(
                                     id = id,
                                     authorId = ev["authorId"]?.jsonPrimitive?.content.orEmpty(),
                                     authorName = ev["authorName"]?.jsonPrimitive?.content ?: "Student",
                                     text = ev["text"]?.jsonPrimitive?.content.orEmpty(),
                                     createdAt = ev["createdAt"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
+                                    replyToId = ev["replyToId"]?.jsonPrimitive?.content.orEmpty(),
+                                    replyPreview = ev["replyPreview"]?.jsonPrimitive?.content.orEmpty(),
+                                    reactions = existing?.reactions ?: emptyMap(),
+                                    pinned = existing?.pinned ?: false,
                                 )
+                            }
+                            "react" -> {
+                                val targetId = ev["msgId"]?.jsonPrimitive?.content ?: continue
+                                val emoji = ev["emoji"]?.jsonPrimitive?.content ?: continue
+                                val cur = msgMap[targetId] ?: continue
+                                val updated = cur.reactions.toMutableMap()
+                                updated[emoji] = (updated[emoji] ?: 0) + 1
+                                msgMap[targetId] = cur.copy(reactions = updated)
+                            }
+                            "pin" -> {
+                                val targetId = ev["msgId"]?.jsonPrimitive?.content ?: continue
+                                val pinState = ev["pinned"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: true
+                                val cur = msgMap[targetId] ?: continue
+                                msgMap[targetId] = cur.copy(pinned = pinState)
                             }
                             "item" -> {
                                 val id = ev["id"]?.jsonPrimitive?.content ?: continue
@@ -770,7 +793,13 @@ object CloudSync {
             }
         }
 
-    suspend fun sendRoomMessage(context: Context, roomId: String, text: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun sendRoomMessage(
+        context: Context,
+        roomId: String,
+        text: String,
+        replyToId: String = "",
+        replyPreview: String = "",
+    ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val u = ensureRoomParticipant(context)
             val clean = text.trim().take(980)
@@ -787,6 +816,8 @@ object CloudSync {
                     put("authorName", authorName)
                     put("text", clean)
                     put("createdAt", now)
+                    if (replyToId.isNotBlank()) put("replyToId", replyToId)
+                    if (replyPreview.isNotBlank()) put("replyPreview", replyPreview.take(90))
                 }
                 appendLocalRoomEvent(context, roomId, pkt)
                 runCatching { postFreeRelayMessage(roomTopic(roomId), pkt.toString()) }
@@ -801,12 +832,50 @@ object CloudSync {
                     put("authorName", fsStr(authorName))
                     put("text", fsStr(clean))
                     put("createdAt", fsInt(now))
+                    if (replyToId.isNotBlank()) put("replyToId", fsStr(replyToId))
+                    if (replyPreview.isNotBlank()) put("replyPreview", fsStr(replyPreview.take(90)))
                 })
             }.toString()
             httpJson("$fsBase/collabRooms/$roomId/messages/$msgId?currentDocument.exists=false", "PATCH", body, tok)
             Unit
         }
     }
+
+    suspend fun reactToRoomMessage(context: Context, roomId: String, msgId: String, emoji: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val u = ensureRoomParticipant(context)
+                val pkt = buildJsonObject {
+                    put("kind", "react")
+                    put("msgId", msgId)
+                    put("emoji", emoji.take(8))
+                    put("authorId", u.uid)
+                    put("createdAt", System.currentTimeMillis())
+                }
+                appendLocalRoomEvent(context, roomId, pkt)
+                if (!isCustomFirebaseConfigured) {
+                    runCatching { postFreeRelayMessage(roomTopic(roomId), pkt.toString()) }
+                }
+            }
+        }
+
+    suspend fun togglePinRoomMessage(context: Context, roomId: String, msgId: String, pinned: Boolean): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val u = ensureRoomParticipant(context)
+                val pkt = buildJsonObject {
+                    put("kind", "pin")
+                    put("msgId", msgId)
+                    put("pinned", pinned)
+                    put("authorId", u.uid)
+                    put("createdAt", System.currentTimeMillis())
+                }
+                appendLocalRoomEvent(context, roomId, pkt)
+                if (!isCustomFirebaseConfigured) {
+                    runCatching { postFreeRelayMessage(roomTopic(roomId), pkt.toString()) }
+                }
+            }
+        }
 
     suspend fun sharePageSnippetToRoom(context: Context, roomId: String, pageIdx: Int, summary: String, textBody: String): Result<Unit> =
         withContext(Dispatchers.IO) {

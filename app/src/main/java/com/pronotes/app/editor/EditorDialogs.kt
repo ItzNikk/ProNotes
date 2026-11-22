@@ -444,6 +444,10 @@ internal fun InlinePageTextEditor(
     var candidates by remember(edit) { mutableStateOf<List<String>>(emptyList()) }
     var lastInsertedRange by remember(edit) { mutableStateOf<Pair<Int, Int>?>(null) }
 
+    val toolDefaults = vm.settingsFlow.value.toolDefaults
+    val autoSpellCheck = toolDefaults.autoSpellCheck
+    val showGuideLine = toolDefaults.alignGuideLine
+
     fun hideSoftKeyboard() {
         val et = editTextRef ?: return
         val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
@@ -452,10 +456,40 @@ internal fun InlinePageTextEditor(
 
     fun showSoftKeyboard() {
         val et = editTextRef ?: return
+        et.isFocusable = true
+        et.isFocusableInTouchMode = true
         et.requestFocus()
-        et.post {
+        et.postDelayed({
+            et.requestFocus()
             val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
             imm?.showSoftInput(et, InputMethodManager.SHOW_IMPLICIT)
+        }, 90L)
+    }
+
+    // Live spell-check suggestions for the word currently being typed
+    val spellSuggestions = remember(text, autoSpellCheck) {
+        if (!autoSpellCheck || text.isBlank()) emptyList()
+        else {
+            val trimmed = text.trimEnd()
+            val lastToken = trimmed.substringAfterLast(' ').substringAfterLast('\n')
+                .trim { !it.isLetter() }
+            if (lastToken.length >= 3) AutoSpellChecker.suggestions(lastToken) else emptyList()
+        }
+    }
+
+    fun replaceLastWord(replacement: String) {
+        val et = editTextRef
+        val current = et?.text?.toString() ?: text
+        val trailingSpaces = current.takeLastWhile { it.isWhitespace() }
+        val core = current.dropLast(trailingSpaces.length)
+        val sepIdx = maxOf(core.lastIndexOf(' '), core.lastIndexOf('\n'))
+        val updated = (if (sepIdx >= 0) core.substring(0, sepIdx + 1) else "") + replacement + trailingSpaces
+        text = updated
+        if (et != null) {
+            suppressWatcher = true
+            et.setText(updated)
+            et.setSelection(updated.length)
+            suppressWatcher = false
         }
     }
 
@@ -469,8 +503,9 @@ internal fun InlinePageTextEditor(
             showHandwritingStudio = true
             return
         }
+        val finalTxt = if (autoSpellCheck) AutoSpellChecker.autoCorrect(liveText) else liveText
         vm.commitTextAsHandwriting(
-            text = liveText,
+            text = finalTxt,
             size = fontSize,
             color = textColor,
             x = boxX,
@@ -483,7 +518,8 @@ internal fun InlinePageTextEditor(
         convertJob?.cancel()
         hideSoftKeyboard()
         val liveText = editTextRef?.text?.toString() ?: text
-        val wrapped = wrapTextToBoxWidth(liveText, boxW, fontSize, style)
+        val checkedText = if (autoSpellCheck) AutoSpellChecker.autoCorrect(liveText) else liveText
+        val wrapped = wrapTextToBoxWidth(checkedText, boxW, fontSize, style)
         vm.commitText(
             text = wrapped,
             size = fontSize,
@@ -693,11 +729,11 @@ internal fun InlinePageTextEditor(
                 .offset { IntOffset(screenLeft.roundToInt(), screenTop.roundToInt()) }
                 .size(boxWidthDp, boxHeightDp)
                 .border(
-                    width = if (edit.isFullPage) 1.25.dp else 1.5.dp,
-                    color = if (edit.isFullPage) Color.Transparent else frameBlue,
-                    shape = RoundedCornerShape(4.dp),
+                    width = if (edit.isFullPage) 1.5.dp else 1.5.dp,
+                    color = if (edit.isFullPage) frameBlue.copy(alpha = 0.32f) else frameBlue,
+                    shape = RoundedCornerShape(if (edit.isFullPage) 10.dp else 4.dp),
                 )
-                .background(Color.Transparent)
+                .background(if (edit.isFullPage) frameBlue.copy(alpha = 0.025f) else Color.Transparent)
                 .pointerInput(Unit) {
                     // Consume taps inside the box so backdrop doesn't dismiss it
                     detectTapGestures {
@@ -705,6 +741,23 @@ internal fun InlinePageTextEditor(
                     }
                 },
         ) {
+            // Subtle writing guide baseline under text lines when guide line is enabled
+            if (showGuideLine) {
+                Canvas(Modifier.fillMaxSize()) {
+                    val lineStepPx = (fontSize * zoomScale * 1.15f).coerceIn(22f, 260f)
+                    val firstY = (fontSize * zoomScale * 1.06f + 6.dp.toPx()).coerceAtMost(size.height - 4f)
+                    var gy = firstY
+                    while (gy < size.height - 4f) {
+                        drawLine(
+                            color = frameBlue.copy(alpha = 0.24f),
+                            start = Offset(8.dp.toPx(), gy),
+                            end = Offset(size.width - 8.dp.toPx(), gy),
+                            strokeWidth = 1.2.dp.toPx(),
+                        )
+                        gy += lineStepPx
+                    }
+                }
+            }
             // Native Android EditText: 100% transparent, supports soft/hardware keyboard AND native API 33+ stylus-to-text
             AndroidView(
                 modifier = Modifier
@@ -717,13 +770,14 @@ internal fun InlinePageTextEditor(
                         gravity = Gravity.TOP or Gravity.START
                         inputType = InputType.TYPE_CLASS_TEXT or
                             InputType.TYPE_TEXT_FLAG_MULTI_LINE or
-                            InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                            InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or
+                            (if (autoSpellCheck) InputType.TYPE_TEXT_FLAG_AUTO_CORRECT else 0)
                         isSingleLine = false
                         isFocusable = true
                         isFocusableInTouchMode = true
                         isVerticalScrollBarEnabled = true
-                        hint = if (edit.isFullPage) null else "Type or write…"
-                        setHintTextColor(if (darkUi) 0x77CBD5E1 else 0x6664748B)
+                        hint = if (edit.isFullPage) "Start typing on this page…" else "Type or write…"
+                        setHintTextColor(if (darkUi) 0x88CBD5E1.toInt() else 0x7764748B)
                         if (Build.VERSION.SDK_INT >= 33) {
                             isAutoHandwritingEnabled = true
                         }
@@ -739,13 +793,13 @@ internal fun InlinePageTextEditor(
                             }
                         })
                         editTextRef = this
-                        post {
+                        postDelayed({
                             requestFocus()
                             if (!handwriteMode) {
                                 val imm = ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
                                 imm?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
                             }
-                        }
+                        }, 110L)
                     }
                 },
                 update = { et ->
@@ -918,7 +972,7 @@ internal fun InlinePageTextEditor(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            if (candidates.isNotEmpty()) {
+            if (candidates.isNotEmpty() || spellSuggestions.isNotEmpty()) {
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(14.dp))
@@ -929,6 +983,21 @@ internal fun InlinePageTextEditor(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (spellSuggestions.isNotEmpty()) {
+                        Text(
+                            "Spell:",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = ProButtonPalette.Emerald,
+                        )
+                        spellSuggestions.forEach { fix ->
+                            AppChip(
+                                selected = false,
+                                onClick = { replaceLastWord(fix) },
+                                label = fix,
+                            )
+                        }
+                    }
                     candidates.forEachIndexed { idx, word ->
                         AppChip(
                             selected = idx == 0,

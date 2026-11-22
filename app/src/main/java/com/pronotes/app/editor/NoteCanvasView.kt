@@ -44,7 +44,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-enum class Tool { PEN, HIGHLIGHTER, ERASER, SHAPE, LASSO, MINDMAP, TEXT, AUTO_TEXT, IMAGE, STICKY, WEBLINK, TAPE, STICKER, LASER }
+enum class Tool { PEN, CRAYON, HIGHLIGHTER, ERASER, SHAPE, LASSO, MINDMAP, TEXT, AUTO_TEXT, IMAGE, STICKY, WEBLINK, TAPE, STICKER, LASER }
 
 /** Callbacks from the canvas to the editor state. Page indices refer to the notebook's page list. */
 interface CanvasHost {
@@ -964,10 +964,13 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             if (wasCircle) { mode = Mode.IGNORE; return }
         }
 
-        // Top-right collapse/expand pill on any sticky note works with Pen, Sticky, Text, Auto-Text, or Highlighter.
-        if (t in setOf(Tool.PEN, Tool.AUTO_TEXT, Tool.STICKY, Tool.TEXT, Tool.HIGHLIGHTER)) {
+        // Collapsed sticky messaging icon expands on any tap; expanded sticky folds via top-right pill.
+        if (t in setOf(Tool.PEN, Tool.CRAYON, Tool.AUTO_TEXT, Tool.STICKY, Tool.TEXT, Tool.HIGHLIGHTER)) {
             val hitSticky = pages.getOrNull(activePage)?.items?.filterIsInstance<StickyItem>()
-                ?.lastOrNull { s -> s.raw.contains(wx, wy) && wx >= s.raw.right - 56f && wy <= s.raw.top + 48f }
+                ?.lastOrNull { s ->
+                    if (s.collapsed) s.raw.contains(wx, wy)
+                    else s.raw.contains(wx, wy) && wx >= s.raw.right - 56f && wy <= s.raw.top + 48f
+                }
             if (hitSticky != null) {
                 buzz(HapticFeedbackConstants.CLOCK_TICK)
                 host.onStickyToggleCollapse(activePage, hitSticky)
@@ -977,13 +980,18 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         }
 
         when (t) {
-            Tool.PEN, Tool.HIGHLIGHTER, Tool.AUTO_TEXT -> {
-                if (t == Tool.PEN) {
+            Tool.PEN, Tool.CRAYON, Tool.HIGHLIGHTER, Tool.AUTO_TEXT -> {
+                if (t == Tool.PEN || t == Tool.CRAYON) {
                     val hitBox = pages.getOrNull(activePage)?.items?.filterIsInstance<WriteBoxItem>()?.lastOrNull { it.raw.contains(wx, wy) }
                     if (hitBox != null) {
                         removeCallbacks(autoConvertRunnable)
                         host.onSelectWriteBox(activePage, hitBox.id)
                     }
+                }
+                if (settings.toolDefaults.alignGuideLine && (t == Tool.AUTO_TEXT || (t == Tool.PEN && settings.toolDefaults.alignHandwriting))) {
+                    layer.guideLinePage = activePage
+                    layer.guideLineX = wx
+                    layer.guideLineY = wy + 22f
                 }
                 startInk(e, pid, t)
             }
@@ -1144,9 +1152,13 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                         trackHold(cur)
                         if (holdFired) return
                         val predicted = predictor.predict()
+                        val remapped = remapInkEvent(e, activePointer)
+                        val remappedPred = predicted?.let { remapInkEvent(it, activePointer) }
                         try {
-                            wetInk.addToStroke(e, activePointer, id, predicted)
+                            wetInk.addToStroke(remapped, activePointer, id, remappedPred)
                         } finally {
+                            if (remapped !== e) remapped.recycle()
+                            if (remappedPred != null && remappedPred !== predicted) remappedPred.recycle()
                             predicted?.recycle()
                         }
                     }
@@ -1421,17 +1433,95 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         feel.release()
     }
 
+    private var stabX = Float.NaN
+    private var stabY = Float.NaN
+
+    /**
+     * Remaps stylus/touch pressure according to user's pressureEnabled & pressureSensitivity settings,
+     * and applies optional exponential moving average smoothing when penStabilization > 0.
+     * Guarantees pressure sensitivity slider genuinely controls thin-to-thick response in real time.
+     */
+    private fun remapInkEvent(e: MotionEvent, pid: Int): MotionEvent {
+        val td = settings.toolDefaults
+        val isPressureTool = strokeTool == Tool.PEN || strokeTool == Tool.CRAYON || strokeTool == Tool.AUTO_TEXT
+        if (!isPressureTool) return e
+        val idx = e.findPointerIndex(pid)
+        if (idx < 0) return e
+        val count = e.pointerCount
+        val props = Array(count) { i -> MotionEvent.PointerProperties().also { e.getPointerProperties(i, it) } }
+        val coords = Array(count) { i -> MotionEvent.PointerCoords().also { e.getPointerCoords(i, it) } }
+        val target = coords[idx]
+
+        // Apply real pressure curve remapping
+        val isStylus = isPen(props[idx].toolType)
+        if (!td.pressureEnabled) {
+            target.pressure = 0.5f
+        } else {
+            val sens = td.pressureSensitivity.coerceIn(0.3f, 2.0f)
+            val rawP = target.pressure.coerceIn(0.02f, 1.0f)
+            if (isStylus) {
+                // Gamma curve: higher sensitivity (>1.0) produces thicker strokes with lighter pressure;
+                // lower sensitivity (<1.0) requires firmer press for maximum width.
+                val gamma = (1.0 / sens.toDouble()).coerceIn(0.42, 3.2)
+                target.pressure = Math.pow(rawP.toDouble(), gamma).toFloat().coerceIn(0.05f, 1.0f)
+            } else {
+                // Non-pressure finger/mouse: map sensitivity into a clean visible pressure level.
+                target.pressure = (0.35f + 0.45f * (sens / 2f)).coerceIn(0.18f, 1.0f)
+            }
+        }
+
+        // Apply optional real-time pen stabilization smoothing
+        val stab = td.penStabilization.coerceIn(0f, 1f)
+        if (stab > 0.04f && e.actionMasked == MotionEvent.ACTION_MOVE) {
+            if (stabX.isNaN() || stabY.isNaN()) {
+                stabX = target.x; stabY = target.y
+            } else {
+                val alpha = (1f - stab * 0.65f).coerceIn(0.25f, 1f)
+                stabX += (target.x - stabX) * alpha
+                stabY += (target.y - stabY) * alpha
+                target.x = stabX
+                target.y = stabY
+            }
+        } else if (e.actionMasked == MotionEvent.ACTION_DOWN) {
+            stabX = target.x
+            stabY = target.y
+        }
+
+        return MotionEvent.obtain(
+            e.downTime,
+            e.eventTime,
+            e.action,
+            count,
+            props,
+            coords,
+            e.metaState,
+            e.buttonState,
+            e.xPrecision,
+            e.yPrecision,
+            e.deviceId,
+            e.edgeFlags,
+            e.source,
+            e.flags,
+        )
+    }
+
     private fun startInk(e: MotionEvent, pid: Int, t: Tool) {
         // A stroke that was never finished or cancelled would stay on screen forever as ghost ink.
         cancelActiveWetStroke(e)
         removeCallbacks(wetAssertionRunnable)
         mode = Mode.INK
+        stabX = Float.NaN; stabY = Float.NaN
         syncFeel()
         val ptrIdx = e.findPointerIndex(pid).coerceAtLeast(0)
         feelX = e.getX(ptrIdx); feelY = e.getY(ptrIdx); feelT = e.eventTime
         feel.start(if (t == Tool.HIGHLIGHTER) PaperFeel.Texture.MARKER else PaperFeel.Texture.PENCIL)
         val toWorld = Matrix(inverse).apply { postTranslate(-ox(activePage), -oy(activePage)) }
-        val id = wetInk.startStroke(e, pid, host.brush(t), toWorld, Matrix())
+        val remapped = remapInkEvent(e, pid)
+        val id = try {
+            wetInk.startStroke(remapped, pid, host.brush(t), toWorld, Matrix())
+        } finally {
+            if (remapped !== e) remapped.recycle()
+        }
         strokeId = id
         strokePages[id] = activePage
         strokeTools[id] = t
@@ -1462,7 +1552,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             }
         }
         // Scribble-to-erase: uses the same surgical hit-testing & eraser policy as live scribble.
-        if (!isTap && strokeTool == Tool.PEN && settings.scribbleToErase &&
+        if (!isTap && (strokeTool == Tool.PEN || strokeTool == Tool.CRAYON) && settings.scribbleToErase &&
             isDeliberateScribble(points, scale / density, e.eventTime - e.downTime, gestureConfig)) {
             val hit = scribbleHitIds(activePage, points)
             if (hit.isNotEmpty()) {
@@ -1513,7 +1603,12 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             }
         }
         strokeId = null
-        wetInk.finishStroke(e, activePointer, id)
+        val remapped = remapInkEvent(e, activePointer)
+        try {
+            wetInk.finishStroke(remapped, activePointer, id)
+        } finally {
+            if (remapped !== e) remapped.recycle()
+        }
     }
 
     /** What a hand-drawn loop would select: anything mostly or partly inside. */
@@ -1929,8 +2024,19 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                     // Hover preview: custom imported hover cursor or a dot in the pen's colour and size.
                     val hasCustomHover = settings.customHoverIconPath.isNotBlank()
                     layer.hoverDot = if (!erasing && settings.hoverCursor && stylusPointer == -1 && mode == Mode.NONE &&
-                        (hasCustomHover || tool == Tool.PEN || tool == Tool.AUTO_TEXT || tool == Tool.HIGHLIGHTER || tool == Tool.SHAPE))
+                        (hasCustomHover || tool == Tool.PEN || tool == Tool.CRAYON || tool == Tool.AUTO_TEXT || tool == Tool.HIGHLIGHTER || tool == Tool.SHAPE))
                         (host.hoverInk() ?: (0xFF3D6CF4.toInt() to 6f)).let { (c, s) -> Triple(event.x, event.y, c to s * scale) } else null
+                    // Update writing guide line position when hovering in Auto-Text or Align Handwriting mode
+                    if (!erasing && settings.toolDefaults.alignGuideLine && (tool == Tool.AUTO_TEXT || (tool == Tool.PEN && settings.toolDefaults.alignHandwriting))) {
+                        val (ddx, ddy) = toDoc(event.x, event.y)
+                        val pi = pageAt(ddx, ddy)
+                        if (pi in pages.indices) {
+                            val (lx, ly) = toLocal(event.x, event.y, pi)
+                            layer.guideLinePage = pi
+                            layer.guideLineX = lx
+                            layer.guideLineY = ly + 22f
+                        }
+                    }
                     layer.invalidate()
                     // Some pens never send HOVER_EXIT: drop the dot when hover reports stop.
                     removeCallbacks(hoverTimeout); postDelayed(hoverTimeout, 350)

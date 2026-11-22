@@ -112,6 +112,7 @@ private val WorkbenchLightElevated = Color(0xFFFFFFFF)
 @Composable
 fun toolDisplayName(t: Tool): String = when (t) {
     Tool.PEN -> stringResource(R.string.tool_pen)
+    Tool.CRAYON -> "Crayon"
     Tool.HIGHLIGHTER -> stringResource(R.string.tool_highlighter)
     Tool.ERASER -> stringResource(R.string.tool_eraser)
     Tool.SHAPE -> stringResource(R.string.tool_shapes)
@@ -129,6 +130,7 @@ fun toolDisplayName(t: Tool): String = when (t) {
 
 fun shortToolLabel(t: Tool): String = when (t) {
     Tool.PEN -> "Pen"
+    Tool.CRAYON -> "Crayon"
     Tool.HIGHLIGHTER -> "Highlight"
     Tool.ERASER -> "Eraser"
     Tool.SHAPE -> "Shapes"
@@ -368,7 +370,7 @@ private fun StudioHairline(vertical: Boolean, color: Color) {
 }
 
 private fun toolHasInlineOptions(t: Tool): Boolean = when (t) {
-    Tool.PEN, Tool.AUTO_TEXT, Tool.HIGHLIGHTER, Tool.SHAPE, Tool.ERASER, Tool.LASSO, Tool.TEXT,
+    Tool.PEN, Tool.CRAYON, Tool.AUTO_TEXT, Tool.HIGHLIGHTER, Tool.SHAPE, Tool.ERASER, Tool.LASSO, Tool.TEXT,
     Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.MINDMAP,
     -> true
     else -> false
@@ -888,7 +890,7 @@ fun ToolButton(
             else -> vm.penStyle.color
         },
     )
-    val hasColorBar = t in setOf(Tool.PEN, Tool.AUTO_TEXT, Tool.HIGHLIGHTER, Tool.SHAPE, Tool.TEXT, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.MINDMAP)
+    val hasColorBar = t in setOf(Tool.PEN, Tool.CRAYON, Tool.AUTO_TEXT, Tool.HIGHLIGHTER, Tool.SHAPE, Tool.TEXT, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.MINDMAP)
     val accent = if (hasColorBar) {
         // Ensure near-white or near-black ink still reads distinctly as an accent rim
         val lum = ink.luminance()
@@ -1165,6 +1167,26 @@ fun ToolOptions(
                         ) {
                             val list = PenType.entries
                             vm.penType = list[(list.indexOf(vm.penType) + 1) % list.size]
+                        }
+                    }
+                    StyleOptions(vm, t, style, dockFg, darkDock, vertical)
+                }
+                t == Tool.CRAYON && style != null -> {
+                    if (!vertical) {
+                        val grainPct = (settings.toolDefaults.crayonGrain * 100).toInt()
+                        StudioQuickChip(
+                            label = "Wax $grainPct%",
+                            active = true,
+                            accent = Color(style.color),
+                            fg = dockFg,
+                            darkDock = darkDock,
+                        ) {
+                            val nextGrain = when {
+                                settings.toolDefaults.crayonGrain < 0.45f -> 0.65f
+                                settings.toolDefaults.crayonGrain < 0.85f -> 0.95f
+                                else -> 0.30f
+                            }
+                            vm.notebookSettings.update { it.copy(toolDefaults = it.toolDefaults.copy(crayonGrain = nextGrain)) }
                         }
                     }
                     StyleOptions(vm, t, style, dockFg, darkDock, vertical)
@@ -1494,7 +1516,11 @@ fun StyleOptions(
     }
     if (style.colors.size < 8) AddSwatchButton { adding = true }
 
-    val presets = if (t == Tool.HIGHLIGHTER) HighlighterPalette + PenPalette else PenPalette
+    val presets = when (t) {
+        Tool.HIGHLIGHTER -> HighlighterPalette + PenPalette
+        Tool.CRAYON -> CrayonPalette + PenPalette
+        else -> PenPalette
+    }
     editing?.let { slot ->
         ColorEditorDialog(style.colors[slot], presets, vm.recentColors(), onDismiss = { editing = null }) { picked ->
             val colors = style.colors.toMutableList().also { it[slot] = picked }

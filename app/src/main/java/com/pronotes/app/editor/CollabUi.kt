@@ -102,6 +102,9 @@ fun LiveCollabRoomDialog(
     }
     var joinCode by remember { mutableStateOf("") }
     var chatInput by remember { mutableStateOf("") }
+    var chatSearch by remember { mutableStateOf("") }
+    var replyTarget by remember { mutableStateOf<CollabChatMsg?>(null) }
+    var selectedMsgId by remember { mutableStateOf<String?>(null) }
     var driveLinkUrl by remember { mutableStateOf("") }
     var driveLinkLabel by remember { mutableStateOf("") }
     var errorMsg by remember { mutableStateOf("") }
@@ -356,30 +359,83 @@ fun LiveCollabRoomDialog(
                     )
 
                     if (activeTab == 0) {
-                        // Friends Chat tab with styled bubbles
+                        // Upgraded Friends Chat tab: search, pinned messages, reply quotes, emoji reactions, timestamps, share current notes
+                        val pinnedMsgs = remember(messages) { messages.filter { it.pinned } }
+                        val filteredMsgs = remember(messages, chatSearch) {
+                            val q = chatSearch.trim()
+                            if (q.isEmpty()) messages.takeLast(30)
+                            else messages.filter {
+                                it.text.contains(q, ignoreCase = true) || it.authorName.contains(q, ignoreCase = true)
+                            }.takeLast(30)
+                        }
+                        val timeFmt = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
+
                         AppCard(Modifier.fillMaxWidth()) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (messages.isEmpty()) {
+                                OutlinedTextField(
+                                    value = chatSearch,
+                                    onValueChange = { chatSearch = it },
+                                    placeholder = {
+                                        com.pronotes.app.ui.AnimatedGradientSearchPlaceholder("What are you looking for?")
+                                    },
+                                    singleLine = true,
+                                    shape = CircleShape,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+
+                                if (pinnedMsgs.isNotEmpty()) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(ProButtonPalette.WarmAmber.copy(alpha = 0.14f))
+                                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                                    ) {
+                                        Text(
+                                            "📌 Pinned (${pinnedMsgs.size})",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = ProButtonPalette.WarmAmber,
+                                        )
+                                        pinnedMsgs.takeLast(2).forEach { pm ->
+                                            Text(
+                                                "${pm.authorName}: ${pm.text}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                maxLines = 1,
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (filteredMsgs.isEmpty()) {
                                     Text(
-                                        "Say hi to your study friends! Share questions, formulas, or study notes below.",
+                                        if (chatSearch.isNotBlank()) "No messages match \"$chatSearch\"."
+                                        else "Say hi to your study friends! Tap any message to reply, pin, or react.",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 } else {
                                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        messages.takeLast(20).forEach { msg ->
+                                        filteredMsgs.forEach { msg ->
                                             val isMe = msg.authorId == myUid
+                                            val showActions = selectedMsgId == msg.id
+                                            val timeLabel = if (msg.createdAt > 0L) timeFmt.format(java.util.Date(msg.createdAt)) else ""
                                             Column(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalAlignment = if (isMe) Alignment.End else Alignment.Start,
                                             ) {
                                                 Text(
-                                                    text = if (isMe) "You" else msg.authorName,
+                                                    text = buildString {
+                                                        append(if (isMe) "You" else msg.authorName)
+                                                        if (timeLabel.isNotEmpty()) append(" · $timeLabel")
+                                                        if (msg.pinned) append(" · 📌")
+                                                    },
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
                                                 )
-                                                Box(
+                                                Column(
                                                     modifier = Modifier
                                                         .clip(
                                                             RoundedCornerShape(
@@ -393,16 +449,130 @@ fun LiveCollabRoomDialog(
                                                             if (isMe) ProButtonPalette.ElectricBlue
                                                             else MaterialTheme.colorScheme.surfaceVariant,
                                                         )
+                                                        .clickable {
+                                                            selectedMsgId = if (selectedMsgId == msg.id) null else msg.id
+                                                        }
                                                         .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(4.dp),
                                                 ) {
+                                                    if (msg.replyPreview.isNotBlank()) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .clip(RoundedCornerShape(8.dp))
+                                                                .background(
+                                                                    if (isMe) Color.White.copy(alpha = 0.16f)
+                                                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                                                                )
+                                                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                                        ) {
+                                                            Text(
+                                                                "↩ ${msg.replyPreview}",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = if (isMe) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                                maxLines = 1,
+                                                            )
+                                                        }
+                                                    }
                                                     Text(
                                                         text = msg.text,
                                                         style = MaterialTheme.typography.bodyMedium,
                                                         color = if (isMe) Color.White else MaterialTheme.colorScheme.onSurface,
                                                     )
                                                 }
+                                                if (msg.reactions.isNotEmpty()) {
+                                                    Row(
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                        modifier = Modifier.padding(top = 3.dp, start = 4.dp, end = 4.dp),
+                                                    ) {
+                                                        msg.reactions.forEach { (emoji, count) ->
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .clip(CircleShape)
+                                                                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f))
+                                                                    .clickable {
+                                                                        scope.launch {
+                                                                            CloudSync.reactToRoomMessage(context, room.roomId, msg.id, emoji)
+                                                                            refreshRoom(room.roomId)
+                                                                        }
+                                                                    }
+                                                                    .padding(horizontal = 7.dp, vertical = 2.dp),
+                                                            ) {
+                                                                Text("$emoji $count", style = MaterialTheme.typography.labelSmall)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                if (showActions) {
+                                                    Row(
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        modifier = Modifier.padding(top = 4.dp),
+                                                    ) {
+                                                        listOf("👍", "❤️", "🔥", "💡", "✅").forEach { emoji ->
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .clip(CircleShape)
+                                                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                                                    .clickable {
+                                                                        selectedMsgId = null
+                                                                        scope.launch {
+                                                                            CloudSync.reactToRoomMessage(context, room.roomId, msg.id, emoji)
+                                                                            refreshRoom(room.roomId)
+                                                                        }
+                                                                    }
+                                                                    .padding(horizontal = 7.dp, vertical = 4.dp),
+                                                            ) {
+                                                                Text(emoji, style = MaterialTheme.typography.labelMedium)
+                                                            }
+                                                        }
+                                                        AppChip(
+                                                            selected = false,
+                                                            onClick = {
+                                                                replyTarget = msg
+                                                                selectedMsgId = null
+                                                            },
+                                                            label = "Reply",
+                                                            tint = ProButtonPalette.ElectricBlue,
+                                                        )
+                                                        AppChip(
+                                                            selected = msg.pinned,
+                                                            onClick = {
+                                                                selectedMsgId = null
+                                                                scope.launch {
+                                                                    CloudSync.togglePinRoomMessage(context, room.roomId, msg.id, !msg.pinned)
+                                                                    refreshRoom(room.roomId)
+                                                                }
+                                                            },
+                                                            label = if (msg.pinned) "Unpin" else "Pin",
+                                                            tint = ProButtonPalette.WarmAmber,
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
+                                    }
+                                }
+
+                                replyTarget?.let { target ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(ProButtonPalette.ElectricBlue.copy(alpha = 0.12f))
+                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            "Replying to ${target.authorName}: ${target.text.take(48)}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            maxLines = 1,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        TextButton(
+                                            onClick = { replyTarget = null },
+                                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                        ) { Text("Cancel") }
                                     }
                                 }
 
@@ -424,10 +594,18 @@ fun LiveCollabRoomDialog(
                                         onClick = {
                                             busy = true
                                             val toSend = chatInput.trim()
+                                            val rep = replyTarget
                                             scope.launch {
-                                                CloudSync.sendRoomMessage(context, room.roomId, toSend)
+                                                CloudSync.sendRoomMessage(
+                                                    context = context,
+                                                    roomId = room.roomId,
+                                                    text = toSend,
+                                                    replyToId = rep?.id.orEmpty(),
+                                                    replyPreview = rep?.let { "${it.authorName}: ${it.text.take(60)}" }.orEmpty(),
+                                                )
                                                     .onSuccess {
                                                         chatInput = ""
+                                                        replyTarget = null
                                                         refreshRoom(room.roomId)
                                                     }
                                                     .onFailure { errorMsg = it.message ?: "Failed to send message" }
@@ -442,15 +620,45 @@ fun LiveCollabRoomDialog(
                                 }
 
                                 val latestSnippet = messages.lastOrNull()?.text.orEmpty()
-                                if (vm != null && latestSnippet.isNotBlank()) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            vm.insertTextToPage(latestSnippet)
-                                            Toast.makeText(context, "Inserted latest message onto page", Toast.LENGTH_SHORT).show()
-                                        },
-                                        shape = CircleShape,
-                                        modifier = Modifier.fillMaxWidth(),
-                                    ) { Text("Insert Latest Message to Page") }
+                                if (vm != null) {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OutlinedButton(
+                                            enabled = !busy,
+                                            onClick = {
+                                                val page = vm.currentPage
+                                                val summary = page?.items?.mapNotNull {
+                                                    when (it) {
+                                                        is TextItem -> it.text
+                                                        is StickyItem -> it.text
+                                                        is WriteBoxItem -> it.convertedText
+                                                        else -> null
+                                                    }
+                                                }?.filter { it.isNotBlank() }?.joinToString(" · ")?.take(380).orEmpty()
+                                                if (summary.isBlank()) {
+                                                    Toast.makeText(context, "No text notes on this page yet", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    busy = true
+                                                    scope.launch {
+                                                        CloudSync.sendRoomMessage(context, room.roomId, "📝 Page ${vm.pageIndex + 1} notes:\n$summary")
+                                                            .onSuccess { refreshRoom(room.roomId) }
+                                                        busy = false
+                                                    }
+                                                }
+                                            },
+                                            shape = CircleShape,
+                                            modifier = Modifier.weight(1f),
+                                        ) { Text("Share Page Notes") }
+                                        if (latestSnippet.isNotBlank()) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    vm.insertTextToPage(latestSnippet)
+                                                    Toast.makeText(context, "Inserted latest message onto page", Toast.LENGTH_SHORT).show()
+                                                },
+                                                shape = CircleShape,
+                                                modifier = Modifier.weight(1f),
+                                            ) { Text("Insert to Page") }
+                                        }
+                                    }
                                 } else if (repo != null && onOpenNotebook != null && latestSnippet.isNotBlank()) {
                                     OutlinedButton(
                                         enabled = !busy,

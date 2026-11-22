@@ -580,7 +580,9 @@ internal fun SearchBar(vm: EditorViewModel) {
                     value = vm.searchQuery,
                     onValueChange = vm::search,
                     singleLine = true,
-                    placeholder = { Text(if (vm.isPdf) "Search in PDF and notes" else "Search across notes") },
+                    placeholder = {
+                        com.pronotes.app.ui.AnimatedGradientSearchPlaceholder("What are you looking for?")
+                    },
                     leadingIcon = { ProIconView(ProIcon.SEARCH, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.size(20.dp)) },
                     shape = CircleShape,
                     modifier = Modifier.weight(1f),
@@ -588,8 +590,8 @@ internal fun SearchBar(vm: EditorViewModel) {
                 Spacer(Modifier.width(8.dp))
                 Text(
                     when {
-                        vm.searching -> "Searching…"
-                        vm.searchQuery.isBlank() -> ""
+                        vm.searching -> "Scanning ink & text…"
+                        vm.searchQuery.isBlank() -> "Text · PDF · Handwriting"
                         vm.searchHits.isEmpty() -> "No results"
                         else -> "${vm.activeHit + 1} of ${vm.searchHits.size}"
                     },

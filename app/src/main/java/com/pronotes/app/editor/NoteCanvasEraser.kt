@@ -24,32 +24,54 @@ internal fun NoteCanvasView.eraserAllows(item: PageItem): Boolean {
     }
 }
 
-/** Require repeated contact with an ink stroke completely inside the scrub area. */
+/**
+ * Finds all erasable strokes actually scrubbed over by [pts].
+ * Uses bounding-box intersection + generous sweep padding + either direct segment hits or
+ * substantial stroke-point overlap inside the scribble envelope so scrubbing across any word
+ * or cursive line erases cleanly without requiring the scribble to swallow every tail pixel.
+ */
 internal fun NoteCanvasView.scribbleHitIds(page: Int, pts: List<Pt>): Set<Long> {
+    if (pts.size < 4) return emptySet()
     val sheet = pages.getOrNull(page) ?: return emptySet()
-    val padding = (4f * density / scale).coerceIn(2f, 12f)
-    val envelope = RectF(pts.minOf { it.first }, pts.minOf { it.second }, pts.maxOf { it.first }, pts.maxOf { it.second })
-        .apply { inset(-padding, -padding) }
+    val padding = (10f * density / scale).coerceIn(6f, 28f)
+    val envelope = RectF(
+        pts.minOf { it.first },
+        pts.minOf { it.second },
+        pts.maxOf { it.first },
+        pts.maxOf { it.second },
+    ).apply { inset(-padding, -padding) }
+
     val sweep = MutableParallelogram()
+    val step = max(1, pts.size / 64)
     return sheet.items.asSequence().filterIsInstance<InkItem>()
-        .filter { !it.isHighlighter && eraserAllows(it) && envelope.contains(it.bounds) }
+        .filter { eraserAllows(it) && RectF.intersects(envelope, it.bounds) }
         .filter { item ->
+            // Fast path: if stroke sits mostly inside the scribble envelope, it's clearly targeted
+            val b = item.bounds
+            val insideX = (min(envelope.right, b.right) - max(envelope.left, b.left)).coerceAtLeast(0f)
+            val insideY = (min(envelope.bottom, b.bottom) - max(envelope.top, b.top)).coerceAtLeast(0f)
+            val bArea = (b.width() * b.height()).coerceAtLeast(1f)
+            val overlapRatio = (insideX * insideY) / bArea
+
+            var hits = 0
             var touching = false
-            var passes = 0
-            for (i in 1 until pts.size) {
-                val a = pts[i - 1]
-                val b = pts[i]
+            var i = step
+            while (i < pts.size) {
+                val a = pts[i - step]
+                val c = pts[i]
                 val segment = MutableSegment(
                     MutableVec(a.first - item.dx, a.second - item.dy),
-                    MutableVec(b.first - item.dx, b.second - item.dy),
+                    MutableVec(c.first - item.dx, c.second - item.dy),
                 )
-                sweep.populateFromSegmentAndPadding(segment, padding * .65f)
+                sweep.populateFromSegmentAndPadding(segment, padding)
                 val hit = item.stroke.shape.intersects(sweep, AffineTransform.IDENTITY)
-                if (hit && !touching) passes++
-                if (passes >= 2) break
+                if (hit && !touching) hits++
+                if (hits >= 1 && overlapRatio >= 0.28f) return@filter true
+                if (hits >= 2) return@filter true
                 touching = hit
+                i += step
             }
-            passes >= 2
+            hits >= 1 || overlapRatio >= 0.55f
         }.map { it.id }.toSet()
 }
 

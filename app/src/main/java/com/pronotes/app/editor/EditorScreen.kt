@@ -796,6 +796,13 @@ fun EditorScreen(
                         )
                     }
 
+                    com.pronotes.app.ui.TopScrollCloudyBackdrop(
+                        scrolled = !focus,
+                        enabled = settings.topScrollBlur,
+                        height = 34.dp,
+                        modifier = Modifier.align(Alignment.TopCenter),
+                    )
+
                     val overlayFade by animateFloatAsState(
                         targetValue = if (vm.penActive) 0.14f else 1f,
                         animationSpec = if (reduceMotion) androidx.compose.animation.core.snap() else tween(260),

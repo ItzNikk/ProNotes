@@ -147,7 +147,7 @@ object ToolbarGeometry {
 /** Order and visibility of toolbar tools, stored as "PEN,HIGHLIGHTER,-LASER,..." ("-" = hidden). */
 object ToolbarOrder {
     val defaults = listOf(
-        Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.SHAPE, Tool.LASSO, Tool.MINDMAP,
+        Tool.PEN, Tool.CRAYON, Tool.HIGHLIGHTER, Tool.ERASER, Tool.SHAPE, Tool.LASSO, Tool.MINDMAP,
         Tool.IMAGE, Tool.TEXT, Tool.AUTO_TEXT, Tool.STICKY, Tool.WEBLINK, Tool.TAPE, Tool.STICKER, Tool.LASER,
     )
 

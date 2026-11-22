@@ -155,7 +155,7 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
                 val (lx, ly) = toLocal(e.x, e.y, pi)
                 val pItems = pages.getOrNull(pi)?.items.orEmpty()
                 val taskSticky = if (!readOnly) pItems.lastOrNull { it is StickyItem && it.bounds.contains(lx, ly) } as StickyItem? else null
-                val hitCollapse = taskSticky != null && lx >= taskSticky.raw.right - 56f && ly <= taskSticky.raw.top + 48f
+                val hitCollapse = taskSticky != null && (taskSticky.collapsed || (lx >= taskSticky.raw.right - 56f && ly <= taskSticky.raw.top + 48f))
                 val taskIdx = if (!hitCollapse) taskSticky?.let { findStickyChecklistLine(it, lx, ly) } else null
                 if (taskSticky != null && hitCollapse) {
                     buzz(HapticFeedbackConstants.CLOCK_TICK)

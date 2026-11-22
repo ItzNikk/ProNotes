@@ -39,6 +39,7 @@ val PenPalette = listOf(
 ).map { it.toInt() }
 
 val HighlighterPalette = listOf(0xFFF3D77A, 0xFFA5D3C0, 0xFF9AD0EC, 0xFFFFA8A8, 0xFFE599F7).map { it.toInt() }
+val CrayonPalette = listOf(0xFFE63946, 0xFFF77F00, 0xFFFCBF49, 0xFF2A9D8F, 0xFF3A86FF, 0xFF8338EC, 0xFF3D405B).map { it.toInt() }
 val TapeColors = listOf(0xFF24483F, 0xFF2E4A7A, 0xFF7A2E42, 0xFFB98A2E, 0xFF8E9189).map { it.toInt() }
 val StickyColors = listOf(0xFFF4EEDF, 0xFFFFF3A3, 0xFFD8F5C8, 0xFFCDEBFF, 0xFFFFD6E0).map { it.toInt() }
 val WebLinkColors = listOf(0xFF24483F, 0xFF2E4A7A, 0xFF2F6B4F, 0xFF7A2E42, 0xFFB98A2E, 0xFF3D6CF4).map { it.toInt() }
@@ -84,6 +85,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     }
     var penType by mutableStateOf(savedEnum(1, PenType.FOUNTAIN))
     var penStyle by mutableStateOf(style("pen", PenPalette.take(5), listOf(2f, 4f, 7f), 3.6f, 2))
+    var crayonStyle by mutableStateOf(style("crayon", CrayonPalette.take(6), listOf(10f, 18f, 28f), 16f, 28))
     var highlighterStyle by mutableStateOf(style("highlighter", HighlighterPalette, listOf(16f, 28f, 42f), 22f, 3))
     var shapeStyle by mutableStateOf(style("shape", PenPalette.take(5), listOf(2f, 4f, 7f), 3.6f, 4))
     var shapeKind by mutableStateOf(savedEnum(5, ShapeKind.AUTO))
@@ -291,6 +293,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     fun styleFor(t: Tool): ToolStyle? = when (t) {
         Tool.PEN -> penStyle
+        Tool.CRAYON -> crayonStyle
         Tool.HIGHLIGHTER -> highlighterStyle
         Tool.SHAPE -> shapeStyle
         else -> null
@@ -310,10 +313,11 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun updateStyle(t: Tool, s: ToolStyle) {
         if (styleFor(t)?.color != s.color) {
             if (t == Tool.PEN || t == Tool.SHAPE) shareInkColor(t, s.color)
-            else if (t == Tool.HIGHLIGHTER) pushRecent(s.color)
+            else if (t == Tool.HIGHLIGHTER || t == Tool.CRAYON) pushRecent(s.color)
         }
         when (t) {
             Tool.PEN -> { penStyle = s; store.saveSwatches("pen_$noteId", s.colors) }
+            Tool.CRAYON -> { crayonStyle = s; store.saveSwatches("crayon_$noteId", s.colors) }
             Tool.HIGHLIGHTER -> { highlighterStyle = s; store.saveSwatches("highlighter_$noteId", s.colors) }
             Tool.SHAPE -> { shapeStyle = s; store.saveSwatches("shape_$noteId", s.colors) }
             else -> Unit
@@ -346,7 +350,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     /** Colour and size (page units) of the hover preview dot. */
     fun hoverInk(): Pair<Int, Float>? = when (tool) {
-        Tool.PEN -> penStyle.color to penStyle.size * penType.sizeFactor
+        Tool.PEN, Tool.AUTO_TEXT -> penStyle.color to penStyle.size * penType.sizeFactor
+        Tool.CRAYON -> crayonStyle.color to crayonStyle.size
         Tool.HIGHLIGHTER -> highlighterStyle.color to highlighterStyle.size
         Tool.SHAPE -> shapeStyle.color to shapeStyle.size
         else -> null
@@ -544,6 +549,12 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun brushFor(t: Tool): Brush {
         val td = settingsFlow.value.toolDefaults
         return when (t) {
+            Tool.CRAYON -> Brushes.create(
+                Brushes.CRAYON,
+                crayonStyle.color,
+                crayonStyle.size,
+                td.crayonOpacity,
+            )
             Tool.HIGHLIGHTER -> {
                 Brushes.highlightAlpha = (settingsFlow.value.highlighterOpacity.coerceIn(0.3f, 0.9f) * 255).toInt()
                 Brushes.create(Brushes.HIGHLIGHTER, highlighterStyle.color, highlighterStyle.size)
@@ -867,20 +878,35 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             val idx = pages.indexOfFirst { it.id == pageId }
             val page = pages.getOrNull(idx) ?: return
             if (readOnly || !page.items.containsAll(selectedInk)) return
-            val text = if (automatic) result.text.trim().replace(Regex("\\s+"), " ") else result.text.trim()
+            val rawText = if (automatic) result.text.trim().replace(Regex("\\s+"), " ") else result.text.trim()
+            val text = if (options.autoSpellCheck) AutoSpellChecker.autoCorrect(rawText) else rawText
             if (automatic && ((!options.autoHandwriting && tool != Tool.AUTO_TEXT) || penActive || !result.usedMlKit || text.count { it.isLetterOrDigit() } < 2)) return
             if (text.isBlank()) {
                 say("Could not recognise handwritten ink")
                 return
             }
-            val style = if (automatic) TextStyleSpec(font = outputFont ?: TextFont.CURSIVE)
-                else outputFont?.let { textStyle.copy(font = it) } ?: textStyle
+            // Dynamic Bold: automatically bold larger written headings/emphasis text relative to base size
+            val shouldDynamicBold = options.dynamicBoldHandwriting &&
+                (estimatedSize >= (textSize * 1.28f) || union.height() >= 68f)
+            val customFont = options.customHandwritingFontPath
+            val baseStyle = if (automatic) {
+                TextStyleSpec(
+                    font = outputFont ?: TextFont.CURSIVE,
+                    bold = shouldDynamicBold,
+                    customFontPath = customFont,
+                )
+            } else {
+                (outputFont?.let { textStyle.copy(font = it) } ?: textStyle).copy(
+                    bold = textStyle.bold || shouldDynamicBold,
+                    customFontPath = textStyle.customFontPath.ifBlank { customFont },
+                )
+            }
             val x = union.left.coerceAtLeast(0f).coerceAtMost(page.width)
-            val layout = if (automatic) singleLineLayout(page, text, style.font, x, union, estimatedSize, options.alignHandwriting) ?: return
+            val layout = if (automatic) singleLineLayout(page, text, baseStyle.font, x, union, estimatedSize, options.alignHandwriting) ?: return
                 else estimatedSize to union.top.coerceAtLeast(0f)
             val ids = selectedInk.map { it.id }.toSet()
             val item = TextItem(ItemIds.next(), text, x, layout.second, layout.first,
-                selectedInk.first().stroke.brush.colorIntArgb, style)
+                selectedInk.first().stroke.brush.colorIntArgb, baseStyle)
             if (automatic && page.items.any { it.id !in ids && it is TextItem && RectF.intersects(it.bounds, item.bounds) }) return
             if (!automatic) handwritingCandidates = result.candidates
             beginEdit(idx)
@@ -1466,6 +1492,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     // --------------------------------------------------------------- search
 
+    /** Per-page cached handwriting recognition results (keyed by pageId + ink fingerprint) for instant handwritten search. */
+    private val handwritingSearchCache = java.util.concurrent.ConcurrentHashMap<String, List<Pair<RectF, String>>>()
+
     fun search(query: String) {
         searchQuery = query
         searchJob?.cancel()
@@ -1474,16 +1503,19 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             return
         }
         searchJob = viewModelScope.launch {
-            delay(250)
+            delay(220)
             searching = true
+            val cleanQ = query.trim()
             val hits = ArrayList<SearchHit>()
             if (isPdf) {
                 val index = textIndex()
                 val map = pages.withIndex().filter { it.value.pdfPage >= 0 }.associate { it.value.pdfPage to it.index }
-                if (index != null) hits += withContext(Dispatchers.Default) { index.search(query) { map[it] } }
+                if (index != null) hits += withContext(Dispatchers.Default) { index.search(cleanQ) { map[it] } }
             }
-            // Typed text, sticky notes, web links, write boxes, and concept map nodes are searchable.
-            pages.forEachIndexed { i, p ->
+            val lang = settingsFlow.value.toolDefaults.handwritingLanguage
+            val snapshotPages = pages.toList()
+            // 1) Typed text, sticky notes, web links, write boxes, and concept map nodes
+            snapshotPages.forEachIndexed { i, p ->
                 p.items.forEach { item ->
                     val text = when (item) {
                         is TextItem -> item.text
@@ -1493,11 +1525,63 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                         is WriteBoxItem -> item.convertedText
                         else -> ""
                     }
-                    if (text.isNotEmpty() && text.contains(query, ignoreCase = true)) {
+                    if (text.isNotEmpty() && text.contains(cleanQ, ignoreCase = true)) {
                         hits += SearchHit(i, listOf(item.bounds), text.take(64))
                     }
                 }
             }
+            // 2) Recognize human handwriting across pages (cached per ink fingerprint so repeat searches are instant)
+            val hwHits = withContext(Dispatchers.Default) {
+                val out = ArrayList<SearchHit>()
+                snapshotPages.forEachIndexed { pageIdx, p ->
+                    val inkItems = p.items.filterIsInstance<InkItem>().filter { !it.isHighlighter }
+                    if (inkItems.isEmpty()) return@forEachIndexed
+                    val fp = "${p.id}:${inkItems.size}:${inkItems.fold(0L) { acc, it -> acc * 31L + it.id }}"
+                    val lines = handwritingSearchCache[fp] ?: run {
+                        val recognized = ArrayList<Pair<RectF, String>>()
+                        for (lineStrokes in handwritingLines(inkItems)) {
+                            if (lineStrokes.isEmpty()) continue
+                            val union = RectF(lineStrokes.first().bounds).apply {
+                                lineStrokes.drop(1).forEach { union(it.bounds) }
+                            }
+                            val timed = extractTimedStrokes(lineStrokes)
+                            val res = runCatching {
+                                HandwritingRecognizer.recognize(
+                                    strokes = timed,
+                                    writingWidth = union.width().coerceAtLeast(64f),
+                                    writingHeight = union.height().coerceAtLeast(48f),
+                                    languageTag = lang,
+                                    allowFallback = lang.startsWith("en"),
+                                )
+                            }.getOrNull()
+                            val combined = listOfNotNull(res?.text?.takeIf { it.isNotBlank() })
+                                .plus(res?.candidates.orEmpty().take(3))
+                                .distinct()
+                                .joinToString(" ")
+                            if (combined.isNotBlank()) {
+                                recognized += union to combined
+                            }
+                        }
+                        if (handwritingSearchCache.size > 64) handwritingSearchCache.clear()
+                        handwritingSearchCache[fp] = recognized
+                        recognized
+                    }
+                    for ((bounds, recText) in lines) {
+                        val directMatch = recText.contains(cleanQ, ignoreCase = true)
+                        val fuzzyMatch = !directMatch && cleanQ.length >= 4 &&
+                            recText.split(Regex("\\s+")).any { word ->
+                                val w = word.filter { it.isLetterOrDigit() }
+                                w.length >= 3 && AutoSpellChecker.editDistance(w.lowercase(), cleanQ.lowercase()) <= 1
+                            }
+                        if (directMatch || fuzzyMatch) {
+                            val display = recText.split(" ").take(8).joinToString(" ").take(56)
+                            out += SearchHit(pageIdx, listOf(bounds), "Handwriting: $display")
+                        }
+                    }
+                }
+                out
+            }
+            hits += hwHits
 
             searchHits = hits.sortedBy { it.page }
             activeHit = if (hits.isEmpty()) -1 else 0
@@ -1650,6 +1734,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         textColor ?: "", eraserCustomDp ?: "", textSize, shapeDashed, shapeFillOn, shapeFillColor, tapeFreehand, tapePattern,
         penStyle.sizes.joinToString(","), highlighterStyle.sizes.joinToString(","), shapeStyle.sizes.joinToString(","), textStyle.font.name,
         textStyle.bold, textStyle.italic, textStyle.underline, textStyle.gradient ?: "", textStyle.align.name, webLinkColor, mindColor,
+        "${crayonStyle.color},${crayonStyle.size}",
     ).joinToString("|")
 
     fun saveNow() {

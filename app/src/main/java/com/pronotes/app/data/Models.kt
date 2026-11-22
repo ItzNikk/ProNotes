@@ -32,18 +32,27 @@ enum class PaperStyle(val label: String) {
     STORYBOARD("Storyboard"),
     CHECKLIST("Checklist"),
     TABLATURE("Guitar tab"),
+    // v15.2 templates
+    SEYES("French Seyes"),
+    CALLIGRAPHY("Calligraphy guide"),
+    ENGINEERING("Engineering 5mm"),
+    CORNELL_GRID("Cornell grid"),
+    DOT_CORNELL("Dotted Cornell"),
+    HABIT_TRACKER("Habit tracker"),
+    DAY_TIMEBLOCK("Time-block day"),
+    COMIC_PANELS("Comic 6-panel"),
     ;
 
     /** Groups for the paper template picker. */
     val group: String get() = when (this) {
-        BLANK, RULED, NARROW, COLLEGE, WIDE, LEGAL, HANDWRITING -> "Writing"
-        GRID, SMALL_GRID, GRAPH, DOTTED, ISOMETRIC, HEX -> "Grids"
-        TODO, CHECKLIST, PLANNER, DAILY, MONTHLY, MEETING -> "Planning"
-        CORNELL, STUDY, TWO_COLUMN, STORYBOARD -> "Study"
+        BLANK, RULED, NARROW, COLLEGE, WIDE, LEGAL, HANDWRITING, SEYES, CALLIGRAPHY -> "Writing"
+        GRID, SMALL_GRID, GRAPH, ENGINEERING, DOTTED, ISOMETRIC, HEX -> "Grids"
+        TODO, CHECKLIST, PLANNER, DAILY, DAY_TIMEBLOCK, MONTHLY, MEETING, HABIT_TRACKER -> "Planning"
+        CORNELL, CORNELL_GRID, DOT_CORNELL, STUDY, TWO_COLUMN, STORYBOARD, COMIC_PANELS -> "Study"
         MUSIC, TABLATURE -> "Music"
     }
 
-    val visibleInPicker: Boolean get() = this != HANDWRITING
+    val visibleInPicker: Boolean get() = true
 
     companion object {
         val pickerEntries: List<PaperStyle> get() = entries.filter { it.visibleInPicker }
@@ -118,7 +127,7 @@ sealed class ItemDoc {
         val text: String, val x: Float, val y: Float, val size: Float, val color: Int,
         val font: String = "SANS", val bold: Boolean = false, val italic: Boolean = false,
         val underline: Boolean = false, val gradient: Int? = null, val align: String = "LEFT",
-        val rot: Float = 0f,
+        val rot: Float = 0f, val customFontPath: String = "",
     ) : ItemDoc()
 
     @Immutable

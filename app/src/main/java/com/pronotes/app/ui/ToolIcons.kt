@@ -39,6 +39,12 @@ enum class ProIcon(internal val parts: List<Part>) {
     UNDO(listOf(P("M9 14L4 9l5-5"), P("M4 9h10.5a5.5 5.5 0 0 1 0 11H11"))),
     REDO(listOf(P("M15 14l5-5-5-5"), P("M20 9H9.5a5.5 5.5 0 0 0 0 11H13"))),
     PEN(listOf(P("M14.5 4.5l5 5L9.5 19.5l-5.5 1 1-5.5z", body = true), P("M12.5 6.5l5 5"), P("M5 15l4 4"))),
+    CRAYON(listOf(
+        P("M13.8 4.2l6 6-9.5 9.5-5.8.8.8-5.8z", body = true),
+        P("M11.6 6.4l6 6"),
+        P("M8.8 9.2l6 6"),
+        P("M5.6 14.4l4 4"),
+    )),
     HIGHLIGHTER(listOf(P("M14.5 4l5.5 5.5-8 8-5.5-5.5z", body = true), P("M6.5 12L4.5 17l2.5 2.5 4.5-1.5"), P("M14 21h7"))),
     ERASER(listOf(
         P("M5.5 14.5l8-8a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L11 19.5H8L5.5 17a1.2 1.2 0 0 1 0-2.5z"),
@@ -261,6 +267,7 @@ fun DrawScope.drawProIcon(icon: ProIcon, tint: Color, ink: Color?, inkAlpha: Flo
 
 fun iconFor(tool: Tool): ProIcon = when (tool) {
     Tool.PEN -> ProIcon.PEN
+    Tool.CRAYON -> ProIcon.CRAYON
     Tool.HIGHLIGHTER -> ProIcon.HIGHLIGHTER
     Tool.ERASER -> ProIcon.ERASER
     Tool.SHAPE -> ProIcon.SHAPES
@@ -284,7 +291,7 @@ fun ToolGlyph(tool: Tool, tint: Color, inkColor: Color, modifier: Modifier = Mod
         return
     }
     val ink = when (tool) {
-        Tool.PEN, Tool.AUTO_TEXT, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.HIGHLIGHTER, Tool.TEXT, Tool.MINDMAP -> inkColor
+        Tool.PEN, Tool.CRAYON, Tool.AUTO_TEXT, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.HIGHLIGHTER, Tool.TEXT, Tool.MINDMAP -> inkColor
         Tool.LASER -> if (active) Color(0xFFFF3B30) else null
         else -> null
     }
