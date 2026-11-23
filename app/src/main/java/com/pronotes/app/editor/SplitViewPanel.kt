@@ -308,7 +308,7 @@ internal fun SplitPanel(
                     value = vm2.searchQuery,
                     onValueChange = vm2::search,
                     singleLine = true,
-                    placeholder = { Text("Search inside ${vm2.title}…", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    placeholder = { com.pronotes.app.ui.AnimatedGradientSearchPlaceholder("Search inside ${vm2.title}…") },
                     shape = CircleShape,
                     modifier = Modifier.weight(1f),
                 )

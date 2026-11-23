@@ -255,6 +255,7 @@ enum class PagePreset(
 ) {
     A4("A4", 210f, 297f, recommended = true),
     LETTER("Letter", 215.9f, 279.4f),
+    TABLOID("Tabloid", 279.4f, 431.8f),
     A5("A5", 148f, 210f),
     A3("A3", 297f, 420f),
     SQUARE("Square", 210f, 210f),

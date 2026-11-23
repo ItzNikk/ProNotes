@@ -420,7 +420,7 @@ fun BookReaderHubScreen(
                     value = query,
                     onValueChange = { query = it },
                     singleLine = true,
-                    placeholder = { Text("Search your reading shelf…") },
+                    placeholder = { com.pronotes.app.ui.AnimatedGradientSearchPlaceholder("Search your reading shelf…") },
                     leadingIcon = { Icon(Icons.Outlined.Search, null) },
                     trailingIcon = {
                         if (query.isNotEmpty()) {
@@ -1573,7 +1573,7 @@ fun BookReaderScreen(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     singleLine = true,
-                    placeholder = { Text("Search keywords or phrases…") },
+                    placeholder = { com.pronotes.app.ui.AnimatedGradientSearchPlaceholder("Search keywords or phrases…") },
                     leadingIcon = { Icon(Icons.Outlined.Search, null) },
                     shape = CircleShape,
                     modifier = Modifier.fillMaxWidth(),

@@ -156,15 +156,22 @@ internal class NoteCanvasDocLayer(
         strokeJoin = Paint.Join.ROUND
         strokeCap = Paint.Cap.ROUND
     }
+    private val previewFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
     private val tapePreviewPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x993D6CF4.toInt() }
     private val laserCore = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
-    private val laserTipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-    }
+    private val tmpViewRect = RectF()
+    private val tmpPageRect = RectF()
+    private val tmpPt2 = FloatArray(2)
+    private var cachedGuideScale = -1f
+    private var cachedGuideDash: DashPathEffect? = null
+    private var cachedLassoPhase = Float.NaN
+    private var cachedLassoDash: DashPathEffect? = null
     private val pullPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt() }
     private val pullText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = 14f * owner.density
@@ -366,15 +373,15 @@ internal class NoteCanvasDocLayer(
         r.paperColor = owner.settings.paperTint.argb
         r.highlighterBehind = owner.settings.highlighterBehind
         pageNumberPaint.color = if (Color.luminance(desk) < 0.4f) 0xFFB0B6C0.toInt() else 0xFF7B8391.toInt()
-        val view = RectF(0f, 0f, width.toFloat(), height.toFloat())
+        tmpViewRect.set(0f, 0f, width.toFloat(), height.toFloat())
         val active = owner.host.activeHighlight()
         val loaderPhase = ((SystemClock.uptimeMillis() % 1200L) / 1200f)
         var anyPdfLoading = false
         owner.pages.forEachIndexed { i, p ->
-            val sr = RectF(0f, 0f, p.width, p.height)
-            owner.pageMatrix(i, m).mapRect(sr)
-            if (!p.isWhiteboard && !RectF.intersects(sr, view)) return@forEachIndexed
-            if (p.isWhiteboard && i != owner.currentIndex && !RectF.intersects(sr, view)) return@forEachIndexed
+            tmpPageRect.set(0f, 0f, p.width, p.height)
+            owner.pageMatrix(i, m).mapRect(tmpPageRect)
+            if (!p.isWhiteboard && !RectF.intersects(tmpPageRect, tmpViewRect)) return@forEachIndexed
+            if (p.isWhiteboard && i != owner.currentIndex && !RectF.intersects(tmpPageRect, tmpViewRect)) return@forEachIndexed
             r.darkPdf = owner.settings.darkPdf
             if (p.isWhiteboard) {
                 r.drawInfiniteBackdrop(canvas, m, width.toFloat(), height.toFloat(), p)
@@ -402,11 +409,28 @@ internal class NoteCanvasDocLayer(
                 canvas.drawPath(tmpPath, tapePreviewPaint)
                 tapePreviewPaint.style = Paint.Style.FILL
             }
-            shapePreview?.takeIf { i == owner.activePage }?.forEach { line ->
-                tmpPath.reset()
-                line.forEachIndexed { k, (x, y) -> if (k == 0) tmpPath.moveTo(x, y) else tmpPath.lineTo(x, y) }
-                previewPaint.strokeWidth = 2f * density / owner.scale
-                canvas.drawPath(tmpPath, previewPaint)
+            shapePreview?.takeIf { i == owner.activePage && it.isNotEmpty() }?.let { lines ->
+                val shapeBrush = owner.host.brush(Tool.SHAPE)
+                val fill = if (owner.host.shapeKind().closed) owner.host.shapeFill() else null
+                if (fill != null) {
+                    val outline = lines.first()
+                    if (outline.size > 2) {
+                        tmpPath.reset()
+                        outline.forEachIndexed { k, (x, y) -> if (k == 0) tmpPath.moveTo(x, y) else tmpPath.lineTo(x, y) }
+                        tmpPath.close()
+                        previewFillPaint.color = fill
+                        canvas.drawPath(tmpPath, previewFillPaint)
+                    }
+                }
+                previewPaint.color = shapeBrush.colorIntArgb
+                previewPaint.strokeWidth = max(shapeBrush.size, 2f * density / owner.scale.coerceAtLeast(0.25f))
+                lines.forEach { line ->
+                    if (line.size > 1) {
+                        tmpPath.reset()
+                        line.forEachIndexed { k, (x, y) -> if (k == 0) tmpPath.moveTo(x, y) else tmpPath.lineTo(x, y) }
+                        canvas.drawPath(tmpPath, previewPaint)
+                    }
+                }
             }
             writeBoxPreview?.takeIf { i == owner.activePage }?.let { wb ->
                 canvas.drawRoundRect(wb, 12f, 12f, linkBoxFill)
@@ -436,12 +460,16 @@ internal class NoteCanvasDocLayer(
                 val xHeightY = (effectiveGuideY - bandH).coerceAtLeast(12f)
                 // Soft translucent writing lane above the baseline
                 canvas.drawRect(gxLeft, xHeightY, gxRight, effectiveGuideY, guideBandPaint)
-                // Zoom-independent dashed cap/x-height guide
+                // Zoom-independent dashed cap/x-height guide (cached by zoom to avoid per-frame allocations)
                 guideXHeightPaint.strokeWidth = (1.3f * density * invScale).coerceIn(1.2f, 4.5f)
-                guideXHeightPaint.pathEffect = DashPathEffect(
-                    floatArrayOf((8f * density * invScale).coerceIn(6f, 24f), (6f * density * invScale).coerceIn(5f, 18f)),
-                    0f,
-                )
+                if (kotlin.math.abs(owner.scale - cachedGuideScale) > 0.01f || cachedGuideDash == null) {
+                    cachedGuideScale = owner.scale
+                    cachedGuideDash = DashPathEffect(
+                        floatArrayOf((8f * density * invScale).coerceIn(6f, 24f), (6f * density * invScale).coerceIn(5f, 18f)),
+                        0f,
+                    )
+                }
+                guideXHeightPaint.pathEffect = cachedGuideDash
                 canvas.drawLine(gxLeft, xHeightY, gxRight, xHeightY, guideXHeightPaint)
                 // Crisp baseline right beneath the writing line
                 guideBaselinePaint.strokeWidth = (2.2f * density * invScale).coerceIn(2.0f, 6.5f)
@@ -452,7 +480,7 @@ internal class NoteCanvasDocLayer(
             }
             canvas.restore()
             if (!p.isWhiteboard && owner.settings.pageNumbers && owner.pages.size > 1) {
-                canvas.drawText("${i + 1}", sr.centerX(), sr.bottom + 18f * density, pageNumberPaint)
+                canvas.drawText("${i + 1}", tmpPageRect.centerX(), tmpPageRect.bottom + 18f * density, pageNumberPaint)
             }
         }
 
@@ -678,9 +706,12 @@ internal class NoteCanvasDocLayer(
         tmpPath.reset()
         pts.forEachIndexed { i, (x, y) -> if (i == 0) tmpPath.moveTo(x, y) else tmpPath.lineTo(x, y) }
         canvas.drawPath(tmpPath, lassoFill)
-        val dash = DashPathEffect(floatArrayOf(14f * density, 8f * density), antsPhase)
-        lassoHaloPaint.pathEffect = dash
-        lassoPaint.pathEffect = dash
+        if (antsPhase != cachedLassoPhase || cachedLassoDash == null) {
+            cachedLassoPhase = antsPhase
+            cachedLassoDash = DashPathEffect(floatArrayOf(14f * density, 8f * density), antsPhase)
+        }
+        lassoHaloPaint.pathEffect = cachedLassoDash
+        lassoPaint.pathEffect = cachedLassoDash
         canvas.drawPath(tmpPath, lassoHaloPaint)
         canvas.drawPath(tmpPath, lassoPaint)
     }
@@ -689,48 +720,51 @@ internal class NoteCanvasDocLayer(
         if (lasers.isEmpty()) return
         val now = SystemClock.uptimeMillis()
         val hold = (owner.settings.laserSeconds * 1000).toLong()
-        val fade = 500L
+        val fade = 520L
         if (owner.touchActive) lasers.forEach { if (it.end != Long.MAX_VALUE && now - it.end <= hold + fade) it.end = now }
         lasers.removeAll { it.end != Long.MAX_VALUE && now - it.end > hold + fade }
-        val pt = FloatArray(2)
         for (s in lasers) {
             val age = if (s.end == Long.MAX_VALUE) 0L else now - s.end
-            val life = (if (age <= hold) 1f else 1f - (age - hold) / fade.toFloat()).coerceIn(0f, 1f)
-            if (s.pts.size < 2) continue
+            val linearLife = (if (age <= hold) 1f else 1f - (age - hold) / fade.toFloat()).coerceIn(0f, 1f)
+            // Cubic smoothstep ease-out fade for silky disappearance
+            val life = linearLife * linearLife * (3f - 2f * linearLife)
+            val count = s.pts.size
+            if (count < 2 || life <= 0.005f) continue
             tmpPath.reset()
-            var tipX = 0f
-            var tipY = 0f
-            s.pts.forEachIndexed { i, (x, y) ->
-                pt[0] = x
-                pt[1] = y
-                owner.viewMatrix.mapPoints(pt)
-                tipX = pt[0]
-                tipY = pt[1]
-                if (i == 0) tmpPath.moveTo(pt[0], pt[1]) else tmpPath.lineTo(pt[0], pt[1])
+            var prevX = 0f
+            var prevY = 0f
+            for (i in 0 until count) {
+                val p = s.pts[i]
+                tmpPt2[0] = p.first
+                tmpPt2[1] = p.second
+                owner.viewMatrix.mapPoints(tmpPt2)
+                val sx = tmpPt2[0]
+                val sy = tmpPt2[1]
+                when (i) {
+                    0 -> tmpPath.moveTo(sx, sy)
+                    1 -> tmpPath.lineTo((prevX + sx) * 0.5f, (prevY + sy) * 0.5f)
+                    else -> tmpPath.quadTo(prevX, prevY, (prevX + sx) * 0.5f, (prevY + sy) * 0.5f)
+                }
+                prevX = sx
+                prevY = sy
             }
+            tmpPath.lineTo(prevX, prevY)
             // 1. Wide soft outer crimson bloom
-            laserCore.color = Color.argb((life * 44).toInt(), 255, 38, 66)
-            laserCore.strokeWidth = 17.5f * density
+            laserCore.color = Color.argb((life * 40).toInt(), 255, 36, 68)
+            laserCore.strokeWidth = 17.0f * density
             canvas.drawPath(tmpPath, laserCore)
             // 2. Luminous mid-glow aura
-            laserCore.color = Color.argb((life * 105).toInt(), 255, 52, 62)
-            laserCore.strokeWidth = 9.5f * density
+            laserCore.color = Color.argb((life * 98).toInt(), 255, 52, 64)
+            laserCore.strokeWidth = 9.2f * density
             canvas.drawPath(tmpPath, laserCore)
             // 3. Saturated laser beam
-            laserCore.color = Color.argb((life * 245).toInt(), 255, 64, 58)
-            laserCore.strokeWidth = 4.4f * density
+            laserCore.color = Color.argb((life * 242).toInt(), 255, 62, 58)
+            laserCore.strokeWidth = 4.2f * density
             canvas.drawPath(tmpPath, laserCore)
-            // 4. Hot glowing white-pink filament core
-            laserCore.color = Color.argb((life * 225).toInt(), 255, 236, 238)
-            laserCore.strokeWidth = 1.7f * density
+            // 4. Clean luminous white-rose inner filament (no end dot)
+            laserCore.color = Color.argb((life * 218).toInt(), 255, 240, 242)
+            laserCore.strokeWidth = 1.6f * density
             canvas.drawPath(tmpPath, laserCore)
-            // 5. Glowing pointer tip flare while actively pointing
-            if (s.end == Long.MAX_VALUE || age < 180L) {
-                laserTipPaint.color = Color.argb((life * 95).toInt(), 255, 58, 72)
-                canvas.drawCircle(tipX, tipY, 10f * density, laserTipPaint)
-                laserTipPaint.color = Color.argb((life * 245).toInt(), 255, 245, 246)
-                canvas.drawCircle(tipX, tipY, 3.2f * density, laserTipPaint)
-            }
         }
         if (lasers.isNotEmpty()) postInvalidateOnAnimation()
     }

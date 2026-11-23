@@ -21,6 +21,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -381,13 +382,28 @@ fun AppPill(
         else -> scheme.onSurface
     }
     val shape = appPillShape()
-    val borderTint = when {
-        selected -> Color.White.copy(alpha = if (dark) 0.24f else 0.28f)
-        tint != null -> tint.copy(alpha = if (dark) 0.34f else 0.24f)
-        else -> scheme.outlineVariant.copy(alpha = if (dark) 0.55f else 0.72f)
-    }
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && onClick != null && !reduceMotion) 0.96f else 1f,
+        animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.72f, stiffness = 560f),
+        label = "pillScale",
+    )
+    val borderTint by animateColorAsState(
+        targetValue = when {
+            selected -> Color.White.copy(alpha = if (dark) 0.24f else 0.28f)
+            tint != null -> tint.copy(alpha = if (dark) 0.34f else 0.24f)
+            else -> scheme.outlineVariant.copy(alpha = if (dark) 0.55f else 0.72f)
+        },
+        animationSpec = if (reduceMotion) snap() else tween(180),
+        label = "pillBorder",
+    )
     Row(
         modifier = modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
             .then(
                 if (selected && !LocalReduceEffects.current) {
                     Modifier.shadow(3.dp, shape, ambientColor = activeTint.copy(alpha = 0.28f), spotColor = activeTint.copy(alpha = 0.28f))
@@ -398,7 +414,12 @@ fun AppPill(
             .border(0.9.dp, borderTint, shape)
             .then(
                 if (onClick != null) {
-                    Modifier.clickable(role = Role.Button, onClick = onClick)
+                    Modifier.clickable(
+                        interactionSource = interactionSource,
+                        indication = androidx.compose.foundation.LocalIndication.current,
+                        role = Role.Button,
+                        onClick = onClick,
+                    )
                 } else Modifier,
             )
             .padding(contentPadding),
@@ -412,16 +433,23 @@ fun AppPill(
 }
 
 /**
- * Animated sweeping multi-colour gradient placeholder text for search inputs.
+ * Reusable lively repeating multi-colour sweeping gradient text with subtle breathing shimmer.
+ * Respects [LocalReduceMotion].
  */
 @Composable
-fun AnimatedGradientSearchPlaceholder(
-    text: String = "What are you looking for?",
+fun AnimatedGradientText(
+    text: String,
+    style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
     modifier: Modifier = Modifier,
+    colors: List<Color>? = null,
+    maxLines: Int = 1,
+    overflow: TextOverflow = TextOverflow.Ellipsis,
+    durationMs: Int = 2200,
+    pulseAlpha: Boolean = true,
 ) {
     val reduceMotion = LocalReduceMotion.current
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.4f
-    val transition = rememberInfiniteTransition(label = "searchGrad")
+    val transition = rememberInfiniteTransition(label = "animGradText")
     val shift = if (reduceMotion) {
         0.35f
     } else {
@@ -429,26 +457,28 @@ fun AnimatedGradientSearchPlaceholder(
             initialValue = 0f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 2200, easing = LinearEasing),
+                animation = tween(durationMillis = durationMs, easing = LinearEasing),
                 repeatMode = RepeatMode.Restart,
             ),
-            label = "searchGradShift",
+            label = "animGradShift",
         ).value
     }
-    val pulse = if (reduceMotion) {
+    val pulse = if (reduceMotion || !pulseAlpha) {
         1f
     } else {
         transition.animateFloat(
-            initialValue = 0.78f,
+            initialValue = 0.80f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
                 animation = tween(durationMillis = 1400, easing = FastOutSlowInEasing),
                 repeatMode = RepeatMode.Reverse,
             ),
-            label = "searchPulse",
+            label = "animGradPulse",
         ).value
     }
-    val palette = if (dark) {
+    val palette = if (!colors.isNullOrEmpty()) {
+        if (colors.size >= 2) colors + colors.first() else listOf(colors.first(), colors.first())
+    } else if (dark) {
         listOf(
             Color(0xFF60A5FA),
             Color(0xFFC084FC),
@@ -479,13 +509,29 @@ fun AnimatedGradientSearchPlaceholder(
     )
     Text(
         text = text,
-        style = MaterialTheme.typography.bodyMedium.copy(
-            brush = brush,
-            fontWeight = FontWeight.SemiBold,
-        ),
+        style = style.copy(brush = brush),
+        maxLines = maxLines,
+        overflow = overflow,
+        modifier = modifier.graphicsLayer { alpha = pulse },
+    )
+}
+
+/**
+ * Animated sweeping multi-colour gradient placeholder text for search and prompt inputs.
+ */
+@Composable
+fun AnimatedGradientSearchPlaceholder(
+    text: String = "What are you looking for?",
+    modifier: Modifier = Modifier,
+) {
+    AnimatedGradientText(
+        text = text,
+        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+        modifier = modifier,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
-        modifier = modifier.graphicsLayer { alpha = pulse },
+        durationMs = 2200,
+        pulseAlpha = true,
     )
 }
 

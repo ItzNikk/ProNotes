@@ -583,7 +583,7 @@ fun LiveCollabRoomDialog(
                                     OutlinedTextField(
                                         value = chatInput,
                                         onValueChange = { chatInput = it },
-                                        placeholder = { Text("Message study friends…") },
+                                        placeholder = { com.pronotes.app.ui.AnimatedGradientSearchPlaceholder("Message study friends…") },
                                         maxLines = 3,
                                         shape = RoundedCornerShape(16.dp),
                                         modifier = Modifier.weight(1f),

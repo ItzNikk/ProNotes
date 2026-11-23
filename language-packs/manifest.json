@@ -1,0 +1,156 @@
+{
+  "version": 1,
+  "appVersion": "16.0.0",
+  "packs": [
+    {
+      "tag": "es",
+      "file": "es.json",
+      "bytes": 2848,
+      "keys": 69
+    },
+    {
+      "tag": "fr",
+      "file": "fr.json",
+      "bytes": 2828,
+      "keys": 69
+    },
+    {
+      "tag": "de",
+      "file": "de.json",
+      "bytes": 2677,
+      "keys": 69
+    },
+    {
+      "tag": "hi",
+      "file": "hi.json",
+      "bytes": 4180,
+      "keys": 69
+    },
+    {
+      "tag": "ar",
+      "file": "ar.json",
+      "bytes": 3438,
+      "keys": 69
+    },
+    {
+      "tag": "zh-CN",
+      "file": "zh-CN.json",
+      "bytes": 2677,
+      "keys": 69
+    },
+    {
+      "tag": "zh-TW",
+      "file": "zh-TW.json",
+      "bytes": 2653,
+      "keys": 69
+    },
+    {
+      "tag": "ja",
+      "file": "ja.json",
+      "bytes": 3058,
+      "keys": 69
+    },
+    {
+      "tag": "ko",
+      "file": "ko.json",
+      "bytes": 2887,
+      "keys": 69
+    },
+    {
+      "tag": "pt",
+      "file": "pt.json",
+      "bytes": 2732,
+      "keys": 69
+    },
+    {
+      "tag": "it",
+      "file": "it.json",
+      "bytes": 2684,
+      "keys": 69
+    },
+    {
+      "tag": "ru",
+      "file": "ru.json",
+      "bytes": 3500,
+      "keys": 69
+    },
+    {
+      "tag": "tr",
+      "file": "tr.json",
+      "bytes": 2723,
+      "keys": 69
+    },
+    {
+      "tag": "id",
+      "file": "id.json",
+      "bytes": 2641,
+      "keys": 69
+    },
+    {
+      "tag": "vi",
+      "file": "vi.json",
+      "bytes": 2924,
+      "keys": 69
+    },
+    {
+      "tag": "th",
+      "file": "th.json",
+      "bytes": 4332,
+      "keys": 69
+    },
+    {
+      "tag": "bn",
+      "file": "bn.json",
+      "bytes": 4236,
+      "keys": 69
+    },
+    {
+      "tag": "ta",
+      "file": "ta.json",
+      "bytes": 4665,
+      "keys": 69
+    },
+    {
+      "tag": "ur",
+      "file": "ur.json",
+      "bytes": 3277,
+      "keys": 69
+    },
+    {
+      "tag": "fa",
+      "file": "fa.json",
+      "bytes": 3358,
+      "keys": 69
+    },
+    {
+      "tag": "he",
+      "file": "he.json",
+      "bytes": 3039,
+      "keys": 69
+    },
+    {
+      "tag": "pl",
+      "file": "pl.json",
+      "bytes": 2666,
+      "keys": 69
+    },
+    {
+      "tag": "nl",
+      "file": "nl.json",
+      "bytes": 2658,
+      "keys": 69
+    },
+    {
+      "tag": "uk",
+      "file": "uk.json",
+      "bytes": 3501,
+      "keys": 69
+    },
+    {
+      "tag": "sv",
+      "file": "sv.json",
+      "bytes": 2602,
+      "keys": 69
+    }
+  ]
+}

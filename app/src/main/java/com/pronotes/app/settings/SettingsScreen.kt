@@ -38,6 +38,8 @@ import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.DragHandle
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import java.io.File
@@ -134,8 +136,31 @@ private enum class Category(val label: String, val sub: String, val icon: ProIco
     PAGES("Pages & paper", "Scroll, templates, paper colour", ProIcon.DOCUMENT, 0xFF10B981),
     TOOLBAR("Toolbar", "Floating capsule, left/right dock, timer", ProIcon.TOOLBAR, 0xFFF01E6B),
     LOOK("Appearance & Theme", "UI colour schemes, palette, typography, motion", ProIcon.PALETTE, 0xFFFF8C00),
+    LANGUAGE("Language & Region", "App display language, 58+ handwriting packs, RTL", ProIcon.INFO, 0xFF0EA5E9),
     LIBRARY("Library & backup", "Covers, cloud sync, backup and restore", ProIcon.FOLDER, 0xFF7C3AED),
     ABOUT("About", "Version, resumable updates", ProIcon.INFO, 0xFF475569),
+}
+
+private fun Category.localizedLabel(strings: com.pronotes.app.data.AppStrings): String = when (this) {
+    Category.STYLUS -> strings.catStylus
+    Category.GESTURES -> strings.catGestures
+    Category.PAGES -> strings.catPages
+    Category.TOOLBAR -> strings.catToolbar
+    Category.LOOK -> strings.catLook
+    Category.LANGUAGE -> strings.catLanguage
+    Category.LIBRARY -> strings.catLibrary
+    Category.ABOUT -> strings.catAbout
+}
+
+private fun Category.localizedSub(strings: com.pronotes.app.data.AppStrings): String = when (this) {
+    Category.STYLUS -> strings.catStylusSub
+    Category.GESTURES -> strings.catGesturesSub
+    Category.PAGES -> strings.catPagesSub
+    Category.TOOLBAR -> strings.catToolbarSub
+    Category.LOOK -> strings.catLookSub
+    Category.LANGUAGE -> strings.catLanguageSub
+    Category.LIBRARY -> strings.catLibrarySub
+    Category.ABOUT -> strings.catAboutSub
 }
 
 @Composable
@@ -158,16 +183,17 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                val appStrings = com.pronotes.app.data.LocalAppStrings.current
                 AppSurface(
                     role = SurfaceRole.Control,
                     shape = appPillShape(),
                     contentPadding = PaddingValues(12.dp),
                     onClick = back,
-                    onClickLabel = "Back",
+                    onClickLabel = appStrings.back,
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onSurface)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, appStrings.back, tint = MaterialTheme.colorScheme.onSurface)
                 }
-                GradientTitle(if (wide) "Settings" else current?.label ?: "Settings",
+                GradientTitle(if (wide) appStrings.settings else current?.localizedLabel(appStrings) ?: appStrings.settings,
                     MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f), maxLines = 2)
             }
             if (wide) {
@@ -194,6 +220,7 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
 @Composable
 private fun CategoryList(selected: Category?, modifier: Modifier, onPick: (Category) -> Unit) {
     val scheme = MaterialTheme.colorScheme
+    val strings = com.pronotes.app.data.LocalAppStrings.current
     LazyColumn(
         modifier,
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -202,6 +229,8 @@ private fun CategoryList(selected: Category?, modifier: Modifier, onPick: (Categ
         items(Category.entries.size, key = { Category.entries[it].name }) { i ->
             val c = Category.entries[i]
             val sel = c == selected
+            val cLabel = c.localizedLabel(strings)
+            val cSub = c.localizedSub(strings)
             val iconBackground = androidx.compose.ui.graphics.lerp(scheme.surface, Color(c.tint), if (sel) .24f else .14f)
             AppSurface(
                 modifier = Modifier.fillMaxWidth(),
@@ -210,7 +239,7 @@ private fun CategoryList(selected: Category?, modifier: Modifier, onPick: (Categ
                 shape = appCardShape(),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
                 onClick = { onPick(c) },
-                onClickLabel = c.label,
+                onClickLabel = cLabel,
             ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Box(
@@ -219,15 +248,21 @@ private fun CategoryList(selected: Category?, modifier: Modifier, onPick: (Categ
                             .clip(MaterialTheme.shapes.small)
                             .background(iconBackground),
                         contentAlignment = Alignment.Center,
-                    ) { ProIconView(c.icon, scheme.onSurface, Modifier.size(22.dp)) }
+                    ) {
+                        if (c == Category.LANGUAGE) {
+                            Icon(Icons.Outlined.Language, null, tint = scheme.onSurface, modifier = Modifier.size(22.dp))
+                        } else {
+                            ProIconView(c.icon, scheme.onSurface, Modifier.size(22.dp))
+                        }
+                    }
                     Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
                         Text(
-                            c.label,
+                            cLabel,
                             style = MaterialTheme.typography.titleMedium,
                             color = if (sel) scheme.onPrimaryContainer else scheme.onSurface,
                             fontWeight = if (sel) FontWeight.Bold else FontWeight.SemiBold,
                         )
-                        Text(c.sub, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+                        Text(cSub, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
                     }
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = if (sel) scheme.primary else scheme.onSurfaceVariant)
                 }
@@ -730,6 +765,191 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                         FlowRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             DeskColor.entries.forEach { d -> Swatchy(Color(d.argb), d.label, s.deskColor == d) { up { it.copy(deskColor = d) } } }
                         }
+                    }
+                }
+                Category.LANGUAGE -> {
+                    val strings = com.pronotes.app.data.LocalAppStrings.current
+                    val scope = rememberCoroutineScope()
+                    var showAppLangPicker by remember { mutableStateOf(false) }
+                    var showHwLangPicker by remember { mutableStateOf(false) }
+                    val activeAppLang = remember(s.appLanguage) { com.pronotes.app.data.AppLanguages.findByTag(s.appLanguage) }
+                    val activeHwLang = remember(s.toolDefaults.handwritingLanguage) {
+                        com.pronotes.app.editor.HandwritingRecognizer.findLanguage(s.toolDefaults.handwritingLanguage)
+                    }
+                    val installedUiPacks by com.pronotes.app.data.LanguagePackManager.installedTags.collectAsStateWithLifecycle()
+                    val downloadedPacks by com.pronotes.app.editor.HandwritingRecognizer.downloadedTags.collectAsStateWithLifecycle()
+
+                    androidx.compose.runtime.LaunchedEffect(context) {
+                        com.pronotes.app.data.LanguagePackManager.refreshInstalled(context)
+                        com.pronotes.app.editor.HandwritingRecognizer.refreshDownloadedModels()
+                    }
+
+                    Section(strings.appDisplayLanguage) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showAppLangPicker = true }
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Outlined.Translate,
+                                contentDescription = null,
+                                tint = ProButtonPalette.ElectricBlue,
+                                modifier = Modifier.size(22.dp),
+                            )
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    if (activeAppLang.tag.isEmpty()) strings.systemDefault else activeAppLang.nativeName,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    "English built-in · ${installedUiPacks.size} optional packs downloaded",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        HorizontalDivider(Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                        val readyUiOptions = remember(installedUiPacks) {
+                            com.pronotes.app.data.AppLanguages.ALL.filter { it.builtIn || it.tag in installedUiPacks }
+                        }
+                        FlowRow(
+                            Modifier.padding(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            readyUiOptions.forEach { opt ->
+                                AppChip(
+                                    selected = s.appLanguage.equals(opt.tag, ignoreCase = true),
+                                    onClick = { up { it.copy(appLanguage = opt.tag) } },
+                                    label = if (opt.tag.isEmpty()) strings.systemDefault else opt.nativeName,
+                                    tint = ProButtonPalette.ElectricBlue,
+                                )
+                            }
+                            AppChip(
+                                selected = false,
+                                onClick = { showAppLangPicker = true },
+                                label = "Download languages (25+ packs)…",
+                                tint = ProButtonPalette.Violet,
+                            )
+                        }
+                        if (installedUiPacks.isNotEmpty()) {
+                            HorizontalDivider(Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                            val kb = (com.pronotes.app.data.LanguagePackManager.installedBytes(context) / 1024L).coerceAtLeast(1L)
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "${installedUiPacks.size} optional UI pack(s) · ~$kb KB on device",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = {
+                                    com.pronotes.app.data.LanguagePackManager.clearAllPacks(context)
+                                    if (!com.pronotes.app.data.AppLanguages.isBuiltIn(s.appLanguage)) {
+                                        up { it.copy(appLanguage = "") }
+                                    }
+                                }) {
+                                    Text("Remove all", color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                        Info("Only English is bundled by default to keep Pro Notes lightweight. Download optional language packs anytime and remove them whenever you want.")
+                    }
+
+                    Section(strings.handwritingRecognitionLang) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showHwLangPicker = true }
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Outlined.Language,
+                                contentDescription = null,
+                                tint = ProButtonPalette.Emerald,
+                                modifier = Modifier.size(22.dp),
+                            )
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    if (activeHwLang.nativeName == activeHwLang.name) activeHwLang.name
+                                    else "${activeHwLang.nativeName} (${activeHwLang.name})",
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    "${activeHwLang.region} · ${downloadedPacks.size} ${strings.downloaded.lowercase()} · ${com.pronotes.app.editor.HandwritingRecognizer.supportedLanguages.size} optional packs",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        HorizontalDivider(Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                        FlowRow(
+                            Modifier.padding(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            com.pronotes.app.editor.HandwritingRecognizer.quickLanguages.forEach { lang ->
+                                AppChip(
+                                    selected = activeHwLang.tag.equals(lang.tag, ignoreCase = true),
+                                    onClick = {
+                                        up { it.copy(toolDefaults = it.toolDefaults.copy(handwritingLanguage = lang.tag)) }
+                                    },
+                                    label = lang.nativeName,
+                                    tint = ProButtonPalette.Emerald,
+                                )
+                            }
+                            AppChip(
+                                selected = false,
+                                onClick = { showHwLangPicker = true },
+                                label = "Manage all ${com.pronotes.app.editor.HandwritingRecognizer.supportedLanguages.size}+ packs…",
+                                tint = ProButtonPalette.ElectricBlue,
+                            )
+                        }
+                        HorizontalDivider(Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                        Toggle(
+                            "Auto spell check",
+                            "Multilingual spell check & accent restoration for converted handwriting and typed notes",
+                            s.toolDefaults.autoSpellCheck,
+                        ) { v -> up { it.copy(toolDefaults = it.toolDefaults.copy(autoSpellCheck = v)) } }
+                        Info("Handwriting packs are never bundled into the APK—download only the languages you write in (Latin, Devanagari, Bengali, Tamil, Telugu, CJK, Japanese, Korean, Arabic, Hebrew, Cyrillic, Thai, Vietnamese, and more) and delete unused models anytime.")
+                    }
+
+                    if (showAppLangPicker) {
+                        com.pronotes.app.ui.AppLanguagePickerDialog(
+                            selectedTag = s.appLanguage,
+                            onDismiss = { showAppLangPicker = false },
+                            onSelect = { opt ->
+                                up { it.copy(appLanguage = opt.tag) }
+                                showAppLangPicker = false
+                            },
+                        )
+                    }
+                    if (showHwLangPicker) {
+                        com.pronotes.app.ui.HandwritingLanguagePickerDialog(
+                            selectedTag = s.toolDefaults.handwritingLanguage,
+                            onDismiss = { showHwLangPicker = false },
+                            onSelect = { lang ->
+                                up { it.copy(toolDefaults = it.toolDefaults.copy(handwritingLanguage = lang.tag)) }
+                                showHwLangPicker = false
+                            },
+                        )
                     }
                 }
                 Category.LIBRARY -> {

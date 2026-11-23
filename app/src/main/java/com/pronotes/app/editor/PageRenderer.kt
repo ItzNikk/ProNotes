@@ -1087,7 +1087,7 @@ class PageRenderer(private val noteDir: File?) {
                     }
                     tapePaint.shader = null
                 }
-                is StickyItem -> drawSticky(canvas, item)
+                is StickyItem -> drawSticky(canvas, item, allItems)
                 is WebLinkItem -> drawWebLink(canvas, item)
                 is MindNodeItem -> drawMindNode(canvas, item, allItems)
                 is WriteBoxItem -> drawWriteBox(canvas, item)
@@ -1163,54 +1163,76 @@ class PageRenderer(private val noteDir: File?) {
         crayonPaint.shader = null
     }
 
-    private fun drawSticky(canvas: Canvas, item: StickyItem) {
+    private val stickyBubblePath = Path()
+    private val stickyClipPath = Path()
+    private val stickyCornerPath = Path()
+    private val stickyTmpRect = RectF()
+    private val stickyBtnRect = RectF()
+
+    private fun resolveStickyTypeface(fontKey: String): android.graphics.Typeface {
+        if (fontKey.contains('/') || fontKey.endsWith(".ttf", true) || fontKey.endsWith(".otf", true)) {
+            CustomFontRegistry.loadTypeface(fontKey)?.let { return it }
+        }
+        TextFont.entries.firstOrNull { it.name.equals(fontKey, ignoreCase = true) }?.let { return it.typeface }
+        return when (fontKey.uppercase()) {
+            "SERIF" -> android.graphics.Typeface.SERIF
+            "MONO" -> android.graphics.Typeface.MONOSPACE
+            "HAND" -> android.graphics.Typeface.create("cursive", android.graphics.Typeface.NORMAL)
+            else -> android.graphics.Typeface.SANS_SERIF
+        }
+    }
+
+    private fun drawSticky(canvas: Canvas, item: StickyItem, allItems: List<PageItem>) {
         val r = item.raw
         val style = item.style
         val lum = Color.luminance(item.color)
-        val fg = if (style == "outline" || style == "glass") {
+        val isTranslucentStyle = style == "outline" || style == "glass" || style == "tinted"
+        val fg = if (isTranslucentStyle) {
             if (isDark) 0xFFF1F5F9.toInt() else 0xFF1B1F2A.toInt()
         } else {
             if (lum < 0.36f) Color.WHITE else 0xFF1B1F2A.toInt()
         }
         val fgMuted = (fg and 0x00FFFFFF) or (0x99 shl 24)
 
-        // Compact messaging/chat-bubble icon when folded (~76x76 world units) — tap anywhere to expand!
+        // Compact messaging/chat-bubble icon when folded (~76x76 world units) — tap to expand, hold to move!
         if (item.collapsed) {
             rotated(canvas, r, item.rot) {
-                val cx = r.centerX()
-                val cy = r.centerY()
-                val bubble = RectF(r.left + 5f, r.top + 5f, r.right - 5f, r.bottom - 11f)
+                stickyTmpRect.set(r.left + 5f, r.top + 5f, r.right - 5f, r.bottom - 11f)
                 val rad = 22f
-                val bubblePath = Path().apply {
-                    addRoundRect(bubble, rad, rad, Path.Direction.CW)
-                    // Little chat-bubble pointer tail at bottom-left
-                    moveTo(bubble.left + 12f, bubble.bottom - 2f)
-                    lineTo(bubble.left + 4f, r.bottom - 2f)
-                    lineTo(bubble.left + 26f, bubble.bottom - 1f)
-                    close()
+                stickyBubblePath.reset()
+                stickyBubblePath.addRoundRect(stickyTmpRect, rad, rad, Path.Direction.CW)
+                // Little chat-bubble pointer tail at bottom-left
+                stickyBubblePath.moveTo(stickyTmpRect.left + 12f, stickyTmpRect.bottom - 2f)
+                stickyBubblePath.lineTo(stickyTmpRect.left + 4f, r.bottom - 2f)
+                stickyBubblePath.lineTo(stickyTmpRect.left + 26f, stickyTmpRect.bottom - 1f)
+                stickyBubblePath.close()
+
+                stickyPaint.color = when (style) {
+                    "outline" -> if (isDark) 0xEE181C24.toInt() else 0xF8FFFFFF.toInt()
+                    "tinted", "glass" -> (item.color and 0x00FFFFFF) or (0x99 shl 24)
+                    else -> item.color
                 }
-                stickyPaint.color = if (style == "outline") (if (isDark) 0xEE181C24.toInt() else 0xF8FFFFFF.toInt()) else item.color
-                canvas.drawPath(bubblePath, stickyPaint)
+                canvas.drawPath(stickyBubblePath, stickyPaint)
                 stickyStroke.color = if (style == "outline") item.color else ((fg and 0x00FFFFFF) or (0x33 shl 24))
                 stickyStroke.strokeWidth = if (style == "outline") 3.2f else 2f
-                canvas.drawPath(bubblePath, stickyStroke)
+                canvas.drawPath(stickyBubblePath, stickyStroke)
 
                 // Clean messaging glyph lines inside the compact bubble
                 stickyStroke.color = fg
                 stickyStroke.strokeWidth = 3.2f
                 stickyStroke.strokeCap = Paint.Cap.ROUND
-                val lx = bubble.left + 16f
-                val rx = bubble.right - 16f
-                val ly1 = bubble.centerY() - 8f
-                val ly2 = bubble.centerY() + 1f
-                val ly3 = bubble.centerY() + 10f
+                val lx = stickyTmpRect.left + 16f
+                val rx = stickyTmpRect.right - 16f
+                val ly1 = stickyTmpRect.centerY() - 8f
+                val ly2 = stickyTmpRect.centerY() + 1f
+                val ly3 = stickyTmpRect.centerY() + 10f
                 canvas.drawLine(lx, ly1, rx, ly1, stickyStroke)
                 canvas.drawLine(lx, ly2, rx - 5f, ly2, stickyStroke)
                 canvas.drawLine(lx, ly3, lx + (rx - lx) * 0.58f, ly3, stickyStroke)
 
-                // Tiny notification dot on top-right if sticky contains text or title
-                if (item.text.isNotBlank() || item.title.isNotBlank()) {
-                    fillPaint.color = 0xFF3D6CF4.toInt()
+                // Tiny notification/pin dot on top-right if sticky contains text, title, or is pinned
+                if (item.pinned || item.text.isNotBlank() || item.title.isNotBlank()) {
+                    fillPaint.color = if (item.pinned) 0xFFD95926.toInt() else 0xFF3D6CF4.toInt()
                     canvas.drawCircle(r.right - 10f, r.top + 10f, 8f, fillPaint)
                     stickyStroke.color = Color.WHITE
                     stickyStroke.strokeWidth = 2f
@@ -1222,14 +1244,16 @@ class PageRenderer(private val noteDir: File?) {
 
         rotated(canvas, r, item.rot) {
             canvas.save()
-            val clipPath = Path().apply { addRoundRect(r, 18f, 18f, Path.Direction.CW) }
-            canvas.clipPath(clipPath)
+            stickyClipPath.reset()
+            stickyClipPath.addRoundRect(r, 18f, 18f, Path.Direction.CW)
+            canvas.clipPath(stickyClipPath)
 
             when (style) {
-                "glass" -> {
-                    stickyPaint.color = (item.color and 0x00FFFFFF) or (0x4D shl 24)
+                "glass", "tinted" -> {
+                    val fillAlpha = if (style == "tinted") 0x66 else 0x4D
+                    stickyPaint.color = (item.color and 0x00FFFFFF) or (fillAlpha shl 24)
                     canvas.drawRoundRect(r, 18f, 18f, stickyPaint)
-                    stickyStroke.color = (item.color and 0x00FFFFFF) or (0xB0 shl 24)
+                    stickyStroke.color = (item.color and 0x00FFFFFF) or (0xB8 shl 24)
                     stickyStroke.strokeWidth = 2.6f
                     canvas.drawRoundRect(r, 18f, 18f, stickyStroke)
                 }
@@ -1238,7 +1262,9 @@ class PageRenderer(private val noteDir: File?) {
                     canvas.drawRoundRect(r, 18f, 18f, stickyPaint)
                     stickyStroke.color = item.color
                     stickyStroke.strokeWidth = 3.5f
-                    canvas.drawRoundRect(RectF(r).apply { inset(1.5f, 1.5f) }, 17f, 17f, stickyStroke)
+                    stickyTmpRect.set(r)
+                    stickyTmpRect.inset(1.5f, 1.5f)
+                    canvas.drawRoundRect(stickyTmpRect, 17f, 17f, stickyStroke)
                 }
                 else -> {
                     stickyPaint.color = item.color
@@ -1246,52 +1272,68 @@ class PageRenderer(private val noteDir: File?) {
                 }
             }
 
-            // Top header bar
+            // Top header bar (drag left area to move unpinned note; tap ✎ to edit; tap ▾ to collapse)
             val barH = minOf(r.height(), if (item.title.isNotBlank()) 38f else 34f)
             fillPaint.color = if (style == "outline") ((item.color and 0x00FFFFFF) or (0x28 shl 24)) else 0x16000000
             canvas.drawRect(r.left, r.top, r.right, r.top + barH, fillPaint)
 
-            // Always show a top-right Collapse / Expand toggle pill (▾ / ▸)
+            // 1. Top-right Collapse toggle pill (▾)
             val toggleW = 30f
-            val toggleR = RectF(r.right - toggleW - 8f, r.top + 5f, r.right - 8f, r.top + barH - 5f)
+            stickyBtnRect.set(r.right - toggleW - 8f, r.top + 5f, r.right - 8f, r.top + barH - 5f)
             fillPaint.color = 0x22000000
-            canvas.drawRoundRect(toggleR, 8f, 8f, fillPaint)
+            canvas.drawRoundRect(stickyBtnRect, 8f, 8f, fillPaint)
+            stickyText.typeface = android.graphics.Typeface.SANS_SERIF
             stickyText.textSize = 15f
             stickyText.isFakeBoldText = true
             stickyText.color = fg
-            val toggleGlyph = if (item.collapsed) "▸" else "▾"
+            val toggleGlyph = "▾"
             val gw = stickyText.measureText(toggleGlyph)
-            canvas.drawText(toggleGlyph, toggleR.centerX() - gw / 2f, toggleR.centerY() + 5f, stickyText)
+            canvas.drawText(toggleGlyph, stickyBtnRect.centerX() - gw / 2f, stickyBtnRect.centerY() + 5f, stickyText)
+
+            // 2. Adjacent Quick-Edit pill (✎) to open Sticky Studio from any writing tool
+            val editW = 30f
+            stickyBtnRect.set(r.right - toggleW - editW - 14f, r.top + 5f, r.right - toggleW - 14f, r.top + barH - 5f)
+            fillPaint.color = 0x1A000000
+            canvas.drawRoundRect(stickyBtnRect, 8f, 8f, fillPaint)
+            stickyText.textSize = 13.5f
+            val editGlyph = "✎"
+            val ew = stickyText.measureText(editGlyph)
+            canvas.drawText(editGlyph, stickyBtnRect.centerX() - ew / 2f, stickyBtnRect.centerY() + 4.5f, stickyText)
             stickyText.isFakeBoldText = false
 
-            var rightReserved = toggleW + 16f
-            if (item.pinned || item.collapsed) {
-                val badge = listOfNotNull(
-                    if (item.pinned) "PIN" else null,
-                    if (item.collapsed) "FOLDED" else null,
-                ).joinToString(" · ")
+            var rightReserved = toggleW + editW + 22f
+            if (item.pinned) {
+                val badge = "PIN"
                 stickyText.textSize = 11.5f
                 stickyText.isFakeBoldText = true
                 val bw = stickyText.measureText(badge) + 12f
-                fillPaint.color = if (item.pinned) 0x44D95926 else 0x26000000
-                canvas.drawRoundRect(RectF(r.right - rightReserved - bw, r.top + 6f, r.right - rightReserved, r.top + barH - 6f), 8f, 8f, fillPaint)
+                fillPaint.color = 0x44D95926
+                stickyBtnRect.set(r.right - rightReserved - bw, r.top + 6f, r.right - rightReserved, r.top + barH - 6f)
+                canvas.drawRoundRect(stickyBtnRect, 8f, 8f, fillPaint)
                 stickyText.color = fg
                 canvas.drawText(badge, r.right - rightReserved - bw + 6f, r.top + barH / 2f + 4f, stickyText)
                 stickyText.isFakeBoldText = false
                 rightReserved += bw + 8f
             }
 
-            val headerTitle = item.title.trim().ifBlank { if (item.collapsed && item.text.isBlank()) "Sticky note" else "" }
+            val headerTitle = item.title.trim()
             if (headerTitle.isNotBlank()) {
                 stickyTitleText.color = fg
                 stickyTitleText.textSize = (barH * 0.44f).coerceIn(13f, 19f)
                 val maxTitleW = r.width() - rightReserved - 18f
                 val tTitle = android.text.TextUtils.ellipsize(headerTitle, stickyTitleText, maxTitleW.coerceAtLeast(30f), android.text.TextUtils.TruncateAt.END).toString()
                 canvas.drawText(tTitle, r.left + 14f, r.top + barH / 2f + stickyTitleText.textSize * 0.35f, stickyTitleText)
+            } else if (!item.pinned && r.width() > 140f) {
+                // Subtle grab handle dots in header center-left so users immediately know it can be dragged
+                fillPaint.color = (fg and 0x00FFFFFF) or (0x44 shl 24)
+                val gripY = r.top + barH * 0.5f
+                for (dot in 0..2) {
+                    canvas.drawCircle(r.left + 18f + dot * 8f, gripY, 2.2f, fillPaint)
+                }
             }
 
             // Lined paper accent lines when expanded
-            if (!item.collapsed && style == "lined") {
+            if (style == "lined") {
                 stickyStroke.color = (fg and 0x00FFFFFF) or (0x22 shl 24)
                 stickyStroke.strokeWidth = 1.4f
                 val step = (item.fontSize * 1.45f).coerceIn(22f, 44f)
@@ -1303,37 +1345,32 @@ class PageRenderer(private val noteDir: File?) {
             }
 
             // Dog-ear corner curl on bottom-right when expanded
-            if (!item.collapsed && r.width() > 60f && r.height() > 60f) {
+            if (r.width() > 60f && r.height() > 60f) {
                 val ear = 22f
-                val corner = Path().apply {
-                    moveTo(r.right - ear, r.bottom)
-                    lineTo(r.right, r.bottom - ear)
-                    lineTo(r.right - ear, r.bottom - ear)
-                    close()
-                }
+                stickyCornerPath.reset()
+                stickyCornerPath.moveTo(r.right - ear, r.bottom)
+                stickyCornerPath.lineTo(r.right, r.bottom - ear)
+                stickyCornerPath.lineTo(r.right - ear, r.bottom - ear)
+                stickyCornerPath.close()
                 fillPaint.color = 0x26000000
-                canvas.drawPath(corner, fillPaint)
+                canvas.drawPath(stickyCornerPath, fillPaint)
             }
 
-            if (item.text.isEmpty() && !item.collapsed) {
-                stickyText.color = (fg and 0x00FFFFFF) or (0x44 shl 24)
-                stickyText.textSize = 16f
-                stickyText.isFakeBoldText = false
-                canvas.drawText("Write here…", r.left + 14f, r.top + barH + 24f, stickyText)
-            } else if (item.text.isNotEmpty()) {
-                stickyText.typeface = when (item.font) {
-                    "SERIF" -> android.graphics.Typeface.SERIF
-                    "MONO" -> android.graphics.Typeface.MONOSPACE
-                    "HAND" -> android.graphics.Typeface.create("cursive", android.graphics.Typeface.NORMAL)
-                    else -> android.graphics.Typeface.SANS_SERIF
+            if (item.text.isEmpty()) {
+                // Hide "Write here…" placeholder if the user has already handwritten ink strokes on this sticky note.
+                val hasInkOverlay = allItems.any { other ->
+                    other is InkItem && RectF.intersects(r, other.bounds)
                 }
-                if (item.collapsed) {
-                    stickyText.color = fg
-                    stickyText.textSize = 19f
-                    val oneLine = item.text.lineSequence().firstOrNull()?.take(28) ?: ""
-                    canvas.drawText(oneLine, r.left + 14f, r.top + barH + 22f, stickyText)
-                } else {
-                    val fSize = item.fontSize.coerceIn(14f, 64f) * (r.width() / 280f).coerceIn(0.45f, 3.5f)
+                if (!hasInkOverlay) {
+                    stickyText.typeface = android.graphics.Typeface.SANS_SERIF
+                    stickyText.color = (fg and 0x00FFFFFF) or (0x44 shl 24)
+                    stickyText.textSize = 16f
+                    stickyText.isFakeBoldText = false
+                    canvas.drawText("Write here…", r.left + 14f, r.top + barH + 24f, stickyText)
+                }
+            } else {
+                stickyText.typeface = resolveStickyTypeface(item.font)
+                val fSize = item.fontSize.coerceIn(14f, 64f) * (r.width() / 280f).coerceIn(0.45f, 3.5f)
                     stickyText.textSize = fSize
                     val availW = (r.width() - 32f).toInt().coerceAtLeast(16)
                     val lines = item.text.split('\n')
@@ -1355,7 +1392,7 @@ class PageRenderer(private val noteDir: File?) {
                         layout.draw(canvas)
                     } else {
                         var cy = r.top + barH + 10f
-                        val checkCol = if (style == "outline" || style == "glass") item.color else 0xFF3D6CF4.toInt()
+                        val checkCol = if (isTranslucentStyle) item.color else 0xFF3D6CF4.toInt()
                         for (line in lines) {
                             if (cy > r.bottom - 10f) break
                             val tr = line.trimStart()
@@ -1411,7 +1448,6 @@ class PageRenderer(private val noteDir: File?) {
                         stickyText.isStrikeThruText = false
                     }
                     canvas.restore()
-                }
             }
             canvas.restore()
         }

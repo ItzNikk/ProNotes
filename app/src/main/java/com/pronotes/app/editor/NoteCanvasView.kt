@@ -829,6 +829,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
     internal var dragStickyDownWy = 0f
     internal var dragStickyActive = false
     internal var dragStickyFromFinger = false
+    internal var dragStickyWasExpanded = false
     internal val stickyHoldRunnable = Runnable {
         if (dragStickyId == -1L || dragStickyPage !in pages.indices) return@Runnable
         dragStickyActive = true
@@ -860,6 +861,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         dragStickyPage = -1
         dragStickyActive = false
         dragStickyFromFinger = false
+        dragStickyWasExpanded = false
     }
     private var holdFired = false
     private var lastMovePt: Pt? = null
@@ -1087,12 +1089,13 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         }
 
         // Collapsed sticky messaging icon: quick tap expands, press & hold (~280ms) drags to move it!
-        // Expanded sticky folds via its top-right pill.
+        // Expanded sticky: top-right collapse pill folds, adjacent edit pill opens Sticky Studio,
+        // and dragging the header bar smoothly repositions unpinned sticky notes.
         if (t in setOf(Tool.PEN, Tool.CRAYON, Tool.AUTO_TEXT, Tool.STICKY, Tool.TEXT, Tool.HIGHLIGHTER)) {
             val hitSticky = pages.getOrNull(activePage)?.items?.filterIsInstance<StickyItem>()
                 ?.lastOrNull { s ->
                     if (s.collapsed) s.raw.contains(wx, wy)
-                    else s.raw.contains(wx, wy) && wx >= s.raw.right - 56f && wy <= s.raw.top + 48f
+                    else s.raw.contains(wx, wy) && wy <= s.raw.top + 42f
                 }
             if (hitSticky != null) {
                 if (hitSticky.collapsed) {
@@ -1105,13 +1108,33 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                     dragStickyDownWy = wy
                     dragStickyActive = false
                     dragStickyFromFinger = false
+                    dragStickyWasExpanded = false
                     mode = Mode.STICKY_DRAG
                     postDelayed(stickyHoldRunnable, 280L)
                     return
-                } else {
+                } else if (wx >= hitSticky.raw.right - 46f) {
                     buzz(HapticFeedbackConstants.CLOCK_TICK)
                     host.onStickyToggleCollapse(activePage, hitSticky)
                     mode = Mode.IGNORE
+                    return
+                } else if (wx >= hitSticky.raw.right - 84f) {
+                    buzz(HapticFeedbackConstants.CLOCK_TICK)
+                    host.onStickyTap(activePage, wx, wy, hitSticky)
+                    mode = Mode.IGNORE
+                    return
+                } else if (!hitSticky.pinned) {
+                    // Header bar drag to reposition an expanded sticky note cleanly without stray ink dots.
+                    clearStickyDrag()
+                    dragStickyId = hitSticky.id
+                    dragStickyPage = activePage
+                    dragStickyOrigX = hitSticky.x
+                    dragStickyOrigY = hitSticky.y
+                    dragStickyDownWx = wx
+                    dragStickyDownWy = wy
+                    dragStickyActive = false
+                    dragStickyFromFinger = false
+                    dragStickyWasExpanded = true
+                    mode = Mode.STICKY_DRAG
                     return
                 }
             }
@@ -1404,6 +1427,13 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                     Mode.STICKY_DRAG -> {
                         if (dragStickyActive) {
                             moveDraggedSticky(e.getX(idx), e.getY(idx))
+                        } else if (dragStickyWasExpanded) {
+                            if (hypot(e.getX(idx) - downX, e.getY(idx) - downY) > effectiveTouchSlop * 0.65f) {
+                                dragStickyActive = true
+                                buzz(HapticFeedbackConstants.CLOCK_TICK)
+                                host.beginEdit(dragStickyPage)
+                                moveDraggedSticky(e.getX(idx), e.getY(idx))
+                            }
                         } else if (hypot(e.getX(idx) - downX, e.getY(idx) - downY) > effectiveTouchSlop * 2f) {
                             removeCallbacks(stickyHoldRunnable)
                         }
@@ -1532,7 +1562,13 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                             val sticky = sp.items.filterIsInstance<StickyItem>().firstOrNull { it.id == dragStickyId }
                             if (sticky != null) {
                                 buzz(HapticFeedbackConstants.CLOCK_TICK)
-                                host.onStickyToggleCollapse(dragStickyPage, sticky)
+                                if (dragStickyWasExpanded) {
+                                    // Quick tap on expanded sticky header opens Sticky Studio to edit text/color/style.
+                                    val (wx, wy) = toLocal(px, py, dragStickyPage)
+                                    host.onStickyTap(dragStickyPage, wx, wy, sticky)
+                                } else {
+                                    host.onStickyToggleCollapse(dragStickyPage, sticky)
+                                }
                             }
                         }
                         clearStickyDrag()
@@ -1696,7 +1732,9 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
     }
 
     private fun shouldTrackHold(): Boolean =
-        strokeTool == Tool.SHAPE || strokeTool == Tool.HIGHLIGHTER || settings.holdToShape
+        strokeTool == Tool.SHAPE ||
+            strokeTool == Tool.HIGHLIGHTER ||
+            (settings.holdToShape && strokeTool in setOf(Tool.PEN, Tool.CRAYON, Tool.AUTO_TEXT))
 
     private fun finishInk(e: MotionEvent, isTap: Boolean) {
         val id = strokeId ?: return
@@ -1734,10 +1772,10 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             }
         }
         if (strokeTool == Tool.SHAPE) {
-            val shape = ShapeRecognizer.recognize(points, forceNearest = true)
-            if (shape != null) {
+            val shapes = ShapeRecognizer.recognizeMulti(points, forceNearest = true)
+            if (shapes != null) {
                 cancelActiveWetStroke(e)
-                addShapes(listOf(shape), fillable = isClosedLoop(shape, gestureConfig))
+                addShapes(shapes, fillable = shapes.size == 1 && isClosedLoop(shapes.first(), gestureConfig))
                 buzz(); syncFeel(); feel.cue(PaperFeel.Cue.SNAP)
                 return
             }
@@ -1886,9 +1924,9 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         if (mode != Mode.INK || holdFired) return
         if (strokeId == null) return
         pages.getOrNull(activePage) ?: return
-        if (points.size < 6 || pathLength(points) < 30f) return
+        if (points.size < 5 || pathLength(points) < 24f) return
         // A scribble that ends with a pause is still a scribble (erase), never a shape.
-        if (strokeTool == Tool.PEN && settings.scribbleToErase &&
+        if ((strokeTool == Tool.PEN || strokeTool == Tool.CRAYON) && settings.scribbleToErase &&
             isDeliberateScribble(points, scale / density, SystemClock.uptimeMillis() - downTime, gestureConfig) &&
             scribbleHitIds(activePage, points).isNotEmpty()) return
 
@@ -1908,11 +1946,15 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             buzz()
             return
         }
-        if (strokeTool == Tool.SHAPE || settings.holdToShape) {
-            val shape = ShapeRecognizer.recognize(points, forceNearest = (strokeTool == Tool.SHAPE)) ?: return
+        if (strokeTool == Tool.SHAPE || (settings.holdToShape && strokeTool in setOf(Tool.PEN, Tool.CRAYON, Tool.AUTO_TEXT))) {
+            val shapes = ShapeRecognizer.recognizeMulti(points, forceNearest = (strokeTool == Tool.SHAPE)) ?: return
             holdFired = true
             cancelActiveWetStroke()
-            addShapes(listOf(shape), fillable = strokeTool == Tool.SHAPE && isClosedLoop(shape, gestureConfig), brushTool = strokeTool)
+            addShapes(
+                shapes = shapes,
+                fillable = strokeTool == Tool.SHAPE && shapes.size == 1 && isClosedLoop(shapes.first(), gestureConfig),
+                brushTool = strokeTool,
+            )
             buzz(); syncFeel(); feel.cue(PaperFeel.Cue.SNAP)
         }
     }
@@ -1949,7 +1991,11 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
 
     private fun addShapes(shapes: List<List<Pt>>, fillable: Boolean = false, brushTool: Tool = Tool.SHAPE) {
         val p = pages.getOrNull(activePage) ?: return
-        val brush = host.brush(if (brushTool == Tool.PEN) Tool.PEN else Tool.SHAPE)
+        val effectiveBrushTool = when (brushTool) {
+            Tool.PEN, Tool.CRAYON, Tool.AUTO_TEXT, Tool.HIGHLIGHTER -> brushTool
+            else -> Tool.SHAPE
+        }
+        val brush = host.brush(effectiveBrushTool)
         val items = ArrayList<PageItem>()
         val fill = if (fillable) host.shapeFill() else null
         val outline = shapes.firstOrNull()

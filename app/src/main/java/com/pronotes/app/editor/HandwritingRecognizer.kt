@@ -51,31 +51,191 @@ enum class HandwritingModelState {
     OFFLINE_FALLBACK,
 }
 
+data class HandwritingLanguage(
+    val tag: String,
+    val name: String,
+    val nativeName: String,
+    val region: String,
+    val isRtl: Boolean = false,
+    val mlKitTag: String = tag,
+)
+
 /**
  * Clean-room on-device handwriting-to-text recognition engine:
  *
  * 1. Primary path: Google ML Kit Digital Ink Recognition (fully on-device vector
  *    Ink recognizer consuming stroke order, coordinates, timestamps, WritingArea,
- *    and preContext for cursive + print + punctuation + multi-line recognition).
+ *    and preContext for cursive + print + punctuation + multi-line recognition)
+ *    supporting 56+ world languages across Latin, Devanagari, CJK, Arabic, Cyrillic,
+ *    Greek, Hebrew, Hangul, Kana, Thai, and Southeast Asian scripts.
  * 2. Offline / pre-download fallback: Resampled 32-point polyline template matcher
  *    ($1/$P-style cosine direction + spatial zoning classifier) with connected
  *    line/word segmentation so conversion never blocks or fails when offline.
  */
 object HandwritingRecognizer {
-    val languages = linkedMapOf("en-US" to "English", "hi" to "Hindi", "fr" to "French",
-        "de" to "German", "es" to "Spanish", "it" to "Italian", "pt" to "Portuguese")
+    val supportedLanguages: List<HandwritingLanguage> = listOf(
+        // Popular
+        HandwritingLanguage("en-US", "English (US)", "English (US)", "Popular", mlKitTag = "en-US"),
+        HandwritingLanguage("en-GB", "English (UK)", "English (UK)", "Popular", mlKitTag = "en-GB"),
+        HandwritingLanguage("en-IN", "English (India)", "English (India)", "Popular", mlKitTag = "en-IN"),
+        HandwritingLanguage("en-AU", "English (Australia)", "English (Australia)", "Popular", mlKitTag = "en-AU"),
+        HandwritingLanguage("es", "Spanish", "Español", "Popular", mlKitTag = "es"),
+        HandwritingLanguage("fr", "French", "Français", "Popular", mlKitTag = "fr"),
+        HandwritingLanguage("de", "German", "Deutsch", "Popular", mlKitTag = "de"),
+        HandwritingLanguage("hi", "Hindi", "हिन्दी", "Popular", mlKitTag = "hi"),
+        HandwritingLanguage("zh-Hani-CN", "Chinese (Simplified)", "简体中文", "Popular", mlKitTag = "zh-Hani-CN"),
+        HandwritingLanguage("zh-Hani-TW", "Chinese (Traditional)", "繁體中文", "Popular", mlKitTag = "zh-Hani-TW"),
+        HandwritingLanguage("ja", "Japanese", "日本語", "Popular", mlKitTag = "ja"),
+        HandwritingLanguage("ko", "Korean", "한국어", "Popular", mlKitTag = "ko"),
+        HandwritingLanguage("ar", "Arabic", "العربية", "Popular", isRtl = true, mlKitTag = "ar"),
+        HandwritingLanguage("pt", "Portuguese", "Português", "Popular", mlKitTag = "pt"),
+        HandwritingLanguage("it", "Italian", "Italiano", "Popular", mlKitTag = "it"),
+        HandwritingLanguage("ru", "Russian", "Русский", "Popular", mlKitTag = "ru"),
+        // South Asia
+        HandwritingLanguage("bn", "Bengali", "বাংলা", "South Asia", mlKitTag = "bn"),
+        HandwritingLanguage("ta", "Tamil", "தமிழ்", "South Asia", mlKitTag = "ta"),
+        HandwritingLanguage("te", "Telugu", "తెలుగు", "South Asia", mlKitTag = "te"),
+        HandwritingLanguage("mr", "Marathi", "मराठी", "South Asia", mlKitTag = "mr"),
+        HandwritingLanguage("gu", "Gujarati", "ગુજરાતી", "South Asia", mlKitTag = "gu"),
+        HandwritingLanguage("kn", "Kannada", "ಕನ್ನಡ", "South Asia", mlKitTag = "kn"),
+        HandwritingLanguage("ml", "Malayalam", "മലയാളം", "South Asia", mlKitTag = "ml"),
+        HandwritingLanguage("pa", "Punjabi", "ਪੰਜਾਬੀ", "South Asia", mlKitTag = "pa"),
+        HandwritingLanguage("ur", "Urdu", "اردو", "South Asia", isRtl = true, mlKitTag = "ur"),
+        HandwritingLanguage("ne", "Nepali", "नेपाली", "South Asia", mlKitTag = "ne"),
+        HandwritingLanguage("si", "Sinhala", "සිංහල", "South Asia", mlKitTag = "si"),
+        // East & Southeast Asia
+        HandwritingLanguage("id", "Indonesian", "Bahasa Indonesia", "East & SE Asia", mlKitTag = "id"),
+        HandwritingLanguage("ms", "Malay", "Bahasa Melayu", "East & SE Asia", mlKitTag = "ms"),
+        HandwritingLanguage("vi", "Vietnamese", "Tiếng Việt", "East & SE Asia", mlKitTag = "vi"),
+        HandwritingLanguage("th", "Thai", "ไทย", "East & SE Asia", mlKitTag = "th"),
+        HandwritingLanguage("fil", "Filipino", "Filipino / Tagalog", "East & SE Asia", mlKitTag = "fil"),
+        HandwritingLanguage("my", "Burmese", "မြန်မာ", "East & SE Asia", mlKitTag = "my"),
+        HandwritingLanguage("km", "Khmer", "ខ្មែរ", "East & SE Asia", mlKitTag = "km"),
+        HandwritingLanguage("lo", "Lao", "ລາວ", "East & SE Asia", mlKitTag = "lo"),
+        // Europe & Americas
+        HandwritingLanguage("pt-BR", "Portuguese (Brazil)", "Português (Brasil)", "Europe & Americas", mlKitTag = "pt"),
+        HandwritingLanguage("es-MX", "Spanish (Mexico)", "Español (México)", "Europe & Americas", mlKitTag = "es"),
+        HandwritingLanguage("nl", "Dutch", "Nederlands", "Europe & Americas", mlKitTag = "nl"),
+        HandwritingLanguage("pl", "Polish", "Polski", "Europe & Americas", mlKitTag = "pl"),
+        HandwritingLanguage("tr", "Turkish", "Türkçe", "Europe & Americas", mlKitTag = "tr"),
+        HandwritingLanguage("uk", "Ukrainian", "Українська", "Europe & Americas", mlKitTag = "uk"),
+        HandwritingLanguage("sv", "Swedish", "Svenska", "Europe & Americas", mlKitTag = "sv"),
+        HandwritingLanguage("no", "Norwegian", "Norsk", "Europe & Americas", mlKitTag = "no"),
+        HandwritingLanguage("da", "Danish", "Dansk", "Europe & Americas", mlKitTag = "da"),
+        HandwritingLanguage("fi", "Finnish", "Suomi", "Europe & Americas", mlKitTag = "fi"),
+        HandwritingLanguage("cs", "Czech", "Čeština", "Europe & Americas", mlKitTag = "cs"),
+        HandwritingLanguage("sk", "Slovak", "Slovenčina", "Europe & Americas", mlKitTag = "sk"),
+        HandwritingLanguage("ro", "Romanian", "Română", "Europe & Americas", mlKitTag = "ro"),
+        HandwritingLanguage("hu", "Hungarian", "Magyar", "Europe & Americas", mlKitTag = "hu"),
+        HandwritingLanguage("el", "Greek", "Ελληνικά", "Europe & Americas", mlKitTag = "el"),
+        HandwritingLanguage("bg", "Bulgarian", "Български", "Europe & Americas", mlKitTag = "bg"),
+        HandwritingLanguage("hr", "Croatian", "Hrvatski", "Europe & Americas", mlKitTag = "hr"),
+        HandwritingLanguage("sr-Cyrl", "Serbian", "Српски", "Europe & Americas", mlKitTag = "sr-Cyrl"),
+        HandwritingLanguage("ca", "Catalan", "Català", "Europe & Americas", mlKitTag = "ca"),
+        // Middle East & Africa
+        HandwritingLanguage("fa", "Persian", "فارسی", "Middle East & Africa", isRtl = true, mlKitTag = "fa"),
+        HandwritingLanguage("he", "Hebrew", "עברית", "Middle East & Africa", isRtl = true, mlKitTag = "he"),
+        HandwritingLanguage("sw", "Swahili", "Kiswahili", "Middle East & Africa", mlKitTag = "sw"),
+        HandwritingLanguage("am", "Amharic", "አማርኛ", "Middle East & Africa", mlKitTag = "am"),
+    )
+
+    /** Quick-access popular languages for compact inline chip bars. */
+    val quickLanguages: List<HandwritingLanguage> = supportedLanguages.take(10)
+
+    /** Legacy tag->name map preserved for existing callers, now backed by all 58 languages. */
+    val languages: LinkedHashMap<String, String> = LinkedHashMap<String, String>().apply {
+        supportedLanguages.forEach { put(it.tag, it.name) }
+    }
 
     private val recognizers = ConcurrentHashMap<String, DigitalInkRecognizer>()
     private val _modelState = MutableStateFlow(HandwritingModelState.IDLE)
     val modelState: StateFlow<HandwritingModelState> = _modelState.asStateFlow()
 
+    private val _downloadedTags = MutableStateFlow<Set<String>>(emptySet())
+    val downloadedTags: StateFlow<Set<String>> = _downloadedTags.asStateFlow()
+
+    private val _downloadingTags = MutableStateFlow<Set<String>>(emptySet())
+    val downloadingTags: StateFlow<Set<String>> = _downloadingTags.asStateFlow()
+
+    fun findLanguage(tag: String): HandwritingLanguage {
+        val norm = normalizeTag(tag)
+        return supportedLanguages.firstOrNull { it.tag.equals(tag, ignoreCase = true) }
+            ?: supportedLanguages.firstOrNull { it.tag.equals(norm, ignoreCase = true) || it.mlKitTag.equals(norm, ignoreCase = true) }
+            ?: supportedLanguages.firstOrNull { it.tag.substringBefore('-').equals(tag.substringBefore('-'), ignoreCase = true) }
+            ?: supportedLanguages.first()
+    }
+
+    fun displayName(tag: String): String = findLanguage(tag).name
+
+    fun normalizeTag(rawTag: String): String {
+        val clean = rawTag.trim()
+        return when (clean.lowercase()) {
+            "zh", "zh-cn", "zh-hans", "zh-sg" -> "zh-Hani-CN"
+            "zh-tw", "zh-hk", "zh-hant", "zh-mo" -> "zh-Hani-TW"
+            "hi-in" -> "hi"
+            "es-es" -> "es"
+            "fr-fr" -> "fr"
+            "de-de" -> "de"
+            "it-it" -> "it"
+            "ja-jp" -> "ja"
+            "ko-kr" -> "ko"
+            "iw", "iw-il", "he-il" -> "he"
+            "in", "in-id", "id-id" -> "id"
+            "tl", "tl-ph" -> "fil"
+            else -> clean.ifBlank { "en-US" }
+        }
+    }
+
+    /** Refreshes the set of currently downloaded on-device ML Kit handwriting language packs. */
+    suspend fun refreshDownloadedModels() = withContext(Dispatchers.IO) {
+        val manager = RemoteModelManager.getInstance()
+        val ready = mutableSetOf<String>()
+        for (lang in supportedLanguages) {
+            val model = buildModel(lang.mlKitTag) ?: continue
+            val isReady = runCatching { manager.isModelDownloaded(model).await() }.getOrDefault(false)
+            if (isReady) ready.add(lang.tag)
+        }
+        _downloadedTags.value = ready
+    }
+
+    /** Explicitly downloads an offline handwriting model for [languageTag]. */
+    suspend fun downloadLanguage(languageTag: String): Boolean = withContext(Dispatchers.IO) {
+        val lang = findLanguage(languageTag)
+        _downloadingTags.value = _downloadingTags.value + lang.tag
+        try {
+            val ok = ensureModelReady(lang.mlKitTag)
+            if (ok) _downloadedTags.value = _downloadedTags.value + lang.tag
+            ok
+        } finally {
+            _downloadingTags.value = _downloadingTags.value - lang.tag
+        }
+    }
+
+    /** Deletes a downloaded on-device handwriting model to free storage space. */
+    suspend fun deleteLanguageModel(languageTag: String): Boolean = withContext(Dispatchers.IO) {
+        val lang = findLanguage(languageTag)
+        val model = buildModel(lang.mlKitTag) ?: return@withContext false
+        val ok = runCatching {
+            RemoteModelManager.getInstance().deleteDownloadedModel(model).await()
+            true
+        }.getOrDefault(false)
+        if (ok) {
+            recognizers.remove(lang.tag)
+            recognizers.remove(lang.mlKitTag)
+            _downloadedTags.value = _downloadedTags.value - lang.tag
+        }
+        ok
+    }
+
     /** Ensures the on-device ML Kit language model is downloaded and ready. */
     suspend fun ensureModelReady(languageTag: String = "en-US"): Boolean = withContext(Dispatchers.IO) {
-        val model = buildModel(languageTag) ?: return@withContext false
+        val resolvedTag = findLanguage(languageTag).mlKitTag
+        val model = buildModel(resolvedTag) ?: return@withContext false
         val manager = RemoteModelManager.getInstance()
         val alreadyDownloaded = runCatching { manager.isModelDownloaded(model).await() }.getOrDefault(false)
         if (alreadyDownloaded) {
             _modelState.value = HandwritingModelState.READY
+            _downloadedTags.value = _downloadedTags.value + findLanguage(languageTag).tag
             return@withContext true
         }
         _modelState.value = HandwritingModelState.DOWNLOADING
@@ -83,6 +243,9 @@ object HandwritingRecognizer {
             manager.download(model, DownloadConditions.Builder().build()).await()
             true
         }.getOrDefault(false)
+        if (downloaded) {
+            _downloadedTags.value = _downloadedTags.value + findLanguage(languageTag).tag
+        }
         _modelState.value = if (downloaded) HandwritingModelState.READY else HandwritingModelState.OFFLINE_FALLBACK
         downloaded
     }
@@ -133,9 +296,10 @@ object HandwritingRecognizer {
         preContext: String,
         languageTag: String,
     ): HandwritingRecognitionResult? {
-        if (!ensureModelReady(languageTag)) return null
-        val model = buildModel(languageTag) ?: return null
-        val recognizer = recognizers.getOrPut(languageTag) {
+        val resolvedTag = findLanguage(languageTag).mlKitTag
+        if (!ensureModelReady(resolvedTag)) return null
+        val model = buildModel(resolvedTag) ?: return null
+        val recognizer = recognizers.getOrPut(resolvedTag) {
             DigitalInkRecognition.getClient(DigitalInkRecognizerOptions.builder(model).build())
         }
 
@@ -191,10 +355,17 @@ object HandwritingRecognizer {
     }
 
     private fun buildModel(languageTag: String): DigitalInkRecognitionModel? {
-        val identifier = runCatching {
-            DigitalInkRecognitionModelIdentifier.fromLanguageTag(languageTag)
-                ?: DigitalInkRecognitionModelIdentifier.EN_US
-        }.getOrNull() ?: return null
+        val norm = normalizeTag(languageTag)
+        val candidates = listOfNotNull(
+            norm,
+            languageTag,
+            norm.substringBefore('-').takeIf { it != norm },
+            if (norm == "he") "iw" else null,
+            if (norm == "fil") "tl" else null,
+        ).distinct()
+        val identifier = candidates.firstNotNullOfOrNull { tag ->
+            runCatching { DigitalInkRecognitionModelIdentifier.fromLanguageTag(tag) }.getOrNull()
+        } ?: DigitalInkRecognitionModelIdentifier.EN_US
         return DigitalInkRecognitionModel.builder(identifier).build()
     }
 

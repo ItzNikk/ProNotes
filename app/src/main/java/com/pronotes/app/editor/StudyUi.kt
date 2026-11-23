@@ -406,7 +406,7 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
                                 OutlinedTextField(
                                     query,
                                     { query = it },
-                                    placeholder = { Text("Search cards front, back & hints…") },
+                                    placeholder = { com.pronotes.app.ui.AnimatedGradientSearchPlaceholder("Search cards front, back & hints…") },
                                     singleLine = true,
                                     shape = Pill,
                                     modifier = Modifier.fillMaxWidth(),

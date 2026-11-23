@@ -179,10 +179,23 @@ private enum class Section(val label: String) {
     TRASH("Trash"),
 }
 
+private fun Section.localizedLabel(strings: com.pronotes.app.data.AppStrings): String = when (this) {
+    Section.DOCUMENTS -> strings.documents
+    Section.FAVORITES -> strings.favorites
+    Section.RECENT -> strings.recent
+    Section.TRASH -> strings.trash
+}
+
 private enum class SortBy(val label: String) {
     MODIFIED("Date modified"),
     CREATED("Date created"),
     NAME("Name"),
+}
+
+private fun SortBy.localizedLabel(strings: com.pronotes.app.data.AppStrings): String = when (this) {
+    SortBy.MODIFIED -> strings.sortDateModified
+    SortBy.CREATED -> strings.sortDateCreated
+    SortBy.NAME -> strings.sortName
 }
 
 private sealed interface Entry {
@@ -199,6 +212,7 @@ internal data class LibraryNewBookPrefs(
     val defaultCoverPage: Boolean,
     val topScrollBlur: Boolean,
     val storageFolderLabel: String = "",
+    val handwritingLanguage: String = "en-US",
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -216,12 +230,30 @@ fun LibraryScreen(
     val store = remember { SettingsStore.get(context) }
     val newBookPrefs by remember(store) {
         store.select {
-            LibraryNewBookPrefs(it.defaultPreset, it.defaultLandscape, it.defaultPaper, it.thumbCovers, it.defaultCoverPage, it.topScrollBlur, it.storageFolderLabel)
+            LibraryNewBookPrefs(
+                it.defaultPreset,
+                it.defaultLandscape,
+                it.defaultPaper,
+                it.thumbCovers,
+                it.defaultCoverPage,
+                it.topScrollBlur,
+                it.storageFolderLabel,
+                it.toolDefaults.handwritingLanguage,
+            )
         }
     }.collectAsStateWithLifecycle(
         initialValue = remember(store) {
             store.settings.value.let {
-                LibraryNewBookPrefs(it.defaultPreset, it.defaultLandscape, it.defaultPaper, it.thumbCovers, it.defaultCoverPage, it.topScrollBlur, it.storageFolderLabel)
+                LibraryNewBookPrefs(
+                    it.defaultPreset,
+                    it.defaultLandscape,
+                    it.defaultPaper,
+                    it.thumbCovers,
+                    it.defaultCoverPage,
+                    it.topScrollBlur,
+                    it.storageFolderLabel,
+                    it.toolDefaults.handwritingLanguage,
+                )
             }
         },
     )
@@ -395,8 +427,9 @@ fun LibraryScreen(
         }.toImmutableList()
     }
 
+    val appStrings = com.pronotes.app.data.LocalAppStrings.current
     val currentFolder = lib.folders.firstOrNull { it.id == folderId }
-    val title = if (section == Section.DOCUMENTS && currentFolder != null) currentFolder.name else section.label
+    val title = if (section == Section.DOCUMENTS && currentFolder != null) currentFolder.name else section.localizedLabel(appStrings)
 
     val drag = remember { DragController() }
     val trashCount = lib.notebooks.count { it.deletedAt != null }
@@ -508,10 +541,10 @@ fun LibraryScreen(
                                 onClick = onOpenBookReader,
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp),
                             ) {
-                                Icon(Icons.AutoMirrored.Outlined.MenuBook, "Reader Mode", Modifier.size(17.dp))
+                                Icon(Icons.AutoMirrored.Outlined.MenuBook, appStrings.readerMode, Modifier.size(17.dp))
                                 if (wide) {
                                     Spacer(Modifier.width(5.dp))
-                                    Text("Reader Mode", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                                    Text(appStrings.readerMode, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
                                 }
                             }
                             AppPill(
@@ -575,7 +608,7 @@ fun LibraryScreen(
                                 onClick = { if (entries.isNotEmpty()) emptyTrash = true },
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                             ) {
-                                Text("Empty trash", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                                Text(appStrings.emptyTrash, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                             }
                         } else {
                             if (section == Section.DOCUMENTS) {
@@ -585,11 +618,11 @@ fun LibraryScreen(
                                     onClick = { newFolder = true },
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                                 ) {
-                                    Icon(Icons.Outlined.CreateNewFolder, "New folder", Modifier.size(17.dp))
+                                    Icon(Icons.Outlined.CreateNewFolder, appStrings.folder, Modifier.size(17.dp))
                                     if (wide) {
                                         Spacer(Modifier.width(5.dp))
                                         Text(
-                                            if (folderId != null) "Subfolder" else "Folder",
+                                            if (folderId != null) appStrings.subfolder else appStrings.folder,
                                             style = MaterialTheme.typography.labelMedium,
                                             fontWeight = FontWeight.SemiBold,
                                         )
@@ -600,8 +633,8 @@ fun LibraryScreen(
                             AppMenuButton(
                                 contentPadding = PaddingValues(0.dp),
                                 items = listOf(
-                                    AppMenuItem("Notebook", icon = { Icon(Icons.Outlined.Description, null, Modifier.size(18.dp)) }) { newNotebook = true },
-                                    AppMenuItem("Infinite whiteboard", icon = { Icon(Icons.Outlined.Draw, null, Modifier.size(18.dp)) }) {
+                                    AppMenuItem(appStrings.notebook, icon = { Icon(Icons.Outlined.Description, null, Modifier.size(18.dp)) }) { newNotebook = true },
+                                    AppMenuItem(appStrings.infiniteWhiteboard, icon = { Icon(Icons.Outlined.Draw, null, Modifier.size(18.dp)) }) {
                                         scope.launch {
                                             val k = PagePreset.UNITS_PER_MM
                                             val p = PagePreset.WHITEBOARD
@@ -612,7 +645,7 @@ fun LibraryScreen(
                                             onOpen(id)
                                         }
                                     },
-                                    AppMenuItem("Concept map canvas", icon = { Icon(Icons.Outlined.Hub, null, Modifier.size(18.dp)) }) {
+                                    AppMenuItem(appStrings.conceptMapCanvas, icon = { Icon(Icons.Outlined.Hub, null, Modifier.size(18.dp)) }) {
                                         scope.launch {
                                             val k = PagePreset.UNITS_PER_MM
                                             val p = PagePreset.WHITEBOARD
@@ -641,7 +674,7 @@ fun LibraryScreen(
                                             onOpen(id)
                                         }
                                     },
-                                    AppMenuItem("Quick note", icon = { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)) }) {
+                                    AppMenuItem(appStrings.quickNote, icon = { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)) }) {
                                         scope.launch {
                                             val k = PagePreset.UNITS_PER_MM
                                             val defaultPreset = newBookPrefs.defaultPreset
@@ -654,7 +687,7 @@ fun LibraryScreen(
                                             }
                                             onOpen(
                                                 repo.createNotebook(
-                                                    "Quick note", folderId, CoverColors.random(), defaultPaper,
+                                                    appStrings.quickNote, folderId, CoverColors.random(), defaultPaper,
                                                     width = w, height = h, isWhiteboard = defaultPreset.isWhiteboard,
                                                 ),
                                             )
@@ -663,18 +696,18 @@ fun LibraryScreen(
                                     AppMenuItem("Online books") { destination = "Books" },
                                     AppMenuItem("Community marketplace") { destination = "Marketplace" },
                                     AppMenuItem("PDF Station") { destination = "PDF Station" },
-                                    AppMenuItem("Folder", icon = { Icon(Icons.Outlined.CreateNewFolder, null, Modifier.size(18.dp)) }) { newFolder = true },
+                                    AppMenuItem(appStrings.folder, icon = { Icon(Icons.Outlined.CreateNewFolder, null, Modifier.size(18.dp)) }) { newFolder = true },
                                     AppMenuItem(
                                         if (newBookPrefs.storageFolderLabel.isBlank()) "Choose Storage Folder…"
                                         else "Storage: ${newBookPrefs.storageFolderLabel}",
                                         icon = { Icon(Icons.Outlined.Folder, null, Modifier.size(18.dp)) },
                                     ) { pickStorageFolder.launch(null) },
-                                    AppMenuItem("Import PDF, Word, PPT, Sheets, EPUB, Images", icon = { Icon(Icons.Outlined.UploadFile, null, Modifier.size(18.dp)) }) {
+                                    AppMenuItem(appStrings.importFiles, icon = { Icon(Icons.Outlined.UploadFile, null, Modifier.size(18.dp)) }) {
                                         importFilesLauncher.launch(arrayOf("*/*"))
                                     },
                                     AppMenuItem("Paste notes from another app…", icon = { Icon(Icons.Outlined.ContentPaste, null, Modifier.size(18.dp)) }) { pasteImportOpen = true },
                                 ),
-                                contentDescription = "Create new",
+                                contentDescription = appStrings.newAction,
                                 role = SurfaceRole.Control,
                                 containerColor = ProButtonPalette.ElectricBlue,
                                 shape = CircleShape,
@@ -682,7 +715,7 @@ fun LibraryScreen(
                                 Row(Modifier.padding(horizontal = 16.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Icon(Icons.Filled.Add, null, Modifier.size(18.dp), tint = Color.White)
                                     Spacer(Modifier.width(4.dp))
-                                    Text("New", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Color.White)
+                                    Text(appStrings.newAction, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Color.White)
                                     Spacer(Modifier.width(2.dp))
                                     Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(18.dp), tint = Color.White)
                                 }
@@ -693,14 +726,14 @@ fun LibraryScreen(
                         AppMenuButton(
                             contentPadding = PaddingValues(0.dp),
                             items = SortBy.entries.map { s ->
-                                AppMenuItem(label = s.label, selected = sort == s) { sort = s }
+                                AppMenuItem(label = s.localizedLabel(appStrings), selected = sort == s) { sort = s }
                             },
                             contentDescription = "Sort notebooks",
                             role = SurfaceRole.Control,
                             shape = appPillShape(),
                         ) {
                             Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(sort.label.substringAfter("Date ").replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.labelSmall)
+                                Text(sort.localizedLabel(appStrings), style = MaterialTheme.typography.labelSmall, maxLines = 1)
                                 Spacer(Modifier.width(2.dp))
                                 Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -816,7 +849,7 @@ fun LibraryScreen(
                                 query,
                                 { query = it },
                                 placeholder = {
-                                    com.pronotes.app.ui.AnimatedGradientSearchPlaceholder("What are you looking for?")
+                                    com.pronotes.app.ui.AnimatedGradientSearchPlaceholder(appStrings.searchPrompt)
                                 },
                                 singleLine = true,
                                 leadingIcon = { Icon(Icons.Outlined.Search, null) },
@@ -1010,6 +1043,9 @@ fun LibraryScreen(
 
     if (newNotebook) NewNotebookDialog(newBookPrefs, onDismiss = { newNotebook = false }) { b ->
         newNotebook = false
+        b.languageTag?.takeIf { it.isNotBlank() && it != newBookPrefs.handwritingLanguage }?.let { lang ->
+            store.update { it.copy(toolDefaults = it.toolDefaults.copy(handwritingLanguage = lang)) }
+        }
         scope.launch {
             val usePhotoPage = b.photo != null && b.coverPage
             val id = repo.createNotebook(
@@ -1244,6 +1280,7 @@ private fun Sidebar(
     onDropTo: (Section, String) -> Boolean,
 ) {
     val context = LocalContext.current
+    val strings = com.pronotes.app.data.LocalAppStrings.current
     val scope = rememberCoroutineScope()
     val cloudUser by CloudSync.user.collectAsStateWithLifecycle()
     val syncing by CloudSync.syncing.collectAsStateWithLifecycle()
@@ -1317,7 +1354,7 @@ private fun Sidebar(
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(
-                        s.label,
+                        s.localizedLabel(strings),
                         color = if (sel) Color.White.takeIf { dark } ?: MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                         fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
                         modifier = Modifier.weight(1f),
@@ -1360,7 +1397,7 @@ private fun Sidebar(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Sign in with Google", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        Text(strings.signInGoogle, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                     }
                 } else {
                     AppPill(
@@ -1370,7 +1407,7 @@ private fun Sidebar(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(if (syncing) "Syncing…" else "Sync Now", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        Text(if (syncing) strings.syncing else strings.syncNow, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -1386,7 +1423,7 @@ private fun Sidebar(
             ) {
                 Icon(Icons.AutoMirrored.Outlined.MenuBook, null, tint = ProButtonPalette.VibrantOrange)
                 Spacer(Modifier.width(12.dp))
-                Text("Reader Mode", color = MaterialTheme.colorScheme.onSurface)
+                Text(strings.readerMode, color = MaterialTheme.colorScheme.onSurface)
             }
             Row(
                 Modifier
@@ -1398,7 +1435,7 @@ private fun Sidebar(
             ) {
                 Icon(Icons.Outlined.Groups, null, tint = ProButtonPalette.SkyCyan)
                 Spacer(Modifier.width(12.dp))
-                Text("Study Friends & Files", color = MaterialTheme.colorScheme.onSurface)
+                Text(strings.studyFriendsAndFiles, color = MaterialTheme.colorScheme.onSurface)
             }
             Spacer(Modifier.weight(1f))
             if (Support.enabled) {
@@ -1425,7 +1462,7 @@ private fun Sidebar(
             ) {
                 Icon(Icons.Outlined.Settings, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.width(12.dp))
-                Text("Settings")
+                Text(strings.settings)
             }
         }
     }

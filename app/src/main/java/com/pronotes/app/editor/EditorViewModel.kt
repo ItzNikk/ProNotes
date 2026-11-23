@@ -702,8 +702,110 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 is TapeItem -> item.copy(color = color)
                 is StickyItem -> item.copy(color = color)
                 is WebLinkItem -> item.copy(color = color)
+                is WriteBoxItem -> item.copy(
+                    strokeColor = (color and 0x00FFFFFF) or (0x88 shl 24),
+                    fillColor = (color and 0x00FFFFFF) or (0x14 shl 24),
+                )
                 // Fills keep their transparency when recoloured.
                 is FillItem -> item.recolored((color and 0x00FFFFFF) or (item.color and 0xFF000000.toInt()))
+                else -> item
+            }
+        })
+    }
+
+    /** Returns true if the current lasso selection includes any text, sticky note, or write box. */
+    fun selectionHasStylableText(): Boolean {
+        val p = pages.getOrNull(selectionPage) ?: return false
+        return p.items.any { it.id in selection && (it is TextItem || it is StickyItem || it is WriteBoxItem) }
+    }
+
+    /** Returns the active (TextFont, customFontPath) of the first selected text/sticky/writebox. */
+    fun selectionActiveFont(): Pair<TextFont, String> {
+        val p = pages.getOrNull(selectionPage) ?: return textStyle.font to textStyle.customFontPath
+        val first = p.items.firstOrNull { it.id in selection && (it is TextItem || it is StickyItem || it is WriteBoxItem) }
+        return when (first) {
+            is TextItem -> first.style.font to first.style.customFontPath
+            is StickyItem -> {
+                if (first.font.contains('/') || first.font.endsWith(".ttf", true) || first.font.endsWith(".otf", true)) {
+                    TextFont.SANS to first.font
+                } else {
+                    (TextFont.entries.firstOrNull { it.name.equals(first.font, ignoreCase = true) } ?: TextFont.SANS) to ""
+                }
+            }
+            is WriteBoxItem -> first.font to ""
+            else -> textStyle.font to textStyle.customFontPath
+        }
+    }
+
+    /**
+     * Changes the font of all selected TextItems, StickyItems, and WriteBoxItems in one undoable edit.
+     * If the selection contains only handwritten InkItems, converts the handwriting into typed text
+     * using the chosen font directly.
+     */
+    fun setSelectionFont(
+        font: TextFont,
+        customFontPath: String = "",
+        onConverted: (Long) -> Unit = {},
+    ) {
+        val p = pages.getOrNull(selectionPage) ?: return
+        val selected = p.items.filter { it.id in selection }
+        if (selected.isEmpty()) return
+        val hasText = selected.any { it is TextItem || it is StickyItem || it is WriteBoxItem }
+        if (!hasText) {
+            if (selected.any { it is InkItem }) {
+                convertSelectionToText(onConverted = onConverted, outputFont = font, customFontPath = customFontPath)
+            } else {
+                say("Select text, sticky note, or handwriting first")
+            }
+            return
+        }
+        val stickyFontKey = if (customFontPath.isNotBlank()) customFontPath else font.name
+        beginEdit(selectionPage)
+        applyItems(selectionPage, p.items.map { item ->
+            if (item.id !in selection) item
+            else when (item) {
+                is TextItem -> item.copy(style = item.style.copy(font = font, customFontPath = customFontPath))
+                is StickyItem -> item.copy(font = stickyFontKey)
+                is WriteBoxItem -> item.copy(font = font)
+                else -> item
+            }
+        })
+        textStyle = textStyle.copy(font = font, customFontPath = customFontPath)
+    }
+
+    fun toggleSelectionBold() {
+        val p = pages.getOrNull(selectionPage) ?: return
+        val texts = p.items.filter { it.id in selection && it is TextItem }.map { it as TextItem }
+        if (texts.isEmpty()) return
+        val targetBold = !texts.all { it.style.bold }
+        beginEdit(selectionPage)
+        applyItems(selectionPage, p.items.map { item ->
+            if (item.id in selection && item is TextItem) item.copy(style = item.style.copy(bold = targetBold)) else item
+        })
+    }
+
+    fun toggleSelectionItalic() {
+        val p = pages.getOrNull(selectionPage) ?: return
+        val texts = p.items.filter { it.id in selection && it is TextItem }.map { it as TextItem }
+        if (texts.isEmpty()) return
+        val targetItalic = !texts.all { it.style.italic }
+        beginEdit(selectionPage)
+        applyItems(selectionPage, p.items.map { item ->
+            if (item.id in selection && item is TextItem) item.copy(style = item.style.copy(italic = targetItalic)) else item
+        })
+    }
+
+    fun scaleSelectionFontSize(delta: Float) {
+        val p = pages.getOrNull(selectionPage) ?: return
+        val hasAny = p.items.any { it.id in selection && (it is TextItem || it is StickyItem || it is WriteBoxItem) }
+        if (!hasAny) return
+        beginEdit(selectionPage)
+        applyItems(selectionPage, p.items.map { item ->
+            if (item.id !in selection) item
+            else when (item) {
+                is TextItem -> item.copy(size = (item.size + delta).coerceIn(14f, 180f))
+                is StickyItem -> item.copy(fontSize = (item.fontSize + delta).coerceIn(14f, 64f))
+                is WriteBoxItem -> item.copy(fontSize = (item.fontSize + delta).coerceIn(14f, 64f))
                 else -> item
             }
         })
@@ -734,6 +836,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                     is TapeItem -> item.copy(color = c)
                     is StickyItem -> item.copy(color = c)
                     is WebLinkItem -> item.copy(color = c)
+                    is WriteBoxItem -> item.copy(
+                        strokeColor = (c and 0x00FFFFFF) or (0x88 shl 24),
+                        fillColor = (c and 0x00FFFFFF) or (0x14 shl 24),
+                    )
                     is FillItem -> item.recolored((c and 0x00FFFFFF) or (item.color and 0xFF000000.toInt()))
                     else -> item
                 }
@@ -781,7 +887,11 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
      * Recognises selected handwritten ink into a typed [TextItem] at its exact bounding box
      * using on-device ML Kit Digital Ink Recognition (with offline polyline fallback) in one undoable edit.
      */
-    fun convertSelectionToText(onConverted: (Long) -> Unit = {}, outputFont: TextFont? = null) {
+    fun convertSelectionToText(
+        onConverted: (Long) -> Unit = {},
+        outputFont: TextFont? = null,
+        customFontPath: String? = null,
+    ) {
         val pageIdx = selectionPage
         val p = pages.getOrNull(pageIdx) ?: return
         val selectedInk = p.items.filter { it.id in selection && it is InkItem }.map { it as InkItem }
@@ -789,7 +899,16 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             say("Select handwritten ink first")
             return
         }
-        viewModelScope.launch { recognizeInk(p.id, selectedInk, outputFont, automatic = false, onConverted) }
+        viewModelScope.launch {
+            recognizeInk(
+                pageId = p.id,
+                selectedInk = selectedInk,
+                outputFont = outputFont,
+                automatic = false,
+                overrideCustomFontPath = customFontPath,
+                onConverted = onConverted,
+            )
+        }
     }
 
     private var writingPause: Job? = null
@@ -858,6 +977,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         selectedInk: List<InkItem>,
         outputFont: TextFont?,
         automatic: Boolean,
+        overrideCustomFontPath: String? = null,
         onConverted: (Long) -> Unit,
     ) {
         if (handwritingBusy || readOnly) return
@@ -884,7 +1004,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             val page = pages.getOrNull(idx) ?: return
             if (readOnly || !page.items.containsAll(selectedInk)) return
             val rawText = if (automatic) result.text.trim().replace(Regex("\\s+"), " ") else result.text.trim()
-            val text = if (options.autoSpellCheck) AutoSpellChecker.autoCorrect(rawText) else rawText
+            val text = if (options.autoSpellCheck) AutoSpellChecker.autoCorrect(rawText, options.handwritingLanguage) else rawText
             val targetSticky = page.items.filterIsInstance<StickyItem>().lastOrNull { s ->
                 !s.collapsed && (s.bounds.contains(union.centerX(), union.centerY()) || RectF.intersects(s.bounds, union))
             }
@@ -916,7 +1036,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             // Dynamic Bold: automatically bold larger written headings/emphasis text relative to base size
             val shouldDynamicBold = options.dynamicBoldHandwriting &&
                 (estimatedSize >= (textSize * 1.28f) || union.height() >= 68f)
-            val customFont = options.customHandwritingFontPath
+            val customFont = overrideCustomFontPath ?: options.customHandwritingFontPath
             val baseStyle = if (automatic) {
                 TextStyleSpec(
                     font = outputFont ?: TextFont.CURSIVE,
@@ -926,7 +1046,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             } else {
                 (outputFont?.let { textStyle.copy(font = it) } ?: textStyle).copy(
                     bold = textStyle.bold || shouldDynamicBold,
-                    customFontPath = textStyle.customFontPath.ifBlank { customFont },
+                    customFontPath = overrideCustomFontPath ?: textStyle.customFontPath.ifBlank { options.customHandwritingFontPath },
                 )
             }
             val x = union.left.coerceAtLeast(0f).coerceAtMost(page.width)

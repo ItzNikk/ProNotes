@@ -16,8 +16,10 @@ android {
         applicationId = "com.pronotes.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = (System.getenv("VERSION_CODE") ?: "21").toInt()
-        versionName = System.getenv("VERSION_NAME") ?: "15.2.0"
+        versionCode = (System.getenv("VERSION_CODE") ?: "22").toInt()
+        versionName = System.getenv("VERSION_NAME") ?: "16.0.0"
+        // Keep the default APK lean: only English resources are bundled; additional UI & handwriting language packs download on demand.
+        resourceConfigurations += listOf("en")
         // Developer support: set pronotes.upi / pronotes.upiName in gradle.properties
         // (or SUPPORT_UPI / SUPPORT_UPI_NAME in CI). Empty hides UPI payment button, while support messages remain visible.
         val upi = System.getenv("SUPPORT_UPI") ?: (project.findProperty("pronotes.upi") as String? ?: "")

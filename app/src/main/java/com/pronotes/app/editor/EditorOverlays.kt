@@ -27,6 +27,10 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ColorLens
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -36,6 +40,9 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Flip
 import androidx.compose.material.icons.outlined.FlipToBack
 import androidx.compose.material.icons.outlined.FlipToFront
+import androidx.compose.material.icons.outlined.FontDownload
+import androidx.compose.material.icons.outlined.FormatBold
+import androidx.compose.material.icons.outlined.FormatItalic
 import androidx.compose.material.icons.outlined.FormatListBulleted
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.IosShare
@@ -46,6 +53,7 @@ import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
@@ -86,6 +94,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.pronotes.app.R
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material3.TextButton
+import com.pronotes.app.ui.AppChip
+import com.pronotes.app.ui.AppDialog
+import com.pronotes.app.ui.AppPill
 import com.pronotes.app.ui.AppContextMenu
 import com.pronotes.app.ui.AppMenuItem
 import com.pronotes.app.ui.AppSurface
@@ -125,6 +140,7 @@ fun SelectionMenu(
     onConvertToText: (Long) -> Unit = {},
 ) {
     var colors by remember { mutableStateOf(false) }
+    var fontPickerOpen by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
     val fg = MaterialTheme.colorScheme.onSurface
     val density = LocalDensity.current.density
@@ -199,6 +215,9 @@ fun SelectionMenu(
                 SelectionActionIcon(colourLabel, { colors = true }) {
                     Icon(Icons.Outlined.Palette, contentDescription = colourLabel)
                 }
+                SelectionActionIcon("Change font", { fontPickerOpen = true }) {
+                    Icon(Icons.Outlined.FontDownload, contentDescription = "Change font", tint = ProButtonPalette.ElectricBlue)
+                }
                 SelectionActionIcon(rotateLabel, { keep { vm.rotateSelection(90f) } }) {
                     Icon(Icons.Outlined.RotateRight, contentDescription = rotateLabel)
                 }
@@ -252,6 +271,233 @@ fun SelectionMenu(
             colors = false
         }
     }
+    if (fontPickerOpen) {
+        LassoFontPickerDialog(
+            vm = vm,
+            keep = keep,
+            onConvertToText = onConvertToText,
+            onDismiss = { fontPickerOpen = false },
+        )
+    }
+}
+
+@Composable
+private fun LassoFontPickerDialog(
+    vm: EditorViewModel,
+    keep: (() -> Unit) -> Unit,
+    onConvertToText: (Long) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val hasStylableText = vm.selectionHasStylableText()
+    val (activeFont, activeCustomPath) = vm.selectionActiveFont()
+    var customFonts by remember { mutableStateOf(CustomFontRegistry.listFonts(context)) }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) {
+            val imported = CustomFontRegistry.importFont(context, uri)
+            if (imported != null) {
+                customFonts = CustomFontRegistry.listFonts(context)
+                if (hasStylableText) {
+                    keep { vm.setSelectionFont(TextFont.SANS, imported.path, onConvertToText) }
+                } else {
+                    vm.setSelectionFont(TextFont.SANS, imported.path, onConvertToText)
+                    onDismiss()
+                }
+            } else {
+                vm.say("Could not import font file")
+            }
+        }
+    }
+
+    AppDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Lasso Font & Style", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    text = if (hasStylableText) "Update font, style, and size of selected text & sticky notes"
+                    else "Tap any font to convert selected handwriting into styled text",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (hasStylableText) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        AppPill(
+                            onClick = { keep { vm.toggleSelectionBold() } },
+                            tint = ProButtonPalette.ElectricBlue,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            Icon(Icons.Outlined.FormatBold, contentDescription = "Bold", Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Bold", style = MaterialTheme.typography.labelLarge)
+                        }
+                        AppPill(
+                            onClick = { keep { vm.toggleSelectionItalic() } },
+                            tint = ProButtonPalette.Violet,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            Icon(Icons.Outlined.FormatItalic, contentDescription = "Italic", Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Italic", style = MaterialTheme.typography.labelLarge)
+                        }
+                        AppPill(
+                            onClick = { keep { vm.scaleSelectionFontSize(-4f) } },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            Text("A−", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                        }
+                        AppPill(
+                            onClick = { keep { vm.scaleSelectionFontSize(4f) } },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            Text("A+", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                }
+
+                // Custom imported fonts section
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Custom Fonts",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    AppPill(
+                        onClick = { importLauncher.launch(arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "application/octet-stream", "*/*")) },
+                        tint = ProButtonPalette.Emerald,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    ) {
+                        Icon(Icons.Outlined.UploadFile, contentDescription = null, Modifier.size(15.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text("Import .ttf/.otf", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                if (customFonts.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        customFonts.chunked(2).forEach { pair ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                pair.forEach { cf ->
+                                    val selected = activeCustomPath == cf.path
+                                    val previewFamily = remember(cf.path) {
+                                        CustomFontRegistry.loadTypeface(cf.path)?.let { FontFamily(it) } ?: FontFamily.SansSerif
+                                    }
+                                    Surface(
+                                        onClick = {
+                                            if (hasStylableText) {
+                                                keep { vm.setSelectionFont(TextFont.SANS, cf.path, onConvertToText) }
+                                            } else {
+                                                vm.setSelectionFont(TextFont.SANS, cf.path, onConvertToText)
+                                                onDismiss()
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = if (selected) ProButtonPalette.ElectricBlue.copy(alpha = 0.16f)
+                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            if (selected) 1.5.dp else 0.8.dp,
+                                            if (selected) ProButtonPalette.ElectricBlue else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+                                        ),
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Text(
+                                            text = cf.displayName,
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = previewFamily),
+                                            color = if (selected) ProButtonPalette.ElectricBlue else MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                        )
+                                    }
+                                }
+                                if (pair.size == 1) Spacer(Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+
+                Text(
+                    "Built-in Fonts",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextFont.entries.chunked(2).forEach { pair ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            pair.forEach { font ->
+                                val selected = activeCustomPath.isBlank() && activeFont == font
+                                val family = remember(font) { FontFamily(font.typeface) }
+                                Surface(
+                                    onClick = {
+                                        if (hasStylableText) {
+                                            keep { vm.setSelectionFont(font, "", onConvertToText) }
+                                        } else {
+                                            vm.setSelectionFont(font, "", onConvertToText)
+                                            onDismiss()
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = if (selected) ProButtonPalette.ElectricBlue.copy(alpha = 0.16f)
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.52f),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        if (selected) 1.5.dp else 0.8.dp,
+                                        if (selected) ProButtonPalette.ElectricBlue else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+                                    ),
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
+                                        Text(
+                                            text = font.label,
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = family),
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (selected) ProButtonPalette.ElectricBlue else MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            text = "Aa Bb 123",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = family),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                        )
+                                    }
+                                }
+                            }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done")
+            }
+        },
+    )
 }
 
 @Composable

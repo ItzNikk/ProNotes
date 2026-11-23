@@ -386,12 +386,31 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
         }
         Text("Write with the pen and pause to convert handwriting to editable text.", style = MaterialTheme.typography.bodySmall, color = mutedFg)
         Text("Recognition language", style = MaterialTheme.typography.titleSmall)
+        var showPenLangPicker by remember { mutableStateOf(false) }
+        val activePenLang = remember(s.toolDefaults.handwritingLanguage) {
+            HandwritingRecognizer.findLanguage(s.toolDefaults.handwritingLanguage)
+        }
+        val quickPenLangs = remember(activePenLang.tag) {
+            val base = HandwritingRecognizer.quickLanguages
+            if (base.any { it.tag.equals(activePenLang.tag, ignoreCase = true) }) base else listOf(activePenLang) + base.take(9)
+        }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            HandwritingRecognizer.languages.forEach { (tag, label) ->
-                AppChip(s.toolDefaults.handwritingLanguage == tag, {
-                    store.update { it.copy(toolDefaults = it.toolDefaults.copy(handwritingLanguage = tag)) }
-                }, label = label)
+            quickPenLangs.forEach { lang ->
+                AppChip(activePenLang.tag.equals(lang.tag, ignoreCase = true), {
+                    store.update { it.copy(toolDefaults = it.toolDefaults.copy(handwritingLanguage = lang.tag)) }
+                }, label = lang.nativeName)
             }
+            AppChip(false, { showPenLangPicker = true }, label = "All ${HandwritingRecognizer.supportedLanguages.size}+ languages…")
+        }
+        if (showPenLangPicker) {
+            com.pronotes.app.ui.HandwritingLanguagePickerDialog(
+                selectedTag = s.toolDefaults.handwritingLanguage,
+                onDismiss = { showPenLangPicker = false },
+                onSelect = { lang ->
+                    store.update { it.copy(toolDefaults = it.toolDefaults.copy(handwritingLanguage = lang.tag)) }
+                    showPenLangPicker = false
+                },
+            )
         }
         val model by HandwritingRecognizer.modelState.collectAsStateWithLifecycle()
         if (model == HandwritingModelState.DOWNLOADING) Text("Downloading handwriting model…", style = MaterialTheme.typography.bodySmall)
@@ -1255,15 +1274,39 @@ private fun AutoTextCardContent(vm: EditorViewModel, fgColor: Color) {
         store.update { it.copy(toolDefaults = it.toolDefaults.copy(autoSpellCheck = enabled)) }
     }
     Text("Recognition language", style = MaterialTheme.typography.titleSmall, color = fgColor)
+    var showAutoLangPicker by remember { mutableStateOf(false) }
+    val activeAutoLang = remember(td.handwritingLanguage) {
+        HandwritingRecognizer.findLanguage(td.handwritingLanguage)
+    }
+    val quickAutoLangs = remember(activeAutoLang.tag) {
+        val base = HandwritingRecognizer.quickLanguages
+        if (base.any { it.tag.equals(activeAutoLang.tag, ignoreCase = true) }) base else listOf(activeAutoLang) + base.take(9)
+    }
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        HandwritingRecognizer.languages.forEach { (tag, label) ->
+        quickAutoLangs.forEach { lang ->
             AppChip(
-                selected = td.handwritingLanguage == tag,
-                onClick = { store.update { it.copy(toolDefaults = it.toolDefaults.copy(handwritingLanguage = tag)) } },
-                label = label,
+                selected = activeAutoLang.tag.equals(lang.tag, ignoreCase = true),
+                onClick = { store.update { it.copy(toolDefaults = it.toolDefaults.copy(handwritingLanguage = lang.tag)) } },
+                label = lang.nativeName,
                 tint = ProButtonPalette.ElectricBlue,
             )
         }
+        AppChip(
+            selected = false,
+            onClick = { showAutoLangPicker = true },
+            label = "All ${HandwritingRecognizer.supportedLanguages.size}+ languages…",
+            tint = ProButtonPalette.Violet,
+        )
+    }
+    if (showAutoLangPicker) {
+        com.pronotes.app.ui.HandwritingLanguagePickerDialog(
+            selectedTag = td.handwritingLanguage,
+            onDismiss = { showAutoLangPicker = false },
+            onSelect = { lang ->
+                store.update { it.copy(toolDefaults = it.toolDefaults.copy(handwritingLanguage = lang.tag)) }
+                showAutoLangPicker = false
+            },
+        )
     }
     Text("Converted text font", style = MaterialTheme.typography.titleSmall, color = fgColor)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

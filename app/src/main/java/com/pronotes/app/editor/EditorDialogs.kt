@@ -482,13 +482,14 @@ internal fun InlinePageTextEditor(
     }
 
     // Live spell-check suggestions for the word currently being typed
-    val spellSuggestions = remember(text, autoSpellCheck) {
+    val spellLang = toolDefaults.handwritingLanguage
+    val spellSuggestions = remember(text, autoSpellCheck, spellLang) {
         if (!autoSpellCheck || text.isBlank()) emptyList()
         else {
             val trimmed = text.trimEnd()
             val lastToken = trimmed.substringAfterLast(' ').substringAfterLast('\n')
                 .trim { !it.isLetter() }
-            if (lastToken.length >= 3) AutoSpellChecker.suggestions(lastToken) else emptyList()
+            if (lastToken.length >= 2) AutoSpellChecker.suggestions(lastToken, languageTag = spellLang) else emptyList()
         }
     }
 
@@ -518,7 +519,7 @@ internal fun InlinePageTextEditor(
             showHandwritingStudio = true
             return
         }
-        val finalTxt = if (autoSpellCheck) AutoSpellChecker.autoCorrect(liveText) else liveText
+        val finalTxt = if (autoSpellCheck) AutoSpellChecker.autoCorrect(liveText, spellLang) else liveText
         vm.commitTextAsHandwriting(
             text = finalTxt,
             size = fontSize,
@@ -533,7 +534,7 @@ internal fun InlinePageTextEditor(
         convertJob?.cancel()
         hideSoftKeyboard()
         val liveText = editTextRef?.text?.toString() ?: text
-        val checkedText = if (autoSpellCheck) AutoSpellChecker.autoCorrect(liveText) else liveText
+        val checkedText = if (autoSpellCheck) AutoSpellChecker.autoCorrect(liveText, spellLang) else liveText
         val wrapped = wrapTextToBoxWidth(checkedText, boxW, fontSize, style)
         vm.commitText(
             text = wrapped,

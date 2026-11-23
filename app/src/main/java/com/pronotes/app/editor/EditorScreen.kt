@@ -1091,8 +1091,14 @@ fun EditorScreen(
                     val sb = vm.selectionBounds
                     androidx.compose.animation.AnimatedVisibility(
                         visible = vm.selection.isNotEmpty() && sb != null,
-                        enter = if (reduceMotion) fadeIn(androidx.compose.animation.core.snap()) else fadeIn() + scaleIn(initialScale = 0.85f),
-                        exit = if (reduceMotion) fadeOut(androidx.compose.animation.core.snap()) else fadeOut() + scaleOut(targetScale = 0.85f),
+                        enter = if (reduceMotion) fadeIn(androidx.compose.animation.core.snap()) else fadeIn(androidx.compose.animation.core.tween(160)) + scaleIn(
+                            initialScale = 0.86f,
+                            animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.76f, stiffness = 480f),
+                        ),
+                        exit = if (reduceMotion) fadeOut(androidx.compose.animation.core.snap()) else fadeOut(androidx.compose.animation.core.tween(130)) + scaleOut(
+                            targetScale = 0.88f,
+                            animationSpec = androidx.compose.animation.core.tween(130),
+                        ),
                         modifier = Modifier.offset {
                             val b = sb ?: android.graphics.RectF()
                             val below = b.bottom + 18 * density

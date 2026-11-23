@@ -2,54 +2,37 @@
 
 All notable changes to Pro Notes are documented in this file.
 
-## v15.2.1 - 2026-11-22
+## v16.0.0 - 2026-11-23
 
 ### Added
 
-- **Custom Device Storage Folder Picker.** Choose any folder inside your device's internal or external storage (via Android SAF) from **Library -> Save Folder…** or **Settings -> Library & backup -> Notes storage folder** to save and automatically mirror your notebooks and library index.
-- **Hold-to-Move Collapsed Sticky Notes.** Press and hold any folded sticky note icon (~280ms) with stylus or finger to drag and reposition it anywhere on the page, while a quick tap expands it.
-- **Circle-to-Lasso in Auto Handwriting.** Circle around strokes or text while using the **Auto-Text** tool to trigger Circle-to-Lasso via the pulsing blue indicator without auto-handwriting prematurely converting your loop into text.
-
-### Improved
-
-- **Revamped Direct-on-Page Keyboard Mode.** Removed the text box frame, tint, and header chrome in Keyboard Mode so a crisp blinking pointer sits directly on the live page; automatically detects whether an external hardware keyboard is attached and immediately opens the on-screen keyboard if none is connected.
-- **Glowing Laser Ink.** Upgraded the Laser Pointer with a multi-layer outer bloom, vibrant crimson halo, hot white-pink filament core, and glowing active pointer tip flare.
-- **Softer Top Scroll Blur.** Reduced Cloudy blur intensity and scrim opacity with a silky 5-stop feathered vertical gradient so scrolled content melts gently under the top chrome.
-- **Lively Animated Search Placeholder.** Upgraded `"What are you looking for?"` with a continuous repeating multi-color gradient sweep and subtle breathing shimmer.
-
-### Fixed
-
-- **Fixed Writing Guide Line.** Snaps cleanly to ruled/college/narrow/wide/Cornell/grid paper lines, tracks your active writing baseline across strokes, uses zoom-independent crisp rendering with a subtle writing lane, and appears immediately when entering Auto-Text or Align Handwriting mode.
-- **Fixed Scribble-to-Erase Triggering While Writing.** Tightened scrub-density, reversal, self-crossing, and multi-pass intersection checks so normal print and cursive handwriting never falsely erases while writing.
-- **Fixed Sticky Notes with Auto Handwriting.** Handwriting inside an expanded sticky note while Auto Handwriting is active now converts directly into the sticky note's text instead of colliding or failing, and placing a sticky note respects active Auto-Text mode.
-- **Shape Hold vs. Circle-to-Lasso Separation.** Drawing and holding a shape snaps strictly to shapes; Circle-to-Lasso triggers only when pressing and holding the pulsing blue circle indicator.
-
-## v15.2.0 - 2026-11-22
-
-### Added
-
-- **Top Soft Scroll Blur (`skydoves/Cloudy`).** Added progressive Cloudy blur along the top edge when scrolling down across the Library, Settings, and Editor canvas (toggleable under **Settings -> Appearance -> Top soft scroll blur**).
-- **Crayon Tool.** Added a textured dry-wax **Crayon** instrument to the toolbar with procedural paper-grain texture rendering, dedicated crayon colour palette, wax tip size, grain texture slider, and opacity control.
-- **Custom Fonts for Auto Handwriting.** Import any `.ttf` or `.otf` font file directly from **Pen -> Writing**, **Auto-Text**, **Text**, or **Settings** to render converted handwriting and typed notes in custom fonts.
-- **Dynamic Bold for Auto Handwriting.** Automatically applies bold styling when larger heading strokes are converted during automatic handwriting recognition.
-- **Writing Guide Line.** Displays a crisp baseline & x-height guide line beneath your writing area whenever **Align to nearby paper rules** or **Auto-Text** mode is active.
-- **Auto Spell Check.** Added an offline Damerau-Levenshtein & OCR-typo spell checker with live tappable suggestion chips in inline text editing and automatic typo correction for typed text and converted handwriting.
-- **Handwriting-Aware Search & Animated Gradient Prompt.** Upgraded in-notebook search to recognize human handwriting strokes (with per-page caching and fuzzy matching) alongside typed text and PDFs, paired with an animated multi-color gradient `"What are you looking for?"` search prompt.
+- **Optional Downloadable World Languages & Automatic RTL (Lean Default APK).** Added **Settings -> Language & Region** with optional on-demand downloadable UI language packs (**25 world languages** alongside built-in English US/UK: Spanish, French, German, Hindi, Simplified & Traditional Chinese, Japanese, Korean, Arabic, Portuguese, Italian, Russian, Turkish, Indonesian, Vietnamese, Thai, Bengali, Tamil, Urdu, Persian, Hebrew, Polish, Dutch, Ukrainian, and Swedish) and automatic Right-to-Left (RTL) layout mirroring for Arabic, Hebrew, Urdu, and Persian. Only English resources are bundled in the default APK (`resourceConfigurations = ["en"]`) to minimize install size; UI packs (~3 KB each) and **58+ ML Kit offline handwriting recognition packs** download only when chosen and can be removed anytime to reclaim storage.
+- **Two-Pane Notebook Creation Studio.** Redesigned notebook creation into a responsive two-pane modal featuring a left Title, Cover, and Paper live preview rail, top dropdown pills for Page Size (including new **Tabloid** preset), Paper Color (including **Yellow Paper**), global Language picker (58+ languages), and Portrait/Landscape orientation toggle, collapsible categorized paper & cover galleries, and a bottom Cancel / Create Notebook action bar.
+- **Crayon Tool.** Added a dry-wax **Crayon** instrument to the toolbar with procedural paper-grain texture rendering, dedicated crayon palette, wax tip size, grain slider, and opacity control.
+- **Top Soft Scroll Blur (`skydoves/Cloudy`).** Added a soft, feathered progressive Cloudy blur along the top edge while scrolling across Library, Settings, and the Editor canvas (toggleable under **Settings -> Appearance -> Top soft scroll blur**).
+- **Custom Device Storage Folder & Nested Folder Breadcrumbs.** Pick any folder inside your device's internal or external storage (via Android SAF) from **Library -> Save Folder…** or **Settings -> Library & backup -> Notes storage folder** to save and mirror notebooks, alongside a 1-tap **+ Folder / Subfolder** button and clickable nested breadcrumb trail (`Documents › Folder › Subfolder`).
+- **Font & Style Picker in Lasso.** Tap **Font** on the floating Lasso bar to switch fonts across selected text, sticky notes, and write boxes (all 16 built-in typefaces + custom `.ttf` / `.otf` fonts, **Bold**, **Italic**, **A− / A+**). Picking a font on selected handwritten ink converts it directly into typed text in that font.
+- **Custom Fonts, Dynamic Bold & Writing Guide Line for Auto Handwriting.** Import `.ttf` / `.otf` fonts for converted handwriting, auto-bold larger headings via Dynamic Bold, and display a baseline writing guide line beneath active writing in **Align** and **Auto-Text** modes.
+- **Multilingual Auto Spell Check.** Added an offline Damerau-Levenshtein & accent-restoration spell checker supporting Unicode word boundaries across **11 languages** (English, Spanish, French, German, Italian, Portuguese, Dutch, Polish, Turkish, Indonesian, and Russian) with live tappable suggestion chips in inline text editing.
+- **Handwriting-Aware Search.** Upgraded in-notebook search to recognize human handwriting strokes (with per-page caching and fuzzy matching) alongside typed text and PDFs.
 - **8 New Page Templates.** Added **French Seyès**, **Calligraphy**, **Engineering Grid**, **Cornell Grid**, **Dot Cornell**, **Habit Tracker**, **Day Timeblock**, and **Comic Panels** (plus exposed **Handwriting** guide sheets).
-- **Quick Folders & Nested Folder Breadcrumbs.** Added a 1-tap **+ Folder / Subfolder** button in the Library header and a clickable nested breadcrumb trail (`Documents › Folder › Subfolder`) for effortless multi-level organization.
+- **Hold-to-Move Collapsed Sticky Notes & Quick Edit.** Folded sticky notes shrink to a compact messaging-icon badge that expands on tap and drags on long-press (~280ms); expanded sticky notes include a quick **✎** edit button and header-bar dragging.
+- **Circle-to-Lasso in Auto Handwriting & Single-Stroke Arrow Snapping.** Circle ink in **Auto-Text** mode to select via Circle-to-Lasso without premature conversion, and snap single-stroke hand-drawn arrows plus near-horizontal/vertical lines (within 6°).
 
 ### Improved
 
-- **Upgraded Studio Buttons & Inside-Tool Screens.** Refined tonal borders, active micro-elevation, and crisp icon-badged tool popover headers across the workbench toolbar and tool settings panels.
-- **Thicker Dashed Lasso Borders.** Increased Lasso selection loop and active bounding-box stroke weight with a high-contrast white halo so selections remain unmistakable on every paper background.
-- **Compact Messaging-Icon Collapsed Sticky Notes.** Folded sticky notes now shrink down to a compact `76×76` speech-bubble messaging icon on the page; tap anywhere on the icon to expand it back into a full note.
-- **Upgraded Study Friends Chat.** Added live chat search, pinned study messages banner, tap-to-reply quote threads, quick emoji reactions (`👍 ❤️ 🔥 💡 ✅`), formatted message timestamps, and 1-tap **Share Page Notes** right from the editor.
+- **Direct-on-Page Keyboard Mode.** Removed box chrome and frames in Keyboard Mode so a blinking pointer sits directly on the live page; automatically detects hardware keyboards and opens the soft keyboard when none is connected.
+- **Glowing Bézier Laser Pointer (No End Dot).** Upgraded the Laser Pointer to smooth quadratic Bézier curves with a 4-layer translucent crimson bloom, hot core filament, smooth ease-out fade, and clean tip (ugly end dot removed).
+- **Overhauled Shapes & Hold-to-Shape.** Tuned hold responsiveness (`420ms` delay, `14dp` jitter slop), separated Shape Hold strictly from Circle-to-Lasso, preserved active Pen/Crayon/Auto-Text color and width on snap, and added live styled drag previews.
+- **Upgraded Studio Buttons, Lasso Borders & Study Friends Chat.** Refined studio buttons and inside-tool headers, thickened dashed Lasso borders with a high-contrast halo, and upgraded Study Friends Chat with live search, pinned messages, quote-replies, emoji reactions, timestamps, and 1-tap **Share Page Notes**.
+- **App-Wide Animated Sweeping Gradients & Smoothness.** Applied the sweeping animated gradient to screen titles and search/chat prompts (`"What are you looking for?"`) across Library, Study Cards, Split View, Book Reader, and Study Rooms; eliminated per-frame canvas allocations (`RectF`, `Path`, `DashPathEffect`) and added spring micro-animations.
 
 ### Fixed
 
-- **Scribble-to-Erase Overhaul.** Fixed spatial hit-testing (`RectF.intersects` with sweep padding instead of strict full-containment), broadened deliberate scribble thresholds, and added self-crossing scrub detection so scribble-to-erase works reliably on natural strokes.
-- **Keyboard Mode & Unwired Settings.** Fixed **Keyboard Mode** so toggling it reliably opens the full-page inline editor with automatic soft-keyboard focus, and wired every newly exposed setting into persistence and live rendering.
-- **Real Stylus Pressure Sensitivity.** Fixed pressure-sensitive ink brushes (`StockBrushes.pressurePen`) and real-time gamma curve remapping (`pressureSensitivity`) so light and heavy strokes dynamically vary ink thickness.
+- **Scribble-to-Erase Overhaul.** Reworked spatial hit-testing and scrub-density/reversal checks so deliberate scribbles erase reliably without ever falsely erasing normal print or cursive handwriting.
+- **Real Stylus Pressure Sensitivity.** Fixed pressure-sensitive brushes (`StockBrushes.pressurePen`) and gamma sensitivity curves so stroke width responds naturally to stylus pressure.
+- **Sticky Notes & Auto Handwriting Fixes.** Fixed 6 sticky note bugs (tinted style rendering, checklist hit-testing, placeholder hiding under ink, all 16 + custom fonts, collapsed Lasso transform stability, and pin lock enforcement) and enabled Auto Handwriting directly inside expanded sticky notes.
+- **Lasso Recoloring & Unwired Settings.** Fixed Lasso color/rainbow tinting on Write Boxes and wired every newly exposed tool and writing setting cleanly into persistence and rendering.
 
 ## v15.1.0 - 2026-11-21
 

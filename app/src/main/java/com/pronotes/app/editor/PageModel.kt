@@ -349,7 +349,16 @@ fun PageItem.transformed(m: android.graphics.Matrix, s: Float, deg: Float): Page
             copy(x = cx - nw / 2f, y = cy - nh / 2f, size = size * s, rot = (rot + deg) % 360f)
         }
         is ImageItem -> { val (cx, cy) = movedCenter(raw); copy(x = cx - w * s / 2f, y = cy - h * s / 2f, w = w * s, h = h * s, rot = (rot + deg) % 360f) }
-        is StickyItem -> { val (cx, cy) = movedCenter(raw); copy(x = cx - w * s / 2f, y = cy - h * s / 2f, w = w * s, h = h * s, rot = (rot + deg) % 360f) }
+        is StickyItem -> {
+            if (pinned) this
+            else if (collapsed) {
+                val (cx, cy) = movedCenter(raw)
+                copy(x = cx - 38f, y = cy - 38f, rot = (rot + deg) % 360f)
+            } else {
+                val (cx, cy) = movedCenter(raw)
+                copy(x = cx - w * s / 2f, y = cy - h * s / 2f, w = (w * s).coerceIn(140f, 1400f), h = (h * s).coerceIn(120f, 1400f), rot = (rot + deg) % 360f)
+            }
+        }
         is MindNodeItem -> { val (cx, cy) = movedCenter(bounds); val nw = (w * s).coerceIn(110f, 520f); val nh = (h * s).coerceIn(48f, 220f); copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh) }
         is WebLinkItem -> { val (cx, cy) = movedCenter(raw); val nw = (w * s).coerceIn(220f, 760f); val nh = (h * s).coerceIn(96f, 340f); copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh, rot = (rot + deg) % 360f) }
         is WriteBoxItem -> { val (cx, cy) = movedCenter(raw); val nw = (w * s).coerceIn(220f, 1200f); val nh = (h * s).coerceIn(120f, 960f); copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh, rot = (rot + deg) % 360f) }
@@ -407,10 +416,16 @@ fun PageItem.stretched(oldBox: RectF, newBox: RectF): PageItem {
             copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh)
         }
         is StickyItem -> {
-            val (cx, cy) = mapPt(raw.centerX(), raw.centerY())
-            val nw = (w * sx).coerceIn(140f, 1400f)
-            val nh = (h * sy).coerceIn(120f, 1400f)
-            copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh)
+            if (pinned) this
+            else if (collapsed) {
+                val (cx, cy) = mapPt(raw.centerX(), raw.centerY())
+                copy(x = cx - 38f, y = cy - 38f)
+            } else {
+                val (cx, cy) = mapPt(raw.centerX(), raw.centerY())
+                val nw = (w * sx).coerceIn(140f, 1400f)
+                val nh = (h * sy).coerceIn(120f, 1400f)
+                copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh)
+            }
         }
         is MindNodeItem -> {
             val (cx, cy) = mapPt(bounds.centerX(), bounds.centerY())

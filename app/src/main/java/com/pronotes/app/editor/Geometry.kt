@@ -23,8 +23,8 @@ typealias Pt = Pair<Float, Float>
 /** Tunable thresholds for hold gestures, loop selection, scribble-to-erase, and palm rejection. */
 @Immutable
 data class GestureConfig(
-    val holdDelayMs: Long = 550L,
-    val holdSlopDp: Float = 8f,
+    val holdDelayMs: Long = 420L,
+    val holdSlopDp: Float = 14f,
     val circleWindowMs: Long = 3500L,
     val circleHoldDelayMs: Long = 450L,
     val circleEndRadiusDp: Float = 44f,
@@ -295,7 +295,7 @@ private fun closedCorners(raw: List<Pt>, eps: Float): List<Pt> {
             val prev = corners[(i - 1 + corners.size) % corners.size]
             val cur = corners[i]
             val next = corners[(i + 1) % corners.size]
-            if (dist(prev, cur) < eps * 1.2f || turnAngle(prev, cur, next) < 28.0) {
+            if (dist(prev, cur) < eps * 1.15f || turnAngle(prev, cur, next) < 24.0) {
                 corners.removeAt(i); changed = true; break
             }
         }
@@ -322,7 +322,11 @@ private fun polygonError(raw: List<Pt>, poly: List<Pt>, diag: Float): Float {
  * within a wider tolerance and returns null only for unrecognisable strokes.
  */
 object ShapeRecognizer {
-    fun recognize(raw: List<Pt>, forceNearest: Boolean = false): List<Pt>? {
+    /**
+     * Recognizes a hand-drawn stroke and returns one or more crisp strokes (e.g. two strokes for a
+     * single-stroke hand-drawn arrow: shaft + arrowhead).
+     */
+    fun recognizeMulti(raw: List<Pt>, forceNearest: Boolean = false): List<List<Pt>>? {
         if (raw.size < 4) return null
         val len = pathLength(raw)
         if (len < 20f) return null
@@ -330,28 +334,37 @@ object ShapeRecognizer {
         val diag = bx.diag.coerceAtLeast(1f)
         if (forceNearest && diag < 14f) return null
 
-        // Straight line.
-        val endDist = dist(raw.first(), raw.last())
+        val start = raw.first()
+        val end = raw.last()
+        val endDist = dist(start, end)
         val straightRatio = endDist / len
-        if (straightRatio > 0.9f) return densify(listOf(raw.first(), raw.last()))
 
-        val closed = isClosedLoop(raw)
-        if (!closed) {
-            // Elbow or zig-zag made of 2-3 straight segments.
-            val pts = simplify(raw, diag * 0.06f)
-            if (pts.size in 3..4 && abs(pathLength(pts) - len) / len < 0.12f) return densify(pts)
-            if (forceNearest) {
-                if (straightRatio >= 0.72f && endDist >= 20f) return densify(listOf(raw.first(), raw.last()))
-                val relaxedPts = simplify(raw, diag * 0.08f)
-                if (relaxedPts.size in 3..4 && abs(pathLength(relaxedPts) - len) / len < 0.24f) {
-                    return densify(relaxedPts)
-                }
-            }
-            if (!forceNearest) return null
+        // 1. Straight line (with automatic horizontal/vertical snapping within 6°).
+        if (straightRatio > 0.87f) {
+            return listOf(densify(listOf(start, snapAxisEnd(start, end))))
         }
 
-        val nearlyClosed = closed || (endDist < max(bx.w, bx.h) * 0.55f && len > max(bx.w, bx.h) * 2.0f)
-        if (!nearlyClosed) return null
+        // 2. Single-stroke hand-drawn arrow: straight shaft + acute V/chevron tip at the end.
+        detectSingleStrokeArrow(raw, len, diag)?.let { return it }
+
+        val closed = isClosedLoop(raw)
+        val nearlyClosed = closed || (endDist < max(bx.w, bx.h) * 0.52f && len > max(bx.w, bx.h) * 1.85f)
+
+        if (!nearlyClosed) {
+            // Open elbow or zig-zag made of 2–3 straight segments.
+            val pts = simplify(raw, diag * 0.06f)
+            if (pts.size in 3..4 && abs(pathLength(pts) - len) / len < 0.14f) return listOf(densify(pts))
+            if (forceNearest) {
+                if (straightRatio >= 0.72f && endDist >= 20f) {
+                    return listOf(densify(listOf(start, snapAxisEnd(start, end))))
+                }
+                val relaxedPts = simplify(raw, diag * 0.08f)
+                if (relaxedPts.size in 3..4 && abs(pathLength(relaxedPts) - len) / len < 0.24f) {
+                    return listOf(densify(relaxedPts))
+                }
+            }
+            return null
+        }
 
         val rx = bx.w / 2f; val ry = bx.h / 2f
         var ellipseErr = Float.MAX_VALUE
@@ -361,33 +374,78 @@ object ShapeRecognizer {
             ellipseErr = err / raw.size
         }
 
-        val corners = closedCorners(raw, diag * 0.06f)
+        val corners = closedCorners(raw, diag * 0.055f)
         val polyErr = polygonError(raw, corners, diag)
         val n = corners.size
-        // Five-pointed star: ten corners whose distance from the centre alternates long/short.
-        if (n in 9..11 && polyErr < if (forceNearest) 0.08f else 0.05f) {
+
+        // Five-pointed star: 9–11 alternating inner/outer corners.
+        if (n in 9..11 && polyErr < if (forceNearest) 0.09f else 0.06f) {
             val d = corners.map { hypot(it.first - bx.cx, it.second - bx.cy) }
             val alternates = d.indices.count { i -> (d[i] > d[(i + 1) % n]) != (d[(i + 1) % n] > d[(i + 2) % n]) } >= n - 2
-            if (alternates) return ShapeBuilder.build(ShapeKind.STAR, bx.l, bx.t, bx.r, bx.b).first()
+            if (alternates) return ShapeBuilder.build(ShapeKind.STAR, bx.l, bx.t, bx.r, bx.b)
         }
-        val polyTol = if (forceNearest) 0.09f else 0.045f
-        val ellipseThreshold = if (forceNearest) 0.42f else 0.28f
-        if (n in 3..8 && polyErr < polyTol && (polyErr < ellipseErr * 0.5f || ellipseErr > 0.08f)) {
-            return when (n) {
-                3 -> densify(corners + corners.first())
-                4 -> quad(corners, bx)
-                else -> densify(corners + corners.first())
-            }
+
+        val polyTol = if (forceNearest) 0.115f else 0.082f
+        val ellipseThreshold = if (forceNearest) 0.44f else 0.32f
+        if (n in 3..8 && polyErr < polyTol && (polyErr < ellipseErr * 0.58f || ellipseErr > 0.09f)) {
+            return listOf(
+                when (n) {
+                    3 -> densify(corners + corners.first())
+                    4 -> quad(corners, bx)
+                    else -> densify(corners + corners.first())
+                },
+            )
         }
-        if (ellipseErr < ellipseThreshold) return ellipse(bx, rx, ry)
-        if (forceNearest && n in 3..8 && polyErr < 0.16f) {
-            return when (n) {
-                3 -> densify(corners + corners.first())
-                4 -> quad(corners, bx)
-                else -> densify(corners + corners.first())
-            }
+        if (ellipseErr < ellipseThreshold) return listOf(ellipse(bx, rx, ry))
+        if (n in 3..8 && polyErr < if (forceNearest) 0.17f else 0.115f) {
+            return listOf(
+                when (n) {
+                    3 -> densify(corners + corners.first())
+                    4 -> quad(corners, bx)
+                    else -> densify(corners + corners.first())
+                },
+            )
         }
         return null
+    }
+
+    fun recognize(raw: List<Pt>, forceNearest: Boolean = false): List<Pt>? =
+        recognizeMulti(raw, forceNearest)?.firstOrNull()
+
+    /** Snaps nearly horizontal or vertical lines (within 6°) to dead-level / dead-plumb. */
+    private fun snapAxisEnd(a: Pt, b: Pt): Pt {
+        val dx = b.first - a.first
+        val dy = b.second - a.second
+        val angDeg = abs(Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())))
+        return when {
+            angDeg < 6.0 || angDeg > 174.0 -> b.first to a.second
+            abs(angDeg - 90.0) < 6.0 -> a.first to b.second
+            else -> b
+        }
+    }
+
+    /** Detects a single-stroke arrow (long straight shaft ending with a sharp acute hook/chevron). */
+    private fun detectSingleStrokeArrow(raw: List<Pt>, len: Float, diag: Float): List<List<Pt>>? {
+        if (raw.size < 8 || diag < 42f) return null
+        val simp = simplify(raw, diag * 0.045f)
+        if (simp.size !in 3..4) return null
+        val tail = simp.first()
+        val tip = simp[1]
+        val shaftLen = dist(tail, tip)
+        if (shaftLen < len * 0.50f || shaftLen < 36f) return null
+        // Verify the shaft portion was drawn fairly straight.
+        val tipIdx = raw.indices.minByOrNull { dist(raw[it], tip) } ?: return null
+        if (tipIdx < 3 || tipIdx >= raw.lastIndex) return null
+        val shaftPath = pathLength(raw.subList(0, tipIdx + 1))
+        if (shaftLen / shaftPath.coerceAtLeast(1f) < 0.84f) return null
+        val wing1 = simp[2]
+        val wingLen = dist(tip, wing1)
+        if (wingLen !in (shaftLen * 0.12f)..(shaftLen * 0.50f)) return null
+        // Turn angle at the tip must reverse sharply (acute arrowhead barb: 115°..172° turn).
+        val turn = turnAngle(tail, tip, wing1)
+        if (turn !in 115.0..172.0) return null
+        val snappedTip = snapAxisEnd(tail, tip)
+        return ShapeBuilder.build(ShapeKind.ARROW, tail.first, tail.second, snappedTip.first, snappedTip.second)
     }
 
     /** Four corners: rectangle (or square) when the sides follow the axes, diamond when they are 45°, otherwise as drawn. */
@@ -397,12 +455,12 @@ object ShapeRecognizer {
             val ang = Math.toDegrees(atan2((b.second - a.second).toDouble(), (b.first - a.first).toDouble()))
             ((ang % 90) + 90) % 90
         }
-        val axis = angles.all { it < 14 || it > 76 }
-        val diagonal = angles.all { it in 31.0..59.0 }
+        val axis = angles.all { it < 16 || it > 74 }
+        val diagonal = angles.all { it in 29.0..61.0 }
         return when {
             axis -> {
                 var l = bx.l; var t = bx.t; var r = bx.r; var b = bx.b
-                if (abs(bx.w - bx.h) / max(bx.w, bx.h) < 0.1f) {
+                if (abs(bx.w - bx.h) / max(bx.w, bx.h) < 0.12f) {
                     val s = (bx.w + bx.h) / 2f; l = bx.cx - s / 2; r = bx.cx + s / 2; t = bx.cy - s / 2; b = bx.cy + s / 2
                 }
                 densify(listOf(l to t, r to t, r to b, l to b, l to t))
@@ -414,7 +472,7 @@ object ShapeRecognizer {
 
     private fun ellipse(bx: Box, rx0: Float, ry0: Float): List<Pt> {
         var rx = rx0; var ry = ry0
-        if (abs(rx - ry) / max(rx, ry) < 0.15f) { val r = (rx + ry) / 2f; rx = r; ry = r }
+        if (abs(rx - ry) / max(rx, ry) < 0.16f) { val r = (rx + ry) / 2f; rx = r; ry = r }
         val n = 96
         return List(n + 1) { i ->
             val a = (i / n.toFloat()) * 2.0 * Math.PI

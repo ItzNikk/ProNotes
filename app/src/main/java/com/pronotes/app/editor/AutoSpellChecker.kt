@@ -136,19 +136,118 @@ object AutoSpellChecker {
         )
     ).map { it.lowercase() }.toSet()
 
-    /** Auto-corrects obvious typos in [text] while preserving punctuation, newlines, and capitalization. */
-    fun autoCorrect(text: String): String {
+    private val multilingualFixes: Map<String, Map<String, String>> = mapOf(
+        "es" to mapOf(
+            "tambien" to "también", "mas" to "más", "despues" to "después", "asi" to "así",
+            "aqui" to "aquí", "facil" to "fácil", "dificil" to "difícil", "rapido" to "rápido",
+            "numero" to "número", "pagina" to "página", "capitulo" to "capítulo", "musica" to "música",
+            "matematicas" to "matemáticas", "fisica" to "física", "quimica" to "química",
+            "biologia" to "biología", "geografia" to "geografía", "economia" to "economía",
+            "informacion" to "información", "educacion" to "educación", "solucion" to "solución",
+            "ecuacion" to "ecuación", "funcion" to "función", "definicion" to "definición",
+            "explicacion" to "explicación", "conclusion" to "conclusión", "introduccion" to "introducción",
+            "practica" to "práctica", "examenes" to "exámenes", "metodo" to "método",
+            "codigo" to "código", "grafico" to "gráfico", "teoria" to "teoría", "articulo" to "artículo",
+            "miercoles" to "miércoles", "sabado" to "sábado", "dia" to "día", "dias" to "días",
+            "porq" to "porque", "xq" to "porque", "habia" to "había", "podria" to "podría",
+        ),
+        "fr" to mapOf(
+            "ca" to "ça", "deja" to "déjà", "tres" to "très", "apres" to "après", "etre" to "être",
+            "meme" to "même", "tete" to "tête", "etude" to "étude", "etudier" to "étudier",
+            "ecole" to "école", "eleve" to "élève", "lecon" to "leçon", "resume" to "résumé",
+            "reponse" to "réponse", "numero" to "numéro", "mathematiques" to "mathématiques",
+            "geographie" to "géographie", "economie" to "économie", "theorie" to "théorie",
+            "methode" to "méthode", "systeme" to "système", "probleme" to "problème",
+            "modele" to "modèle", "regle" to "règle", "idee" to "idée", "equipe" to "équipe",
+            "general" to "général", "special" to "spécial", "francais" to "français",
+            "beacoup" to "beaucoup", "toujour" to "toujours", "peut-etre" to "peut-être",
+        ),
+        "de" to mapOf(
+            "uber" to "über", "fur" to "für", "konnen" to "können", "mussen" to "müssen",
+            "mochten" to "möchten", "naturlich" to "natürlich", "losung" to "Lösung",
+            "ubung" to "Übung", "prufung" to "Prüfung", "schuler" to "Schüler",
+            "worter" to "Wörter", "bucher" to "Bücher", "moglich" to "möglich",
+            "große" to "Größe", "groser" to "größer", "spater" to "später", "fruber" to "früher",
+            "zusammenfasung" to "Zusammenfassung", "notizbuc" to "Notizbuch", "seiet" to "Seite",
+            "wichtg" to "wichtig", "beispeil" to "Beispiel", "aufgab" to "Aufgabe",
+        ),
+        "pt" to mapOf(
+            "nao" to "não", "entao" to "então", "tambem" to "também", "voce" to "você",
+            "voces" to "vocês", "ja" to "já", "ate" to "até", "so" to "só", "facil" to "fácil",
+            "dificil" to "difícil", "rapido" to "rápido", "numero" to "número", "pagina" to "página",
+            "capitulo" to "capítulo", "informacao" to "informação", "educacao" to "educação",
+            "solucao" to "solução", "equacao" to "equação", "funcao" to "função",
+            "definicao" to "definição", "explicacao" to "explicação", "conclusao" to "conclusão",
+            "introducao" to "introdução", "matematica" to "matemática", "fisica" to "física",
+            "quimica" to "química", "historia" to "história", "geografia" to "geografia",
+            "metodo" to "método", "codigo" to "código", "grafico" to "gráfico", "sabado" to "sábado",
+        ),
+        "it" to mapOf(
+            "perche" to "perché", "poiche" to "poiché", "cosi" to "così", "piu" to "più",
+            "puo" to "può", "gia" to "già", "citta" to "città", "universita" to "università",
+            "attivita" to "attività", "qualita" to "qualità", "quantita" to "quantità",
+            "possibilita" to "possibilità", "difficolta" to "difficoltà", "verita" to "verità",
+            "lunedi" to "lunedì", "martedi" to "martedì", "mercoledi" to "mercoledì",
+            "giovedi" to "giovedì", "venerdi" to "venerdì", "percio" to "perciò",
+        ),
+        "nl" to mapOf(
+            "ideeen" to "ideeën", "bezigheden" to "bezigheden", "opdract" to "opdracht",
+            "notite" to "notitie", "samenvating" to "samenvatting", "hoofdstk" to "hoofdstuk",
+            "belangrjk" to "belangrijk", "voorbeel" to "voorbeeld", "mogelijkhied" to "mogelijkheid",
+        ),
+        "pl" to mapOf(
+            "tez" to "też", "juz" to "już", "moze" to "może", "bedzie" to "będzie",
+            "ktory" to "który", "ktora" to "która", "ktore" to "które", "wiecej" to "więcej",
+            "bardz" to "bardzo", "strona" to "strona", "notaktka" to "notatka",
+            "zadane" to "zadanie", "przyklad" to "przykład", "rozwiazanie" to "rozwiązanie",
+        ),
+        "tr" to mapOf(
+            "cok" to "çok", "icin" to "için", "degil" to "değil", "simdi" to "şimdi",
+            "boyle" to "böyle", "soyle" to "şöyle", "cunku" to "çünkü", "ogrenci" to "öğrenci",
+            "ogretmen" to "öğretmen", "cozum" to "çözüm", "ornek" to "örnek", "calisma" to "çalışma",
+            "turkce" to "Türkçe", "tesekkur" to "teşekkür", "gunaydin" to "günaydın",
+        ),
+        "id" to mapOf(
+            "yg" to "yang", "dgn" to "dengan", "utk" to "untuk", "tdk" to "tidak",
+            "krn" to "karena", "dlm" to "dalam", "sdh" to "sudah", "blm" to "belum",
+            "catatan" to "catatan", "pelajarn" to "pelajaran", "ringksan" to "ringkasan",
+        ),
+        "ru" to mapOf(
+            "привт" to "привет", "спасиб" to "спасибо", "сегодя" to "сегодня",
+            "завтр" to "завтра", "конспет" to "конспект", "заметк" to "заметка",
+            "страниц" to "страница", "задаче" to "задача", "решени" to "решение",
+        ),
+    )
+
+    private val unicodeWordRegex = Regex("[\\p{L}\\p{M}']+")
+
+    private fun baseLang(languageTag: String): String =
+        languageTag.lowercase().substringBefore('-').ifBlank { "en" }
+
+    /**
+     * Auto-corrects obvious typos in [text] for [languageTag] while preserving
+     * punctuation, newlines, capitalization, and non-Latin scripts untouched.
+     */
+    fun autoCorrect(text: String, languageTag: String = "en-US"): String {
         if (text.isBlank()) return text
-        val tokenRegex = Regex("[A-Za-z']+")
-        return tokenRegex.replace(text) { match ->
-            val raw = match.value
-            correctWord(raw)
+        val lang = baseLang(languageTag)
+        // Leave CJK, Devanagari, Arabic, Hebrew, Thai, and other scripts intact.
+        if (lang != "en" && lang !in multilingualFixes) return text
+        return unicodeWordRegex.replace(text) { match ->
+            correctWord(match.value, lang)
         }
     }
 
     /** Returns up to [maxSuggestions] candidate corrections for a single misspelled word (empty if valid). */
-    fun suggestions(word: String, maxSuggestions: Int = 3): List<String> {
+    fun suggestions(word: String, maxSuggestions: Int = 3, languageTag: String = "en-US"): List<String> {
+        val lang = baseLang(languageTag)
         val lower = word.lowercase()
+        if (lower.length < 2) return emptyList()
+        if (lang != "en") {
+            val langMap = multilingualFixes[lang] ?: return emptyList()
+            langMap[lower]?.let { return listOf(matchCase(word, it)) }
+            return emptyList()
+        }
         if (lower.length < 3 || lower in coreDictionary) return emptyList()
         directFixes[lower]?.let { return listOf(matchCase(word, it)) }
         val candidates = ArrayList<Pair<String, Int>>()
@@ -165,9 +264,15 @@ object AutoSpellChecker {
             .take(maxSuggestions)
     }
 
-    fun correctWord(raw: String): String {
+    fun correctWord(raw: String, languageTag: String = "en-US"): String {
         if (raw.length < 2) return raw
+        val lang = baseLang(languageTag)
         val lower = raw.lowercase()
+        if (lang != "en") {
+            val langMap = multilingualFixes[lang] ?: return raw
+            langMap[lower]?.let { return matchCase(raw, it) }
+            return raw
+        }
         if (lower in coreDictionary) return raw
         directFixes[lower]?.let { return matchCase(raw, it) }
         // Only apply edit-distance-1 auto-fix for words >= 4 chars where there is a single unambiguous match

@@ -187,7 +187,7 @@ internal fun NoteCanvasView.commitMove() {
 internal fun NoteCanvasView.findStickyChecklistLine(item: StickyItem, wx: Float, wy: Float): Int? {
     if (item.collapsed || item.text.isBlank()) return null
     val r = item.raw
-    val barH = minOf(r.height(), if (item.title.isNotBlank()) 38f else 30f)
+    val barH = minOf(r.height(), if (item.title.isNotBlank()) 38f else 34f)
     if (wx > r.left + 64f || wy < r.top + barH) return null
     val fSize = item.fontSize.coerceIn(14f, 64f) * (r.width() / 280f).coerceIn(0.45f, 3.5f)
     val lineStep = (fSize * 1.45f).coerceAtLeast(24f)

@@ -383,6 +383,8 @@ data class AppSettings(
     /** Optional Android SAF tree URI where notes are mirrored/saved inside user storage. */
     val storageFolderUri: String = "",
     val storageFolderLabel: String = "",
+    /** Preferred app display language BCP-47 tag (empty string = match Android system locale). */
+    val appLanguage: String = "",
 ) {
     fun toolbarState(): ToolbarState {
         val parts = toolbarPos.split(',')
@@ -563,6 +565,7 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             lastCloudSyncMs = prefs.getLong("lastCloudSyncMs", 0L),
             storageFolderUri = prefs.getString("storageFolderUri", "") ?: "",
             storageFolderLabel = prefs.getString("storageFolderLabel", "") ?: "",
+            appLanguage = prefs.getString("appLanguage", "") ?: "",
         )
     }
 
@@ -689,6 +692,7 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             .putLong("lastCloudSyncMs", s.lastCloudSyncMs)
             .putString("storageFolderUri", s.storageFolderUri)
             .putString("storageFolderLabel", s.storageFolderLabel)
+            .putString("appLanguage", s.appLanguage)
             .apply()
     }
 

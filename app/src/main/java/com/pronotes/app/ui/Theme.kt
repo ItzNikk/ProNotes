@@ -26,9 +26,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pronotes.app.data.AccentColor
 import com.pronotes.app.data.AppFont
+import com.pronotes.app.data.AppLanguages
+import com.pronotes.app.data.LocalAppLanguage
+import com.pronotes.app.data.LocalAppStrings
+import com.pronotes.app.data.Localization
 import com.pronotes.app.data.MotionStyle
 import com.pronotes.app.data.PerformanceMode
 import com.pronotes.app.data.SettingsStore
@@ -231,6 +237,19 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
     }
     val reduceMotion = systemRemoveAnimations || perf == PerformanceMode.BATTERY_SAVER || settings.motionStyle == MotionStyle.REDUCED
     val effectiveMotion = if (reduceMotion) MotionStyle.REDUCED else settings.motionStyle
+    val packVersion by com.pronotes.app.data.LanguagePackManager.packVersion.collectAsStateWithLifecycle()
+    androidx.compose.runtime.LaunchedEffect(context) {
+        com.pronotes.app.data.LanguagePackManager.refreshInstalled(context)
+    }
+    val appLanguageOpt = remember(settings.appLanguage) { AppLanguages.findByTag(settings.appLanguage) }
+    val appStrings = remember(settings.appLanguage, packVersion) {
+        Localization.stringsFor(context, settings.appLanguage)
+    }
+    val layoutDirection = remember(settings.appLanguage, packVersion) {
+        val rtlReady = AppLanguages.isRtl(settings.appLanguage) &&
+            com.pronotes.app.data.LanguagePackManager.isInstalled(context, settings.appLanguage)
+        if (rtlReady) LayoutDirection.Rtl else LayoutDirection.Ltr
+    }
     CompositionLocalProvider(
         LocalTitleGradient provides gradient,
         LocalColorfulUiText provides settings.colorfulUiText,
@@ -242,6 +261,9 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
         LocalClassicAppearance provides settings.classicAppearance,
         LocalReduceEffects provides settings.reduceEffects,
         LocalReduceMotion provides reduceMotion,
+        LocalAppStrings provides appStrings,
+        LocalAppLanguage provides appLanguageOpt,
+        LocalLayoutDirection provides layoutDirection,
     ) {
         MaterialTheme(
             colorScheme = if (dark) darkScheme else light,
@@ -255,25 +277,51 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
 @Composable
 fun GradientTitle(text: String, style: TextStyle, modifier: Modifier = Modifier, maxLines: Int = 1) {
     val g = LocalTitleGradient.current
-    Text(
-        text,
-        modifier = modifier,
-        maxLines = maxLines,
-        overflow = TextOverflow.Ellipsis,
-        style = if (g != null) style.copy(brush = Brush.linearGradient(g)) else style.copy(color = MaterialTheme.colorScheme.onBackground),
-    )
+    if (g != null) {
+        AnimatedGradientText(
+            text = text,
+            style = style,
+            modifier = modifier,
+            colors = g,
+            maxLines = maxLines,
+            overflow = TextOverflow.Ellipsis,
+            durationMs = 3600,
+            pulseAlpha = false,
+        )
+    } else {
+        Text(
+            text,
+            modifier = modifier,
+            maxLines = maxLines,
+            overflow = TextOverflow.Ellipsis,
+            style = style.copy(color = MaterialTheme.colorScheme.onBackground),
+        )
+    }
 }
 
 @Composable
 fun GradientText(text: String, style: TextStyle = MaterialTheme.typography.bodyMedium, modifier: Modifier = Modifier, maxLines: Int = Int.MAX_VALUE) {
     val g = LocalTitleGradient.current
-    Text(
-        text,
-        modifier = modifier,
-        maxLines = maxLines,
-        overflow = TextOverflow.Ellipsis,
-        style = if (g != null) style.copy(brush = Brush.linearGradient(g)) else style,
-    )
+    if (g != null) {
+        AnimatedGradientText(
+            text = text,
+            style = style,
+            modifier = modifier,
+            colors = g,
+            maxLines = maxLines,
+            overflow = TextOverflow.Ellipsis,
+            durationMs = 4000,
+            pulseAlpha = false,
+        )
+    } else {
+        Text(
+            text,
+            modifier = modifier,
+            maxLines = maxLines,
+            overflow = TextOverflow.Ellipsis,
+            style = style,
+        )
+    }
 }
 
 /** A shared backdrop for library, settings and reading surfaces. */
