@@ -130,6 +130,7 @@ class PageRenderer(private val noteDir: File?) {
 
     /** Text item currently being edited inline on-page (hidden on canvas to prevent double rendering). */
     var hiddenTextItemId: Long? = null
+    var hiddenStickyItemId: Long? = null
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
 
@@ -1032,6 +1033,7 @@ class PageRenderer(private val noteDir: File?) {
                 if (collapsedStickyRects.any { it.contains(cx, cy) }) continue
             }
             if (item is TextItem && item.id == hiddenTextItemId) continue
+            if (item is StickyItem && item.id == hiddenStickyItemId) continue
             val moved = transform != null && item.id in transformIds
             if (!moved && !onScreen(item)) continue
             if (moved) {
@@ -1341,6 +1343,32 @@ class PageRenderer(private val noteDir: File?) {
                 while (ly < r.bottom - 14f) {
                     canvas.drawLine(r.left + 14f, ly, r.right - 14f, ly, stickyStroke)
                     ly += step
+                }
+            } else if (style == "grid") {
+                stickyStroke.color = (fg and 0x00FFFFFF) or (0x1A shl 24)
+                stickyStroke.strokeWidth = 1.0f
+                val step = (item.fontSize * 1.25f).coerceIn(20f, 38f)
+                var gx = r.left + 14f
+                while (gx < r.right - 14f) {
+                    canvas.drawLine(gx, r.top + barH, gx, r.bottom - 14f, stickyStroke)
+                    gx += step
+                }
+                var gy = r.top + barH + step
+                while (gy < r.bottom - 14f) {
+                    canvas.drawLine(r.left + 14f, gy, r.right - 14f, gy, stickyStroke)
+                    gy += step
+                }
+            } else if (style == "dotted") {
+                fillPaint.color = (fg and 0x00FFFFFF) or (0x2C shl 24)
+                val step = (item.fontSize * 1.25f).coerceIn(20f, 38f)
+                var gx = r.left + 14f
+                while (gx < r.right - 14f) {
+                    var gy = r.top + barH + step
+                    while (gy < r.bottom - 14f) {
+                        canvas.drawCircle(gx, gy, 1.8f, fillPaint)
+                        gy += step
+                    }
+                    gx += step
                 }
             }
 
@@ -1839,5 +1867,63 @@ class PageRenderer(private val noteDir: File?) {
         val fm = pdfSkeletonTextPaint.fontMetrics
         val baseline = pillRect.centerY() - (fm.ascent + fm.descent) / 2f
         canvas.drawText(label, pillRect.centerX(), baseline, pdfSkeletonTextPaint)
+    }
+
+    companion object {
+        fun templateLineSpacing(paper: com.pronotes.app.data.PaperStyle?, lineScale: Float = 1f): Float {
+            val g = lineScale.coerceIn(0.5f, 2.5f)
+            return when (paper) {
+                com.pronotes.app.data.PaperStyle.RULED -> 52f * g
+                com.pronotes.app.data.PaperStyle.NARROW -> 38f * g
+                com.pronotes.app.data.PaperStyle.COLLEGE -> 42f * g
+                com.pronotes.app.data.PaperStyle.WIDE -> 64f * g
+                com.pronotes.app.data.PaperStyle.LEGAL -> 50f * g
+                com.pronotes.app.data.PaperStyle.GRID -> 40f * g
+                com.pronotes.app.data.PaperStyle.SMALL_GRID -> 24f * g
+                com.pronotes.app.data.PaperStyle.GRAPH -> 20f * g
+                com.pronotes.app.data.PaperStyle.SEYES -> 72f * g
+                com.pronotes.app.data.PaperStyle.CORNELL -> 52f * g
+                com.pronotes.app.data.PaperStyle.CORNELL_GRID -> 36f * g
+                com.pronotes.app.data.PaperStyle.HANDWRITING -> 96f * g * 1.6f
+                com.pronotes.app.data.PaperStyle.DAILY,
+                com.pronotes.app.data.PaperStyle.MEETING,
+                com.pronotes.app.data.PaperStyle.STUDY -> 52f * g
+                com.pronotes.app.data.PaperStyle.TWO_COLUMN -> 52f * g
+                else -> 48f * g
+            }
+        }
+
+        fun templateFirstLineY(paper: com.pronotes.app.data.PaperStyle?, lineScale: Float = 1f): Float {
+            val g = lineScale.coerceIn(0.5f, 2.5f)
+            return when (paper) {
+                com.pronotes.app.data.PaperStyle.RULED -> 180f
+                com.pronotes.app.data.PaperStyle.NARROW -> 160f
+                com.pronotes.app.data.PaperStyle.COLLEGE -> 170f
+                com.pronotes.app.data.PaperStyle.WIDE -> 190f
+                com.pronotes.app.data.PaperStyle.LEGAL -> 220f
+                com.pronotes.app.data.PaperStyle.GRID -> 40f * g
+                com.pronotes.app.data.PaperStyle.SMALL_GRID -> 24f * g
+                com.pronotes.app.data.PaperStyle.GRAPH -> 20f * g
+                com.pronotes.app.data.PaperStyle.SEYES -> 140f
+                com.pronotes.app.data.PaperStyle.CORNELL -> 252f
+                com.pronotes.app.data.PaperStyle.CORNELL_GRID -> 252f
+                com.pronotes.app.data.PaperStyle.HANDWRITING -> 180f
+                com.pronotes.app.data.PaperStyle.DAILY -> 470f
+                com.pronotes.app.data.PaperStyle.MEETING -> 400f
+                com.pronotes.app.data.PaperStyle.STUDY -> 390f
+                com.pronotes.app.data.PaperStyle.TWO_COLUMN -> 160f
+                else -> 64f
+            }
+        }
+
+        fun snapYToPaperLine(paper: com.pronotes.app.data.PaperStyle?, lineScale: Float, pageH: Float, rawY: Float): Float {
+            if (paper == null || paper == com.pronotes.app.data.PaperStyle.BLANK) return rawY
+            val startY = templateFirstLineY(paper, lineScale)
+            val step = templateLineSpacing(paper, lineScale)
+            if (rawY < startY) return rawY
+            val lineIndex = kotlin.math.round((rawY - startY) / step).toInt().coerceAtLeast(0)
+            val snapped = startY + lineIndex * step
+            return snapped.coerceIn(startY, (pageH - step).coerceAtLeast(startY))
+        }
     }
 }

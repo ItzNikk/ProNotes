@@ -2,6 +2,7 @@ package com.pronotes.app.editor
 
 import android.content.Intent
 import android.graphics.Bitmap
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -9,9 +10,18 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -69,6 +79,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -220,7 +231,7 @@ fun FlashcardsDialog(vm: EditorViewModel, onClose: () -> Unit) {
             AppDialogSurface(
                 shape = appCardShape(4f),
                 modifier = Modifier
-                    .widthIn(max = 760.dp)
+                    .widthIn(max = if (studying) 1000.dp else 760.dp)
                     .fillMaxWidth()
                     .heightIn(max = 800.dp)
                     .statusBarsPadding()
@@ -555,7 +566,7 @@ private fun CardRow(vm: EditorViewModel, c: Flashcard, onShow: () -> Unit) {
     }
 }
 
-/** 3D Flip & Multiple-Choice Quiz StudyView with 4-grade SM-2 (Again / Hard / Good / Easy), hints, stars & ScoreRing completion. */
+/** Expressive 3D Flip & Multiple-Choice Quiz StudyView with 4-grade SM-2, ergonomic action bar, hints, stars & tablet layout. */
 @Composable
 private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> Unit) {
     var shuffleSeed by remember { mutableIntStateOf(0) }
@@ -572,11 +583,80 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
     val total = queue.size
     var elapsed by remember { mutableStateOf(0L) }
 
-    Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    val focusRequester = remember { FocusRequester() }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        runCatching { focusRequester.requestFocus() }
+    }
+
+    val scroll = rememberScrollState()
+    androidx.compose.runtime.LaunchedEffect(index, studyMode, shuffleSeed) { scroll.scrollTo(0) }
+    val colors = MaterialTheme.colorScheme
+    val card = queue.getOrNull(index)?.let { id -> vm.cards.firstOrNull { it.id == id } }
+
+    fun gradeCard(g: Int) {
+        val currentCard = card ?: return
+        vm.gradeCard(currentCard.id, g)
+        if (g == 0) againIds += currentCard.id else known++
+        flipped = false
+        showHint = false
+        index++
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        colors.surface,
+                        colors.surfaceVariant.copy(alpha = 0.35f),
+                        colors.surface,
+                    )
+                )
+            )
+            .focusRequester(focusRequester)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown) {
+                    when (event.key) {
+                        Key.Spacebar -> {
+                            if (studyMode == 0) {
+                                flipped = !flipped
+                                true
+                            } else false
+                        }
+                        Key.One, Key.NumPad1 -> {
+                            if (flipped && studyMode == 0) { gradeCard(0); true } else false
+                        }
+                        Key.Two, Key.NumPad2 -> {
+                            if (flipped && studyMode == 0) { gradeCard(1); true } else false
+                        }
+                        Key.Three, Key.NumPad3 -> {
+                            if (flipped && studyMode == 0) { gradeCard(2); true } else false
+                        }
+                        Key.Four, Key.NumPad4 -> {
+                            if (flipped && studyMode == 0) { gradeCard(3); true } else false
+                        }
+                        Key.Escape -> { onDone(); true }
+                        else -> false
+                    }
+                } else false
+            }
+            .verticalScroll(scroll)
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        // Top Navigation & Stats Bar
+        Row(
+            Modifier
+                .widthIn(max = 720.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Text(
-                if (index < total) "Card ${index + 1} of $total" else "Session complete",
-                style = MaterialTheme.typography.titleMedium,
+                if (index < total) "Card ${index + 1} of $total" else "Session Complete",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                 modifier = Modifier.weight(1f),
             )
             if (index < total) {
@@ -600,62 +680,125 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
                 )
             }
             SessionClock(running = index < total) { elapsed = it }
-            TextButton(onClick = onDone) { Text("Back") }
+            TextButton(onClick = onDone) { Text("Exit") }
         }
+
+        // Mode Segmented Control (Flashcards / Quiz)
         if (index < total) {
             AppSegmentedControl(
-                options = listOf("3D Flip Recall", "Multiple-Choice Quiz"),
+                options = listOf("Flashcards", "Quiz"),
                 selectedIndex = studyMode,
                 onSelect = {
                     studyMode = it
                     flipped = false
                     selectedQuizChoice = null
                 },
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                modifier = Modifier
+                    .widthIn(max = 720.dp)
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
             )
         }
+
+        // Smooth Progress Bar
         LinearProgressIndicator(
             progress = { if (total == 0) 1f else index / total.toFloat() },
             modifier = Modifier
+                .widthIn(max = 720.dp)
                 .fillMaxWidth()
-                .padding(vertical = 10.dp)
+                .padding(vertical = 12.dp)
                 .height(6.dp)
                 .clip(Pill),
             color = StudyColors.cards.last(),
+            trackColor = colors.surfaceVariant.copy(alpha = 0.50f),
         )
-        val card = queue.getOrNull(index)?.let { id -> vm.cards.firstOrNull { it.id == id } }
+
+        // Session Complete Screen
         if (card == null) {
             val pct = if (total == 0) 100 else known * 100 / total
-            Spacer(Modifier.height(10.dp))
-            ScoreRing(pct, StudyColors.cards)
             val (grade, line) = feedbackFor(pct)
-            Text("$grade · Session done", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 14.dp))
-            Text(line, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
-            Text("$known of $total recalled · ${clock(elapsed)}", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp))
-            if (againIds.isNotEmpty()) {
-                TextButton(onClick = {
-                    retryIds = againIds.distinct()
-                    againIds.clear()
-                    known = 0
-                    shuffleSeed++
-                    flipped = false
-                    selectedQuizChoice = null
-                    showHint = false
-                }) { Text("Practice missed cards") }
+
+            AppSurface(
+                role = SurfaceRole.Frost,
+                containerColor = colors.surfaceVariant.copy(alpha = 0.60f),
+                shape = RoundedCornerShape(24.dp),
+                contentPadding = PaddingValues(28.dp),
+                modifier = Modifier
+                    .widthIn(max = 520.dp)
+                    .fillMaxWidth()
+                    .padding(top = 16.dp),
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    ScoreRing(pct, StudyColors.cards)
+                    Text(
+                        "$grade · Review Done",
+                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                    )
+                    Text(
+                        line,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                    ) {
+                        StatChip("Accuracy", "$pct%", ProButtonPalette.Emerald)
+                        StatChip("Recalled", "$known / $total", ProButtonPalette.ElectricBlue)
+                        StatChip("Time", clock(elapsed), ProButtonPalette.VibrantOrange)
+                    }
+
+                    if (againIds.isNotEmpty()) {
+                        Button(
+                            onClick = {
+                                retryIds = againIds.distinct()
+                                againIds.clear()
+                                known = 0
+                                shuffleSeed++
+                                flipped = false
+                                selectedQuizChoice = null
+                                showHint = false
+                            },
+                            shape = Pill,
+                            colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.CoralRose),
+                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                        ) {
+                            Text("Practice Missed Cards (${againIds.distinct().size})", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Button(
+                        onClick = onDone,
+                        shape = Pill,
+                        colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Finish Session", fontWeight = FontWeight.Bold)
+                    }
+                }
             }
-            Button(
-                onClick = onDone,
-                shape = Pill,
-                colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue, contentColor = Color.White),
-            ) { Text("Finish") }
             return@Column
         }
 
+        // Source page preview toggle
         val source = vm.pages.indexOfFirst { it.id == card.pageId }
         var showingSource by remember(card.id) { mutableStateOf(false) }
         if (source >= 0) {
-            TextButton(onClick = { showingSource = !showingSource }) {
-                Text(if (showingSource) "Return to flashcard" else "View source page")
+            Row(
+                modifier = Modifier
+                    .widthIn(max = 720.dp)
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = { showingSource = !showingSource }) {
+                    Text(if (showingSource) "Hide Source Page" else "View Source Page (Page ${source + 1})")
+                }
             }
             if (showingSource) {
                 val result by androidx.compose.runtime.produceState<Pair<Boolean, android.graphics.Bitmap?>>(false to null, card.pageId) {
@@ -663,220 +806,362 @@ private fun StudyView(vm: EditorViewModel, deck: List<Flashcard>, onDone: () -> 
                 }
                 val preview = result.second
                 if (preview != null) {
-                    Image(preview.asImageBitmap(), "Source page " + (source + 1),
-                        Modifier.fillMaxWidth().height(320.dp), contentScale = ContentScale.Fit)
+                    Image(
+                        preview.asImageBitmap(),
+                        "Source page " + (source + 1),
+                        Modifier
+                            .widthIn(max = 680.dp)
+                            .fillMaxWidth()
+                            .height(340.dp)
+                            .clip(RoundedCornerShape(16.dp)),
+                        contentScale = ContentScale.Fit,
+                    )
                 } else if (result.first) {
-                    Text("Source preview unavailable")
+                    Text("Source preview unavailable", style = MaterialTheme.typography.bodySmall)
                 } else {
-                    androidx.compose.material3.CircularProgressIndicator()
+                    androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(28.dp))
                 }
-                return@Column
+                Spacer(Modifier.height(12.dp))
             }
         }
-        if (studyMode == 1) {
-            // Multiple-choice quiz mode
-            val correctAnswer = card.back.ifBlank { "Visual answer card" }
-            val choices = remember(card.id, vm.cards.size) {
-                val distractors = vm.cards
-                    .filter { it.id != card.id && it.back.isNotBlank() && it.back != correctAnswer }
-                    .map { it.back }
-                    .distinct()
-                    .shuffled()
-                    .take(3)
-                    .toMutableList()
-                val fallbacks = listOf(
-                    "Review concept in notebook",
-                    "Secondary supporting detail",
-                    "Related contrast definition",
-                )
-                for (fb in fallbacks) {
-                    if (distractors.size >= 3) break
-                    if (fb != correctAnswer && fb !in distractors) distractors += fb
-                }
-                (distractors + correctAnswer).shuffled()
-            }
 
-            AppSurface(
-                role = SurfaceRole.Frost,
-                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
-                shape = appCardShape(4f),
-                contentPadding = PaddingValues(18.dp),
-                modifier = Modifier.fillMaxWidth(),
+        val correctAnswer = card.back.trim()
+        val choices = remember(card.id, vm.cards.size) {
+            val alternatives = vm.cards.map { it.back.trim() }
+                .filter { it.isNotEmpty() && !it.equals(correctAnswer, ignoreCase = true) }
+                .distinctBy { it.lowercase() }.shuffled().take(3)
+            (alternatives + correctAnswer).shuffled()
+        }
+
+        // Multiple-Choice Quiz Mode
+        if (studyMode == 1 && correctAnswer.isNotEmpty() && choices.size > 1) {
+            var submitted by remember(card.id, shuffleSeed) { mutableStateOf(false) }
+
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 700.dp)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("QUIZ PROMPT", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
-                        Icon(
-                            imageVector = if (card.starred) Icons.Filled.Star else Icons.Outlined.StarBorder,
-                            contentDescription = "Star",
-                            tint = if (card.starred) ProButtonPalette.VibrantOrange else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp).clickable { vm.toggleStarCard(card.id) },
+                // Quiz Question Card
+                AppSurface(
+                    role = SurfaceRole.Frost,
+                    containerColor = colors.primaryContainer.copy(alpha = 0.85f),
+                    shape = RoundedCornerShape(22.dp),
+                    contentPadding = PaddingValues(20.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "QUESTION",
+                                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.2.sp),
+                                color = colors.primary,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Icon(
+                                imageVector = if (card.starred) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                                contentDescription = "Star",
+                                tint = if (card.starred) ProButtonPalette.VibrantOrange else colors.onSurfaceVariant,
+                                modifier = Modifier.size(22.dp).clickable { vm.toggleStarCard(card.id) },
+                            )
+                        }
+                        remember(card.id) { vm.cardImage(card.frontImage) }?.let {
+                            Image(
+                                it.asImageBitmap(),
+                                "Question image",
+                                Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 220.dp)
+                                    .clip(RoundedCornerShape(14.dp)),
+                                contentScale = ContentScale.Fit,
+                            )
+                        }
+                        Text(
+                            card.front.ifBlank { "Select the matching answer for this flashcard:" },
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 8.dp),
                         )
-                    }
-                    Text(card.front.ifBlank { "Select the matching answer for this card" }, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
-                    if (card.hint.isNotBlank()) {
-                        if (showHint) {
-                            Text("Hint: ${card.hint}", style = MaterialTheme.typography.bodySmall, color = ProButtonPalette.Emerald)
-                        } else {
-                            TextButton(onClick = { showHint = true }) { Text("Show Hint") }
+                        if (card.hint.isNotBlank()) {
+                            if (showHint) {
+                                Text(
+                                    "Hint: ${card.hint}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = ProButtonPalette.Emerald,
+                                )
+                            } else {
+                                TextButton(onClick = { showHint = true }) {
+                                    Text("Show Hint", style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
                         }
                     }
                 }
-            }
-            Spacer(Modifier.height(12.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                choices.forEach { option ->
-                    val chosen = selectedQuizChoice == option
-                    val isRight = option == correctAnswer
-                    val bgColor = when {
-                        selectedQuizChoice == null -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
-                        isRight -> ProButtonPalette.Emerald.copy(alpha = 0.25f)
-                        chosen -> ProButtonPalette.CoralRose.copy(alpha = 0.25f)
-                        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                    }
-                    val borderCol = when {
-                        selectedQuizChoice == null -> Color.Transparent
-                        isRight -> ProButtonPalette.Emerald
-                        chosen -> ProButtonPalette.CoralRose
-                        else -> Color.Transparent
-                    }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(bgColor)
-                            .border(1.5.dp, borderCol, RoundedCornerShape(14.dp))
-                            .clickable(enabled = selectedQuizChoice == null) {
-                                selectedQuizChoice = option
+
+                // Answer Options List
+                val letters = listOf("A", "B", "C", "D")
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    choices.forEachIndexed { optIdx, option ->
+                        val chosen = selectedQuizChoice == option
+                        val isRight = option == correctAnswer
+                        val optBg = when {
+                            !submitted && chosen -> colors.primaryContainer
+                            !submitted -> colors.surface
+                            isRight -> Color(0xFF10B981).copy(alpha = 0.20f)
+                            chosen -> Color(0xFFEF4444).copy(alpha = 0.20f)
+                            else -> colors.surfaceVariant.copy(alpha = 0.35f)
+                        }
+                        val optBorder = when {
+                            !submitted && chosen -> colors.primary
+                            !submitted -> colors.outlineVariant.copy(alpha = 0.60f)
+                            isRight -> Color(0xFF10B981)
+                            chosen -> Color(0xFFEF4444)
+                            else -> Color.Transparent
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(optBg)
+                                .border(1.8.dp, optBorder, RoundedCornerShape(16.dp))
+                                .clickable(enabled = !submitted) {
+                                    selectedQuizChoice = option
+                                }
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(if (chosen || (submitted && isRight)) colors.primary else colors.surfaceVariant),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    letters.getOrElse(optIdx) { "${optIdx + 1}" },
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = if (chosen || (submitted && isRight)) Color.White else colors.onSurface,
+                                )
                             }
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                    ) {
-                        Text(option, style = MaterialTheme.typography.bodyMedium, fontWeight = if (chosen || (selectedQuizChoice != null && isRight)) FontWeight.Bold else FontWeight.Normal)
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                option,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = if (chosen || (submitted && isRight)) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                     }
                 }
-            }
-            if (selectedQuizChoice != null) {
-                Spacer(Modifier.height(12.dp))
-                val wasCorrect = selectedQuizChoice == correctAnswer
-                Button(
-                    onClick = {
-                        vm.gradeCard(card.id, if (wasCorrect) 2 else 0)
-                        if (wasCorrect) known++ else againIds += card.id
-                        selectedQuizChoice = null
-                        showHint = false
-                        index++
-                    },
-                    shape = Pill,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (wasCorrect) ProButtonPalette.Emerald else ProButtonPalette.ElectricBlue,
-                        contentColor = Color.White,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(if (wasCorrect) "Correct! Next Card →" else "Got it · Next Card →", fontWeight = FontWeight.Bold)
+
+                // Bottom Action for Quiz
+                if (!submitted) {
+                    Button(
+                        onClick = { submitted = true },
+                        enabled = selectedQuizChoice != null,
+                        shape = Pill,
+                        colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.ElectricBlue),
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                    ) {
+                        Text("Check Answer", fontWeight = FontWeight.Bold)
+                    }
+                } else {
+                    val wasCorrect = selectedQuizChoice == correctAnswer
+                    Button(
+                        onClick = {
+                            vm.gradeCard(card.id, if (wasCorrect) 2 else 0)
+                            if (wasCorrect) known++ else againIds += card.id
+                            selectedQuizChoice = null
+                            showHint = false
+                            index++
+                        },
+                        shape = Pill,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (wasCorrect) ProButtonPalette.Emerald else ProButtonPalette.ElectricBlue,
+                        ),
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                    ) {
+                        Text(
+                            if (wasCorrect) "Correct! Next Card" else "Next Card (Answer: $correctAnswer)",
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
             }
             return@Column
         }
 
-        val turn by animateFloatAsState(if (flipped) 180f else 0f, tween(420), label = "flip")
+        // 3D Flip Flashcards Mode
+        val turn by animateFloatAsState(
+            targetValue = if (flipped) 180f else 0f,
+            animationSpec = tween(
+                durationMillis = if (com.pronotes.app.ui.LocalReduceMotion.current) 0 else 380,
+                easing = FastOutSlowInEasing,
+            ),
+            label = "3DCardFlip",
+        )
         val pic = remember(card.id) { vm.cardImage(card.frontImage) }
+
         AppSurface(
             role = SurfaceRole.Frost,
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = if (turn > 90f) 0.78f else 0.96f),
-            shape = appCardShape(4f),
-            contentPadding = PaddingValues(22.dp),
+            containerColor = colors.primaryContainer.copy(alpha = if (turn > 90f) 0.82f else 0.95f),
+            shape = RoundedCornerShape(24.dp),
+            contentPadding = PaddingValues(24.dp),
             onClick = { flipped = !flipped },
             modifier = Modifier
+                .widthIn(max = 660.dp)
                 .fillMaxWidth()
-                .heightIn(min = 270.dp, max = 440.dp)
-                .graphicsLayer { rotationY = turn; cameraDistance = 12f * density },
+                .heightIn(min = 280.dp)
+                .graphicsLayer {
+                    rotationY = turn
+                    cameraDistance = 18f * density
+                },
         ) {
-            Box(Modifier.fillMaxWidth().graphicsLayer { if (turn > 90f) rotationY = 180f }, contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { if (turn > 90f) rotationY = 180f },
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    // Card Top Metadata
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            if (turn <= 90f) "QUESTION · BOX ${card.box + 1}/6" else "ANSWER",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.weight(1f),
-                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(Pill)
+                                .background(colors.primary.copy(alpha = 0.14f))
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                        ) {
+                            Text(
+                                if (turn <= 90f) "QUESTION · BOX ${card.box + 1}/6" else "ANSWER",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
+                                color = colors.primary,
+                            )
+                        }
+                        Spacer(Modifier.weight(1f))
                         Icon(
                             imageVector = if (card.starred) Icons.Filled.Star else Icons.Outlined.StarBorder,
                             contentDescription = "Star card",
-                            tint = if (card.starred) ProButtonPalette.VibrantOrange else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp).clickable { vm.toggleStarCard(card.id) },
+                            tint = if (card.starred) ProButtonPalette.VibrantOrange else colors.onSurfaceVariant,
+                            modifier = Modifier.size(22.dp).clickable { vm.toggleStarCard(card.id) },
                         )
                     }
+
+                    // Card Body (Front or Back)
                     if (turn <= 90f) {
                         pic?.let {
                             Image(
                                 it.asImageBitmap(),
                                 null,
                                 contentScale = ContentScale.Fit,
-                                modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp).clip(RoundedCornerShape(12.dp)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 240.dp)
+                                    .clip(RoundedCornerShape(14.dp)),
                             )
                         }
-                        if (card.front.isNotBlank()) Text(card.front, fontSize = 22.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+                        if (card.front.isNotBlank()) {
+                            Text(
+                                card.front,
+                                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(vertical = 12.dp),
+                            )
+                        }
                         if (card.hint.isNotBlank()) {
                             if (showHint) {
-                                Text("Hint: ${card.hint}", style = MaterialTheme.typography.bodySmall, color = ProButtonPalette.Emerald, textAlign = TextAlign.Center)
+                                Text(
+                                    "Hint: ${card.hint}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = ProButtonPalette.Emerald,
+                                    textAlign = TextAlign.Center,
+                                )
                             } else {
-                                TextButton(onClick = { showHint = true }) { Text("Show Hint") }
+                                TextButton(onClick = { showHint = true }) {
+                                    Text("Show Hint", style = MaterialTheme.typography.labelMedium)
+                                }
                             }
                         }
-                        Text("Tap card to 3D flip", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Tap card or press Space to reveal answer",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.onSurfaceVariant,
+                        )
                     } else {
                         remember(card.id) { vm.cardImage(card.backImage) }?.let {
                             Image(
                                 it.asImageBitmap(),
                                 null,
                                 contentScale = ContentScale.Fit,
-                                modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp).clip(RoundedCornerShape(12.dp)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 240.dp)
+                                    .clip(RoundedCornerShape(14.dp)),
                             )
                         }
-                        if (card.back.isNotBlank() || card.backImage == null) {
-                            Text(card.back.ifBlank { "No answer written" }, fontSize = 22.sp, textAlign = TextAlign.Center)
-                        }
+                        Text(
+                            card.back.ifBlank { "No answer recorded" },
+                            style = MaterialTheme.typography.headlineSmall,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(vertical = 14.dp),
+                        )
                     }
                 }
             }
         }
-        Spacer(Modifier.height(16.dp))
+
+        Spacer(Modifier.height(18.dp))
+
+        // Ergonomic Rating Action Bar (Again, Hard, Good, Easy)
         if (flipped) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                fun grade(g: Int) {
-                    vm.gradeCard(card.id, g)
-                    if (g == 0) againIds += card.id else known++
-                    flipped = false
-                    showHint = false
-                    index++
+            val grades = listOf(
+                Triple("Again", "< 1m", Color(0xFFE11D48)),
+                Triple("Hard", "1d", Color(0xFFD97706)),
+                Triple("Good", "3d", Color(0xFF059669)),
+                Triple("Easy", "7d", Color(0xFF2563EB)),
+            )
+
+            Row(
+                modifier = Modifier
+                    .widthIn(max = 660.dp)
+                    .fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                grades.forEachIndexed { gIdx, (label, interval, tint) ->
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(tint.copy(alpha = 0.14f))
+                            .border(1.5.dp, tint.copy(alpha = 0.50f), RoundedCornerShape(16.dp))
+                            .clickable { gradeCard(gIdx) }
+                            .padding(vertical = 12.dp, horizontal = 4.dp),
+                    ) {
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = tint,
+                        )
+                        Text(
+                            interval,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.onSurfaceVariant,
+                        )
+                    }
                 }
-                OutlinedButton(
-                    onClick = { grade(0) },
-                    shape = Pill,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ProButtonPalette.CoralRose),
-                ) { Text("Again\n10m", textAlign = TextAlign.Center, fontSize = 12.sp) }
-                FilledTonalButton(
-                    onClick = { grade(1) },
-                    shape = Pill,
-                    modifier = Modifier.weight(1f),
-                ) { Text("Hard\n12h", textAlign = TextAlign.Center, fontSize = 12.sp) }
-                FilledTonalButton(
-                    onClick = { grade(2) },
-                    shape = Pill,
-                    modifier = Modifier.weight(1f),
-                ) { Text("Good\n1d+", textAlign = TextAlign.Center, fontSize = 12.sp) }
-                Button(
-                    onClick = { grade(3) },
-                    shape = Pill,
-                    colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.Emerald, contentColor = Color.White),
-                    modifier = Modifier.weight(1f),
-                ) { Text("Easy\n3d+", textAlign = TextAlign.Center, fontSize = 12.sp) }
             }
-        } else {
-            Text("Think of the answer, then tap the card to flip.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

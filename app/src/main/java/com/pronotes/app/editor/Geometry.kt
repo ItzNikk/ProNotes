@@ -505,37 +505,37 @@ private data class ScribbleThresholds(
 
 private fun scribbleThresholds(config: GestureConfig): ScribbleThresholds = when (config.scribbleSensitivity) {
     ScribbleSensitivity.GENTLE -> ScribbleThresholds(
-        minPts = 14,
-        minLen = config.scribbleMinLengthPx.coerceAtLeast(112f),
-        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtMost(0.32f),
+        minPts = 15,
+        minLen = config.scribbleMinLengthPx.coerceAtLeast(115f),
+        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtMost(0.30f),
         minRev = 5,
-        minAxisRatio = 3.15f,
+        minAxisRatio = 3.50f,
         minSharp = 5,
-        minZigRatio = 3.35f,
-        minLoopTurns = 2.45f,
-        minLoopRatio = 3.55f,
+        minZigRatio = 3.50f,
+        minLoopTurns = 3.0f,
+        minLoopRatio = 3.80f,
     )
     ScribbleSensitivity.BALANCED -> ScribbleThresholds(
-        minPts = 11,
-        minLen = config.scribbleMinLengthPx.coerceAtLeast(82f),
-        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtMost(0.38f),
+        minPts = 12,
+        minLen = config.scribbleMinLengthPx.coerceAtLeast(85f),
+        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtMost(0.35f),
         minRev = 4,
-        minAxisRatio = 2.55f,
+        minAxisRatio = 2.90f,
         minSharp = 4,
-        minZigRatio = 2.75f,
-        minLoopTurns = 2.05f,
-        minLoopRatio = 3.05f,
+        minZigRatio = 2.90f,
+        minLoopTurns = 2.5f,
+        minLoopRatio = 3.30f,
     )
     ScribbleSensitivity.INSTANT -> ScribbleThresholds(
-        minPts = 8,
-        minLen = config.scribbleMinLengthPx.coerceAtLeast(58f),
-        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtMost(0.45f),
-        minRev = 3,
-        minAxisRatio = 2.15f,
-        minSharp = 3,
-        minZigRatio = 2.35f,
-        minLoopTurns = 1.65f,
-        minLoopRatio = 2.55f,
+        minPts = 10,
+        minLen = config.scribbleMinLengthPx.coerceAtLeast(62f),
+        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtMost(0.40f),
+        minRev = 4,
+        minAxisRatio = 2.50f,
+        minSharp = 4,
+        minZigRatio = 2.50f,
+        minLoopTurns = 2.2f,
+        minLoopRatio = 2.80f,
     )
 }
 
@@ -564,12 +564,14 @@ internal fun isDeliberateScribble(points: List<Pt>, pageToDp: Float, durationMs:
     val minCrossings = when (config.scribbleSensitivity) {
         ScribbleSensitivity.GENTLE -> 5
         ScribbleSensitivity.BALANCED -> 4
-        ScribbleSensitivity.INSTANT -> 3
+        ScribbleSensitivity.INSTANT -> 4
     }
+    // Multi-signal verification: must have either deliberate axis reversals, sharp zig-zags,
+    // or dense multi-revolution swirling that repeatedly crosses itself.
+    // Numbers (2,3,5,8,0) and cursive loops never satisfy these strict thresholds.
     return axisScribble(path, t.minRev, t.minAxisRatio) ||
         zigZagScribble(path, t.minSharp, t.minZigRatio) ||
-        loopScrubScribble(path, t.minLoopTurns, t.minLoopRatio) ||
-        selfCrossingScribble(path, minCrossings = minCrossings, minDensityRatio = t.minAxisRatio)
+        (loopScrubScribble(path, t.minLoopTurns, t.minLoopRatio) && selfCrossingScribble(path, minCrossings = minCrossings, minDensityRatio = t.minAxisRatio))
 }
 
 /** Detects dense scratch-outs that cross over their own path repeatedly within a compact region. */
@@ -595,8 +597,7 @@ private fun selfCrossingScribble(pts: List<Pt>, minCrossings: Int, minDensityRat
 private fun matchesAnyScribblePattern(pts: List<Pt>, t: ScribbleThresholds): Boolean =
     axisScribble(pts, t.minRev, t.minAxisRatio) ||
         zigZagScribble(pts, t.minSharp, t.minZigRatio) ||
-        loopScrubScribble(pts, t.minLoopTurns, t.minLoopRatio) ||
-        selfCrossingScribble(pts, minCrossings = maxOf(3, t.minRev), minDensityRatio = t.minAxisRatio)
+        (loopScrubScribble(pts, t.minLoopTurns, t.minLoopRatio) && selfCrossingScribble(pts, minCrossings = maxOf(4, t.minRev), minDensityRatio = t.minAxisRatio))
 
 /**
  * A fast back-and-forth zig-zag, diagonal cross-out, or tight circular scrub means "erase this".
@@ -666,15 +667,15 @@ fun isLiveScribble(
 ): Boolean = isLiveScribble(pts, GestureConfig.fromSensitivity(sensitivity))
 
 /** Dense scrubbing that does not follow a single axis, e.g. diagonal zig-zags over a word. */
-private fun zigZagScribble(pts: List<Pt>, minSharp: Int = 3, minRatio: Float = 1.95f): Boolean {
+private fun zigZagScribble(pts: List<Pt>, minSharp: Int = 4, minRatio: Float = 2.40f): Boolean {
     val bx = box(pts)
     val diag = bx.diag
     if (diag < 12f) return false
     if (pathLength(pts) < diag * minRatio) return false
     val s = simplify(pts, max(1.4f, diag * 0.035f))
-    if (s.size < 4) return false
+    if (s.size < 5) return false
     var sharp = 0
-    for (i in 1 until s.size - 1) if (turnAngle(s[i - 1], s[i], s[i + 1]) > 66.0) sharp++
+    for (i in 1 until s.size - 1) if (turnAngle(s[i - 1], s[i], s[i + 1]) > 85.0) sharp++
     return sharp >= minSharp
 }
 

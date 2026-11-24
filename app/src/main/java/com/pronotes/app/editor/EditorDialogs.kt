@@ -12,6 +12,7 @@ import android.text.TextPaint
 import android.text.TextWatcher
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.Toast
@@ -279,20 +280,43 @@ internal fun StickerSheet(onDragStarted: () -> Unit, onPick: (Bitmap) -> Unit) {
                 Text("Import", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.White)
             }
         }
-        AppSegmentedControl(
-            options = listOf("Planner", "Labels", "My stickers"),
-            selectedIndex = tab,
-            onSelect = { tab = it },
+        val categories = listOf("All", "Study", "Planner", "Arrows", "Badges", "Icons", "Minimal", "My stickers")
+        androidx.compose.foundation.lazy.LazyRow(
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        )
-        val list: List<Sticker> = when (tab) {
-            0 -> StickerLibrary.builtins
-            1 -> StickerSet.map { Sticker.Emoji(it) }
-            else -> mine
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            items(categories.size) { idx ->
+                val cat = categories[idx]
+                val selected = tab == idx
+                AppPill(
+                    selected = selected,
+                    tint = if (selected) ProButtonPalette.ElectricBlue else Color.Transparent,
+                    onClick = { tab = idx },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                    Text(
+                        cat,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
         }
-        if (tab == 2 && mine.isEmpty()) {
+        val list: List<Sticker> = when (categories.getOrElse(tab) { "All" }) {
+            "All" -> StickerLibrary.builtins
+            "Study" -> StickerLibrary.builtins.filter { it.category == StickerCategories.STUDY }
+            "Planner" -> StickerLibrary.builtins.filter { it.category == StickerCategories.PLANNER }
+            "Arrows" -> StickerLibrary.builtins.filter { it.category == StickerCategories.ARROWS }
+            "Badges" -> StickerLibrary.builtins.filter { it.category == StickerCategories.BADGES }
+            "Icons" -> StickerLibrary.builtins.filter { it.category == StickerCategories.ICONS }
+            "Minimal" -> StickerLibrary.builtins.filter { it.category == StickerCategories.MINIMAL }
+            "My stickers" -> mine
+            else -> StickerLibrary.builtins
+        }
+        if (categories.getOrElse(tab) { "" } == "My stickers" && mine.isEmpty()) {
             Text(
-                "Import a picture to use it as a sticker. PNG files with transparency work best.",
+                "Import a picture to use it as a sticker. Pro Notes automatically detects subjects and removes backgrounds.",
                 Modifier.padding(16.dp),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -819,6 +843,75 @@ internal fun InlinePageTextEditor(
                         }
                         setText(text)
                         setSelection(text.length)
+                        setOnKeyListener { _, keyCode, event ->
+                            if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
+                            if (keyCode == KeyEvent.KEYCODE_ESCAPE) {
+                                commitAndClose()
+                                return@setOnKeyListener true
+                            }
+                            if (event.isCtrlPressed && (keyCode == KeyEvent.KEYCODE_Z || keyCode == KeyEvent.KEYCODE_Y)) {
+                                if (keyCode == KeyEvent.KEYCODE_Y || event.isShiftPressed) vm.redo() else vm.undo()
+                                return@setOnKeyListener true
+                            }
+                            if (event.isCtrlPressed && keyCode == KeyEvent.KEYCODE_B) {
+                                style = style.copy(bold = !style.bold)
+                                return@setOnKeyListener true
+                            }
+                            if (event.isCtrlPressed && keyCode == KeyEvent.KEYCODE_I) {
+                                style = style.copy(italic = !style.italic)
+                                return@setOnKeyListener true
+                            }
+                            if (event.isCtrlPressed && keyCode == KeyEvent.KEYCODE_U) {
+                                style = style.copy(underline = !style.underline)
+                                return@setOnKeyListener true
+                            }
+                            if (keyCode == KeyEvent.KEYCODE_TAB) {
+                                val sStart = selectionStart
+                                val curEditable = editableText
+                                if (curEditable != null) {
+                                    if (event.isShiftPressed) {
+                                        val before = curEditable.substring(0, sStart)
+                                        val drop = before.takeLastWhile { it == ' ' }.length.coerceAtMost(4)
+                                        if (drop > 0) curEditable.delete(sStart - drop, sStart)
+                                    } else {
+                                        curEditable.insert(sStart, "    ")
+                                    }
+                                }
+                                return@setOnKeyListener true
+                            }
+                            if (keyCode == KeyEvent.KEYCODE_ENTER) {
+                                val sel = selectionStart
+                                val curStr = editableText?.toString() ?: text
+                                val lineStart = curStr.lastIndexOf('\n', (sel - 1).coerceAtLeast(0)).let { if (it < 0) 0 else it + 1 }
+                                val lineText = curStr.substring(lineStart, sel)
+                                val trimmed = lineText.trimStart()
+                                val indent = lineText.takeWhile { it == ' ' }
+                                val listPrefix = when {
+                                    trimmed.startsWith("- [ ] ") -> "- [ ] "
+                                    trimmed.startsWith("- [x] ", ignoreCase = true) -> "- [ ] "
+                                    trimmed.startsWith("[ ] ") -> "[ ] "
+                                    trimmed.startsWith("* ") -> "* "
+                                    trimmed.startsWith("- ") -> "- "
+                                    else -> {
+                                        val numMatch = Regex("""^(\d+)\.\s+""").find(trimmed)
+                                        if (numMatch != null) {
+                                            val nextNum = (numMatch.groupValues[1].toIntOrNull() ?: 1) + 1
+                                            "$nextNum. "
+                                        } else null
+                                    }
+                                }
+                                if (listPrefix != null) {
+                                    if (trimmed == listPrefix.trimEnd() || trimmed.isEmpty()) {
+                                        editableText?.delete(lineStart, sel)
+                                        return@setOnKeyListener true
+                                    } else {
+                                        editableText?.insert(sel, "\n$indent$listPrefix")
+                                        return@setOnKeyListener true
+                                    }
+                                }
+                            }
+                            false
+                        }
                         addTextChangedListener(object : TextWatcher {
                             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
@@ -852,7 +945,16 @@ internal fun InlinePageTextEditor(
                         TextAlign.CENTER -> Gravity.CENTER_HORIZONTAL
                         TextAlign.RIGHT -> Gravity.END
                     }
-                    et.setLineSpacing(0f, 1.15f)
+                    val lineSpacingPageUnits = PageRenderer.templateLineSpacing(page?.paper, page?.lineScale ?: 1f)
+                    val targetLineHeightPx = lineSpacingPageUnits * zoomScale
+                    val fontMetrics = et.paint.fontMetrics
+                    val naturalHeightPx = fontMetrics.descent - fontMetrics.ascent
+                    val addSpacingPx = (targetLineHeightPx - naturalHeightPx).coerceAtLeast(0f)
+                    if (edit.isFullPage && page?.paper != null && page.paper != com.pronotes.app.data.PaperStyle.BLANK) {
+                        et.setLineSpacing(addSpacingPx, 1f)
+                    } else {
+                        et.setLineSpacing(0f, 1.15f)
+                    }
                 },
             )
 
@@ -1265,6 +1367,497 @@ private fun InlineFmtIcon(
             modifier = Modifier.size(17.dp),
             tint = if (active) ProButtonPalette.ElectricBlue else fg,
         )
+    }
+}
+
+/**
+ * Notion-style direct-on-page inline sticky note editor.
+ * Positions a tactile card directly over the sticky note on paper with live soft/physical keyboard
+ * typing, checklist auto-continuation (- [ ] ), preset picker, paper styles (plain, lined, grid, dotted),
+ * color palette, and smooth switching between typing and stylus handwriting.
+ */
+@Composable
+internal fun InlineStickyNoteEditor(
+    vm: EditorViewModel,
+    edit: EditorViewModel.StickyEdit,
+    canvas: NoteCanvasView?,
+    areaSize: IntSize,
+    darkUi: Boolean,
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val item = edit.item
+    var text by remember(edit) { mutableStateOf(item.text) }
+    var title by remember(edit) { mutableStateOf(item.title) }
+    var color by remember(edit) { mutableIntStateOf(item.color) }
+    var fontSize by remember(edit) { mutableFloatStateOf(item.fontSize) }
+    var font by remember(edit) { mutableStateOf(item.font) }
+    var style by remember(edit) { mutableStateOf(item.style.ifBlank { "classic" }) }
+    var pinned by remember(edit) { mutableStateOf(item.pinned) }
+    var collapsed by remember(edit) { mutableStateOf(item.collapsed) }
+    var showPresetMenu by remember { mutableStateOf(false) }
+    var showSavePresetDialog by remember { mutableStateOf(false) }
+    var newPresetName by remember { mutableStateOf("") }
+    var editTextRef by remember { mutableStateOf<EditText?>(null) }
+    var suppressWatcher by remember { mutableStateOf(false) }
+
+    val settingsStore = com.pronotes.app.data.SettingsStore.get(context)
+    val presets: List<com.pronotes.app.data.StickyPreset> = remember(settingsStore, vm.settingsFlow.value.customStickyPresetsJson) {
+        settingsStore.stickyPresets()
+    }
+
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val hasExternalKeyboard = remember(context) {
+        val cfg = context.resources.configuration
+        cfg.keyboard != Configuration.KEYBOARD_NOKEYS &&
+            cfg.hardKeyboardHidden == Configuration.HARDKEYBOARDHIDDEN_NO
+    }
+
+    fun commitAndClose() {
+        val liveText = editTextRef?.text?.toString() ?: text
+        vm.stickyColor = color
+        vm.commitSticky(
+            text = liveText,
+            color = color,
+            fontSize = fontSize,
+            font = font,
+            collapsed = collapsed,
+            pinned = pinned,
+            title = title,
+            style = style,
+        )
+    }
+
+    BackHandler {
+        commitAndClose()
+    }
+
+    val zoomScale = (canvas?.currentZoomScale() ?: 1f).coerceIn(0.3f, 4f)
+    val mappedRect = remember(canvas, edit.page, item.x, item.y, item.w, item.h, areaSize) {
+        canvas?.pageToScreen(edit.page, item.raw)
+    }
+
+    val availW = areaSize.width.toFloat().coerceAtLeast(280f)
+    val availH = areaSize.height.toFloat().coerceAtLeast(200f)
+
+    val cardW = (mappedRect?.width() ?: (item.w * zoomScale)).coerceIn(with(density) { 260.dp.toPx() }, availW - with(density) { 32.dp.toPx() })
+    val cardH = (mappedRect?.height() ?: (item.h * zoomScale)).coerceIn(with(density) { 180.dp.toPx() }, availH - with(density) { 48.dp.toPx() })
+    val screenLeft = (mappedRect?.left ?: ((availW - cardW) * 0.5f)).coerceIn(with(density) { 16.dp.toPx() }, (availW - cardW - with(density) { 16.dp.toPx() }).coerceAtLeast(with(density) { 16.dp.toPx() }))
+    val screenTop = (mappedRect?.top ?: ((availH - cardH) * 0.4f)).coerceIn(with(density) { 16.dp.toPx() }, (availH - cardH - with(density) { 16.dp.toPx() }).coerceAtLeast(with(density) { 16.dp.toPx() }))
+
+    val cardWDp = with(density) { cardW.toDp() }
+    val cardHDp = with(density) { cardH.toDp() }
+
+    val lum = android.graphics.Color.luminance(color)
+    val isTranslucent = style == "outline" || style == "tinted" || style == "glass"
+    val fgColor = if (isTranslucent) {
+        if (darkUi) Color(0xFFF1F5F9) else Color(0xFF1E293B)
+    } else {
+        if (lum < 0.38f) Color.White else Color(0xFF1E293B)
+    }
+    val fgMuted = fgColor.copy(alpha = 0.65f)
+
+    Box(Modifier.fillMaxSize()) {
+        // Tapping outside commits cleanly
+        Box(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(edit) {
+                    detectTapGestures { commitAndClose() }
+                },
+        )
+
+        // Notion-style inline card
+        Column(
+            modifier = Modifier
+                .offset { IntOffset(screenLeft.roundToInt(), screenTop.roundToInt()) }
+                .size(cardWDp, cardHDp)
+                .shadow(10.dp, RoundedCornerShape(18.dp))
+                .clip(RoundedCornerShape(18.dp))
+                .background(
+                    when (style) {
+                        "tinted", "glass" -> Color(color).copy(alpha = 0.65f)
+                        "outline" -> if (darkUi) Color(0xEE1E222B) else Color(0xF8FFFFFF)
+                        else -> Color(color)
+                    }
+                )
+                .then(
+                    if (style == "outline") Modifier.border(2.5.dp, Color(color), RoundedCornerShape(18.dp))
+                    else Modifier.border(1.dp, Color.Black.copy(alpha = 0.12f), RoundedCornerShape(18.dp))
+                )
+                .clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null,
+                ) {},
+        ) {
+            // 1. Notion-style header bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.08f))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                // Title field
+                AndroidView(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(28.dp),
+                    factory = { ctx ->
+                        EditText(ctx).apply {
+                            background = null
+                            setPadding(0, 0, 0, 0)
+                            isSingleLine = true
+                            gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                            hint = "Title (optional)"
+                            setHintTextColor(if (lum < 0.38f) 0x88FFFFFF.toInt() else 0x77334155)
+                            setTextColor(if (lum < 0.38f) android.graphics.Color.WHITE else 0xFF1E293B.toInt())
+                            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+                            setText(title)
+                            addTextChangedListener(object : TextWatcher {
+                                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                                override fun afterTextChanged(s: Editable?) { title = s?.toString() ?: "" }
+                            })
+                        }
+                    },
+                    update = { et ->
+                        et.setTextColor(if (lum < 0.38f) android.graphics.Color.WHITE else 0xFF1E293B.toInt())
+                    },
+                )
+
+                // Presets dropdown trigger
+                Box {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.Black.copy(alpha = 0.12f))
+                            .clickable { showPresetMenu = true }
+                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Style", style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = FontWeight.SemiBold)
+                        Text(" ▾", style = MaterialTheme.typography.labelSmall, color = fgMuted)
+                    }
+                    androidx.compose.material3.DropdownMenu(
+                        expanded = showPresetMenu,
+                        onDismissRequest = { showPresetMenu = false },
+                    ) {
+                        presets.forEach { p ->
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Box(Modifier.size(14.dp).clip(CircleShape).background(Color(p.color)))
+                                        Text(p.name, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                },
+                                onClick = {
+                                    color = p.color
+                                    style = p.style
+                                    font = p.font
+                                    fontSize = p.fontSize
+                                    pinned = p.pinned
+                                    showPresetMenu = false
+                                },
+                            )
+                        }
+                        androidx.compose.material3.HorizontalDivider()
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text("+ Save as preset…", style = MaterialTheme.typography.labelSmall, color = ProButtonPalette.ElectricBlue) },
+                            onClick = {
+                                showPresetMenu = false
+                                newPresetName = title.ifBlank { "Custom Style" }
+                                showSavePresetDialog = true
+                            },
+                        )
+                    }
+                }
+
+                // Paper Style Selector (Plain, Lined, Grid, Dotted)
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black.copy(alpha = 0.10f))
+                        .padding(2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    listOf(
+                        "classic" to "Plain",
+                        "lined" to "Line",
+                        "grid" to "Grid",
+                        "dotted" to "Dot",
+                    ).forEach { (st, lbl) ->
+                        val active = style == st
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (active) fgColor.copy(alpha = 0.22f) else Color.Transparent)
+                                .clickable { style = st }
+                                .padding(horizontal = 5.dp, vertical = 2.dp),
+                        ) {
+                            Text(lbl, style = MaterialTheme.typography.labelSmall, fontSize = 10.sp, color = if (active) fgColor else fgMuted, fontWeight = if (active) FontWeight.Bold else FontWeight.Normal)
+                        }
+                    }
+                }
+
+                // Add Task Checklist button (+ [ ])
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color.Black.copy(alpha = 0.10f))
+                        .clickable {
+                            val cur = editTextRef?.text?.toString() ?: text
+                            val prefix = if (cur.isBlank()) "- [ ] " else (if (cur.endsWith("\n")) "- [ ] " else "\n- [ ] ")
+                            val updated = cur + prefix
+                            text = updated
+                            editTextRef?.setText(updated)
+                            editTextRef?.setSelection(updated.length)
+                        }
+                        .padding(horizontal = 5.dp, vertical = 3.dp),
+                ) {
+                    Text("+ [ ]", style = MaterialTheme.typography.labelSmall, fontSize = 10.sp, color = fgColor, fontWeight = FontWeight.SemiBold)
+                }
+
+                // Pin toggle
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (pinned) Color(0x33D95926) else Color.Transparent)
+                        .clickable { pinned = !pinned }
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                ) {
+                    Text(if (pinned) "📌" else "📍", fontSize = 12.sp)
+                }
+
+                // Duplicate
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color.Black.copy(alpha = 0.10f))
+                        .clickable { vm.duplicateSticky() }
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                ) {
+                    Text("⧉", fontSize = 12.sp, color = fgColor)
+                }
+
+                // Delete
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color.Black.copy(alpha = 0.10f))
+                        .clickable { vm.deleteSticky() }
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                ) {
+                    Text("🗑", fontSize = 12.sp, color = Color(0xFFE5484D))
+                }
+
+                // Done check button (✓)
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(ProButtonPalette.ElectricBlue)
+                        .clickable { commitAndClose() }
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                ) {
+                    Text("✓", color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            // Quick color swatch row directly below header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                listOf(
+                    0xFFFFF176.toInt(),
+                    0xFFFFE082.toInt(),
+                    0xFFFFCDD2.toInt(),
+                    0xFFE1BEE7.toInt(),
+                    0xFFC8E6C9.toInt(),
+                    0xFFB3E5FC.toInt(),
+                    0xFFCFD8DC.toInt(),
+                ).forEach { c ->
+                    val sel = color == c
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clip(CircleShape)
+                            .background(Color(c))
+                            .clickable { color = c }
+                            .then(if (sel) Modifier.border(1.5.dp, fgColor, CircleShape) else Modifier),
+                    )
+                }
+            }
+
+            // 2. Card Body: Direct multiline AndroidView EditText with full keyboard shortcuts
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { ctx ->
+                        EditText(ctx).apply {
+                            background = null
+                            setPadding(0, 0, 0, 0)
+                            gravity = Gravity.TOP or Gravity.START
+                            inputType = InputType.TYPE_CLASS_TEXT or
+                                InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                                InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                            isSingleLine = false
+                            isFocusable = true
+                            isFocusableInTouchMode = true
+                            isCursorVisible = true
+                            isVerticalScrollBarEnabled = true
+                            hint = "Type a note, formula, or checklist…"
+                            setHintTextColor(if (lum < 0.38f) 0x88FFFFFF.toInt() else 0x55475569)
+                            if (Build.VERSION.SDK_INT >= 29) {
+                                val cursorW = (2f * ctx.resources.displayMetrics.density).roundToInt().coerceAtLeast(3)
+                                textCursorDrawable = GradientDrawable().apply {
+                                    setSize(cursorW, 0)
+                                    setColor(if (lum < 0.38f) android.graphics.Color.WHITE else 0xFF3D6CF4.toInt())
+                                    cornerRadius = cursorW / 2f
+                                }
+                            }
+                            setText(text)
+                            setSelection(text.length)
+                            setOnKeyListener { _, keyCode, event ->
+                                if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
+                                if (keyCode == KeyEvent.KEYCODE_ESCAPE) {
+                                    commitAndClose()
+                                    return@setOnKeyListener true
+                                }
+                                if (keyCode == KeyEvent.KEYCODE_TAB) {
+                                    val selStart = selectionStart
+                                    val curEditable = editableText
+                                    if (curEditable != null) {
+                                        if (event.isShiftPressed) {
+                                            val before = curEditable.substring(0, selStart)
+                                            val drop = before.takeLastWhile { it == ' ' }.length.coerceAtMost(4)
+                                            if (drop > 0) curEditable.delete(selStart - drop, selStart)
+                                        } else {
+                                            curEditable.insert(selStart, "    ")
+                                        }
+                                    }
+                                    return@setOnKeyListener true
+                                }
+                                if (keyCode == KeyEvent.KEYCODE_ENTER) {
+                                    val sel = selectionStart
+                                    val curStr = editableText?.toString() ?: text
+                                    val lineStart = curStr.lastIndexOf('\n', (sel - 1).coerceAtLeast(0)).let { if (it < 0) 0 else it + 1 }
+                                    val lineText = curStr.substring(lineStart, sel)
+                                    val trimmed = lineText.trimStart()
+                                    val indent = lineText.takeWhile { it == ' ' }
+                                    val listPrefix = when {
+                                        trimmed.startsWith("- [ ] ") -> "- [ ] "
+                                        trimmed.startsWith("- [x] ", ignoreCase = true) -> "- [ ] "
+                                        trimmed.startsWith("[ ] ") -> "[ ] "
+                                        trimmed.startsWith("* ") -> "* "
+                                        trimmed.startsWith("- ") -> "- "
+                                        else -> {
+                                            val numMatch = Regex("""^(\d+)\.\s+""").find(trimmed)
+                                            if (numMatch != null) {
+                                                val nextNum = (numMatch.groupValues[1].toIntOrNull() ?: 1) + 1
+                                                "$nextNum. "
+                                            } else null
+                                        }
+                                    }
+                                    if (listPrefix != null) {
+                                        if (trimmed == listPrefix.trimEnd() || trimmed.isEmpty()) {
+                                            editableText?.delete(lineStart, sel)
+                                            return@setOnKeyListener true
+                                        } else {
+                                            editableText?.insert(sel, "\n$indent$listPrefix")
+                                            return@setOnKeyListener true
+                                        }
+                                    }
+                                }
+                                false
+                            }
+                            addTextChangedListener(object : TextWatcher {
+                                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                                override fun afterTextChanged(s: Editable?) {
+                                    if (!suppressWatcher) {
+                                        text = s?.toString() ?: ""
+                                    }
+                                }
+                            })
+                            editTextRef = this
+                            val openIme = {
+                                requestFocus()
+                                setSelection(length())
+                                if (!hasExternalKeyboard) {
+                                    keyboardController?.show()
+                                    val imm = ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                                    imm?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+                                }
+                            }
+                            post { openIme() }
+                            postDelayed({ openIme() }, 100L)
+                        }
+                    },
+                    update = { et ->
+                        et.typeface = when (font.uppercase()) {
+                            "SERIF" -> android.graphics.Typeface.SERIF
+                            "MONO" -> android.graphics.Typeface.MONOSPACE
+                            "HAND" -> android.graphics.Typeface.create("cursive", android.graphics.Typeface.NORMAL)
+                            else -> android.graphics.Typeface.SANS_SERIF
+                        }
+                        et.setTextSize(TypedValue.COMPLEX_UNIT_PX, (fontSize * zoomScale * 0.9f).coerceIn(13f, 96f))
+                        et.setTextColor(if (lum < 0.38f) android.graphics.Color.WHITE else 0xFF1E293B.toInt())
+                        et.setLineSpacing(0f, 1.15f)
+                    },
+                )
+            }
+        }
+
+        // Save preset dialog
+        if (showSavePresetDialog) {
+            AppDialog(
+                onDismissRequest = { showSavePresetDialog = false },
+                title = { Text("Save Sticky Preset") },
+                text = {
+                    OutlinedTextField(
+                        value = newPresetName,
+                        onValueChange = { newPresetName = it.take(32) },
+                        label = { Text("Preset Name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val cleanName = newPresetName.trim().ifBlank { "Custom Style" }
+                        val preset = com.pronotes.app.data.StickyPreset(
+                            id = "p_${System.currentTimeMillis()}",
+                            name = cleanName,
+                            color = color,
+                            style = style,
+                            paperStyle = style,
+                            font = font,
+                            fontSize = fontSize,
+                            cornerRadius = 18f,
+                            pinned = pinned,
+                        )
+                        settingsStore.saveStickyPreset(preset)
+                        showSavePresetDialog = false
+                    }) {
+                        Text("Save Preset")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showSavePresetDialog = false }) { Text("Cancel") }
+                },
+            )
+        }
     }
 }
 

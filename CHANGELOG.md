@@ -2,6 +2,32 @@
 
 All notable changes to Pro Notes are documented in this file.
 
+## v17.1.0 - 2026-11-24
+
+### Added
+- **In-Place Notion-Style Sticky Notes & Sticky Presets:** Replaced modal dialogs with interactive in-place sticky note editing anchored directly over canvas notes. Added sticky note presets ("Classic Yellow", "Study Lined", "Grid Checklist", "Rose Memo", "Lavender Idea", "Ocean Action") persisted in `SettingsStore` with 1-tap custom style saving, paper pattern selection (Plain, Lined, Grid, Dotted), and seamless handwriting-to-typing sync.
+- **Expanded Vector Sticker Pack:** Expanded built-in stickers across 6 clean vector categories: **Study & Academic** (Exam, Review, Formula, Definition, Quote, Atom, Lab, Grad, Draft), **Planner & Dates** (Important, To do, Done, Due, Note, Idea, Urgent, Date, Time, Priority), **Arrows & Callouts** (Arrow, Curved, Double, Speech, Thought, Focus), **Badges & Flags** (Flag, Pin, Check, Cross, Verified, Tag, Ribbon), **Icons & Diagrams** (Bulb, Energy, Trend, Target, Cloud, Key), and **Minimal Decorative** (Star, Heart, Sparkle, Flower, Leaf, Coffee, Sun) with crisp procedural vector rendering at any zoom level and horizontal category filtering.
+- **Advanced Offline Subject Segmentation & Background Erase:** Upgraded background erase pipeline using CIE-standard perceptual color distance, multi-cluster border seed sampling, edge-aware BFS flood-fill, interior enclosed pocket clearing ("missed background pockets" fix), anti-aliased edge feathering, and color de-fringing to prevent white/gray halos on dark paper.
+- **Dynamic Gradient Erase Particles:** Replaced plain gray scribble dust with luminous gradient particles blending erased stroke colors into active theme accent gradients via a pre-allocated Canvas particle pool with zero per-frame allocations.
+
+### Improved
+- **Inline Keyboard Mode & Template Ruled Line Alignment:** Eliminated container chrome, frames, and background boxes in full-page Keyboard Mode so a clean blinking caret sits directly on the paper. Added tap-to-type with automatic snapping to page template lines (ruled, Seyès, Cornell, grid) and dynamic line-height alignment.
+- **Physical Keyboard Ergonomics:** Added hardware keyboard support for inline editing: `Enter` continues checklists (`- [ ] `) and numbered lists; `Tab`/`Shift+Tab` indents/outdents; `Ctrl+B/I/U` toggles formatting; `Ctrl+Z/Y` triggers undo/redo; `Esc` commits and exits cleanly.
+- **Flashcards & Quiz M3 Expressive Overhaul:** Redesigned study interfaces to match the Pro Notes design system with 3D card perspective flips (`cameraDistance = 18f`), dynamic mid-flip elevation, ergonomic rating action bar (`Again`, `Hard`, `Good`, `Easy`) with hardware keyboard shortcuts (`Space`, `1`–`4`), responsive centered tablet layout, tactile multiple-choice options with animated feedback, and detailed session completion analytics.
+- **Progressive Top Scroll Blur & Harmonic Gradients:** Upgraded `TopScrollCloudyBackdrop` to native Android 12+ `RenderEffect` progressive masks with smooth cosine-falloff gradient alpha. Refined laser pointer beam and UI elements to draw harmonic color stops directly from active theme palettes.
+
+### Fixed
+- **Stylus Pressure Sensitivity & Quantization Jitter:** Fixed active stylus pressure detection (S Pen, Wacom, USI 2.0) across `MotionEvent` / `PointerInputChange` to `androidx.ink` stroke rendering using calibrated gamma response curves and low-pass exponential moving average (EMA) filtering, eliminating digitizer quantization and micro-jitter beading.
+- **Scribble-to-Erase False Positives on Numbers & Cursive:** Overhauled scribble detection in `Geometry.kt` with strict multi-signal verification (≥ 4 directional reversals, angular sharpness > 85°, scrub density > 2.5–3.5x bounding span, and canvas ink intersection), completely eliminating false erases when writing numbers (`2`, `3`, `5`, `8`, `0`), tight loops, or cursive handwriting.
+- **Settings Persistence:** Audited and verified settings persistence across `SettingsStore` and `AppSettings` for custom sticky presets, corner roundness, live blur, laser settings, and scribble sensitivity.
+
+- **Adaptive flashcard review.** Quiz practice pairs prompts with real answers from the deck, supports changing a choice before checking, and places answers beside the prompt on wide windows. Long cards scroll and grading buttons wrap on smaller screens.
+- **Library tools.** Restored online book search and import, free community sticker and cover sharing, and eight PDF operations. Built-in templates have their own menu entry.
+- **Floating video.** Direct video links request picture-in-picture as playback begins on supported devices.
+- **Handwriting.** Optional per-notebook ink straightening levels gently sloping lines while retaining the original pen strokes.
+- **Notebook widgets.** Pin a specific notebook from More, or use the general widget to resume writing or start a quick note.
+- **Page organizer.** Select multiple pages and add or clear their bookmarks together.
+
 ## v16.0.0 - 2026-11-23
 
 ### Added

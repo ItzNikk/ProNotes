@@ -215,6 +215,12 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
                     host.onStickyChecklistToggle(pi, taskSticky, taskIdx)
                     lastTapTime = 0L
                     null
+                } else if (taskSticky != null && !taskSticky.collapsed && !readOnly) {
+                    // Notion-style direct tap to edit sticky note inline
+                    buzz(HapticFeedbackConstants.CLOCK_TICK)
+                    host.onStickyTap(pi, lx, ly, taskSticky)
+                    lastTapTime = 0L
+                    null
                 } else {
                     pItems.lastOrNull { it is WebLinkItem && it.bounds.contains(lx, ly) } as WebLinkItem?
                 }
@@ -249,6 +255,12 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
                     lastTapY = e.y
                     if (selection.isNotEmpty()) clearSelection()
                     clearCircleCandidate()
+                    if (host.isKeyboardMode()) {
+                        val (dx, dy) = toDoc(e.x, e.y)
+                        val pi = pageAt(dx, dy)
+                        val (lx, ly) = toLocal(e.x, e.y, pi)
+                        host.onPageTap(pi, lx, ly)
+                    }
                 }
             }
             host.onZoom(null)

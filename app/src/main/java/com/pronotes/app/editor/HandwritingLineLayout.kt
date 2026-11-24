@@ -79,3 +79,40 @@ internal fun singleLineLayout(
     }
     return size to y
 }
+
+// Estimate the baseline from similarly sized strokes, excluding dots and long underlines.
+internal fun levelInkLine(page: Page, line: List<InkItem>): Map<Long, PageItem>? {
+    if (line.size !in 5..160 || line.any { it !in page.items }) return null
+    val heights = line.map { it.bounds.height() }.sorted()
+    val height = heights[heights.size / 2]
+    if (height < 5f) return null
+    val anchors = line.map { it.bounds }.filter { it.height() in height * 0.65f..height * 1.5f && it.width() < height * 3 }
+    if (anchors.size < 5) return null
+    val left = anchors.minOf { it.centerX() }
+    val right = anchors.maxOf { it.centerX() }
+    if (right - left < height * 3) return null
+    val slopes = mutableListOf<Float>()
+    for ((i, a) in anchors.withIndex()) for (j in i + 1 until anchors.size) {
+        val b = anchors[j]
+        val dx = b.centerX() - a.centerX()
+        if (abs(dx) > (right - left) / 3) slopes += (b.bottom - a.bottom) / dx
+    }
+    if (slopes.size < 3) return null
+    slopes.sort()
+    val slope = slopes[slopes.size / 2]
+    if (abs(slope) !in 0.025f..0.18f) return null
+    val offsets = anchors.map { it.bottom - slope * (it.centerX() - left) }.sorted()
+    val baseline = offsets[offsets.size / 2]
+    if (offsets.count { abs(it - baseline) <= height * 0.18f } < anchors.size * 0.8f) return null
+    val degrees = -Math.toDegrees(kotlin.math.atan(slope.toDouble())).toFloat()
+    val matrix = android.graphics.Matrix().apply { setRotate(degrees, left, baseline) }
+    val corrected = line.associate { it.id to it.transformed(matrix, 1f, degrees) }
+    val bounds = RectF(0f, 0f, page.width, page.height)
+    if (corrected.values.any { !bounds.contains(it.bounds) }) return null
+    val previous = RectF(line.first().bounds)
+    val next = RectF(corrected.values.first().bounds)
+    line.forEach { previous.union(it.bounds) }
+    corrected.values.forEach { next.union(it.bounds) }
+    if (page.items.any { it.id !in corrected && RectF.intersects(next, it.bounds) && !RectF.intersects(previous, it.bounds) }) return null
+    return corrected
+}

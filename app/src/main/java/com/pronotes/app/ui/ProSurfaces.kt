@@ -551,32 +551,36 @@ fun TopScrollCloudyBackdrop(
     val liveBlur = LocalLiveBlur.current
     val active = enabled && scrolled && !classic && !reduceEffects && liveBlur
     val blurRadius by animateIntAsState(
-        targetValue = if (active) 8 else 0,
-        animationSpec = tween(260),
+        targetValue = if (active) 10 else 0,
+        animationSpec = tween(240),
         label = "cloudyTopRadius",
     )
     val scrimAlpha by animateFloatAsState(
-        targetValue = if (scrolled) 0.36f else 0f,
-        animationSpec = tween(260),
+        targetValue = if (scrolled) 0.42f else 0f,
+        animationSpec = tween(240),
         label = "cloudyTopAlpha",
     )
     if (scrimAlpha <= 0.01f && blurRadius == 0) return
-    val surface = MaterialTheme.colorScheme.background
+    val surface = MaterialTheme.colorScheme.surface
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(height)
             .then(
                 if (blurRadius > 0) {
-                    Modifier.cloudy(radius = blurRadius, enabled = true)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        Modifier.appBackdropBlur(enabled = true, radiusDp = blurRadius.dp)
+                    } else {
+                        Modifier.cloudy(radius = blurRadius, enabled = true)
+                    }
                 } else Modifier,
             )
             .background(
                 Brush.verticalGradient(
-                    0.0f to surface.copy(alpha = scrimAlpha),
-                    0.26f to surface.copy(alpha = scrimAlpha * 0.65f),
-                    0.55f to surface.copy(alpha = scrimAlpha * 0.28f),
-                    0.82f to surface.copy(alpha = scrimAlpha * 0.07f),
+                    0.0f to surface.copy(alpha = scrimAlpha * 0.95f),
+                    0.28f to surface.copy(alpha = scrimAlpha * 0.72f),
+                    0.58f to surface.copy(alpha = scrimAlpha * 0.35f),
+                    0.82f to surface.copy(alpha = scrimAlpha * 0.10f),
                     1.0f to Color.Transparent,
                 ),
             ),

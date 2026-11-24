@@ -16,8 +16,8 @@ android {
         applicationId = "com.pronotes.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = (System.getenv("VERSION_CODE") ?: "22").toInt()
-        versionName = System.getenv("VERSION_NAME") ?: "16.0.0"
+        versionCode = (System.getenv("VERSION_CODE") ?: "23").toInt()
+        versionName = System.getenv("VERSION_NAME") ?: "17.0.0"
         // Keep the default APK lean: only English resources are bundled; additional UI & handwriting language packs download on demand.
         resourceConfigurations += listOf("en")
         // Developer support: set pronotes.upi / pronotes.upiName in gradle.properties
@@ -150,6 +150,8 @@ dependencies {
     implementation("sh.calvin.reorderable:reorderable:2.4.3")
     // Rounded polygons, stars and blobs for the shape tool.
     implementation("androidx.graphics:graphics-shapes:1.0.1")
+    // Colour wheel + brightness slider for custom colours.
+    implementation("com.github.skydoves:colorpicker-compose:1.1.2")
     // Colour wheel + brightness slider for custom colours.
     implementation("com.github.skydoves:colorpicker-compose:1.1.2")
     // Soft progressive top scroll blur (skydoves/Cloudy).

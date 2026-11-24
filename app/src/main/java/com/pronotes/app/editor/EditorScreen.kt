@@ -462,7 +462,10 @@ fun EditorScreen(
             else -> Unit
         }
     }
-    LaunchedEffect(settings, canvas) { canvas?.settings = settings }
+    LaunchedEffect(settings, canvas, vm.straightenInk) {
+        canvas?.settings = settings
+        canvas?.straightenPenInk = vm.straightenInk
+    }
     val darkUi = MaterialTheme.colorScheme.background.luminance() < 0.4f
     LaunchedEffect(darkUi, canvas) { canvas?.darkUi = darkUi }
     DisposableEffect(settings.keepScreenOn) {
@@ -726,6 +729,10 @@ fun EditorScreen(
                                     }
                                     override fun onTextBoxPlace(page: Int, x: Float, y: Float, w: Float, h: Float) {
                                         vm.openInlineTextBox(page, x, y, existing = null, boxWidth = w, boxHeight = h)
+                                    }
+                                    override fun isKeyboardMode(): Boolean = vm.keyboardMode
+                                    override fun onPageTap(page: Int, x: Float, y: Float) {
+                                        if (vm.keyboardMode) vm.tapToTypeOnPage(page, x, y)
                                     }
                                     override fun onStickyTap(page: Int, x: Float, y: Float, existing: StickyItem?) = vm.openSticky(page, x, y, existing)
                                     override fun onStickyToggleCollapse(page: Int, sticky: StickyItem) = vm.toggleStickyCollapse(page, sticky)
@@ -1484,10 +1491,11 @@ fun EditorScreen(
                             onDismiss = { wheelAt = null },
                         )
                     }
-                    // Sync canvas hiddenTextItemId and close popovers whenever inline text editing starts
-                    LaunchedEffect(vm.textEdit, canvas) {
+                    // Sync canvas hiddenTextItemId / hiddenStickyItemId and close popovers whenever inline text editing starts
+                    LaunchedEffect(vm.textEdit, vm.stickyEdit, canvas) {
                         canvas?.editingTextItemId = vm.textEdit?.existing?.id
-                        if (vm.textEdit != null) {
+                        canvas?.editingStickyItemId = vm.stickyEdit?.item?.id
+                        if (vm.textEdit != null || vm.stickyEdit != null) {
                             activePopoverTool = null
                         }
                     }
@@ -1495,6 +1503,18 @@ fun EditorScreen(
                     vm.textEdit?.let { edit ->
                         androidx.compose.runtime.key(edit) {
                             InlinePageTextEditor(
+                                vm = vm,
+                                edit = edit,
+                                canvas = canvas,
+                                areaSize = areaSize,
+                                darkUi = darkUi,
+                            )
+                        }
+                    }
+                    // Inline sticky note editor
+                    vm.stickyEdit?.let { edit ->
+                        androidx.compose.runtime.key(edit) {
+                            InlineStickyNoteEditor(
                                 vm = vm,
                                 edit = edit,
                                 canvas = canvas,
@@ -1588,106 +1608,6 @@ fun EditorScreen(
             text = { Text("Both ends of the link will go away. Your ink stays.") },
             confirmButton = { TextButton(onClick = { vm.deleteLink(id) }) { Text("Remove") } },
             dismissButton = { TextButton(onClick = { vm.linkToDelete = null }) { Text("Cancel") } },
-        )
-    }
-
-    vm.stickyEdit?.let { edit ->
-        var title by remember(edit) { mutableStateOf(edit.item.title) }
-        var text by remember(edit) { mutableStateOf(edit.item.text) }
-        var color by remember(edit) { mutableStateOf(edit.item.color) }
-        var fontSize by remember(edit) { mutableFloatStateOf(edit.item.fontSize) }
-        var font by remember(edit) { mutableStateOf(edit.item.font) }
-        var style by remember(edit) { mutableStateOf(edit.item.style.ifBlank { "classic" }) }
-        var formatting by remember(edit) { mutableStateOf(false) }
-        var collapsed by remember(edit) { mutableStateOf(edit.item.collapsed) }
-        var pinned by remember(edit) { mutableStateOf(edit.item.pinned) }
-        val fonts = listOf("SANS" to "Sans", "SERIF" to "Serif", "MONO" to "Mono", "HAND" to "Hand")
-        val styles = listOf("classic" to "Classic", "lined" to "Lined", "tinted" to "Tinted", "outline" to "Outline")
-        AppDialog(
-            onDismissRequest = { vm.stickyEdit = null },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    ProIconView(ProIcon.STICKY, MaterialTheme.colorScheme.primary, Modifier.size(22.dp), ink = Color(color))
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (edit.isNew) "New sticky note" else "Sticky studio", Modifier.weight(1f))
-                    if (!edit.isNew) {
-                        IconButton(onClick = { vm.duplicateSticky() }) {
-                            ProIconView(ProIcon.COPY, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp))
-                        }
-                    }
-                }
-            },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(
-                        title,
-                        { title = it.take(48) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(16.dp),
-                        label = { Text("Sticky title (optional)") },
-                        placeholder = { Text("e.g. Exam Formula, Chapter Checklist…") },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedTextField(
-                        text,
-                        { text = it },
-                        minLines = 4,
-                        shape = RoundedCornerShape(16.dp),
-                        placeholder = { Text("Write a note, formula, or checklist (- [ ] Item)…") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color(color).copy(alpha = 0.55f), RoundedCornerShape(16.dp)),
-                    )
-                    TextButton(onClick = { formatting = !formatting }) { Text(if (formatting) "Hide appearance" else "Customize appearance") }
-                    if (formatting) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            StickyColors.forEach { c -> Swatch(c, c == color, 20) { color = c } }
-                        }
-                        Text("STYLE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        AppSegmentedControl(
-                            options = styles.map { it.second },
-                            selectedIndex = styles.indexOfFirst { it.first == style }.coerceAtLeast(0),
-                            onSelect = { i -> style = styles[i].first },
-                        )
-                        AppSegmentedControl(
-                            options = fonts.map { it.second },
-                            selectedIndex = fonts.indexOfFirst { it.first == font }.coerceAtLeast(0),
-                            onSelect = { i -> font = fonts[i].first },
-                        )
-                        SliderRow("TEXT SIZE", "%.0f pt".format(fontSize), fontSize, 18f..48f) { fontSize = it }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        AppChip(
-                            selected = pinned,
-                            onClick = { pinned = !pinned },
-                            label = if (pinned) "Pinned" else "Pin position",
-                        )
-                        AppChip(
-                            selected = collapsed,
-                            onClick = { collapsed = !collapsed },
-                            label = if (collapsed) "Folded" else "Fold strip",
-                        )
-                        TextButton(onClick = {
-                            text = if (text.isBlank()) "- [ ] " else text.trimEnd() + "\n- [ ] "
-                        }) { Text("+ Task") }
-                    }
-
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    vm.stickyColor = color
-                    vm.commitSticky(text, color, fontSize, font, collapsed, pinned, title, style)
-                }) { Text("Save") }
-            },
-            dismissButton = {
-                TextButton(onClick = { if (edit.isNew) vm.stickyEdit = null else vm.deleteSticky() }) {
-                    Text(
-                        if (edit.isNew) "Cancel" else "Delete",
-                        color = if (edit.isNew) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
-                    )
-                }
-            },
         )
     }
 

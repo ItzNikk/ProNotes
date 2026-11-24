@@ -535,16 +535,50 @@ fun EditorViewModel.toggleKeyboardMode() {
         val p = pages.getOrNull(pageIndex) ?: return
         val existing = p.items.filterIsInstance<TextItem>().firstOrNull()
         keyboardMode = true
+        val startY = if (existing != null) existing.y else PageRenderer.templateFirstLineY(p.paper, p.lineScale)
+        val startX = if (existing != null) existing.x else when (p.paper) {
+            PaperStyle.RULED -> 140f
+            PaperStyle.NARROW -> 120f
+            PaperStyle.COLLEGE -> 130f
+            PaperStyle.WIDE -> 150f
+            PaperStyle.LEGAL -> 168f
+            PaperStyle.CORNELL, PaperStyle.CORNELL_GRID, PaperStyle.DOT_CORNELL -> p.width * 0.3f + 16f
+            else -> 56f
+        }
         openInlineTextBox(
             page = pageIndex,
-            x = existing?.x ?: 56f,
-            y = existing?.y ?: 64f,
+            x = startX,
+            y = startY,
             existing = existing,
-            boxWidth = (p.width - 112f).coerceAtLeast(360f),
-            boxHeight = (p.height - 128f).coerceAtLeast(320f),
+            boxWidth = (p.width - startX - 32f).coerceAtLeast(360f),
+            boxHeight = (p.height - startY - 32f).coerceAtLeast(320f),
             isFullPage = true,
         )
     }
+}
+
+fun EditorViewModel.tapToTypeOnPage(page: Int, x: Float, y: Float) {
+    val p = pages.getOrNull(page) ?: return
+    val snappedY = PageRenderer.snapYToPaperLine(p.paper, p.lineScale, p.height, y)
+    val marginX = when (p.paper) {
+        PaperStyle.RULED -> 140f
+        PaperStyle.NARROW -> 120f
+        PaperStyle.COLLEGE -> 130f
+        PaperStyle.WIDE -> 150f
+        PaperStyle.LEGAL -> 168f
+        PaperStyle.CORNELL, PaperStyle.CORNELL_GRID, PaperStyle.DOT_CORNELL -> p.width * 0.3f + 16f
+        else -> 48f
+    }
+    val targetX = if (x < marginX) marginX else x.coerceIn(marginX, p.width - 120f)
+    openInlineTextBox(
+        page = page,
+        x = targetX,
+        y = snappedY,
+        existing = null,
+        boxWidth = (p.width - targetX - 32f).coerceIn(240f, p.width - 64f),
+        boxHeight = (p.height - snappedY - 32f).coerceIn(120f, p.height - 64f),
+        isFullPage = true,
+    )
 }
 
 fun EditorViewModel.getKeyboardPageText(page: Int = pageIndex): String {

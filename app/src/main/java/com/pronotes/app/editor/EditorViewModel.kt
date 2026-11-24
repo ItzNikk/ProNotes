@@ -530,6 +530,19 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         return out
     }
 
+    fun bookmarkPages(ids: Set<String>, marked: Boolean) {
+        if (readOnly) return
+        for (i in pages.indices) {
+            val page = pages[i]
+            if (page.id in ids && page.bookmarked != marked) {
+                pages[i] = page.copy(bookmarked = marked)
+                dirtyPageIds += page.id
+            }
+        }
+        scheduleSave()
+        onPagesChanged?.invoke()
+    }
+
     fun toggleBookmark() {
         val p = currentPage ?: return
         pages[pageIndex] = p.copy(bookmarked = !p.bookmarked)
@@ -922,16 +935,25 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         }
     }
 
+    var straightenInk by mutableStateOf(store.pref("straightenInk_$noteId") == "true")
+        private set
+
+    fun toggleInkStraightening() {
+        straightenInk = !straightenInk
+        if (straightenInk && settingsFlow.value.toolDefaults.autoHandwriting) setAutoHandwriting(false)
+        store.setPref("straightenInk_$noteId", straightenInk.toString())
+    }
+
     fun queueHandwriting(page: Int, ink: List<InkItem>) {
         val viaAutoTool = tool == Tool.AUTO_TEXT
-        if (ink.isEmpty() || readOnly || (!settingsFlow.value.toolDefaults.autoHandwriting && !viaAutoTool)) return
+        if (ink.isEmpty() || readOnly || (!settingsFlow.value.toolDefaults.autoHandwriting && !viaAutoTool && !straightenInk)) return
         val sheet = pages.getOrNull(page) ?: return
         pendingInk.getOrPut(sheet.id) { mutableListOf() }.addAll(ink)
         writingPause?.cancel()
         writingPause = viewModelScope.launch {
             do { delay(700) } while (penActive || handwritingBusy)
             val options = settingsFlow.value.toolDefaults
-            if ((!options.autoHandwriting && tool != Tool.AUTO_TEXT) || readOnly) {
+            if ((!options.autoHandwriting && tool != Tool.AUTO_TEXT && !straightenInk) || readOnly) {
                 pendingInk.clear()
                 return@launch
             }
@@ -941,7 +963,15 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 val surviving = strokes.filter { current?.items?.contains(it) == true }
                 for (line in handwritingLines(surviving)) {
                     while (penActive) delay(150)
-                    recognizeInk(id, line, font, automatic = true) {}
+                    if (options.autoHandwriting || tool == Tool.AUTO_TEXT) {
+                        recognizeInk(id, line, font, automatic = true) {}
+                    } else if (straightenInk) {
+                        val idx = pages.indexOfFirst { it.id == id }
+                        val sheetNow = pages.getOrNull(idx) ?: continue
+                        val leveled = levelInkLine(sheetNow, line) ?: continue
+                        beginEdit(idx)
+                        applyItems(idx, sheetNow.items.map { leveled[it.id] ?: it })
+                    }
                     pendingInk[id]?.removeAll(line.toSet())
                 }
                 pendingInk.remove(id)

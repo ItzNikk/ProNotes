@@ -293,6 +293,7 @@ fun LibraryScreen(
     var listView by rememberSaveable { mutableStateOf(false) }
     var sidebar by rememberSaveable { mutableStateOf(wide) }
     var destination by rememberSaveable { mutableStateOf("") }
+    if (destination == "Templates") NotebookTemplatesDialog(false, folderId, { destination = "" }, onOpen)
     if (destination == "Books" || destination == "Marketplace") {
         CatalogDialog(destination == "Books", folderId, { destination = "" }, onOpen)
     }
@@ -693,6 +694,7 @@ fun LibraryScreen(
                                             )
                                         }
                                     },
+                                    AppMenuItem("Notebook templates") { destination = "Templates" },
                                     AppMenuItem("Online books") { destination = "Books" },
                                     AppMenuItem("Community marketplace") { destination = "Marketplace" },
                                     AppMenuItem("PDF Station") { destination = "PDF Station" },

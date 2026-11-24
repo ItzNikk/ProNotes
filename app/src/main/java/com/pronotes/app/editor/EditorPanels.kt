@@ -355,6 +355,11 @@ internal fun TopBar(
         )
         Spacer(Modifier.width(3.dp))
         val moreEntries = buildList {
+            if (!vm.readOnly) add(AppMenuItem("Straighten original handwriting", selected = vm.straightenInk) { vm.toggleInkStraightening() })
+            val widgetManager = android.appwidget.AppWidgetManager.getInstance(context)
+            if (widgetManager.isRequestPinAppWidgetSupported) add(AppMenuItem("Pin notebook widget") {
+                com.pronotes.app.NotebookWidget.pin(context, vm.noteId)
+            })
             if (!vm.readOnly) add(AppMenuItem("Draw with finger", selected = !vm.settingsFlow.value.stylusOnly) {
                 store.update { it.copy(stylusOnly = !it.stylusOnly) }
             })
@@ -646,6 +651,8 @@ internal fun SearchBar(vm: EditorViewModel) {
 @Composable
 internal fun PagesPanel(vm: EditorViewModel, onJump: (Int) -> Unit, onClose: () -> Unit) {
     var tab by remember { mutableIntStateOf(0) }
+    var selecting by remember(vm) { mutableStateOf(false) }
+    var selected by remember(vm) { mutableStateOf(emptySet<String>()) }
     val reduceMotion = LocalReduceMotion.current
     AppSurface(
         role = SurfaceRole.Frost,
@@ -672,6 +679,21 @@ internal fun PagesPanel(vm: EditorViewModel, onJump: (Int) -> Unit, onClose: () 
                 onSelect = { tab = it },
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             )
+            if (tab == 0 && !vm.readOnly) {
+                androidx.compose.material3.TextButton(onClick = {
+                    selecting = !selecting
+                    selected = emptySet()
+                }) { Text(if (selecting) "Cancel selection" else "Select pages") }
+                if (selecting && selected.isNotEmpty()) {
+                    for (marked in listOf(true, false)) {
+                        androidx.compose.material3.TextButton(onClick = {
+                            vm.bookmarkPages(selected, marked)
+                            selecting = false
+                            selected = emptySet()
+                        }) { Text((if (marked) "Bookmark" else "Unbookmark") + " (" + selected.size + ")") }
+                    }
+                }
+            }
             if (tab == 0) {
                 val listState = rememberLazyListState()
                 val reorder = rememberReorderableLazyListState(listState) { from, to -> vm.movePage(from.index, to.index) }
@@ -687,7 +709,13 @@ internal fun PagesPanel(vm: EditorViewModel, onJump: (Int) -> Unit, onClose: () 
                                 animationSpec = if (reduceMotion) snap() else tween(150),
                                 label = "lift",
                             )
-                            PageThumb(
+                            if (selecting) {
+                                val checked = page.id in selected
+                                androidx.compose.material3.TextButton(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    onClick = { selected = if (checked) selected - page.id else selected + page.id },
+                                ) { Text((if (checked) "✓  " else "○  ") + "Page " + (i + 1)) }
+                            } else PageThumb(
                                 vm = vm,
                                 i = i,
                                 page = page,

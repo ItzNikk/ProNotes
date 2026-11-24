@@ -235,6 +235,19 @@ internal class NoteCanvasDocLayer(
     private var morph: List<Pt>? = null
     private var morphT = 0f
 
+    private class EraseParticle {
+        var active: Boolean = false
+        var startX: Float = 0f
+        var startY: Float = 0f
+        var vx: Float = 0f
+        var vy: Float = 0f
+        var radius: Float = 0f
+        var color: Int = 0
+        var secondaryColor: Int = 0
+    }
+
+    private val particlePool = Array(128) { EraseParticle() }
+    private var activeParticleCount = 0
     private var puffs: List<RectF> = emptyList()
     private var puffT = 0f
     private val puffPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
@@ -243,18 +256,69 @@ internal class NoteCanvasDocLayer(
         strokeCap = Paint.Cap.ROUND
     }
     private val puffSeeds = FloatArray(64) { kotlin.random.Random(it * 17 + 11).nextFloat() }
-    private val greyShades = intArrayOf(
-        0xFF94A3B8.toInt(),
-        0xFF64748B.toInt(),
-        0xFFCBD5E1.toInt(),
-        0xFF475569.toInt(),
-        0xFF9CA3AF.toInt(),
+
+    private val luminousAccentGradient = intArrayOf(
+        0xFF818CF8.toInt(), // Indigo
+        0xFF38BDF8.toInt(), // Sky blue
+        0xFFA78BFA.toInt(), // Violet
+        0xFFF472B6.toInt(), // Rose
+        0xFF34D399.toInt(), // Emerald
     )
 
-    /** Scribble-erase: classic grey crumbling dust particles dispersing from erased ink. */
-    fun puff(rects: List<RectF>) {
+    private fun blendColors(c1: Int, c2: Int, ratio: Float): Int {
+        val r0 = ratio.coerceIn(0f, 1f)
+        val inv = 1f - r0
+        val a = (Color.alpha(c1) * inv + Color.alpha(c2) * r0).toInt().coerceIn(0, 255)
+        val r = (Color.red(c1) * inv + Color.red(c2) * r0).toInt().coerceIn(0, 255)
+        val g = (Color.green(c1) * inv + Color.green(c2) * r0).toInt().coerceIn(0, 255)
+        val b = (Color.blue(c1) * inv + Color.blue(c2) * r0).toInt().coerceIn(0, 255)
+        return Color.argb(a, r, g, b)
+    }
+
+    /** Scribble-erase: vibrant gradient particles dispersing from erased ink into theme accents. */
+    fun puff(
+        rects: List<RectF>,
+        strokeColors: List<Int> = emptyList(),
+        themeAccent: Int = 0xFF6366F1.toInt(),
+    ) {
         if (rects.isEmpty()) return
         puffs = rects
+        activeParticleCount = 0
+
+        // Populate pre-allocated particle pool (zero allocations during animation)
+        val particlesPerRect = (particlePool.size / rects.size).coerceIn(10, 24)
+        for ((rIdx, r) in rects.withIndex()) {
+            val rw = r.width().coerceAtLeast(12f * density)
+            val rh = r.height().coerceAtLeast(12f * density)
+            val baseColor = if (strokeColors.isNotEmpty()) {
+                val sc = strokeColors[rIdx % strokeColors.size]
+                // If the stroke color is very dark or near black, brighten it slightly for luminous burst
+                if (Color.red(sc) < 40 && Color.green(sc) < 40 && Color.blue(sc) < 40) {
+                    blendColors(sc, themeAccent, 0.45f)
+                } else sc
+            } else luminousAccentGradient[rIdx % luminousAccentGradient.size]
+
+            val accent = if (themeAccent != 0) themeAccent else luminousAccentGradient[(rIdx + 1) % luminousAccentGradient.size]
+
+            for (k in 0 until particlesPerRect) {
+                if (activeParticleCount >= particlePool.size) break
+                val p = particlePool[activeParticleCount++]
+                p.active = true
+                val s1 = puffSeeds[(k + rIdx * 7) % 64]
+                val s2 = puffSeeds[(k * 3 + 13 + rIdx) % 64]
+                val s3 = puffSeeds[(k * 5 + 29) % 64]
+                val ang = (k.toDouble() * (2.0 * Math.PI / particlesPerRect.toDouble()) + s1 * 0.6)
+                val speed = (18f + 38f * s2) * density
+                p.startX = r.left + s1 * rw
+                p.startY = r.top + s2 * rh
+                p.vx = cos(ang).toFloat() * speed
+                p.vy = sin(ang).toFloat() * speed
+                p.radius = (2.4f + 3.8f * s3) * density
+                p.color = baseColor
+                p.secondaryColor = blendColors(baseColor, accent, 0.55f + 0.35f * s3)
+            }
+        }
+
         ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 440
             interpolator = DecelerateInterpolator()
@@ -265,6 +329,7 @@ internal class NoteCanvasDocLayer(
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     puffs = emptyList()
+                    activeParticleCount = 0
                     invalidate()
                 }
             })
@@ -273,38 +338,35 @@ internal class NoteCanvasDocLayer(
     }
 
     private fun drawPuffs(canvas: Canvas) {
-        if (puffs.isEmpty()) return
+        if (puffs.isEmpty() || activeParticleCount == 0) return
         val t = puffT
         val ease = 1f - (1f - t) * (1f - t)
         val fade = (1f - t).coerceIn(0f, 1f)
+
+        // Draw soft expanding shockwave rings around erased bounds
         puffs.forEachIndexed { rIdx, r ->
             val cx = r.centerX()
             val cy = r.centerY()
             val span = max(r.width(), r.height()).coerceAtLeast(22f * density)
-
             val ringRadius = (6f * density) + (span.coerceAtMost(120f * density) * 0.45f) * ease
-            puffRingPaint.color = 0xFF94A3B8.toInt()
+            val ringColor = if (activeParticleCount > 0) particlePool[(rIdx * 12) % activeParticleCount].secondaryColor else 0xFF818CF8.toInt()
+            puffRingPaint.color = ringColor
             puffRingPaint.strokeWidth = 1.6f * density * fade
-            puffRingPaint.alpha = (fade * 85f).toInt().coerceIn(0, 255)
+            puffRingPaint.alpha = (fade * 110f).toInt().coerceIn(0, 255)
             canvas.drawCircle(cx, cy, ringRadius, puffRingPaint)
+        }
 
-            val rw = r.width().coerceAtLeast(10f * density)
-            val rh = r.height().coerceAtLeast(10f * density)
-            for (k in 0 until 14) {
-                val s1 = puffSeeds[(k + rIdx * 7) % 64]
-                val s2 = puffSeeds[(k * 3 + 13 + rIdx) % 64]
-                val s3 = puffSeeds[(k * 5 + 29) % 64]
-                val ang = k * (2.0 * Math.PI / 14.0) + s1 * 0.7
-                val speed = (14f + 30f * s2) * density * ease
-                val startX = r.left + s1 * rw
-                val startY = r.top + s2 * rh
-                val px = startX + cos(ang).toFloat() * speed
-                val py = startY + sin(ang).toFloat() * speed - (10f * density * ease)
-                val radius = (2.2f + 3.6f * s3) * density * (1f - t * 0.4f)
-                puffPaint.color = greyShades[(k + rIdx) % greyShades.size]
-                puffPaint.alpha = (fade * (135f + 65f * s3)).toInt().coerceIn(0, 255)
-                canvas.drawCircle(px, py, radius, puffPaint)
-            }
+        // Draw gradient particles
+        for (i in 0 until activeParticleCount) {
+            val p = particlePool[i]
+            if (!p.active) continue
+            val px = p.startX + p.vx * ease
+            val py = p.startY + p.vy * ease - (12f * density * ease) // slight upward buoyancy
+            val currentRadius = p.radius * (1f - t * 0.42f)
+            val currentColor = blendColors(p.color, p.secondaryColor, t)
+            puffPaint.color = currentColor
+            puffPaint.alpha = (fade * 240f).toInt().coerceIn(0, 255)
+            canvas.drawCircle(px, py, currentRadius, puffPaint)
         }
     }
 
@@ -749,21 +811,28 @@ internal class NoteCanvasDocLayer(
                 prevY = sy
             }
             tmpPath.lineTo(prevX, prevY)
-            // 1. Wide soft outer crimson bloom
-            laserCore.color = Color.argb((life * 40).toInt(), 255, 36, 68)
-            laserCore.strokeWidth = 17.0f * density
+            val baseColor = owner.settings.accent.argb.toInt()
+            val baseR = Color.red(baseColor)
+            val baseG = Color.green(baseColor)
+            val baseB = Color.blue(baseColor)
+            // 1. Wide soft outer bloom
+            laserCore.color = Color.argb((life * 38).toInt(), baseR, baseG, baseB)
+            laserCore.strokeWidth = 16.0f * density
             canvas.drawPath(tmpPath, laserCore)
-            // 2. Luminous mid-glow aura
-            laserCore.color = Color.argb((life * 98).toInt(), 255, 52, 64)
-            laserCore.strokeWidth = 9.2f * density
+            // 2. Luminous harmonic mid-glow aura
+            val midR = ((baseR * 0.85f) + 38f).toInt().coerceIn(0, 255)
+            val midG = ((baseG * 0.85f) + 38f).toInt().coerceIn(0, 255)
+            val midB = ((baseB * 0.85f) + 38f).toInt().coerceIn(0, 255)
+            laserCore.color = Color.argb((life * 96).toInt(), midR, midG, midB)
+            laserCore.strokeWidth = 8.5f * density
             canvas.drawPath(tmpPath, laserCore)
-            // 3. Saturated laser beam
-            laserCore.color = Color.argb((life * 242).toInt(), 255, 62, 58)
-            laserCore.strokeWidth = 4.2f * density
+            // 3. Saturated laser core beam
+            laserCore.color = Color.argb((life * 238).toInt(), baseR, baseG, baseB)
+            laserCore.strokeWidth = 3.8f * density
             canvas.drawPath(tmpPath, laserCore)
-            // 4. Clean luminous white-rose inner filament (no end dot)
-            laserCore.color = Color.argb((life * 218).toInt(), 255, 240, 242)
-            laserCore.strokeWidth = 1.6f * density
+            // 4. Clean luminous white inner filament
+            laserCore.color = Color.argb((life * 225).toInt(), 255, 250, 252)
+            laserCore.strokeWidth = 1.4f * density
             canvas.drawPath(tmpPath, laserCore)
         }
         if (lasers.isNotEmpty()) postInvalidateOnAnimation()

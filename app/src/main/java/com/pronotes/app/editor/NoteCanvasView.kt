@@ -59,6 +59,8 @@ interface CanvasHost {
     fun onTextTap(page: Int, x: Float, y: Float, existing: TextItem?)
     /** Called when Tool.TEXT taps or drags a new inline text box directly on the page. */
     fun onTextBoxPlace(page: Int, x: Float, y: Float, w: Float, h: Float) { onTextTap(page, x, y, null) }
+    fun isKeyboardMode(): Boolean = false
+    fun onPageTap(page: Int, x: Float, y: Float) {}
     fun onStickyTap(page: Int, x: Float, y: Float, existing: StickyItem?)
     fun onStickyToggleCollapse(page: Int, sticky: StickyItem) {}
     fun onStickyChecklistToggle(page: Int, sticky: StickyItem, lineIndex: Int) {}
@@ -309,6 +311,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
 
     internal var gestureConfig = GestureConfig.fromSettings(AppSettings())
 
+    var straightenPenInk = false
     var settings = AppSettings()
         set(value) {
             val relayout = field.scroll != value.scroll ||
@@ -408,10 +411,11 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                     val boxes = pages.getOrNull(pi)?.items?.filterIsInstance<WriteBoxItem>().orEmpty()
                     if (autoTextAdded.isNotEmpty()) {
                         host.onFreshInk(pi, autoTextAdded)
-                    } else if (settings.toolDefaults.autoHandwriting) {
+                    } else if (settings.toolDefaults.autoHandwriting || straightenPenInk) {
                         val circleItemId = circleDetector.activeCandidate(SystemClock.uptimeMillis(), gestureConfig)?.itemId ?: -1L
                         host.onFreshInk(pi, added.filter { ink ->
-                            !ink.isHighlighter && ink.id != circleItemId && boxes.none { RectF.intersects(it.raw, ink.bounds) }
+                            (settings.toolDefaults.autoHandwriting || keptEntries.any { entry -> entryTools[entry.key] == Tool.PEN && entry.value === ink.stroke }) &&
+                                !ink.isHighlighter && ink.id != circleItemId && boxes.none { RectF.intersects(it.raw, ink.bounds) }
                         })
                     }
                     if (boxes.isNotEmpty()) {
@@ -496,6 +500,15 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         set(value) {
             if (renderer?.hiddenTextItemId != value) {
                 renderer?.hiddenTextItemId = value
+                layer.invalidate()
+            }
+        }
+
+    var editingStickyItemId: Long?
+        get() = renderer?.hiddenStickyItemId
+        set(value) {
+            if (renderer?.hiddenStickyItemId != value) {
+                renderer?.hiddenStickyItemId = value
                 layer.invalidate()
             }
         }
@@ -1638,10 +1651,11 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
 
     private var stabX = Float.NaN
     private var stabY = Float.NaN
+    private var lastFilteredPressure = Float.NaN
 
     /**
      * Remaps stylus/touch pressure according to user's pressureEnabled & pressureSensitivity settings,
-     * and applies optional exponential moving average smoothing when penStabilization > 0.
+     * and applies subtle low-pass EMA smoothing so digitizer micro-jitter doesn't cause beaded/lumpy strokes.
      * Guarantees pressure sensitivity slider genuinely controls thin-to-thick response in real time.
      */
     private fun remapInkEvent(e: MotionEvent, pid: Int): MotionEvent {
@@ -1655,20 +1669,30 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         val coords = Array(count) { i -> MotionEvent.PointerCoords().also { e.getPointerCoords(i, it) } }
         val target = coords[idx]
 
-        // Apply real pressure curve remapping
+        // Read real stylus pressure from MotionEvent / AXIS_PRESSURE
         val isStylus = isPen(props[idx].toolType)
         if (!td.pressureEnabled) {
             target.pressure = 0.5f
+            lastFilteredPressure = 0.5f
         } else {
             val sens = td.pressureSensitivity.coerceIn(0.3f, 2.0f)
-            val rawP = target.pressure.coerceIn(0.02f, 1.0f)
+            val rawAxisP = runCatching { e.getAxisValue(MotionEvent.AXIS_PRESSURE, idx) }.getOrNull() ?: target.pressure
+            val rawP = (if (rawAxisP > 0.005f) rawAxisP else target.pressure).coerceIn(0.01f, 1.0f)
             if (isStylus) {
-                // Gamma curve: higher sensitivity (>1.0) produces thicker strokes with lighter pressure;
-                // lower sensitivity (<1.0) requires firmer press for maximum width.
-                val gamma = (1.0 / sens.toDouble()).coerceIn(0.42, 3.2)
-                target.pressure = Math.pow(rawP.toDouble(), gamma).toFloat().coerceIn(0.05f, 1.0f)
+                // Calibrated gamma curve: higher sensitivity produces thicker strokes with lighter pressure
+                val gamma = (1.0 / sens.toDouble()).coerceIn(0.40, 2.80)
+                val curvedP = Math.pow(rawP.toDouble(), gamma).toFloat().coerceIn(0.04f, 1.0f)
+                // Low-pass EMA smoothing to eliminate digitizer quantization micro-jitter and beading
+                val pAlpha = when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> 1.0f
+                    MotionEvent.ACTION_MOVE -> 0.32f
+                    else -> 1.0f
+                }
+                val filteredP = if (lastFilteredPressure.isNaN()) curvedP else (lastFilteredPressure + (curvedP - lastFilteredPressure) * pAlpha)
+                lastFilteredPressure = filteredP
+                target.pressure = filteredP.coerceIn(0.04f, 1.0f)
             } else {
-                // Non-pressure finger/mouse: map sensitivity into a clean visible pressure level.
+                // Non-pressure finger/mouse: map sensitivity into a clean visible pressure level
                 target.pressure = (0.35f + 0.45f * (sens / 2f)).coerceIn(0.18f, 1.0f)
             }
         }
@@ -1762,10 +1786,20 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             val hit = scribbleHitIds(activePage, points)
             if (hit.isNotEmpty()) {
                 cancelActiveWetStroke(e)
-                val gone = p.items.filter { it.id in hit }.map { RectF(it.bounds).also { r -> pageMatrix(activePage, tmpMatrix).mapRect(r) } }
+                val hitItems = p.items.filter { it.id in hit }
+                val gone = hitItems.map { RectF(it.bounds).also { r -> pageMatrix(activePage, tmpMatrix).mapRect(r) } }
+                val strokeColors = hitItems.mapNotNull { item ->
+                    when (item) {
+                        is InkItem -> item.stroke.brush.colorIntArgb
+                        is TextItem -> item.color
+                        is StickyItem -> item.color
+                        is TapeItem -> item.color
+                        else -> null
+                    }
+                }
                 host.beginEdit(activePage)
                 updatePage(activePage, p.items.filterNot { it.id in hit })
-                layer.puff(gone)
+                layer.puff(gone, strokeColors)
                 syncFeel(); feel.cue(PaperFeel.Cue.TAP)
                 host.onScribbleErased()
                 return

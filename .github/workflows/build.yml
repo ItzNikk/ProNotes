@@ -85,7 +85,7 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            awk -v tag="## ${GITHUB_REF_NAME}" '$0==tag{f=1;next} /^## /{f=0} f' CHANGELOG.md > RELEASE_NOTES.md
+            awk -v tag="## ${GITHUB_REF_NAME}" '$1=="##" && $2==substr(tag,4){f=1;next} /^## /{f=0} f' CHANGELOG.md > RELEASE_NOTES.md
           else
             awk '/^## /{n++; next} n==1' CHANGELOG.md > RELEASE_NOTES.md
           fi

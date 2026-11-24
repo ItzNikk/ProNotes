@@ -385,6 +385,8 @@ data class AppSettings(
     val storageFolderLabel: String = "",
     /** Preferred app display language BCP-47 tag (empty string = match Android system locale). */
     val appLanguage: String = "",
+    /** User-customized sticky note presets persisted as JSON. */
+    val customStickyPresetsJson: String = "",
 ) {
     fun toolbarState(): ToolbarState {
         val parts = toolbarPos.split(',')
@@ -414,6 +416,31 @@ data class AppSettings(
 /** A saved pen: type, colour and thickness, one tap away, with an optional user label. */
 @Immutable
 data class PenPreset(val type: String, val color: Int, val size: Float, val name: String = "")
+
+/** User-created or built-in sticky note style preset with Notion-like customization. */
+@Immutable
+data class StickyPreset(
+    val id: String,
+    val name: String,
+    val color: Int,
+    val style: String = "classic",
+    val paperStyle: String = "plain",
+    val font: String = "SANS",
+    val fontSize: Float = 28f,
+    val cornerRadius: Float = 18f,
+    val pinned: Boolean = false,
+) {
+    companion object {
+        val DEFAULT_PRESETS = listOf(
+            StickyPreset("p_yellow", "Classic Yellow", 0xFFFFF176.toInt(), "classic", "plain", "SANS", 28f, 18f),
+            StickyPreset("p_lined", "Study Lined", 0xFFFFE082.toInt(), "lined", "lined", "SANS", 26f, 18f),
+            StickyPreset("p_grid", "Grid Checklist", 0xFFC8E6C9.toInt(), "grid", "grid", "MONO", 24f, 18f),
+            StickyPreset("p_rose", "Rose Memo", 0xFFFFCDD2.toInt(), "tinted", "plain", "SERIF", 28f, 20f),
+            StickyPreset("p_lavender", "Lavender Idea", 0xFFE1BEE7.toInt(), "classic", "plain", "HAND", 30f, 22f),
+            StickyPreset("p_ocean", "Ocean Action", 0xFFB3E5FC.toInt(), "outline", "dotted", "SANS", 26f, 18f),
+        )
+    }
+}
 
 /** Small key-value store; every screen observes [settings]. */
 class SettingsStore private constructor(context: Context, file: String = "settings") {
@@ -566,6 +593,7 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             storageFolderUri = prefs.getString("storageFolderUri", "") ?: "",
             storageFolderLabel = prefs.getString("storageFolderLabel", "") ?: "",
             appLanguage = prefs.getString("appLanguage", "") ?: "",
+            customStickyPresetsJson = prefs.getString("customStickyPresetsJson", "") ?: "",
         )
     }
 
@@ -693,6 +721,7 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             .putString("storageFolderUri", s.storageFolderUri)
             .putString("storageFolderLabel", s.storageFolderLabel)
             .putString("appLanguage", s.appLanguage)
+            .putString("customStickyPresetsJson", s.customStickyPresetsJson)
             .apply()
     }
 
@@ -714,6 +743,46 @@ class SettingsStore private constructor(context: Context, file: String = "settin
     fun pushRecentColor(c: Int) {
         val list = (listOf(c) + recentColors().filter { it != c }).take(12)
         prefs.edit().putString("recentColors", list.joinToString(",")).apply()
+    }
+
+    fun stickyPresets(): List<StickyPreset> {
+        val raw = _settings.value.customStickyPresetsJson
+        if (raw.isBlank()) return StickyPreset.DEFAULT_PRESETS
+        val userList = raw.split(";;").mapNotNull { entry ->
+            val p = entry.split("||")
+            if (p.size >= 8) {
+                StickyPreset(
+                    id = p[0],
+                    name = p[1],
+                    color = p[2].toIntOrNull() ?: 0xFFFFF176.toInt(),
+                    style = p[3],
+                    paperStyle = p[4],
+                    font = p[5],
+                    fontSize = p[6].toFloatOrNull() ?: 28f,
+                    cornerRadius = p[7].toFloatOrNull() ?: 18f,
+                    pinned = p.getOrNull(8)?.toBooleanStrictOrNull() ?: false,
+                )
+            } else null
+        }
+        val customIds = userList.map { it.id }.toSet()
+        return userList + StickyPreset.DEFAULT_PRESETS.filterNot { it.id in customIds }
+    }
+
+    fun saveStickyPreset(preset: StickyPreset) {
+        val current = stickyPresets().filterNot { it.id == preset.id }
+        val updated = listOf(preset) + current
+        val serialized = updated.joinToString(";;") {
+            "${it.id}||${it.name}||${it.color}||${it.style}||${it.paperStyle}||${it.font}||${it.fontSize}||${it.cornerRadius}||${it.pinned}"
+        }
+        update { it.copy(customStickyPresetsJson = serialized) }
+    }
+
+    fun deleteStickyPreset(id: String) {
+        val updated = stickyPresets().filterNot { it.id == id }
+        val serialized = updated.joinToString(";;") {
+            "${it.id}||${it.name}||${it.color}||${it.style}||${it.paperStyle}||${it.font}||${it.fontSize}||${it.cornerRadius}||${it.pinned}"
+        }
+        update { it.copy(customStickyPresetsJson = serialized) }
     }
 
     // --------------------------------------------------------------- pens

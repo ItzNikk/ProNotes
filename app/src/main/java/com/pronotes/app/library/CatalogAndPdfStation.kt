@@ -49,7 +49,7 @@ private val BuiltInCatalog = listOf(
 
 /** Template and study notebook catalog dialog used by LibraryScreen and BookReaderArea. */
 @Composable
-fun CatalogDialog(
+fun NotebookTemplatesDialog(
     booksOnly: Boolean,
     folderId: String?,
     onDismiss: () -> Unit,
@@ -113,37 +113,6 @@ fun CatalogDialog(
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
-        },
-    )
-}
-
-/** PDF & document import hub dialog used by LibraryScreen. */
-@Composable
-fun PdfStation(
-    onDismiss: () -> Unit,
-    onImportFiles: () -> Unit,
-) {
-    AppDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("PDF Station", fontWeight = FontWeight.SemiBold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    "Import PDFs, textbooks, slides, or images to annotate with stylus ink, highlights, and flashcards.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Button(
-                    onClick = onImportFiles,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                ) {
-                    Text("Import PDF or files")
                 }
             }
         },

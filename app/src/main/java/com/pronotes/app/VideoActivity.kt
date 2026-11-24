@@ -37,8 +37,12 @@ class VideoActivity : ComponentActivity() {
             setOnPreparedListener { mp ->
                 mp.isLooping = false
                 start()
+                if (packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+                    runCatching { enterPictureInPictureMode(PictureInPictureParams.Builder().build()) }
+                }
             }
             setOnErrorListener { _, _, _ ->
+                android.widget.Toast.makeText(this@VideoActivity, "Use a direct video or stream URL.", android.widget.Toast.LENGTH_LONG).show()
                 finish()
                 true
             }

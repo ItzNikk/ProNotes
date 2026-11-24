@@ -44,7 +44,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         com.pronotes.app.data.CloudSync.init(this)
-        handleIntent(intent)
+        if (savedInstanceState == null || intent.action in setOf(Intent.ACTION_VIEW, Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE)) {
+            handleIntent(intent)
+        }
         UpdateCheckReceiver.schedule(this, SettingsStore.get(this).settings.value.updateReminders)
         // Leftover update packages take space; clear them unless installing or resuming a partial download.
         if (savedInstanceState == null && !com.pronotes.app.data.Updater.shouldPreserveCacheOnStart(this)) {
@@ -68,7 +70,9 @@ class MainActivity : ComponentActivity() {
                             "resume_notebook" -> repo.library.value.notebooks.filter { it.deletedAt == null }.maxByOrNull { it.opened }?.id
                             "quick_note" -> repo.createNotebook("Quick note", null, 0xFF007C79.toInt(),
                                 SettingsStore.get(this@MainActivity).settings.value.defaultPaper)
-                            else -> null
+                            else -> repo.library.value.notebooks.firstOrNull {
+                                widgetAction == "notebook/" + it.id && it.deletedAt == null
+                            }?.id
                         }
                         nav.popBackStack("library", false)
                         if (id != null) nav.navigate("editor/$id")
@@ -159,6 +163,7 @@ class MainActivity : ComponentActivity() {
     private fun handleIntent(intent: Intent?) {
         if (intent == null) return
         when (intent.action) {
+            "open_notebook" -> widgetAction = "notebook/" + intent.getStringExtra("notebookId").orEmpty()
             "open_library", "resume_notebook", "quick_note" -> widgetAction = intent.action.orEmpty()
             Intent.ACTION_VIEW -> intent.data?.let { uri ->
                 if (uri.scheme == "com.pronotes.app" && uri.host == "auth") {
