@@ -495,20 +495,49 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         return idx to copies.map { it.id }.toSet()
     }
 
-    /** Pastes clipboard items centred around ([x], [y]) on [page] for Quick Insert. */
+    /** True when either internal selection clipboard or Android system clipboard has content. */
+    fun hasAnyClipboardContent(): Boolean {
+        if (clipboard.isNotEmpty()) return true
+        val app = getApplication<Application>()
+        val cm = app.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+        return cm?.hasPrimaryClip() == true
+    }
+
+    /** Pastes clipboard items (or system clipboard text) centred around ([x], [y]) on [page] for Quick Insert. */
     fun pasteAt(page: Int, x: Float, y: Float): Pair<Int, Set<Long>>? {
-        if (clipboard.isEmpty()) return null
         val idx = page.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
         val p = pages.getOrNull(idx) ?: return null
-        val union = RectF(clipboard.first().bounds).apply {
-            clipboard.drop(1).forEach { union(it.bounds) }
+        if (clipboard.isNotEmpty()) {
+            val union = RectF(clipboard.first().bounds).apply {
+                clipboard.drop(1).forEach { union(it.bounds) }
+            }
+            val dx = x - union.centerX()
+            val dy = y - union.centerY()
+            val copies = clipboard.map { it.translated(dx, dy).withId(ItemIds.next()) }
+            beginEdit(idx)
+            applyItems(idx, p.items + copies)
+            return idx to copies.map { it.id }.toSet()
         }
-        val dx = x - union.centerX()
-        val dy = y - union.centerY()
-        val copies = clipboard.map { it.translated(dx, dy).withId(ItemIds.next()) }
-        beginEdit(idx)
-        applyItems(idx, p.items + copies)
-        return idx to copies.map { it.id }.toSet()
+        val app = getApplication<Application>()
+        val cm = app.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager ?: return null
+        val clip = cm.primaryClip ?: return null
+        if (clip.itemCount == 0) return null
+        val clipText = clip.getItemAt(0).coerceToText(app)?.toString()?.trim()
+        if (!clipText.isNullOrEmpty()) {
+            val item = TextItem(
+                id = ItemIds.next(),
+                text = clipText,
+                x = x.coerceIn(32f, (p.width - 160f).coerceAtLeast(32f)),
+                y = y.coerceIn(32f, (p.height - 80f).coerceAtLeast(32f)),
+                size = textSize,
+                color = textColor ?: penStyle.color,
+                style = textStyle,
+            )
+            beginEdit(idx)
+            applyItems(idx, p.items + item)
+            return idx to setOf(item.id)
+        }
+        return null
     }
 
     private fun applyBitmapEffects(src: Bitmap, opacity: Float, drawBorder: Boolean): Bitmap {

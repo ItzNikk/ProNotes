@@ -139,14 +139,45 @@ internal fun NoteCanvasView.commitMove() {
     val m = liveMatrix
     liveMatrix = null
     if (m != null && !m.isIdentity) {
-        host.beginEdit(selectionPage)
-        val items = when (grab) {
-            NoteCanvasView.Grab.MOVE -> {
-                val v = FloatArray(9)
-                m.getValues(v)
-                p.items.map {
+        if (grab == NoteCanvasView.Grab.MOVE) {
+            val v = FloatArray(9)
+            m.getValues(v)
+            val dx = v[Matrix.MTRANS_X]
+            val dy = v[Matrix.MTRANS_Y]
+            val movedBounds = selectionBaseBounds()?.also { m.mapRect(it) }
+            val targetPage = if (movedBounds != null) {
+                val docCx = ox(selectionPage) + movedBounds.centerX()
+                val docCy = oy(selectionPage) + movedBounds.centerY()
+                pageAt(docCx, docCy)
+            } else selectionPage
+
+            if (targetPage != selectionPage && targetPage in pages.indices) {
+                val tp = pages[targetPage]
+                val totalDx = dx + (ox(selectionPage) - ox(targetPage))
+                val totalDy = dy + (oy(selectionPage) - oy(targetPage))
+                val movedToTarget = p.items.filter { it.id in selection }.map { item ->
+                    val movedItem = item.translated(totalDx, totalDy)
+                    if (movedItem is MindNodeItem && !tp.isWhiteboard) {
+                        val maxX = (tp.width - movedItem.w - 56f).coerceAtLeast(56f)
+                        val maxY = (tp.height - movedItem.h - 56f).coerceAtLeast(56f)
+                        movedItem.copy(x = movedItem.x.coerceIn(56f, maxX), y = movedItem.y.coerceIn(56f, maxY))
+                    } else {
+                        movedItem
+                    }
+                }
+                val origPage = selectionPage
+                host.beginEdit(origPage)
+                updatePage(origPage, p.items.filterNot { it.id in selection })
+                host.beginEdit(targetPage)
+                updatePage(targetPage, tp.items + movedToTarget)
+                selectionOutline = selectionOutline?.map { (x, y) -> (x + totalDx) to (y + totalDy) }
+                selectionPage = targetPage
+                activePage = targetPage
+            } else {
+                host.beginEdit(selectionPage)
+                val items = p.items.map {
                     if (it.id in selection) {
-                        val movedItem = it.translated(v[Matrix.MTRANS_X], v[Matrix.MTRANS_Y])
+                        val movedItem = it.translated(dx, dy)
                         if (movedItem is MindNodeItem && !p.isWhiteboard) {
                             val maxX = (p.width - movedItem.w - 56f).coerceAtLeast(56f)
                             val maxY = (p.height - movedItem.h - 56f).coerceAtLeast(56f)
@@ -158,22 +189,33 @@ internal fun NoteCanvasView.commitMove() {
                         it
                     }
                 }
+                updatePage(selectionPage, items)
+                selectionOutline = selectionOutline?.map { (x, y) ->
+                    val a = floatArrayOf(x, y)
+                    m.mapPoints(a)
+                    a[0] to a[1]
+                }
             }
-            NoteCanvasView.Grab.SCALE -> p.items.map { if (it.id in selection) it.transformed(m, liveScale, 0f) else it }
-            NoteCanvasView.Grab.STRETCH_L,
-            NoteCanvasView.Grab.STRETCH_R,
-            NoteCanvasView.Grab.STRETCH_T,
-            NoteCanvasView.Grab.STRETCH_B -> p.items.map {
-                if (it.id in selection) it.stretched(grabBase, liveBox) else it
+        } else {
+            host.beginEdit(selectionPage)
+            val items = when (grab) {
+                NoteCanvasView.Grab.SCALE -> p.items.map { if (it.id in selection) it.transformed(m, liveScale, 0f) else it }
+                NoteCanvasView.Grab.STRETCH_L,
+                NoteCanvasView.Grab.STRETCH_R,
+                NoteCanvasView.Grab.STRETCH_T,
+                NoteCanvasView.Grab.STRETCH_B -> p.items.map {
+                    if (it.id in selection) it.stretched(grabBase, liveBox) else it
+                }
+                NoteCanvasView.Grab.ROTATE -> p.items.map { if (it.id in selection) it.transformed(m, 1f, liveDeg) else it }
+                NoteCanvasView.Grab.MOVE -> p.items
             }
-            NoteCanvasView.Grab.ROTATE -> p.items.map { if (it.id in selection) it.transformed(m, 1f, liveDeg) else it }
-        }
-        updatePage(selectionPage, items)
-        // The lasso loop follows the content.
-        selectionOutline = selectionOutline?.map { (x, y) ->
-            val a = floatArrayOf(x, y)
-            m.mapPoints(a)
-            a[0] to a[1]
+            updatePage(selectionPage, items)
+            // The lasso loop follows the content.
+            selectionOutline = selectionOutline?.map { (x, y) ->
+                val a = floatArrayOf(x, y)
+                m.mapPoints(a)
+                a[0] to a[1]
+            }
         }
     }
     liveScale = 1f

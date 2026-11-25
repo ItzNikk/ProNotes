@@ -639,7 +639,6 @@ fun EditorScreen(
                                 onVideo = { videoUrl = "" },
                                 onReviewHandwriting = { reviewError = ""; reviewHandwriting = true },
                                 onStickyBoard = { stickyBoard = true },
-                                onSlideShow = { vm.showSlideShow = true },
                                 onCollabRoom = { showCollabRoom = true },
                                 onAddWebLink = {
                                     val p = vm.currentPage
@@ -788,6 +787,9 @@ fun EditorScreen(
                                     override fun onSelectWriteBox(page: Int, boxId: Long?) = vm.selectWriteBox(page, boxId)
                                     override fun onHint(message: String) = vm.showHint(message)
                                     override fun onScribbleErased() = vm.onScribbleErased()
+                                    override fun onQuickConvertInk(page: Int, ids: Set<Long>) {
+                                        vm.convertSelectionToText()
+                                    }
                                     override fun onEmptyPageLongPress(page: Int, x: Float, y: Float, screenX: Float, screenY: Float) {
                                         if (!vm.readOnly) {
                                             quickInsert = QuickInsertRequest(page, x, y, screenX, screenY)
@@ -1010,16 +1012,21 @@ fun EditorScreen(
                                     val nx = ((finalPos.x - marginPx) / availW).coerceIn(0f, 1f)
                                     val ny = ((finalPos.y - topSafePx) / availH).coerceIn(0f, 1f)
                                     val nextDock = when {
-                                        centerX < 0.14f -> ToolbarDock.LEFT
-                                        centerX > 0.86f -> ToolbarDock.RIGHT
+                                        centerX < 0.22f -> ToolbarDock.LEFT
+                                        centerX > 0.78f -> ToolbarDock.RIGHT
                                         centerY < 0.12f -> ToolbarDock.TOP
                                         centerY > 0.88f -> ToolbarDock.BOTTOM
                                         else -> ToolbarDock.FREE
                                     }
+                                    val snappedNx = when (nextDock) {
+                                        ToolbarDock.LEFT -> 0f
+                                        ToolbarDock.RIGHT -> 1f
+                                        else -> nx
+                                    }
                                     vm.notebookSettings.update {
                                         it.copy(
                                             toolbarDock = nextDock,
-                                            toolbarPos = String.format(Locale.US, "%.3f,%.3f", nx, ny),
+                                            toolbarPos = String.format(Locale.US, "%.3f,%.3f", snappedNx, ny),
                                         )
                                     }
                                 }
@@ -1444,7 +1451,7 @@ fun EditorScreen(
                         QuickInsertOverlay(
                             request = req,
                             areaSize = areaSize,
-                            hasClipboard = vm.hasClipboard,
+                            hasClipboard = vm.hasAnyClipboardContent(),
                             onDismiss = { quickInsert = null },
                             onWriteBox = {
                                 quickInsert = null
@@ -1598,7 +1605,6 @@ fun EditorScreen(
     if (vm.linkSheet != null) LinkSheet(vm)
     if (stickyBoard) StickyBoard(vm) { stickyBoard = false }
     if (showCards) FlashcardsDialog(vm, onClose = { showCards = false })
-    if (vm.showSlideShow) SlideShowDialog(vm, onClose = { vm.showSlideShow = false })
     if (showTemplates) TemplateSheet(vm, onClose = { showTemplates = false })
 
     vm.linkToDelete?.let { id ->

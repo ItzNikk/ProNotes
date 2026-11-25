@@ -32,7 +32,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ColorLens
+import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentCut
 import androidx.compose.material.icons.outlined.ContentPaste
@@ -616,7 +618,7 @@ fun QuickActionsOverlay(
     }
 
     val outerAngles: List<Float> = when (outerMode) {
-        QuickArcMode.ACTIONS -> listOf(170f, 194f, 218f)
+        QuickArcMode.ACTIONS -> listOf(166f, 188f, 210f, 232f)
         QuickArcMode.COLORS -> {
             val count = paletteColors.size + 1 // swatches + custom colour button
             val start = 154f
@@ -637,11 +639,12 @@ fun QuickActionsOverlay(
     }
     val (outerDrawStart, outerDrawEnd) = arcRange(outerAngles.first(), outerAngles.last())
 
-    val arcSurface = if (darkTheme) Color(0xFF1F232C) else Color(0xFFFFFFFF)
-    val arcBorder = if (darkTheme) Color.White.copy(alpha = 0.14f) else Color(0xFF0F172A).copy(alpha = 0.10f)
-    val arcFg = if (darkTheme) Color(0xFFF3F4F6) else Color(0xFF1B1F2A)
+    val scheme = MaterialTheme.colorScheme
+    val arcSurface = scheme.surface
+    val arcBorder = scheme.outlineVariant.copy(alpha = 0.65f)
+    val arcFg = scheme.onSurface
     val arcMuted = arcFg.copy(alpha = 0.30f)
-    val activeHalo = if (darkTheme) ProButtonPalette.ElectricBlue.copy(alpha = 0.28f) else ProButtonPalette.ElectricBlue.copy(alpha = 0.14f)
+    val activeHalo = scheme.primary.copy(alpha = if (darkTheme) 0.28f else 0.16f)
 
     val undoDesc = stringResource(R.string.toolbar_undo)
     val redoDesc = stringResource(R.string.toolbar_redo)
@@ -890,20 +893,46 @@ fun QuickActionsOverlay(
                             tint = arcFg,
                         )
                     }
-                    // Top: Colour Palette
+                    // Auto-Text / Handwriting-to-Text
                     ArcSlotButton(
                         center = polarPos(outerRadiusPx, outerAngles[2]),
-                        label = paletteDesc,
+                        label = "Auto-Text",
                         enabled = true,
-                        selected = false,
+                        selected = vm.tool == Tool.AUTO_TEXT,
                         selectedBg = activeHalo,
-                        onClick = { outerMode = QuickArcMode.COLORS },
+                        onClick = {
+                            if (vm.selection.isNotEmpty()) {
+                                vm.convertSelectionToText()
+                            } else {
+                                vm.tool = Tool.AUTO_TEXT
+                            }
+                            onDismiss()
+                        },
                     ) {
                         Icon(
-                            Icons.Outlined.Palette,
+                            Icons.Outlined.AutoAwesome,
                             contentDescription = null,
                             modifier = Modifier.size(20.dp),
-                            tint = arcFg,
+                            tint = if (vm.tool == Tool.AUTO_TEXT) scheme.primary else arcFg,
+                        )
+                    }
+                    // Keyboard Mode
+                    ArcSlotButton(
+                        center = polarPos(outerRadiusPx, outerAngles[3]),
+                        label = "Keyboard",
+                        enabled = true,
+                        selected = vm.keyboardMode,
+                        selectedBg = activeHalo,
+                        onClick = {
+                            vm.toggleKeyboardMode()
+                            onDismiss()
+                        },
+                    ) {
+                        Icon(
+                            Icons.Outlined.Keyboard,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = if (vm.keyboardMode) scheme.primary else arcFg,
                         )
                     }
                 }
@@ -1197,12 +1226,15 @@ fun QuickInsertOverlay(
                 QuickInsertRow(stringResource(R.string.quick_insert_sticker), {
                     ProIconView(ProIcon.STICKER, ProButtonPalette.MagentaPink, Modifier.size(18.dp), ink = ProButtonPalette.MagentaPink)
                 }, onSticker)
-                if (hasClipboard) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    QuickInsertRow(stringResource(R.string.quick_insert_paste), {
-                        Icon(Icons.Outlined.ContentPaste, contentDescription = null, modifier = Modifier.size(18.dp), tint = ProButtonPalette.Emerald)
-                    }, onPaste)
-                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                QuickInsertRow(stringResource(R.string.quick_insert_paste), {
+                    Icon(
+                        Icons.Outlined.ContentPaste,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = if (hasClipboard) ProButtonPalette.Emerald else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    )
+                }, onPaste)
             }
         }
     }

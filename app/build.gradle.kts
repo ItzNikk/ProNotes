@@ -116,7 +116,7 @@ kotlin {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2025.08.00")
+    val composeBom = platform("androidx.compose:compose-bom:2025.10.00")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
@@ -152,10 +152,9 @@ dependencies {
     implementation("androidx.graphics:graphics-shapes:1.0.1")
     // Colour wheel + brightness slider for custom colours.
     implementation("com.github.skydoves:colorpicker-compose:1.1.2")
-    // Colour wheel + brightness slider for custom colours.
-    implementation("com.github.skydoves:colorpicker-compose:1.1.2")
-    // Soft progressive top scroll blur (skydoves/Cloudy).
-    implementation("com.github.skydoves:cloudy:0.2.6")
+    // Hardware-accelerated progressive blur (Haze).
+    implementation("dev.chrisbanes.haze:haze:1.3.1")
+    implementation("dev.chrisbanes.haze:haze-materials:1.3.1")
     // PDF text extraction for in-document search.
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     // On-device handwriting-to-text recognition (ML Kit Digital Ink Recognition).

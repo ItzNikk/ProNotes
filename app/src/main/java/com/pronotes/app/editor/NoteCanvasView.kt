@@ -121,6 +121,8 @@ interface CanvasHost {
     /** Called when scribble-to-erase removed one or more items so an undo snackbar can appear. */
     fun onFreshInk(page: Int, ink: List<InkItem>) {}
     fun onScribbleErased() {}
+    /** Quick double-tap gesture on handwritten ink to convert the line/cluster to typed text. */
+    fun onQuickConvertInk(page: Int, ids: Set<Long>) {}
     /** Long-press on empty page space (not PDF text and not an existing item): opens Quick Insert. */
     fun onEmptyPageLongPress(page: Int, x: Float, y: Float, screenX: Float, screenY: Float) {}
 }
@@ -784,6 +786,13 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         return (dx - ox(page)) to (dy - oy(page))
     }
 
+    fun screenToPage(sx: Float, sy: Float): Triple<Int, Float, Float> {
+        val (dx, dy) = toDoc(sx, sy)
+        val pi = pageAt(dx, dy)
+        val (lx, ly) = toLocal(sx, sy, pi)
+        return Triple(pi, lx, ly)
+    }
+
     internal fun pageMatrix(page: Int, out: Matrix): Matrix {
         out.set(viewMatrix); out.preTranslate(ox(page), oy(page)); return out
     }
@@ -906,10 +915,17 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
     internal var touchActive = false
     internal var pageAtGestureStart = 0
     private var lastStylusTime = 0L
+    private var stylusHovering = false
+    private var lastHoverButtonHeldAt = 0L
     private var ignoreFingers = false       // swallow the rest of a palm / finger gesture
     internal var lastTapTime = 0L
     internal var lastTapX = 0f
     internal var lastTapY = 0f
+    private var lastPenTapAt = 0L
+    private var lastPenTapX = 0f
+    private var lastPenTapY = 0f
+    private var lastPenTapPage = -1
+    private var penTapCount = 0
 
     private fun isPen(type: Int) = type == MotionEvent.TOOL_TYPE_STYLUS || type == MotionEvent.TOOL_TYPE_ERASER
 
@@ -1002,9 +1018,29 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         }
 
         // --- fingers
+        if ((event.flags and MotionEvent.FLAG_CANCELED) != 0 &&
+            (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP || action == MotionEvent.ACTION_CANCEL)
+        ) {
+            cancelCurrent(event)
+            if (mode == Mode.PAN) endPan()
+            ignoreFingers = true
+            return true
+        }
+        val palmMs = (850L / settings.touchSensitivity.coerceIn(0.4f, 2.0f)).toLong()
         if (action == MotionEvent.ACTION_DOWN) {
-            val palmMs = (gestureConfig.palmRejectionWindowMs / settings.touchSensitivity.coerceIn(0.4f, 2.0f)).toLong()
-            ignoreFingers = settings.stylusOnly && settings.palmRejection && sawStylus && now - lastStylusTime < palmMs
+            val isLargePalm = event.getTouchMajor(0) > 26f * density || event.getSize(0) > 0.08f
+            ignoreFingers = settings.palmRejection && sawStylus && (
+                stylusHovering ||
+                    (now - lastStylusTime < palmMs) ||
+                    (isLargePalm && now - lastStylusTime < 2500L)
+                )
+        }
+        if (action == MotionEvent.ACTION_POINTER_DOWN && !ignoreFingers && settings.palmRejection && sawStylus) {
+            val idx = event.actionIndex
+            val isLargePalm = event.getTouchMajor(idx) > 26f * density || event.getSize(idx) > 0.08f
+            if (isLargePalm && (stylusHovering || now - lastStylusTime < 2000L)) {
+                return true
+            }
         }
         if (ignoreFingers) {
             if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) ignoreFingers = false
@@ -1057,12 +1093,18 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
     private fun sideButtonHeld(e: MotionEvent): Boolean {
         if (e.actionMasked in 211..214) return true
         val bs = e.buttonState
-        return bs and (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_STYLUS_SECONDARY or MotionEvent.BUTTON_SECONDARY) != 0
+        if (bs and (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_STYLUS_SECONDARY or MotionEvent.BUTTON_SECONDARY) != 0) return true
+        if (e.actionButton == MotionEvent.BUTTON_STYLUS_PRIMARY || e.actionButton == MotionEvent.BUTTON_STYLUS_SECONDARY) {
+            return e.actionMasked == MotionEvent.ACTION_BUTTON_PRESS || e.actionMasked == MotionEvent.ACTION_DOWN
+        }
+        return false
     }
 
     private fun effectiveTool(e: MotionEvent, index: Int = 0): Tool {
         if (e.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER) return Tool.ERASER
-        if (sideButtonHeld(e)) {
+        val heldNow = sideButtonHeld(e) ||
+            (e.actionMasked == MotionEvent.ACTION_DOWN && SystemClock.uptimeMillis() - lastHoverButtonHeldAt < 95L)
+        if (heldNow) {
             when (penSide ?: settings.sideButton) {
                 SideButton.ERASER -> return Tool.ERASER
                 SideButton.LASSO -> return Tool.LASSO
@@ -1323,6 +1365,21 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                 }
                 when (mode) {
                     Mode.INK -> {
+                        if (isPen(e.getToolType(idx)) && sideButtonHeld(e) && (penSide ?: settings.sideButton) == SideButton.ERASER) {
+                            cancelActiveWetStroke(e)
+                            points.clear()
+                            strokeTool = Tool.ERASER
+                            mode = Mode.ERASE
+                            syncFeel(); feelX = e.getX(idx); feelY = e.getY(idx); feelT = e.eventTime
+                            feel.start(PaperFeel.Texture.ERASER)
+                            host.beginEdit(activePage)
+                            val (wx, wy) = toLocal(e.getX(idx), e.getY(idx), activePage)
+                            lastErase = wx to wy
+                            eraseAt(wx, wy)
+                            layer.eraserAt = e.getX(idx) to e.getY(idx)
+                            layer.invalidate()
+                            return
+                        }
                         val id = strokeId ?: return
                         val fx = e.getX(idx); val fy = e.getY(idx)
                         feel.move(hypot(fx - feelX, fy - feelY), e.eventTime - feelT)
@@ -1472,6 +1529,8 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                 when (mode) {
                     Mode.INK -> finishInk(e, isTap)
                     Mode.ERASE -> {
+                        layer.eraserAt = null
+                        layer.invalidate()
                         if (strokeTool == Tool.ERASER && tool == Tool.ERASER) host.onEraserLifted()
                     }
                     Mode.LASSO -> {
@@ -1679,18 +1738,19 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             val rawAxisP = runCatching { e.getAxisValue(MotionEvent.AXIS_PRESSURE, idx) }.getOrNull() ?: target.pressure
             val rawP = (if (rawAxisP > 0.005f) rawAxisP else target.pressure).coerceIn(0.01f, 1.0f)
             if (isStylus) {
-                // Calibrated gamma curve: higher sensitivity produces thicker strokes with lighter pressure
-                val gamma = (1.0 / sens.toDouble()).coerceIn(0.40, 2.80)
-                val curvedP = Math.pow(rawP.toDouble(), gamma).toFloat().coerceIn(0.04f, 1.0f)
-                // Low-pass EMA smoothing to eliminate digitizer quantization micro-jitter and beading
+                // Calibrated gamma curve for S Pen / Wacom / USI: normal writing (0.15-0.55) maps expressively
+                val gamma = (0.68 / sens.toDouble()).coerceIn(0.32, 2.40)
+                val effectiveRaw = if (e.actionMasked == MotionEvent.ACTION_DOWN && rawP < 0.08f) 0.16f else rawP
+                val curvedP = Math.pow(effectiveRaw.toDouble(), gamma).toFloat().coerceIn(0.06f, 1.0f)
+                // Fast low-pass EMA smoothing to eliminate digitizer quantization without lagging S Pen flicks
                 val pAlpha = when (e.actionMasked) {
                     MotionEvent.ACTION_DOWN -> 1.0f
-                    MotionEvent.ACTION_MOVE -> 0.32f
+                    MotionEvent.ACTION_MOVE -> 0.55f
                     else -> 1.0f
                 }
-                val filteredP = if (lastFilteredPressure.isNaN()) curvedP else (lastFilteredPressure + (curvedP - lastFilteredPressure) * pAlpha)
+                val filteredP = if (e.actionMasked == MotionEvent.ACTION_DOWN || lastFilteredPressure.isNaN()) curvedP else (lastFilteredPressure + (curvedP - lastFilteredPressure) * pAlpha)
                 lastFilteredPressure = filteredP
-                target.pressure = filteredP.coerceIn(0.04f, 1.0f)
+                target.pressure = filteredP.coerceIn(0.06f, 1.0f)
             } else {
                 // Non-pressure finger/mouse: map sensitivity into a clean visible pressure level
                 target.pressure = (0.35f + 0.45f * (sens / 2f)).coerceIn(0.18f, 1.0f)
@@ -1772,6 +1832,55 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             cancelActiveWetStroke(e)
             toggleTapeAt(activePage, tx, ty)
             return
+        }
+        if (isTap && (strokeTool == Tool.PEN || strokeTool == Tool.CRAYON || strokeTool == Tool.AUTO_TEXT)) {
+            val nowMs = SystemClock.uptimeMillis()
+            val hitPad = (36f / scale.coerceAtLeast(0.35f)).coerceIn(22f, 64f)
+            val sameSpot = lastPenTapPage == activePage &&
+                nowMs - lastPenTapAt in 35L..420L &&
+                hypot(e.x - lastPenTapX, e.y - lastPenTapY) < effectiveTouchSlop * 4.5f
+            penTapCount = if (sameSpot) penTapCount + 1 else 1
+            if (penTapCount >= 3) {
+                // Triple-tap with stylus on handwritten ink: cluster baseline & convert to text
+                val seedInk = p.items.filterIsInstance<InkItem>().filter { item ->
+                    val b = item.bounds
+                    tx in (b.left - hitPad)..(b.right + hitPad) &&
+                        ty in (b.top - hitPad)..(b.bottom + hitPad) &&
+                        (b.width() > 6f || b.height() > 6f)
+                }
+                if (seedInk.isNotEmpty()) {
+                    penTapCount = 0
+                    lastPenTapAt = 0L
+                    cancelActiveWetStroke(e)
+                    val cluster = seedInk.toMutableList()
+                    val allInk = p.items.filterIsInstance<InkItem>().filter { it.bounds.width() > 6f || it.bounds.height() > 6f }
+                    var expanded = true
+                    while (expanded) {
+                        expanded = false
+                        val union = RectF(cluster.first().bounds).apply { cluster.drop(1).forEach { union(it.bounds) } }
+                        val lineTol = max(44f, union.height() * 1.15f)
+                        for (cand in allInk) {
+                            if (cluster.any { it.id == cand.id }) continue
+                            val cb = cand.bounds
+                            val verticalOverlap = cb.bottom >= union.top - lineTol * 0.4f && cb.top <= union.bottom + lineTol * 0.4f
+                            val horizontalNear = cb.right >= union.left - 72f && cb.left <= union.right + 72f
+                            if (verticalOverlap && horizontalNear) {
+                                cluster += cand
+                                expanded = true
+                            }
+                        }
+                    }
+                    val ids = cluster.map { it.id }.toSet()
+                    selectItems(activePage, ids, outline = null)
+                    buzz(HapticFeedbackConstants.LONG_PRESS)
+                    host.onQuickConvertInk(activePage, ids)
+                    return
+                }
+            }
+            lastPenTapAt = nowMs
+            lastPenTapX = e.x
+            lastPenTapY = e.y
+            lastPenTapPage = activePage
         }
         if (isTap && strokeTool == Tool.PEN && settings.toolDefaults.tapSelect) {
             topSelectableItemAt(activePage, tx, ty)?.let { hit ->
@@ -2265,6 +2374,8 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             trackPenButton(event)
             when (event.actionMasked) {
                 MotionEvent.ACTION_HOVER_MOVE, MotionEvent.ACTION_HOVER_ENTER -> {
+                    stylusHovering = true
+                    if (sideButtonHeld(event)) lastHoverButtonHeldAt = SystemClock.uptimeMillis()
                     val erasing = effectiveTool(event) == Tool.ERASER
                     layer.hoverAt = if (erasing) event.x to event.y else null
                     // Hover preview: custom imported hover cursor or a dot in the pen's colour and size.
@@ -2287,7 +2398,10 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                     // Some pens never send HOVER_EXIT: drop the dot when hover reports stop.
                     removeCallbacks(hoverTimeout); postDelayed(hoverTimeout, 350)
                 }
-                MotionEvent.ACTION_HOVER_EXIT -> clearHover()
+                MotionEvent.ACTION_HOVER_EXIT -> {
+                    stylusHovering = false
+                    clearHover()
+                }
             }
         }
         return super.dispatchGenericMotionEvent(event)

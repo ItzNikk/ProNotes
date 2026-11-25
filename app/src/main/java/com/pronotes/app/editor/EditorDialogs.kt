@@ -700,14 +700,20 @@ internal fun InlinePageTextEditor(
     val frameBlue = ProButtonPalette.ElectricBlue
 
     Box(Modifier.fillMaxSize()) {
-        // 1) Transparent backdrop — in Text Box mode tapping outside commits; in Keyboard Mode tapping the page focuses the on-page cursor directly
+        // 1) Transparent backdrop — in Text Box mode tapping outside commits; in Keyboard Mode tapping anywhere on the page moves the cursor directly to that spot (Samsung Notes style)
         Box(
             Modifier
                 .fillMaxSize()
                 .pointerInput(edit) {
-                    detectTapGestures {
+                    detectTapGestures { tapOffset ->
                         if (edit.isFullPage) {
-                            if (!handwriteMode) showSoftKeyboard(forceIfNoExternal = true)
+                            val mapped = canvas?.screenToPage(tapOffset.x, tapOffset.y)
+                            if (mapped != null) {
+                                commitAndClose()
+                                vm.tapToTypeOnPage(mapped.first, mapped.second, mapped.third)
+                            } else if (!handwriteMode) {
+                                showSoftKeyboard(forceIfNoExternal = true)
+                            }
                         } else {
                             commitAndClose()
                         }
@@ -836,7 +842,7 @@ internal fun InlinePageTextEditor(
                                 cornerRadius = cursorW / 2f
                             }
                         }
-                        hint = if (edit.isFullPage) "Type directly on the page…" else "Type or write…"
+                        hint = ""
                         setHintTextColor(if (darkUi) 0x66CBD5E1.toInt() else 0x5564748B)
                         if (Build.VERSION.SDK_INT >= 33) {
                             isAutoHandwritingEnabled = true
@@ -1868,6 +1874,7 @@ internal fun StudyTimer(
     settings: AppSettings,
     area: IntSize,
 ) {
+    val context = LocalContext.current
     var running by remember { mutableStateOf(settings.studyAutoStart) }
     var session by remember { mutableStateOf(0L) }
     var unsaved by remember { mutableStateOf(0L) }
@@ -1878,8 +1885,35 @@ internal fun StudyTimer(
     var idle by remember { mutableStateOf(false) }
     var pos by remember { mutableStateOf(vm.timerPos()) }
     var drag by remember { mutableStateOf(Offset.Zero) }
+    var isDragging by remember { mutableStateOf(false) }
     var pill by remember { mutableStateOf(IntSize.Zero) }
     val owner = LocalLifecycleOwner.current
+
+    fun nearestSmartAnchor(targetX: Float, targetY: Float): Pair<Float, Float> {
+        val isFixed = settings.toolbarStyle == com.pronotes.app.data.ToolbarStyle.FIXED_BAR
+        val safeTop = if (isFixed && settings.toolbarDock == com.pronotes.app.data.ToolbarDock.TOP) 0.14f else 0.06f
+        val safeBottom = if (isFixed && settings.toolbarDock == com.pronotes.app.data.ToolbarDock.BOTTOM) 0.86f else 0.94f
+        val safeLeft = if (isFixed && settings.toolbarDock == com.pronotes.app.data.ToolbarDock.LEFT) 0.14f else 0.07f
+        val safeRight = if (isFixed && settings.toolbarDock == com.pronotes.app.data.ToolbarDock.RIGHT) 0.86f else 0.93f
+        val anchors = listOf(
+            safeLeft to safeTop,
+            0.50f to safeTop,
+            safeRight to safeTop,
+            safeLeft to safeBottom,
+            0.50f to safeBottom,
+            safeRight to safeBottom,
+        )
+        return anchors.minByOrNull { (ax, ay) -> kotlin.math.hypot(ax - targetX, ay - targetY) } ?: (safeRight to safeBottom)
+    }
+
+    // Re-arrange smartly if toolbar dock/style changes so the timer never collides with toolbars
+    LaunchedEffect(settings.toolbarDock, settings.toolbarStyle) {
+        val best = nearestSmartAnchor(pos.first, pos.second)
+        if (kotlin.math.hypot(best.first - pos.first, best.second - pos.second) > 0.02f) {
+            pos = best
+            vm.setTimerPos(best.first, best.second)
+        }
+    }
 
     DisposableEffect(owner) {
         val obs = LifecycleEventObserver { _, e ->
@@ -1894,6 +1928,22 @@ internal fun StudyTimer(
             owner.lifecycle.removeObserver(obs)
             vm.addStudy(unsaved)
             unsaved = 0L
+            StudyTimerLiveAlert.stop(context)
+        }
+    }
+
+    // Start / update / stop device Live Alerts (Android 16 Promoted Ongoing / Now Bar / Chronometer)
+    LaunchedEffect(running, idle, pomoMode) {
+        if (running && !idle) {
+            StudyTimerLiveAlert.startOrUpdate(
+                context = context,
+                notebookTitle = vm.title,
+                pomoMode = pomoMode,
+                sessionMs = session,
+                pomoRemainingMs = pomoRemMs,
+            )
+        } else {
+            StudyTimerLiveAlert.stop(context)
         }
     }
 
@@ -1932,23 +1982,41 @@ internal fun StudyTimer(
     }
 
     if (area.width == 0) return
-    val x = (pos.first * area.width - pill.width / 2f + drag.x).coerceIn(8f, (area.width - pill.width - 8f).coerceAtLeast(8f))
-    val y = (pos.second * area.height - pill.height / 2f + drag.y).coerceIn(8f, (area.height - pill.height - 8f).coerceAtLeast(8f))
+    val animPosX by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = pos.first,
+        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.78f, stiffness = 420f),
+        label = "timerSnapX",
+    )
+    val animPosY by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = pos.second,
+        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.78f, stiffness = 420f),
+        label = "timerSnapY",
+    )
+    val curFracX = if (isDragging) pos.first else animPosX
+    val curFracY = if (isDragging) pos.second else animPosY
+    val x = (curFracX * area.width - pill.width / 2f + drag.x).coerceIn(8f, (area.width - pill.width - 8f).coerceAtLeast(8f))
+    val y = (curFracY * area.height - pill.height / 2f + drag.y).coerceIn(8f, (area.height - pill.height - 8f).coerceAtLeast(8f))
 
     Box(
         Modifier
             .offset { IntOffset(x.roundToInt(), y.roundToInt()) }
             .onSizeChanged { pill = it }
-            .pointerInput(area) {
+            .pointerInput(area, settings.toolbarDock, settings.toolbarStyle) {
                 detectDragGestures(
+                    onDragStart = { isDragging = true },
                     onDragEnd = {
+                        isDragging = false
                         val nx = ((x + pill.width / 2f) / area.width).coerceIn(0f, 1f)
                         val ny = ((y + pill.height / 2f) / area.height).coerceIn(0f, 1f)
-                        pos = nx to ny
+                        val smart = nearestSmartAnchor(nx, ny)
+                        pos = smart
                         drag = Offset.Zero
-                        vm.setTimerPos(nx, ny)
+                        vm.setTimerPos(smart.first, smart.second)
                     },
-                    onDragCancel = { drag = Offset.Zero },
+                    onDragCancel = {
+                        isDragging = false
+                        drag = Offset.Zero
+                    },
                 ) { change, amount ->
                     change.consume()
                     drag += amount

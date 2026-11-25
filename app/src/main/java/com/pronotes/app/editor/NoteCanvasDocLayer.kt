@@ -88,14 +88,14 @@ internal class NoteCanvasDocLayer(
 
     private val lassoHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 5.4f * owner.density
+        strokeWidth = 7.2f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        color = 0xCCFFFFFF.toInt()
+        color = 0xE6FFFFFF.toInt()
     }
     private val lassoPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 3.2f * owner.density
+        strokeWidth = 4.4f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         color = 0xFF3D6CF4.toInt()
@@ -103,19 +103,19 @@ internal class NoteCanvasDocLayer(
     private val lassoFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x183D6CF4 }
     private val selHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 5.0f * owner.density
+        strokeWidth = 7.0f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        color = 0xCCFFFFFF.toInt()
-        pathEffect = DashPathEffect(floatArrayOf(13f * owner.density, 7f * owner.density), 0f)
+        color = 0xE6FFFFFF.toInt()
+        pathEffect = DashPathEffect(floatArrayOf(16f * owner.density, 10f * owner.density), 0f)
     }
     private val selPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 3.0f * owner.density
+        strokeWidth = 4.2f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         color = 0xFF3D6CF4.toInt()
-        pathEffect = DashPathEffect(floatArrayOf(13f * owner.density, 7f * owner.density), 0f)
+        pathEffect = DashPathEffect(floatArrayOf(16f * owner.density, 10f * owner.density), 0f)
     }
     private val guideBaselinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -811,28 +811,25 @@ internal class NoteCanvasDocLayer(
                 prevY = sy
             }
             tmpPath.lineTo(prevX, prevY)
-            val baseColor = owner.settings.accent.argb.toInt()
-            val baseR = Color.red(baseColor)
-            val baseG = Color.green(baseColor)
-            val baseB = Color.blue(baseColor)
+            // Bright vivid laser red
+            val baseR = 255
+            val baseG = 23
+            val baseB = 68
             // 1. Wide soft outer bloom
-            laserCore.color = Color.argb((life * 38).toInt(), baseR, baseG, baseB)
-            laserCore.strokeWidth = 16.0f * density
+            laserCore.color = Color.argb((life * 44).toInt(), baseR, baseG, baseB)
+            laserCore.strokeWidth = 17.0f * density
             canvas.drawPath(tmpPath, laserCore)
-            // 2. Luminous harmonic mid-glow aura
-            val midR = ((baseR * 0.85f) + 38f).toInt().coerceIn(0, 255)
-            val midG = ((baseG * 0.85f) + 38f).toInt().coerceIn(0, 255)
-            val midB = ((baseB * 0.85f) + 38f).toInt().coerceIn(0, 255)
-            laserCore.color = Color.argb((life * 96).toInt(), midR, midG, midB)
-            laserCore.strokeWidth = 8.5f * density
+            // 2. Luminous crimson mid-glow aura
+            laserCore.color = Color.argb((life * 112).toInt(), 255, 45, 75)
+            laserCore.strokeWidth = 9.0f * density
             canvas.drawPath(tmpPath, laserCore)
-            // 3. Saturated laser core beam
-            laserCore.color = Color.argb((life * 238).toInt(), baseR, baseG, baseB)
-            laserCore.strokeWidth = 3.8f * density
+            // 3. Saturated bright red laser beam
+            laserCore.color = Color.argb((life * 248).toInt(), baseR, baseG, baseB)
+            laserCore.strokeWidth = 4.0f * density
             canvas.drawPath(tmpPath, laserCore)
-            // 4. Clean luminous white inner filament
-            laserCore.color = Color.argb((life * 225).toInt(), 255, 250, 252)
-            laserCore.strokeWidth = 1.4f * density
+            // 4. Clean luminous white-rose inner filament
+            laserCore.color = Color.argb((life * 230).toInt(), 255, 240, 242)
+            laserCore.strokeWidth = 1.5f * density
             canvas.drawPath(tmpPath, laserCore)
         }
         if (lasers.isNotEmpty()) postInvalidateOnAnimation()

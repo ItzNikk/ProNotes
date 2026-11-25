@@ -627,7 +627,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                         Toggle("Live blur", "Soften the page behind editor panels and dialogs on Android 12 or later", s.liveBlur) { enabled ->
                             up { it.copy(liveBlur = enabled) }
                         }
-                        Toggle("Top soft scroll blur (Cloudy)", "Apply a soft progressive top blur when scrolling down lists and pages", s.topScrollBlur) { enabled ->
+                        Toggle("Top progressive scroll blur", "Apply a soft progressive top blur when scrolling down lists and pages", s.topScrollBlur) { enabled ->
                             up { it.copy(topScrollBlur = enabled) }
                         }
                         Segmented(ThemeMode.entries.map { it.label }, s.themeMode.ordinal) { i -> up { it.copy(themeMode = ThemeMode.entries[i]) } }
@@ -961,6 +961,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                         Toggle("First page as cover", "New notebooks show page 1 on the cover", s.thumbCovers) { v -> up { it.copy(thumbCovers = v) } }
                     }
                     Section("Backup") { BackupRows() }
+                    Section("Settings file") { SettingsJsonRows(store) }
                 }
                 Category.ABOUT -> {
                     var showFeedback by remember { mutableStateOf(false) }
@@ -1008,6 +1009,63 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
         height = 56.dp,
         modifier = Modifier.align(Alignment.TopCenter),
     )
+    }
+}
+
+@Composable
+private fun SettingsJsonRows(store: SettingsStore) {
+    val context = LocalContext.current
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri != null) {
+            val ok = runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { out ->
+                    out.write(store.exportSettingsJson().toByteArray(Charsets.UTF_8))
+                }
+                true
+            }.getOrDefault(false)
+            Toast.makeText(context, if (ok) "Settings exported" else "Could not export settings", Toast.LENGTH_SHORT).show()
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            val ok = runCatching {
+                val raw = context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+                    ?: return@runCatching false
+                store.importSettingsJson(raw)
+            }.getOrDefault(false)
+            Toast.makeText(context, if (ok) "Settings imported" else "Invalid settings file", Toast.LENGTH_SHORT).show()
+        }
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable { exportLauncher.launch("pronotes_settings.json") }
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Export settings to file", fontWeight = FontWeight.Medium)
+            Text("Save all preferences, palettes, and presets as JSON", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    HorizontalDivider(Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Import settings from file", fontWeight = FontWeight.Medium)
+            Text("Restore preferences from a saved JSON file", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

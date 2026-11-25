@@ -471,7 +471,23 @@ fun FloatingToolbarPill(
         modifier = modifier
             .then(if (isVertical) Modifier.width(66.dp) else Modifier.widthIn(max = maxDockW))
             .height(if (isVertical) maxDockH else 62.dp)
-            .graphicsLayer { alpha = overlayFade },
+            .graphicsLayer { alpha = overlayFade }
+            .pointerInput(Unit) {
+                var accumDelta = Offset.Zero
+                detectDragGestures(
+                    onDragStart = {
+                        accumDelta = Offset.Zero
+                        onDragStart()
+                    },
+                    onDragCancel = { onDragEnd() },
+                    onDragEnd = { onDragEnd() },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        accumDelta += dragAmount
+                        onDragDelta(accumDelta)
+                    },
+                )
+            },
     ) {
         val reorderTool = { toolToMove: Tool, step: Int ->
             val idx = visibleTools.indexOf(toolToMove)
@@ -541,14 +557,6 @@ fun FloatingToolbarPill(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Box(dragHandleModifier, contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Filled.DragIndicator,
-                        contentDescription = dragHandleDesc,
-                        tint = dockFg.copy(alpha = 0.48f),
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
                 Row(
                     modifier = Modifier
                         .weight(1f, fill = false)

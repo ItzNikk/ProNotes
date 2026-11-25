@@ -35,12 +35,12 @@ Pro Notes brings low-latency handwriting, document annotation, and structured st
 ## Core Features
 
 ### Handwriting and Canvas
-- **Low-latency ink:** Pressure- and tilt-aware strokes built on Jetpack Ink and `input-motionprediction`.
-- **Pens and highlighter:** Fountain, ball, brush, and dashed pen presets, plus a round-tip highlighter with adjustable opacity and layer blending.
-- **Stylus support:** Hardware detection and button shortcuts (Quick Actions wheel, side-button erase/selection, double-click undo) for Wacom, USI 2.0, S Pen, and other active styluses.
-- **Gestures:** Circle-to-select, scribble-to-erase, hold-to-snap shapes, and two-finger undo / three-finger redo.
-- **Selection (Lasso):** Freeform and rectangular selection with move, resize, rotate, flip, recolour, layering, copy/paste, and image export.
-- **Shapes and geometry:** Automatic shape recognition alongside 30 preset shapes with fill and dashed outline controls.
+- **Low-latency ink:** Calibrated pressure- and tilt-aware strokes built on Jetpack Ink and `input-motionprediction` with low-pass EMA smoothing for S Pen, Wacom, and USI 2.0 styluses.
+- **Pens, crayon, and highlighter:** Fountain, ball, brush, dashed pen, and procedural paper-grain **Crayon** presets, plus a round-tip highlighter with adjustable opacity and layer blending.
+- **Stylus support & palm rejection:** Hover-aware palm rejection (large-contact filtering + Android `FLAG_CANCELED`), reliable side-button erase/selection, double-click undo, and the **Quick Actions** radial arc (with 1-tap Auto-Text and Keyboard Mode).
+- **Gestures:** Circle-to-select, scribble-to-erase with theme-blended gradient particles (rejects numbers & cursive), **double-tap ink to convert to text**, hold-to-snap shapes, and two-finger undo / three-finger redo.
+- **Cross-page Selection (Lasso):** Thick dashed freeform and rectangular selection with **cross-page drag-and-drop**, move, resize, rotate, flip, recolour, layering, copy/paste, and image export.
+- **Shapes and geometry:** Automatic shape recognition (including single-stroke arrows) alongside 30 preset shapes with fill and dashed outline controls.
 
 <div align="center">
   <table>
@@ -67,18 +67,19 @@ Pro Notes brings low-latency handwriting, document annotation, and structured st
   </table>
 </div>
 
-### Write Box and Keyboard Mode
-- **Write Box:** Place a ruled box on any page, handwrite with a stylus or finger, and convert strokes to editable typed text in place.
-- **Keyboard Mode:** Switch to full-page typed editing with headings, interactive checklists, lists, and font controls.
+### Keyboard Mode, Sticky Notes, and Stickers
+- **Direct-on-Page Keyboard Mode:** Distraction-free inline typing directly on the paper with zero box chrome or placeholders — tap anywhere on the page to place the blinking caret snapped to ruled, Seyès, Cornell, or grid lines, with hardware keyboard ergonomics (`Enter` checklist/list continuation, `Tab`/`Shift+Tab` indent, `Ctrl+B/I/U`, `Ctrl+Z/Y`, `Esc`).
+- **Write Box & Auto-Text:** Write with a stylus or finger and convert strokes to editable typed text in place, or double-tap any handwritten line to convert it immediately.
+- **In-Place Sticky Notes & Presets:** Edit sticky notes directly on the canvas with Plain, Lined, Grid, or Dotted textures and 1-tap saved custom presets.
+- **Vector Stickers & Background Erase:** 6 categories of crisp vector stickers (**Study**, **Planner**, **Arrows**, **Badges**, **Icons**, **Minimal**) plus offline CIE-perceptual subject cutout that removes backgrounds and enclosed pockets with edge de-fringing.
 - **Granular Eraser Filters:** Target any combination of pen ink, highlighter, shapes, text and Write Boxes, stickies and tape, or images.
 
 ### Documents, Reader Mode, and Study Tools
 - **Multi-format import:** Import PDF, Word (`.docx`, `.doc`, `.odt`, `.rtf`), PowerPoint (`.pptx`, `.ppt`, `.odp`), spreadsheets (`.xlsx`, `.xls`, `.ods`, `.csv`, `.tsv`), EPUB books, Markdown, plain text, and images.
 - **Reader Mode:** Dedicated page-turn reading space with single-page and two-page tablet spread layouts, Paper/Sepia/Night themes, page-turn animations, progress scrubber, and optional paper-turn audio.
-- **Flashcards:** Create cards from page regions, selections, or structured notes; review with spaced repetition (`Again` / `Good` / `Easy`), quiz mode, hints, starred filters, and CSV export.
+- **Flashcards & Quiz:** Create cards from page regions, selections, or structured notes; study with 3D perspective flip cards, `Again / Hard / Good / Easy` spaced-repetition rating (with `Space` & `1`–`4` keyboard shortcuts), responsive tablet multiple-choice Quiz mode, hints, starred filters, and CSV export.
 - **Concept Maps:** Build node-and-branch diagrams on the page with radial, tree, and org-chart auto-layouts, subtree dragging, outline export, and flashcard conversion.
-- **Split View and Ink Links:** Study two notes side by side with pan/zoom and writing tools, connect related regions across pages, attach Link Previews, or collaborate in shared study rooms.
-- **SlideShow and Study Timer:** Present pages or summary cards in SlideShow mode and track study sessions with a stopwatch or Pomodoro countdown.
+- **Split View, Ink Links, and Study Timer:** Study two notes side by side with pan/zoom and writing tools, connect related regions across pages, attach Link Previews, collaborate in shared study rooms, or track sessions with a stopwatch or Pomodoro countdown.
 
 <div align="center">
   <table>
@@ -96,8 +97,8 @@ Pro Notes brings low-latency handwriting, document annotation, and structured st
 </div>
 
 ### Library and Appearance
-- Colour-coded folders, drag-and-drop organisation, tags, favourites, trash, custom notebook covers, and library backup/restore.
-- Eight switchable UI colour schemes, light/dark/system modes, customisable corner roundness, and dockable toolbars (`Top`, `Bottom`, `Left`, `Right`, or `Floating`).
+- Colour-coded folders with nested breadcrumbs, custom device storage folder sync, drag-and-drop organisation, tags, favourites, trash, custom notebook covers, and library backup/restore.
+- Eight switchable UI colour schemes, light/dark/system modes, customisable corner roundness, hardware-accelerated **Haze** progressive scroll blur, 25+ downloadable UI languages (with automatic RTL), and dockable toolbars (`Top`, `Bottom`, `Left`, `Right`, or `Floating`).
 
 ## Compatibility and Building
 
@@ -120,8 +121,10 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the module and package layo
 
 ## Technology Stack
 
-- [Jetpack Compose](https://developer.android.com/compose) & Material 3
+- [Jetpack Compose](https://developer.android.com/compose) (`2025.10.00` BOM) & Material 3
 - [Jetpack Ink](https://developer.android.com/develop/ui/compose/touch-input/stylus-input/ink-api) & `androidx.input:input-motionprediction`
+- [Haze](https://github.com/chrisbanes/haze) (`RenderEffect` progressive surface blur)
+- ML Kit Digital Ink Recognition (58+ offline handwriting languages)
 - Jetpack Graphics Shapes
 - PdfBox-Android
 - Coil 3

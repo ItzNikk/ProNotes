@@ -13,7 +13,10 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import com.skydoves.cloudy.cloudy
+import dev.chrisbanes.haze.HazeProgressive
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.materials.HazeMaterials
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -536,8 +539,8 @@ fun AnimatedGradientSearchPlaceholder(
 }
 
 /**
- * Soft progressive top scroll blur powered by skydoves/Cloudy.
- * Activates gently when scrolled down so content sliding beneath the top chrome feathers softly.
+ * Soft progressive top scroll blur powered by Haze (hardware-accelerated RenderEffect progressive mask)
+ * with smooth cosine-falloff scrim fallback.
  */
 @Composable
 fun TopScrollCloudyBackdrop(
@@ -545,42 +548,49 @@ fun TopScrollCloudyBackdrop(
     enabled: Boolean,
     height: Dp = 76.dp,
     modifier: Modifier = Modifier,
+    hazeState: HazeState? = null,
 ) {
     val classic = LocalClassicAppearance.current
     val reduceEffects = LocalReduceEffects.current
     val liveBlur = LocalLiveBlur.current
     val active = enabled && scrolled && !classic && !reduceEffects && liveBlur
-    val blurRadius by animateIntAsState(
-        targetValue = if (active) 10 else 0,
+    val blurAlpha by animateFloatAsState(
+        targetValue = if (active) 1f else 0f,
         animationSpec = tween(240),
-        label = "cloudyTopRadius",
+        label = "hazeTopAlpha",
     )
     val scrimAlpha by animateFloatAsState(
-        targetValue = if (scrolled) 0.42f else 0f,
+        targetValue = if (scrolled) 0.44f else 0f,
         animationSpec = tween(240),
-        label = "cloudyTopAlpha",
+        label = "topScrimAlpha",
     )
-    if (scrimAlpha <= 0.01f && blurRadius == 0) return
+    if (scrimAlpha <= 0.01f && blurAlpha <= 0.01f) return
     val surface = MaterialTheme.colorScheme.surface
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(height)
             .then(
-                if (blurRadius > 0) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        Modifier.appBackdropBlur(enabled = true, radiusDp = blurRadius.dp)
-                    } else {
-                        Modifier.cloudy(radius = blurRadius, enabled = true)
+                if (active && hazeState != null) {
+                    Modifier.hazeEffect(
+                        state = hazeState,
+                        style = HazeMaterials.regular(surface),
+                    ) {
+                        progressive = HazeProgressive.verticalGradient(
+                            startIntensity = 1f,
+                            endIntensity = 0f,
+                        )
                     }
+                } else if (active && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    Modifier.appBackdropBlur(enabled = true, radiusDp = 12.dp)
                 } else Modifier,
             )
             .background(
                 Brush.verticalGradient(
-                    0.0f to surface.copy(alpha = scrimAlpha * 0.95f),
+                    0.0f to surface.copy(alpha = scrimAlpha * 0.96f),
                     0.28f to surface.copy(alpha = scrimAlpha * 0.72f),
-                    0.58f to surface.copy(alpha = scrimAlpha * 0.35f),
-                    0.82f to surface.copy(alpha = scrimAlpha * 0.10f),
+                    0.58f to surface.copy(alpha = scrimAlpha * 0.34f),
+                    0.82f to surface.copy(alpha = scrimAlpha * 0.08f),
                     1.0f to Color.Transparent,
                 ),
             ),

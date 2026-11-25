@@ -273,7 +273,6 @@ internal fun TopBar(
     onStickyBoard: () -> Unit,
     onReviewHandwriting: () -> Unit,
     onVideo: () -> Unit,
-    onSlideShow: () -> Unit,
     onCollabRoom: () -> Unit,
     onAddWebLink: () -> Unit,
     onTemplates: () -> Unit,
@@ -415,12 +414,6 @@ internal fun TopBar(
                     "Flashcard from area",
                     icon = { Icon(Icons.Outlined.Crop, null, Modifier.size(18.dp)) },
                 ) { vm.capturingCard = true },
-            )
-            add(
-                AppMenuItem(
-                    "SlideShow",
-                    icon = { ProIconView(ProIcon.SLIDESHOW, ProButtonPalette.MagentaPink, Modifier.size(18.dp)) },
-                ) { onSlideShow() },
             )
             add(
                 AppMenuItem(

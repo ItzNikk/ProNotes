@@ -1384,19 +1384,7 @@ class PageRenderer(private val noteDir: File?) {
                 canvas.drawPath(stickyCornerPath, fillPaint)
             }
 
-            if (item.text.isEmpty()) {
-                // Hide "Write here…" placeholder if the user has already handwritten ink strokes on this sticky note.
-                val hasInkOverlay = allItems.any { other ->
-                    other is InkItem && RectF.intersects(r, other.bounds)
-                }
-                if (!hasInkOverlay) {
-                    stickyText.typeface = android.graphics.Typeface.SANS_SERIF
-                    stickyText.color = (fg and 0x00FFFFFF) or (0x44 shl 24)
-                    stickyText.textSize = 16f
-                    stickyText.isFakeBoldText = false
-                    canvas.drawText("Write here…", r.left + 14f, r.top + barH + 24f, stickyText)
-                }
-            } else {
+            if (item.text.isNotEmpty()) {
                 stickyText.typeface = resolveStickyTypeface(item.font)
                 val fSize = item.fontSize.coerceIn(14f, 64f) * (r.width() / 280f).coerceIn(0.45f, 3.5f)
                     stickyText.textSize = fSize
@@ -1520,10 +1508,6 @@ class PageRenderer(private val noteDir: File?) {
                     canvas.drawText(line, r.left + 18f, baseline, writeBoxText)
                     baseline += item.lineSpacing
                 }
-            } else if (!item.isConverted && item.convertedText.isBlank() && item.inkItemIds.isEmpty()) {
-                stickyTitleText.textSize = 14f
-                stickyTitleText.color = if (isDark) 0x7794A3B8 else 0x8864748B.toInt()
-                canvas.drawText("Write here with stylus or finger — converts to text in place", r.left + 18f, r.top + item.lineSpacing - 10f, stickyTitleText)
             }
             canvas.restore()
         }

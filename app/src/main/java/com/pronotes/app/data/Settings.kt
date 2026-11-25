@@ -985,6 +985,57 @@ class SettingsStore private constructor(context: Context, file: String = "settin
 
     fun lastReaderBookId(): String = prefs.getString("reader_last_book", "") ?: ""
 
+    // ------------------------------------------------------------ Settings JSON Import / Export
+    fun exportSettingsJson(): String {
+        val root = org.json.JSONObject()
+        root.put("_format", "pronotes_settings_v1")
+        val data = org.json.JSONObject()
+        for ((k, v) in prefs.all) {
+            when (v) {
+                is Boolean -> data.put(k, org.json.JSONObject().put("t", "b").put("v", v))
+                is Int -> data.put(k, org.json.JSONObject().put("t", "i").put("v", v))
+                is Long -> data.put(k, org.json.JSONObject().put("t", "l").put("v", v))
+                is Float -> data.put(k, org.json.JSONObject().put("t", "f").put("v", v.toDouble()))
+                is String -> data.put(k, org.json.JSONObject().put("t", "s").put("v", v))
+                is Set<*> -> {
+                    val arr = org.json.JSONArray()
+                    v.filterIsInstance<String>().forEach { arr.put(it) }
+                    data.put(k, org.json.JSONObject().put("t", "ss").put("v", arr))
+                }
+            }
+        }
+        root.put("prefs", data)
+        return root.toString(2)
+    }
+
+    fun importSettingsJson(raw: String): Boolean = runCatching {
+        val root = org.json.JSONObject(raw)
+        val data = root.optJSONObject("prefs") ?: return@runCatching false
+        val ed = prefs.edit()
+        val keys = data.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            val entry = data.optJSONObject(k) ?: continue
+            when (entry.optString("t")) {
+                "b" -> ed.putBoolean(k, entry.optBoolean("v"))
+                "i" -> ed.putInt(k, entry.optInt("v"))
+                "l" -> ed.putLong(k, entry.optLong("v"))
+                "f" -> ed.putFloat(k, entry.optDouble("v").toFloat())
+                "s" -> ed.putString(k, entry.optString("v"))
+                "ss" -> {
+                    val arr = entry.optJSONArray("v") ?: org.json.JSONArray()
+                    val set = LinkedHashSet<String>()
+                    for (i in 0 until arr.length()) set += arr.optString(i)
+                    ed.putStringSet(k, set)
+                }
+            }
+        }
+        ed.apply()
+        _settings.value = load()
+        _pens.value = loadPens()
+        true
+    }.getOrDefault(false)
+
     companion object {
         internal fun notebook(context: Context, id: String) = SettingsStore(context.applicationContext, "editor_$id")
         @Volatile private var instance: SettingsStore? = null

@@ -40,9 +40,30 @@ class MainActivity : ComponentActivity() {
     private var widgetAction by mutableStateOf("")
     private var pendingImport by mutableStateOf<PendingImport?>(null)
 
+    private fun enableHighRefreshRate() {
+        runCatching {
+            val disp = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                display
+            } else {
+                @Suppress("DEPRECATION")
+                windowManager.defaultDisplay
+            } ?: return
+            val cur = disp.mode
+            val best = disp.supportedModes
+                .filter { it.physicalWidth == cur.physicalWidth && it.physicalHeight == cur.physicalHeight }
+                .maxByOrNull { it.refreshRate }
+            if (best != null && best.modeId != cur.modeId) {
+                window.attributes = window.attributes.apply {
+                    preferredDisplayModeId = best.modeId
+                }
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        enableHighRefreshRate()
         com.pronotes.app.data.CloudSync.init(this)
         if (savedInstanceState == null || intent.action in setOf(Intent.ACTION_VIEW, Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE)) {
             handleIntent(intent)
