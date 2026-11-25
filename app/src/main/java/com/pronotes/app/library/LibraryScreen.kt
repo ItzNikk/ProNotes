@@ -353,8 +353,6 @@ fun LibraryScreen(
     var deleting by remember { mutableStateOf<Entry?>(null) }
     var coverFor by remember { mutableStateOf<NotebookMeta?>(null) }
     var forever by remember { mutableStateOf<NotebookMeta?>(null) }
-    var taggingNotebook by remember { mutableStateOf<NotebookMeta?>(null) }
-    var selectedTag by rememberSaveable { mutableStateOf<String?>(null) }
     var collabOpen by remember { mutableStateOf(false) }
     var supportCard by remember { mutableStateOf(false) }
     var emptyTrash by remember { mutableStateOf(false) }
@@ -441,20 +439,14 @@ fun LibraryScreen(
         query = ""
     }
 
-    val allAvailableTags: List<String> = remember(lib.notebooks) {
-        val defaults = listOf("Important", "Study", "Lecture", "Exam", "Work", "Math", "Review")
-        val used = lib.notebooks.filter { it.deletedAt == null }.flatMap { it.tags }
-        (used + defaults).distinctBy { it.lowercase() }
-    }
 
-    val entries: ImmutableList<Entry> = remember(lib, section, folderId, query, sort, selectedTag) {
+
+    val entries: ImmutableList<Entry> = remember(lib, section, folderId, query, sort) {
         val q = query.trim().lowercase().removePrefix("#")
-        val activeTag = selectedTag?.lowercase()
         val live = lib.notebooks.filter { n ->
             (if (section == Section.TRASH) n.deletedAt != null else n.deletedAt == null) &&
                 (section != Section.FAVORITES || n.favorite) &&
-                (section == Section.TRASH || activeTag == null || n.tags.any { it.equals(activeTag, ignoreCase = true) }) &&
-                (n.title.contains(q, ignoreCase = true) || n.tags.any { it.contains(q, ignoreCase = true) })
+                n.title.contains(q, ignoreCase = true)
         }
         fun sortNotes(l: List<NotebookMeta>) = when (sort) {
             SortBy.MODIFIED -> l.sortedByDescending { it.modified }
@@ -637,37 +629,6 @@ fun LibraryScreen(
                             }
                         }
                     }
-
-                AppBottomBar(
-                    applyBottomInset = false,
-                    tabs = listOf(
-                        AppTabItem("Library") { Icon(Icons.Rounded.Description, null, Modifier.size(18.dp)) },
-                        AppTabItem("Books") { Icon(Icons.AutoMirrored.Outlined.MenuBook, null, Modifier.size(18.dp)) },
-                        AppTabItem("Recent") { Icon(Icons.Rounded.AccessTime, null, Modifier.size(18.dp)) },
-                        AppTabItem("Favorites") { Icon(Icons.Rounded.StarBorder, null, Modifier.size(18.dp)) },
-                        AppTabItem("Trash") { Icon(Icons.Rounded.Delete, null, Modifier.size(18.dp)) },
-                    ),
-                    selectedIndex = when (section) {
-                        Section.DOCUMENTS -> 0
-                        Section.RECENT -> 2
-                        Section.FAVORITES -> 3
-                        Section.TRASH -> 4
-                    },
-                    onSelect = { idx ->
-                        if (idx == 1) {
-                            onOpenBookReader()
-                        } else {
-                            section = when (idx) {
-                                0 -> Section.DOCUMENTS
-                                2 -> Section.RECENT
-                                3 -> Section.FAVORITES
-                                else -> Section.TRASH
-                            }
-                            folderId = null
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
 
                     // Page header & crisp actions row
                     Row(
@@ -907,21 +868,7 @@ fun LibraryScreen(
                                 label = if (newBookPrefs.storageFolderLabel.isBlank()) "Save Folder…" else "💾 ${newBookPrefs.storageFolderLabel}",
                                 tint = Color(0xFF7C3AED),
                             )
-                            AppChip(
-                                selected = selectedTag == null,
-                                onClick = { selectedTag = null },
-                                label = "All Tags",
-                                tint = ProButtonPalette.ElectricBlue,
-                            )
-                            allAvailableTags.forEach { tag ->
-                                val isSel = selectedTag?.equals(tag, ignoreCase = true) == true
-                                AppChip(
-                                    selected = isSel,
-                                    onClick = { selectedTag = if (isSel) null else tag },
-                                    label = "#$tag",
-                                    tint = tagTintFor(tag),
-                                )
-                            }
+
                         }
                     }
 
@@ -957,8 +904,6 @@ fun LibraryScreen(
                         onDelete = { deleting = it },
                         onEditFolder = { folderEdit = it },
                         onCover = { coverFor = it },
-                        onTags = { taggingNotebook = it },
-                        onTagFilter = { tag -> selectedTag = if (selectedTag.equals(tag, ignoreCase = true)) null else tag },
                         onFavorite = { scope.launch { repo.toggleFavorite(it.id) } },
                         onDuplicate = { scope.launch { repo.duplicateNotebook(it.id) } },
                         onRestore = { scope.launch { repo.restoreNotebook(it.id) } },
@@ -991,7 +936,7 @@ fun LibraryScreen(
                             }
                         }
                     }
-                    val listBottomPad = 24.dp
+                    val listBottomPad = 108.dp
                     val listScrollState = rememberLazyListState()
                     val gridScrollState = rememberLazyGridState()
                     val libraryScrolled = if (listView) {
@@ -1030,10 +975,10 @@ fun LibraryScreen(
                         },
                     ) {
                         if (entries.isEmpty()) {
-                            if (query.isNotBlank() || (selectedTag != null && section != Section.TRASH)) {
+                            if (query.isNotBlank()) {
                                 Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text("No matches", style = MaterialTheme.typography.titleLarge)
-                                    TextButton(onClick = { query = ""; selectedTag = null }) { Text("Clear filters") }
+                                    TextButton(onClick = { query = "" }) { Text("Clear filters") }
                                 }
                             } else {
                                 EmptyState(section, inFolder = currentFolder != null, onNew = { newNotebook = true })
@@ -1114,6 +1059,37 @@ fun LibraryScreen(
                     )
                 }
             }
+
+                AppBottomBar(
+                    applyBottomInset = true,
+                    tabs = listOf(
+                        AppTabItem("Library") { Icon(Icons.Rounded.Description, null, Modifier.size(18.dp)) },
+                        AppTabItem("Books") { Icon(Icons.AutoMirrored.Outlined.MenuBook, null, Modifier.size(18.dp)) },
+                        AppTabItem("Recent") { Icon(Icons.Rounded.AccessTime, null, Modifier.size(18.dp)) },
+                        AppTabItem("Favorites") { Icon(Icons.Rounded.StarBorder, null, Modifier.size(18.dp)) },
+                        AppTabItem("Trash") { Icon(Icons.Rounded.Delete, null, Modifier.size(18.dp)) },
+                    ),
+                    selectedIndex = when (section) {
+                        Section.DOCUMENTS -> 0
+                        Section.RECENT -> 2
+                        Section.FAVORITES -> 3
+                        Section.TRASH -> 4
+                    },
+                    onSelect = { idx ->
+                        if (idx == 1) {
+                            onOpenBookReader()
+                        } else {
+                            section = when (idx) {
+                                0 -> Section.DOCUMENTS
+                                2 -> Section.RECENT
+                                3 -> Section.FAVORITES
+                                else -> Section.TRASH
+                            }
+                            folderId = null
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter),
+                )
 
             pdfImportProgress?.let { (pdfTitle, page, total) ->
                 PdfImportLoaderOverlay(
@@ -1344,17 +1320,7 @@ fun LibraryScreen(
         )
     }
 
-    taggingNotebook?.let { targetNote ->
-        ManageTagsDialog(
-            note = targetNote,
-            availableTags = allAvailableTags,
-            onDismiss = { taggingNotebook = null },
-            onSave = { updatedTags ->
-                taggingNotebook = null
-                scope.launch { repo.setNotebookTags(targetNote.id, updatedTags) }
-            },
-        )
-    }
+
 }
 
 // PdfImportLoaderOverlay & PdfSkeletonPreviewBox extracted to LibraryDialogs.kt
@@ -1372,8 +1338,6 @@ private class TileActions(
     val onDelete: (Entry) -> Unit,
     val onEditFolder: (Folder) -> Unit,
     val onCover: (NotebookMeta) -> Unit,
-    val onTags: (NotebookMeta) -> Unit,
-    val onTagFilter: (String) -> Unit,
     val onFavorite: (NotebookMeta) -> Unit,
     val onDuplicate: (NotebookMeta) -> Unit,
     val onRestore: (NotebookMeta) -> Unit,
@@ -1663,7 +1627,6 @@ private fun noteMenuItems(note: NotebookMeta, a: TileActions): List<AppMenuItem>
         )
     } else {
         listOf(
-            AppMenuItem("Manage tags…", icon = { ProIconView(ProIcon.BOOKMARK, ProButtonPalette.ElectricBlue, Modifier.size(18.dp)) }) { a.onTags(note) },
             AppMenuItem("Duplicate", icon = { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)) }) { a.onDuplicate(note) },
             AppMenuItem(
                 if (note.favorite) "Remove from favorites" else "Add to favorites",
@@ -1733,17 +1696,7 @@ private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
             DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(note.modified)),
             menuItems = remember(note) { noteMenuItems(note, a) },
         )
-        if (note.tags.isNotEmpty()) {
-            Spacer(Modifier.height(4.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                note.tags.take(3).forEach { tag ->
-                    TagBadgePill(tag = tag, onClick = { a.onTagFilter(tag) })
-                }
-            }
-        }
+
     }
     if (trashPrompt) {
         AppDialog(
@@ -1824,14 +1777,7 @@ private fun ListRow(e: Entry, repo: Repository, a: TileActions) {
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    if (e is Entry.N && e.note.tags.isNotEmpty()) {
-                        Spacer(Modifier.height(4.dp))
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            e.note.tags.forEach { tag ->
-                                TagBadgePill(tag = tag, onClick = { a.onTagFilter(tag) })
-                            }
-                        }
-                    }
+
                 }
             }
             AppMenuButton(

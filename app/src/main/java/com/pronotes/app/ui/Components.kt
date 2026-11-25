@@ -132,6 +132,13 @@ fun ColorEditorDialog(
         title = { Text("Colour", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(52.dp).clip(RoundedCornerShape(16.dp)).background(Color(current)).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)))
+                    Column {
+                        Text("Selected colour", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("#" + hex, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    }
+                }
                 HsvColorPicker(
                     modifier = Modifier.fillMaxWidth().height(200.dp),
                     controller = controller,
@@ -160,12 +167,22 @@ fun ColorEditorDialog(
                         prefix = { Text("#") }, singleLine = true, label = { Text("Hex") },
                     )
                 }
-                Text("Presets", style = MaterialTheme.typography.labelSmall)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    uniquePresets.forEach { c -> Swatch(c, c == current, 22) { current = c; externalSelection = c; hex = String.format("%06X", c and 0xFFFFFF) } }
+                Text("TONES", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    listOf(0.18f, 0.38f, 0.6f, 0.8f, 1f).forEach { value ->
+                        val hsv = FloatArray(3)
+                        android.graphics.Color.colorToHSV(current, hsv)
+                        hsv[2] = value
+                        val tone = android.graphics.Color.HSVToColor(hsv)
+                        Swatch(tone, tone == current, 32) { current = tone; externalSelection = tone; hex = String.format("%06X", tone and 0xFFFFFF) }
+                    }
+                }
+                Text("YOUR PALETTE", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    uniquePresets.forEach { c -> Swatch(c, c == current, 32) { current = c; externalSelection = c; hex = String.format("%06X", c and 0xFFFFFF) } }
                 }
                 if (uniqueRecent.isNotEmpty()) {
-                    Text("Recent", style = MaterialTheme.typography.labelSmall)
+                    Text("RECENT COLOURS", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.tertiary)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                         uniqueRecent.forEach { c -> Swatch(c, c == current, 22) { current = c; externalSelection = c; hex = String.format("%06X", c and 0xFFFFFF) } }
                     }
@@ -175,7 +192,7 @@ fun ColorEditorDialog(
         confirmButton = {
             AppPill(
                 selected = true,
-                tint = ProButtonPalette.Emerald,
+                tint = Color(current),
                 onClick = { onPick(current) },
                 contentPadding = PaddingValues(horizontal = 18.dp, vertical = 9.dp),
             ) {

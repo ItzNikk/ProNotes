@@ -78,6 +78,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
@@ -587,8 +589,8 @@ fun TopScrollCloudyBackdrop(
     val baseSurface = MaterialTheme.colorScheme.surface
     var auroraTarget by remember { mutableStateOf(Color(0xFF6954A6)) }
     val reduceMotion = LocalReduceMotion.current
-    LaunchedEffect(aurora, active, reduceMotion) {
-        if (aurora && active && !reduceMotion) {
+    LaunchedEffect(aurora, enabled, scrolled, reduceEffects, reduceMotion) {
+        if (aurora && enabled && scrolled && !reduceEffects && !reduceMotion) {
             val tones = listOf(Color(0xFF6954A6), Color(0xFF326E98), Color(0xFF3F897D), Color(0xFF9A507D), Color(0xFF4259A1))
             while (true) {
                 kotlinx.coroutines.delay(kotlin.random.Random.nextLong(3200L, 5600L))
@@ -597,11 +599,27 @@ fun TopScrollCloudyBackdrop(
         }
     }
     val auroraTint by animateColorAsState(auroraTarget, animationSpec = tween(3000), label = "Under-toolbar aurora")
-    val surface = if (aurora) lerp(baseSurface, auroraTint, 0.30f) else baseSurface
+    val surface = if (aurora) lerp(baseSurface, auroraTint, 0.65f) else baseSurface
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(height)
+            .drawWithCache {
+                val radius = size.width.coerceAtLeast(1f) * 0.7f
+                val center = Offset(size.width * 0.35f, 0f)
+                val glow = Brush.radialGradient(listOf(auroraTint.copy(alpha = 0.52f), Color.Transparent), center, radius)
+                val secondCenter = Offset(size.width * 0.85f, 0f)
+                val secondGlow = Brush.radialGradient(listOf(lerp(auroraTint, Color(0xFF3F897D), 0.7f).copy(alpha = 0.40f), Color.Transparent), secondCenter, radius)
+                onDrawWithContent {
+                    drawContent()
+                    if (aurora && scrolled && enabled && !reduceEffects) {
+                        withTransform({ scale(1f, size.height / radius, Offset.Zero) }) {
+                            drawCircle(glow, radius, center)
+                            drawCircle(secondGlow, radius, secondCenter)
+                        }
+                    }
+                }
+            }
             .then(
                 if (active && hazeState != null) {
                     Modifier.hazeEffect(
@@ -967,8 +985,10 @@ fun AppBottomBar(
         ) {
             Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 tabs.forEachIndexed { idx, tab ->
+                    val accent = listOf(ProButtonPalette.ElectricBlue, ProButtonPalette.MintTeal, ProButtonPalette.Violet, ProButtonPalette.WarmAmber, MaterialTheme.colorScheme.error)[idx % 5]
                     AppPill(
                         selected = idx == selectedIndex,
+                        tint = accent,
                         onClick = { onSelect(idx) },
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
                     ) {

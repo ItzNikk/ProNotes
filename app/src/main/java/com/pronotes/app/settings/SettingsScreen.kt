@@ -633,7 +633,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                 }
                 Category.TOOLBAR -> {
                     Section("Video") {
-                        Toggle("Video button", "Show floating video in the drawing toolbar", s.videoInToolbar) { value -> up { it.copy(videoInToolbar = value) } }
+                        Toggle("Video tool", "Turn off to hide video from every drawing toolbar", s.videoInToolbar) { value -> up { it.copy(videoInToolbar = value) } }
                     }
                     Section("Toolbar") {
                         Segmented(ToolbarStyle.entries.map { it.label }, s.toolbarStyle.ordinal) { i ->
