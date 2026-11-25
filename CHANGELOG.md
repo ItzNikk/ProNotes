@@ -8,6 +8,11 @@ All notable changes to Pro Notes are documented in this file.
 
 ### What's changed
 
+- Selection outlines use a moving light trail, shared with circle-to-lasso conversion. Hold and drag to move a selection. Rotate and resize have their own controls, and the rainbow action has been removed.
+- Editor bars use black surfaces.
+
+- Failed or interrupted saves retain pending edits for the next save attempt and show a message on failure. Page files are cleaned up only after the new page index is written.
+
 - Deleting a page or lasso selection, or dropping a notebook into Trash, now asks for confirmation.
 
 - Cross-page lasso moves now undo and redo in one step, restoring both pages together.

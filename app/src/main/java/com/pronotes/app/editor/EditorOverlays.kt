@@ -153,7 +153,7 @@ fun SelectionMenu(
             onDelete = { vm.deletePageItems(pageId, ids) },
         )
     }
-    val fg = MaterialTheme.colorScheme.onSurface
+    val fg = Color(0xFFF1F5F9)
     val density = LocalDensity.current.density
     val reduceEffects = LocalReduceEffects.current
     val maxMenuW = if (areaSize.width > 0) (areaSize.width / density - 24f).coerceAtLeast(220f).dp else 560.dp
@@ -161,14 +161,37 @@ fun SelectionMenu(
     val cutLabel = stringResource(R.string.selection_cut)
     val copyLabel = stringResource(R.string.selection_copy)
     val dupLabel = stringResource(R.string.selection_duplicate)
-    val tintLabel = stringResource(R.string.selection_palette_tint)
     val colourLabel = stringResource(R.string.selection_colour)
-    val rotateLabel = stringResource(R.string.selection_rotate)
     val moreLabel = stringResource(R.string.selection_more)
     val deleteLabel = stringResource(R.string.selection_delete)
+    var transformOpen by remember { mutableStateOf(false) }
+    if (transformOpen) {
+        AppDialog(
+            onDismissRequest = { transformOpen = false },
+            title = { Text("Rotate and resize") },
+            text = {
+                Column {
+                    Text("Rotate")
+                    Row {
+                        TextButton(onClick = { keep { vm.rotateSelection(-15f) } }) { Text("−15°") }
+                        TextButton(onClick = { keep { vm.rotateSelection(15f) } }) { Text("+15°") }
+                        TextButton(onClick = { keep { vm.rotateSelection(90f) } }) { Text("90°") }
+                    }
+                    Text("Resize")
+                    Row {
+                        TextButton(onClick = { keep { vm.resizeSelection(0.9f) } }) { Text("Smaller") }
+                        TextButton(onClick = { keep { vm.resizeSelection(1.1f) } }) { Text("Larger") }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { transformOpen = false }) { Text("Done") } },
+        )
+    }
 
     AppSurface(
         role = SurfaceRole.Popover,
+        containerColor = Color.Black,
+        contentColor = fg,
         shape = appPillShape(),
         shadowElevation = if (reduceEffects) 0.dp else 10.dp,
         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
@@ -220,17 +243,14 @@ fun SelectionMenu(
                 SelectionActionIcon(dupLabel, onDuplicate) {
                     ProIconView(ProIcon.ADD, fg, Modifier.size(22.dp))
                 }
-                SelectionActionIcon(tintLabel, { vm.rainbowSelection() }) {
-                    Icon(Icons.Outlined.ColorLens, contentDescription = tintLabel, tint = ProButtonPalette.MagentaPink)
-                }
                 SelectionActionIcon(colourLabel, { colors = true }) {
                     Icon(Icons.Outlined.Palette, contentDescription = colourLabel)
                 }
                 SelectionActionIcon("Change font", { fontPickerOpen = true }) {
                     Icon(Icons.Outlined.FontDownload, contentDescription = "Change font", tint = ProButtonPalette.ElectricBlue)
                 }
-                SelectionActionIcon(rotateLabel, { keep { vm.rotateSelection(90f) } }) {
-                    Icon(Icons.Outlined.RotateRight, contentDescription = rotateLabel)
+                SelectionActionIcon("Rotate and resize", { transformOpen = true }) {
+                    Icon(Icons.Outlined.RotateRight, contentDescription = "Rotate and resize")
                 }
                 Box {
                     SelectionActionIcon(moreLabel, { moreOpen = true }) {

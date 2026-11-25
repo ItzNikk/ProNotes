@@ -52,38 +52,38 @@ private fun WorkspaceGlow(modifier: Modifier, paused: Boolean) {
         )
     } else null
     Box(modifier.graphicsLayer { clip = true }.drawWithCache {
-        val radius = (size.minDimension * 0.72f).coerceAtLeast(1f)
+        val radius = (size.minDimension * 0.21f).coerceAtLeast(1f)
         val primaryGlow = Brush.radialGradient(
-            0f to Color(0xFFD7FFF0),
-            0.17f to Color(0xFF5CFFD0),
-            0.35f to Color(0xF127DFEA),
-            0.56f to Color(0xC04479FF),
-            0.79f to Color(0x636236FA),
+            0f to Color(0xD05CFFD0),
+            0.17f to Color(0xC044E8E0),
+            0.35f to Color(0xA027BFEA),
+            0.56f to Color(0x684479FF),
+            0.79f to Color(0x226236FA),
             1f to Color(0x006236FA),
             center = Offset.Zero,
             radius = radius,
         )
         val secondaryGlow = Brush.radialGradient(
-            0f to Color(0xFFFFF3B4),
-            0.17f to Color(0xFFFFC465),
-            0.35f to Color(0xF8FF796F),
-            0.56f to Color(0xCFED40B7),
-            0.79f to Color(0x687B34ED),
+            0f to Color(0xD0FFC465),
+            0.17f to Color(0xC0FF9B65),
+            0.35f to Color(0xA0FF796F),
+            0.56f to Color(0x68ED40B7),
+            0.79f to Color(0x227B34ED),
             1f to Color(0x007B34ED),
             center = Offset.Zero,
             radius = radius,
         )
         onDrawBehind {
             val angle = phase?.value ?: 0f
-            val dx = cos(angle) * size.width * 0.20f
-            val dy = sin(angle) * size.height * 0.16f
+            val dx = cos(angle) * size.width * 0.08f
+            val dy = sin(angle) * size.height * 0.10f
             val pulse = sin(angle) * 0.10f
             val primaryAlpha = if (effects) 0.90f + pulse else 0.55f
             val secondaryAlpha = if (effects) 0.90f - pulse else 0.55f
-            translate(size.width * 0.24f + dx, size.height * 0.32f + dy) {
+            translate(size.width * 0.25f + dx, size.height * 0.30f + dy) {
                 drawCircle(primaryGlow, radius, center = Offset.Zero, alpha = primaryAlpha)
             }
-            translate(size.width * 0.76f - dx, size.height * 0.73f - dy) {
+            translate(size.width * 0.75f - dx, size.height * 0.72f - dy) {
                 drawCircle(secondaryGlow, radius, center = Offset.Zero, alpha = secondaryAlpha)
             }
         }

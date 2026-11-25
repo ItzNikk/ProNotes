@@ -802,12 +802,6 @@ class Repository private constructor(private val context: Context) {
         }
         if (structureChanged || !mf.exists()) {
             val keepIds = docs.map { it.id }.toSet()
-            pDir.listFiles()?.forEach { child ->
-                if (child.isFile && child.name.endsWith(".json")) {
-                    val pid = child.name.removeSuffix(".json")
-                    if (pid !in keepIds) child.delete()
-                }
-            }
             AtomicFiles.writeTextAtomic(
                 mf,
                 json.encodeToString(
@@ -815,6 +809,12 @@ class Repository private constructor(private val context: Context) {
                     PagesManifest(updatedAt = System.currentTimeMillis(), pageIds = docs.map { it.id }),
                 ),
             )
+            pDir.listFiles()?.forEach { child ->
+                if (child.isFile && child.name.endsWith(".json")) {
+                    val pid = child.name.removeSuffix(".json")
+                    if (pid !in keepIds) child.delete()
+                }
+            }
         }
         val noteFile = File(noteDir(id), "note.json")
         if (writeFullSnapshot || !noteFile.exists()) {
@@ -878,10 +878,10 @@ class Repository private constructor(private val context: Context) {
                 }
                 if (needFullManifest) {
                     val keep = pages.map { it.id }.toSet()
+                    AtomicFiles.writeTextAtomic(mf, json.encodeToString(PagesManifest.serializer(), manifestOnly))
                     pDir.listFiles()?.forEach { f ->
                         if (f.isFile && f.name.endsWith(".json") && f.name.removeSuffix(".json") !in keep) f.delete()
                     }
-                    AtomicFiles.writeTextAtomic(mf, json.encodeToString(PagesManifest.serializer(), manifestOnly))
                 }
                 null
             }

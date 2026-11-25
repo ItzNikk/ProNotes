@@ -404,8 +404,8 @@ internal class NoteCanvasDocLayer(
         val t = morphT
         lassoFill.alpha = (0x14 + 36 * t).toInt().coerceAtMost(255)
         canvas.drawPath(tmpPath, lassoFill)
-        lassoPaint.pathEffect = DashPathEffect(floatArrayOf(9f * density * t + 0.1f, 4f * density * t + 0.1f), t * 40f)
-        canvas.drawPath(tmpPath, lassoPaint)
+
+        drawSelectionTrail(canvas, tmpPath)
         lassoFill.alpha = 0x14
     }
 
@@ -729,67 +729,49 @@ internal class NoteCanvasDocLayer(
             lassoFill.alpha = 0x10
             canvas.drawPath(outlinePath, lassoFill)
             lassoFill.alpha = 0x18
-            canvas.drawPath(outlinePath, selHaloPaint)
-            canvas.drawPath(outlinePath, selPaint)
+
+
         }
-        val rotating = owner.grab == NoteCanvasView.Grab.ROTATE && owner.liveMatrix != null
-        val wb = (if (rotating) owner.selectionBaseBounds() else owner.selectionPageBounds()) ?: return
-        val sb = RectF(wb)
-        owner.pageMatrix(owner.selectionPage, m).mapRect(sb)
-        canvas.save()
-        canvas.scale(selScale, selScale, sb.centerX(), sb.centerY())
-        if (rotating) canvas.rotate(owner.liveDeg, sb.centerX(), sb.centerY())
-        val rad = 10f * density
-        canvas.drawRoundRect(sb, rad, rad, selHaloPaint)
-        canvas.drawRoundRect(sb, rad, rad, selPaint)
-        val hr = 6f * density
-        val ry = sb.top - owner.rotateHandleOffset()
-        canvas.drawLine(sb.centerX(), sb.top, sb.centerX(), ry + hr, handlePaint.apply { strokeWidth = 1.5f * density })
-        canvas.drawCircle(sb.centerX(), ry, hr + 2f * density, handleFill)
-        canvas.drawCircle(sb.centerX(), ry, hr + 2f * density, selRing)
-        canvas.drawArc(RectF(sb.centerX() - hr * 0.6f, ry - hr * 0.6f, sb.centerX() + hr * 0.6f, ry + hr * 0.6f), -60f, 280f, false, selRing)
-        for ((x, y) in listOf(sb.left to sb.top, sb.right to sb.top, sb.left to sb.bottom, sb.right to sb.bottom)) {
-            canvas.drawCircle(x, y, hr, handleFill)
-            canvas.drawCircle(x, y, hr, selRing)
+        if (owner.selection.isEmpty()) return
+        if (loop == null) {
+            val bounds = owner.selectionPageBounds() ?: return
+            owner.pageMatrix(owner.selectionPage, m).mapRect(bounds)
+            outlinePath.reset()
+            outlinePath.addRoundRect(bounds, 12f * density, 12f * density, Path.Direction.CW)
         }
-        val pw = 8f * density
-        val ph = 3.5f * density
-        val hTop = RectF(sb.centerX() - pw, sb.top - ph, sb.centerX() + pw, sb.top + ph)
-        val hBot = RectF(sb.centerX() - pw, sb.bottom - ph, sb.centerX() + pw, sb.bottom + ph)
-        val hLeft = RectF(sb.left - ph, sb.centerY() - pw, sb.left + ph, sb.centerY() + pw)
-        val hRight = RectF(sb.right - ph, sb.centerY() - pw, sb.right + ph, sb.centerY() + pw)
-        for (hRect in listOf(hTop, hBot, hLeft, hRight)) {
-            canvas.drawRoundRect(hRect, ph, ph, handleFill)
-            canvas.drawRoundRect(hRect, ph, ph, selRing)
-        }
-        canvas.restore()
-        if (rotating) {
-            pullText.color = 0xFF3D6CF4.toInt()
-            canvas.drawText("${owner.liveDeg.roundToInt()}°", sb.centerX(), sb.bottom + 24f * density, pullText)
-            pullText.color = 0xFF5B6475.toInt()
-        } else if (owner.grab == NoteCanvasView.Grab.SCALE && owner.liveMatrix != null) {
-            pullText.color = 0xFF3D6CF4.toInt()
-            canvas.drawText("${(owner.liveScale * 100).roundToInt()}%", sb.centerX(), sb.bottom + 24f * density, pullText)
-            pullText.color = 0xFF5B6475.toInt()
-        } else if (
-            owner.grab in setOf(
-                NoteCanvasView.Grab.STRETCH_L,
-                NoteCanvasView.Grab.STRETCH_R,
-                NoteCanvasView.Grab.STRETCH_T,
-                NoteCanvasView.Grab.STRETCH_B,
-            ) && owner.liveMatrix != null
-        ) {
-            pullText.color = 0xFF3D6CF4.toInt()
-            canvas.drawText(
-                "${(owner.liveScaleX * 100).roundToInt()}% × ${(owner.liveScaleY * 100).roundToInt()}%",
-                sb.centerX(),
-                sb.bottom + 24f * density,
-                pullText,
-            )
-            pullText.color = 0xFF5B6475.toInt()
-        }
+        drawSelectionTrail(canvas, outlinePath)
     }
 
+    private val trailMeasure = android.graphics.PathMeasure()
+    private val trailPath = Path()
+    private val trailPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 3f * density
+        strokeCap = Paint.Cap.ROUND
+        color = 0xFFB7DFFF.toInt()
+    }
+    private val trailBase = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2f * density
+        color = 0x995B91C7.toInt()
+    }
+
+    private fun drawSelectionTrail(canvas: Canvas, path: Path) {
+        canvas.drawPath(path, trailBase)
+        trailMeasure.setPath(path, true)
+        val length = trailMeasure.length
+        if (length <= 0f) return
+        val moving = owner.settings.motionStyle != com.pronotes.app.data.MotionStyle.REDUCED &&
+            owner.settings.performanceMode != com.pronotes.app.data.PerformanceMode.BATTERY_SAVER
+        val phase = if (moving) (SystemClock.uptimeMillis() % 1600L) / 1600f else 0f
+        val start = length * phase
+        val end = start + length * 0.23f
+        trailPath.reset()
+        trailMeasure.getSegment(start, minOf(end, length), trailPath, true)
+        if (end > length) trailMeasure.getSegment(0f, end - length, trailPath, true)
+        canvas.drawPath(trailPath, trailPaint)
+        if (moving) postInvalidateOnAnimation()
+    }
     private fun drawLasso(canvas: Canvas, pts: List<Pt>) {
         if (pts.size < 2) return
         tmpPath.reset()
@@ -802,7 +784,7 @@ internal class NoteCanvasDocLayer(
         lassoHaloPaint.pathEffect = cachedLassoDash
         lassoPaint.pathEffect = cachedLassoDash
         canvas.drawPath(tmpPath, lassoHaloPaint)
-        canvas.drawPath(tmpPath, lassoPaint)
+        drawSelectionTrail(canvas, tmpPath)
     }
 
     private fun drawLaser(canvas: Canvas) {

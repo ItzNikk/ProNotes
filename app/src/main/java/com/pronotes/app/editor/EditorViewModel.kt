@@ -400,6 +400,12 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     }
 
     fun rotateSelection(deg: Float) = transformSelection { r -> android.graphics.Matrix().apply { setRotate(deg, r.centerX(), r.centerY()) } to (1f to deg) }
+    fun resizeSelection(factor: Float) {
+        if (!factor.isFinite() || factor !in 0.1f..5f) return
+        transformSelection { bounds ->
+            android.graphics.Matrix().apply { setScale(factor, factor, bounds.centerX(), bounds.centerY()) } to (factor to 0f)
+        }
+    }
 
     fun flipSelection() = transformSelection { r -> android.graphics.Matrix().apply { setScale(-1f, 1f, r.centerX(), r.centerY()) } to (1f to 0f) }
 
@@ -1989,13 +1995,20 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             }
             val structSnap = structureDirty
             structureDirty = false
-            repo.savePages(
-                id = noteId,
-                pages = snapshot,
-                dirtyPageIds = dirtySnap,
-                structureChanged = structSnap,
-                writeFullSnapshot = false,
-            )
+            try {
+                repo.savePages(
+                    id = noteId,
+                    pages = snapshot,
+                    dirtyPageIds = dirtySnap,
+                    structureChanged = structSnap,
+                    writeFullSnapshot = false,
+                )
+            } catch (failure: Exception) {
+                dirtyPageIds.addAll(dirtySnap)
+                if (structSnap) structureDirty = true
+                if (failure is kotlinx.coroutines.CancellationException) throw failure
+                say("Could not save changes. Your edits are still open. Please free some storage and try again.")
+            }
         }
     }
 
@@ -2018,13 +2031,22 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         }
         structureDirty = false
         repo.appScope.launch {
-            repo.savePages(
-                id = noteId,
-                pages = snapshot,
-                dirtyPageIds = dirtySnap,
-                structureChanged = true,
-                writeFullSnapshot = true,
-            )
+            try {
+                repo.savePages(
+                    id = noteId,
+                    pages = snapshot,
+                    dirtyPageIds = dirtySnap,
+                    structureChanged = true,
+                    writeFullSnapshot = true,
+                )
+            } catch (failure: Exception) {
+                dirtyPageIds.addAll(dirtySnap)
+                structureDirty = true
+                if (failure is kotlinx.coroutines.CancellationException) throw failure
+                withContext(Dispatchers.Main) {
+                    say("Could not save changes. Please free some storage and try again.")
+                }
+            }
         }
     }
 

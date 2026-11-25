@@ -524,9 +524,9 @@ fun EditorScreen(
         vm.animateHandwritingConversion = !reduceMotion && !reduceEffects
     }
     val workspaceBg = if (darkUi) WorkspaceDarkBg else WorkspaceLightBg
-    val tabStripBg = if (darkUi) TabStripDarkBg else TabStripLightBg
-    val topBarBg = if (darkUi) TopBarDarkBg else TopBarLightBg
-    val topBarFg = if (darkUi) Color.White else Color(0xFF16233B)
+    val tabStripBg = Color.Black
+    val topBarBg = Color.Black
+    val topBarFg = Color.White
     val resolvedTabs = remember(tabs, library.notebooks, noteId, vm.title) {
         val list = tabs.mapNotNull { id ->
             library.notebooks.firstOrNull { it.id == id && it.deletedAt == null }?.let { id to it.title }

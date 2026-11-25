@@ -163,9 +163,8 @@ fun AdaptiveFixedToolbar(
     modifier: Modifier = Modifier,
 ) {
     val isVertical = settings.toolbarDock == ToolbarDock.LEFT || settings.toolbarDock == ToolbarDock.RIGHT
-    val barBg = if (com.pronotes.app.ui.LocalUiColorScheme.current == com.pronotes.app.data.UiColorScheme.COLORFUL)
-        MaterialTheme.colorScheme.primaryContainer else if (darkUi == (MaterialTheme.colorScheme.surface.luminance() < 0.4f)) MaterialTheme.colorScheme.surface else if (darkUi) WorkbenchDarkBg else WorkbenchLightBg
-    val barFg = if (darkUi) Color(0xFFF1F5F9) else Color(0xFF151922)
+    val barBg = Color.Black
+    val barFg = Color(0xFFF1F5F9)
     val rimColor = if (darkUi) Color.White.copy(alpha = 0.09f) else Color(0xFF0F172A).copy(alpha = 0.09f)
     val hairlineColor = if (darkUi) Color.White.copy(alpha = 0.12f) else Color(0xFF0F172A).copy(alpha = 0.11f)
     val reduceEffects = LocalReduceEffects.current
@@ -396,9 +395,8 @@ fun FloatingToolbarPill(
     onResetPosition: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val dockBg = if (com.pronotes.app.ui.LocalUiColorScheme.current == com.pronotes.app.data.UiColorScheme.COLORFUL)
-        MaterialTheme.colorScheme.secondaryContainer else if (darkUi == (MaterialTheme.colorScheme.surface.luminance() < 0.4f)) MaterialTheme.colorScheme.surface else if (darkUi) WorkbenchDarkBg else WorkbenchLightBg
-    val dockFg = if (darkUi) Color(0xFFF1F5F9) else Color(0xFF151922)
+    val dockBg = Color.Black
+    val dockFg = Color(0xFFF1F5F9)
     val hairlineColor = if (darkUi) Color.White.copy(alpha = 0.13f) else Color(0xFF0F172A).copy(alpha = 0.11f)
     val reduceEffects = LocalReduceEffects.current
     val density = LocalDensity.current.density
