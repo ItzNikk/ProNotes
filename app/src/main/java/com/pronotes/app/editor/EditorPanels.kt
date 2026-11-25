@@ -281,6 +281,15 @@ internal fun TopBar(
 ) {
     val context = LocalContext.current
     val store = remember(context) { SettingsStore.get(context) }
+    var pendingPageDelete by remember(vm) { mutableStateOf<String?>(null) }
+    pendingPageDelete?.let { pageId ->
+        ConfirmEditorDeletion(
+            title = "Delete this page?",
+            message = "The page and its contents will be removed. This action cannot be undone.",
+            onDismiss = { pendingPageDelete = null },
+            onDelete = { vm.deletePage(pageId) },
+        )
+    }
     val fgColor = LocalContentColor.current
     val dividerColor = fgColor.copy(alpha = 0.20f)
     val compact = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 540
@@ -520,13 +529,13 @@ internal fun TopBar(
                     icon = { ProIconView(ProIcon.SETTINGS, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) },
                 ) { onSettings() },
             )
-            if (vm.pages.size > 1) {
+            if (vm.pages.size > 1 && !vm.readOnly) {
                 add(
                     AppMenuItem(
                         "Delete page",
                         destructive = true,
                         icon = { ProIconView(ProIcon.TRASH, MaterialTheme.colorScheme.error, Modifier.size(18.dp)) },
-                    ) { vm.deletePage() },
+                    ) { pendingPageDelete = vm.currentPage?.id },
                 )
             }
         }

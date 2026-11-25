@@ -31,7 +31,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -159,6 +158,7 @@ import com.pronotes.app.ui.AppTabItem
 import com.pronotes.app.ui.AppToggle
 import com.pronotes.app.ui.ColorEditorDialog
 import com.pronotes.app.ui.LocalReduceMotion
+import com.pronotes.app.ui.GlowingWorkspace
 import com.pronotes.app.ui.ProButtonPalette
 import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.ProIconView
@@ -448,13 +448,9 @@ fun LibraryScreen(
 
     val drag = remember { DragController() }
     val trashCount = lib.notebooks.count { it.deletedAt != null }
-    val documents = section == Section.DOCUMENTS
-
-    LibraryWorkspace(documents, drag) {
+    LibraryWorkspace(drag) {
         val workspaceLayout = this
-        val deskBg = if (documents) androidx.compose.ui.graphics.SolidColor(Color.Black) else com.pronotes.app.ui.workspaceBackground()
-        val topStripBg = if (documents) Color.Black else MaterialTheme.colorScheme.surfaceContainer
-        BoxWithConstraints(Modifier.fillMaxSize().background(deskBg)) {
+        GlowingWorkspace(paused = showGuide || compactSidebar) {
             val wide = maxWidth >= 840.dp
             val sidebar = wide && wideSidebar
             val closeSidebar = {
@@ -478,8 +474,10 @@ fun LibraryScreen(
                         when (s) {
                             Section.DOCUMENTS -> dropInto(payload, null)
                             Section.TRASH -> if (payload.startsWith("note:")) {
-                                scope.launch { repo.deleteNotebook(payload.substringAfter(':')) }
-                                true
+                                val noteId = payload.substringAfter(':')
+                                val note = lib.notebooks.firstOrNull { it.id == noteId && it.deletedAt == null }
+                                if (note != null) deleting = Entry.N(note)
+                                note != null
                             } else false
                             Section.FAVORITES -> if (payload.startsWith("note:")) {
                                 val nid = payload.substringAfter(':')
@@ -497,7 +495,6 @@ fun LibraryScreen(
             if (!wide && compactSidebar) {
                 Dialog(onDismissRequest = closeSidebar) { sidebarContent() }
             }
-            if (documents) LibraryGradient(Modifier.matchParentSize(), paused = showGuide || compactSidebar)
             Row(Modifier.fillMaxSize()) {
                 if (wide) {
                     AnimatedVisibility(
@@ -517,7 +514,7 @@ fun LibraryScreen(
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .background(topStripBg)
+                            .background(Color.Black)
                             .statusBarsPadding()
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,

@@ -193,11 +193,10 @@ internal fun NoteCanvasView.commitMove() {
                         movedItem
                     }
                 }
-                val origPage = selectionPage
-                host.beginEdit(origPage)
-                updatePage(origPage, p.items.filterNot { it.id in selection })
-                host.beginEdit(targetPage)
-                updatePage(targetPage, tp.items + movedToTarget)
+                updatePages(mapOf(
+                    selectionPage to p.items.filterNot { it.id in selection },
+                    targetPage to (tp.items + movedToTarget),
+                ))
                 selectionOutline = selectionOutline?.map { (x, y) -> (x + totalDx) to (y + totalDy) }
                 selectionPage = targetPage
                 activePage = targetPage

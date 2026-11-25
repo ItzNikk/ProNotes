@@ -165,8 +165,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     internal var pdfIndex: PdfTextIndex? = null
     private var searchJob: Job? = null
 
-    internal val undoStack = ArrayDeque<Pair<Int, List<PageItem>>>()
-    internal val redoStack = ArrayDeque<Pair<Int, List<PageItem>>>()
+    internal val undoStack = ArrayDeque<Map<Int, List<PageItem>>>()
+    internal val redoStack = ArrayDeque<Map<Int, List<PageItem>>>()
     private var saveJob: Job? = null
     internal val dirtyPageIds = Collections.synchronizedSet(HashSet<String>())
     @Volatile internal var structureDirty = false
@@ -638,7 +638,11 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     fun beginEdit(page: Int) {
         val p = pages.getOrNull(page) ?: return
-        undoStack.addLast(page to p.items)
+        recordEdit(mapOf(page to p.items))
+    }
+
+    private fun recordEdit(previous: Map<Int, List<PageItem>>) {
+        undoStack.addLast(previous)
         if (undoStack.size > 200) undoStack.removeFirst()
         redoStack.clear()
         refreshUndo()
@@ -650,6 +654,22 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         pages[page] = p.copy(items = items0)
         dirtyPageIds += p.id
         scheduleSave()
+    }
+
+    internal fun commitPageItemsEdit(changes: Map<Int, List<PageItem>>) {
+        if (changes.isEmpty() || changes.keys.any { it !in pages.indices }) return
+        recordEdit(changes.keys.associateWith { pages[it].items })
+        touched()
+        replacePageItems(changes)
+        scheduleSave()
+    }
+
+    private fun replacePageItems(changes: Map<Int, List<PageItem>>) {
+        changes.forEach { (index, items) ->
+            val page = pages[index]
+            pages[index] = page.copy(items = items)
+            dirtyPageIds += page.id
+        }
     }
 
     /** Pen is down: the toolbar fades so you can write under it. */
@@ -707,16 +727,23 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         onPagesChanged?.invoke()
     }
 
-    fun undo() = swap(undoStack, redoStack)
-    fun redo() = swap(redoStack, undoStack)
+    fun undo() = swap(undoStack, redoStack, showDestination = false)
+    fun redo() = swap(redoStack, undoStack, showDestination = true)
 
-    private fun swap(from: ArrayDeque<Pair<Int, List<PageItem>>>, to: ArrayDeque<Pair<Int, List<PageItem>>>) {
-        val (idx, items) = from.removeLastOrNull() ?: return
-        val page = pages.getOrNull(idx) ?: return
-        to.addLast(idx to page.items)
-        pages[idx] = page.copy(items = items)
-        dirtyPageIds += page.id
+    private fun swap(
+        from: ArrayDeque<Map<Int, List<PageItem>>>,
+        to: ArrayDeque<Map<Int, List<PageItem>>>,
+        showDestination: Boolean,
+    ) {
+        val changes = from.removeLastOrNull() ?: return
+        if (changes.keys.any { it !in pages.indices }) {
+            refreshUndo()
+            return
+        }
+        to.addLast(changes.keys.associateWith { pages[it].items })
+        replacePageItems(changes)
         refreshUndo(); scheduleSave(); onPagesChanged?.invoke()
+        val idx = if (showDestination) changes.keys.last() else changes.keys.first()
         if (idx != pageIndex) onScrollTo?.invoke(idx)
     }
 
@@ -731,9 +758,16 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     }
 
     fun deleteSelection() {
-        val p = pages.getOrNull(selectionPage) ?: return
-        beginEdit(selectionPage)
-        applyItems(selectionPage, p.items.filterNot { it.id in selection })
+        val page = pages.getOrNull(selectionPage) ?: return
+        deletePageItems(page.id, selection)
+    }
+
+    internal fun deletePageItems(pageId: String, ids: Set<Long>) {
+        val index = pages.indexOfFirst { it.id == pageId }
+        val page = pages.getOrNull(index) ?: return
+        if (readOnly || page.items.none { it.id in ids }) return
+        beginEdit(index)
+        applyItems(index, page.items.filterNot { it.id in ids })
     }
 
     fun duplicateSelection(): Set<Long> {
@@ -1560,12 +1594,14 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         onScrollTo?.invoke(at)
     }
 
-    fun deletePage() {
-        if (pages.size <= 1) return
-        pages.removeAt(pageIndex)
+    fun deletePage(pageId: String) {
+        if (readOnly || pages.size <= 1) return
+        val index = pages.indexOfFirst { it.id == pageId }
+        if (index < 0) return
+        pages.removeAt(index)
         structureDirty = true
         undoStack.clear(); redoStack.clear(); refreshUndo()
-        pageIndex = pageIndex.coerceAtMost(pages.size - 1)
+        pageIndex = (pageIndex - if (index < pageIndex) 1 else 0).coerceAtMost(pages.size - 1)
         scheduleSave(); onPagesChanged?.invoke()
     }
 

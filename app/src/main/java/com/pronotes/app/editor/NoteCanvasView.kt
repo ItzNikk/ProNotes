@@ -55,6 +55,7 @@ interface CanvasHost {
     fun tapeFreehand(): Boolean
     fun beginEdit(page: Int)
     fun setItems(page: Int, items: List<PageItem>)
+    fun commitPageItemsEdit(changes: Map<Int, List<PageItem>>)
     fun onSelectionChanged(page: Int, ids: Set<Long>, screenBounds: RectF?)
     fun onTextTap(page: Int, x: Float, y: Float, existing: TextItem?)
     /** Called when Tool.TEXT taps or drags a new inline text box directly on the page. */
@@ -141,13 +142,14 @@ interface CanvasHost {
 @SuppressLint("ViewConstructor", "ClickableViewAccessibility")
 class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLayout(context) {
 
+    // The document layer uses density to configure its paints and dash lengths at construction.
+    internal val density = resources.displayMetrics.density
     internal val layer = NoteCanvasDocLayer(context, this)
     private val wetInk = InProgressStrokesView(context)
     private val predictor = MotionEventPredictor.newInstance(this)
     internal val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     internal val effectiveTouchSlop: Float
         get() = (touchSlop / settings.touchSensitivity.coerceIn(0.4f, 2.0f)).coerceIn(2f, touchSlop * 2.5f)
-    internal val density = resources.displayMetrics.density
     internal val scroller = OverScroller(context, DecelerateInterpolator(1.6f))
     internal var velocity: VelocityTracker? = null
 
@@ -542,6 +544,14 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         val p = pages.getOrNull(index) ?: return
         pages = pages.toMutableList().also { it[index] = p.copy(items = items) }
         host.setItems(index, items)
+        layer.invalidate()
+    }
+
+    internal fun updatePages(changes: Map<Int, List<PageItem>>) {
+        pages = pages.toMutableList().apply {
+            changes.forEach { (index, items) -> this[index] = this[index].copy(items = items) }
+        }
+        host.commitPageItemsEdit(changes)
         layer.invalidate()
     }
 

@@ -10,7 +10,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -175,7 +174,7 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
     val reduceMotion = com.pronotes.app.ui.LocalReduceMotion.current
     val scrollState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(com.pronotes.app.ui.workspaceBackground())) {
+    com.pronotes.app.ui.GlowingWorkspace {
         val wide = maxWidth >= 720.dp
         val current = selected ?: if (wide) Category.STYLUS else null
         val back: () -> Unit = { if (!wide && selected != null) selected = null else onBack() }

@@ -8,9 +8,13 @@ All notable changes to Pro Notes are documented in this file.
 
 ### What's changed
 
+- Deleting a page or lasso selection, or dropping a notebook into Trash, now asks for confirmation.
+
+- Cross-page lasso moves now undo and redo in one step, restoring both pages together.
+
 - Collapsed sticky notes now carry their handwriting when moved. The wide Library layout animates smoothly when the navigation sidebar changes width.
 
-- A black Documents background with two softly blurred gradient circles that loop and stay still when motion is reduced.
+- A black background across the Library and Settings with two multicolored gradient circles, brighter centers, and wider glowing halos. The circles loop and stay still when motion is reduced.
 - A brief glow over handwritten ink as it converts to text, plus thicker dashed lasso outlines.
 - Hold a lasso selection with the pen or a finger, scroll with another finger, and release to drop it on the destination page.
 - Press and hold empty paper with the pen to open the same Quick Insert menu as a finger long-press.

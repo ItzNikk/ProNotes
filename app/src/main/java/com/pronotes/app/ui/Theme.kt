@@ -53,7 +53,7 @@ val LocalPerformanceMode = compositionLocalOf { PerformanceMode.BALANCED }
 val LocalUiColorScheme = compositionLocalOf { UiColorScheme.SLATE_STUDIO }
 val LocalLiveBlur = compositionLocalOf { true }
 val LocalClassicAppearance = compositionLocalOf { false }
-internal val LocalDocumentsColorScheme = compositionLocalOf { darkColorScheme() }
+internal val LocalWorkspaceDarkScheme = compositionLocalOf { darkColorScheme() }
 val LocalReduceEffects = compositionLocalOf { false }
 val LocalReduceMotion = compositionLocalOf { false }
 
@@ -260,7 +260,7 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
         LocalUiColorScheme provides uiScheme,
         LocalLiveBlur provides settings.liveBlur,
         LocalClassicAppearance provides settings.classicAppearance,
-        LocalDocumentsColorScheme provides darkScheme,
+        LocalWorkspaceDarkScheme provides darkScheme,
         LocalReduceEffects provides settings.reduceEffects,
         LocalReduceMotion provides reduceMotion,
         LocalAppStrings provides appStrings,

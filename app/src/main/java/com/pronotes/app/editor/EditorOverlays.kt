@@ -144,6 +144,15 @@ fun SelectionMenu(
     var colors by remember { mutableStateOf(false) }
     var fontPickerOpen by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
+    var pendingDelete by remember(vm) { mutableStateOf<Pair<String, Set<Long>>?>(null) }
+    pendingDelete?.let { (pageId, ids) ->
+        ConfirmEditorDeletion(
+            title = "Delete selection?",
+            message = "The selected items will be removed. You can bring them back with Undo.",
+            onDismiss = { pendingDelete = null },
+            onDelete = { vm.deletePageItems(pageId, ids) },
+        )
+    }
     val fg = MaterialTheme.colorScheme.onSurface
     val density = LocalDensity.current.density
     val reduceEffects = LocalReduceEffects.current
@@ -261,7 +270,11 @@ fun SelectionMenu(
                         ),
                     )
                 }
-                SelectionActionIcon(deleteLabel, vm::deleteSelection) {
+                SelectionActionIcon(deleteLabel, {
+                    vm.pages.getOrNull(vm.selectionPage)?.let { page ->
+                        if (vm.selection.isNotEmpty()) pendingDelete = page.id to vm.selection.toSet()
+                    }
+                }) {
                     Icon(Icons.Outlined.Delete, contentDescription = deleteLabel, tint = MaterialTheme.colorScheme.error)
                 }
             }
@@ -281,6 +294,27 @@ fun SelectionMenu(
             onDismiss = { fontPickerOpen = false },
         )
     }
+}
+
+@Composable
+internal fun ConfirmEditorDeletion(
+    title: String,
+    message: String,
+    onDismiss: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    AppDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(message) },
+        confirmButton = {
+            TextButton(onClick = {
+                onDismiss()
+                onDelete()
+            }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable

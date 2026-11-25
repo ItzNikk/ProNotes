@@ -725,6 +725,8 @@ fun EditorScreen(
                                     override fun onFreshInk(page: Int, ink: List<InkItem>) = vm.queueHandwriting(page, ink)
                                     override fun beginEdit(page: Int) = vm.beginEdit(page)
                                     override fun setItems(page: Int, items: List<PageItem>) = vm.setItems(page, items)
+                                    override fun commitPageItemsEdit(changes: Map<Int, List<PageItem>>) =
+                                        vm.commitPageItemsEdit(changes)
                                     override fun onSelectionChanged(page: Int, ids: Set<Long>, screenBounds: android.graphics.RectF?) =
                                         vm.onSelection(page, ids, screenBounds)
                                     override fun onTextTap(page: Int, x: Float, y: Float, existing: TextItem?) {
