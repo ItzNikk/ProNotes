@@ -6,6 +6,7 @@ HSPLcom/pronotes/app/data/Repository**->**(**)**
 HSPLcom/pronotes/app/ui/ThemeKt;->**(**)**
 HSPLcom/pronotes/app/ui/ProSurfacesKt;->**(**)**
 HSPLcom/pronotes/app/library/LibraryScreenKt;->**(**)**
+HSPLcom/pronotes/app/library/LibraryWelcomeKt;->**(**)**
 HSPLcom/pronotes/app/library/Covers**->**(**)**
 HSPLcom/pronotes/app/editor/EditorScreenKt;->**(**)**
 HSPLcom/pronotes/app/editor/EditorViewModel**->**(**)**

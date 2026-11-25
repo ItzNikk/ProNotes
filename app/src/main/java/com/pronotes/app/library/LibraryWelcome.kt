@@ -13,6 +13,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
@@ -23,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.layout.LookaheadScope
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -37,6 +39,16 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 @Composable
+internal fun LibraryWorkspace(documents: Boolean, drag: DragController, content: @Composable LookaheadScope.() -> Unit) {
+    val colors = if (documents) com.pronotes.app.ui.LocalDocumentsColorScheme.current else MaterialTheme.colorScheme
+    MaterialTheme(colorScheme = colors) {
+        CompositionLocalProvider(LocalDragController provides drag) {
+            LookaheadScope { content() }
+        }
+    }
+}
+
+@Composable
 internal fun LibraryGradient(modifier: Modifier, paused: Boolean) {
     val effects = !LocalClassicAppearance.current && !LocalReduceEffects.current
     val lifecycleState = LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
@@ -48,16 +60,17 @@ internal fun LibraryGradient(modifier: Modifier, paused: Boolean) {
             label = "Gradient orbit",
         )
     } else null
-    val colors = MaterialTheme.colorScheme
     Box(modifier.graphicsLayer { clip = true }.drawWithCache {
-        val radius = (size.maxDimension * 0.88f).coerceAtLeast(1f)
+        val radius = (size.minDimension * 0.66f).coerceAtLeast(1f)
+        val blue = Color(0xFF385BFF)
+        val violet = Color(0xFFB12BE8)
         val primaryGlow = Brush.radialGradient(
-            listOf(colors.primary.copy(alpha = 0.55f), colors.primary.copy(alpha = 0.16f), Color.Transparent),
+            listOf(blue.copy(alpha = 0.86f), blue.copy(alpha = 0.29f), Color.Transparent),
             center = Offset.Zero,
             radius = radius,
         )
         val secondaryGlow = Brush.radialGradient(
-            listOf(colors.tertiary.copy(alpha = 0.48f), colors.tertiary.copy(alpha = 0.14f), Color.Transparent),
+            listOf(violet.copy(alpha = 0.74f), violet.copy(alpha = 0.24f), Color.Transparent),
             center = Offset.Zero,
             radius = radius,
         )

@@ -6,6 +6,7 @@ import androidx.benchmark.macro.FrameTimingMetric
 import androidx.benchmark.macro.StartupMode
 import androidx.benchmark.macro.StartupTimingMetric
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
+import androidx.benchmark.macro.junit4.BaselineProfileRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.Direction
@@ -20,7 +21,23 @@ private const val PACKAGE_NAME = "com.pronotes.app"
 class ProNotesMacrobenchmark {
 
     @get:Rule
+    val baselineProfileRule = BaselineProfileRule()
+
+    @get:Rule
     val benchmarkRule = MacrobenchmarkRule()
+
+    @Test
+    fun collectStartupProfile() = baselineProfileRule.collect(
+        packageName = PACKAGE_NAME,
+        outputFilePrefix = "pronotes-startup",
+        includeInStartupProfile = true,
+    ) {
+        pressHome()
+        startActivityAndWait()
+        check(device.wait(Until.hasObject(By.pkg(PACKAGE_NAME).depth(0)), 5_000)) {
+            "Pro Notes did not open during profile capture"
+        }
+    }
 
     @Test
     fun coldStart() = benchmarkRule.measureRepeated(

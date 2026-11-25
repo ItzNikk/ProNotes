@@ -95,7 +95,7 @@ internal class NoteCanvasDocLayer(
     }
     private val lassoPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 5.5f * owner.density
+        strokeWidth = 6.5f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         color = 0xFF3D6CF4.toInt()
@@ -103,19 +103,19 @@ internal class NoteCanvasDocLayer(
     private val lassoFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x183D6CF4 }
     private val selHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 9f * owner.density
+        strokeWidth = 10f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         color = 0xE6FFFFFF.toInt()
-        pathEffect = DashPathEffect(floatArrayOf(16f * owner.density, 10f * owner.density), 0f)
+        pathEffect = DashPathEffect(floatArrayOf(22f * owner.density, 14f * owner.density), 0f)
     }
     private val selPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 5.5f * owner.density
+        strokeWidth = 6.5f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         color = 0xFF3D6CF4.toInt()
-        pathEffect = DashPathEffect(floatArrayOf(16f * owner.density, 10f * owner.density), 0f)
+        pathEffect = DashPathEffect(floatArrayOf(22f * owner.density, 14f * owner.density), 0f)
     }
     private val guideBaselinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -172,6 +172,10 @@ internal class NoteCanvasDocLayer(
     private var cachedGuideDash: DashPathEffect? = null
     private var cachedLassoPhase = Float.NaN
     private var cachedLassoDash: DashPathEffect? = null
+    private var liftSource: List<PageItem>? = null
+    private var liftIds: Set<Long> = emptySet()
+    private var liftedItems: List<PageItem> = emptyList()
+    private var remainingItems: List<PageItem> = emptyList()
     private val pullPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt() }
     private val pullText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = 14f * owner.density
@@ -439,6 +443,22 @@ internal class NoteCanvasDocLayer(
         val active = owner.host.activeHighlight()
         val loaderPhase = ((SystemClock.uptimeMillis() % 1200L) / 1200f)
         var anyPdfLoading = false
+        val lift = owner.liveMatrix?.takeIf {
+            owner.mode == NoteCanvasView.Mode.MOVE && owner.grab == NoteCanvasView.Grab.MOVE && !it.isIdentity
+        }
+        val sourceItems = lift?.let { owner.pages.getOrNull(owner.selectionPage)?.items }
+        if (sourceItems != null && (sourceItems !== liftSource || owner.selection != liftIds)) {
+            liftSource = sourceItems
+            liftIds = owner.selection
+            val (selected, remaining) = sourceItems.partition { it.id in liftIds }
+            liftedItems = selected
+            remainingItems = remaining
+        } else if (sourceItems == null && liftSource != null) {
+            liftSource = null
+            liftIds = emptySet()
+            liftedItems = emptyList()
+            remainingItems = emptyList()
+        }
         owner.pages.forEachIndexed { i, p ->
             tmpPageRect.set(0f, 0f, p.width, p.height)
             owner.pageMatrix(i, m).mapRect(tmpPageRect)
@@ -459,8 +479,11 @@ internal class NoteCanvasDocLayer(
             val hl = owner.host.highlights(i)
             if (hl.isNotEmpty()) r.drawHighlights(canvas, hl, active?.takeIf { it.first == i }?.second)
             owner.host.textSelection(i).forEach { canvas.drawRoundRect(it, 4f, 4f, textSelPaint) }
-            if (i == owner.selectionPage) r.drawItems(canvas, p.items, m, transform = owner.liveMatrix, transformIds = owner.selection)
-            else r.drawItems(canvas, p.items, m)
+            when {
+                i != owner.selectionPage -> r.drawItems(canvas, p.items, m)
+                sourceItems != null -> r.drawItems(canvas, remainingItems, m)
+                else -> r.drawItems(canvas, p.items, m, transform = owner.liveMatrix, transformIds = owner.selection)
+            }
             tapePreview?.takeIf { i == owner.activePage }?.let { canvas.drawRoundRect(it, 6f, 6f, tapePreviewPaint) }
             tapeFree?.takeIf { i == owner.activePage && it.size > 1 }?.let { pts ->
                 tmpPath.reset()
@@ -546,6 +569,12 @@ internal class NoteCanvasDocLayer(
             }
         }
 
+        if (lift != null && sourceItems != null) {
+            canvas.save()
+            canvas.concat(owner.pageMatrix(owner.selectionPage, m))
+            r.drawItems(canvas, liftedItems, m, transform = lift, transformIds = liftIds)
+            canvas.restore()
+        }
         drawLinks(canvas)
         drawPuffs(canvas)
         drawPull(canvas)
@@ -768,7 +797,7 @@ internal class NoteCanvasDocLayer(
         canvas.drawPath(tmpPath, lassoFill)
         if (antsPhase != cachedLassoPhase || cachedLassoDash == null) {
             cachedLassoPhase = antsPhase
-            cachedLassoDash = DashPathEffect(floatArrayOf(18f * density, 12f * density), antsPhase)
+            cachedLassoDash = DashPathEffect(floatArrayOf(22f * density, 14f * density), antsPhase)
         }
         lassoHaloPaint.pathEffect = cachedLassoDash
         lassoPaint.pathEffect = cachedLassoDash

@@ -7,6 +7,8 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.BoundsTransform
+import androidx.compose.animation.animateBounds
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -14,10 +16,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -217,7 +217,7 @@ internal data class LibraryNewBookPrefs(
     val handwritingLanguage: String = "en-US",
 )
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 @Composable
 fun LibraryScreen(
     onOpen: (String) -> Unit,
@@ -283,7 +283,6 @@ fun LibraryScreen(
     }
     val lib by repo.library.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.45f
     val reduceMotion = LocalReduceMotion.current
 
     var section by rememberSaveable { mutableStateOf(Section.DOCUMENTS) }
@@ -449,11 +448,12 @@ fun LibraryScreen(
 
     val drag = remember { DragController() }
     val trashCount = lib.notebooks.count { it.deletedAt != null }
-    val deskBg = com.pronotes.app.ui.workspaceBackground()
-    val topStripBg = if (com.pronotes.app.ui.LocalUiColorScheme.current == com.pronotes.app.data.UiColorScheme.COLORFUL)
-        MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer
+    val documents = section == Section.DOCUMENTS
 
-    androidx.compose.runtime.CompositionLocalProvider(LocalDragController provides drag) {
+    LibraryWorkspace(documents, drag) {
+        val workspaceLayout = this
+        val deskBg = if (documents) androidx.compose.ui.graphics.SolidColor(Color.Black) else com.pronotes.app.ui.workspaceBackground()
+        val topStripBg = if (documents) Color.Black else MaterialTheme.colorScheme.surfaceContainer
         BoxWithConstraints(Modifier.fillMaxSize().background(deskBg)) {
             val wide = maxWidth >= 840.dp
             val sidebar = wide && wideSidebar
@@ -497,18 +497,22 @@ fun LibraryScreen(
             if (!wide && compactSidebar) {
                 Dialog(onDismissRequest = closeSidebar) { sidebarContent() }
             }
-            LibraryGradient(Modifier.matchParentSize(), paused = showGuide || compactSidebar)
+            if (documents) LibraryGradient(Modifier.matchParentSize(), paused = showGuide || compactSidebar)
             Row(Modifier.fillMaxSize()) {
                 if (wide) {
                     AnimatedVisibility(
                         visible = sidebar,
-                        enter = if (reduceMotion) fadeIn(snap()) else expandHorizontally() + fadeIn(),
-                        exit = if (reduceMotion) fadeOut(snap()) else shrinkHorizontally() + fadeOut(),
+                        enter = fadeIn(if (reduceMotion) snap() else tween(150)),
+                        exit = fadeOut(if (reduceMotion) snap() else tween(120)),
                         content = { sidebarContent() },
                     )
                 }
 
-                Column(Modifier.weight(1f).fillMaxHeight()) {
+                val boundsMotion = if (reduceMotion) Modifier else Modifier.animateBounds(
+                    lookaheadScope = workspaceLayout,
+                    boundsTransform = BoundsTransform { _, _ -> tween(190) },
+                )
+                Column(Modifier.weight(1f).fillMaxHeight().then(boundsMotion)) {
                     // Browser-style dark/paper top tab strip aligned with home.svg
                     Row(
                         Modifier

@@ -8,8 +8,12 @@ All notable changes to Pro Notes are documented in this file.
 
 ### What's changed
 
-- A brighter, looping Library gradient with a static appearance when motion is reduced.
+- Collapsed sticky notes now carry their handwriting when moved. The wide Library layout animates smoothly when the navigation sidebar changes width.
+
+- A black Documents background with two softly blurred gradient circles that loop and stay still when motion is reduced.
 - A brief glow over handwritten ink as it converts to text, plus thicker dashed lasso outlines.
+- Hold a lasso selection with the pen or a finger, scroll with another finger, and release to drop it on the destination page.
+- Press and hold empty paper with the pen to open the same Quick Insert menu as a finger long-press.
 - Adaptive Library and Settings layouts for phones, tablets, and split-screen, with Android Predictive Back in Settings.
 - A first-run guide available from **+ → Getting started**, and reduced allocations during Kindle Mode page turns.
 

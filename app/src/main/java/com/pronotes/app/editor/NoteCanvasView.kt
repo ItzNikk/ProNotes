@@ -854,7 +854,8 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
     internal var dragStickyWasExpanded = false
     internal var dragStickyAttachedIds: Set<Long> = emptySet()
     internal val stickyHoldRunnable = Runnable {
-        if (dragStickyId == -1L || dragStickyPage !in pages.indices) return@Runnable
+        val sticky = draggedSticky() ?: return@Runnable
+        if (sticky.pinned) return@Runnable
         captureStickyAttachments()
         dragStickyActive = true
         mode = Mode.STICKY_DRAG
@@ -862,20 +863,23 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         host.beginEdit(dragStickyPage)
         layer.invalidate()
     }
-    internal fun captureStickyAttachments() {
-        val p = pages.getOrNull(dragStickyPage) ?: return
-        val sticky = p.items.firstOrNull { it is StickyItem && it.id == dragStickyId } as? StickyItem ?: return
-        val sr = sticky.raw
-        dragStickyAttachedIds = if (sticky.collapsed) {
-            emptySet()
-        } else {
-            p.items.filter { (it is InkItem || it is TextItem) && RectF.intersects(sr, it.bounds) }.map { it.id }.toSet()
-        }
+    private fun draggedSticky(): StickyItem? =
+        pages.getOrNull(dragStickyPage)?.items?.firstOrNull { it.id == dragStickyId } as? StickyItem
+
+    private fun captureStickyAttachments() {
+        val page = pages.getOrNull(dragStickyPage) ?: return
+        val sticky = draggedSticky() ?: return
+        val paper = sticky.paperBounds
+        dragStickyAttachedIds = page.items.filter { item ->
+            if (item !is InkItem && item !is TextItem) return@filter false
+            val bounds = item.bounds
+            paper.contains(bounds.centerX(), bounds.centerY())
+        }.map { it.id }.toSet()
     }
     internal fun moveDraggedSticky(screenX: Float, screenY: Float) {
         val p = pages.getOrNull(dragStickyPage) ?: return
-        val sticky = p.items.firstOrNull { it is StickyItem && it.id == dragStickyId } as? StickyItem ?: return
-        if (dragStickyAttachedIds.isEmpty() && !sticky.collapsed) captureStickyAttachments()
+        val sticky = draggedSticky() ?: return
+        if (sticky.pinned) return
         val (wx, wy) = toLocal(screenX, screenY, dragStickyPage)
         val dx = wx - dragStickyDownWx
         val dy = wy - dragStickyDownWy
@@ -948,11 +952,51 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
 
     private fun isPen(type: Int) = type == MotionEvent.TOOL_TYPE_STYLUS || type == MotionEvent.TOOL_TYPE_ERASER
 
+    private var fingerGrabPointer = -1
+    private var selectionScrollPointer = -1
+    private var selectionScrollX = 0f
+    private var selectionScrollY = 0f
+    private var selectionScrollStarted = false
+
+    private fun scrollWhileHoldingSelection(event: MotionEvent, action: Int, holder: Int): Boolean {
+        if (mode != Mode.MOVE || grab != Grab.MOVE) return false
+        if (action == MotionEvent.ACTION_POINTER_DOWN && selectionScrollPointer == -1) {
+            val i = event.actionIndex
+            val palm = settings.palmRejection && (event.getTouchMajor(i) > 26f * density || event.getSize(i) > 0.08f)
+            if (!palm && event.getToolType(i) == MotionEvent.TOOL_TYPE_FINGER && event.getPointerId(i) != holder) {
+                selectionScrollPointer = event.getPointerId(i)
+                selectionScrollX = event.getX(i)
+                selectionScrollY = event.getY(i)
+                selectionScrollStarted = false
+                scroller.forceFinished(true)
+            }
+        }
+        if (action == MotionEvent.ACTION_POINTER_UP && event.getPointerId(event.actionIndex) == selectionScrollPointer) {
+            selectionScrollPointer = -1
+        }
+        val i = event.findPointerIndex(selectionScrollPointer)
+        if (action != MotionEvent.ACTION_MOVE || i < 0) return i >= 0
+        val x = event.getX(i)
+        val y = event.getY(i)
+        val dx = x - selectionScrollX
+        val dy = y - selectionScrollY
+        if (selectionScrollStarted || hypot(dx, dy) > effectiveTouchSlop) {
+            selectionScrollStarted = true
+            if (isWhiteboard || settings.scroll == ScrollDirection.HORIZONTAL) transX += dx
+            if (isWhiteboard || settings.scroll == ScrollDirection.VERTICAL) transY += dy
+            selectionScrollX = x
+            selectionScrollY = y
+            clamp()
+            updateMatrix()
+        }
+        return true
+    }
+
     /**
      * Routing rules:
      *  1. The pen always wins. If a palm is already on the glass when the pen lands,
      *     the palm gesture is dropped and the pen draws.
-     *  2. While the pen is down, every finger/palm event is ignored.
+     *  2. While the pen is down, fingers can scroll only during an active selection move.
      *  3. Fingers only draw when "Draw with stylus only" is off. Otherwise they scroll and zoom.
      *  4. Palm rejection: a finger that lands right after the pen was near is ignored.
      */
@@ -989,6 +1033,24 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         if (readOnly) { handleFingers(event, action); return true }
         val penIndex = (0 until event.pointerCount).firstOrNull { isPen(event.getToolType(it)) }
         if (penIndex != null) { sawStylus = true; lastStylusTime = now; lastPenTouchAt = now }
+        if (action == MotionEvent.ACTION_POINTER_DOWN) removeCallbacks(penEmptyPressRunnable)
+        if (fingerGrabPointer != -1) {
+            val holder = fingerGrabPointer
+            val index = event.findPointerIndex(holder)
+            when {
+                action == MotionEvent.ACTION_CANCEL || index < 0 -> cancelCurrent(event)
+                action == MotionEvent.ACTION_UP || (action == MotionEvent.ACTION_POINTER_UP && event.actionIndex == index) -> {
+                    if ((event.flags and MotionEvent.FLAG_CANCELED) != 0) cancelCurrent(event)
+                    else handleDraw(event, MotionEvent.ACTION_UP, holder)
+                    ignoreFingers = action == MotionEvent.ACTION_POINTER_UP
+                }
+                else -> {
+                    val scrolling = scrollWhileHoldingSelection(event, action, holder)
+                    if (action == MotionEvent.ACTION_MOVE) handleDraw(event, action, holder, scrollAtEdge = !scrolling)
+                }
+            }
+            return true
+        }
 
         // --- pen
         if (stylusPointer == -1 && penIndex != null) {
@@ -1031,7 +1093,10 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                     stylusPointer = -1
                     ignoreFingers = action == MotionEvent.ACTION_POINTER_UP
                 }
-                action == MotionEvent.ACTION_MOVE -> handleDraw(event, MotionEvent.ACTION_MOVE, stylusPointer)
+                else -> {
+                    val scrolling = scrollWhileHoldingSelection(event, action, stylusPointer)
+                    if (action == MotionEvent.ACTION_MOVE) handleDraw(event, action, stylusPointer, scrollAtEdge = !scrolling)
+                }
             }
             return true
         }
@@ -1063,6 +1128,12 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         }
         if (ignoreFingers) {
             if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) ignoreFingers = false
+            return true
+        }
+        if (action == MotionEvent.ACTION_DOWN && !capturing && !linkPicking && selection.isNotEmpty() && beginGrab(event.x, event.y)) {
+            scroller.forceFinished(true)
+            fingerGrabPointer = event.getPointerId(0)
+            activePointer = fingerGrabPointer
             return true
         }
         if ((capturing || linkPicking) && event.pointerCount == 1 && mode != Mode.PAN) {
@@ -1323,7 +1394,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         }
     }
 
-    private fun handleDraw(e: MotionEvent, action: Int, pid: Int) {
+    private fun handleDraw(e: MotionEvent, action: Int, pid: Int, scrollAtEdge: Boolean = true) {
         if (pages.isEmpty()) return
         val pIdx = e.findPointerIndex(pid).coerceAtLeast(0)
         val px = e.getX(pIdx)
@@ -1357,9 +1428,16 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                 }
                 host.onCircleCandidate(null)
                 beginDrawDown(e, pIdx, pid, px, py)
+                if (e.getToolType(pIdx) == MotionEvent.TOOL_TYPE_STYLUS &&
+                    mode in setOf(Mode.INK, Mode.LASSO, Mode.TAP, Mode.SHAPE_DRAG) &&
+                    !capturing && !linkPicking && isEmptyPaper(activePage, px, py)
+                ) postDelayed(penEmptyPressRunnable, ViewConfiguration.getLongPressTimeout().toLong())
             }
             MotionEvent.ACTION_MOVE -> {
                 val idx = e.findPointerIndex(activePointer).takeIf { it >= 0 } ?: return
+                if (hypot(e.getX(idx) - downX, e.getY(idx) - downY) > effectiveTouchSlop) {
+                    removeCallbacks(penEmptyPressRunnable)
+                }
                 if (circleDetector.isHoldArmed()) {
                     if (!circleDetector.shouldCancelHoldOnMove(e.getX(idx), e.getY(idx), holdSlopPx())) {
                         return
@@ -1446,7 +1524,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                     }
                     Mode.MOVE -> {
                         val (wx, wy) = toLocal(e.getX(idx), e.getY(idx), activePage)
-                        updateGrab(wx, wy)
+                        updateGrab(wx, wy, scrollAtEdge)
                         layer.invalidate()
                         reportSelection()
                     }
@@ -1518,6 +1596,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                             moveDraggedSticky(e.getX(idx), e.getY(idx))
                         } else if (dragStickyWasExpanded) {
                             if (hypot(e.getX(idx) - downX, e.getY(idx) - downY) > effectiveTouchSlop * 0.65f) {
+                                captureStickyAttachments()
                                 dragStickyActive = true
                                 buzz(HapticFeedbackConstants.CLOCK_TICK)
                                 host.beginEdit(dragStickyPage)
@@ -1716,6 +1795,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         removeCallbacks(autoConvertRunnable)
         removeCallbacks(linkLongRunnable)
         removeCallbacks(textPressRunnable)
+        removeCallbacks(penEmptyPressRunnable)
         removeCallbacks(hoverTimeout)
         removeCallbacks(wetAssertionRunnable)
         pendingClick?.let { removeCallbacks(it) }; pendingClick = null
@@ -2270,6 +2350,9 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         removeCallbacks(circleHoldRunnable)
         removeCallbacks(linkLongRunnable)
         removeCallbacks(textPressRunnable)
+        removeCallbacks(penEmptyPressRunnable)
+        fingerGrabPointer = -1
+        selectionScrollPointer = -1
         feel.stop()
         if (clearWet) {
             cancelActiveWetStroke(cancelWetEvent)
@@ -2340,6 +2423,26 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
 
     internal var textSelecting = false
     internal var textPage = 0
+    private fun isEmptyPaper(pageIndex: Int, screenX: Float, screenY: Float): Boolean {
+        val page = pages.getOrNull(pageIndex) ?: return false
+        val (x, y) = toLocal(screenX, screenY, pageIndex)
+        if (x !in 0f..page.width || y !in 0f..page.height) return false
+        return page.items.none { it.bounds.contains(x, y) }
+    }
+
+    private val penEmptyPressRunnable = Runnable {
+        if (stylusPointer == -1 || !isEmptyPaper(activePage, downX, downY)) return@Runnable
+        val page = activePage
+        val x = downX
+        val y = downY
+        val (localX, localY) = toLocal(x, y, page)
+        cancelCurrent(lastTouchEvent)
+        mode = Mode.IGNORE
+        host.onPenActive(false)
+        buzz()
+        host.onEmptyPageLongPress(page, localX, localY, x, y)
+    }
+
     internal val textPressRunnable = Runnable {
         if (fingerMoved || maxFingers != 1 || mode != Mode.PAN) return@Runnable
         val (dx, dy) = toDoc(fingerStartX, fingerStartY)
@@ -2350,14 +2453,11 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             scroller.forceFinished(true)
             buzz()
             layer.invalidate()
-        } else if (!readOnly && pi in pages.indices) {
-            val hitAnyItem = pages[pi].items.any { it.bounds.contains(lx, ly) }
-            if (!hitAnyItem) {
-                mode = Mode.NONE
-                velocity?.recycle(); velocity = null
-                buzz(HapticFeedbackConstants.LONG_PRESS)
-                host.onEmptyPageLongPress(pi, lx, ly, fingerStartX, fingerStartY)
-            }
+        } else if (!readOnly && isEmptyPaper(pi, fingerStartX, fingerStartY)) {
+            mode = Mode.NONE
+            velocity?.recycle(); velocity = null
+            buzz(HapticFeedbackConstants.LONG_PRESS)
+            host.onEmptyPageLongPress(pi, lx, ly, fingerStartX, fingerStartY)
         }
     }
 

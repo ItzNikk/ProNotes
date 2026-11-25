@@ -1023,11 +1023,11 @@ class PageRenderer(private val noteDir: File?) {
         val convertedInkIds = allItems.filterIsInstance<WriteBoxItem>().filter { it.isConverted }.flatMap { it.inkItemIds }.toSet()
         val collapsedStickyRects = allItems.filterIsInstance<StickyItem>()
             .filter { it.collapsed }
-            .map { RectF(it.x, it.y, it.x + it.w, it.y + it.h) }
+            .map { it.paperBounds }
         for (item in ordered) {
             if (item is MindNodeItem && item.id in hiddenNodes) continue
             if (item is InkItem && item.id in convertedInkIds) continue
-            if (item is InkItem && collapsedStickyRects.isNotEmpty()) {
+            if ((item is InkItem || item is TextItem) && collapsedStickyRects.isNotEmpty()) {
                 val cx = item.bounds.centerX()
                 val cy = item.bounds.centerY()
                 if (collapsedStickyRects.any { it.contains(cx, cy) }) continue
