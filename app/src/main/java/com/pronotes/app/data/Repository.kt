@@ -95,7 +95,7 @@ class Repository private constructor(private val context: Context) {
                         "• Keyboard Mode: Tap the Keyboard icon in the top bar for full-page rich note typing.\n" +
                         "• Eraser Filters: Choose whether to erase pen ink, highlighter, shapes, text, stickies, or images.\n" +
                         "• Multi-Format Import: Import PDF, Word (.docx), PowerPoint (.pptx), Excel/Sheets (.xlsx/.csv), and EPUB.\n" +
-                        "• Reader Mode: Enjoy curved page-turn physics with optional paper-turn audio.",
+                        "• Kindle Mode: Enjoy curved page-turn physics with optional paper-turn audio.",
                     x = 76f,
                     y = 148f,
                     size = 24f,
@@ -153,7 +153,7 @@ class Repository private constructor(private val context: Context) {
                     y = 880f,
                     w = 230f,
                     h = 78f,
-                    label = "Reader Mode & Flashcards",
+                    label = "Kindle Mode & Flashcards",
                     parentId = 1001L,
                     color = 0xFFF2994A.toInt(),
                     shape = "rounded",

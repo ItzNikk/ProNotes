@@ -62,20 +62,57 @@ fun WorkspaceIcon(icon: ProIcon, tint: Color, modifier: Modifier = Modifier) {
     else ProIconView(icon, tint, modifier)
 }
 
-/** A resize corner and rotation arrow explain both operations in one compact glyph. */
+/** Clean resize-and-rotate selection glyph: framed box with corner nodes, diagonal scale arrow, and curved rotation arc. */
 @Composable
 fun TransformSelectionIcon(tint: Color, modifier: Modifier = Modifier) {
     Canvas(modifier) {
         scale(size.width / 24f, size.height / 24f, pivot = Offset.Zero) {
-            val stroke = Stroke(1.7f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-            val corners = Path().apply {
-                moveTo(3f, 10f); lineTo(3f, 19f); lineTo(12f, 19f)
-                moveTo(8f, 14f); lineTo(16f, 6f)
-                moveTo(11f, 6f); lineTo(16f, 6f); lineTo(16f, 11f)
+            val stroke = Stroke(1.75f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            val thin = Stroke(1.55f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+
+            // Clean selection frame on lower-left quadrant (leaves top-right open for rotation arc)
+            val frame = Path().apply {
+                moveTo(3.5f, 11.5f)
+                lineTo(3.5f, 19.5f)
+                lineTo(14.5f, 19.5f)
+                lineTo(14.5f, 14.5f)
+                moveTo(3.5f, 8.5f)
+                lineTo(10.5f, 8.5f)
             }
-            drawPath(corners, tint, style = stroke)
-            drawArc(tint, -30f, 180f, false, Offset(9f, 11f), Size(12f, 12f), style = stroke)
-            drawPath(Path().apply { moveTo(8f, 17f); lineTo(10f, 21f); lineTo(14f, 19f) }, tint, style = stroke)
+            drawPath(frame, tint, style = thin)
+
+            // Crisp corner resize handle nodes
+            drawCircle(tint, radius = 1.65f, center = Offset(3.5f, 8.5f))
+            drawCircle(tint, radius = 1.65f, center = Offset(3.5f, 19.5f))
+            drawCircle(tint, radius = 1.65f, center = Offset(14.5f, 19.5f))
+
+            // Diagonal resize arrow inside frame
+            val resize = Path().apply {
+                moveTo(6.6f, 16.4f)
+                lineTo(12.2f, 10.8f)
+                moveTo(9.4f, 10.8f)
+                lineTo(12.2f, 10.8f)
+                lineTo(12.2f, 13.6f)
+            }
+            drawPath(resize, tint, style = stroke)
+
+            // Graceful clockwise rotation arc sweeping cleanly around top-right corner
+            drawArc(
+                color = tint,
+                startAngle = -88f,
+                sweepAngle = 112f,
+                useCenter = false,
+                topLeft = Offset(7.5f, 3.0f),
+                size = Size(13.0f, 13.0f),
+                style = stroke,
+            )
+            // Crisp rotation arrowhead at arc end (~24 deg)
+            val rotHead = Path().apply {
+                moveTo(17.4f, 11.1f)
+                lineTo(19.9f, 12.6f)
+                lineTo(21.4f, 9.9f)
+            }
+            drawPath(rotHead, tint, style = stroke)
         }
     }
 }

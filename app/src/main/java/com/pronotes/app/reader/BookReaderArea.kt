@@ -383,7 +383,7 @@ fun BookReaderHubScreen(
                     )
                 }
                 Column(Modifier.weight(1f)) {
-                    com.pronotes.app.ui.GradientTitle("Reading room",
+                    com.pronotes.app.ui.GradientTitle("Kindle Mode",
                         MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold))
                     Text(
                         "${pdfBooks.size} PDF books · ${noteBooks.size} notebooks",

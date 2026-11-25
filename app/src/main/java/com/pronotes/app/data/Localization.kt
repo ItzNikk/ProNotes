@@ -122,7 +122,7 @@ data class AppStrings(
     val favorites: String = "Favorites",
     val recent: String = "Recent",
     val trash: String = "Trash",
-    val readerMode: String = "Reader Mode",
+    val readerMode: String = "Kindle Mode",
     val studyFriendsAndFiles: String = "Study Friends & Files",
     val settings: String = "Settings",
     val searchPrompt: String = "What are you looking for?",

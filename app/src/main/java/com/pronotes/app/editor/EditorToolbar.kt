@@ -396,7 +396,7 @@ fun FloatingToolbarPill(
     settings: AppSettings,
     darkUi: Boolean,
     area: IntSize,
-    overlayFade: Float,
+    overlayFade: () -> Float,
     activePopoverTool: Tool?,
     onTogglePopover: (Tool) -> Unit,
     onVideo: () -> Unit = {},
@@ -481,7 +481,7 @@ fun FloatingToolbarPill(
         modifier = modifier
             .then(if (isVertical) Modifier.width(66.dp) else Modifier.widthIn(max = maxDockW))
             .height(if (isVertical) maxDockH else 62.dp)
-            .graphicsLayer { alpha = overlayFade }
+            .graphicsLayer { alpha = overlayFade() }
             .pointerInput(Unit) {
                 var accumDelta = Offset.Zero
                 detectDragGestures(

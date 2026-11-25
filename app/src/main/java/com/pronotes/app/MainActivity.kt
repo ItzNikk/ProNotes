@@ -40,10 +40,13 @@ class MainActivity : ComponentActivity() {
     private var widgetAction by mutableStateOf("")
     private var pendingImport by mutableStateOf<PendingImport?>(null)
 
+    private var displayListener: android.hardware.display.DisplayManager.DisplayListener? = null
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) enableHighRefreshRate()
     }
+
     private fun enableHighRefreshRate() {
         runCatching {
             val disp = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
@@ -53,14 +56,22 @@ class MainActivity : ComponentActivity() {
                 windowManager.defaultDisplay
             } ?: return
             val cur = disp.mode
-            val best = disp.supportedModes
+            val modes = disp.supportedModes
+            val best = modes
                 .filter { it.physicalWidth == cur.physicalWidth && it.physicalHeight == cur.physicalHeight }
                 .maxByOrNull { it.refreshRate }
+                ?: modes.maxByOrNull { it.refreshRate }
             if (best != null) {
-                window.attributes = window.attributes.apply {
-                    preferredDisplayModeId = best.modeId
-                    preferredRefreshRate = best.refreshRate
+                val lp = window.attributes
+                if (lp.preferredDisplayModeId != best.modeId || lp.preferredRefreshRate != best.refreshRate) {
+                    lp.preferredDisplayModeId = best.modeId
+                    lp.preferredRefreshRate = best.refreshRate
+                    window.attributes = lp
                 }
+            }
+            // Android 15+: keep Adaptive Refresh Rate boosted to max Hz on touch & stylus input
+            if (android.os.Build.VERSION.SDK_INT >= 35) {
+                window.frameRateBoostOnTouchEnabled = true
             }
         }
     }
@@ -69,6 +80,17 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         enableHighRefreshRate()
+        window.decorView.post { enableHighRefreshRate() }
+        val dm = getSystemService(android.hardware.display.DisplayManager::class.java)
+        if (dm != null) {
+            val listener = object : android.hardware.display.DisplayManager.DisplayListener {
+                override fun onDisplayAdded(displayId: Int) = enableHighRefreshRate()
+                override fun onDisplayRemoved(displayId: Int) = Unit
+                override fun onDisplayChanged(displayId: Int) = enableHighRefreshRate()
+            }
+            displayListener = listener
+            dm.registerDisplayListener(listener, null)
+        }
         com.pronotes.app.data.CloudSync.init(this)
         if (savedInstanceState == null || intent.action in setOf(Intent.ACTION_VIEW, Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE)) {
             handleIntent(intent)
@@ -163,7 +185,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        enableHighRefreshRate()
         com.pronotes.app.data.Updater.resumeIfWaiting(this)
+    }
+
+    override fun onDestroy() {
+        displayListener?.let {
+            runCatching { getSystemService(android.hardware.display.DisplayManager::class.java)?.unregisterDisplayListener(it) }
+        }
+        displayListener = null
+        super.onDestroy()
     }
 
     override fun onTrimMemory(level: Int) {

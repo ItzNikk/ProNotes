@@ -70,27 +70,37 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.rounded.AccessTime
+import androidx.compose.material.icons.rounded.AutoStories
+import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.ContentPaste
+import androidx.compose.material.icons.rounded.ContentPasteGo
 import androidx.compose.material.icons.rounded.CreateNewFolder
+import androidx.compose.material.icons.rounded.DashboardCustomize
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Draw
 import androidx.compose.material.icons.rounded.DriveFileMove
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.FolderSpecial
+import androidx.compose.material.icons.rounded.Gesture
 import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Hub
 import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.LocalLibrary
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
+import androidx.compose.material.icons.rounded.Storefront
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Button
@@ -725,11 +735,11 @@ fun LibraryScreen(
                                 }
                                 Spacer(Modifier.width(6.dp))
                             }
-                            LibraryCreateMenu(
-                                label = appStrings.newAction,
-                                items = listOf(
-                                    AppMenuItem(appStrings.notebook, icon = { Icon(Icons.Rounded.Description, null, Modifier.size(18.dp)) }) { newNotebook = true },
-                                    AppMenuItem(appStrings.infiniteWhiteboard, icon = { Icon(Icons.Rounded.Draw, null, Modifier.size(18.dp)) }) {
+                            val guideLabel = stringResource(R.string.library_guide_title)
+                            val createItems = remember(appStrings, folderId, newBookPrefs, guideLabel) {
+                                listOf(
+                                    AppMenuItem(appStrings.notebook, icon = { Icon(Icons.Rounded.AutoStories, null, Modifier.size(19.dp)) }) { newNotebook = true },
+                                    AppMenuItem(appStrings.infiniteWhiteboard, icon = { Icon(Icons.Rounded.Gesture, null, Modifier.size(19.dp)) }) {
                                         scope.launch {
                                             val k = PagePreset.UNITS_PER_MM
                                             val p = PagePreset.WHITEBOARD
@@ -740,7 +750,7 @@ fun LibraryScreen(
                                             onOpen(id)
                                         }
                                     },
-                                    AppMenuItem(appStrings.conceptMapCanvas, icon = { Icon(Icons.Rounded.Hub, null, Modifier.size(18.dp)) }) {
+                                    AppMenuItem(appStrings.conceptMapCanvas, icon = { Icon(Icons.Rounded.Hub, null, Modifier.size(19.dp)) }) {
                                         scope.launch {
                                             val k = PagePreset.UNITS_PER_MM
                                             val p = PagePreset.WHITEBOARD
@@ -769,7 +779,7 @@ fun LibraryScreen(
                                             onOpen(id)
                                         }
                                     },
-                                    AppMenuItem(appStrings.quickNote, icon = { Icon(Icons.Rounded.Edit, null, Modifier.size(18.dp)) }) {
+                                    AppMenuItem(appStrings.quickNote, icon = { Icon(Icons.Rounded.Bolt, null, Modifier.size(19.dp)) }) {
                                         scope.launch {
                                             val k = PagePreset.UNITS_PER_MM
                                             val defaultPreset = newBookPrefs.defaultPreset
@@ -788,22 +798,26 @@ fun LibraryScreen(
                                             )
                                         }
                                     },
-                                    AppMenuItem("Notebook templates", icon = { Icon(Icons.Rounded.GridView, null, Modifier.size(18.dp)) }) { destination = "Templates" },
-                                    AppMenuItem("Online books", icon = { Icon(Icons.AutoMirrored.Outlined.MenuBook, null, Modifier.size(18.dp)) }) { destination = "Books" },
-                                    AppMenuItem("Community marketplace", icon = { Icon(Icons.Rounded.Groups, null, Modifier.size(18.dp)) }) { destination = "Marketplace" },
-                                    AppMenuItem("PDF Station", icon = { Icon(Icons.Rounded.Description, null, Modifier.size(18.dp)) }) { destination = "PDF Station" },
-                                    AppMenuItem(stringResource(R.string.library_guide_title), icon = { Icon(Icons.AutoMirrored.Outlined.MenuBook, null, Modifier.size(18.dp)) }) { showGuide = true },
-                                    AppMenuItem(appStrings.folder, icon = { Icon(Icons.Rounded.CreateNewFolder, null, Modifier.size(18.dp)) }) { newFolder = true },
+                                    AppMenuItem("Notebook templates", icon = { Icon(Icons.Rounded.DashboardCustomize, null, Modifier.size(19.dp)) }) { destination = "Templates" },
+                                    AppMenuItem("Online books", icon = { Icon(Icons.Rounded.LocalLibrary, null, Modifier.size(19.dp)) }) { destination = "Books" },
+                                    AppMenuItem("Community marketplace", icon = { Icon(Icons.Rounded.Storefront, null, Modifier.size(19.dp)) }) { destination = "Marketplace" },
+                                    AppMenuItem("PDF Station", icon = { Icon(Icons.Rounded.PictureAsPdf, null, Modifier.size(19.dp)) }) { destination = "PDF Station" },
+                                    AppMenuItem(guideLabel, icon = { Icon(Icons.Rounded.Explore, null, Modifier.size(19.dp)) }) { showGuide = true },
+                                    AppMenuItem(appStrings.folder, icon = { Icon(Icons.Rounded.CreateNewFolder, null, Modifier.size(19.dp)) }) { newFolder = true },
                                     AppMenuItem(
                                         if (newBookPrefs.storageFolderLabel.isBlank()) "Choose Storage Folder…"
                                         else "Storage: ${newBookPrefs.storageFolderLabel}",
-                                        icon = { Icon(Icons.Rounded.Folder, null, Modifier.size(18.dp)) },
+                                        icon = { Icon(Icons.Rounded.FolderSpecial, null, Modifier.size(19.dp)) },
                                     ) { pickStorageFolder.launch(null) },
-                                    AppMenuItem(appStrings.importFiles, icon = { Icon(Icons.Rounded.UploadFile, null, Modifier.size(18.dp)) }) {
+                                    AppMenuItem(appStrings.importFiles, icon = { Icon(Icons.Rounded.UploadFile, null, Modifier.size(19.dp)) }) {
                                         importFilesLauncher.launch(arrayOf("*/*"))
                                     },
-                                    AppMenuItem("Paste notes from another app…", icon = { Icon(Icons.Rounded.ContentPaste, null, Modifier.size(18.dp)) }) { pasteImportOpen = true },
-                                ),
+                                    AppMenuItem("Paste notes from another app…", icon = { Icon(Icons.Rounded.ContentPasteGo, null, Modifier.size(19.dp)) }) { pasteImportOpen = true },
+                                )
+                            }
+                            LibraryCreateMenu(
+                                label = appStrings.newAction,
+                                items = createItems,
                             )
                         }
 

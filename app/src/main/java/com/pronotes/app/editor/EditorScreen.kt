@@ -211,6 +211,8 @@ import com.pronotes.app.ui.appCardShape
 import com.pronotes.app.ui.appPillShape
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -262,7 +264,11 @@ fun EditorScreen(
     val settings by vm.settingsFlow.collectAsStateWithLifecycle()
     val store = remember { SettingsStore.get(context) }
     val repo = remember { Repository.get(context) }
-    val library by repo.library.collectAsStateWithLifecycle()
+    val activeNotebookTitles by remember(repo) {
+        repo.library
+            .map { lib -> lib.notebooks.filter { it.deletedAt == null }.associate { it.id to it.title } }
+            .distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = emptyMap())
     val tabs by store.tabs.collectAsStateWithLifecycle()
     val density = LocalDensity.current.density
     val scope = rememberCoroutineScope()
@@ -391,8 +397,8 @@ fun EditorScreen(
     }
 
     LaunchedEffect(noteId) { store.openTab(noteId) }
-    LaunchedEffect(library) {
-        store.retainTabs(library.notebooks.filter { it.deletedAt == null }.map { it.id }.toSet())
+    LaunchedEffect(activeNotebookTitles.keys) {
+        if (activeNotebookTitles.isNotEmpty()) store.retainTabs(activeNotebookTitles.keys)
     }
     LaunchedEffect(activePopoverTool, quickInsert, wheelAt) {
         vm.cardOpen = activePopoverTool != null || quickInsert != null || wheelAt != null
@@ -527,9 +533,9 @@ fun EditorScreen(
     val tabStripBg = Color.Black
     val topBarBg = Color.Black
     val topBarFg = Color.White
-    val resolvedTabs = remember(tabs, library.notebooks, noteId, vm.title) {
+    val resolvedTabs = remember(tabs, activeNotebookTitles, noteId, vm.title) {
         val list = tabs.mapNotNull { id ->
-            library.notebooks.firstOrNull { it.id == id && it.deletedAt == null }?.let { id to it.title }
+            activeNotebookTitles[id]?.let { id to it }
         }
         if (list.any { it.first == noteId }) list else list + (noteId to vm.title)
     }
@@ -657,7 +663,7 @@ fun EditorScreen(
                                     )
                                 },
                                 onSplit = {
-                                    splitId = if (splitId != null) null else library.notebooks.firstOrNull { it.deletedAt == null && it.id != noteId }?.id ?: noteId
+                                    splitId = if (splitId != null) null else activeNotebookTitles.keys.firstOrNull { it != noteId } ?: noteId
                                 },
                                 onPageImage = {
                                     pickBackground.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
@@ -833,32 +839,12 @@ fun EditorScreen(
                         )
                     }
 
-                    val inkGlow = vm.handwritingGlow
-                    val glowAlpha = animateFloatAsState(
-                        targetValue = if (inkGlow != null && !reduceMotion && !reduceEffects) 1f else 0f,
-                        animationSpec = tween(85),
-                        label = "Handwriting conversion glow",
+                    EditorHandwritingGlowOverlay(
+                        vm = vm,
+                        canvas = canvas,
+                        reduceMotion = reduceMotion,
+                        reduceEffects = reduceEffects,
                     )
-                    if (inkGlow != null && !reduceMotion && !reduceEffects) {
-                        val glowColor = MaterialTheme.colorScheme.primary
-                        val page = vm.pages.indexOfFirst { it.id == inkGlow.first }
-                        Canvas(Modifier.matchParentSize()) {
-                            val bounds = canvas?.pageToScreen(page, inkGlow.second) ?: return@Canvas
-                            val center = Offset(bounds.centerX(), bounds.centerY())
-                            val radiusX = bounds.width() / 2f + 20.dp.toPx()
-                            val radiusY = bounds.height() / 2f + 16.dp.toPx()
-                            val brush = Brush.radialGradient(
-                                listOf(glowColor.copy(alpha = 0.54f), glowColor.copy(alpha = 0.20f), Color.Transparent),
-                                center = center,
-                                radius = radiusX,
-                            )
-                            withTransform({
-                                scale(1f, radiusY / radiusX, center)
-                            }) {
-                                drawCircle(brush, radius = radiusX, center = center, alpha = glowAlpha.value)
-                            }
-                        }
-                    }
 
                     com.pronotes.app.ui.TopScrollCloudyBackdrop(
                         scrolled = !focus,
@@ -868,9 +854,10 @@ fun EditorScreen(
                         modifier = Modifier.align(Alignment.TopCenter),
                     )
 
-                    val overlayFade by animateFloatAsState(
+                    // State<Float> is read ONLY inside graphicsLayer blocks below — zero recompositions on pen down/up!
+                    val overlayFadeState = animateFloatAsState(
                         targetValue = if (vm.penActive) 0.14f else 1f,
-                        animationSpec = if (reduceMotion) androidx.compose.animation.core.snap() else tween(260),
+                        animationSpec = if (reduceMotion) androidx.compose.animation.core.snap() else tween(200),
                         label = "ov",
                     )
 
@@ -891,7 +878,7 @@ fun EditorScreen(
                             modifier = Modifier
                                 .align(Alignment.TopStart)
                                 .padding(start = 12.dp, top = 12.dp)
-                                .graphicsLayer { alpha = overlayFade },
+                                .graphicsLayer { alpha = overlayFadeState.value },
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -1039,9 +1026,9 @@ fun EditorScreen(
                             )
                         }
 
-                        val animatedDockOffset by androidx.compose.animation.core.animateIntOffsetAsState(
+                        val animatedDockOffset = androidx.compose.animation.core.animateIntOffsetAsState(
                             targetValue = activeDockOffset,
-                            animationSpec = if (dockDragging || reduceMotion) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 0.82f, stiffness = 460f),
+                            animationSpec = if (dockDragging || reduceMotion) androidx.compose.animation.core.snap() else com.pronotes.app.ui.ProMotion.snappySpring(false, com.pronotes.app.ui.LocalPerformanceMode.current, com.pronotes.app.ui.LocalMotionStyle.current),
                             label = "dockOffset",
                         )
                         FloatingToolbarPill(
@@ -1049,7 +1036,7 @@ fun EditorScreen(
                             settings = settings,
                             darkUi = darkUi,
                             area = areaSize,
-                            overlayFade = overlayFade,
+                            overlayFade = { overlayFadeState.value },
                             activePopoverTool = activePopoverTool,
                             onTogglePopover = { t -> activePopoverTool = if (activePopoverTool == t) null else t },
                             onDragStart = {
@@ -1105,7 +1092,7 @@ fun EditorScreen(
                             onResetPosition = resetToolbarPos,
                             onVideo = { videoUrl = "" },
                             modifier = Modifier
-                                .offset { animatedDockOffset }
+                                .offset { animatedDockOffset.value }
                                 .onSizeChanged { dockSize = it },
                         )
                     }
@@ -1261,19 +1248,11 @@ fun EditorScreen(
                         }
                     }
 
-                    // Zoom indicator pill
-                    vm.zoomPercent?.let { z ->
-                        AppSurface(
-                            role = SurfaceRole.Frost,
-                            containerColor = Color(0xE01B1F2A),
-                            contentColor = Color.White,
-                            shape = appPillShape(),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                            modifier = Modifier.align(Alignment.TopStart).padding(start = 16.dp, top = 48.dp),
-                        ) {
-                            Text("$z%", style = MaterialTheme.typography.titleMedium, color = Color.White)
-                        }
-                    }
+                    // Zoom indicator pill (scoped so pinch-zoom never recomposes EditorScreen)
+                    EditorZoomIndicatorOverlay(
+                        vm = vm,
+                        modifier = Modifier.align(Alignment.TopStart).padding(start = 16.dp, top = 48.dp),
+                    )
 
                     // Exit Focus Mode button
                     if (focus) {
@@ -1408,7 +1387,7 @@ fun EditorScreen(
                                 .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()
                                 .padding(bottom = 18.dp)
-                                .graphicsLayer { alpha = overlayFade },
+                                .graphicsLayer { alpha = overlayFadeState.value },
                         ) {
                             Row(
                                 Modifier.horizontalScroll(rememberScrollState()),
@@ -1467,42 +1446,18 @@ fun EditorScreen(
                         }
                     }
 
-                    // SVG Bottom-Left Page Indicator Pill ("X of Y")
-                    if (!focus && settings.pageNumbers && vm.pages.isNotEmpty()) {
-                        val pagePillBg = if (darkUi) Color(0xFF2A2A2A) else Color(0xFFE8E5DC)
-                        val pagePillFg = if (darkUi) Color.White else Color(0xFF1F2421)
-                        AppSurface(
-                            role = SurfaceRole.Capsule,
-                            containerColor = pagePillBg,
-                            contentColor = pagePillFg,
-                            shape = appPillShape(),
-                            shadowElevation = 4.dp,
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
-                            onClick = { goTo = true },
+                    // Bottom-Left Page Indicator Pill (scoped so page turns never recompose EditorScreen)
+                    if (!focus && settings.pageNumbers) {
+                        EditorPageIndicatorPill(
+                            vm = vm,
+                            darkUi = darkUi,
+                            overlayFade = { overlayFadeState.value },
+                            onGoTo = { goTo = true },
                             modifier = Modifier
                                 .align(Alignment.BottomStart)
                                 .navigationBarsPadding()
-                                .padding(start = 16.dp, bottom = 16.dp)
-                                .graphicsLayer { alpha = overlayFade },
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                            ) {
-                                if (vm.currentPage?.bookmarked == true) {
-                                    ProIconView(ProIcon.BOOKMARK, Color(0xFFE34948), Modifier.size(13.dp), ink = Color(0xFFE34948))
-                                }
-                                Text(
-                                    text = if (vm.currentPage?.isWhiteboard == true) {
-                                        "Board · ${vm.pageIndex + 1} of ${vm.pages.size}"
-                                    } else {
-                                        "${vm.pageIndex + 1} of ${vm.pages.size}"
-                                    },
-                                    style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
-                                    fontWeight = FontWeight.Medium,
-                                )
-                            }
-                        }
+                                .padding(start = 16.dp, bottom = 16.dp),
+                        )
                     }
 
                     // Draggable Study Timer (defaulting to bottom-right 0.86, 0.92)
@@ -1656,7 +1611,7 @@ fun EditorScreen(
                         noteId = other,
                         mainPageIndex = vm.pageIndex,
                         scrollDirection = settings.scroll,
-                        others = library.notebooks.filter { it.deletedAt == null && it.id != noteId }.map { it.id to it.title },
+                        others = activeNotebookTitles.entries.filter { it.key != noteId }.map { it.key to it.value },
                         onPick = { splitId = it },
                         onOpen = { switchTo(it) },
                         onSwap = {
@@ -1778,4 +1733,100 @@ fun EditorScreen(
 }
 
 // Extracted panels in EditorPanels.kt, SplitViewPanel.kt, and EditorDialogs.kt
+
+@Composable
+private fun EditorHandwritingGlowOverlay(
+    vm: EditorViewModel,
+    canvas: NoteCanvasView?,
+    reduceMotion: Boolean,
+    reduceEffects: Boolean,
+) {
+    val inkGlow = vm.handwritingGlow
+    if (inkGlow == null || reduceMotion || reduceEffects) return
+    val glowAlpha = animateFloatAsState(
+        targetValue = 1f,
+        animationSpec = tween(85),
+        label = "Handwriting conversion glow",
+    )
+    val glowColor = MaterialTheme.colorScheme.primary
+    val page = vm.pages.indexOfFirst { it.id == inkGlow.first }
+    Canvas(Modifier.fillMaxSize()) {
+        val bounds = canvas?.pageToScreen(page, inkGlow.second) ?: return@Canvas
+        val center = Offset(bounds.centerX(), bounds.centerY())
+        val radiusX = bounds.width() / 2f + 20.dp.toPx()
+        val radiusY = bounds.height() / 2f + 16.dp.toPx()
+        val brush = Brush.radialGradient(
+            listOf(glowColor.copy(alpha = 0.54f), glowColor.copy(alpha = 0.20f), Color.Transparent),
+            center = center,
+            radius = radiusX,
+        )
+        withTransform({
+            scale(1f, radiusY / radiusX, center)
+        }) {
+            drawCircle(brush, radius = radiusX, center = center, alpha = glowAlpha.value)
+        }
+    }
+}
+
+@Composable
+private fun EditorZoomIndicatorOverlay(
+    vm: EditorViewModel,
+    modifier: Modifier = Modifier,
+) {
+    val z = vm.zoomPercent ?: return
+    AppSurface(
+        role = SurfaceRole.Frost,
+        containerColor = Color(0xE01B1F2A),
+        contentColor = Color.White,
+        shape = appPillShape(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+        modifier = modifier,
+    ) {
+        Text("$z%", style = MaterialTheme.typography.titleMedium, color = Color.White)
+    }
+}
+
+@Composable
+private fun EditorPageIndicatorPill(
+    vm: EditorViewModel,
+    darkUi: Boolean,
+    overlayFade: () -> Float,
+    onGoTo: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val pages = vm.pages
+    if (pages.isEmpty()) return
+    val current = vm.currentPage
+    val pagePillBg = if (darkUi) Color(0xFF2A2A2A) else Color(0xFFE8E5DC)
+    val pagePillFg = if (darkUi) Color.White else Color(0xFF1F2421)
+    AppSurface(
+        role = SurfaceRole.Capsule,
+        containerColor = pagePillBg,
+        contentColor = pagePillFg,
+        shape = appPillShape(),
+        shadowElevation = 4.dp,
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
+        onClick = onGoTo,
+        modifier = modifier.graphicsLayer { alpha = overlayFade() },
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            if (current?.bookmarked == true) {
+                ProIconView(ProIcon.BOOKMARK, Color(0xFFE34948), Modifier.size(13.dp), ink = Color(0xFFE34948))
+            }
+            Text(
+                text = if (current?.isWhiteboard == true) {
+                    "Board · ${vm.pageIndex + 1} of ${pages.size}"
+                } else {
+                    "${vm.pageIndex + 1} of ${pages.size}"
+                },
+                style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
+                fontWeight = FontWeight.Medium,
+            )
+        }
+    }
+}
+
 

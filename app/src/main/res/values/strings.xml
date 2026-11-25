@@ -102,7 +102,7 @@
     <string name="library_guide_write_title">Write, type, and rearrange</string>
     <string name="library_guide_write_body">Choose Pen for handwriting or Keyboard for typing. Use Lasso to circle a selection and move it. Tap Undo to reverse your last edit.</string>
     <string name="library_guide_read_title">Bring in your reading</string>
-    <string name="library_guide_read_body">Use + → Import files to add a PDF to your library. Open it as a notebook to write on it, or switch to Reader Mode to turn pages like a book.</string>
+    <string name="library_guide_read_body">Use + → Import files to add a PDF to your library. Open it as a notebook to write on it, or switch to Kindle Mode to turn pages like a book.</string>
     <string name="library_guide_close">Close</string>
     <string name="library_guide_create">Create notebook</string>
     <string name="library_guide_next">Next</string>

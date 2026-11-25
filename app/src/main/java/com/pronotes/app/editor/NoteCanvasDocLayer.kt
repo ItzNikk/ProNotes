@@ -137,12 +137,44 @@ internal class NoteCanvasDocLayer(
         color = 0xEE3D6CF4.toInt()
     }
     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt() }
-    private val handleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+    private val handleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        setShadowLayer(4f * owner.density, 0f, 1.5f * owner.density, 0x38000000)
+    }
+    private val handleActiveFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF2563EB.toInt()
+        setShadowLayer(5f * owner.density, 0f, 2f * owner.density, 0x482563EB)
+    }
     private val selRing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1.8f * owner.density
-        color = 0xFF3D6CF4.toInt()
+        strokeWidth = 2.0f * owner.density
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        color = 0xFF2563EB.toInt()
     }
+    private val handleGlyph = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.7f * owner.density
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        color = 0xFF2563EB.toInt()
+    }
+    private val handleGlyphActive = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.7f * owner.density
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        color = Color.WHITE
+    }
+    private val handleGlyphFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0xFF2563EB.toInt()
+    }
+    private val handleGlyphActiveFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.WHITE
+    }
+    private val rotateArrowPath = Path()
     private val eraserPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 1.5f * owner.density
@@ -745,29 +777,61 @@ internal class NoteCanvasDocLayer(
         val rad = 10f * density
         canvas.drawRoundRect(sb, rad, rad, selHaloPaint)
         canvas.drawRoundRect(sb, rad, rad, selPaint)
-        val hr = 6f * density
+
+        // Elevated rotate handle button with curved arrow + crisp arrowhead
+        val rotR = 11.5f * density
+        val rx = sb.centerX()
         val ry = sb.top - owner.rotateHandleOffset()
-        canvas.drawLine(sb.centerX(), sb.top, sb.centerX(), ry + hr, handlePaint.apply { strokeWidth = 1.5f * density })
-        canvas.drawCircle(sb.centerX(), ry, hr + 2f * density, handleFill)
-        canvas.drawCircle(sb.centerX(), ry, hr + 2f * density, selRing)
-        tmpArcRect.set(sb.centerX() - hr * 0.6f, ry - hr * 0.6f, sb.centerX() + hr * 0.6f, ry + hr * 0.6f)
-        canvas.drawArc(tmpArcRect, -60f, 280f, false, selRing)
-        // Corner handles (zero collection allocation)
-        canvas.drawCircle(sb.left, sb.top, hr, handleFill); canvas.drawCircle(sb.left, sb.top, hr, selRing)
-        canvas.drawCircle(sb.right, sb.top, hr, handleFill); canvas.drawCircle(sb.right, sb.top, hr, selRing)
-        canvas.drawCircle(sb.left, sb.bottom, hr, handleFill); canvas.drawCircle(sb.left, sb.bottom, hr, selRing)
-        canvas.drawCircle(sb.right, sb.bottom, hr, handleFill); canvas.drawCircle(sb.right, sb.bottom, hr, selRing)
-        val pw = 8f * density
-        val ph = 3.5f * density
-        fun drawEdgeHandle(l: Float, t: Float, r: Float, b: Float) {
-            tmpHandleRect.set(l, t, r, b)
-            canvas.drawRoundRect(tmpHandleRect, ph, ph, handleFill)
-            canvas.drawRoundRect(tmpHandleRect, ph, ph, selRing)
+        canvas.drawLine(rx, sb.top, rx, ry + rotR, handlePaint.apply { strokeWidth = 1.8f * density })
+        val rotActive = owner.liveMatrix != null && owner.grab == NoteCanvasView.Grab.ROTATE
+        canvas.drawCircle(rx, ry, rotR, if (rotActive) handleActiveFill else handleFill)
+        if (!rotActive) canvas.drawCircle(rx, ry, rotR, selRing)
+        val iconR = rotR * 0.48f
+        val rStroke = if (rotActive) handleGlyphActive else handleGlyph
+        val rFill = if (rotActive) handleGlyphActiveFill else handleGlyphFill
+        tmpArcRect.set(rx - iconR, ry - iconR, rx + iconR, ry + iconR)
+        canvas.drawArc(tmpArcRect, -62f, 268f, false, rStroke)
+        // Arrowhead at end of arc (-62 + 268 = 206 deg -> pointing up-right along tangent)
+        val tipAngle = Math.toRadians(-62.0)
+        val tipX = rx + (iconR * cos(tipAngle)).toFloat()
+        val tipY = ry + (iconR * sin(tipAngle)).toFloat()
+        val ah = 3.2f * density
+        rotateArrowPath.reset()
+        rotateArrowPath.moveTo(tipX + ah * 0.55f, tipY + ah * 0.65f)
+        rotateArrowPath.lineTo(tipX - ah * 0.85f, tipY + ah * 0.35f)
+        rotateArrowPath.lineTo(tipX + ah * 0.25f, tipY - ah * 0.85f)
+        rotateArrowPath.close()
+        canvas.drawPath(rotateArrowPath, rFill)
+
+        // Corner resize handles with elevated circular pill + subtle diagonal resize cue
+        val hr = 7.6f * density
+        val scaleActive = owner.liveMatrix != null && owner.grab == NoteCanvasView.Grab.SCALE
+        val cFill = if (scaleActive) handleActiveFill else handleFill
+        val cGlyph = if (scaleActive) handleGlyphActive else handleGlyph
+        fun drawCornerHandle(cx: Float, cy: Float, diagSign: Float) {
+            canvas.drawCircle(cx, cy, hr, cFill)
+            if (!scaleActive) canvas.drawCircle(cx, cy, hr, selRing)
+            val d = hr * 0.34f
+            canvas.drawLine(cx - d, cy - d * diagSign, cx + d, cy + d * diagSign, cGlyph)
         }
-        drawEdgeHandle(sb.centerX() - pw, sb.top - ph, sb.centerX() + pw, sb.top + ph)
-        drawEdgeHandle(sb.centerX() - pw, sb.bottom - ph, sb.centerX() + pw, sb.bottom + ph)
-        drawEdgeHandle(sb.left - ph, sb.centerY() - pw, sb.left + ph, sb.centerY() + pw)
-        drawEdgeHandle(sb.right - ph, sb.centerY() - pw, sb.right + ph, sb.centerY() + pw)
+        drawCornerHandle(sb.left, sb.top, 1f)
+        drawCornerHandle(sb.right, sb.top, -1f)
+        drawCornerHandle(sb.left, sb.bottom, -1f)
+        drawCornerHandle(sb.right, sb.bottom, 1f)
+
+        // Edge stretch handles (clean elevated pill capsules)
+        val pw = 9.5f * density
+        val ph = 3.6f * density
+        fun drawEdgeHandle(l: Float, t: Float, r: Float, b: Float, active: Boolean) {
+            tmpHandleRect.set(l, t, r, b)
+            canvas.drawRoundRect(tmpHandleRect, ph, ph, if (active) handleActiveFill else handleFill)
+            if (!active) canvas.drawRoundRect(tmpHandleRect, ph, ph, selRing)
+        }
+        val activeGrab = if (owner.liveMatrix != null) owner.grab else null
+        drawEdgeHandle(sb.centerX() - pw, sb.top - ph, sb.centerX() + pw, sb.top + ph, activeGrab == NoteCanvasView.Grab.STRETCH_T)
+        drawEdgeHandle(sb.centerX() - pw, sb.bottom - ph, sb.centerX() + pw, sb.bottom + ph, activeGrab == NoteCanvasView.Grab.STRETCH_B)
+        drawEdgeHandle(sb.left - ph, sb.centerY() - pw, sb.left + ph, sb.centerY() + pw, activeGrab == NoteCanvasView.Grab.STRETCH_L)
+        drawEdgeHandle(sb.right - ph, sb.centerY() - pw, sb.right + ph, sb.centerY() + pw, activeGrab == NoteCanvasView.Grab.STRETCH_R)
         canvas.restore()
         val label = when {
             rotating -> "${owner.liveDeg.roundToInt()}\u00B0"

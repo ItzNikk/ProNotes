@@ -31,8 +31,8 @@ internal fun NoteCanvasView.selectionBaseBounds(): RectF? {
     return r
 }
 
-internal fun NoteCanvasView.handleRadius() = 22f * density
-internal fun NoteCanvasView.rotateHandleOffset() = 30f * density
+internal fun NoteCanvasView.handleRadius() = 24f * density
+internal fun NoteCanvasView.rotateHandleOffset() = 36f * density
 
 /** Starts move / resize / stretch / rotate when the pen lands on the selection or one of its handles. */
 internal fun NoteCanvasView.beginGrab(px: Float, py: Float): Boolean {

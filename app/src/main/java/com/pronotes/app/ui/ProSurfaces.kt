@@ -888,62 +888,61 @@ fun AppContextMenu(
 ) {
     val scheme = MaterialTheme.colorScheme
     val menuBg = scheme.surfaceContainerHigh
-    MaterialTheme(
-        colorScheme = scheme.copy(surface = menuBg, surfaceContainer = menuBg),
-        shapes = MaterialTheme.shapes.copy(extraSmall = RoundedCornerShape(16.dp)),
+    val menuShape = RoundedCornerShape(16.dp)
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismissRequest,
+        shape = menuShape,
+        containerColor = menuBg,
+        tonalElevation = 0.dp,
+        shadowElevation = 8.dp,
+        modifier = modifier
+            .widthIn(min = 180.dp, max = 280.dp)
+            .heightIn(max = 420.dp),
     ) {
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = onDismissRequest,
-            modifier = modifier
-                .widthIn(min = 180.dp, max = 280.dp)
-                .heightIn(max = 420.dp)
-                .background(menuBg, RoundedCornerShape(16.dp)),
-        ) {
-            items.forEach { item ->
-                val color = when {
-                    !item.enabled -> scheme.onSurface.copy(alpha = 0.38f)
-                    item.destructive -> scheme.error
-                    item.selected -> ProButtonPalette.ElectricBlue
-                    else -> scheme.onSurface
-                }
-                DropdownMenuItem(
-                    enabled = item.enabled,
-                    text = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            if (item.icon != null) {
-                                CompositionLocalProvider(LocalContentColor provides color) {
-                                    item.icon.invoke()
-                                }
-                            }
-                            Text(
-                                item.label,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = if (item.selected) FontWeight.SemiBold else FontWeight.Medium,
-                                color = color,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
-                            )
-                            if (item.selected) {
-                                Icon(
-                                    Icons.Outlined.Check,
-                                    contentDescription = null,
-                                    tint = ProButtonPalette.ElectricBlue,
-                                    modifier = Modifier.size(16.dp),
-                                )
+        items.forEach { item ->
+            val color = when {
+                !item.enabled -> scheme.onSurface.copy(alpha = 0.38f)
+                item.destructive -> scheme.error
+                item.selected -> ProButtonPalette.ElectricBlue
+                else -> scheme.onSurface
+            }
+            DropdownMenuItem(
+                enabled = item.enabled,
+                text = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        if (item.icon != null) {
+                            CompositionLocalProvider(LocalContentColor provides color) {
+                                item.icon.invoke()
                             }
                         }
-                    },
-                    onClick = {
-                        onDismissRequest()
-                        item.onClick()
-                    },
-                )
-            }
+                        Text(
+                            item.label,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = if (item.selected) FontWeight.SemiBold else FontWeight.Medium,
+                            color = color,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        if (item.selected) {
+                            Icon(
+                                Icons.Outlined.Check,
+                                contentDescription = null,
+                                tint = ProButtonPalette.ElectricBlue,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    }
+                },
+                onClick = {
+                    onDismissRequest()
+                    item.onClick()
+                },
+            )
         }
     }
 }

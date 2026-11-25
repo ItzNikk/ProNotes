@@ -406,7 +406,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                     }
                     Section("Paper feel & sounds") {
                         Toggle("Writing sound", "A soft pencil-on-paper sound that follows your speed", s.paperSound) { v -> up { it.copy(paperSound = v) } }
-                        Toggle("Book page-flip sound", "Realistic paper rustle & page turn sound in Reader Mode", s.bookFlipSound) { v -> up { it.copy(bookFlipSound = v) } }
+                        Toggle("Book page-flip sound", "Realistic paper rustle & page turn sound in Kindle Mode", s.bookFlipSound) { v -> up { it.copy(bookFlipSound = v) } }
                         if (s.paperSound || s.bookFlipSound) {
                             Box(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
                                 AppSliderRow(

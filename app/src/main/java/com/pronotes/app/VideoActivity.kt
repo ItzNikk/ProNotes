@@ -18,6 +18,20 @@ class VideoActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        runCatching {
+            val disp = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) display else @Suppress("DEPRECATION") windowManager.defaultDisplay
+            val cur = disp?.mode
+            val best = disp?.supportedModes
+                ?.filter { cur == null || (it.physicalWidth == cur.physicalWidth && it.physicalHeight == cur.physicalHeight) }
+                ?.maxByOrNull { it.refreshRate }
+            if (best != null) {
+                window.attributes = window.attributes.apply {
+                    preferredDisplayModeId = best.modeId
+                    preferredRefreshRate = best.refreshRate
+                }
+            }
+            if (Build.VERSION.SDK_INT >= 35) window.frameRateBoostOnTouchEnabled = true
+        }
         val uri = intent?.data
         if (uri == null) {
             finish()

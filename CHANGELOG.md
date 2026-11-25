@@ -6,6 +6,16 @@ All notable changes to Pro Notes are documented in this file.
 
 ### What's changed
 
+- Reworked the lasso **Resize & Rotate** toolbar icon and on-canvas transform handles with an elevated rotation handle (curved arrow and arrowhead), corner resize cues, edge stretch pills, generous touch targets, and active drag highlights.
+- Eliminated notebook screen lag by deferring pen-active overlay fades to the GPU draw layer, isolating library autosaves from recomposing the editor, scoping zoom/glow/page-indicator overlays, enabling unbuffered touch dispatch for scrolling, and removing per-frame canvas allocations.
+- Optimized pen drawing for maximum smoothness with eager low-latency wet-ink initialization, full 120–240Hz batched historical stylus sample preservation, velocity-adaptive stroke stabilization, pre-allocated pointer pools, and read-only prediction remapping.
+- Fixed lag on the `+` creation button and app dropdowns by removing redundant nested theme wrappers, memoizing menu entries, streamlining dropdown rows with spring press and 45° spin feedback, and updating all `+` menu options with distinct rounded icons.
+- Locked the UI and video player to the highest available display refresh rate across launch, resume, focus, display changes, and Android 15 touch refresh-rate boost, and renamed **Reader Mode** to **Kindle Mode** across the app.
+
+- Added a unified crisp spring motion language across screen transitions, dialogs, segmented controls, panels, Kindle Mode bars, and tactile card/pill presses while keeping existing blur effects unchanged.
+- Boosted app-wide rendering and scroll smoothness with GPU-only animated gradient text, hardware `RenderNode` caching for paper patterns, full viewport culling for all page items, `StaticLayout` sticky-note caching, async cover and PDF rendering with off-thread GPU texture upload, pre-cached page-flip audio waveforms, diffed settings writes, and narrow theme state subscriptions.
+- Added a **Performance Mode** quick toggle alongside Battery Saver, Balanced, and Maximum tiers in **Settings → Appearance & Theme → Performance**.
+
 - Selected palette colors display a contrasting checkmark as well as an outline. Zoom feedback sits near the upper-left canvas edge instead of its center.
 - Library documents support Select mode, grid/list checkboxes, Select all, Clear, bulk Favorite, and confirmed Move to Trash. Back exits selection before navigating away.
 
