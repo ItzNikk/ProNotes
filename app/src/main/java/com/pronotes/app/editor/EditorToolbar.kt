@@ -948,7 +948,7 @@ fun ToolButton(
     val dragReorderMod = if (onReorderStep != null) {
         Modifier.pointerInput(t, verticalBar) {
             val stepPx = 38f * density
-            detectDragGesturesAfterLongPress(
+            detectDragGestures(
                 onDragStart = {
                     dragging = true
                     hovered = false
