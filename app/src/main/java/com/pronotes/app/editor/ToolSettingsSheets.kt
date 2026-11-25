@@ -46,6 +46,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.snap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -124,8 +129,12 @@ fun ToolPopoverCard(
     onBrowseStickers: () -> Unit,
     onPickImage: () -> Unit,
     onSelectionConverted: (Long) -> Unit = {},
+    visible: Boolean = true,
     onDismiss: () -> Unit,
 ) {
+    var entered by remember(tool) { mutableStateOf(false) }
+    LaunchedEffect(tool) { entered = true }
+    val progress by animateFloatAsState(if (entered && visible) 1f else 0f, animationSpec = if (com.pronotes.app.ui.LocalReduceMotion.current) snap() else tween(150), label = "Tool menu")
     val pickTape = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) vm.useTapeImage(uri)
     }
@@ -137,7 +146,8 @@ fun ToolPopoverCard(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .widthIn(min = 310.dp, max = 384.dp)
+            .widthIn(min = 260.dp, max = 360.dp)
+            .graphicsLayer { alpha = progress; scaleX = 0.97f + progress * 0.03f; scaleY = scaleX }
             .onPreviewKeyEvent { ev ->
                 if (ev.type == KeyEventType.KeyDown && ev.key == Key.Escape) {
                     onDismiss()
@@ -163,16 +173,16 @@ fun ToolPopoverCard(
             shape = RoundedCornerShape(16.dp),
             borderColor = borderTint,
             shadowElevation = if (reduceEffects) 0.dp else 16.dp,
-            contentPadding = PaddingValues(18.dp),
+            contentPadding = PaddingValues(12.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
             CompositionLocalProvider(LocalContentColor provides cardFg) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 540.dp)
+                        .heightIn(max = 440.dp)
                         .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         Box(
@@ -193,7 +203,7 @@ fun ToolPopoverCard(
                         Spacer(Modifier.width(10.dp))
                         ScaleInAnimatedText(
                             text = if (tool == Tool.PEN) vm.penType.label else toolDisplayName(tool),
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                             color = cardFg,
                             modifier = Modifier.weight(1f),
                         )
@@ -489,7 +499,9 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
     }
 
     Text(stringResource(R.string.sheet_colour_set), style = MaterialTheme.typography.labelSmall, color = mutedFg)
-    StyleOptions(vm, Tool.PEN, style, fgColor, darkUi, vertical = false)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        StyleOptions(vm, Tool.PEN, style, fgColor, darkUi, vertical = false)
+    }
 
     HorizontalDivider(color = fgColor.copy(alpha = 0.08f))
     SheetSliderRow(stringResource(R.string.sheet_thickness), "%.1f pt".format(style.size), style.size, 0.5f..20f) { v ->
@@ -641,7 +653,9 @@ private fun HighlighterCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor
     )
     StrokePreview(Color(style.color).copy(alpha = s.highlighterOpacity), style.size * 1.2f, false, darkUi)
     Text(stringResource(R.string.sheet_colour_set), style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.68f))
-    StyleOptions(vm, Tool.HIGHLIGHTER, style, fgColor, darkUi, vertical = false)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        StyleOptions(vm, Tool.HIGHLIGHTER, style, fgColor, darkUi, vertical = false)
+    }
     SheetSliderRow(stringResource(R.string.sheet_thickness), "%.0f pt".format(style.size), style.size, 6f..70f) { v ->
         val sizes = style.sizes.map { if (it == style.size) v else it }
         vm.updateStyle(Tool.HIGHLIGHTER, style.copy(size = v, sizes = sizes))
@@ -1083,7 +1097,9 @@ private fun ShapeCardContent(vm: EditorViewModel) {
         }
     }
     Text(stringResource(R.string.sheet_colour_set), style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.68f))
-    StyleOptions(vm, Tool.SHAPE, vm.shapeStyle, fgColor, darkUi, vertical = false)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        StyleOptions(vm, Tool.SHAPE, vm.shapeStyle, fgColor, darkUi, vertical = false)
+    }
     SheetSliderRow(stringResource(R.string.sheet_thickness), "%.1f pt".format(vm.shapeStyle.size), vm.shapeStyle.size, 0.5f..20f) { v ->
         val sizes = vm.shapeStyle.sizes.map { if (it == vm.shapeStyle.size) v else it }
         vm.updateStyle(Tool.SHAPE, vm.shapeStyle.copy(size = v, sizes = sizes))
@@ -1153,7 +1169,9 @@ private fun CrayonCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Col
         darkUi = darkUi,
     )
     Text("CRAYON COLOURS", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.68f))
-    StyleOptions(vm, Tool.CRAYON, style, fgColor, darkUi, vertical = false)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        StyleOptions(vm, Tool.CRAYON, style, fgColor, darkUi, vertical = false)
+    }
     HorizontalDivider(color = fgColor.copy(alpha = 0.08f))
     SheetSliderRow("WAX TIP SIZE", "%.1f pt".format(style.size), style.size, 4f..40f) { v ->
         val sizes = style.sizes.map { if (it == style.size) v else it }

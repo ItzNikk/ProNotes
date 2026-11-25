@@ -52,9 +52,9 @@ private fun WorkspaceGlow(modifier: Modifier, paused: Boolean) {
         )
     } else null
     Box(modifier.graphicsLayer { clip = true }.drawWithCache {
-        val radius = (size.maxDimension * 0.88f).coerceAtLeast(1f)
+        val radius = (size.minDimension * 0.46f).coerceAtLeast(1f)
         val primaryGlow = Brush.radialGradient(
-            0f to Color(0x8C5CFFD0),
+            0f to Color(0x505CFFD0),
             0.25f to Color(0x5836CFEA),
             0.50f to Color(0x294479FF),
             0.75f to Color(0x146236FA),
@@ -63,7 +63,7 @@ private fun WorkspaceGlow(modifier: Modifier, paused: Boolean) {
             radius = radius,
         )
         val secondaryGlow = Brush.radialGradient(
-            0f to Color(0x7AFFC465),
+            0f to Color(0x44FFC465),
             0.25f to Color(0x50FF796F),
             0.50f to Color(0x24ED40B7),
             0.75f to Color(0x127B34ED),
@@ -71,8 +71,8 @@ private fun WorkspaceGlow(modifier: Modifier, paused: Boolean) {
             center = Offset.Zero,
             radius = radius,
         )
-        val blueGlow = Brush.radialGradient(listOf(Color(0x90213895), Color.Transparent), center = Offset.Zero, radius = radius * 0.75f)
-        val purpleGlow = Brush.radialGradient(listOf(Color(0x90652699), Color.Transparent), center = Offset.Zero, radius = radius * 0.75f)
+        val blueGlow = Brush.radialGradient(listOf(Color(0x38213895), Color.Transparent), center = Offset.Zero, radius = radius * 0.75f)
+        val purpleGlow = Brush.radialGradient(listOf(Color(0x38652699), Color.Transparent), center = Offset.Zero, radius = radius * 0.75f)
         onDrawBehind {
             val angle = phase?.value ?: 0f
             translate(size.width * 0.78f + sin(angle) * size.width * 0.12f, size.height * 0.20f) {

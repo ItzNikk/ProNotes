@@ -207,7 +207,6 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
 
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Box(Modifier.fillMaxWidth().background(Color.Black)) {
-                com.pronotes.app.ui.BarMotion(Modifier.matchParentSize())
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,

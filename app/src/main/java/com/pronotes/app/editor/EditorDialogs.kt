@@ -1393,6 +1393,7 @@ internal fun InlineStickyNoteEditor(
     val context = LocalContext.current
     val density = LocalDensity.current
     val item = edit.item
+    var handwritingMode by remember(edit.item.id) { mutableStateOf(false) }
     var text by remember(edit) { mutableStateOf(item.text) }
     var title by remember(edit) { mutableStateOf(item.title) }
     var color by remember(edit) { mutableIntStateOf(item.color) }
@@ -1438,6 +1439,27 @@ internal fun InlineStickyNoteEditor(
         commitAndClose()
     }
 
+    androidx.compose.runtime.SideEffect {
+        canvas?.editingStickyItemId = if (handwritingMode) null else item.id
+        canvas?.refresh()
+    }
+    if (handwritingMode) {
+        Box(Modifier.fillMaxSize()) {
+            AppSurface(
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp),
+                role = SurfaceRole.Popover,
+                shadowElevation = 8.dp,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { handwritingMode = false }) { Text("Text") }
+                    Text("Handwriting", style = MaterialTheme.typography.labelLarge)
+                    TextButton(onClick = { commitAndClose() }) { Text("Done") }
+                }
+            }
+        }
+        return
+    }
     val zoomScale = (canvas?.currentZoomScale() ?: 1f).coerceIn(0.3f, 4f)
     val mappedRect = remember(canvas, edit.page, item.x, item.y, item.w, item.h, areaSize) {
         canvas?.pageToScreen(edit.page, item.raw)
@@ -1446,8 +1468,10 @@ internal fun InlineStickyNoteEditor(
     val availW = areaSize.width.toFloat().coerceAtLeast(280f)
     val availH = areaSize.height.toFloat().coerceAtLeast(200f)
 
-    val cardW = (mappedRect?.width() ?: (item.w * zoomScale)).coerceIn(with(density) { 260.dp.toPx() }, availW - with(density) { 32.dp.toPx() })
-    val cardH = (mappedRect?.height() ?: (item.h * zoomScale)).coerceIn(with(density) { 180.dp.toPx() }, availH - with(density) { 48.dp.toPx() })
+    val maxCardW = (availW - with(density) { 32.dp.toPx() }).coerceAtLeast(1f)
+    val cardW = (mappedRect?.width() ?: (item.w * zoomScale)).coerceIn(minOf(with(density) { 300.dp.toPx() }, maxCardW), maxCardW)
+    val maxCardH = (availH - with(density) { 48.dp.toPx() }).coerceAtLeast(1f)
+    val cardH = (mappedRect?.height() ?: (item.h * zoomScale)).coerceIn(minOf(with(density) { 260.dp.toPx() }, maxCardH), maxCardH)
     val screenLeft = (mappedRect?.left ?: ((availW - cardW) * 0.5f)).coerceIn(with(density) { 16.dp.toPx() }, (availW - cardW - with(density) { 16.dp.toPx() }).coerceAtLeast(with(density) { 16.dp.toPx() }))
     val screenTop = (mappedRect?.top ?: ((availH - cardH) * 0.4f)).coerceIn(with(density) { 16.dp.toPx() }, (availH - cardH - with(density) { 16.dp.toPx() }).coerceAtLeast(with(density) { 16.dp.toPx() }))
 
@@ -1478,7 +1502,7 @@ internal fun InlineStickyNoteEditor(
             modifier = Modifier
                 .offset { IntOffset(screenLeft.roundToInt(), screenTop.roundToInt()) }
                 .size(cardWDp, cardHDp)
-                .shadow(10.dp, RoundedCornerShape(18.dp))
+                .shadow(12.dp, RoundedCornerShape(18.dp))
                 .clip(RoundedCornerShape(18.dp))
                 .background(
                     when (style) {
@@ -1496,181 +1520,23 @@ internal fun InlineStickyNoteEditor(
                     indication = null,
                 ) {},
         ) {
-            // 1. Notion-style header bar
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.08f))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                // Title field
-                AndroidView(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(28.dp),
-                    factory = { ctx ->
-                        EditText(ctx).apply {
-                            background = null
-                            setPadding(0, 0, 0, 0)
-                            isSingleLine = true
-                            gravity = Gravity.CENTER_VERTICAL or Gravity.START
-                            hint = "Title (optional)"
-                            setHintTextColor(if (lum < 0.38f) 0x88FFFFFF.toInt() else 0x77334155)
-                            setTextColor(if (lum < 0.38f) android.graphics.Color.WHITE else 0xFF1E293B.toInt())
-                            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-                            setText(title)
-                            addTextChangedListener(object : TextWatcher {
-                                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-                                override fun afterTextChanged(s: Editable?) { title = s?.toString() ?: "" }
-                            })
-                        }
-                    },
-                    update = { et ->
-                        et.setTextColor(if (lum < 0.38f) android.graphics.Color.WHITE else 0xFF1E293B.toInt())
-                    },
-                )
-
-                // Presets dropdown trigger
-                Box {
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color.Black.copy(alpha = 0.12f))
-                            .clickable { showPresetMenu = true }
-                            .padding(horizontal = 6.dp, vertical = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("Style", style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = FontWeight.SemiBold)
-                        Text(" ▾", style = MaterialTheme.typography.labelSmall, color = fgMuted)
-                    }
-                    androidx.compose.material3.DropdownMenu(
-                        expanded = showPresetMenu,
-                        onDismissRequest = { showPresetMenu = false },
-                    ) {
-                        presets.forEach { p ->
-                            androidx.compose.material3.DropdownMenuItem(
-                                text = {
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Box(Modifier.size(14.dp).clip(CircleShape).background(Color(p.color)))
-                                        Text(p.name, style = MaterialTheme.typography.bodySmall)
-                                    }
-                                },
-                                onClick = {
-                                    color = p.color
-                                    style = p.style
-                                    font = p.font
-                                    fontSize = p.fontSize
-                                    pinned = p.pinned
-                                    showPresetMenu = false
-                                },
-                            )
-                        }
-                        androidx.compose.material3.HorizontalDivider()
-                        androidx.compose.material3.DropdownMenuItem(
-                            text = { Text("+ Save as preset…", style = MaterialTheme.typography.labelSmall, color = ProButtonPalette.ElectricBlue) },
-                            onClick = {
-                                showPresetMenu = false
-                                newPresetName = title.ifBlank { "Custom Style" }
-                                showSavePresetDialog = true
-                            },
-                        )
-                    }
-                }
-
-                // Paper Style Selector (Plain, Lined, Grid, Dotted)
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color.Black.copy(alpha = 0.10f))
-                        .padding(2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    listOf(
-                        "classic" to "Plain",
-                        "lined" to "Line",
-                        "grid" to "Grid",
-                        "dotted" to "Dot",
-                    ).forEach { (st, lbl) ->
-                        val active = style == st
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (active) fgColor.copy(alpha = 0.22f) else Color.Transparent)
-                                .clickable { style = st }
-                                .padding(horizontal = 5.dp, vertical = 2.dp),
-                        ) {
-                            Text(lbl, style = MaterialTheme.typography.labelSmall, fontSize = 10.sp, color = if (active) fgColor else fgMuted, fontWeight = if (active) FontWeight.Bold else FontWeight.Normal)
-                        }
-                    }
-                }
-
-                // Add Task Checklist button (+ [ ])
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color.Black.copy(alpha = 0.10f))
-                        .clickable {
-                            val cur = editTextRef?.text?.toString() ?: text
-                            val prefix = if (cur.isBlank()) "- [ ] " else (if (cur.endsWith("\n")) "- [ ] " else "\n- [ ] ")
-                            val updated = cur + prefix
-                            text = updated
-                            editTextRef?.setText(updated)
-                            editTextRef?.setSelection(updated.length)
-                        }
-                        .padding(horizontal = 5.dp, vertical = 3.dp),
-                ) {
-                    Text("+ [ ]", style = MaterialTheme.typography.labelSmall, fontSize = 10.sp, color = fgColor, fontWeight = FontWeight.SemiBold)
-                }
-
-                // Pin toggle
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (pinned) Color(0x33D95926) else Color.Transparent)
-                        .clickable { pinned = !pinned }
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                ) {
-                    Text(if (pinned) "📌" else "📍", fontSize = 12.sp)
-                }
-
-                // Duplicate
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color.Black.copy(alpha = 0.10f))
-                        .clickable { vm.duplicateSticky() }
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                ) {
-                    Text("⧉", fontSize = 12.sp, color = fgColor)
-                }
-
-                // Delete
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color.Black.copy(alpha = 0.10f))
-                        .clickable { vm.deleteSticky() }
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                ) {
-                    Text("🗑", fontSize = 12.sp, color = Color(0xFFE5484D))
-                }
-
-                // Done check button (✓)
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(ProButtonPalette.ElectricBlue)
-                        .clickable { commitAndClose() }
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                ) {
-                    Text("✓", color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(title.ifBlank { "Sticky note" }, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = fgColor)
+                TextButton(onClick = { commitAndClose() }) { Text("Done", color = fgColor) }
             }
-
+            com.pronotes.app.ui.AppSegmentedControl(
+                options = listOf("Text", "Handwriting"),
+                selectedIndex = 0,
+                onSelect = { mode ->
+                    if (mode == 1) {
+                        text = editTextRef?.text?.toString() ?: text
+                        handwritingMode = true
+                        keyboardController?.hide()
+                        vm.tool = Tool.PEN
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            )
             // Quick color swatch row directly below header
             Row(
                 modifier = Modifier
@@ -1720,6 +1586,7 @@ internal fun InlineStickyNoteEditor(
                             isSingleLine = false
                             isFocusable = true
                             isFocusableInTouchMode = true
+                            if (Build.VERSION.SDK_INT >= 34) isAutoHandwritingEnabled = true
                             isCursorVisible = true
                             isVerticalScrollBarEnabled = true
                             hint = "Type a note, formula, or checklist…"

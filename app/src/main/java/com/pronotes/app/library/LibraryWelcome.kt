@@ -38,13 +38,6 @@ internal fun LibraryGuide(onDismiss: () -> Unit, onCreate: () -> Unit) {
         title = { Text(stringResource(R.string.library_guide_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (com.pronotes.app.BuildConfig.DEBUG) {
-                    Text(
-                        stringResource(R.string.library_guide_test_notice),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
                 Text(
                     stringResource(R.string.library_guide_progress, step.intValue + 1, guideSteps.size),
                     style = MaterialTheme.typography.labelMedium,

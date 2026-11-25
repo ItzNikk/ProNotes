@@ -251,7 +251,7 @@ fun AppCard(
     val bg = containerColor ?: if (hero) scheme.surfaceContainerHigh else scheme.surface
     val fg = readableSurfaceText(bg, scheme.onSurface)
     val cardMod = modifier
-        .then(if (hero && !reduceEffects) Modifier.shadow(2.dp, shape, clip = false) else Modifier)
+        .then(if (!reduceEffects) Modifier.shadow(if (hero) 4.dp else 1.dp, shape, clip = false) else Modifier)
         .clip(shape)
         .then(
             if (onClick != null) {

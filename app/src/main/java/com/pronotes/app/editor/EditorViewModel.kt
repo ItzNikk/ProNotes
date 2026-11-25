@@ -1311,11 +1311,11 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val p = pages.getOrNull(page) ?: return
         if (existing == null) {
             // Place sticky note directly on the page (no popup!) and switch to Pen so the user can write right on it.
-            val w = 320f
-            val h = 300f
+            val w = 420f
+            val h = 360f
             val sx = (x - w / 2f).coerceIn(16f, (p.width - w - 16f).coerceAtLeast(16f))
             val sy = (y - h / 2f).coerceIn(16f, (p.height - h - 16f).coerceAtLeast(16f))
-            val placed = StickyItem(ItemIds.next(), sx, sy, w, h, stickyColor, "")
+            val placed = StickyItem(ItemIds.next(), sx, sy, w, h, stickyColor, "", fontSize = 24f)
             beginEdit(page)
             applyItems(page, p.items + placed)
             if (tool == Tool.STICKY) {

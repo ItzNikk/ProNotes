@@ -1092,7 +1092,15 @@ fun EditorScreen(
                     }
 
                     // Anchored Caret Tool Settings Sheet (anchors cleanly from Fixed Bar OR Floating Pill)
-                    activePopoverTool?.let { popoverTool ->
+                    var displayedPopover by remember { mutableStateOf<Tool?>(null) }
+                    LaunchedEffect(activePopoverTool) {
+                        if (activePopoverTool != null) displayedPopover = activePopoverTool
+                        else {
+                            kotlinx.coroutines.delay(if (reduceMotion) 0L else 150L)
+                            displayedPopover = null
+                        }
+                    }
+                    displayedPopover?.let { popoverTool ->
                         var popoverSize by remember { mutableStateOf(IntSize.Zero) }
                         val popW = if (popoverSize.width > 0) popoverSize.width else (340f * density).roundToInt()
                         val popH = if (popoverSize.height > 0) popoverSize.height else (420f * density).roundToInt()
@@ -1138,6 +1146,7 @@ fun EditorScreen(
                             Box(Modifier.onSizeChanged { popoverSize = it }) {
                                 ToolPopoverCard(
                                     tool = popoverTool,
+                                    visible = activePopoverTool != null,
                                     vm = vm,
                                     darkUi = darkUi,
                                     caretSide = caretSide,
