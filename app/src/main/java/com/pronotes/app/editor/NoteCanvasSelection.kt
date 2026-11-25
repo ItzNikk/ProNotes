@@ -166,6 +166,10 @@ internal fun NoteCanvasView.commitMove() {
             val targetPage = if (movedBounds != null) {
                 val docCx = ox(selectionPage) + movedBounds.centerX()
                 val docCy = oy(selectionPage) + movedBounds.centerY()
+                val lastIdx = pages.lastIndex
+                if (lastIdx >= 0 && docCy > oy(lastIdx) + pages[lastIdx].height) {
+                    host.onPullAddPage()
+                }
                 pageAt(docCx, docCy)
             } else selectionPage
 

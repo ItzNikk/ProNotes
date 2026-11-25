@@ -2010,12 +2010,14 @@ internal fun StudyTimer(
     )
     val curFracX = if (isDragging) pos.first else animPosX
     val curFracY = if (isDragging) pos.second else animPosY
-    val x = (curFracX * area.width - pill.width / 2f + drag.x).coerceIn(8f, (area.width - pill.width - 8f).coerceAtLeast(8f))
-    val y = (curFracY * area.height - pill.height / 2f + drag.y).coerceIn(8f, (area.height - pill.height - 8f).coerceAtLeast(8f))
 
     Box(
         Modifier
-            .offset { IntOffset(x.roundToInt(), y.roundToInt()) }
+            .offset {
+                val x = (curFracX * area.width - pill.width / 2f + drag.x).coerceIn(8f, (area.width - pill.width - 8f).coerceAtLeast(8f))
+                val y = (curFracY * area.height - pill.height / 2f + drag.y).coerceIn(8f, (area.height - pill.height - 8f).coerceAtLeast(8f))
+                IntOffset(x.roundToInt(), y.roundToInt())
+            }
             .onSizeChanged { pill = it }
             .pointerInput(area, settings.toolbarDock, settings.toolbarStyle) {
                 detectDragGestures(

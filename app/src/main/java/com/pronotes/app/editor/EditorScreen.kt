@@ -1011,11 +1011,15 @@ fun EditorScreen(
                                     val availH = (areaSize.height - effDockH - topSafePx - bottomSafePx).coerceAtLeast(1).toFloat()
                                     val nx = ((finalPos.x - marginPx) / availW).coerceIn(0f, 1f)
                                     val ny = ((finalPos.y - topSafePx) / availH).coerceIn(0f, 1f)
+                                    val leftEdge = finalPos.x <= marginPx + 48 * density
+                                    val rightEdge = finalPos.x + effDockW >= areaSize.width - marginPx - 48 * density
+                                    val topEdge = finalPos.y <= topSafePx + 40 * density
+                                    val bottomEdge = finalPos.y + effDockH >= areaSize.height - bottomSafePx - 40 * density
                                     val nextDock = when {
-                                        centerX < 0.22f -> ToolbarDock.LEFT
-                                        centerX > 0.78f -> ToolbarDock.RIGHT
-                                        centerY < 0.12f -> ToolbarDock.TOP
-                                        centerY > 0.88f -> ToolbarDock.BOTTOM
+                                        leftEdge || centerX < 0.25f -> ToolbarDock.LEFT
+                                        rightEdge || centerX > 0.75f -> ToolbarDock.RIGHT
+                                        topEdge || centerY < 0.14f -> ToolbarDock.TOP
+                                        bottomEdge || centerY > 0.86f -> ToolbarDock.BOTTOM
                                         else -> ToolbarDock.FREE
                                     }
                                     val snappedNx = when (nextDock) {
@@ -1103,6 +1107,7 @@ fun EditorScreen(
 
                     // Floating Selection (Lasso) contextual menu
                     val sb = vm.selectionBounds
+                    var selMenuSize by remember { mutableStateOf(IntSize.Zero) }
                     androidx.compose.animation.AnimatedVisibility(
                         visible = vm.selection.isNotEmpty() && sb != null,
                         enter = if (reduceMotion) fadeIn(androidx.compose.animation.core.snap()) else fadeIn(androidx.compose.animation.core.tween(160)) + scaleIn(
@@ -1113,15 +1118,19 @@ fun EditorScreen(
                             targetScale = 0.88f,
                             animationSpec = androidx.compose.animation.core.tween(130),
                         ),
-                        modifier = Modifier.offset {
-                            val b = sb ?: android.graphics.RectF()
-                            val below = b.bottom + 18 * density
-                            val y = if (below + 64 * density < areaSize.height) below else (b.top - 110 * density).coerceAtLeast(8f)
-                            IntOffset(
-                                b.left.roundToInt().coerceIn(8, (areaSize.width - 420 * density).roundToInt().coerceAtLeast(8)),
-                                y.roundToInt().coerceIn(8, (areaSize.height - 64 * density).roundToInt().coerceAtLeast(8)),
-                            )
-                        },
+                        modifier = Modifier
+                            .onSizeChanged { selMenuSize = it }
+                            .offset {
+                                val b = sb ?: android.graphics.RectF()
+                                val mw = if (selMenuSize.width > 0) selMenuSize.width else (420 * density).roundToInt()
+                                val mh = if (selMenuSize.height > 0) selMenuSize.height else (64 * density).roundToInt()
+                                val below = b.bottom + 18 * density
+                                val y = if (below + mh < areaSize.height - 8f) below else (b.top - mh - 18f * density).coerceAtLeast(8f)
+                                IntOffset(
+                                    b.left.roundToInt().coerceIn(8, (areaSize.width - mw - 8).coerceAtLeast(8)),
+                                    y.roundToInt().coerceIn(8, (areaSize.height - mh - 8).coerceAtLeast(8)),
+                                )
+                            },
                     ) {
                         SelectionMenu(
                             vm = vm,
