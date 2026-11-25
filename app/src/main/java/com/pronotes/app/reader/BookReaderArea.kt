@@ -147,7 +147,7 @@ import com.pronotes.app.editor.StickyItem
 import com.pronotes.app.editor.TextItem
 import com.pronotes.app.library.CoverArt
 import com.pronotes.app.library.PdfImportLoaderOverlay
-import com.pronotes.app.ui.AppBottomBar
+import com.pronotes.app.ui.AppNavigationBar
 import com.pronotes.app.ui.AppCard
 import com.pronotes.app.ui.AppChip
 import com.pronotes.app.ui.AppPill
@@ -359,6 +359,14 @@ fun BookReaderHubScreen(
                 .fillMaxSize()
                 .statusBarsPadding(),
         ) {
+            AppNavigationBar(
+                tabs = listOf(
+                    AppTabItem("Library") { Icon(Icons.Outlined.Description, null, Modifier.size(18.dp)) },
+                    AppTabItem("Books") { Icon(Icons.AutoMirrored.Outlined.MenuBook, null, Modifier.size(18.dp)) },
+                ),
+                selectedIndex = 1,
+                onSelect = { idx -> if (idx == 0) onBackToLibrary() },
+            )
             // Reading Room Header
             Row(
                 Modifier
@@ -520,22 +528,6 @@ fun BookReaderHubScreen(
                     }
                 }
             }
-        }
-
-        // Bottom tab bar switching cleanly between Library and Reader Mode
-        Box(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth(),
-        ) {
-            AppBottomBar(
-                tabs = listOf(
-                    AppTabItem("Library") { Icon(Icons.Outlined.Description, null, Modifier.size(18.dp)) },
-                    AppTabItem("Books") { Icon(Icons.AutoMirrored.Outlined.MenuBook, null, Modifier.size(18.dp)) },
-                ),
-                selectedIndex = 1,
-                onSelect = { idx -> if (idx == 0) onBackToLibrary() },
-            )
         }
 
         pdfImportProgress?.let { (title, page, total) ->

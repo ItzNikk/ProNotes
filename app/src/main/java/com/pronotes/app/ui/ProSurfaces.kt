@@ -974,12 +974,12 @@ data class AppTabItem(
 )
 
 @Composable
-fun AppBottomBar(
+fun AppNavigationBar(
     tabs: List<AppTabItem>,
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    applyBottomInset: Boolean = true,
+    applyBottomInset: Boolean = false,
 ) {
     val navPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     Box(
