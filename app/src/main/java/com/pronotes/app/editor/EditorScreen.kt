@@ -953,11 +953,15 @@ fun EditorScreen(
                         val snapCandidate = if (dockDragging && areaSize.width > 0 && areaSize.height > 0) {
                             val cx = (activeDockOffset.x + effDockW / 2f) / areaSize.width
                             val cy = (activeDockOffset.y + effDockH / 2f) / areaSize.height
+                            val leftEdge = activeDockOffset.x <= marginPx + 48 * density
+                            val rightEdge = activeDockOffset.x + effDockW >= areaSize.width - marginPx - 48 * density
+                            val topEdge = activeDockOffset.y <= topSafePx + 40 * density
+                            val bottomEdge = activeDockOffset.y + effDockH >= areaSize.height - bottomSafePx - 40 * density
                             when {
-                                cx < 0.14f -> ToolbarDock.LEFT
-                                cx > 0.86f -> ToolbarDock.RIGHT
-                                cy < 0.12f -> ToolbarDock.TOP
-                                cy > 0.88f -> ToolbarDock.BOTTOM
+                                leftEdge || cx < 0.25f -> ToolbarDock.LEFT
+                                rightEdge || cx > 0.75f -> ToolbarDock.RIGHT
+                                topEdge || cy < 0.14f -> ToolbarDock.TOP
+                                bottomEdge || cy > 0.86f -> ToolbarDock.BOTTOM
                                 else -> ToolbarDock.FREE
                             }
                         } else null
