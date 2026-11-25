@@ -7,9 +7,7 @@ plugins {
 
 android {
     namespace = "com.pronotes.benchmark"
-    compileSdk {
-        version = release(37) { minorApiLevel = 1 }
-    }
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 26

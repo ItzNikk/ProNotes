@@ -21,7 +21,7 @@ All notable changes to Pro Notes are documented in this file.
 - Rough lasso and circle gestures now disappear after selection, leaving clean dashed bounds. Resize and rotate use a dedicated corner-and-arrow icon.
 - Editor and Settings bars use opaque black surfaces with a subtle bundled Lottie animation that pauses for reduced motion, reduced effects, Classic appearance, and inactive screens.
 - Settings use Material 3 list items, accessible switches, outlined section cards, clearer category headings, and a wider tablet navigation pane. Workspace icons use a rounded style without changing drawing-toolbar glyphs.
-- Updated to Material 3 1.5.0 and Compose BOM 2026.11.01, with AGP 9.5.1, Gradle 9.8.1, and compile SDK 37.1.
+- Restored the previous Compose/Material 3 and Android build-tool versions while investigating startup crashes after the dependency upgrade.
 
 - Dashed lasso outlines are shared with circle-to-lasso conversion. Drag to move a selection; use Resize and Rotate to activate corner, edge, and rotation handles.
 - The New button opens a grouped menu with colored icon tiles for creation, study tools, folders, and imports.
