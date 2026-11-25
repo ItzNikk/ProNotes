@@ -23,6 +23,7 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
             mode = NoteCanvasView.Mode.PAN
             panLastX = e.x
             panLastY = e.y
+            fingerContactPointer = e.getPointerId(0)
             fingerStartX = e.x
             fingerStartY = e.y
             maxFingers = 1
@@ -37,7 +38,7 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
                 val pi = pageAt(ddx, ddy)
                 val (lx, ly) = toLocal(e.x, e.y, pi)
                 val s = pages.getOrNull(pi)?.items?.filterIsInstance<StickyItem>()
-                    ?.lastOrNull { it.collapsed && it.bounds.contains(lx, ly) }
+                    ?.lastOrNull { it.bounds.contains(lx, ly) && (it.collapsed || (ly <= it.raw.top + 42f && lx < it.raw.right - 84f)) }
                 if (s != null) Triple(pi, s, lx to ly) else null
             } else null
             removeCallbacks(textPressRunnable)
@@ -51,6 +52,7 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
                 dragStickyDownWy = pt.second
                 dragStickyActive = false
                 dragStickyFromFinger = true
+                dragStickyWasExpanded = !s.collapsed
                 postDelayed(stickyHoldRunnable, 280L)
             } else {
                 // Long-press on PDF text selects it.

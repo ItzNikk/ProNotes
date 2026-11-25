@@ -23,7 +23,7 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.13"
+          gradle-version: "9.8.1"
 
       # Keep one signing key across builds so updates install over each other.
       - name: Restore signing key

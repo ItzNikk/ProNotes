@@ -600,8 +600,10 @@ fun EditorScreen(
                             },
                         )
                     }
-                    Surface(
-                        color = topBarBg,
+                    com.pronotes.app.ui.AppSurface(
+                        role = com.pronotes.app.ui.SurfaceRole.Chrome,
+                        shape = RoundedCornerShape(0.dp),
+                        containerColor = topBarBg,
                         contentColor = topBarFg,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
@@ -673,7 +675,11 @@ fun EditorScreen(
                             onSelectDock = selectDock,
                             onSelectStyle = selectStyle,
                             onResetPosition = resetToolbarPos,
+                            onVideo = { videoUrl = "" },
                         )
+                    }
+                    if (!hideTools && isFixedBar && settings.toolbarDock == ToolbarDock.TOP) {
+                        com.pronotes.app.ui.BarMotion(Modifier.fillMaxWidth().height(18.dp))
                     }
                     AnimatedVisibility(showSearch, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         SearchBar(vm)
@@ -699,6 +705,7 @@ fun EditorScreen(
                         onSelectDock = selectDock,
                         onSelectStyle = selectStyle,
                         onResetPosition = resetToolbarPos,
+                        onVideo = { videoUrl = "" },
                     )
                 }
 
@@ -1080,6 +1087,7 @@ fun EditorScreen(
                             onSelectDock = selectDock,
                             onSelectStyle = selectStyle,
                             onResetPosition = resetToolbarPos,
+                            onVideo = { videoUrl = "" },
                             modifier = Modifier
                                 .offset { animatedDockOffset }
                                 .onSizeChanged { dockSize = it },
@@ -1597,6 +1605,7 @@ fun EditorScreen(
                         onSelectDock = selectDock,
                         onSelectStyle = selectStyle,
                         onResetPosition = resetToolbarPos,
+                        onVideo = { videoUrl = "" },
                     )
                 }
 
@@ -1649,6 +1658,7 @@ fun EditorScreen(
                     onSelectDock = selectDock,
                     onSelectStyle = selectStyle,
                     onResetPosition = resetToolbarPos,
+                    onVideo = { videoUrl = "" },
                 )
             }
         }

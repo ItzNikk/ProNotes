@@ -40,6 +40,10 @@ class MainActivity : ComponentActivity() {
     private var widgetAction by mutableStateOf("")
     private var pendingImport by mutableStateOf<PendingImport?>(null)
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) enableHighRefreshRate()
+    }
     private fun enableHighRefreshRate() {
         runCatching {
             val disp = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
@@ -52,9 +56,10 @@ class MainActivity : ComponentActivity() {
             val best = disp.supportedModes
                 .filter { it.physicalWidth == cur.physicalWidth && it.physicalHeight == cur.physicalHeight }
                 .maxByOrNull { it.refreshRate }
-            if (best != null && best.modeId != cur.modeId) {
+            if (best != null) {
                 window.attributes = window.attributes.apply {
                     preferredDisplayModeId = best.modeId
+                    preferredRefreshRate = best.refreshRate
                 }
             }
         }

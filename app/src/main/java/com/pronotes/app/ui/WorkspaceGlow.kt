@@ -71,8 +71,16 @@ private fun WorkspaceGlow(modifier: Modifier, paused: Boolean) {
             center = Offset.Zero,
             radius = radius,
         )
+        val blueGlow = Brush.radialGradient(listOf(Color(0x90213895), Color.Transparent), center = Offset.Zero, radius = radius * 0.75f)
+        val purpleGlow = Brush.radialGradient(listOf(Color(0x90652699), Color.Transparent), center = Offset.Zero, radius = radius * 0.75f)
         onDrawBehind {
             val angle = phase?.value ?: 0f
+            translate(size.width * 0.78f + sin(angle) * size.width * 0.12f, size.height * 0.20f) {
+                drawCircle(blueGlow, radius * 0.75f, Offset.Zero)
+            }
+            translate(size.width * 0.20f, size.height * 0.82f + cos(angle) * size.height * 0.10f) {
+                drawCircle(purpleGlow, radius * 0.75f, Offset.Zero)
+            }
             val dx = cos(angle) * size.width * 0.20f
             val dy = sin(angle) * size.height * 0.16f
             val pulse = sin(angle) * 0.14f

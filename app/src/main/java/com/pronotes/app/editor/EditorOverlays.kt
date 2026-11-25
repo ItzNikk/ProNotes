@@ -167,7 +167,7 @@ fun SelectionMenu(
     val moreLabel = stringResource(R.string.selection_more)
     val deleteLabel = stringResource(R.string.selection_delete)
     AppSurface(
-        role = SurfaceRole.Popover,
+        role = SurfaceRole.Chrome,
         containerColor = Color.Black,
         contentColor = fg,
         shape = appPillShape(),
@@ -228,7 +228,10 @@ fun SelectionMenu(
                     Icon(Icons.Outlined.FontDownload, contentDescription = "Change font", tint = ProButtonPalette.ElectricBlue)
                 }
                 SelectionActionIcon(if (transformEnabled) "Finish transforming" else "Resize and rotate", onToggleTransform) {
-                    Icon(Icons.Outlined.RotateRight, contentDescription = "Resize and rotate", tint = if (transformEnabled) ProButtonPalette.ElectricBlue else fg)
+                    com.pronotes.app.ui.TransformSelectionIcon(
+                        tint = if (transformEnabled) ProButtonPalette.ElectricBlue else fg,
+                        modifier = Modifier.size(24.dp),
+                    )
                 }
                 Box {
                     SelectionActionIcon(moreLabel, { moreOpen = true }) {
@@ -244,6 +247,7 @@ fun SelectionMenu(
                             ) {
                                 vm.convertSelectionToText(onConvertToText)
                             },
+                            AppMenuItem("Add attached comment") { vm.addSelectionComment() },
                             AppMenuItem("Flip horizontally", icon = { Icon(Icons.Outlined.Flip, contentDescription = null, Modifier.size(18.dp)) }) {
                                 keep { vm.flipSelection() }
                             },

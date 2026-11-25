@@ -8,6 +8,21 @@ All notable changes to Pro Notes are documented in this file.
 
 ### What's changed
 
+- Circle-to-lasso refreshes its targets at activation and includes boundary crossings. Selection uses clean dashed bounds instead of retaining the gesture loop.
+- Triple-tap conversion is opt-in, requires deliberate stylus taps, and resets when handwriting resumes. Stylus handwriting no longer arms empty-paper long-press actions.
+- Highlighter scribbles can erase. Shape holds require a quieter stationary endpoint.
+- Stylus-only mode permits immediate finger navigation, long-press selection and dragging, plus expanded sticky-header dragging while preserving palm-size rejection.
+- Renderer visibility metadata is cached by immutable item-list identity, and triple-tap clustering has bounded passes and hash-based membership.
+- Long documents use binary-search visibility culling rather than scanning every page on every canvas redraw. The window requests the highest supported refresh rate at the current resolution and reapplies it on focus.
+- Added two dark blue/purple workspace glows alongside the moving bright glows, plus a multicolor aurora strip below the top drawing toolbar.
+- Compact pen controls, text-tool controls tinted with the active text color, and New-menu shapes that follow the roundness preference.
+- Optional video buttons for fixed and floating toolbars, available in Settings > Toolbar. Lasso > More > Add attached comment opens an in-page note linked to the selected content; ordinary handwritten notes retain collapse/expand behavior.
+
+- Rough lasso and circle gestures now disappear after selection, leaving clean dashed bounds. Resize and rotate use a dedicated corner-and-arrow icon.
+- Editor and Settings bars use opaque black surfaces with a subtle bundled Lottie animation that pauses for reduced motion, reduced effects, Classic appearance, and inactive screens.
+- Settings use Material 3 list items, accessible switches, outlined section cards, clearer category headings, and a wider tablet navigation pane. Workspace icons use a rounded style without changing drawing-toolbar glyphs.
+- Updated to Material 3 1.5.0 and Compose BOM 2026.11.01, with AGP 9.5.1, Gradle 9.8.1, and compile SDK 37.1.
+
 - Dashed lasso outlines are shared with circle-to-lasso conversion. Drag to move a selection; use Resize and Rotate to activate corner, edge, and rotation handles.
 - The New button opens a grouped menu with colored icon tiles for creation, study tools, folders, and imports.
 - Drop PDFs from other apps onto Documents to import them into the current folder, with progress feedback and support for multiple files.

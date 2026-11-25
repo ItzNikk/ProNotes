@@ -1,10 +1,18 @@
 package com.pronotes.app.settings
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -49,6 +57,12 @@ import java.io.FileOutputStream
 import com.pronotes.app.support.FeedbackDialog
 import com.pronotes.app.editor.Tool
 import com.pronotes.app.editor.toolDisplayName
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -69,6 +83,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -175,7 +193,7 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
     val scrollState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
 
     com.pronotes.app.ui.GlowingWorkspace {
-        val wide = maxWidth >= 720.dp
+        val wide = maxWidth >= 840.dp
         val current = selected ?: if (wide) Category.STYLUS else null
         val back: () -> Unit = { if (!wide && selected != null) selected = null else onBack() }
         PredictiveBackHandler(enabled = !wide && selected != null) { events ->
@@ -188,32 +206,44 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
         }
 
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                val appStrings = com.pronotes.app.data.LocalAppStrings.current
-                AppSurface(
-                    role = SurfaceRole.Control,
-                    shape = appPillShape(),
-                    contentPadding = PaddingValues(12.dp),
-                    onClick = back,
-                    onClickLabel = appStrings.back,
+            Box(Modifier.fillMaxWidth().background(Color.Black)) {
+                com.pronotes.app.ui.BarMotion(Modifier.matchParentSize())
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, appStrings.back, tint = MaterialTheme.colorScheme.onSurface)
+                    val appStrings = com.pronotes.app.data.LocalAppStrings.current
+                    AppSurface(
+                        role = SurfaceRole.Control,
+                        shape = appPillShape(),
+                        contentPadding = PaddingValues(12.dp),
+                        onClick = back,
+                        onClickLabel = appStrings.back,
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, appStrings.back, tint = MaterialTheme.colorScheme.onSurface)
+                    }
+                    GradientTitle(if (wide) appStrings.settings else current?.localizedLabel(appStrings) ?: appStrings.settings,
+                        MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f), maxLines = 2)
                 }
-                GradientTitle(if (wide) appStrings.settings else current?.localizedLabel(appStrings) ?: appStrings.settings,
-                    MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f), maxLines = 2)
             }
             if (wide) {
                 Row(Modifier.fillMaxSize().padding(end = 16.dp)) {
                     scrollState.SaveableStateProvider("categories") {
-                        CategoryList(current, Modifier.width(280.dp).fillMaxHeight()) { selected = it }
+                        CategoryList(current, Modifier.width(304.dp).fillMaxHeight()) { selected = it }
                     }
                     Box(Modifier.weight(1f)) {
                         val category = current ?: Category.STYLUS
-                        scrollState.SaveableStateProvider(category.name) { Detail(category, s, store, onSupport) }
+                        AnimatedContent(
+                            targetState = category,
+                            transitionSpec = {
+                                if (reduceMotion) fadeIn(snap()) togetherWith fadeOut(snap())
+                                else fadeIn(tween(180)) togetherWith fadeOut(tween(100))
+                            },
+                            label = "Settings category",
+                        ) { target ->
+                            scrollState.SaveableStateProvider(target.name) { Detail(target, s, store, onSupport) }
+                        }
                     }
                 }
             } else if (current == null) {
@@ -239,54 +269,36 @@ private fun CategoryList(selected: Category?, modifier: Modifier, onPick: (Categ
     val strings = com.pronotes.app.data.LocalAppStrings.current
     LazyColumn(
         modifier,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 48.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(Category.entries.size, key = { Category.entries[it].name }) { i ->
             val c = Category.entries[i]
-            val sel = c == selected
-            val cLabel = c.localizedLabel(strings)
-            val cSub = c.localizedSub(strings)
-            val iconBackground = androidx.compose.ui.graphics.lerp(scheme.surface, Color(c.tint), if (sel) .24f else .14f)
-            AppSurface(
-                modifier = Modifier.fillMaxWidth(),
-                role = SurfaceRole.Frost,
-                containerColor = if (sel) scheme.primaryContainer else null,
-                shape = appCardShape(),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+            val active = c == selected
+            val accent = Color(c.tint)
+            Surface(
                 onClick = { onPick(c) },
-                onClickLabel = cLabel,
+                modifier = Modifier.fillMaxWidth().semantics { this.selected = active },
+                shape = RoundedCornerShape(22.dp),
+                color = if (active) androidx.compose.ui.graphics.lerp(Color.Black, accent, 0.17f) else Color.Black.copy(alpha = 0.72f),
+                border = BorderStroke(1.dp, if (active) accent.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.07f)),
             ) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        Modifier
-                            .size(38.dp)
-                            .clip(MaterialTheme.shapes.small)
-                            .background(iconBackground),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (c == Category.LANGUAGE) {
-                            Icon(Icons.Outlined.Language, null, tint = scheme.onSurface, modifier = Modifier.size(22.dp))
-                        } else {
-                            ProIconView(c.icon, scheme.onSurface, Modifier.size(22.dp))
+                ListItem(
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    headlineContent = { Text(c.localizedLabel(strings), fontWeight = FontWeight.SemiBold) },
+                    supportingContent = { Text(c.localizedSub(strings), style = MaterialTheme.typography.bodySmall) },
+                    leadingContent = {
+                        Box(Modifier.size(44.dp).background(accent.copy(alpha = 0.15f), RoundedCornerShape(15.dp)), contentAlignment = Alignment.Center) {
+                            if (c == Category.LANGUAGE) Icon(Icons.Outlined.Language, null, Modifier.size(23.dp), tint = accent)
+                            else com.pronotes.app.ui.WorkspaceIcon(c.icon, accent, Modifier.size(23.dp))
                         }
-                    }
-                    Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
-                        Text(
-                            cLabel,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = if (sel) scheme.onPrimaryContainer else scheme.onSurface,
-                            fontWeight = if (sel) FontWeight.Bold else FontWeight.SemiBold,
-                        )
-                        Text(cSub, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
-                    }
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = if (sel) scheme.primary else scheme.onSurfaceVariant)
-                }
+                    },
+                    trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = if (active) accent else scheme.onSurfaceVariant) },
+                )
             }
         }
     }
 }
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport: () -> Unit) {
@@ -301,6 +313,23 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
         horizontalAlignment = Alignment.CenterHorizontally,
         contentPadding = PaddingValues(bottom = 48.dp),
     ) {
+        item(key = "category-heading") {
+            val strings = com.pronotes.app.data.LocalAppStrings.current
+            Row(
+                Modifier.widthIn(max = 720.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 20.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Box(Modifier.size(52.dp).background(Color(c.tint).copy(alpha = 0.16f), RoundedCornerShape(18.dp)), contentAlignment = Alignment.Center) {
+                    if (c == Category.LANGUAGE) Icon(Icons.Outlined.Language, null, Modifier.size(28.dp), tint = Color(c.tint))
+                    else com.pronotes.app.ui.WorkspaceIcon(c.icon, Color(c.tint), Modifier.size(28.dp))
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(c.localizedLabel(strings), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.semantics { heading() })
+                    Text(c.localizedSub(strings), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
         item {
             when (c) {
                 Category.STYLUS -> {
@@ -536,6 +565,9 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                     PensSection(store)
                 }
                 Category.GESTURES -> {
+                    Section("Handwriting conversion") {
+                        Toggle("Triple-tap ink to text", "Convert existing ink with three deliberate stylus taps", s.tripleTapToText) { value -> up { it.copy(tripleTapToText = value) } }
+                    }
                     Section("Pen gestures") {
                         Toggle("Scribble to erase", "Zig-zag or scrub over ink to delete it", s.scribbleToErase) { v -> up { it.copy(scribbleToErase = v) } }
                         if (s.scribbleToErase) {
@@ -601,6 +633,9 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                     }
                 }
                 Category.TOOLBAR -> {
+                    Section("Video") {
+                        Toggle("Video button", "Show floating video in the drawing toolbar", s.videoInToolbar) { value -> up { it.copy(videoInToolbar = value) } }
+                    }
                     Section("Toolbar") {
                         Segmented(ToolbarStyle.entries.map { it.label }, s.toolbarStyle.ordinal) { i ->
                             val nextStyle = ToolbarStyle.entries[i]
@@ -1088,35 +1123,33 @@ private fun SettingsJsonRows(store: SettingsStore) {
 @Composable
 private fun Section(title: String, content: @Composable () -> Unit) {
     Column(Modifier.widthIn(max = 720.dp).fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
-        GradientTitle(
+        Text(
             title,
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(start = 16.dp, bottom = 6.dp),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 16.dp, bottom = 10.dp).semantics { heading() },
         )
-        AppSurface(
-            role = SurfaceRole.Frost,
-            shape = appCardShape(),
-            contentPadding = PaddingValues(0.dp),
+        OutlinedCard(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.outlinedCardColors(containerColor = Color.Black.copy(alpha = 0.78f)),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.09f)),
         ) {
-            Column(Modifier.fillMaxWidth()) { content() }
+            Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) { content() }
         }
     }
 }
 
 @Composable
 private fun Toggle(title: String, sub: String, value: Boolean, onChange: (Boolean) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clickable { onChange(!value) }.padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f).padding(end = 14.dp)) {
-            Text(title, color = MaterialTheme.colorScheme.onSurface)
-            Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        AppToggle(checked = value, onCheckedChange = onChange)
-    }
+    ListItem(
+        modifier = Modifier.fillMaxWidth().toggleable(value = value, role = Role.Switch, onValueChange = onChange),
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        headlineContent = { Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium) },
+        supportingContent = { Text(sub, style = MaterialTheme.typography.bodySmall) },
+        trailingContent = { Switch(checked = value, onCheckedChange = null) },
+    )
 }
-
 @Composable
 private fun Choice(title: String, value: String, options: List<String>, onPick: (Int) -> Unit) {
     Box(Modifier.padding(horizontal = 12.dp)) {

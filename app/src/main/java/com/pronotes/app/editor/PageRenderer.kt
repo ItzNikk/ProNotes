@@ -101,6 +101,20 @@ class PdfPages(private val file: File) {
 
 /** Shared drawing code for the live canvas, thumbnails, previews and PDF export. */
 class PageRenderer(private val noteDir: File?) {
+    private val visibilityCache = java.util.IdentityHashMap<List<PageItem>, Pair<Set<Long>, List<RectF>>>()
+
+    private fun visibilityMetadata(items: List<PageItem>): Pair<Set<Long>, List<RectF>> {
+        visibilityCache[items]?.let { return it }
+        val converted = HashSet<Long>()
+        val collapsed = ArrayList<RectF>()
+        for (item in items) when (item) {
+            is WriteBoxItem -> if (item.isConverted) converted.addAll(item.inkItemIds)
+            is StickyItem -> if (item.collapsed) collapsed.add(item.paperBounds)
+            else -> Unit
+        }
+        if (visibilityCache.size >= 8) visibilityCache.clear()
+        return (converted to collapsed).also { visibilityCache[items] = it }
+    }
     init {
         com.pronotes.app.data.MemoryTrimRegistry.register { level ->
             if (com.pronotes.app.data.MemoryTrimRegistry.isCriticalLevel(level)) {
@@ -115,6 +129,7 @@ class PageRenderer(private val noteDir: File?) {
         images.evictAll()
         tapeTiles.clear()
         partsCache.clear()
+        visibilityCache.clear()
     }
     private val strokeRendererOrNull: CanvasStrokeRenderer? by lazy {
         runCatching { CanvasStrokeRenderer.create() }.getOrNull()
@@ -1020,10 +1035,7 @@ class PageRenderer(private val noteDir: File?) {
         hiddenNodes: Set<Long>,
         allItems: List<PageItem>,
     ) {
-        val convertedInkIds = allItems.filterIsInstance<WriteBoxItem>().filter { it.isConverted }.flatMap { it.inkItemIds }.toSet()
-        val collapsedStickyRects = allItems.filterIsInstance<StickyItem>()
-            .filter { it.collapsed }
-            .map { it.paperBounds }
+        val (convertedInkIds, collapsedStickyRects) = visibilityMetadata(allItems)
         for (item in ordered) {
             if (item is MindNodeItem && item.id in hiddenNodes) continue
             if (item is InkItem && item.id in convertedInkIds) continue

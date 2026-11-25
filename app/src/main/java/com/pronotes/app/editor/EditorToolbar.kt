@@ -41,6 +41,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.PlayCircleOutline
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material3.Icon
@@ -157,6 +158,7 @@ fun AdaptiveFixedToolbar(
     darkUi: Boolean,
     activePopoverTool: Tool?,
     onTogglePopover: (Tool) -> Unit,
+    onVideo: () -> Unit = {},
     onSelectDock: (ToolbarDock) -> Unit,
     onSelectStyle: (ToolbarStyle) -> Unit,
     onResetPosition: () -> Unit,
@@ -244,6 +246,11 @@ fun AdaptiveFixedToolbar(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
+                        if (settings.videoInToolbar) {
+                            IconButton(onClick = onVideo) {
+                                Icon(Icons.Outlined.PlayCircleOutline, "Floating video", tint = Color.White)
+                            }
+                        }
                         layout.pinnedTools.forEach { t ->
                             ToolButton(
                                 vm = vm,
@@ -300,6 +307,11 @@ fun AdaptiveFixedToolbar(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
+                            if (settings.videoInToolbar) {
+                                IconButton(onClick = onVideo) {
+                                    Icon(Icons.Outlined.PlayCircleOutline, "Floating video", tint = Color.White)
+                                }
+                            }
                             layout.pinnedTools.forEach { t ->
                                 ToolButton(
                                     vm = vm,
@@ -387,6 +399,7 @@ fun FloatingToolbarPill(
     overlayFade: Float,
     activePopoverTool: Tool?,
     onTogglePopover: (Tool) -> Unit,
+    onVideo: () -> Unit = {},
     onDragStart: () -> Unit,
     onDragDelta: (Offset) -> Unit,
     onDragEnd: () -> Unit,
@@ -521,6 +534,11 @@ fun FloatingToolbarPill(
                     onResetPosition = onResetPosition,
                 )
                 StudioHairline(vertical = false, color = hairlineColor)
+                if (settings.videoInToolbar) {
+                    IconButton(onClick = onVideo) {
+                        Icon(Icons.Outlined.PlayCircleOutline, "Floating video", tint = Color.White)
+                    }
+                }
                 layout.pinnedTools.forEach { t ->
                     ToolButton(
                         vm = vm,
@@ -561,6 +579,11 @@ fun FloatingToolbarPill(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
+                    if (settings.videoInToolbar) {
+                        IconButton(onClick = onVideo) {
+                            Icon(Icons.Outlined.PlayCircleOutline, "Floating video", tint = Color.White)
+                        }
+                    }
                     layout.pinnedTools.forEach { t ->
                         ToolButton(
                             vm = vm,

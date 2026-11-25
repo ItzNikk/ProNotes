@@ -459,11 +459,12 @@ internal class NoteCanvasDocLayer(
             liftedItems = emptyList()
             remainingItems = emptyList()
         }
-        owner.pages.forEachIndexed { i, p ->
+        owner.visiblePageRange().forEach { i ->
+            val p = owner.pages[i]
             tmpPageRect.set(0f, 0f, p.width, p.height)
             owner.pageMatrix(i, m).mapRect(tmpPageRect)
-            if (!p.isWhiteboard && !RectF.intersects(tmpPageRect, tmpViewRect)) return@forEachIndexed
-            if (p.isWhiteboard && i != owner.currentIndex && !RectF.intersects(tmpPageRect, tmpViewRect)) return@forEachIndexed
+            if (!p.isWhiteboard && !RectF.intersects(tmpPageRect, tmpViewRect)) return@forEach
+            if (p.isWhiteboard && i != owner.currentIndex && !RectF.intersects(tmpPageRect, tmpViewRect)) return@forEach
             r.darkPdf = owner.settings.darkPdf
             if (p.isWhiteboard) {
                 r.drawInfiniteBackdrop(canvas, m, width.toFloat(), height.toFloat(), p)
@@ -719,26 +720,11 @@ internal class NoteCanvasDocLayer(
     }
 
     private fun drawSelection(canvas: Canvas) {
-        val loop = owner.selectionOutline
-        if (loop != null && owner.selection.isNotEmpty() && loop.size > 2) {
-            outlinePath.reset()
-            loop.forEachIndexed { i, (x, y) -> if (i == 0) outlinePath.moveTo(x, y) else outlinePath.lineTo(x, y) }
-            outlinePath.close()
-            owner.liveMatrix?.let { outlinePath.transform(it) }
-            outlinePath.transform(owner.pageMatrix(owner.selectionPage, m))
-            lassoFill.alpha = 0x10
-            canvas.drawPath(outlinePath, lassoFill)
-            lassoFill.alpha = 0x18
-
-
-        }
         if (owner.selection.isEmpty()) return
-        if (loop == null) {
-            val bounds = owner.selectionPageBounds() ?: return
-            owner.pageMatrix(owner.selectionPage, m).mapRect(bounds)
-            outlinePath.reset()
-            outlinePath.addRoundRect(bounds, 12f * density, 12f * density, Path.Direction.CW)
-        }
+        val bounds = owner.selectionPageBounds() ?: return
+        owner.pageMatrix(owner.selectionPage, m).mapRect(bounds)
+        outlinePath.reset()
+        outlinePath.addRoundRect(bounds, 12f * density, 12f * density, Path.Direction.CW)
         drawDashedLasso(canvas, outlinePath)
         if (!owner.selectionTransformEnabled) return
         val rotating = owner.grab == NoteCanvasView.Grab.ROTATE && owner.liveMatrix != null
@@ -772,33 +758,47 @@ internal class NoteCanvasDocLayer(
             canvas.drawRoundRect(hRect, ph, ph, selRing)
         }
         canvas.restore()
-        if (rotating) {
-            pullText.color = 0xFF3D6CF4.toInt()
-            canvas.drawText("${owner.liveDeg.roundToInt()}\u00B0", sb.centerX(), sb.bottom + 24f * density, pullText)
-            pullText.color = 0xFF5B6475.toInt()
-        } else if (owner.grab == NoteCanvasView.Grab.SCALE && owner.liveMatrix != null) {
-            pullText.color = 0xFF3D6CF4.toInt()
-            canvas.drawText("${(owner.liveScale * 100).roundToInt()}%", sb.centerX(), sb.bottom + 24f * density, pullText)
-            pullText.color = 0xFF5B6475.toInt()
-        } else if (
-            owner.grab in setOf(
-                NoteCanvasView.Grab.STRETCH_L,
-                NoteCanvasView.Grab.STRETCH_R,
-                NoteCanvasView.Grab.STRETCH_T,
-                NoteCanvasView.Grab.STRETCH_B,
-            ) && owner.liveMatrix != null
-        ) {
-            pullText.color = 0xFF3D6CF4.toInt()
-            canvas.drawText(
-                "${(owner.liveScaleX * 100).roundToInt()}% \u00D7 ${(owner.liveScaleY * 100).roundToInt()}%",
-                sb.centerX(),
-                sb.bottom + 24f * density,
-                pullText,
-            )
-            pullText.color = 0xFF5B6475.toInt()
+        val label = when {
+            rotating -> "${owner.liveDeg.roundToInt()}\u00B0"
+            owner.liveMatrix == null -> null
+            owner.grab == NoteCanvasView.Grab.SCALE -> "${(owner.liveScale * 100).roundToInt()}%"
+            owner.grab in setOf(NoteCanvasView.Grab.STRETCH_L, NoteCanvasView.Grab.STRETCH_R,
+                NoteCanvasView.Grab.STRETCH_T, NoteCanvasView.Grab.STRETCH_B) ->
+                "${(owner.liveScaleX * 100).roundToInt()}% \u00D7 ${(owner.liveScaleY * 100).roundToInt()}%"
+            else -> null
         }
+        if (label != null) drawTransformLabel(canvas, label, sb)
     }
 
+    private val transformLabelBounds = RectF()
+    private val transformLabelFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xEB000000.toInt() }
+    private val transformLabelText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = 13f * density
+        textAlign = Paint.Align.LEFT
+    }
+
+    /** Keep transform feedback beside the selection, clear of its center and handles. */
+    private fun drawTransformLabel(canvas: Canvas, label: String, selectionBounds: RectF) {
+        val margin = 8f * density
+        val pad = 10f * density
+        val badgeWidth = transformLabelText.measureText(label) + pad * 2
+        val badgeHeight = 30f * density
+        val maxX = (width - margin - badgeWidth).coerceAtLeast(margin)
+        val maxY = (height - margin - badgeHeight).coerceAtLeast(margin)
+        val right = selectionBounds.right + margin
+        val left = selectionBounds.left - margin - badgeWidth
+        val x = when {
+            right <= maxX -> right
+            left >= margin -> left
+            else -> selectionBounds.right - badgeWidth
+        }.coerceIn(margin, maxX)
+        val y = (selectionBounds.bottom + margin).coerceIn(margin, maxY)
+        transformLabelBounds.set(x, y, x + badgeWidth, y + badgeHeight)
+        canvas.drawRoundRect(transformLabelBounds, 10f * density, 10f * density, transformLabelFill)
+        val baseline = y + (badgeHeight - transformLabelText.ascent() - transformLabelText.descent()) / 2f
+        canvas.drawText(label, x + pad, baseline, transformLabelText)
+    }
     private fun drawDashedLasso(canvas: Canvas, path: Path) {
         // Keep the entire contour dashed, including circle-to-lasso conversion.
         if (antsPhase != cachedLassoPhase || cachedLassoDash == null) {

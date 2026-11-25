@@ -788,7 +788,8 @@ class Lasso(points: List<Pt>, private val touching: Boolean = false, private val
                 val pts = item.worldPoints()
                 if (pts.isEmpty()) false
                 else if (pts.size <= 3) {
-                    pts.any { (x, y) -> contains(x, y) }
+                    pts.any { (x, y) -> contains(x, y) } ||
+                        (touching && pts.zipWithNext().any { (a, b) -> crossesBoundary(a, b) })
                 } else {
                     val step = max(1, pts.size / 48)
                     var inside = 0

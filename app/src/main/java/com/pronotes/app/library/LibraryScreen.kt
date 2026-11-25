@@ -68,29 +68,29 @@ import androidx.compose.material.icons.automirrored.outlined.ViewList
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.AccessTime
-import androidx.compose.material.icons.outlined.ChevronLeft
-import androidx.compose.material.icons.outlined.CloudSync
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.ContentPaste
-import androidx.compose.material.icons.outlined.CreateNewFolder
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.Draw
-import androidx.compose.material.icons.outlined.DriveFileMove
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.GridView
-import androidx.compose.material.icons.outlined.Groups
-import androidx.compose.material.icons.outlined.Hub
-import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.Palette
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Star
-import androidx.compose.material.icons.outlined.StarBorder
-import androidx.compose.material.icons.outlined.UploadFile
+import androidx.compose.material.icons.rounded.AccessTime
+import androidx.compose.material.icons.rounded.ChevronLeft
+import androidx.compose.material.icons.rounded.CloudSync
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.ContentPaste
+import androidx.compose.material.icons.rounded.CreateNewFolder
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Draw
+import androidx.compose.material.icons.rounded.DriveFileMove
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.GridView
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.Hub
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarBorder
+import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -161,7 +161,7 @@ import com.pronotes.app.ui.LocalReduceMotion
 import com.pronotes.app.ui.GlowingWorkspace
 import com.pronotes.app.ui.ProButtonPalette
 import com.pronotes.app.ui.ProIcon
-import com.pronotes.app.ui.ProIconView
+import com.pronotes.app.ui.WorkspaceIcon as ProIconView
 import com.pronotes.app.ui.SurfaceRole
 import com.pronotes.app.ui.Swatch
 import com.pronotes.app.ui.appCardShape
@@ -585,7 +585,7 @@ fun LibraryScreen(
                                 onClick = { collabOpen = true },
                                 contentPadding = PaddingValues(8.dp),
                             ) {
-                                Icon(Icons.Outlined.Groups, "Live Study Room", Modifier.size(19.dp))
+                                Icon(Icons.Rounded.Groups, "Live Study Room", Modifier.size(19.dp))
                             }
                             AppPill(
                                 selected = searching,
@@ -651,7 +651,7 @@ fun LibraryScreen(
                                     onClick = { newFolder = true },
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                                 ) {
-                                    Icon(Icons.Outlined.CreateNewFolder, appStrings.folder, Modifier.size(17.dp))
+                                    Icon(Icons.Rounded.CreateNewFolder, appStrings.folder, Modifier.size(17.dp))
                                     if (wide) {
                                         Spacer(Modifier.width(5.dp))
                                         Text(
@@ -666,8 +666,8 @@ fun LibraryScreen(
                             LibraryCreateMenu(
                                 label = appStrings.newAction,
                                 items = listOf(
-                                    AppMenuItem(appStrings.notebook, icon = { Icon(Icons.Outlined.Description, null, Modifier.size(18.dp)) }) { newNotebook = true },
-                                    AppMenuItem(appStrings.infiniteWhiteboard, icon = { Icon(Icons.Outlined.Draw, null, Modifier.size(18.dp)) }) {
+                                    AppMenuItem(appStrings.notebook, icon = { Icon(Icons.Rounded.Description, null, Modifier.size(18.dp)) }) { newNotebook = true },
+                                    AppMenuItem(appStrings.infiniteWhiteboard, icon = { Icon(Icons.Rounded.Draw, null, Modifier.size(18.dp)) }) {
                                         scope.launch {
                                             val k = PagePreset.UNITS_PER_MM
                                             val p = PagePreset.WHITEBOARD
@@ -678,7 +678,7 @@ fun LibraryScreen(
                                             onOpen(id)
                                         }
                                     },
-                                    AppMenuItem(appStrings.conceptMapCanvas, icon = { Icon(Icons.Outlined.Hub, null, Modifier.size(18.dp)) }) {
+                                    AppMenuItem(appStrings.conceptMapCanvas, icon = { Icon(Icons.Rounded.Hub, null, Modifier.size(18.dp)) }) {
                                         scope.launch {
                                             val k = PagePreset.UNITS_PER_MM
                                             val p = PagePreset.WHITEBOARD
@@ -707,7 +707,7 @@ fun LibraryScreen(
                                             onOpen(id)
                                         }
                                     },
-                                    AppMenuItem(appStrings.quickNote, icon = { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)) }) {
+                                    AppMenuItem(appStrings.quickNote, icon = { Icon(Icons.Rounded.Edit, null, Modifier.size(18.dp)) }) {
                                         scope.launch {
                                             val k = PagePreset.UNITS_PER_MM
                                             val defaultPreset = newBookPrefs.defaultPreset
@@ -726,21 +726,21 @@ fun LibraryScreen(
                                             )
                                         }
                                     },
-                                    AppMenuItem("Notebook templates", icon = { Icon(Icons.Outlined.GridView, null, Modifier.size(18.dp)) }) { destination = "Templates" },
+                                    AppMenuItem("Notebook templates", icon = { Icon(Icons.Rounded.GridView, null, Modifier.size(18.dp)) }) { destination = "Templates" },
                                     AppMenuItem("Online books", icon = { Icon(Icons.AutoMirrored.Outlined.MenuBook, null, Modifier.size(18.dp)) }) { destination = "Books" },
-                                    AppMenuItem("Community marketplace", icon = { Icon(Icons.Outlined.Groups, null, Modifier.size(18.dp)) }) { destination = "Marketplace" },
-                                    AppMenuItem("PDF Station", icon = { Icon(Icons.Outlined.Description, null, Modifier.size(18.dp)) }) { destination = "PDF Station" },
+                                    AppMenuItem("Community marketplace", icon = { Icon(Icons.Rounded.Groups, null, Modifier.size(18.dp)) }) { destination = "Marketplace" },
+                                    AppMenuItem("PDF Station", icon = { Icon(Icons.Rounded.Description, null, Modifier.size(18.dp)) }) { destination = "PDF Station" },
                                     AppMenuItem(stringResource(R.string.library_guide_title), icon = { Icon(Icons.AutoMirrored.Outlined.MenuBook, null, Modifier.size(18.dp)) }) { showGuide = true },
-                                    AppMenuItem(appStrings.folder, icon = { Icon(Icons.Outlined.CreateNewFolder, null, Modifier.size(18.dp)) }) { newFolder = true },
+                                    AppMenuItem(appStrings.folder, icon = { Icon(Icons.Rounded.CreateNewFolder, null, Modifier.size(18.dp)) }) { newFolder = true },
                                     AppMenuItem(
                                         if (newBookPrefs.storageFolderLabel.isBlank()) "Choose Storage Folder…"
                                         else "Storage: ${newBookPrefs.storageFolderLabel}",
-                                        icon = { Icon(Icons.Outlined.Folder, null, Modifier.size(18.dp)) },
+                                        icon = { Icon(Icons.Rounded.Folder, null, Modifier.size(18.dp)) },
                                     ) { pickStorageFolder.launch(null) },
-                                    AppMenuItem(appStrings.importFiles, icon = { Icon(Icons.Outlined.UploadFile, null, Modifier.size(18.dp)) }) {
+                                    AppMenuItem(appStrings.importFiles, icon = { Icon(Icons.Rounded.UploadFile, null, Modifier.size(18.dp)) }) {
                                         importFilesLauncher.launch(arrayOf("*/*"))
                                     },
-                                    AppMenuItem("Paste notes from another app…", icon = { Icon(Icons.Outlined.ContentPaste, null, Modifier.size(18.dp)) }) { pasteImportOpen = true },
+                                    AppMenuItem("Paste notes from another app…", icon = { Icon(Icons.Rounded.ContentPaste, null, Modifier.size(18.dp)) }) { pasteImportOpen = true },
                                 ),
                             )
                         }
@@ -770,7 +770,7 @@ fun LibraryScreen(
                                 onClick = { listView = false },
                                 contentPadding = PaddingValues(8.dp),
                             ) {
-                                Icon(Icons.Outlined.GridView, "Grid", Modifier.size(18.dp))
+                                Icon(Icons.Rounded.GridView, "Grid", Modifier.size(18.dp))
                             }
                             AppPill(
                                 selected = listView,
@@ -875,7 +875,7 @@ fun LibraryScreen(
                                     com.pronotes.app.ui.AnimatedGradientSearchPlaceholder(appStrings.searchPrompt)
                                 },
                                 singleLine = true,
-                                leadingIcon = { Icon(Icons.Outlined.Search, null) },
+                                leadingIcon = { Icon(Icons.Rounded.Search, null) },
                                 shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier.fillMaxWidth(),
                             )
@@ -1002,11 +1002,11 @@ fun LibraryScreen(
             if (!wide || section != Section.DOCUMENTS) {
                 AppBottomBar(
                     tabs = listOf(
-                        AppTabItem("Library") { Icon(Icons.Outlined.Description, null, Modifier.size(18.dp)) },
+                        AppTabItem("Library") { Icon(Icons.Rounded.Description, null, Modifier.size(18.dp)) },
                         AppTabItem("Books") { Icon(Icons.AutoMirrored.Outlined.MenuBook, null, Modifier.size(18.dp)) },
-                        AppTabItem("Recent") { Icon(Icons.Outlined.AccessTime, null, Modifier.size(18.dp)) },
-                        AppTabItem("Favorites") { Icon(Icons.Outlined.StarBorder, null, Modifier.size(18.dp)) },
-                        AppTabItem("Trash") { Icon(Icons.Outlined.Delete, null, Modifier.size(18.dp)) },
+                        AppTabItem("Recent") { Icon(Icons.Rounded.AccessTime, null, Modifier.size(18.dp)) },
+                        AppTabItem("Favorites") { Icon(Icons.Rounded.StarBorder, null, Modifier.size(18.dp)) },
+                        AppTabItem("Trash") { Icon(Icons.Rounded.Delete, null, Modifier.size(18.dp)) },
                     ),
                     selectedIndex = when (section) {
                         Section.DOCUMENTS -> 0
@@ -1073,7 +1073,7 @@ fun LibraryScreen(
                         modifier = Modifier.padding(20.dp).widthIn(max = 520.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            ProIconView(ProIcon.HEART, ProButtonPalette.MagentaPink, Modifier.size(26.dp), ink = ProButtonPalette.MagentaPink)
+                            ProIconView(ProIcon.HEART, ProButtonPalette.MagentaPink, Modifier.size(26.dp))
                             Spacer(Modifier.width(14.dp))
                             Column(Modifier.weight(1f)) {
                                 Text("Enjoying Pro Notes?", style = MaterialTheme.typography.titleMedium)
@@ -1354,7 +1354,7 @@ private fun Sidebar(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onCollapse) {
-                    Icon(Icons.Outlined.ChevronLeft, "Hide sidebar")
+                    Icon(Icons.Rounded.ChevronLeft, "Hide sidebar")
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 6.dp, bottom = 20.dp)) {
@@ -1398,10 +1398,10 @@ private fun Sidebar(
                 ) {
                     Icon(
                         when (s) {
-                            Section.DOCUMENTS -> Icons.Outlined.Folder
-                            Section.FAVORITES -> Icons.Outlined.StarBorder
-                            Section.RECENT -> Icons.Outlined.AccessTime
-                            Section.TRASH -> Icons.Outlined.Delete
+                            Section.DOCUMENTS -> Icons.Rounded.Folder
+                            Section.FAVORITES -> Icons.Rounded.StarBorder
+                            Section.RECENT -> Icons.Rounded.AccessTime
+                            Section.TRASH -> Icons.Rounded.Delete
                         },
                         null,
                         tint = if (sel) activeIconTint else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1428,7 +1428,7 @@ private fun Sidebar(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.CloudSync, null, Modifier.size(16.dp), tint = ProButtonPalette.SkyCyan)
+                    Icon(Icons.Rounded.CloudSync, null, Modifier.size(16.dp), tint = ProButtonPalette.SkyCyan)
                     Spacer(Modifier.width(6.dp))
                     Text(
                         cloudUser?.let { it.displayName.ifBlank { it.email } } ?: "Google Cloud Sync",
@@ -1487,7 +1487,7 @@ private fun Sidebar(
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Outlined.Groups, null, tint = ProButtonPalette.SkyCyan)
+                Icon(Icons.Rounded.Groups, null, tint = ProButtonPalette.SkyCyan)
                 Spacer(Modifier.width(12.dp))
                 Text(strings.studyFriendsAndFiles, color = MaterialTheme.colorScheme.onSurface)
             }
@@ -1501,7 +1501,7 @@ private fun Sidebar(
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ProIconView(ProIcon.HEART, ProButtonPalette.MagentaPink, Modifier.size(20.dp), ink = ProButtonPalette.MagentaPink)
+                    ProIconView(ProIcon.HEART, ProButtonPalette.MagentaPink, Modifier.size(20.dp))
                     Spacer(Modifier.width(12.dp))
                     Text("Support Pro Notes")
                 }
@@ -1514,7 +1514,7 @@ private fun Sidebar(
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Outlined.Settings, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Rounded.Settings, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.width(12.dp))
                 Text(strings.settings)
             }
@@ -1586,30 +1586,30 @@ fun FolderArt(color: Int, tag: String, modifier: Modifier = Modifier) {
 }
 
 private fun folderMenuItems(e: Entry.F, a: TileActions): List<AppMenuItem> = listOf(
-    AppMenuItem("Colour & label", icon = { Icon(Icons.Outlined.Palette, null, Modifier.size(18.dp)) }) { a.onEditFolder(e.folder) },
-    AppMenuItem("Rename", icon = { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)) }) { a.onRename(e) },
-    AppMenuItem("Move", icon = { Icon(Icons.Outlined.DriveFileMove, null, Modifier.size(18.dp)) }) { a.onMove(e) },
-    AppMenuItem("Delete", destructive = true, icon = { Icon(Icons.Outlined.Delete, null, Modifier.size(18.dp)) }) { a.onDelete(e) },
+    AppMenuItem("Colour & label", icon = { Icon(Icons.Rounded.Palette, null, Modifier.size(18.dp)) }) { a.onEditFolder(e.folder) },
+    AppMenuItem("Rename", icon = { Icon(Icons.Rounded.Edit, null, Modifier.size(18.dp)) }) { a.onRename(e) },
+    AppMenuItem("Move", icon = { Icon(Icons.Rounded.DriveFileMove, null, Modifier.size(18.dp)) }) { a.onMove(e) },
+    AppMenuItem("Delete", destructive = true, icon = { Icon(Icons.Rounded.Delete, null, Modifier.size(18.dp)) }) { a.onDelete(e) },
 )
 
 private fun noteMenuItems(note: NotebookMeta, a: TileActions): List<AppMenuItem> =
     if (note.deletedAt != null) {
         listOf(
-            AppMenuItem("Restore", icon = { Icon(Icons.Outlined.Refresh, null, Modifier.size(18.dp)) }) { a.onRestore(note) },
-            AppMenuItem("Delete forever", destructive = true, icon = { Icon(Icons.Outlined.Delete, null, Modifier.size(18.dp)) }) { a.onDeleteForever(note) },
+            AppMenuItem("Restore", icon = { Icon(Icons.Rounded.Refresh, null, Modifier.size(18.dp)) }) { a.onRestore(note) },
+            AppMenuItem("Delete forever", destructive = true, icon = { Icon(Icons.Rounded.Delete, null, Modifier.size(18.dp)) }) { a.onDeleteForever(note) },
         )
     } else {
         listOf(
             AppMenuItem("Manage tags…", icon = { ProIconView(ProIcon.BOOKMARK, ProButtonPalette.ElectricBlue, Modifier.size(18.dp)) }) { a.onTags(note) },
-            AppMenuItem("Duplicate", icon = { Icon(Icons.Outlined.ContentCopy, null, Modifier.size(18.dp)) }) { a.onDuplicate(note) },
+            AppMenuItem("Duplicate", icon = { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)) }) { a.onDuplicate(note) },
             AppMenuItem(
                 if (note.favorite) "Remove from favorites" else "Add to favorites",
-                icon = { Icon(if (note.favorite) Icons.Outlined.Star else Icons.Outlined.StarBorder, null, Modifier.size(18.dp)) },
+                icon = { Icon(if (note.favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder, null, Modifier.size(18.dp)) },
             ) { a.onFavorite(note) },
-            AppMenuItem("Change cover", icon = { Icon(Icons.Outlined.Palette, null, Modifier.size(18.dp)) }) { a.onCover(note) },
-            AppMenuItem("Rename", icon = { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)) }) { a.onRename(Entry.N(note)) },
-            AppMenuItem("Move", icon = { Icon(Icons.Outlined.DriveFileMove, null, Modifier.size(18.dp)) }) { a.onMove(Entry.N(note)) },
-            AppMenuItem("Delete", destructive = true, icon = { Icon(Icons.Outlined.Delete, null, Modifier.size(18.dp)) }) { a.onDelete(Entry.N(note)) },
+            AppMenuItem("Change cover", icon = { Icon(Icons.Rounded.Palette, null, Modifier.size(18.dp)) }) { a.onCover(note) },
+            AppMenuItem("Rename", icon = { Icon(Icons.Rounded.Edit, null, Modifier.size(18.dp)) }) { a.onRename(Entry.N(note)) },
+            AppMenuItem("Move", icon = { Icon(Icons.Rounded.DriveFileMove, null, Modifier.size(18.dp)) }) { a.onMove(Entry.N(note)) },
+            AppMenuItem("Delete", destructive = true, icon = { Icon(Icons.Rounded.Delete, null, Modifier.size(18.dp)) }) { a.onDelete(Entry.N(note)) },
         )
     }
 

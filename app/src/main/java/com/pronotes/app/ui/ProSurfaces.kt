@@ -113,7 +113,7 @@ enum class SurfaceRole {
 }
 
 @Composable
-fun appCardShape(offsetDp: Float = 0f): Shape {
+fun appCardShape(offsetDp: Float = 0f): RoundedCornerShape {
     val base = LocalCornerRoundness.current.value
     val radius = (base + offsetDp).coerceIn(8f, 32f)
     return RoundedCornerShape(radius.dp)
@@ -160,12 +160,13 @@ private fun resolveSurfaceColors(
     containerColor: Color?,
     contentColor: Color?,
 ): Pair<Color, Color> {
-    val base = containerColor ?: when (role) {
+    val base = if (role == SurfaceRole.Chrome) Color.Black else containerColor ?: when (role) {
         SurfaceRole.Chrome, SurfaceRole.Popover -> scheme.surfaceContainerHigh
         SurfaceRole.Frost, SurfaceRole.Sheet -> scheme.surface
         SurfaceRole.Control, SurfaceRole.Capsule -> scheme.surfaceVariant
     }
     val bg = when {
+        role == SurfaceRole.Chrome -> Color.Black
         classicAppearance -> base.copy(alpha = 1f)
         role == SurfaceRole.Chrome || role == SurfaceRole.Popover -> {
             val a = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 0.90f else 0.96f
@@ -173,7 +174,7 @@ private fun resolveSurfaceColors(
         }
         else -> base
     }
-    val fg = contentColor ?: readableSurfaceText(bg, scheme.onSurface)
+    val fg = if (role == SurfaceRole.Chrome) Color(0xFFF1F5F9) else contentColor ?: readableSurfaceText(bg, scheme.onSurface)
     return bg to fg
 }
 
@@ -228,7 +229,10 @@ fun AppSurface(
         border = stroke,
     ) {
         CompositionLocalProvider(LocalContentColor provides fg) {
-            Box(Modifier.padding(contentPadding), content = content)
+            Box {
+                if (role == SurfaceRole.Chrome) BarMotion(Modifier.matchParentSize())
+                Box(Modifier.padding(contentPadding), content = content)
+            }
         }
     }
 }

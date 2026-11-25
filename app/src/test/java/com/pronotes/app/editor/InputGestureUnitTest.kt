@@ -130,9 +130,10 @@ class InputGestureUnitTest {
 
     @Test
     fun scribbleSensitivity_changesThresholdsAcrossLevels() {
-        // A medium 3-reversal scrub (~110px total length, 3 swings across 28px) should trigger INSTANT
-        // but stay ignored by GENTLE so careful shading does not trigger erasure.
-        val mediumScrub = recordedScribble(spanX = 28f, stepY = 3.5f, swings = 3)
+        // Four deliberate reversals should trigger INSTANT; a three-reversal trace must remain safe.
+        // GENTLE still requires more reversals so careful shading does not trigger erasure.
+        val mediumScrub = recordedScribble(spanX = 28f, stepY = 3.5f, swings = 4)
+        assertFalse(isScribble(recordedScribble(spanX = 28f, stepY = 3.5f, swings = 3), ScribbleSensitivity.INSTANT))
         val len = pathLength(mediumScrub)
         assertTrue("Expected calibrated test scrub >= 70px, was $len", len >= 70f)
         assertTrue(isScribble(mediumScrub, ScribbleSensitivity.INSTANT))

@@ -56,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -471,13 +472,13 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
             val sel = vm.penType == type
             Column(
                 Modifier
-                    .width(90.dp)
-                    .defaultMinSize(minHeight = 56.dp)
+                    .width(76.dp)
+                    .defaultMinSize(minHeight = 48.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(if (sel) tileBg else tileIdleBg)
                     .border(if (sel) 1.5.dp else 0.dp, if (sel) ProButtonPalette.ElectricBlue else Color.Transparent, RoundedCornerShape(14.dp))
                     .clickable(role = Role.RadioButton, onClickLabel = type.label) { vm.penType = type }
-                    .padding(vertical = 10.dp),
+                    .padding(vertical = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 PenGlyph(type, fgColor, Color(style.color), Modifier.size(28.dp))
@@ -840,30 +841,31 @@ private fun TextCardContent(vm: EditorViewModel) {
     val store = vm.notebookSettings
     val settings by vm.settingsFlow.collectAsStateWithLifecycle()
     val td = settings.toolDefaults
+    val actionFg = if (Color(vm.textColor ?: vm.penStyle.color).luminance() > 0.45f) Color.Black else Color.White
 
-    Text("ON-PAGE TEXT & KEYBOARD", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.68f))
+    Text("Text & keyboard", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.68f))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         AppPill(
             selected = true,
-            tint = ProButtonPalette.ElectricBlue,
+            tint = Color(vm.textColor ?: vm.penStyle.color),
             onClick = { vm.openInlineTextBox(vm.pageIndex, 100f, 160f) },
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 9.dp),
             modifier = Modifier.weight(1f).defaultMinSize(minHeight = 48.dp),
         ) {
-            ProIconView(ProIcon.TEXT, Color.White, Modifier.size(16.dp), ink = Color.White)
+            ProIconView(ProIcon.TEXT, actionFg, Modifier.size(16.dp), ink = actionFg)
             Spacer(Modifier.width(5.dp))
-            Text("New Text Box", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
+            Text("Text box", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = actionFg, maxLines = 1)
         }
         AppPill(
             selected = vm.keyboardMode,
-            tint = ProButtonPalette.Emerald,
+            tint = Color(vm.textColor ?: vm.penStyle.color),
             onClick = { vm.toggleKeyboardMode() },
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 9.dp),
             modifier = Modifier.weight(1f).defaultMinSize(minHeight = 48.dp),
         ) {
-            ProIconView(ProIcon.KEYBOARD, if (vm.keyboardMode) Color.White else fgColor, Modifier.size(16.dp))
+            ProIconView(ProIcon.KEYBOARD, if (vm.keyboardMode) actionFg else fgColor, Modifier.size(16.dp))
             Spacer(Modifier.width(5.dp))
-            Text("Keyboard Mode", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = if (vm.keyboardMode) Color.White else fgColor, maxLines = 1)
+            Text("Keyboard", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = if (vm.keyboardMode) actionFg else fgColor, maxLines = 1)
         }
     }
     Text(stringResource(R.string.sheet_colour_set), style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.68f))
@@ -893,7 +895,7 @@ private fun TextCardContent(vm: EditorViewModel) {
 
     AppPill(
         selected = hwProfile.trainedCharCount() > 0,
-        tint = ProButtonPalette.Emerald,
+        tint = Color(vm.textColor ?: vm.penStyle.color),
         onClick = { showHwStudio = true },
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
         modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 46.dp),
@@ -902,14 +904,14 @@ private fun TextCardContent(vm: EditorViewModel) {
             Icons.Outlined.Edit,
             contentDescription = null,
             modifier = Modifier.size(16.dp),
-            tint = if (hwProfile.trainedCharCount() > 0) Color.White else fgColor,
+            tint = if (hwProfile.trainedCharCount() > 0) actionFg else fgColor,
         )
         Spacer(Modifier.width(6.dp))
         Text(
             "My Handwriting Style (${hwProfile.trainedCharCount()}/${HandwritingFontChars.ALL.size})",
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
-            color = if (hwProfile.trainedCharCount() > 0) Color.White else fgColor,
+            color = if (hwProfile.trainedCharCount() > 0) actionFg else fgColor,
         )
     }
     Text(

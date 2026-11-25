@@ -19,7 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -57,7 +57,7 @@ internal fun LibraryCreateMenu(label: String, items: List<AppMenuItem>) {
     Box {
         Surface(
             onClick = { expanded = !expanded },
-            shape = RoundedCornerShape(18.dp),
+            shape = com.pronotes.app.ui.appCardShape(),
             color = Color(0xFF254DB5),
             contentColor = Color.White,
             border = BorderStroke(1.dp, Color(0xFF749AF0).copy(alpha = 0.5f)),
@@ -77,7 +77,7 @@ internal fun LibraryCreateMenu(label: String, items: List<AppMenuItem>) {
                 Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(18.dp).rotate(arrow))
             }
         }
-        MaterialTheme(shapes = MaterialTheme.shapes.copy(extraSmall = RoundedCornerShape(24.dp))) {
+        MaterialTheme(shapes = MaterialTheme.shapes.copy(extraSmall = com.pronotes.app.ui.appCardShape())) {
             DropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
@@ -109,7 +109,7 @@ internal fun LibraryCreateMenu(label: String, items: List<AppMenuItem>) {
                         leadingIcon = {
                             Box(Modifier.size(34.dp).background(accent.copy(alpha = 0.12f), RoundedCornerShape(11.dp)), contentAlignment = Alignment.Center) {
                                 CompositionLocalProvider(LocalContentColor provides accent) {
-                                    item.icon?.invoke() ?: Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp))
+                                    item.icon?.invoke() ?: Icon(Icons.Rounded.ChevronRight, null, Modifier.size(18.dp))
                                 }
                             }
                         },

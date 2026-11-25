@@ -479,3 +479,25 @@ fun EditorViewModel.autoGenerateFlashcards() {
     saveStudy()
     say("Generated ${added.size} flashcard${if (added.size == 1) "" else "s"}")
 }
+
+/** A comment uses the existing sticky editor and persisted bidirectional content links. */
+fun EditorViewModel.addSelectionComment() {
+    val page = selectionPage
+    val p = pages.getOrNull(page) ?: return
+    val bounds = selectionUnion() ?: return
+    val x = (bounds.right + 32f).coerceIn(16f, (p.width - 336f).coerceAtLeast(16f))
+    val y = bounds.top.coerceIn(16f, (p.height - 256f).coerceAtLeast(16f))
+    val comment = StickyItem(ItemIds.next(), x, y, 320f, 240f, stickyColor, "", title = "Comment")
+    beginEdit(page)
+    applyItems(page, p.items + comment)
+    links = links + InkLink(
+        id = UUID.randomUUID().toString(),
+        aPage = p.id, ax = bounds.centerX(), ay = bounds.centerY(),
+        bPage = p.id, bx = x + 38f, by = y + 38f,
+        box = listOf(bounds.left, bounds.top, bounds.right, bounds.bottom),
+    )
+    saveStudy()
+    onSelection(-1, emptySet(), null)
+    stickyEdit = EditorViewModel.StickyEdit(page, comment, false)
+    onRedraw?.invoke()
+}

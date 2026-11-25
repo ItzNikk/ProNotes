@@ -290,6 +290,8 @@ data class AppSettings(
     val scribbleSensitivity: ScribbleSensitivity = ScribbleSensitivity.BALANCED,
     val holdToShape: Boolean = true,
     val circleToLasso: Boolean = true,
+    val tripleTapToText: Boolean = false,
+    val videoInToolbar: Boolean = false,
     val fingerTapUndo: Boolean = true,
     val doubleTapZoom: Boolean = true,
     // pages
@@ -476,6 +478,8 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             scribbleSensitivity = enumOf("scribbleSens", d.scribbleSensitivity),
             holdToShape = b("holdShape", d.holdToShape),
             circleToLasso = b("circleLasso", d.circleToLasso),
+            tripleTapToText = b("tripleTapToText", d.tripleTapToText),
+            videoInToolbar = b("videoInToolbar", d.videoInToolbar),
             fingerTapUndo = b("fingerTapUndo", d.fingerTapUndo),
             doubleTapZoom = b("doubleTapZoom", d.doubleTapZoom),
             scroll = enumOf("scroll", d.scroll),
@@ -610,6 +614,8 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             .putString("scribbleSens", s.scribbleSensitivity.name)
             .putBoolean("holdShape", s.holdToShape)
             .putBoolean("circleLasso", s.circleToLasso)
+            .putBoolean("tripleTapToText", s.tripleTapToText)
+            .putBoolean("videoInToolbar", s.videoInToolbar)
             .putBoolean("fingerTapUndo", s.fingerTapUndo)
             .putBoolean("doubleTapZoom", s.doubleTapZoom)
             .putString("scroll", s.scroll.name)
