@@ -19,9 +19,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,6 +33,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -59,6 +66,7 @@ object ProButtonPalette {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Swatch(color: Int, selected: Boolean, size: Int = 26, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
+    val label = remember(color) { "Colour #" + String.format("%08X", color) }
     val dotColor = Color(color)
     val lum = dotColor.luminance()
     val innerRimColor = when {
@@ -77,7 +85,8 @@ fun Swatch(color: Int, selected: Boolean, size: Int = 26, onLongClick: (() -> Un
 
     Box(
         Modifier
-            .size((size + 8).dp)
+            .size(maxOf(size + 8, 36).dp)
+            .semantics { contentDescription = label; this.selected = selected }
             .border(
                 width = if (selected) 2.2.dp else 0.dp,
                 color = outerRingColor,
@@ -92,7 +101,14 @@ fun Swatch(color: Int, selected: Boolean, size: Int = 26, onLongClick: (() -> Un
                 shape = CircleShape,
             )
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
-    )
+        contentAlignment = Alignment.Center,
+    ) {
+        if (selected) Icon(
+            Icons.Filled.Check, null,
+            Modifier.size(16.dp),
+            tint = if (dotColor.alpha < 0.05f) MaterialTheme.colorScheme.onSurface else if (lum > 0.45f) Color(0xFF101820) else Color.White,
+        )
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -107,6 +123,10 @@ fun ColorEditorDialog(
     var current by remember { mutableStateOf(initial or (0xFF shl 24)) }
     var hex by remember { mutableStateOf(String.format("%06X", initial and 0xFFFFFF)) }
     val controller = rememberColorPickerController()
+    var externalSelection by remember { mutableStateOf(initial or (0xFF shl 24)) }
+    LaunchedEffect(externalSelection) { controller.selectByColor(Color(externalSelection), false) }
+    val uniquePresets = remember(presets) { presets.distinct() }
+    val uniqueRecent = remember(recent, presets) { recent.distinct().filterNot { it in presets }.take(12) }
     AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("Colour", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) },
@@ -130,21 +150,24 @@ fun ColorEditorDialog(
                     OutlinedTextField(
                         value = hex,
                         onValueChange = { v ->
-                            val clean = v.uppercase().filter { it.isDigit() || it in 'A'..'F' }.take(6)
+                            val clean = v.uppercase().filter { it in '0'..'9' || it in 'A'..'F' }.take(6)
                             hex = clean
-                            if (clean.length == 6) current = clean.toLong(16).toInt() or (0xFF shl 24)
+                            if (clean.length == 6) {
+                                current = clean.toLong(16).toInt() or (0xFF shl 24)
+                                externalSelection = current
+                            }
                         },
                         prefix = { Text("#") }, singleLine = true, label = { Text("Hex") },
                     )
                 }
                 Text("Presets", style = MaterialTheme.typography.labelSmall)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    presets.forEach { c -> Swatch(c, c == current, 22) { current = c; hex = String.format("%06X", c and 0xFFFFFF) } }
+                    uniquePresets.forEach { c -> Swatch(c, c == current, 22) { current = c; externalSelection = c; hex = String.format("%06X", c and 0xFFFFFF) } }
                 }
-                if (recent.isNotEmpty()) {
+                if (uniqueRecent.isNotEmpty()) {
                     Text("Recent", style = MaterialTheme.typography.labelSmall)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        recent.forEach { c -> Swatch(c, c == current, 22) { current = c; hex = String.format("%06X", c and 0xFFFFFF) } }
+                        uniqueRecent.forEach { c -> Swatch(c, c == current, 22) { current = c; externalSelection = c; hex = String.format("%06X", c and 0xFFFFFF) } }
                     }
                 }
             }

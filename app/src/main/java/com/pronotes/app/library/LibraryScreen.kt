@@ -91,6 +91,7 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material.icons.rounded.UploadFile
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -298,6 +299,38 @@ fun LibraryScreen(
     if (destination == "Books" || destination == "Marketplace") {
         CatalogDialog(destination == "Books", folderId, { destination = "" }, onOpen)
     }
+    var selectionMode by remember { mutableStateOf(false) }
+    var batchBusy by remember { mutableStateOf(false) }
+    var selectedDocuments by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var confirmBulkTrash by remember { mutableStateOf<Set<String>?>(null) }
+    fun toggleDocument(id: String) {
+        if (batchBusy) return
+        selectionMode = true
+        selectedDocuments = if (id in selectedDocuments) selectedDocuments - id else selectedDocuments + id
+    }
+    BackHandler(enabled = selectionMode) { selectionMode = false; selectedDocuments = emptySet() }
+    LaunchedEffect(section, folderId) { selectionMode = false; selectedDocuments = emptySet() }
+    confirmBulkTrash?.let { ids ->
+        AppDialog(
+            onDismissRequest = { confirmBulkTrash = null },
+            title = { Text("Move ${ids.size} documents to Trash?") },
+            text = { Text("You can restore them from Trash.") },
+            confirmButton = { TextButton(onClick = {
+                confirmBulkTrash = null
+                scope.launch {
+                    try {
+                        ids.forEach { repo.deleteNotebook(it) }
+                        selectedDocuments = emptySet(); selectionMode = false
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        android.widget.Toast.makeText(context, "Could not move every document to Trash. Please try again.", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+            }) { Text("Move to Trash") } },
+            dismissButton = { TextButton(onClick = { confirmBulkTrash = null }) { Text("Cancel") } },
+        )
+    }
     var newNotebook by remember { mutableStateOf(false) }
     var showGuide by rememberSaveable {
         mutableStateOf(store.pref("library_guide_seen") != "yes" && lib.notebooks.isEmpty())
@@ -401,9 +434,9 @@ fun LibraryScreen(
         }
     }
 
-    BackHandler(enabled = folderId != null) { folderId = lib.folders.firstOrNull { it.id == folderId }?.parentId }
+    BackHandler(enabled = folderId != null && !selectionMode) { folderId = lib.folders.firstOrNull { it.id == folderId }?.parentId }
 
-    BackHandler(enabled = searching) {
+    BackHandler(enabled = searching && !selectionMode) {
         searching = false
         query = ""
     }
@@ -604,6 +637,37 @@ fun LibraryScreen(
                             }
                         }
                     }
+
+                AppBottomBar(
+                    applyBottomInset = false,
+                    tabs = listOf(
+                        AppTabItem("Library") { Icon(Icons.Rounded.Description, null, Modifier.size(18.dp)) },
+                        AppTabItem("Books") { Icon(Icons.AutoMirrored.Outlined.MenuBook, null, Modifier.size(18.dp)) },
+                        AppTabItem("Recent") { Icon(Icons.Rounded.AccessTime, null, Modifier.size(18.dp)) },
+                        AppTabItem("Favorites") { Icon(Icons.Rounded.StarBorder, null, Modifier.size(18.dp)) },
+                        AppTabItem("Trash") { Icon(Icons.Rounded.Delete, null, Modifier.size(18.dp)) },
+                    ),
+                    selectedIndex = when (section) {
+                        Section.DOCUMENTS -> 0
+                        Section.RECENT -> 2
+                        Section.FAVORITES -> 3
+                        Section.TRASH -> 4
+                    },
+                    onSelect = { idx ->
+                        if (idx == 1) {
+                            onOpenBookReader()
+                        } else {
+                            section = when (idx) {
+                                0 -> Section.DOCUMENTS
+                                2 -> Section.RECENT
+                                3 -> Section.FAVORITES
+                                else -> Section.TRASH
+                            }
+                            folderId = null
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
 
                     // Page header & crisp actions row
                     Row(
@@ -884,7 +948,10 @@ fun LibraryScreen(
 
                     val actions = TileActions(
                         onOpenFolder = { f -> section = Section.DOCUMENTS; query = ""; searching = false; folderId = f.id },
-                        onOpenNote = { onOpen(it.id) },
+                        onOpenNote = { if (selectionMode) toggleDocument(it.id) else onOpen(it.id) },
+                        selectionMode = selectionMode,
+                        selectedIds = selectedDocuments,
+                        onToggleSelect = { toggleDocument(it) },
                         onRename = { renaming = it },
                         onMove = { moving = it },
                         onDelete = { deleting = it },
@@ -899,7 +966,31 @@ fun LibraryScreen(
                         onDrop = { payload, target -> dropInto(payload, target) },
                     )
 
-                    val listBottomPad = appContentBottomPadding()
+                    if (section != Section.TRASH) {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { selectionMode = !selectionMode; selectedDocuments = emptySet() }) {
+                                Text(if (selectionMode) "Done (${selectedDocuments.size})" else "Select")
+                            }
+                            if (selectionMode) {
+                                TextButton(onClick = { selectedDocuments = entries.filterIsInstance<Entry.N>().map { it.note.id }.toSet() }) { Text("Select all") }
+                                TextButton(onClick = { selectedDocuments = emptySet() }) { Text("Clear") }
+                                TextButton(enabled = selectedDocuments.isNotEmpty() && !batchBusy, onClick = {
+                                    val ids = selectedDocuments
+                                    batchBusy = true
+                                    scope.launch {
+                                        try {
+                                            lib.notebooks.filter { it.id in ids && !it.favorite }.forEach { repo.toggleFavorite(it.id) }
+                                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                            throw cancelled
+                                        } catch (_: Exception) {
+                                            android.widget.Toast.makeText(context, "Could not update every favorite. Please try again.", android.widget.Toast.LENGTH_LONG).show()
+                                        } finally { batchBusy = false }
+                                    }
+                                }) { Text("Favorite") }
+                                TextButton(enabled = selectedDocuments.isNotEmpty() && !batchBusy, onClick = { confirmBulkTrash = selectedDocuments.toSet() }) { Text("Trash") }
+                            }
+                        }
+                    }                    val listBottomPad = 24.dp
                     val listScrollState = rememberLazyListState()
                     val gridScrollState = rememberLazyGridState()
                     val libraryScrolled = if (listView) {
@@ -997,38 +1088,6 @@ fun LibraryScreen(
                         )
                     }
                 }
-            }
-
-            if (!wide || section != Section.DOCUMENTS) {
-                AppBottomBar(
-                    tabs = listOf(
-                        AppTabItem("Library") { Icon(Icons.Rounded.Description, null, Modifier.size(18.dp)) },
-                        AppTabItem("Books") { Icon(Icons.AutoMirrored.Outlined.MenuBook, null, Modifier.size(18.dp)) },
-                        AppTabItem("Recent") { Icon(Icons.Rounded.AccessTime, null, Modifier.size(18.dp)) },
-                        AppTabItem("Favorites") { Icon(Icons.Rounded.StarBorder, null, Modifier.size(18.dp)) },
-                        AppTabItem("Trash") { Icon(Icons.Rounded.Delete, null, Modifier.size(18.dp)) },
-                    ),
-                    selectedIndex = when (section) {
-                        Section.DOCUMENTS -> 0
-                        Section.RECENT -> 2
-                        Section.FAVORITES -> 3
-                        Section.TRASH -> 4
-                    },
-                    onSelect = { idx ->
-                        if (idx == 1) {
-                            onOpenBookReader()
-                        } else {
-                            section = when (idx) {
-                                0 -> Section.DOCUMENTS
-                                2 -> Section.RECENT
-                                3 -> Section.FAVORITES
-                                else -> Section.TRASH
-                            }
-                            folderId = null
-                        }
-                    },
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                )
             }
 
             drag.payload?.let { p ->
@@ -1304,6 +1363,9 @@ private fun keyOf(e: Entry) = if (e is Entry.F) "f" + e.folder.id else "n" + (e 
 private class TileActions(
     val onOpenFolder: (Folder) -> Unit,
     val onOpenNote: (NotebookMeta) -> Unit,
+    val selectionMode: Boolean = false,
+    val selectedIds: Set<String> = emptySet(),
+    val onToggleSelect: (String) -> Unit = {},
     val onRename: (Entry) -> Unit,
     val onMove: (Entry) -> Unit,
     val onDelete: (Entry) -> Unit,
@@ -1648,15 +1710,19 @@ private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
             Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.75f)
-                .then(if (note.deletedAt == null) Modifier.libraryDragSource("note:${note.id}", note.title) else Modifier)
+                .then(if (note.deletedAt == null && !a.selectionMode) Modifier.libraryDragSource("note:${note.id}", note.title) else Modifier)
                 .combinedClickable(
                     interactionSource = src,
                     indication = null,
                     onClick = { if (note.deletedAt != null) trashPrompt = true else a.onOpenNote(note) },
-                    onLongClick = if (note.deletedAt != null) ({ trashPrompt = true }) else null,
+                    onLongClick = if (note.deletedAt != null) ({ trashPrompt = true }) else ({ a.onToggleSelect(note.id) }),
                 ),
         ) {
             CoverArt(note.coverSpec, note.title, repo.noteDir(note.id), note.modified, Modifier.fillMaxSize())
+            if (a.selectionMode && note.deletedAt == null) Checkbox(
+                checked = note.id in a.selectedIds, onCheckedChange = { a.onToggleSelect(note.id) },
+                modifier = Modifier.align(Alignment.TopStart).padding(4.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f), CircleShape),
+            )
             if (note.favorite) {
                 Icon(Icons.Filled.Star, null, tint = Color(0xFFF2C94C), modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(20.dp))
             }
@@ -1727,6 +1793,10 @@ private fun ListRow(e: Entry, repo: Repository, a: TileActions) {
         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            if (a.selectionMode && e is Entry.N && e.note.deletedAt == null) Checkbox(
+                checked = e.note.id in a.selectedIds,
+                onCheckedChange = { a.onToggleSelect(e.note.id) },
+            )
             Row(
                 Modifier
                     .weight(1f)

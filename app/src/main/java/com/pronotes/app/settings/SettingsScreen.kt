@@ -279,7 +279,7 @@ private fun CategoryList(selected: Category?, modifier: Modifier, onPick: (Categ
                 onClick = { onPick(c) },
                 modifier = Modifier.fillMaxWidth().semantics { this.selected = active },
                 shape = RoundedCornerShape(22.dp),
-                color = if (active) androidx.compose.ui.graphics.lerp(Color.Black, accent, 0.17f) else Color.Black.copy(alpha = 0.72f),
+                color = if (active) androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.surface, accent, 0.17f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
                 border = BorderStroke(1.dp, if (active) accent.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.07f)),
             ) {
                 ListItem(
@@ -1131,7 +1131,7 @@ private fun Section(title: String, content: @Composable () -> Unit) {
         )
         OutlinedCard(
             shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.outlinedCardColors(containerColor = Color.Black.copy(alpha = 0.78f)),
+            colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
             border = BorderStroke(1.dp, Color.White.copy(alpha = 0.09f)),
         ) {
             Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) { content() }

@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
@@ -31,8 +32,8 @@ internal fun GlowingWorkspace(
     paused: Boolean = false,
     content: @Composable BoxWithConstraintsScope.() -> Unit,
 ) {
-    MaterialTheme(colorScheme = LocalWorkspaceDarkScheme.current) {
-        BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+    MaterialTheme(colorScheme = MaterialTheme.colorScheme) {
+        BoxWithConstraints(Modifier.fillMaxSize().background(if (MaterialTheme.colorScheme.background.luminance() < 0.4f) Color.Black else MaterialTheme.colorScheme.background)) {
             WorkspaceGlow(Modifier.matchParentSize(), paused)
             content()
         }

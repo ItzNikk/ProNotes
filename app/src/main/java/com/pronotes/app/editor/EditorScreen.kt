@@ -844,6 +844,7 @@ fun EditorScreen(
 
                     com.pronotes.app.ui.TopScrollCloudyBackdrop(
                         scrolled = !focus,
+                        aurora = true,
                         enabled = settings.topScrollBlur,
                         height = 34.dp,
                         modifier = Modifier.align(Alignment.TopCenter),
@@ -1096,7 +1097,7 @@ fun EditorScreen(
                     LaunchedEffect(activePopoverTool) {
                         if (activePopoverTool != null) displayedPopover = activePopoverTool
                         else {
-                            kotlinx.coroutines.delay(if (reduceMotion) 0L else 150L)
+                            kotlinx.coroutines.delay(if (reduceMotion) 0L else 240L)
                             displayedPopover = null
                         }
                     }
@@ -1250,7 +1251,7 @@ fun EditorScreen(
                             contentColor = Color.White,
                             shape = appPillShape(),
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                            modifier = Modifier.align(Alignment.Center),
+                            modifier = Modifier.align(Alignment.TopStart).padding(start = 16.dp, top = 48.dp),
                         ) {
                             Text("$z%", style = MaterialTheme.typography.titleMedium, color = Color.White)
                         }

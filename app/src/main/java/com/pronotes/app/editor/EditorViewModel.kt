@@ -48,6 +48,10 @@ val MindPalette = listOf(0xFF24483F, 0xFF2E4A7A, 0xFF2F6B4F, 0xFF7A2E42, 0xFFB98
 class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(app) {
     internal val repo = Repository.get(app)
     internal val store = SettingsStore.get(app)
+    private var recentPalette by mutableStateOf(
+        store.pref("recentColors_$noteId").split(',').mapNotNull { it.toIntOrNull() }.distinct().take(12),
+    )
+
     internal val notebookSettings = com.pronotes.app.data.NotebookSettings(app, noteId, viewModelScope)
     val settingsFlow = notebookSettings.settings
 
@@ -311,31 +315,36 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     }
 
     fun updateStyle(t: Tool, s: ToolStyle) {
-        if (styleFor(t)?.color != s.color) {
-            if (t == Tool.PEN || t == Tool.SHAPE) shareInkColor(t, s.color)
-            else if (t == Tool.HIGHLIGHTER || t == Tool.CRAYON) pushRecent(s.color)
+        val previous = styleFor(t) ?: return
+        val colors = s.colors.distinct().take(8).ifEmpty { listOf(s.color) }
+        val next = s.copy(colors = colors)
+        if (previous == next) return
+        if (previous.color != next.color) {
+            if (t == Tool.PEN || t == Tool.SHAPE) shareInkColor(t, next.color)
+            else pushRecent(next.color)
         }
-        when (t) {
-            Tool.PEN -> { penStyle = s; store.saveSwatches("pen_$noteId", s.colors) }
-            Tool.CRAYON -> { crayonStyle = s; store.saveSwatches("crayon_$noteId", s.colors) }
-            Tool.HIGHLIGHTER -> { highlighterStyle = s; store.saveSwatches("highlighter_$noteId", s.colors) }
-            Tool.SHAPE -> { shapeStyle = s; store.saveSwatches("shape_$noteId", s.colors) }
-            else -> Unit
+        val key = when (t) {
+            Tool.PEN -> { penStyle = next; "pen" }
+            Tool.CRAYON -> { crayonStyle = next; "crayon" }
+            Tool.HIGHLIGHTER -> { highlighterStyle = next; "highlighter" }
+            Tool.SHAPE -> { shapeStyle = next; "shape" }
+            else -> return
         }
+        // Size, opacity and active-color changes must not rewrite an unchanged palette.
+        if (previous.colors != next.colors) store.saveSwatches("${key}_$noteId", next.colors)
     }
-
     fun shapeFill(): Int? = if (shapeFillOn) shapeFillColor else null
 
     fun addSwatch(t: Tool, color: Int) {
         val s = styleFor(t) ?: return
-        if (s.colors.size >= 8) return
-        updateStyle(t, s.copy(colors = s.colors + color, color = color))
+        if (color !in s.colors && s.colors.size >= 8) return
+        updateStyle(t, s.copy(colors = (s.colors + color).distinct(), color = color))
         pushRecent(color)
     }
 
     fun removeSwatch(t: Tool, index: Int) {
         val s = styleFor(t) ?: return
-        if (s.colors.size <= 1) return
+        if (s.colors.size <= 1 || index !in s.colors.indices) return
         val colors = s.colors.toMutableList().also { it.removeAt(index) }
         updateStyle(t, s.copy(colors = colors, color = if (s.color in colors) s.color else colors.first()))
     }
@@ -602,9 +611,13 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         viewModelScope.launch { repo.renameNotebook(noteId, newTitle) }
     }
 
-    fun recentColors() = store.pref("recentColors_$noteId").split(',').mapNotNull { it.toIntOrNull() }
-    fun pushRecent(c: Int) = store.setPref("recentColors_$noteId", (listOf(c) + recentColors()).distinct().take(12).joinToString(","))
-
+    fun recentColors(): List<Int> = recentPalette
+    fun pushRecent(c: Int) {
+        val next = (listOf(c) + recentPalette).distinct().take(12)
+        if (next == recentPalette) return
+        recentPalette = next
+        store.setPref("recentColors_$noteId", next.joinToString(","))
+    }
     fun brushFor(t: Tool): Brush {
         val td = settingsFlow.value.toolDefaults
         return when (t) {

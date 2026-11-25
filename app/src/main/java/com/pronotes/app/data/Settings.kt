@@ -291,7 +291,7 @@ data class AppSettings(
     val holdToShape: Boolean = true,
     val circleToLasso: Boolean = true,
     val tripleTapToText: Boolean = false,
-    val videoInToolbar: Boolean = false,
+    val videoInToolbar: Boolean = true,
     val fingerTapUndo: Boolean = true,
     val doubleTapZoom: Boolean = true,
     // pages
@@ -479,7 +479,7 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             holdToShape = b("holdShape", d.holdToShape),
             circleToLasso = b("circleLasso", d.circleToLasso),
             tripleTapToText = b("tripleTapToText", d.tripleTapToText),
-            videoInToolbar = b("videoInToolbar", d.videoInToolbar),
+            videoInToolbar = b("videoToolbarVisible", d.videoInToolbar),
             fingerTapUndo = b("fingerTapUndo", d.fingerTapUndo),
             doubleTapZoom = b("doubleTapZoom", d.doubleTapZoom),
             scroll = enumOf("scroll", d.scroll),
@@ -615,7 +615,7 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             .putBoolean("holdShape", s.holdToShape)
             .putBoolean("circleLasso", s.circleToLasso)
             .putBoolean("tripleTapToText", s.tripleTapToText)
-            .putBoolean("videoInToolbar", s.videoInToolbar)
+            .putBoolean("videoToolbarVisible", s.videoInToolbar)
             .putBoolean("fingerTapUndo", s.fingerTapUndo)
             .putBoolean("doubleTapZoom", s.doubleTapZoom)
             .putString("scroll", s.scroll.name)
@@ -737,10 +737,11 @@ class SettingsStore private constructor(context: Context, file: String = "settin
 
     /** Per-tool colour swatches survive restarts. Up to 8 per tool. */
     fun swatches(tool: String, default: List<Int>): List<Int> =
-        prefs.getString("swatch_$tool", null)?.split(',')?.mapNotNull { it.toIntOrNull() }?.takeIf { it.isNotEmpty() } ?: default
+        prefs.getString("swatch_$tool", null)?.split(',')?.mapNotNull { it.toIntOrNull() }?.distinct()?.take(8)?.takeIf { it.isNotEmpty() } ?: default.distinct().take(8)
 
     fun saveSwatches(tool: String, colors: List<Int>) {
-        prefs.edit().putString("swatch_$tool", colors.joinToString(",")).apply()
+        val encoded = colors.distinct().take(8).joinToString(",")
+        if (prefs.getString("swatch_$tool", null) != encoded) prefs.edit().putString("swatch_$tool", encoded).apply()
     }
 
     fun recentColors(): List<Int> =

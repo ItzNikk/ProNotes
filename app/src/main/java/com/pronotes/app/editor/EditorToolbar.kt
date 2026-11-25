@@ -1421,7 +1421,7 @@ private fun StudioQuickChip(
 @Composable
 fun CustomSwatches(base: List<Int>, current: Int, vm: EditorViewModel, onPick: (Int) -> Unit) {
     var custom by remember { mutableStateOf(false) }
-    base.forEach { c -> Swatch(c, c == current, 18) { onPick(c) } }
+    base.distinct().forEach { c -> Swatch(c, c == current, 18) { onPick(c); vm.pushRecent(c) } }
     if (current !in base) Swatch(current, true, 18) { custom = true }
     AddSwatchButton { custom = true }
     if (custom) {
@@ -1514,9 +1514,11 @@ fun StyleOptions(
         else -> PenPalette
     }
     editing?.let { slot ->
-        ColorEditorDialog(style.colors[slot], presets, vm.recentColors(), onDismiss = { editing = null }) { picked ->
-            val colors = style.colors.toMutableList().also { it[slot] = picked }
-            vm.updateStyle(t, style.copy(colors = colors, color = picked))
+        ColorEditorDialog(style.colors.getOrNull(slot) ?: style.color, presets.distinct(), vm.recentColors(), onDismiss = { editing = null }) { picked ->
+            val latest = vm.styleFor(t) ?: return@ColorEditorDialog
+            if (slot !in latest.colors.indices) { editing = null; return@ColorEditorDialog }
+            val colors = latest.colors.toMutableList().also { it[slot] = picked }
+            vm.updateStyle(t, latest.copy(colors = colors, color = picked))
             vm.pushRecent(picked)
             editing = null
         }

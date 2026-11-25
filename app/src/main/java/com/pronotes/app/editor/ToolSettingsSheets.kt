@@ -48,6 +48,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.snap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -134,7 +136,7 @@ fun ToolPopoverCard(
 ) {
     var entered by remember(tool) { mutableStateOf(false) }
     LaunchedEffect(tool) { entered = true }
-    val progress by animateFloatAsState(if (entered && visible) 1f else 0f, animationSpec = if (com.pronotes.app.ui.LocalReduceMotion.current) snap() else tween(150), label = "Tool menu")
+    val progress by animateFloatAsState(if (entered && visible) 1f else 0f, animationSpec = if (com.pronotes.app.ui.LocalReduceMotion.current) snap() else spring(dampingRatio = 0.78f, stiffness = 650f), label = "Tool menu")
     val pickTape = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) vm.useTapeImage(uri)
     }
@@ -147,7 +149,7 @@ fun ToolPopoverCard(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .widthIn(min = 260.dp, max = 360.dp)
-            .graphicsLayer { alpha = progress; scaleX = 0.97f + progress * 0.03f; scaleY = scaleX }
+            .graphicsLayer { alpha = progress.coerceIn(0f, 1f); scaleX = 0.97f + progress * 0.03f; scaleY = scaleX }
             .onPreviewKeyEvent { ev ->
                 if (ev.type == KeyEventType.KeyDown && ev.key == Key.Escape) {
                     onDismiss()

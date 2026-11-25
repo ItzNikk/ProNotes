@@ -36,6 +36,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -48,11 +50,6 @@ import com.pronotes.app.ui.LocalReduceMotion
 @Composable
 internal fun LibraryCreateMenu(label: String, items: List<AppMenuItem>) {
     var expanded by remember { mutableStateOf(false) }
-    val arrow by animateFloatAsState(
-        if (expanded) 180f else 0f,
-        animationSpec = if (LocalReduceMotion.current) snap() else tween(180),
-        label = "New menu arrow",
-    )
     val accents = listOf(Color(0xFF8EB9FF), Color(0xFFC0A4FF), Color(0xFF7BE0C6), Color(0xFFFFC38B))
     Box {
         Surface(
@@ -63,18 +60,8 @@ internal fun LibraryCreateMenu(label: String, items: List<AppMenuItem>) {
             border = BorderStroke(1.dp, Color(0xFF749AF0).copy(alpha = 0.5f)),
             shadowElevation = 5.dp,
         ) {
-            Row(
-                Modifier.heightIn(min = 48.dp)
-                    .background(Brush.linearGradient(listOf(Color(0xFF315FD4), Color(0xFF5844AA))))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(9.dp),
-            ) {
-                Box(Modifier.size(28.dp).background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(9.dp)), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Filled.Add, null, Modifier.size(19.dp))
-                }
-                Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(18.dp).rotate(arrow))
+            Box(Modifier.size(48.dp).semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
+                Icon(Icons.Filled.Add, null, Modifier.size(25.dp))
             }
         }
         MaterialTheme(shapes = MaterialTheme.shapes.copy(extraSmall = com.pronotes.app.ui.appCardShape())) {
@@ -82,11 +69,11 @@ internal fun LibraryCreateMenu(label: String, items: List<AppMenuItem>) {
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
                 modifier = Modifier.widthIn(min = 260.dp, max = 340.dp).heightIn(max = 560.dp),
-                containerColor = Color(0xFF121722),
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             ) {
                 Column(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
-                    Text("Notebooks, imports and study tools", style = MaterialTheme.typography.bodySmall, color = Color(0xFFA5B3CA))
+                    Text(label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    Text("Notebooks, imports and study tools", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 items.forEachIndexed { index, item ->
                     val group = when {
@@ -97,7 +84,7 @@ internal fun LibraryCreateMenu(label: String, items: List<AppMenuItem>) {
                     }
                     val accent = accents[group]
                     if (index in listOf(0, 4, 9, 11)) {
-                        if (index != 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = Color.White.copy(alpha = 0.08f))
+                        if (index != 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                         Text(
                             listOf("CREATE", "EXPLORE", "ORGANIZE", "IMPORT")[group],
                             Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
@@ -113,7 +100,7 @@ internal fun LibraryCreateMenu(label: String, items: List<AppMenuItem>) {
                                 }
                             }
                         },
-                        text = { Text(item.label, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFE6ECF6)) },
+                        text = { Text(item.label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface) },
                         onClick = { expanded = false; item.onClick() },
                     )
                 }

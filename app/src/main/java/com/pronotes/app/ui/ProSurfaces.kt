@@ -17,6 +17,8 @@ import dev.chrisbanes.haze.HazeProgressive
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.materials.HazeMaterials
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -505,10 +507,23 @@ fun AnimatedGradientText(
             Color(0xFF2563EB),
         )
     }
+    var pattern by remember(text) { mutableIntStateOf(kotlin.random.Random.nextInt()) }
+    LaunchedEffect(text, reduceMotion) {
+        if (!reduceMotion) while (true) {
+            kotlinx.coroutines.delay(kotlin.random.Random.nextLong(3600L, 6400L))
+            pattern = kotlin.random.Random.nextInt()
+        }
+    }
+    val targetPalette = remember(palette, pattern) { palette.shuffled(kotlin.random.Random(pattern)) }
+    val shiftingPalette = targetPalette.mapIndexed { index, target ->
+        androidx.compose.runtime.key(index) {
+            animateColorAsState(target, animationSpec = tween(3000), label = "Text hue").value
+        }
+    }
     val span = 520f
     val offset = shift * span
     val brush = Brush.linearGradient(
-        colors = palette,
+        colors = shiftingPalette,
         start = Offset(x = -span + offset, y = 0f),
         end = Offset(x = offset, y = 32f),
         tileMode = TileMode.Repeated,
@@ -552,6 +567,7 @@ fun TopScrollCloudyBackdrop(
     height: Dp = 76.dp,
     modifier: Modifier = Modifier,
     hazeState: HazeState? = null,
+    aurora: Boolean = false,
 ) {
     val classic = LocalClassicAppearance.current
     val reduceEffects = LocalReduceEffects.current
@@ -568,7 +584,20 @@ fun TopScrollCloudyBackdrop(
         label = "topScrimAlpha",
     )
     if (scrimAlpha <= 0.01f && blurAlpha <= 0.01f) return
-    val surface = MaterialTheme.colorScheme.surface
+    val baseSurface = MaterialTheme.colorScheme.surface
+    var auroraTarget by remember { mutableStateOf(Color(0xFF6954A6)) }
+    val reduceMotion = LocalReduceMotion.current
+    LaunchedEffect(aurora, active, reduceMotion) {
+        if (aurora && active && !reduceMotion) {
+            val tones = listOf(Color(0xFF6954A6), Color(0xFF326E98), Color(0xFF3F897D), Color(0xFF9A507D), Color(0xFF4259A1))
+            while (true) {
+                kotlinx.coroutines.delay(kotlin.random.Random.nextLong(3200L, 5600L))
+                auroraTarget = tones.filter { it != auroraTarget }.random()
+            }
+        }
+    }
+    val auroraTint by animateColorAsState(auroraTarget, animationSpec = tween(3000), label = "Under-toolbar aurora")
+    val surface = if (aurora) lerp(baseSurface, auroraTint, 0.30f) else baseSurface
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -920,13 +949,14 @@ fun AppBottomBar(
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    applyBottomInset: Boolean = true,
 ) {
     val navPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     Box(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 10.dp)
-            .padding(bottom = navPad),
+            .padding(bottom = if (applyBottomInset) navPad else 0.dp),
         contentAlignment = Alignment.Center,
     ) {
         AppSurface(
@@ -935,7 +965,7 @@ fun AppBottomBar(
             shadowElevation = 10.dp,
             contentPadding = PaddingValues(6.dp),
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 tabs.forEachIndexed { idx, tab ->
                     AppPill(
                         selected = idx == selectedIndex,

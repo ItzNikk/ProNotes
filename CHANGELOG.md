@@ -8,6 +8,18 @@ All notable changes to Pro Notes are documented in this file.
 
 ### What's changed
 
+- Selected palette colors display a contrasting checkmark as well as an outline. Zoom feedback sits near the upper-left canvas edge instead of its center.
+- Library documents support Select mode, grid/list checkboxes, Select all, Clear, bulk Favorite, and confirmed Move to Trash. Back exits selection before navigating away.
+
+- Palette changes are deduplicated and bounded, unchanged palettes are no longer rewritten during size adjustments, and recent colors are cached in memory.
+- Preset and HEX selections synchronize the color wheel, duplicate recent/preset chips are hidden, and palette editing guards against stale slots while preserving the latest tool settings.
+- Color swatches have larger compact touch targets, accessible color names, and explicit selected state.
+
+- Documents navigation is fixed above the content, with a plus-only creation button and horizontally scrollable tabs on narrow windows. The bottom navigation inset is removed from the relocated bar.
+- Tool menu transitions use a restrained spring, and the under-toolbar blur alone changes colors smoothly. No decorative strip animations were restored.
+- Gradient text crossfades between randomized color arrangements. Workspace, Settings cards, and the creation menu follow the active light/dark palette.
+- The optional video toolbar action is visible by default with a migrated visibility preference; users can still hide it in Settings.
+
 - Sticky editing has separate Text and Handwriting modes, a simplified header, larger new notes, and safe editor sizing on narrow windows. Handwriting mode exposes the live canvas and preserves the typed draft when switching back.
 - Tool popovers use compact wrapping controls and animated opening/closing, fixing the vertical size/color controls shown in the previous pen menu.
 - Removed the remaining decorative strip animation and Lottie dependency. Reduced the size and opacity of workspace glows to restore the black background.
