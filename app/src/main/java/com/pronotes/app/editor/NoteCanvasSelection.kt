@@ -86,7 +86,26 @@ internal fun NoteCanvasView.beginGrab(px: Float, py: Float): Boolean {
 internal fun NoteCanvasView.updateGrab(x: Float, y: Float) {
     val m = Matrix()
     when (grab) {
-        NoteCanvasView.Grab.MOVE -> m.setTranslate(x - grabStartX, y - grabStartY)
+        NoteCanvasView.Grab.MOVE -> {
+            m.setTranslate(x - grabStartX, y - grabStartY)
+            if (width > 0 && height > 0) {
+                val pt = floatArrayOf(x, y)
+                pageMatrix(selectionPage, tmpMatrix).mapPoints(pt)
+                val sx = pt[0]
+                val sy = pt[1]
+                val edge = 64f * density
+                val step = 14f * density
+                var scrolled = false
+                if (sy < edge) { transY += step; scrolled = true }
+                else if (sy > height - edge) { transY -= step; scrolled = true }
+                if (sx < edge) { transX += step; scrolled = true }
+                else if (sx > width - edge) { transX -= step; scrolled = true }
+                if (scrolled) {
+                    clampTranslation()
+                    updateMatrix()
+                }
+            }
+        }
         NoteCanvasView.Grab.SCALE -> {
             val d0 = hypot(grabStartX - anchorX, grabStartY - anchorY).coerceAtLeast(1f)
             liveScale = (hypot(x - anchorX, y - anchorY) / d0).coerceIn(0.1f, 12f)

@@ -363,7 +363,18 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         if (r != null) chipJob = viewModelScope.launch { delay(3500); circleChip = null }
     }
 
-    fun onZoom(p: Int?) { zoomPercent = p }
+    private var zoomJob: Job? = null
+
+    fun onZoom(p: Int?) {
+        zoomPercent = p
+        zoomJob?.cancel()
+        if (p != null) {
+            zoomJob = viewModelScope.launch {
+                delay(1200)
+                zoomPercent = null
+            }
+        }
+    }
 
     fun copySelection() {
         val p = pages.getOrNull(selectionPage) ?: return
