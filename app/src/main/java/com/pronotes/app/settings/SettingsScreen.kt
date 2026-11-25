@@ -1,7 +1,8 @@
 package com.pronotes.app.settings
 
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -9,6 +10,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -71,7 +73,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -169,15 +170,24 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
     val context = LocalContext.current
     val store = remember { SettingsStore.get(context) }
     val s by store.settings.collectAsStateWithLifecycle()
-    val wide = LocalConfiguration.current.screenWidthDp >= 700
     var selected by rememberSaveable { mutableStateOf<Category?>(null) }
-    val current = selected ?: if (wide) Category.STYLUS else null
+    var backProgress by remember { mutableStateOf(0f) }
+    val reduceMotion = com.pronotes.app.ui.LocalReduceMotion.current
     val scrollState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
-    val back: () -> Unit = { if (!wide && selected != null) selected = null else onBack() }
 
-    BackHandler(enabled = !wide && selected != null, onBack = back)
+    BoxWithConstraints(Modifier.fillMaxSize().background(com.pronotes.app.ui.workspaceBackground())) {
+        val wide = maxWidth >= 720.dp
+        val current = selected ?: if (wide) Category.STYLUS else null
+        val back: () -> Unit = { if (!wide && selected != null) selected = null else onBack() }
+        PredictiveBackHandler(enabled = !wide && selected != null) { events ->
+            try {
+                events.collect { backProgress = it.progress }
+                selected = null
+            } finally {
+                backProgress = 0f
+            }
+        }
 
-    Box(Modifier.fillMaxSize().background(com.pronotes.app.ui.workspaceBackground())) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
@@ -212,7 +222,13 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
                     CategoryList(null, Modifier.fillMaxSize()) { selected = it }
                 }
             } else {
-                scrollState.SaveableStateProvider(current.name) { Detail(current, s, store, onSupport) }
+                Box(Modifier.fillMaxSize().graphicsLayer {
+                    val scale = if (reduceMotion) 1f else 1f - backProgress * 0.04f
+                    scaleX = scale
+                    scaleY = scale
+                }) {
+                    scrollState.SaveableStateProvider(current.name) { Detail(current, s, store, onSupport) }
+                }
             }
         }
     }

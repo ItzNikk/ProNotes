@@ -95,7 +95,7 @@ internal class NoteCanvasDocLayer(
     }
     private val lassoPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 4.4f * owner.density
+        strokeWidth = 5.5f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         color = 0xFF3D6CF4.toInt()
@@ -103,7 +103,7 @@ internal class NoteCanvasDocLayer(
     private val lassoFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x183D6CF4 }
     private val selHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 7.0f * owner.density
+        strokeWidth = 9f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         color = 0xE6FFFFFF.toInt()
@@ -111,7 +111,7 @@ internal class NoteCanvasDocLayer(
     }
     private val selPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 4.2f * owner.density
+        strokeWidth = 5.5f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         color = 0xFF3D6CF4.toInt()
@@ -768,7 +768,7 @@ internal class NoteCanvasDocLayer(
         canvas.drawPath(tmpPath, lassoFill)
         if (antsPhase != cachedLassoPhase || cachedLassoDash == null) {
             cachedLassoPhase = antsPhase
-            cachedLassoDash = DashPathEffect(floatArrayOf(14f * density, 8f * density), antsPhase)
+            cachedLassoDash = DashPathEffect(floatArrayOf(18f * density, 12f * density), antsPhase)
         }
         lassoHaloPaint.pathEffect = cachedLassoDash
         lassoPaint.pathEffect = cachedLassoDash

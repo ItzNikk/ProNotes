@@ -905,6 +905,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         private set
     var handwritingBusy by mutableStateOf(false)
         private set
+    var handwritingGlow by mutableStateOf<Pair<String, RectF>?>(null)
+        private set
+    internal var animateHandwritingConversion = false
 
     internal fun extractTimedStrokes(
         items: List<InkItem>,
@@ -1061,6 +1064,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             !s.collapsed && (s.bounds.contains(union.centerX(), union.centerY()) || RectF.intersects(s.bounds, union))
         }
         handwritingBusy = true
+        val showGlow = animateHandwritingConversion
+        val started = android.os.SystemClock.uptimeMillis()
+        if (showGlow) handwritingGlow = pageId to union
         try {
             val result = HandwritingRecognizer.recognize(
                 strokes = timedStrokes,
@@ -1069,6 +1075,10 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 languageTag = settingsFlow.value.toolDefaults.handwritingLanguage,
                 allowFallback = (!automatic || targetStickyPre != null) && settingsFlow.value.toolDefaults.handwritingLanguage.startsWith("en"),
             )
+            if (showGlow && result.text.isNotBlank()) {
+                val remaining = 100L - (android.os.SystemClock.uptimeMillis() - started)
+                if (remaining > 0L) delay(remaining)
+            }
             val options = settingsFlow.value.toolDefaults
             val idx = pages.indexOfFirst { it.id == pageId }
             val page = pages.getOrNull(idx) ?: return
@@ -1137,6 +1147,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             onConverted(item.id)
         } finally {
             handwritingBusy = false
+            handwritingGlow = null
         }
     }
 

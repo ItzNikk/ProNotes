@@ -20,6 +20,7 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -37,9 +38,9 @@ import kotlin.math.sin
 
 @Composable
 internal fun LibraryGradient(modifier: Modifier, paused: Boolean) {
-    if (LocalClassicAppearance.current || LocalReduceEffects.current) return
+    val effects = !LocalClassicAppearance.current && !LocalReduceEffects.current
     val lifecycleState = LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
-    val phase = if (!paused && !LocalReduceMotion.current && lifecycleState.value == Lifecycle.State.RESUMED) {
+    val phase = if (effects && !paused && !LocalReduceMotion.current && lifecycleState.value == Lifecycle.State.RESUMED) {
         rememberInfiniteTransition(label = "Library background").animateFloat(
             initialValue = 0f,
             targetValue = (2 * PI).toFloat(),
@@ -48,15 +49,15 @@ internal fun LibraryGradient(modifier: Modifier, paused: Boolean) {
         )
     } else null
     val colors = MaterialTheme.colorScheme
-    Box(modifier.drawWithCache {
-        val radius = size.maxDimension.coerceAtLeast(1f)
+    Box(modifier.graphicsLayer { clip = true }.drawWithCache {
+        val radius = (size.maxDimension * 0.88f).coerceAtLeast(1f)
         val primaryGlow = Brush.radialGradient(
-            listOf(colors.primary.copy(alpha = 0.21f), Color.Transparent),
+            listOf(colors.primary.copy(alpha = 0.55f), colors.primary.copy(alpha = 0.16f), Color.Transparent),
             center = Offset.Zero,
             radius = radius,
         )
         val secondaryGlow = Brush.radialGradient(
-            listOf(colors.tertiary.copy(alpha = 0.18f), Color.Transparent),
+            listOf(colors.tertiary.copy(alpha = 0.48f), colors.tertiary.copy(alpha = 0.14f), Color.Transparent),
             center = Offset.Zero,
             radius = radius,
         )
@@ -64,11 +65,12 @@ internal fun LibraryGradient(modifier: Modifier, paused: Boolean) {
             val angle = phase?.value ?: 0f
             val dx = cos(angle) * size.width * 0.20f
             val dy = sin(angle) * size.height * 0.16f
-            translate(size.width * 0.18f + dx, size.height * 0.23f + dy) {
-                drawCircle(primaryGlow, radius, center = Offset.Zero)
+            val intensity = if (effects) 0.86f + sin(angle) * 0.14f else 0.55f
+            translate(size.width * 0.24f + dx, size.height * 0.32f + dy) {
+                drawCircle(primaryGlow, radius, center = Offset.Zero, alpha = intensity)
             }
-            translate(size.width * 0.83f - dx, size.height * 0.78f - dy) {
-                drawCircle(secondaryGlow, radius, center = Offset.Zero)
+            translate(size.width * 0.76f - dx, size.height * 0.73f - dy) {
+                drawCircle(secondaryGlow, radius, center = Offset.Zero, alpha = if (effects) 0.86f - sin(angle) * 0.14f else 0.55f)
             }
         }
     })
@@ -89,6 +91,13 @@ internal fun LibraryGuide(onDismiss: () -> Unit, onCreate: () -> Unit) {
         title = { Text(stringResource(R.string.library_guide_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (com.pronotes.app.BuildConfig.DEBUG) {
+                    Text(
+                        stringResource(R.string.library_guide_test_notice),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Text(
                     stringResource(R.string.library_guide_progress, step.intValue + 1, guideSteps.size),
                     style = MaterialTheme.typography.labelMedium,

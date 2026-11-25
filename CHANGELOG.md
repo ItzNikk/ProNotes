@@ -2,6 +2,17 @@
 
 All notable changes to Pro Notes are documented in this file.
 
+## v18.0.0 - 2026-11-25
+
+> **This build is not stable.** It may contain bugs. If you rely on Pro Notes for important work, keep your current version and wait for a stable release.
+
+### What's changed
+
+- A brighter, looping Library gradient with a static appearance when motion is reduced.
+- A brief glow over handwritten ink as it converts to text, plus thicker dashed lasso outlines.
+- Adaptive Library and Settings layouts for phones, tablets, and split-screen, with Android Predictive Back in Settings.
+- A first-run guide available from **+ → Getting started**, and reduced allocations during Kindle Mode page turns.
+
 ## v17.1.0 - 2026-11-25
 
 ### Added

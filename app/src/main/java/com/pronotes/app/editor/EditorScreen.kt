@@ -135,6 +135,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -519,6 +520,9 @@ fun EditorScreen(
     val isFixedBar = settings.toolbarStyle == ToolbarStyle.FIXED_BAR && settings.toolbarDock != ToolbarDock.FREE
     val reduceMotion = LocalReduceMotion.current
     val reduceEffects = LocalReduceEffects.current
+    androidx.compose.runtime.SideEffect {
+        vm.animateHandwritingConversion = !reduceMotion && !reduceEffects
+    }
     val workspaceBg = if (darkUi) WorkspaceDarkBg else WorkspaceLightBg
     val tabStripBg = if (darkUi) TabStripDarkBg else TabStripLightBg
     val topBarBg = if (darkUi) TopBarDarkBg else TopBarLightBg
@@ -803,6 +807,33 @@ fun EditorScreen(
                                 }
                             },
                         )
+                    }
+
+                    val inkGlow = vm.handwritingGlow
+                    val glowAlpha = animateFloatAsState(
+                        targetValue = if (inkGlow != null && !reduceMotion && !reduceEffects) 1f else 0f,
+                        animationSpec = tween(85),
+                        label = "Handwriting conversion glow",
+                    )
+                    if (inkGlow != null && !reduceMotion && !reduceEffects) {
+                        val glowColor = MaterialTheme.colorScheme.primary
+                        val page = vm.pages.indexOfFirst { it.id == inkGlow.first }
+                        Canvas(Modifier.matchParentSize()) {
+                            val bounds = canvas?.pageToScreen(page, inkGlow.second) ?: return@Canvas
+                            val center = Offset(bounds.centerX(), bounds.centerY())
+                            val radiusX = bounds.width() / 2f + 20.dp.toPx()
+                            val radiusY = bounds.height() / 2f + 16.dp.toPx()
+                            val brush = Brush.radialGradient(
+                                listOf(glowColor.copy(alpha = 0.54f), glowColor.copy(alpha = 0.20f), Color.Transparent),
+                                center = center,
+                                radius = radiusX,
+                            )
+                            withTransform({
+                                scale(1f, radiusY / radiusX, center)
+                            }) {
+                                drawCircle(brush, radius = radiusX, center = center, alpha = glowAlpha.value)
+                            }
+                        }
                     }
 
                     com.pronotes.app.ui.TopScrollCloudyBackdrop(

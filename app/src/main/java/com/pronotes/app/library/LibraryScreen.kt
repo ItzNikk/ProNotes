@@ -31,6 +31,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -118,7 +119,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -126,6 +126,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pronotes.app.PendingImport
 import com.pronotes.app.R
@@ -282,7 +283,6 @@ fun LibraryScreen(
     }
     val lib by repo.library.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    val wide = LocalConfiguration.current.screenWidthDp >= 720
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.45f
     val reduceMotion = LocalReduceMotion.current
 
@@ -292,7 +292,8 @@ fun LibraryScreen(
     var searching by remember { mutableStateOf(false) }
     var sort by rememberSaveable { mutableStateOf(SortBy.MODIFIED) }
     var listView by rememberSaveable { mutableStateOf(false) }
-    var sidebar by rememberSaveable { mutableStateOf(wide) }
+    var wideSidebar by rememberSaveable { mutableStateOf(true) }
+    var compactSidebar by rememberSaveable { mutableStateOf(false) }
     var destination by rememberSaveable { mutableStateOf("") }
     if (destination == "Templates") NotebookTemplatesDialog(false, folderId, { destination = "" }, onOpen)
     if (destination == "Books" || destination == "Marketplace") {
@@ -453,42 +454,57 @@ fun LibraryScreen(
         MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer
 
     androidx.compose.runtime.CompositionLocalProvider(LocalDragController provides drag) {
-        Box(Modifier.fillMaxSize().background(deskBg)) {
-            LibraryGradient(Modifier.matchParentSize(), paused = showGuide)
+        BoxWithConstraints(Modifier.fillMaxSize().background(deskBg)) {
+            val wide = maxWidth >= 840.dp
+            val sidebar = wide && wideSidebar
+            val closeSidebar = {
+                if (wide) wideSidebar = false else compactSidebar = false
+            }
+            val sidebarContent: @Composable () -> Unit = {
+                Sidebar(
+                    section = section,
+                    trashCount = trashCount,
+                    onSelect = {
+                        section = it
+                        folderId = null
+                        if (!wide) compactSidebar = false
+                    },
+                    onCollapse = closeSidebar,
+                    onSettings = { compactSidebar = false; onSettings() },
+                    onSupport = { compactSidebar = false; onSupport() },
+                    onOpenCollab = { compactSidebar = false; collabOpen = true },
+                    onOpenBookReader = { compactSidebar = false; onOpenBookReader() },
+                    onDropTo = { s, payload ->
+                        when (s) {
+                            Section.DOCUMENTS -> dropInto(payload, null)
+                            Section.TRASH -> if (payload.startsWith("note:")) {
+                                scope.launch { repo.deleteNotebook(payload.substringAfter(':')) }
+                                true
+                            } else false
+                            Section.FAVORITES -> if (payload.startsWith("note:")) {
+                                val nid = payload.substringAfter(':')
+                                if (lib.notebooks.firstOrNull { it.id == nid }?.favorite == false) scope.launch { repo.toggleFavorite(nid) }
+                                true
+                            } else false
+                            else -> false
+                        }
+                    },
+                )
+            }
+            LaunchedEffect(wide) {
+                if (wide) compactSidebar = false
+            }
+            if (!wide && compactSidebar) {
+                Dialog(onDismissRequest = closeSidebar) { sidebarContent() }
+            }
+            LibraryGradient(Modifier.matchParentSize(), paused = showGuide || compactSidebar)
             Row(Modifier.fillMaxSize()) {
-                AnimatedVisibility(
-                    visible = sidebar,
-                    enter = if (reduceMotion) fadeIn(snap()) else expandHorizontally() + fadeIn(),
-                    exit = if (reduceMotion) fadeOut(snap()) else shrinkHorizontally() + fadeOut(),
-                ) {
-                    Sidebar(
-                        section = section,
-                        trashCount = trashCount,
-                        onSelect = {
-                            section = it
-                            folderId = null
-                            if (!wide) sidebar = false
-                        },
-                        onCollapse = { sidebar = false },
-                        onSettings = onSettings,
-                        onSupport = onSupport,
-                        onOpenCollab = { collabOpen = true },
-                        onOpenBookReader = onOpenBookReader,
-                        onDropTo = { s, payload ->
-                            when (s) {
-                                Section.DOCUMENTS -> dropInto(payload, null)
-                                Section.TRASH -> if (payload.startsWith("note:")) {
-                                    scope.launch { repo.deleteNotebook(payload.substringAfter(':')) }
-                                    true
-                                } else false
-                                Section.FAVORITES -> if (payload.startsWith("note:")) {
-                                    val nid = payload.substringAfter(':')
-                                    if (lib.notebooks.firstOrNull { it.id == nid }?.favorite == false) scope.launch { repo.toggleFavorite(nid) }
-                                    true
-                                } else false
-                                else -> false
-                            }
-                        },
+                if (wide) {
+                    AnimatedVisibility(
+                        visible = sidebar,
+                        enter = if (reduceMotion) fadeIn(snap()) else expandHorizontally() + fadeIn(),
+                        exit = if (reduceMotion) fadeOut(snap()) else shrinkHorizontally() + fadeOut(),
+                        content = { sidebarContent() },
                     )
                 }
 
@@ -504,7 +520,7 @@ fun LibraryScreen(
                     ) {
                         if (!sidebar) {
                             AppPill(
-                                onClick = { sidebar = true },
+                                onClick = { if (wide) wideSidebar = true else compactSidebar = true },
                                 contentPadding = PaddingValues(8.dp),
                             ) {
                                 ProIconView(ProIcon.SIDEBAR, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp))
@@ -1314,7 +1330,10 @@ private fun Sidebar(
             .width(244.dp)
             .background(sidebarBg),
     ) {
-        Column(Modifier.statusBarsPadding().padding(horizontal = 14.dp, vertical = 12.dp)) {
+        Column(
+            Modifier.fillMaxHeight().statusBarsPadding().verticalScroll(rememberScrollState())
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onCollapse) {
@@ -1455,7 +1474,7 @@ private fun Sidebar(
                 Spacer(Modifier.width(12.dp))
                 Text(strings.studyFriendsAndFiles, color = MaterialTheme.colorScheme.onSurface)
             }
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.height(12.dp))
             if (Support.enabled) {
                 Row(
                     Modifier
