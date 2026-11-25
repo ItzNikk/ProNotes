@@ -4,8 +4,6 @@ All notable changes to Pro Notes are documented in this file.
 
 ## v18.0.0 - 2026-11-25
 
-> **This build is not stable.** It may contain bugs. If you rely on Pro Notes for important work, keep your current version and wait for a stable release.
-
 ### What's changed
 
 - Selected palette colors display a contrasting checkmark as well as an outline. Zoom feedback sits near the upper-left canvas edge instead of its center.
@@ -23,7 +21,7 @@ All notable changes to Pro Notes are documented in this file.
 - Sticky editing has separate Text and Handwriting modes, a simplified header, larger new notes, and safe editor sizing on narrow windows. Handwriting mode exposes the live canvas and preserves the typed draft when switching back.
 - Tool popovers use compact wrapping controls and animated opening/closing, fixing the vertical size/color controls shown in the previous pen menu.
 - Removed the remaining decorative strip animation and Lottie dependency. Reduced the size and opacity of workspace glows to restore the black background.
-- Added subtle card shadows, enabled native stylus handwriting for sticky text on supported Android versions, and removed the preview notice from the getting-started guide. Stability still requires a successful device launch test.
+- Added subtle card shadows, enabled native stylus handwriting for sticky text on supported Android versions, and removed the preview notice from the getting-started guide.
 
 - Circle-to-lasso refreshes its targets at activation and includes boundary crossings. Selection uses clean dashed bounds instead of retaining the gesture loop.
 - Triple-tap conversion is opt-in, requires deliberate stylus taps, and resets when handwriting resumes. Stylus handwriting no longer arms empty-paper long-press actions.
