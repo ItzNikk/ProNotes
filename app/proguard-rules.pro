@@ -59,3 +59,8 @@
 -keep public class com.pronotes.app.InstallResultReceiver
 -keep public class com.pronotes.app.UpdateCheckReceiver
 -keep public class com.pronotes.app.data.UpdateDownloadService
+
+# Haze hardware blur & Reorderable Compose modifier nodes
+-dontwarn dev.chrisbanes.haze.**
+-keep class dev.chrisbanes.haze.** { *; }
+-dontwarn sh.calvin.reorderable.**

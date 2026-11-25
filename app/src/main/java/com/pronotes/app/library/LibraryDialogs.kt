@@ -42,6 +42,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -105,7 +110,9 @@ import com.pronotes.app.data.PagePreset
 import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.ui.AppCard
 import com.pronotes.app.ui.AppChip
+import com.pronotes.app.ui.AppContextMenu
 import com.pronotes.app.ui.AppDialog
+import com.pronotes.app.ui.AppMenuItem
 import com.pronotes.app.ui.AppSegmentedControl
 import com.pronotes.app.ui.AppToggle
 import com.pronotes.app.ui.ColorEditorDialog
@@ -586,6 +593,24 @@ private val CreatorPaperSections: List<Pair<String, List<PaperStyle>>> = listOf(
     ),
 )
 
+private val CreatorSolidCoverSpecs: List<Pair<String, String>> = CoverColors.mapIndexed { idx, argb ->
+    "solid:$argb" to SolidCoverNames.getOrElse(idx) { "Simple" }
+}
+
+private val CreatorPatternCoverSpecs: List<Pair<String, String>> = CoverPatterns.flatMap { p ->
+    val tones = when (p) {
+        "leather" -> listOf(0xFF5D3A23, 0xFF1C1C1E, 0xFF0E2A47, 0xFF6B1E2A)
+        "kraft" -> listOf(0xFFC49A6C, 0xFFA77B4F)
+        "marble" -> listOf(0xFF8E9AAF, 0xFF2E3440, 0xFFB5838D)
+        "terrazzo" -> listOf(0xFFE9E4DA, 0xFF6C757D)
+        "linen" -> listOf(0xFF9DB4C0, 0xFFB5A397, 0xFF5C6B73)
+        "gradient" -> listOf(0xFF3D6CF4, 0xFF9B51E0, 0xFFEB5757, 0xFF2BB673)
+        else -> listOf(CoverColors[0], CoverColors[3], CoverColors[1], CoverColors[9]).map { it.toLong() and 0xFFFFFFFFL }
+    }
+    val label = p.replaceFirstChar { it.uppercase() }
+    tones.map { "pattern:$p:${it.toInt()}" to label }
+}
+
 private fun coverFriendlyName(spec: String, photo: Uri?): String = when {
     photo != null || spec == "photo" -> "Custom Photo"
     spec == "thumb" -> "No Cover"
@@ -712,627 +737,146 @@ internal fun NewNotebookDialog(
                 ) {
                     val wide = maxWidth >= 560.dp
 
-                    val inspectorContent: @Composable (Modifier) -> Unit = { mod ->
-                        Column(
-                            modifier = mod
-                                .background(railBg)
-                                .verticalScroll(rememberScrollState())
-                                .padding(horizontal = 18.dp, vertical = 18.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
-                        ) {
-                            // Title input
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(
-                                    text = strings.title,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = primaryText,
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(if (dark) Color(0xFF282A2E) else MaterialTheme.colorScheme.surface)
-                                        .border(1.dp, pillBorder, RoundedCornerShape(10.dp))
-                                        .padding(horizontal = 12.dp, vertical = 11.dp),
-                                ) {
-                                    if (name.isEmpty()) {
-                                        Text(
-                                            text = if (preset.isWhiteboard) "Untitled Whiteboard" else strings.untitledNotebook,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = mutedText,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
-                                    BasicTextField(
-                                        value = name,
-                                        onValueChange = { name = it },
-                                        singleLine = true,
-                                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = primaryText),
-                                        cursorBrush = SolidColor(accentBlue),
-                                        modifier = Modifier.fillMaxWidth(),
-                                    )
-                                }
-                            }
-
-                            if (wide) {
-                                // Vertical Cover + Paper preview cards on wide/tablet/landscape layout
-                                InspectorPreviewCard(
-                                    heading = strings.cover,
-                                    label = coverFriendlyName(cover, photo),
-                                    selected = activePane == NotebookCreatorPane.COVER,
-                                    accentColor = accentBlue,
-                                    dark = dark,
-                                    primaryText = primaryText,
-                                    mutedText = mutedText,
-                                    onClick = { activePane = NotebookCreatorPane.COVER },
-                                ) {
-                                    CoverMiniThumbnail(
-                                        spec = cover,
-                                        photo = photo,
-                                        landscape = effectiveLandscape,
-                                        dark = dark,
-                                        widthDp = if (effectiveLandscape) 128f else 92f,
-                                        heightDp = if (effectiveLandscape) 90f else 122f,
-                                    )
-                                }
-
-                                InspectorPreviewCard(
-                                    heading = strings.paper,
-                                    label = paper.label,
-                                    selected = activePane == NotebookCreatorPane.PAPER,
-                                    accentColor = accentBlue,
-                                    dark = dark,
-                                    primaryText = primaryText,
-                                    mutedText = mutedText,
-                                    onClick = { activePane = NotebookCreatorPane.PAPER },
-                                ) {
-                                    PaperPreview(
-                                        style = paper,
-                                        modifier = Modifier
-                                            .size(
-                                                width = if (effectiveLandscape) 128.dp else 92.dp,
-                                                height = if (effectiveLandscape) 90.dp else 122.dp,
-                                            )
-                                            .shadow(4.dp, RoundedCornerShape(4.dp))
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .border(0.6.dp, Color.Black.copy(alpha = 0.14f), RoundedCornerShape(4.dp)),
-                                        tint = previewPaperColor,
-                                        landscape = effectiveLandscape,
-                                    )
-                                }
-                            } else {
-                                // Compact side-by-side Cover & Paper selector cards on narrow phones
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                ) {
-                                    InspectorPreviewCard(
-                                        heading = strings.cover,
-                                        label = coverFriendlyName(cover, photo),
-                                        selected = activePane == NotebookCreatorPane.COVER,
-                                        accentColor = accentBlue,
-                                        dark = dark,
-                                        primaryText = primaryText,
-                                        mutedText = mutedText,
-                                        onClick = { activePane = NotebookCreatorPane.COVER },
-                                        modifier = Modifier.weight(1f),
-                                        compact = true,
-                                    ) {
-                                        CoverMiniThumbnail(
-                                            spec = cover,
-                                            photo = photo,
-                                            landscape = effectiveLandscape,
-                                            dark = dark,
-                                            widthDp = if (effectiveLandscape) 78f else 56f,
-                                            heightDp = if (effectiveLandscape) 56f else 76f,
-                                        )
-                                    }
-                                    InspectorPreviewCard(
-                                        heading = strings.paper,
-                                        label = paper.label,
-                                        selected = activePane == NotebookCreatorPane.PAPER,
-                                        accentColor = accentBlue,
-                                        dark = dark,
-                                        primaryText = primaryText,
-                                        mutedText = mutedText,
-                                        onClick = { activePane = NotebookCreatorPane.PAPER },
-                                        modifier = Modifier.weight(1f),
-                                        compact = true,
-                                    ) {
-                                        PaperPreview(
-                                            style = paper,
-                                            modifier = Modifier
-                                                .size(
-                                                    width = if (effectiveLandscape) 78.dp else 56.dp,
-                                                    height = if (effectiveLandscape) 56.dp else 76.dp,
-                                                )
-                                                .shadow(3.dp, RoundedCornerShape(4.dp))
-                                                .clip(RoundedCornerShape(4.dp))
-                                                .border(0.6.dp, Color.Black.copy(alpha = 0.14f), RoundedCornerShape(4.dp)),
-                                            tint = previewPaperColor,
-                                            landscape = effectiveLandscape,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    val browserContent: @Composable (Modifier) -> Unit = { mod ->
-                        Column(
-                            modifier = mod
-                                .background(galleryBg)
-                                .fillMaxSize(),
-                        ) {
-                            // Top filter pill bar: Size | Paper Color | Language | Orientation
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState())
-                                    .padding(horizontal = 18.dp, vertical = 14.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                // 1. Page Size dropdown pill
-                                var sizeMenuOpen by remember { mutableStateOf(false) }
-                                Box {
-                                    StudioFilterPill(
-                                        label = preset.label,
-                                        leadingIcon = {
-                                            Icon(
-                                                if (preset.isWhiteboard) Icons.Outlined.AllInclusive else Icons.Outlined.Description,
-                                                contentDescription = null,
-                                                tint = primaryText.copy(alpha = 0.85f),
-                                                modifier = Modifier.size(16.dp),
-                                            )
-                                        },
-                                        bg = pillBg,
-                                        border = pillBorder,
-                                        fg = primaryText,
-                                        onClick = { sizeMenuOpen = true },
-                                    )
-                                    DropdownMenu(
-                                        expanded = sizeMenuOpen,
-                                        onDismissRequest = { sizeMenuOpen = false },
-                                    ) {
-                                        PagePreset.entries.forEach { p ->
-                                            DropdownMenuItem(
-                                                text = {
-                                                    Row(
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                    ) {
-                                                        Text(
-                                                            p.label,
-                                                            fontWeight = if (p == preset) FontWeight.SemiBold else FontWeight.Normal,
-                                                            color = if (p == preset) accentBlue else MaterialTheme.colorScheme.onSurface,
-                                                        )
-                                                        if (!p.isWhiteboard && p != PagePreset.CUSTOM) {
-                                                            Text(
-                                                                "%.0f×%.0f mm".format(p.wMm, p.hMm),
-                                                                style = MaterialTheme.typography.labelSmall,
-                                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                            )
-                                                        }
-                                                    }
-                                                },
-                                                trailingIcon = if (p == preset) {
-                                                    { Icon(Icons.Filled.Check, null, tint = accentBlue, modifier = Modifier.size(16.dp)) }
-                                                } else null,
-                                                onClick = {
-                                                    preset = p
-                                                    if (p != PagePreset.CUSTOM) {
-                                                        wMm = "%.0f".format(p.wMm)
-                                                        hMm = "%.0f".format(p.hMm)
-                                                    }
-                                                    if (p.isWhiteboard && paper == PaperStyle.BLANK) paper = PaperStyle.DOTTED
-                                                    sizeMenuOpen = false
-                                                },
-                                            )
-                                        }
-                                    }
-                                }
-
-                                // 2. Paper Color dropdown pill
-                                var colorMenuOpen by remember { mutableStateOf(false) }
-                                Box {
-                                    StudioFilterPill(
-                                        label = selectedPaperColorLabel,
-                                        bg = pillBg,
-                                        border = pillBorder,
-                                        fg = primaryText,
-                                        onClick = { colorMenuOpen = true },
-                                    )
-                                    DropdownMenu(
-                                        expanded = colorMenuOpen,
-                                        onDismissRequest = { colorMenuOpen = false },
-                                    ) {
-                                        PaperColors.forEachIndexed { idx, argb ->
-                                            val sel = (paperColor ?: 0xFFFFFFFF.toInt()) == argb
-                                            DropdownMenuItem(
-                                                leadingIcon = {
-                                                    Box(
-                                                        Modifier
-                                                            .size(16.dp)
-                                                            .clip(CircleShape)
-                                                            .background(Color(argb))
-                                                            .border(1.dp, Color.Gray.copy(alpha = 0.45f), CircleShape),
-                                                    )
-                                                },
-                                                text = {
-                                                    Text(
-                                                        PaperColorNames[idx],
-                                                        fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
-                                                        color = if (sel) accentBlue else MaterialTheme.colorScheme.onSurface,
-                                                    )
-                                                },
-                                                trailingIcon = if (sel) {
-                                                    { Icon(Icons.Filled.Check, null, tint = accentBlue, modifier = Modifier.size(16.dp)) }
-                                                } else null,
-                                                onClick = {
-                                                    paperColor = if (argb == 0xFFFFFFFF.toInt()) null else argb
-                                                    colorMenuOpen = false
-                                                },
-                                            )
-                                        }
-                                        HorizontalDivider()
-                                        DropdownMenuItem(
-                                            leadingIcon = { Icon(Icons.Filled.Add, null, modifier = Modifier.size(16.dp)) },
-                                            text = { Text(strings.customPaperColor) },
-                                            onClick = {
-                                                colorMenuOpen = false
-                                                customPaper = true
-                                            },
-                                        )
-                                    }
-                                }
-
-                                // 3. Global Language picker pill (58+ world handwriting languages)
-                                StudioFilterPill(
-                                    label = selectedLanguageLabel,
-                                    bg = pillBg,
-                                    border = pillBorder,
-                                    fg = primaryText,
-                                    onClick = { langPickerOpen = true },
-                                )
-
-                                // 4. Orientation segmented toggle pill (Portrait | Landscape)
-                                if (!preset.isWhiteboard) {
-                                    Row(
-                                        modifier = Modifier
-                                            .clip(CircleShape)
-                                            .background(pillBg)
-                                            .border(1.dp, pillBorder, CircleShape)
-                                            .padding(3.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        OrientationSegmentIcon(
-                                            icon = Icons.Outlined.CropPortrait,
-                                            contentDescription = "Portrait",
-                                            selected = !landscape,
-                                            accent = accentBlue,
-                                            dark = dark,
-                                            onClick = { landscape = false },
-                                        )
-                                        OrientationSegmentIcon(
-                                            icon = Icons.Outlined.CropLandscape,
-                                            contentDescription = "Landscape",
-                                            selected = landscape,
-                                            accent = accentBlue,
-                                            dark = dark,
-                                            onClick = { landscape = true },
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Inline custom page size inputs when Custom preset is selected
-                            AnimatedVisibility(visible = preset == PagePreset.CUSTOM) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 18.dp, vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                ) {
-                                    OutlinedTextField(
-                                        value = wMm,
-                                        onValueChange = { v -> wMm = v.filter { it.isDigit() }.take(4) },
-                                        label = { Text("Width (mm)") },
-                                        singleLine = true,
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    OutlinedTextField(
-                                        value = hMm,
-                                        onValueChange = { v -> hMm = v.filter { it.isDigit() }.take(4) },
-                                        label = { Text("Height (mm)") },
-                                        singleLine = true,
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
-                            }
-
-                            // Scrollable Categorized Paper or Cover Gallery
-                            AnimatedContent(
-                                targetState = activePane,
-                                transitionSpec = {
-                                    if (reduceMotion) fadeIn(snap()) togetherWith fadeOut(snap())
-                                    else fadeIn(tween(160)) togetherWith fadeOut(tween(120))
-                                },
-                                label = "notebookCreatorPane",
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxWidth(),
-                            ) { pane ->
-                                when (pane) {
-                                    NotebookCreatorPane.PAPER -> {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .verticalScroll(rememberScrollState())
-                                                .padding(horizontal = 18.dp, vertical = 6.dp),
-                                            verticalArrangement = Arrangement.spacedBy(18.dp),
-                                        ) {
-                                            CreatorPaperSections.forEach { (sectionTitle, templates) ->
-                                                val isCollapsed = collapsedSections["p:$sectionTitle"] == true
-                                                val localizedSecTitle = when (sectionTitle) {
-                                                    "Essentials" -> strings.sectionEssentials
-                                                    "Writing papers" -> strings.sectionWritingPapers
-                                                    "Planner" -> strings.sectionPlanner
-                                                    "Grid & Technical" -> strings.sectionGridTechnical
-                                                    "Creative & Music" -> strings.sectionCreativeMusic
-                                                    else -> sectionTitle
-                                                }
-                                                CollapsibleSectionHeader(
-                                                    title = localizedSecTitle,
-                                                    collapsed = isCollapsed,
-                                                    fg = primaryText,
-                                                    onClick = { collapsedSections["p:$sectionTitle"] = !isCollapsed },
-                                                )
-                                                AnimatedVisibility(visible = !isCollapsed) {
-                                                    FlowRow(
-                                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                                                        modifier = Modifier.fillMaxWidth(),
-                                                    ) {
-                                                        templates.forEach { style ->
-                                                            val sel = style == paper
-                                                            CreatorTemplateTile(
-                                                                label = style.label,
-                                                                selected = sel,
-                                                                accentBlue = accentBlue,
-                                                                mutedText = mutedText,
-                                                                onClick = { paper = style },
-                                                            ) {
-                                                                PaperPreview(
-                                                                    style = style,
-                                                                    modifier = Modifier
-                                                                        .size(
-                                                                            width = if (effectiveLandscape) 86.dp else 66.dp,
-                                                                            height = if (effectiveLandscape) 60.dp else 88.dp,
-                                                                        )
-                                                                        .shadow(if (sel) 4.dp else 2.dp, RoundedCornerShape(4.dp))
-                                                                        .clip(RoundedCornerShape(4.dp))
-                                                                        .border(0.5.dp, Color.Black.copy(alpha = 0.12f), RoundedCornerShape(4.dp)),
-                                                                    tint = previewPaperColor,
-                                                                    landscape = effectiveLandscape,
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            Spacer(Modifier.height(10.dp))
-                                        }
-                                    }
-
-                                    NotebookCreatorPane.COVER -> {
-                                        val solidSpecs = remember { CoverColors.map { "solid:$it" } }
-                                        val patternSpecs = remember {
-                                            CoverPatterns.flatMap { p ->
-                                                val tones = when (p) {
-                                                    "leather" -> listOf(0xFF5D3A23, 0xFF1C1C1E, 0xFF0E2A47, 0xFF6B1E2A)
-                                                    "kraft" -> listOf(0xFFC49A6C, 0xFFA77B4F)
-                                                    "marble" -> listOf(0xFF8E9AAF, 0xFF2E3440, 0xFFB5838D)
-                                                    "terrazzo" -> listOf(0xFFE9E4DA, 0xFF6C757D)
-                                                    "linen" -> listOf(0xFF9DB4C0, 0xFFB5A397, 0xFF5C6B73)
-                                                    "gradient" -> listOf(0xFF3D6CF4, 0xFF9B51E0, 0xFFEB5757, 0xFF2BB673)
-                                                    else -> listOf(CoverColors[0], CoverColors[3], CoverColors[1], CoverColors[9]).map { it.toLong() and 0xFFFFFFFFL }
-                                                }
-                                                tones.map { "pattern:$p:${it.toInt()}" }
-                                            }
-                                        }
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .verticalScroll(rememberScrollState())
-                                                .padding(horizontal = 18.dp, vertical = 6.dp),
-                                            verticalArrangement = Arrangement.spacedBy(18.dp),
-                                        ) {
-                                            // Cover as Page 1 option when a cover is selected
-                                            if (cover != "thumb" && !preset.isWhiteboard) {
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .clip(RoundedCornerShape(12.dp))
-                                                        .background(pillBg.copy(alpha = 0.72f))
-                                                        .border(1.dp, pillBorder, RoundedCornerShape(12.dp))
-                                                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                ) {
-                                                    Column(Modifier.weight(1f)) {
-                                                        Text(strings.includeCoverPage, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = primaryText)
-                                                        Text("Write titles or add stickers onto the front cover", style = MaterialTheme.typography.labelSmall, color = mutedText)
-                                                    }
-                                                    AppToggle(checked = coverPage, onCheckedChange = { coverPage = it })
-                                                }
-                                            }
-
-                                            // Quick & Special covers
-                                            val quickCollapsed = collapsedSections["c:Quick"] == true
-                                            CollapsibleSectionHeader(
-                                                title = "Special",
-                                                collapsed = quickCollapsed,
-                                                fg = primaryText,
-                                                onClick = { collapsedSections["c:Quick"] = !quickCollapsed },
-                                            )
-                                            AnimatedVisibility(visible = !quickCollapsed) {
-                                                FlowRow(
-                                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                                                ) {
-                                                    CreatorTemplateTile(
-                                                        label = "No Cover",
-                                                        selected = cover == "thumb",
-                                                        accentBlue = accentBlue,
-                                                        mutedText = mutedText,
-                                                        onClick = { cover = "thumb"; photo = null },
-                                                    ) {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .size(
-                                                                    width = if (effectiveLandscape) 86.dp else 66.dp,
-                                                                    height = if (effectiveLandscape) 60.dp else 88.dp,
-                                                                )
-                                                                .clip(RoundedCornerShape(6.dp))
-                                                                .background(pillBg)
-                                                                .border(1.dp, pillBorder, RoundedCornerShape(6.dp)),
-                                                            contentAlignment = Alignment.Center,
-                                                        ) {
-                                                            Icon(Icons.Outlined.Description, null, tint = mutedText, modifier = Modifier.size(24.dp))
-                                                        }
-                                                    }
-                                                    CreatorTemplateTile(
-                                                        label = "Photo Cover",
-                                                        selected = cover == "photo",
-                                                        accentBlue = accentBlue,
-                                                        mutedText = mutedText,
-                                                        onClick = { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                                                    ) {
-                                                        if (photo != null) {
-                                                            AsyncImage(
-                                                                model = photo,
-                                                                contentDescription = "Photo cover",
-                                                                contentScale = ContentScale.Crop,
-                                                                modifier = Modifier
-                                                                    .size(
-                                                                        width = if (effectiveLandscape) 86.dp else 66.dp,
-                                                                        height = if (effectiveLandscape) 60.dp else 88.dp,
-                                                                    )
-                                                                    .clip(NotebookShape),
-                                                            )
-                                                        } else {
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .size(
-                                                                        width = if (effectiveLandscape) 86.dp else 66.dp,
-                                                                        height = if (effectiveLandscape) 60.dp else 88.dp,
-                                                                    )
-                                                                    .clip(RoundedCornerShape(6.dp))
-                                                                    .background(pillBg)
-                                                                    .border(1.dp, pillBorder, RoundedCornerShape(6.dp)),
-                                                                contentAlignment = Alignment.Center,
-                                                            ) {
-                                                                Icon(Icons.Outlined.Image, null, tint = accentBlue, modifier = Modifier.size(24.dp))
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            // Simple Matte Covers
-                                            val simpleCollapsed = collapsedSections["c:Simple"] == true
-                                            CollapsibleSectionHeader(
-                                                title = "Simple",
-                                                collapsed = simpleCollapsed,
-                                                fg = primaryText,
-                                                onClick = { collapsedSections["c:Simple"] = !simpleCollapsed },
-                                            )
-                                            AnimatedVisibility(visible = !simpleCollapsed) {
-                                                FlowRow(
-                                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                                                ) {
-                                                    solidSpecs.forEachIndexed { idx, spec ->
-                                                        val sel = cover == spec
-                                                        CreatorTemplateTile(
-                                                            label = SolidCoverNames.getOrElse(idx) { "Simple" },
-                                                            selected = sel,
-                                                            accentBlue = accentBlue,
-                                                            mutedText = mutedText,
-                                                            onClick = { cover = spec; photo = null },
-                                                        ) {
-                                                            CoverMiniThumbnail(
-                                                                spec = spec,
-                                                                photo = null,
-                                                                landscape = effectiveLandscape,
-                                                                dark = dark,
-                                                                widthDp = if (effectiveLandscape) 86f else 66f,
-                                                                heightDp = if (effectiveLandscape) 60f else 88f,
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            // Textured & Studio Covers
-                                            val texCollapsed = collapsedSections["c:Textured"] == true
-                                            CollapsibleSectionHeader(
-                                                title = "Textured & Studio",
-                                                collapsed = texCollapsed,
-                                                fg = primaryText,
-                                                onClick = { collapsedSections["c:Textured"] = !texCollapsed },
-                                            )
-                                            AnimatedVisibility(visible = !texCollapsed) {
-                                                FlowRow(
-                                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                                                ) {
-                                                    patternSpecs.forEach { spec ->
-                                                        val sel = cover == spec
-                                                        val label = spec.split(':').getOrNull(1)
-                                                            ?.replaceFirstChar { it.uppercase() } ?: "Pattern"
-                                                        CreatorTemplateTile(
-                                                            label = label,
-                                                            selected = sel,
-                                                            accentBlue = accentBlue,
-                                                            mutedText = mutedText,
-                                                            onClick = { cover = spec; photo = null },
-                                                        ) {
-                                                            CoverMiniThumbnail(
-                                                                spec = spec,
-                                                                photo = null,
-                                                                landscape = effectiveLandscape,
-                                                                dark = dark,
-                                                                widthDp = if (effectiveLandscape) 86f else 66f,
-                                                                heightDp = if (effectiveLandscape) 60f else 88f,
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            Spacer(Modifier.height(10.dp))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    val inspectorMod = if (wide) Modifier.width(244.dp).fillMaxHeight() else Modifier.fillMaxWidth().heightIn(max = 225.dp)
+                    val browserMod = if (wide) Modifier.fillMaxHeight() else Modifier.fillMaxWidth()
 
                     if (wide) {
                         Row(Modifier.fillMaxSize()) {
-                            inspectorContent(Modifier.width(244.dp).fillMaxHeight())
+                            CreatorInspectorPane(
+                                modifier = inspectorMod,
+                                wide = true,
+                                dark = dark,
+                                railBg = railBg,
+                                pillBorder = pillBorder,
+                                primaryText = primaryText,
+                                mutedText = mutedText,
+                                accentBlue = accentBlue,
+                                name = name,
+                                onNameChange = { name = it },
+                                isWhiteboard = preset.isWhiteboard,
+                                cover = cover,
+                                photo = photo,
+                                paper = paper,
+                                previewPaperColor = previewPaperColor,
+                                effectiveLandscape = effectiveLandscape,
+                                activePane = activePane,
+                                onSelectPane = { activePane = it },
+                                strings = strings,
+                            )
                             VerticalDivider(thickness = 1.dp, color = dividerColor)
-                            browserContent(Modifier.weight(1f).fillMaxHeight())
+                            CreatorBrowserPane(
+                                modifier = browserMod.weight(1f),
+                                dark = dark,
+                                galleryBg = galleryBg,
+                                pillBg = pillBg,
+                                pillBorder = pillBorder,
+                                primaryText = primaryText,
+                                mutedText = mutedText,
+                                accentBlue = accentBlue,
+                                activePane = activePane,
+                                preset = preset,
+                                onSelectPreset = { p ->
+                                    preset = p
+                                    if (p != PagePreset.CUSTOM) {
+                                        wMm = "%.0f".format(p.wMm)
+                                        hMm = "%.0f".format(p.hMm)
+                                    }
+                                    if (p.isWhiteboard && paper == PaperStyle.BLANK) paper = PaperStyle.DOTTED
+                                },
+                                wMm = wMm,
+                                hMm = hMm,
+                                onWMmChange = { v -> wMm = v.filter { it.isDigit() }.take(4) },
+                                onHMmChange = { v -> hMm = v.filter { it.isDigit() }.take(4) },
+                                paperColor = paperColor,
+                                selectedPaperColorLabel = selectedPaperColorLabel,
+                                onSelectPaperColor = { paperColor = it },
+                                onOpenCustomPaperColor = { customPaper = true },
+                                selectedLanguageLabel = selectedLanguageLabel,
+                                onOpenLanguagePicker = { langPickerOpen = true },
+                                landscape = landscape,
+                                effectiveLandscape = effectiveLandscape,
+                                onLandscapeChange = { landscape = it },
+                                paper = paper,
+                                previewPaperColor = previewPaperColor,
+                                onSelectPaper = { paper = it },
+                                cover = cover,
+                                photo = photo,
+                                coverPage = coverPage,
+                                onCoverPageChange = { coverPage = it },
+                                onSelectCover = { spec -> cover = spec; photo = null },
+                                onPickPhoto = { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                collapsedSections = collapsedSections,
+                                strings = strings,
+                            )
                         }
                     } else {
                         Column(Modifier.fillMaxSize()) {
-                            inspectorContent(Modifier.fillMaxWidth().heightIn(max = 225.dp))
+                            CreatorInspectorPane(
+                                modifier = inspectorMod,
+                                wide = false,
+                                dark = dark,
+                                railBg = railBg,
+                                pillBorder = pillBorder,
+                                primaryText = primaryText,
+                                mutedText = mutedText,
+                                accentBlue = accentBlue,
+                                name = name,
+                                onNameChange = { name = it },
+                                isWhiteboard = preset.isWhiteboard,
+                                cover = cover,
+                                photo = photo,
+                                paper = paper,
+                                previewPaperColor = previewPaperColor,
+                                effectiveLandscape = effectiveLandscape,
+                                activePane = activePane,
+                                onSelectPane = { activePane = it },
+                                strings = strings,
+                            )
                             HorizontalDivider(thickness = 1.dp, color = dividerColor)
-                            browserContent(Modifier.weight(1f).fillMaxWidth())
+                            CreatorBrowserPane(
+                                modifier = browserMod.weight(1f),
+                                dark = dark,
+                                galleryBg = galleryBg,
+                                pillBg = pillBg,
+                                pillBorder = pillBorder,
+                                primaryText = primaryText,
+                                mutedText = mutedText,
+                                accentBlue = accentBlue,
+                                activePane = activePane,
+                                preset = preset,
+                                onSelectPreset = { p ->
+                                    preset = p
+                                    if (p != PagePreset.CUSTOM) {
+                                        wMm = "%.0f".format(p.wMm)
+                                        hMm = "%.0f".format(p.hMm)
+                                    }
+                                    if (p.isWhiteboard && paper == PaperStyle.BLANK) paper = PaperStyle.DOTTED
+                                },
+                                wMm = wMm,
+                                hMm = hMm,
+                                onWMmChange = { v -> wMm = v.filter { it.isDigit() }.take(4) },
+                                onHMmChange = { v -> hMm = v.filter { it.isDigit() }.take(4) },
+                                paperColor = paperColor,
+                                selectedPaperColorLabel = selectedPaperColorLabel,
+                                onSelectPaperColor = { paperColor = it },
+                                onOpenCustomPaperColor = { customPaper = true },
+                                selectedLanguageLabel = selectedLanguageLabel,
+                                onOpenLanguagePicker = { langPickerOpen = true },
+                                landscape = landscape,
+                                effectiveLandscape = effectiveLandscape,
+                                onLandscapeChange = { landscape = it },
+                                paper = paper,
+                                previewPaperColor = previewPaperColor,
+                                onSelectPaper = { paper = it },
+                                cover = cover,
+                                photo = photo,
+                                coverPage = coverPage,
+                                onCoverPageChange = { coverPage = it },
+                                onSelectCover = { spec -> cover = spec; photo = null },
+                                onPickPhoto = { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                collapsedSections = collapsedSections,
+                                strings = strings,
+                            )
                         }
                     }
                 }
@@ -1406,6 +950,619 @@ internal fun NewNotebookDialog(
 }
 
 @Composable
+private fun CreatorInspectorPane(
+    modifier: Modifier,
+    wide: Boolean,
+    dark: Boolean,
+    railBg: Color,
+    pillBorder: Color,
+    primaryText: Color,
+    mutedText: Color,
+    accentBlue: Color,
+    name: String,
+    onNameChange: (String) -> Unit,
+    isWhiteboard: Boolean,
+    cover: String,
+    photo: Uri?,
+    paper: PaperStyle,
+    previewPaperColor: Int,
+    effectiveLandscape: Boolean,
+    activePane: NotebookCreatorPane,
+    onSelectPane: (NotebookCreatorPane) -> Unit,
+    strings: com.pronotes.app.data.AppStrings,
+) {
+    Column(
+        modifier = modifier
+            .background(railBg)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 18.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        // Title input isolated so typing never recomposes the template gallery.
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = strings.title,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = primaryText,
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (dark) Color(0xFF282A2E) else MaterialTheme.colorScheme.surface)
+                    .border(1.dp, pillBorder, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 12.dp, vertical = 11.dp),
+            ) {
+                if (name.isEmpty()) {
+                    Text(
+                        text = if (isWhiteboard) "Untitled Whiteboard" else strings.untitledNotebook,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = mutedText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                BasicTextField(
+                    value = name,
+                    onValueChange = onNameChange,
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = primaryText),
+                    cursorBrush = SolidColor(accentBlue),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+
+        val wDp = if (wide) (if (effectiveLandscape) 128.dp else 92.dp) else (if (effectiveLandscape) 78.dp else 56.dp)
+        val hDp = if (wide) (if (effectiveLandscape) 90.dp else 122.dp) else (if (effectiveLandscape) 56.dp else 76.dp)
+
+        if (wide) {
+            InspectorPreviewCard(
+                heading = strings.cover,
+                label = coverFriendlyName(cover, photo),
+                selected = activePane == NotebookCreatorPane.COVER,
+                accentColor = accentBlue,
+                dark = dark,
+                primaryText = primaryText,
+                mutedText = mutedText,
+                onClick = { onSelectPane(NotebookCreatorPane.COVER) },
+            ) {
+                CoverMiniThumbnail(
+                    spec = cover,
+                    photo = photo,
+                    landscape = effectiveLandscape,
+                    dark = dark,
+                    widthDp = wDp.value,
+                    heightDp = hDp.value,
+                    drawShadow = true,
+                )
+            }
+
+            InspectorPreviewCard(
+                heading = strings.paper,
+                label = paper.label,
+                selected = activePane == NotebookCreatorPane.PAPER,
+                accentColor = accentBlue,
+                dark = dark,
+                primaryText = primaryText,
+                mutedText = mutedText,
+                onClick = { onSelectPane(NotebookCreatorPane.PAPER) },
+            ) {
+                PaperPreview(
+                    style = paper,
+                    explicitWidth = wDp,
+                    explicitHeight = hDp,
+                    modifier = Modifier
+                        .size(width = wDp, height = hDp)
+                        .shadow(4.dp, RoundedCornerShape(4.dp))
+                        .clip(RoundedCornerShape(4.dp))
+                        .border(0.6.dp, Color.Black.copy(alpha = 0.14f), RoundedCornerShape(4.dp)),
+                    tint = previewPaperColor,
+                    landscape = effectiveLandscape,
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                InspectorPreviewCard(
+                    heading = strings.cover,
+                    label = coverFriendlyName(cover, photo),
+                    selected = activePane == NotebookCreatorPane.COVER,
+                    accentColor = accentBlue,
+                    dark = dark,
+                    primaryText = primaryText,
+                    mutedText = mutedText,
+                    onClick = { onSelectPane(NotebookCreatorPane.COVER) },
+                    modifier = Modifier.weight(1f),
+                    compact = true,
+                ) {
+                    CoverMiniThumbnail(
+                        spec = cover,
+                        photo = photo,
+                        landscape = effectiveLandscape,
+                        dark = dark,
+                        widthDp = wDp.value,
+                        heightDp = hDp.value,
+                        drawShadow = false,
+                    )
+                }
+                InspectorPreviewCard(
+                    heading = strings.paper,
+                    label = paper.label,
+                    selected = activePane == NotebookCreatorPane.PAPER,
+                    accentColor = accentBlue,
+                    dark = dark,
+                    primaryText = primaryText,
+                    mutedText = mutedText,
+                    onClick = { onSelectPane(NotebookCreatorPane.PAPER) },
+                    modifier = Modifier.weight(1f),
+                    compact = true,
+                ) {
+                    PaperPreview(
+                        style = paper,
+                        explicitWidth = wDp,
+                        explicitHeight = hDp,
+                        modifier = Modifier
+                            .size(width = wDp, height = hDp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .border(0.6.dp, Color.Black.copy(alpha = 0.14f), RoundedCornerShape(4.dp)),
+                        tint = previewPaperColor,
+                        landscape = effectiveLandscape,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CreatorBrowserPane(
+    modifier: Modifier,
+    dark: Boolean,
+    galleryBg: Color,
+    pillBg: Color,
+    pillBorder: Color,
+    primaryText: Color,
+    mutedText: Color,
+    accentBlue: Color,
+    activePane: NotebookCreatorPane,
+    preset: PagePreset,
+    onSelectPreset: (PagePreset) -> Unit,
+    wMm: String,
+    hMm: String,
+    onWMmChange: (String) -> Unit,
+    onHMmChange: (String) -> Unit,
+    paperColor: Int?,
+    selectedPaperColorLabel: String,
+    onSelectPaperColor: (Int?) -> Unit,
+    onOpenCustomPaperColor: () -> Unit,
+    selectedLanguageLabel: String,
+    onOpenLanguagePicker: () -> Unit,
+    landscape: Boolean,
+    effectiveLandscape: Boolean,
+    onLandscapeChange: (Boolean) -> Unit,
+    paper: PaperStyle,
+    previewPaperColor: Int,
+    onSelectPaper: (PaperStyle) -> Unit,
+    cover: String,
+    photo: Uri?,
+    coverPage: Boolean,
+    onCoverPageChange: (Boolean) -> Unit,
+    onSelectCover: (String) -> Unit,
+    onPickPhoto: () -> Unit,
+    collapsedSections: MutableMap<String, Boolean>,
+    strings: com.pronotes.app.data.AppStrings,
+) {
+    Column(
+        modifier = modifier
+            .background(galleryBg)
+            .fillMaxSize(),
+    ) {
+        // Top filter pill bar: Size | Paper Color | Language | Orientation
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 18.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // 1. Page Size fast popover pill
+            var sizeMenuOpen by remember { mutableStateOf(false) }
+            val sizeMenuItems = remember(preset) {
+                PagePreset.entries.map { p ->
+                    val dims = if (!p.isWhiteboard && p != PagePreset.CUSTOM) " (${"%.0f×%.0f".format(p.wMm, p.hMm)})" else ""
+                    AppMenuItem(
+                        label = "${p.label}$dims",
+                        selected = p == preset,
+                        onClick = { onSelectPreset(p) },
+                    )
+                }
+            }
+            Box {
+                StudioFilterPill(
+                    label = preset.label,
+                    leadingIcon = {
+                        Icon(
+                            if (preset.isWhiteboard) Icons.Outlined.AllInclusive else Icons.Outlined.Description,
+                            contentDescription = null,
+                            tint = primaryText.copy(alpha = 0.85f),
+                            modifier = Modifier.size(16.dp),
+                        )
+                    },
+                    bg = pillBg,
+                    border = pillBorder,
+                    fg = primaryText,
+                    onClick = { sizeMenuOpen = true },
+                )
+                AppContextMenu(
+                    expanded = sizeMenuOpen,
+                    onDismissRequest = { sizeMenuOpen = false },
+                    items = sizeMenuItems,
+                )
+            }
+
+            // 2. Paper Color fast popover pill
+            var colorMenuOpen by remember { mutableStateOf(false) }
+            val colorMenuItems = remember(paperColor, strings) {
+                PaperColors.mapIndexed { idx, argb ->
+                    val sel = (paperColor ?: 0xFFFFFFFF.toInt()) == argb
+                    AppMenuItem(
+                        label = PaperColorNames[idx],
+                        selected = sel,
+                        icon = {
+                            Box(
+                                Modifier
+                                    .size(16.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(argb))
+                                    .border(1.dp, Color.Gray.copy(alpha = 0.45f), CircleShape),
+                            )
+                        },
+                        onClick = { onSelectPaperColor(if (argb == 0xFFFFFFFF.toInt()) null else argb) },
+                    )
+                } + AppMenuItem(
+                    label = strings.customPaperColor,
+                    iconVector = Icons.Filled.Add,
+                    onClick = onOpenCustomPaperColor,
+                )
+            }
+            Box {
+                StudioFilterPill(
+                    label = selectedPaperColorLabel,
+                    bg = pillBg,
+                    border = pillBorder,
+                    fg = primaryText,
+                    onClick = { colorMenuOpen = true },
+                )
+                AppContextMenu(
+                    expanded = colorMenuOpen,
+                    onDismissRequest = { colorMenuOpen = false },
+                    items = colorMenuItems,
+                )
+            }
+
+            // 3. Global Language picker pill (58+ world handwriting languages)
+            StudioFilterPill(
+                label = selectedLanguageLabel,
+                bg = pillBg,
+                border = pillBorder,
+                fg = primaryText,
+                onClick = onOpenLanguagePicker,
+            )
+
+            // 4. Orientation segmented toggle pill (Portrait | Landscape)
+            if (!preset.isWhiteboard) {
+                Row(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(pillBg)
+                        .border(1.dp, pillBorder, CircleShape)
+                        .padding(3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OrientationSegmentIcon(
+                        icon = Icons.Outlined.CropPortrait,
+                        contentDescription = "Portrait",
+                        selected = !landscape,
+                        accent = accentBlue,
+                        dark = dark,
+                        onClick = { onLandscapeChange(false) },
+                    )
+                    OrientationSegmentIcon(
+                        icon = Icons.Outlined.CropLandscape,
+                        contentDescription = "Landscape",
+                        selected = landscape,
+                        accent = accentBlue,
+                        dark = dark,
+                        onClick = { onLandscapeChange(true) },
+                    )
+                }
+            }
+        }
+
+        // Inline custom page size inputs when Custom preset is selected
+        AnimatedVisibility(visible = preset == PagePreset.CUSTOM) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                OutlinedTextField(
+                    value = wMm,
+                    onValueChange = onWMmChange,
+                    label = { Text("Width (mm)") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedTextField(
+                    value = hMm,
+                    onValueChange = onHMmChange,
+                    label = { Text("Height (mm)") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+
+        val tileW = if (effectiveLandscape) 86.dp else 66.dp
+        val tileH = if (effectiveLandscape) 60.dp else 88.dp
+
+        // Virtualized LazyVerticalGrid — only composes visible tiles (~6-9 on open) instead of 35-45 at once!
+        when (activePane) {
+            NotebookCreatorPane.PAPER -> {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 102.dp),
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                ) {
+                    CreatorPaperSections.forEach { (sectionTitle, templates) ->
+                        val isCollapsed = collapsedSections["p:$sectionTitle"] == true
+                        val localizedSecTitle = when (sectionTitle) {
+                            "Essentials" -> strings.sectionEssentials
+                            "Writing papers" -> strings.sectionWritingPapers
+                            "Planner" -> strings.sectionPlanner
+                            "Grid & Technical" -> strings.sectionGridTechnical
+                            "Creative & Music" -> strings.sectionCreativeMusic
+                            else -> sectionTitle
+                        }
+                        item(
+                            key = "p_hdr_$sectionTitle",
+                            span = { GridItemSpan(maxLineSpan) },
+                            contentType = "section_header",
+                        ) {
+                            CollapsibleSectionHeader(
+                                title = localizedSecTitle,
+                                collapsed = isCollapsed,
+                                fg = primaryText,
+                                onClick = { collapsedSections["p:$sectionTitle"] = !isCollapsed },
+                            )
+                        }
+                        if (!isCollapsed) {
+                            items(
+                                items = templates,
+                                key = { "paper_${it.name}" },
+                                contentType = { "paper_tile" },
+                            ) { style ->
+                                val sel = style == paper
+                                CreatorTemplateTile(
+                                    label = style.label,
+                                    selected = sel,
+                                    accentBlue = accentBlue,
+                                    mutedText = mutedText,
+                                    onClick = { onSelectPaper(style) },
+                                ) {
+                                    PaperPreview(
+                                        style = style,
+                                        explicitWidth = tileW,
+                                        explicitHeight = tileH,
+                                        modifier = Modifier
+                                            .size(width = tileW, height = tileH)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .border(0.6.dp, Color.Black.copy(alpha = 0.14f), RoundedCornerShape(4.dp)),
+                                        tint = previewPaperColor,
+                                        landscape = effectiveLandscape,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    item(span = { GridItemSpan(maxLineSpan) }, contentType = "spacer") {
+                        Spacer(Modifier.height(10.dp))
+                    }
+                }
+            }
+
+            NotebookCreatorPane.COVER -> {
+                val quickCollapsed = collapsedSections["c:Quick"] == true
+                val simpleCollapsed = collapsedSections["c:Simple"] == true
+                val texCollapsed = collapsedSections["c:Textured"] == true
+
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 102.dp),
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                ) {
+                    if (cover != "thumb" && !preset.isWhiteboard) {
+                        item(
+                            key = "c_cover_page_banner",
+                            span = { GridItemSpan(maxLineSpan) },
+                            contentType = "banner",
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(pillBg.copy(alpha = 0.72f))
+                                    .border(1.dp, pillBorder, RoundedCornerShape(12.dp))
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(strings.includeCoverPage, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = primaryText)
+                                    Text("Write titles or add stickers onto the front cover", style = MaterialTheme.typography.labelSmall, color = mutedText)
+                                }
+                                AppToggle(checked = coverPage, onCheckedChange = onCoverPageChange)
+                            }
+                        }
+                    }
+
+                    // Special covers
+                    item(key = "c_hdr_quick", span = { GridItemSpan(maxLineSpan) }, contentType = "section_header") {
+                        CollapsibleSectionHeader(
+                            title = "Special",
+                            collapsed = quickCollapsed,
+                            fg = primaryText,
+                            onClick = { collapsedSections["c:Quick"] = !quickCollapsed },
+                        )
+                    }
+                    if (!quickCollapsed) {
+                        item(key = "c_no_cover", contentType = "special_tile") {
+                            CreatorTemplateTile(
+                                label = "No Cover",
+                                selected = cover == "thumb",
+                                accentBlue = accentBlue,
+                                mutedText = mutedText,
+                                onClick = { onSelectCover("thumb") },
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(width = tileW, height = tileH)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(pillBg)
+                                        .border(1.dp, pillBorder, RoundedCornerShape(6.dp)),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(Icons.Outlined.Description, null, tint = mutedText, modifier = Modifier.size(24.dp))
+                                }
+                            }
+                        }
+                        item(key = "c_photo_cover", contentType = "special_tile") {
+                            CreatorTemplateTile(
+                                label = "Photo Cover",
+                                selected = cover == "photo",
+                                accentBlue = accentBlue,
+                                mutedText = mutedText,
+                                onClick = onPickPhoto,
+                            ) {
+                                if (photo != null) {
+                                    AsyncImage(
+                                        model = photo,
+                                        contentDescription = "Photo cover",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .size(width = tileW, height = tileH)
+                                            .clip(NotebookShape),
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(width = tileW, height = tileH)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(pillBg)
+                                            .border(1.dp, pillBorder, RoundedCornerShape(6.dp)),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(Icons.Outlined.Image, null, tint = accentBlue, modifier = Modifier.size(24.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Simple Matte Covers
+                    item(key = "c_hdr_simple", span = { GridItemSpan(maxLineSpan) }, contentType = "section_header") {
+                        CollapsibleSectionHeader(
+                            title = "Simple",
+                            collapsed = simpleCollapsed,
+                            fg = primaryText,
+                            onClick = { collapsedSections["c:Simple"] = !simpleCollapsed },
+                        )
+                    }
+                    if (!simpleCollapsed) {
+                        items(
+                            items = CreatorSolidCoverSpecs,
+                            key = { it.first },
+                            contentType = { "cover_tile" },
+                        ) { (spec, label) ->
+                            CreatorTemplateTile(
+                                label = label,
+                                selected = cover == spec,
+                                accentBlue = accentBlue,
+                                mutedText = mutedText,
+                                onClick = { onSelectCover(spec) },
+                            ) {
+                                CoverMiniThumbnail(
+                                    spec = spec,
+                                    photo = null,
+                                    landscape = effectiveLandscape,
+                                    dark = dark,
+                                    widthDp = tileW.value,
+                                    heightDp = tileH.value,
+                                    drawShadow = false,
+                                )
+                            }
+                        }
+                    }
+
+                    // Textured & Studio Covers
+                    item(key = "c_hdr_tex", span = { GridItemSpan(maxLineSpan) }, contentType = "section_header") {
+                        CollapsibleSectionHeader(
+                            title = "Textured & Studio",
+                            collapsed = texCollapsed,
+                            fg = primaryText,
+                            onClick = { collapsedSections["c:Textured"] = !texCollapsed },
+                        )
+                    }
+                    if (!texCollapsed) {
+                        items(
+                            items = CreatorPatternCoverSpecs,
+                            key = { it.first },
+                            contentType = { "cover_tile" },
+                        ) { (spec, label) ->
+                            CreatorTemplateTile(
+                                label = label,
+                                selected = cover == spec,
+                                accentBlue = accentBlue,
+                                mutedText = mutedText,
+                                onClick = { onSelectCover(spec) },
+                            ) {
+                                CoverMiniThumbnail(
+                                    spec = spec,
+                                    photo = null,
+                                    landscape = effectiveLandscape,
+                                    dark = dark,
+                                    widthDp = tileW.value,
+                                    heightDp = tileH.value,
+                                    drawShadow = false,
+                                )
+                            }
+                        }
+                    }
+                    item(span = { GridItemSpan(maxLineSpan) }, contentType = "spacer") {
+                        Spacer(Modifier.height(10.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun InspectorPreviewCard(
     heading: String,
     label: String,
@@ -1419,20 +1576,12 @@ private fun InspectorPreviewCard(
     compact: Boolean = false,
     preview: @Composable () -> Unit,
 ) {
-    val borderColor by animateColorAsState(
-        targetValue = if (selected) accentColor else Color.Transparent,
-        animationSpec = tween(180),
-        label = "inspectorCardBorder",
-    )
-    val cardBg by animateColorAsState(
-        targetValue = if (selected) {
-            if (dark) Color(0xFF1F2733) else accentColor.copy(alpha = 0.08f)
-        } else {
-            Color.Transparent
-        },
-        animationSpec = tween(180),
-        label = "inspectorCardBg",
-    )
+    val borderColor = if (selected) accentColor else Color.Transparent
+    val cardBg = if (selected) {
+        if (dark) Color(0xFF1F2733) else accentColor.copy(alpha = 0.08f)
+    } else {
+        Color.Transparent
+    }
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = heading,
@@ -1473,15 +1622,18 @@ private fun CoverMiniThumbnail(
     dark: Boolean,
     widthDp: Float,
     heightDp: Float,
+    drawShadow: Boolean = false,
 ) {
-    val mod = Modifier.size(width = widthDp.dp, height = heightDp.dp)
+    val w = widthDp.dp
+    val h = heightDp.dp
+    val mod = Modifier.size(width = w, height = h)
     when {
         photo != null && spec == "photo" -> {
             AsyncImage(
                 model = photo,
                 contentDescription = "Selected cover",
                 contentScale = ContentScale.Crop,
-                modifier = mod.shadow(4.dp, NotebookShape).clip(NotebookShape),
+                modifier = if (drawShadow) mod.shadow(4.dp, NotebookShape).clip(NotebookShape) else mod.clip(NotebookShape),
             )
         }
         spec == "thumb" -> {
@@ -1503,6 +1655,9 @@ private fun CoverMiniThumbnail(
                 cacheKey = if (landscape) "land" else "port",
                 modifier = mod,
                 showTitle = false,
+                drawShadow = drawShadow,
+                explicitWidth = w,
+                explicitHeight = h,
             )
         }
     }
@@ -1613,14 +1768,9 @@ private fun CreatorTemplateTile(
     onClick: () -> Unit,
     thumbnail: @Composable () -> Unit,
 ) {
-    val frameBorder by animateColorAsState(
-        targetValue = if (selected) accentBlue else Color.Transparent,
-        animationSpec = tween(160),
-        label = "tplFrameBorder",
-    )
     Column(
         modifier = Modifier
-            .width(102.dp)
+            .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1631,8 +1781,12 @@ private fun CreatorTemplateTile(
                 .fillMaxWidth()
                 .height(114.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .background(if (selected) accentBlue.copy(alpha = 0.08f) else Color.Transparent)
-                .border(width = if (selected) 2.dp else 0.dp, color = frameBorder, shape = RoundedCornerShape(10.dp))
+                .background(if (selected) accentBlue.copy(alpha = 0.10f) else Color.Transparent)
+                .border(
+                    width = if (selected) 2.dp else 0.dp,
+                    color = if (selected) accentBlue else Color.Transparent,
+                    shape = RoundedCornerShape(10.dp),
+                )
                 .padding(8.dp),
             contentAlignment = Alignment.Center,
         ) {

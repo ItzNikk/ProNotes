@@ -494,15 +494,7 @@ fun EditorScreen(
         val activity = context as? android.app.Activity
         var unregister: (() -> Unit)? = null
         if (settings.hideToolsWhenRecording && activity != null && android.os.Build.VERSION.SDK_INT >= 35) {
-            runCatching {
-                val wm = activity.windowManager
-                val cb = java.util.function.Consumer<Int> { state ->
-                    recording = state == android.view.WindowManager.SCREEN_RECORDING_STATE_VISIBLE
-                }
-                val now = wm.addScreenRecordingCallback(activity.mainExecutor, cb)
-                recording = now == android.view.WindowManager.SCREEN_RECORDING_STATE_VISIBLE
-                unregister = { runCatching { wm.removeScreenRecordingCallback(cb) } }
-            }
+            unregister = Api35ScreenRecordingHelper.register(activity) { visible -> recording = visible }
         } else {
             recording = false
         }
@@ -1827,6 +1819,21 @@ private fun EditorPageIndicatorPill(
             )
         }
     }
+}
+
+@androidx.annotation.RequiresApi(35)
+private object Api35ScreenRecordingHelper {
+    fun register(activity: android.app.Activity, onVisibilityChanged: (Boolean) -> Unit): (() -> Unit)? =
+        runCatching {
+            val wm = activity.windowManager
+            val cb = java.util.function.Consumer<Int> { state ->
+                onVisibilityChanged(state == android.view.WindowManager.SCREEN_RECORDING_STATE_VISIBLE)
+            }
+            val now = wm.addScreenRecordingCallback(activity.mainExecutor, cb)
+            onVisibilityChanged(now == android.view.WindowManager.SCREEN_RECORDING_STATE_VISIBLE)
+            val cleanup: () -> Unit = { runCatching { wm.removeScreenRecordingCallback(cb) } }
+            cleanup
+        }.getOrNull()
 }
 
 

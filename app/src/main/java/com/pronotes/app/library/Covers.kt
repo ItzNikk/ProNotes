@@ -3,7 +3,6 @@ package com.pronotes.app.library
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,10 +30,13 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
@@ -47,6 +49,8 @@ import com.pronotes.app.ui.LocalPerformanceMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.Collections
+import java.util.WeakHashMap
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -55,16 +59,41 @@ val NotebookShape = RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp, topE
 private val coverDrawPaint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG or android.graphics.Paint.ANTI_ALIAS_FLAG)
 private val coverDestRect = android.graphics.RectF()
 
+private fun quantizeThumbSize(rawW: Int, rawH: Int, maxW: Int): Pair<Int, Int> {
+    if (rawW <= 0 || rawH <= 0) return 0 to 0
+    val cappedW = rawW.coerceAtMost(maxW).coerceAtLeast(1)
+    // Quantize width to 32px buckets so slightly different card widths share the same cached bitmap.
+    val bucketW = (((cappedW + 31) / 32) * 32).coerceAtMost(maxW).coerceAtLeast(64)
+    val bucketH = (rawH * (bucketW.toFloat() / rawW.coerceAtLeast(1))).roundToInt().coerceAtLeast(64)
+    return bucketW to bucketH
+}
+
 /**
  * Draws a notebook cover from its spec ("solid:", "pattern:", "image:", "thumb").
  * [noteDir] holds cover photos and thumbnails.
+ * Avoids SubcomposeLayout (BoxWithConstraints) so grids and creator dialogs scroll at 120fps.
  */
 @Composable
-fun CoverArt(spec: String, title: String, noteDir: File?, cacheKey: Any, modifier: Modifier = Modifier, showTitle: Boolean = true) {
+fun CoverArt(
+    spec: String,
+    title: String,
+    noteDir: File?,
+    cacheKey: Any,
+    modifier: Modifier = Modifier,
+    showTitle: Boolean = true,
+    drawShadow: Boolean = true,
+    explicitWidth: Dp? = null,
+    explicitHeight: Dp? = null,
+) {
     val context = LocalContext.current
     val perfMode = LocalPerformanceMode.current
     val density = LocalDensity.current
-    Box(modifier.shadow(6.dp, NotebookShape).clip(NotebookShape).background(Color.White)) {
+    val outerMod = if (drawShadow) {
+        modifier.shadow(6.dp, NotebookShape).clip(NotebookShape).background(Color.White)
+    } else {
+        modifier.clip(NotebookShape).background(Color.White)
+    }
+    Box(outerMod) {
         when {
             spec.startsWith("image:") || spec == "thumb" -> {
                 val file = remember(spec, noteDir) {
@@ -92,30 +121,45 @@ fun CoverArt(spec: String, title: String, noteDir: File?, cacheKey: Any, modifie
                     val parts = spec.split(':')
                     Color((parts.lastOrNull()?.toLongOrNull() ?: 0xFF3D6CF4).toInt())
                 }
-                // Same renderer as the cover page inside the notebook, so both always match.
-                // Cache hits paint synchronously on frame 0; misses render asynchronously off-UI-thread.
-                BoxWithConstraints(Modifier.fillMaxSize().background(baseColor)) {
-                    val rawW = with(density) { maxWidth.toPx() }.roundToInt().coerceAtLeast(1)
-                    val rawH = with(density) { maxHeight.toPx() }.roundToInt().coerceAtLeast(1)
-                    val maxW = perfMode.thumbWidthPx.coerceAtLeast(180)
-                    val targetW = rawW.coerceAtMost(maxW)
-                    val targetH = (rawH * (targetW.toFloat() / rawW.coerceAtLeast(1))).roundToInt().coerceAtLeast(1)
+                val explicitSize = remember(explicitWidth, explicitHeight, density) {
+                    if (explicitWidth != null && explicitHeight != null) {
+                        IntSize(
+                            with(density) { explicitWidth.toPx() }.roundToInt().coerceAtLeast(1),
+                            with(density) { explicitHeight.toPx() }.roundToInt().coerceAtLeast(1),
+                        )
+                    } else null
+                }
+                var measuredSize by remember { mutableStateOf(explicitSize ?: IntSize.Zero) }
+                val effectiveSize = explicitSize ?: measuredSize
+                val maxW = perfMode.thumbWidthPx.coerceAtLeast(180)
+                val (targetW, targetH) = remember(effectiveSize, maxW) {
+                    quantizeThumbSize(effectiveSize.width, effectiveSize.height, maxW)
+                }
 
-                    var bmp by remember(spec, targetW, targetH) {
-                        mutableStateOf(CoverCache.peek(spec, targetW, targetH))
+                var bmp by remember(spec, targetW, targetH) {
+                    mutableStateOf(if (targetW > 0) CoverCache.peek(spec, targetW, targetH) else null)
+                }
+                LaunchedEffect(spec, targetW, targetH) {
+                    if (targetW > 0 && bmp == null) {
+                        bmp = CoverCache.getAsync(spec, targetW, targetH)
                     }
-                    LaunchedEffect(spec, targetW, targetH) {
-                        if (bmp == null) {
-                            bmp = CoverCache.getAsync(spec, targetW, targetH)
-                        }
-                    }
-                    Canvas(Modifier.fillMaxSize()) {
-                        val ready = bmp
-                        if (ready != null) {
-                            drawIntoCanvas { c ->
-                                coverDestRect.set(0f, 0f, size.width, size.height)
-                                c.nativeCanvas.drawBitmap(ready, null, coverDestRect, coverDrawPaint)
-                            }
+                }
+                val canvasMod = if (explicitSize == null) {
+                    Modifier
+                        .fillMaxSize()
+                        .background(baseColor)
+                        .onSizeChanged { if (it != measuredSize) measuredSize = it }
+                } else {
+                    Modifier
+                        .fillMaxSize()
+                        .background(baseColor)
+                }
+                Canvas(canvasMod) {
+                    val ready = bmp
+                    if (ready != null) {
+                        drawIntoCanvas { c ->
+                            coverDestRect.set(0f, 0f, size.width, size.height)
+                            c.nativeCanvas.drawBitmap(ready, null, coverDestRect, coverDrawPaint)
                         }
                     }
                 }
@@ -214,9 +258,15 @@ private fun DrawScope.drawPattern(name: String, base: Color) {
     if (base.alpha < 0.1f) drawRect(base)
 }
 
-/** Cover and template previews: one shared renderer, results cached as small bitmaps with async GPU pre-upload. */
+/**
+ * Cover and template previews: thread-local renderers allow true parallel multi-core rendering
+ * with zero lock contention, cached as small quantized bitmaps with async GPU pre-upload.
+ */
 object CoverCache {
-    private val renderer by lazy { PageRenderer(null) }
+    private val allRenderers = Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap<PageRenderer, Boolean>()))
+    private val threadRenderer = ThreadLocal.withInitial {
+        PageRenderer(null).also { allRenderers.add(it) }
+    }
     private val cache = object : android.util.LruCache<String, android.graphics.Bitmap>(32 * 1024 * 1024) {
         override fun sizeOf(key: String, value: android.graphics.Bitmap) = value.byteCount
     }
@@ -225,7 +275,9 @@ object CoverCache {
         com.pronotes.app.data.MemoryTrimRegistry.register { level ->
             if (com.pronotes.app.data.MemoryTrimRegistry.isCriticalLevel(level)) {
                 cache.evictAll()
-                synchronized(renderer) { renderer.evictCaches() }
+                synchronized(allRenderers) {
+                    allRenderers.forEach { it.evictCaches() }
+                }
             } else {
                 cache.trimToSize(cache.maxSize() / 2)
             }
@@ -242,9 +294,7 @@ object CoverCache {
         val key = "c:$spec:$w:$h"
         cache.get(key)?.let { return it }
         val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
-        synchronized(renderer) {
-            renderer.drawCover(android.graphics.Canvas(bmp), android.graphics.RectF(0f, 0f, w.toFloat(), h.toFloat()), spec)
-        }
+        threadRenderer.get()?.drawCover(android.graphics.Canvas(bmp), android.graphics.RectF(0f, 0f, w.toFloat(), h.toFloat()), spec)
         bmp.prepareToDraw()
         cache.put(key, bmp)
         return bmp
@@ -271,9 +321,10 @@ object CoverCache {
         val sx = w / pageW
         val sy = h / pageH
         c.scale(sx, sy)
-        synchronized(renderer) {
-            renderer.paperColor = tint
-            renderer.drawPaper(c, Page("preview", pageW, pageH, style), null, shadow = false)
+        val r = threadRenderer.get()
+        if (r != null) {
+            r.paperColor = tint
+            r.drawPaper(c, Page("preview", pageW, pageH, style), null, shadow = false)
         }
         bmp.prepareToDraw()
         cache.put(key, bmp)
@@ -287,39 +338,59 @@ object CoverCache {
     }
 }
 
-/** Paper template preview, drawn asynchronously off the main thread with GPU pre-upload. */
+/**
+ * Paper template preview drawn asynchronously off the main thread with GPU pre-upload.
+ * Eliminates SubcomposeLayout (BoxWithConstraints) so template grids scroll smoothly at 120fps.
+ */
 @Composable
 fun PaperPreview(
     style: PaperStyle,
     modifier: Modifier = Modifier,
     tint: Int = 0xFFFFFFFF.toInt(),
     landscape: Boolean = false,
+    explicitWidth: Dp? = null,
+    explicitHeight: Dp? = null,
 ) {
     val pw = if (landscape) PageSize.HEIGHT else PageSize.WIDTH
     val ph = if (landscape) PageSize.WIDTH else PageSize.HEIGHT
     val perfMode = LocalPerformanceMode.current
     val density = LocalDensity.current
-    BoxWithConstraints(modifier.background(Color(tint))) {
-        val rawW = with(density) { maxWidth.toPx() }.roundToInt().coerceAtLeast(1)
-        val rawH = with(density) { maxHeight.toPx() }.roundToInt().coerceAtLeast(1)
-        val maxW = perfMode.thumbWidthPx.coerceAtLeast(180)
-        val targetW = rawW.coerceAtMost(maxW)
-        val targetH = (rawH * (targetW.toFloat() / rawW.coerceAtLeast(1))).roundToInt().coerceAtLeast(1)
-        var bmp by remember(style, tint, targetW, targetH, landscape) {
-            mutableStateOf(CoverCache.peekPaper(style, tint, targetW, targetH, pw, ph))
+    val explicitSize = remember(explicitWidth, explicitHeight, density) {
+        if (explicitWidth != null && explicitHeight != null) {
+            IntSize(
+                with(density) { explicitWidth.toPx() }.roundToInt().coerceAtLeast(1),
+                with(density) { explicitHeight.toPx() }.roundToInt().coerceAtLeast(1),
+            )
+        } else null
+    }
+    var measuredSize by remember { mutableStateOf(explicitSize ?: IntSize.Zero) }
+    val effectiveSize = explicitSize ?: measuredSize
+    val maxW = perfMode.thumbWidthPx.coerceAtLeast(180)
+    val (targetW, targetH) = remember(effectiveSize, maxW) {
+        quantizeThumbSize(effectiveSize.width, effectiveSize.height, maxW)
+    }
+
+    var bmp by remember(style, tint, targetW, targetH, landscape) {
+        mutableStateOf(if (targetW > 0) CoverCache.peekPaper(style, tint, targetW, targetH, pw, ph) else null)
+    }
+    LaunchedEffect(style, tint, targetW, targetH, landscape) {
+        if (targetW > 0 && bmp == null) {
+            bmp = CoverCache.paperAsync(style, tint, targetW, targetH, pw, ph)
         }
-        LaunchedEffect(style, tint, targetW, targetH, landscape) {
-            if (bmp == null) {
-                bmp = CoverCache.paperAsync(style, tint, targetW, targetH, pw, ph)
-            }
-        }
-        Canvas(Modifier.fillMaxSize()) {
-            val ready = bmp
-            if (ready != null) {
-                drawIntoCanvas { c ->
-                    coverDestRect.set(0f, 0f, size.width, size.height)
-                    c.nativeCanvas.drawBitmap(ready, null, coverDestRect, coverDrawPaint)
-                }
+    }
+    val canvasMod = if (explicitSize == null) {
+        modifier
+            .background(Color(tint))
+            .onSizeChanged { if (it != measuredSize) measuredSize = it }
+    } else {
+        modifier.background(Color(tint))
+    }
+    Canvas(canvasMod) {
+        val ready = bmp
+        if (ready != null) {
+            drawIntoCanvas { c ->
+                coverDestRect.set(0f, 0f, size.width, size.height)
+                c.nativeCanvas.drawBitmap(ready, null, coverDestRect, coverDrawPaint)
             }
         }
     }

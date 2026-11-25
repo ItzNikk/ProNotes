@@ -738,8 +738,8 @@ fun LibraryScreen(
                             val guideLabel = stringResource(R.string.library_guide_title)
                             val createItems = remember(appStrings, folderId, newBookPrefs, guideLabel) {
                                 listOf(
-                                    AppMenuItem(appStrings.notebook, icon = { Icon(Icons.Rounded.AutoStories, null, Modifier.size(19.dp)) }) { newNotebook = true },
-                                    AppMenuItem(appStrings.infiniteWhiteboard, icon = { Icon(Icons.Rounded.Gesture, null, Modifier.size(19.dp)) }) {
+                                    AppMenuItem(appStrings.notebook, iconVector = Icons.Rounded.AutoStories) { newNotebook = true },
+                                    AppMenuItem(appStrings.infiniteWhiteboard, iconVector = Icons.Rounded.Gesture) {
                                         scope.launch {
                                             val k = PagePreset.UNITS_PER_MM
                                             val p = PagePreset.WHITEBOARD
@@ -750,7 +750,7 @@ fun LibraryScreen(
                                             onOpen(id)
                                         }
                                     },
-                                    AppMenuItem(appStrings.conceptMapCanvas, icon = { Icon(Icons.Rounded.Hub, null, Modifier.size(19.dp)) }) {
+                                    AppMenuItem(appStrings.conceptMapCanvas, iconVector = Icons.Rounded.Hub) {
                                         scope.launch {
                                             val k = PagePreset.UNITS_PER_MM
                                             val p = PagePreset.WHITEBOARD
@@ -779,7 +779,7 @@ fun LibraryScreen(
                                             onOpen(id)
                                         }
                                     },
-                                    AppMenuItem(appStrings.quickNote, icon = { Icon(Icons.Rounded.Bolt, null, Modifier.size(19.dp)) }) {
+                                    AppMenuItem(appStrings.quickNote, iconVector = Icons.Rounded.Bolt) {
                                         scope.launch {
                                             val k = PagePreset.UNITS_PER_MM
                                             val defaultPreset = newBookPrefs.defaultPreset
@@ -798,21 +798,21 @@ fun LibraryScreen(
                                             )
                                         }
                                     },
-                                    AppMenuItem("Notebook templates", icon = { Icon(Icons.Rounded.DashboardCustomize, null, Modifier.size(19.dp)) }) { destination = "Templates" },
-                                    AppMenuItem("Online books", icon = { Icon(Icons.Rounded.LocalLibrary, null, Modifier.size(19.dp)) }) { destination = "Books" },
-                                    AppMenuItem("Community marketplace", icon = { Icon(Icons.Rounded.Storefront, null, Modifier.size(19.dp)) }) { destination = "Marketplace" },
-                                    AppMenuItem("PDF Station", icon = { Icon(Icons.Rounded.PictureAsPdf, null, Modifier.size(19.dp)) }) { destination = "PDF Station" },
-                                    AppMenuItem(guideLabel, icon = { Icon(Icons.Rounded.Explore, null, Modifier.size(19.dp)) }) { showGuide = true },
-                                    AppMenuItem(appStrings.folder, icon = { Icon(Icons.Rounded.CreateNewFolder, null, Modifier.size(19.dp)) }) { newFolder = true },
+                                    AppMenuItem("Notebook templates", iconVector = Icons.Rounded.DashboardCustomize) { destination = "Templates" },
+                                    AppMenuItem("Online books", iconVector = Icons.Rounded.LocalLibrary) { destination = "Books" },
+                                    AppMenuItem("Community marketplace", iconVector = Icons.Rounded.Storefront) { destination = "Marketplace" },
+                                    AppMenuItem("PDF Station", iconVector = Icons.Rounded.PictureAsPdf) { destination = "PDF Station" },
+                                    AppMenuItem(guideLabel, iconVector = Icons.Rounded.Explore) { showGuide = true },
+                                    AppMenuItem(appStrings.folder, iconVector = Icons.Rounded.CreateNewFolder) { newFolder = true },
                                     AppMenuItem(
                                         if (newBookPrefs.storageFolderLabel.isBlank()) "Choose Storage Folder…"
                                         else "Storage: ${newBookPrefs.storageFolderLabel}",
-                                        icon = { Icon(Icons.Rounded.FolderSpecial, null, Modifier.size(19.dp)) },
+                                        iconVector = Icons.Rounded.FolderSpecial,
                                     ) { pickStorageFolder.launch(null) },
-                                    AppMenuItem(appStrings.importFiles, icon = { Icon(Icons.Rounded.UploadFile, null, Modifier.size(19.dp)) }) {
+                                    AppMenuItem(appStrings.importFiles, iconVector = Icons.Rounded.UploadFile) {
                                         importFilesLauncher.launch(arrayOf("*/*"))
                                     },
-                                    AppMenuItem("Paste notes from another app…", icon = { Icon(Icons.Rounded.ContentPasteGo, null, Modifier.size(19.dp)) }) { pasteImportOpen = true },
+                                    AppMenuItem("Paste notes from another app…", iconVector = Icons.Rounded.ContentPasteGo) { pasteImportOpen = true },
                                 )
                             }
                             LibraryCreateMenu(
@@ -822,11 +822,14 @@ fun LibraryScreen(
                         }
 
                         Spacer(Modifier.width(8.dp))
+                        val sortItems = remember(appStrings, sort) {
+                            SortBy.entries.map { s ->
+                                AppMenuItem(label = s.localizedLabel(appStrings), selected = sort == s) { sort = s }
+                            }
+                        }
                         AppMenuButton(
                             contentPadding = PaddingValues(0.dp),
-                            items = SortBy.entries.map { s ->
-                                AppMenuItem(label = s.localizedLabel(appStrings), selected = sort == s) { sort = s }
-                            },
+                            items = sortItems,
                             contentDescription = "Sort notebooks",
                             role = SurfaceRole.Control,
                             shape = appPillShape(),

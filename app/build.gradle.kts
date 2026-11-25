@@ -116,7 +116,7 @@ kotlin {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2025.10.00")
+    val composeBom = platform("androidx.compose:compose-bom:2026.06.01")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
@@ -125,10 +125,10 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
 
     implementation("androidx.core:core-ktx:1.16.0")
-    implementation("androidx.activity:activity-compose:1.10.1")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.2")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.2")
-    implementation("androidx.navigation:navigation-compose:2.9.0")
+    implementation("androidx.activity:activity-compose:1.12.4")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
+    implementation("androidx.navigation:navigation-compose:2.9.8")
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
 
     // Jetpack Ink: low-latency stylus strokes, brushes, geometry (eraser hit tests), rendering, storage.
@@ -152,9 +152,9 @@ dependencies {
     implementation("androidx.graphics:graphics-shapes:1.0.1")
     // Colour wheel + brightness slider for custom colours.
     implementation("com.github.skydoves:colorpicker-compose:1.1.2")
-    // Hardware-accelerated progressive blur (Haze).
-    implementation("dev.chrisbanes.haze:haze:1.3.1")
-    implementation("dev.chrisbanes.haze:haze-materials:1.3.1")
+    // Hardware-accelerated progressive blur (Haze — matched to Kotlin 2.2.21 & Compose 1.10+).
+    implementation("dev.chrisbanes.haze:haze:1.7.2")
+    implementation("dev.chrisbanes.haze:haze-materials:1.7.2")
     // PDF text extraction for in-document search.
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     // On-device handwriting-to-text recognition (ML Kit Digital Ink Recognition).

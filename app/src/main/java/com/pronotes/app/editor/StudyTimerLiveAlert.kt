@@ -69,8 +69,7 @@ internal object StudyTimerLiveAlert {
             .setContentIntent(pi)
 
         if (Build.VERSION.SDK_INT >= 36) {
-            builder.addExtras(android.os.Bundle().apply { putBoolean("android.requestPromotedOngoing", true) })
-            builder.setShortCriticalText(if (pomoMode) "Focus" else "Study")
+            Api36LiveAlertHelper.applyPromotedOngoing(builder, if (pomoMode) "Focus" else "Study")
         }
 
         runCatching { nm.notify(NOTIF_ID, builder.build()) }
@@ -92,5 +91,13 @@ internal object StudyTimerLiveAlert {
             setShowBadge(false)
         }
         nm.createNotificationChannel(ch)
+    }
+}
+
+@androidx.annotation.RequiresApi(36)
+private object Api36LiveAlertHelper {
+    fun applyPromotedOngoing(builder: Notification.Builder, shortText: String) {
+        builder.addExtras(android.os.Bundle().apply { putBoolean("android.requestPromotedOngoing", true) })
+        builder.setShortCriticalText(shortText)
     }
 }

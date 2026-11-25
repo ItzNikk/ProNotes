@@ -20,8 +20,15 @@ import dev.chrisbanes.haze.HazeProgressive
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.materials.HazeMaterials
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -82,7 +89,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
@@ -100,12 +109,21 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.delay
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * Clean Material 3 surface roles used across Pro Notes (borderless/hairline tonal architecture).
@@ -139,19 +157,23 @@ fun appContentBottomPadding(extra: Dp = 16.dp): Dp {
     return 96.dp + navBottom + extra
 }
 
+@androidx.annotation.RequiresApi(31)
+private object Api31BlurHelper {
+    fun createBlur(radiusPx: Float): androidx.compose.ui.graphics.RenderEffect =
+        android.graphics.RenderEffect.createBlurEffect(
+            radiusPx,
+            radiusPx,
+            android.graphics.Shader.TileMode.CLAMP,
+        ).asComposeRenderEffect()
+}
+
 /** Applies native Android 12+ blur when active and Classic appearance is off. */
 @Composable
 fun Modifier.appBackdropBlur(enabled: Boolean, radiusDp: Dp = 14.dp): Modifier {
     val classic = LocalClassicAppearance.current
     if (!enabled || !LocalLiveBlur.current || classic || LocalReduceEffects.current || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return this
     val radiusPx = with(LocalDensity.current) { radiusDp.toPx() }.coerceAtLeast(1f)
-    val blur = remember(radiusPx) {
-        android.graphics.RenderEffect.createBlurEffect(
-            radiusPx,
-            radiusPx,
-            android.graphics.Shader.TileMode.CLAMP,
-        ).asComposeRenderEffect()
-    }
+    val blur = remember(radiusPx) { Api31BlurHelper.createBlur(radiusPx) }
     return graphicsLayer { renderEffect = blur }
 }
 
@@ -471,8 +493,10 @@ fun AppPill(
 }
 
 /**
- * High-performance sweeping multi-colour gradient text rendered purely in the GPU draw phase
- * (zero per-frame text relayout or Compose recomposition). Respects [LocalReduceMotion] and lifecycle state.
+ * High-performance omnidirectional multi-colour gradient text rendered purely in the GPU draw phase
+ * (zero per-frame text relayout or Compose recomposition). Colors flow continuously from top, bottom,
+ * left, right, and every diagonal via a rotating 2D Lissajous gradient + counter-orbiting color washes.
+ * Respects [LocalReduceMotion] and lifecycle state.
  */
 @Composable
 fun AnimatedGradientText(
@@ -496,47 +520,57 @@ fun AnimatedGradientText(
             if (colors.size >= 2) colors + colors.first() else listOf(colors.first(), colors.first())
         } else if (dark) {
             listOf(
-                Color(0xFF60A5FA),
-                Color(0xFFC084FC),
-                Color(0xFFF472B6),
-                Color(0xFFFBBF24),
-                Color(0xFF34D399),
-                Color(0xFF38BDF8),
-                Color(0xFF60A5FA),
+                Color(0xFFFF4D8D), // Vivid rose-magenta
+                Color(0xFFFF8A3D), // Warm tangerine
+                Color(0xFFFACC15), // Luminous gold
+                Color(0xFF34D399), // Radiant emerald
+                Color(0xFF22D3EE), // Bright cyan
+                Color(0xFF60A5FA), // Electric sky blue
+                Color(0xFFA855F7), // Vivid violet
+                Color(0xFFFF4D8D), // Seamless wrap
             )
         } else {
             listOf(
-                Color(0xFF2563EB),
-                Color(0xFF7C3AED),
-                Color(0xFFDB2777),
-                Color(0xFFEA580C),
-                Color(0xFF059669),
-                Color(0xFF0284C7),
-                Color(0xFF2563EB),
+                Color(0xFFE11D48), // Deep crimson-rose
+                Color(0xFFEA580C), // Vivid orange
+                Color(0xFFD97706), // Rich amber
+                Color(0xFF059669), // Rich emerald
+                Color(0xFF0891B2), // Vivid cyan-teal
+                Color(0xFF2563EB), // Electric cobalt
+                Color(0xFF7C3AED), // Deep violet
+                Color(0xFFE11D48), // Seamless wrap
             )
         }
     }
 
-    val phaseState = if (animate) {
-        val transition = rememberInfiniteTransition(label = "animGradSweep")
+    val transition = if (animate) rememberInfiniteTransition(label = "animGradOmni") else null
+    val cycleMs = (durationMs * 3).coerceAtLeast(5400)
+    // Primary 360-degree directional sweep phase (sweeps left, top, right, bottom & every diagonal).
+    val anglePhaseState = transition?.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = cycleMs, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "animGradAngle",
+    )
+    // Secondary incommensurate drift phase so top/bottom & diagonal color washes never feel repetitive.
+    val driftPhaseState = transition?.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = (cycleMs * 1.45f).toInt(), easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "animGradDrift",
+    )
+    val pulseState = if (transition != null && pulseAlpha) {
         transition.animateFloat(
-            initialValue = 0f,
+            initialValue = 0.88f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = (durationMs * 2).coerceAtLeast(3200), easing = LinearEasing),
-                repeatMode = RepeatMode.Restart,
-            ),
-            label = "animGradPhase",
-        )
-    } else null
-
-    val pulseState = if (animate && pulseAlpha) {
-        val transition = rememberInfiniteTransition(label = "animGradPulseT")
-        transition.animateFloat(
-            initialValue = 0.84f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 1500, easing = FastOutSlowInEasing),
+                animation = tween(durationMillis = 1600, easing = FastOutSlowInEasing),
                 repeatMode = RepeatMode.Reverse,
             ),
             label = "animGradPulse",
@@ -552,26 +586,79 @@ fun AnimatedGradientText(
         overflow = overflow,
         modifier = modifier
             .graphicsLayer {
-                compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+                compositingStrategy = CompositingStrategy.Offscreen
                 alpha = pulseState?.value ?: 1f
             }
             .drawWithCache {
-                val span = size.width.coerceAtLeast(320f) * 1.35f
-                val brush = Brush.linearGradient(
+                val w = size.width.coerceAtLeast(160f)
+                val h = size.height.coerceAtLeast(28f)
+                val field = maxOf(w, h) * 1.85f
+                val cx = size.width * 0.5f
+                val cy = size.height * 0.5f
+                // Pre-cached omnidirectional base field (rotated + 2D-translated purely on GPU).
+                val baseBrush = Brush.linearGradient(
                     colors = palette,
-                    start = Offset.Zero,
-                    end = Offset(span, size.height * 0.35f),
-                    tileMode = TileMode.Repeated,
+                    start = Offset(-field, -field * 0.45f),
+                    end = Offset(field, field * 0.45f),
+                    tileMode = TileMode.Mirror,
+                )
+                val orbRadius = maxOf(w * 0.65f, h * 2.4f)
+                val topWashColor = palette[palette.size / 3]
+                val bottomWashColor = palette[(palette.size * 2) / 3]
+                val topOrbBrush = Brush.radialGradient(
+                    colors = listOf(topWashColor.copy(alpha = 0.72f), topWashColor.copy(alpha = 0.24f), Color.Transparent),
+                    center = Offset.Zero,
+                    radius = orbRadius,
+                )
+                val bottomOrbBrush = Brush.radialGradient(
+                    colors = listOf(bottomWashColor.copy(alpha = 0.68f), bottomWashColor.copy(alpha = 0.22f), Color.Transparent),
+                    center = Offset.Zero,
+                    radius = orbRadius,
                 )
                 onDrawWithContent {
                     drawContent()
-                    val shift = (phaseState?.value ?: 0f) * span
-                    withTransform({ translate(left = -shift) }) {
+                    val t1 = anglePhaseState?.value ?: 0f
+                    val t2 = driftPhaseState?.value ?: 0f
+                    val rad1 = (t1 * 2.0 * PI)
+                    val rad2 = (t2 * 2.0 * PI)
+                    val angleDeg = t1 * 360f
+                    val shiftX = (cos(rad1) * w * 0.55f + sin(rad2) * w * 0.35f).toFloat()
+                    val shiftY = (sin(rad1) * h * 1.6f + cos(rad2) * h * 1.1f).toFloat()
+
+                    // 1. Rotating & 2D-drifting full-spectrum base fills the text glyphs cleanly.
+                    withTransform({
+                        rotate(degrees = angleDeg, pivot = Offset(cx, cy))
+                        translate(left = shiftX, top = shiftY)
+                    }) {
                         drawRect(
-                            brush = brush,
-                            topLeft = Offset(shift, 0f),
-                            size = size,
-                            blendMode = androidx.compose.ui.graphics.BlendMode.SrcIn,
+                            brush = baseBrush,
+                            topLeft = Offset(cx - field, cy - field),
+                            size = androidx.compose.ui.geometry.Size(field * 2f, field * 2f),
+                            blendMode = BlendMode.SrcIn,
+                        )
+                    }
+
+                    // 2. Top-to-bottom & corner-sweeping radial color wash (clipped strictly to text glyphs via SrcAtop).
+                    val orb1X = cx + (cos(rad2) * w * 0.62f).toFloat()
+                    val orb1Y = cy + (sin(rad1 * 2.0) * h * 1.75f).toFloat()
+                    withTransform({ translate(left = orb1X, top = orb1Y) }) {
+                        drawCircle(
+                            brush = topOrbBrush,
+                            radius = orbRadius,
+                            center = Offset.Zero,
+                            blendMode = BlendMode.SrcAtop,
+                        )
+                    }
+
+                    // 3. Opposing bottom-to-top & reverse-diagonal color wash.
+                    val orb2X = cx - (sin(rad1) * w * 0.62f).toFloat()
+                    val orb2Y = cy - (cos(rad2 * 2.0) * h * 1.75f).toFloat()
+                    withTransform({ translate(left = orb2X, top = orb2Y) }) {
+                        drawCircle(
+                            brush = bottomOrbBrush,
+                            radius = orbRadius,
+                            center = Offset.Zero,
+                            blendMode = BlendMode.SrcAtop,
                         )
                     }
                 }
@@ -598,9 +685,23 @@ fun AnimatedGradientSearchPlaceholder(
     )
 }
 
+private val FullSpectrumAuroraColors = listOf(
+    Color(0xFFFF1744), // Vivid crimson red
+    Color(0xFFFF6D00), // Saturated tangerine orange
+    Color(0xFFFFD600), // Electric gold amber
+    Color(0xFF00E676), // Vivid neon emerald-lime
+    Color(0xFF00E5CC), // Bright aurora mint-teal
+    Color(0xFF00C8FF), // Luminous electric cyan
+    Color(0xFF2962FF), // Deep electric cobalt blue
+    Color(0xFF651FFF), // Saturated royal indigo
+    Color(0xFFAA00FF), // Electric ultraviolet
+    Color(0xFFFF1493), // Hot neon magenta-pink
+    Color(0xFFFF1744), // Seamless spectrum loop
+)
+
 /**
  * Soft progressive top scroll blur powered by Haze (hardware-accelerated RenderEffect progressive mask)
- * with smooth cosine-falloff scrim fallback.
+ * with smooth cosine-falloff scrim fallback and optional vivid full-spectrum under-toolbar aurora.
  */
 @Composable
 fun TopScrollCloudyBackdrop(
@@ -627,39 +728,29 @@ fun TopScrollCloudyBackdrop(
     )
     if (scrimAlpha <= 0.01f && blurAlpha <= 0.01f) return
     val baseSurface = MaterialTheme.colorScheme.surface
-    var auroraTarget by remember { mutableStateOf(Color(0xFF6954A6)) }
     val reduceMotion = LocalReduceMotion.current
-    LaunchedEffect(aurora, enabled, scrolled, reduceEffects, reduceMotion) {
-        if (aurora && enabled && scrolled && !reduceEffects && !reduceMotion) {
-            val tones = listOf(Color(0xFF6954A6), Color(0xFF326E98), Color(0xFF3F897D), Color(0xFF9A507D), Color(0xFF4259A1))
-            while (true) {
-                kotlinx.coroutines.delay(kotlin.random.Random.nextLong(3200L, 5600L))
-                auroraTarget = tones.filter { it != auroraTarget }.random()
-            }
-        }
-    }
-    val auroraTint by animateColorAsState(auroraTarget, animationSpec = tween(3000), label = "Under-toolbar aurora")
-    val surface = if (aurora) lerp(baseSurface, auroraTint, 0.65f) else baseSurface
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val lifecycleState = lifecycleOwner.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
+    val auroraActive = aurora && enabled && scrolled && !reduceEffects
+    val auroraAnimate = auroraActive && !reduceMotion && lifecycleState.value == androidx.lifecycle.Lifecycle.State.RESUMED
+
+    val auroraPhaseState = if (auroraAnimate) {
+        rememberInfiniteTransition(label = "underToolbarAurora").animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 9000, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "auroraFlow",
+        )
+    } else null
+
+    val surface = baseSurface
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(height)
-            .drawWithCache {
-                val radius = size.width.coerceAtLeast(1f) * 0.7f
-                val center = Offset(size.width * 0.35f, 0f)
-                val glow = Brush.radialGradient(listOf(auroraTint.copy(alpha = 0.52f), Color.Transparent), center, radius)
-                val secondCenter = Offset(size.width * 0.85f, 0f)
-                val secondGlow = Brush.radialGradient(listOf(lerp(auroraTint, Color(0xFF3F897D), 0.7f).copy(alpha = 0.40f), Color.Transparent), secondCenter, radius)
-                onDrawWithContent {
-                    drawContent()
-                    if (aurora && scrolled && enabled && !reduceEffects) {
-                        withTransform({ scale(1f, size.height / radius, Offset.Zero) }) {
-                            drawCircle(glow, radius, center)
-                            drawCircle(secondGlow, radius, secondCenter)
-                        }
-                    }
-                }
-            }
             .then(
                 if (active && hazeState != null) {
                     Modifier.hazeEffect(
@@ -675,13 +766,99 @@ fun TopScrollCloudyBackdrop(
             )
             .background(
                 Brush.verticalGradient(
-                    0.0f to surface.copy(alpha = scrimAlpha),
-                    0.30f to surface.copy(alpha = scrimAlpha * 0.68f),
-                    0.62f to surface.copy(alpha = scrimAlpha * 0.30f),
-                    0.85f to surface.copy(alpha = scrimAlpha * 0.08f),
+                    0.0f to surface.copy(alpha = if (auroraActive) scrimAlpha * 0.55f else scrimAlpha),
+                    0.30f to surface.copy(alpha = (if (auroraActive) scrimAlpha * 0.55f else scrimAlpha) * 0.68f),
+                    0.62f to surface.copy(alpha = (if (auroraActive) scrimAlpha * 0.55f else scrimAlpha) * 0.30f),
+                    0.85f to surface.copy(alpha = (if (auroraActive) scrimAlpha * 0.55f else scrimAlpha) * 0.08f),
                     1.0f to Color.Transparent,
                 ),
-            ),
+            )
+            .drawWithCache {
+                val w = size.width.coerceAtLeast(1f)
+                val h = size.height.coerceAtLeast(1f)
+                val ribbonBrush = Brush.linearGradient(
+                    colors = FullSpectrumAuroraColors,
+                    start = Offset.Zero,
+                    end = Offset(w * 1.45f, 0f),
+                    tileMode = TileMode.Repeated,
+                )
+                val verticalFadeMask = Brush.verticalGradient(
+                    0.0f to Color.Black,
+                    0.42f to Color.Black.copy(alpha = 0.78f),
+                    0.78f to Color.Black.copy(alpha = 0.28f),
+                    1.0f to Color.Transparent,
+                )
+                // 5 saturated multi-hue aurora plumes spanning almost every color in the spectrum.
+                val plumeRadius = (w * 0.36f).coerceAtLeast(h * 3.2f)
+                val plumes = listOf(
+                    Brush.radialGradient(
+                        listOf(Color(0xFFFF1744).copy(alpha = 0.82f), Color(0xFFFF6D00).copy(alpha = 0.44f), Color.Transparent),
+                        Offset.Zero,
+                        plumeRadius,
+                    ),
+                    Brush.radialGradient(
+                        listOf(Color(0xFFFFD600).copy(alpha = 0.78f), Color(0xFF00E676).copy(alpha = 0.44f), Color.Transparent),
+                        Offset.Zero,
+                        plumeRadius,
+                    ),
+                    Brush.radialGradient(
+                        listOf(Color(0xFF00E5CC).copy(alpha = 0.82f), Color(0xFF00C8FF).copy(alpha = 0.46f), Color.Transparent),
+                        Offset.Zero,
+                        plumeRadius,
+                    ),
+                    Brush.radialGradient(
+                        listOf(Color(0xFF2962FF).copy(alpha = 0.84f), Color(0xFF651FFF).copy(alpha = 0.48f), Color.Transparent),
+                        Offset.Zero,
+                        plumeRadius,
+                    ),
+                    Brush.radialGradient(
+                        listOf(Color(0xFFAA00FF).copy(alpha = 0.84f), Color(0xFFFF1493).copy(alpha = 0.48f), Color.Transparent),
+                        Offset.Zero,
+                        plumeRadius,
+                    ),
+                )
+                onDrawWithContent {
+                    drawContent()
+                    if (auroraActive) {
+                        val phase = auroraPhaseState?.value ?: 0.15f
+                        val twoPi = 2.0 * PI
+                        val shiftX = phase * w * 1.45f
+                        // Offscreen vertical-fade mask so the rich full-spectrum aurora feathers smoothly down into the page.
+                        drawIntoCanvas { canvas ->
+                            val save = canvas.nativeCanvas.saveLayer(0f, 0f, w, h, null)
+                            // Flowing full-spectrum saturated aurora ribbon
+                            withTransform({ translate(left = -shiftX) }) {
+                                drawRect(
+                                    brush = ribbonBrush,
+                                    topLeft = Offset(shiftX, 0f),
+                                    size = size,
+                                    alpha = 0.62f,
+                                )
+                            }
+                            // 5 drifting high-saturation aurora plumes (red/orange, gold/lime, mint/cyan, blue/indigo, violet/magenta)
+                            val yScale = (h * 1.15f) / plumeRadius
+                            plumes.forEachIndexed { i, brush ->
+                                val baseFrac = (i + 0.5f) / plumes.size.toFloat()
+                                val drift = (sin(phase * twoPi + i * 1.2566) * 0.14).toFloat()
+                                val cx = ((baseFrac + drift + phase * 0.35f) % 1.2f - 0.1f) * w
+                                withTransform({
+                                    translate(left = cx, top = 0f)
+                                    scale(1f, yScale, Offset.Zero)
+                                }) {
+                                    drawCircle(brush = brush, radius = plumeRadius, center = Offset.Zero)
+                                }
+                            }
+                            // Apply smooth vertical cosine-like feather mask
+                            drawRect(
+                                brush = verticalFadeMask,
+                                size = size,
+                                blendMode = BlendMode.DstIn,
+                            )
+                            canvas.nativeCanvas.restoreToCount(save)
+                        }
+                    }
+                }
+            },
     )
 }
 
@@ -876,9 +1053,17 @@ data class AppMenuItem(
     val destructive: Boolean = false,
     val enabled: Boolean = true,
     val icon: (@Composable () -> Unit)? = null,
+    val iconVector: ImageVector? = null,
     val onClick: () -> Unit,
 )
 
+private val ContextMenuShape = RoundedCornerShape(16.dp)
+private val ContextMenuRowShape = RoundedCornerShape(10.dp)
+
+/**
+ * Zero-jank spring-animated context menu. Uses a fixed-width Popup without Material3's
+ * IntrinsicSize.Max double-measurement pass so opening dropdowns is instantaneous at 120Hz.
+ */
 @Composable
 fun AppContextMenu(
     expanded: Boolean,
@@ -886,63 +1071,113 @@ fun AppContextMenu(
     items: List<AppMenuItem>,
     modifier: Modifier = Modifier,
 ) {
+    val expandedState = remember { MutableTransitionState(false) }
+    expandedState.targetState = expanded
+    if (!expandedState.currentState && !expandedState.targetState) return
+
     val scheme = MaterialTheme.colorScheme
-    val menuBg = scheme.surfaceContainerHigh
-    val menuShape = RoundedCornerShape(16.dp)
-    DropdownMenu(
-        expanded = expanded,
+    val reduceMotion = LocalReduceMotion.current
+    val perfMode = LocalPerformanceMode.current
+    val motionStyle = LocalMotionStyle.current
+    val density = LocalDensity.current
+    val yOffsetPx = remember(density) { with(density) { 46.dp.roundToPx() } }
+
+    Popup(
+        alignment = Alignment.TopEnd,
+        offset = IntOffset(0, yOffsetPx),
         onDismissRequest = onDismissRequest,
-        shape = menuShape,
-        containerColor = menuBg,
-        tonalElevation = 0.dp,
-        shadowElevation = 8.dp,
-        modifier = modifier
-            .widthIn(min = 180.dp, max = 280.dp)
-            .heightIn(max = 420.dp),
+        properties = PopupProperties(focusable = true),
     ) {
-        items.forEach { item ->
-            val color = when {
-                !item.enabled -> scheme.onSurface.copy(alpha = 0.38f)
-                item.destructive -> scheme.error
-                item.selected -> ProButtonPalette.ElectricBlue
-                else -> scheme.onSurface
-            }
-            DropdownMenuItem(
-                enabled = item.enabled,
-                text = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        if (item.icon != null) {
-                            CompositionLocalProvider(LocalContentColor provides color) {
-                                item.icon.invoke()
+        AnimatedVisibility(
+            visibleState = expandedState,
+            enter = if (reduceMotion) fadeIn(snap()) else {
+                fadeIn(tween(110)) + scaleIn(
+                    initialScale = 0.92f,
+                    transformOrigin = TransformOrigin(0.95f, 0f),
+                    animationSpec = ProMotion.snappySpring(reduceMotion, perfMode, motionStyle),
+                )
+            },
+            exit = if (reduceMotion) fadeOut(snap()) else {
+                fadeOut(tween(80)) + scaleOut(
+                    targetScale = 0.95f,
+                    transformOrigin = TransformOrigin(0.95f, 0f),
+                    animationSpec = tween(80),
+                )
+            },
+        ) {
+            Surface(
+                shape = ContextMenuShape,
+                color = scheme.surfaceContainerHigh,
+                tonalElevation = 0.dp,
+                shadowElevation = 10.dp,
+                border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.42f)),
+                modifier = modifier
+                    .width(228.dp)
+                    .heightIn(max = 420.dp),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .verticalScroll(rememberScrollState())
+                        .padding(vertical = 6.dp, horizontal = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    items.forEach { item ->
+                        val color = when {
+                            !item.enabled -> scheme.onSurface.copy(alpha = 0.38f)
+                            item.destructive -> scheme.error
+                            item.selected -> ProButtonPalette.ElectricBlue
+                            else -> scheme.onSurface
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 40.dp)
+                                .clip(ContextMenuRowShape)
+                                .background(if (item.selected) ProButtonPalette.ElectricBlue.copy(alpha = 0.10f) else Color.Transparent)
+                                .clickable(enabled = item.enabled) {
+                                    onDismissRequest()
+                                    item.onClick()
+                                }
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            when {
+                                item.iconVector != null -> {
+                                    Icon(
+                                        imageVector = item.iconVector,
+                                        contentDescription = null,
+                                        tint = color,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                                item.icon != null -> {
+                                    CompositionLocalProvider(LocalContentColor provides color) {
+                                        item.icon.invoke()
+                                    }
+                                }
+                            }
+                            Text(
+                                item.label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (item.selected) FontWeight.SemiBold else FontWeight.Medium,
+                                color = color,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (item.selected) {
+                                Icon(
+                                    Icons.Outlined.Check,
+                                    contentDescription = null,
+                                    tint = ProButtonPalette.ElectricBlue,
+                                    modifier = Modifier.size(16.dp),
+                                )
                             }
                         }
-                        Text(
-                            item.label,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = if (item.selected) FontWeight.SemiBold else FontWeight.Medium,
-                            color = color,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false),
-                        )
-                        if (item.selected) {
-                            Icon(
-                                Icons.Outlined.Check,
-                                contentDescription = null,
-                                tint = ProButtonPalette.ElectricBlue,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
                     }
-                },
-                onClick = {
-                    onDismissRequest()
-                    item.onClick()
-                },
-            )
+                }
+            }
         }
     }
 }

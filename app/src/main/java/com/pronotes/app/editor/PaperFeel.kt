@@ -8,14 +8,36 @@ import android.os.Build
 import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
-import android.os.VibratorManager
 import android.view.HapticFeedbackConstants
 import android.view.View
+import androidx.annotation.RequiresApi
 import kotlin.math.PI
 import kotlin.math.exp
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.random.Random
+
+@RequiresApi(31)
+private object Api31VibratorHelper {
+    fun defaultVibrator(context: Context): Vibrator? =
+        (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager)?.defaultVibrator
+}
+
+@RequiresApi(30)
+private object Api30HapticHelper {
+    fun vibrateTickIfSupported(v: Vibrator, strength: Float): Boolean {
+        if (!v.areAllPrimitivesSupported(VibrationEffect.Composition.PRIMITIVE_TICK)) return false
+        v.vibrate(VibrationEffect.startComposition().addPrimitive(VibrationEffect.Composition.PRIMITIVE_TICK, strength).compose())
+        return true
+    }
+}
+
+@RequiresApi(29)
+private object Api29HapticHelper {
+    fun vibratePredefined(v: Vibrator, effectId: Int) {
+        v.vibrate(VibrationEffect.createPredefined(effectId))
+    }
+}
 
 /**
  * "Writing on paper". While a tool moves, a texture sound plays that follows its speed:
@@ -28,7 +50,7 @@ class PaperFeel(context: Context, private val view: View) {
     enum class Cue { PAGE, SNAP, SELECT, TAP, ADD, UNDO, LIFT }
 
     private val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= 31)
-        (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
+        Api31VibratorHelper.defaultVibrator(context)
     else @Suppress("DEPRECATION") (context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator)
 
     private val rate = 22050
@@ -95,9 +117,8 @@ class PaperFeel(context: Context, private val view: View) {
         val v = vibrator
         val ok = v != null && v.hasVibrator() && runCatching {
             when {
-                Build.VERSION.SDK_INT >= 30 && v.areAllPrimitivesSupported(VibrationEffect.Composition.PRIMITIVE_TICK) ->
-                    v.vibrate(VibrationEffect.startComposition().addPrimitive(VibrationEffect.Composition.PRIMITIVE_TICK, strength).compose())
-                Build.VERSION.SDK_INT >= 29 -> v.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK))
+                Build.VERSION.SDK_INT >= 30 && Api30HapticHelper.vibrateTickIfSupported(v, strength) -> Unit
+                Build.VERSION.SDK_INT >= 29 -> Api29HapticHelper.vibratePredefined(v, VibrationEffect.EFFECT_TICK)
                 else -> v.vibrate(VibrationEffect.createOneShot(6, (60 * strength).toInt().coerceIn(1, 255)))
             }
         }.isSuccess
@@ -108,7 +129,7 @@ class PaperFeel(context: Context, private val view: View) {
     private fun click() {
         val v = vibrator
         val ok = v != null && v.hasVibrator() && runCatching {
-            if (Build.VERSION.SDK_INT >= 29) v.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK))
+            if (Build.VERSION.SDK_INT >= 29) Api29HapticHelper.vibratePredefined(v, VibrationEffect.EFFECT_CLICK)
             else v.vibrate(VibrationEffect.createOneShot(12, 120))
         }.isSuccess
         if (!ok) view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)

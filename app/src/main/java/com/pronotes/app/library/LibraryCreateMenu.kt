@@ -1,8 +1,15 @@
 package com.pronotes.app.library
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -15,12 +22,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ChevronRight
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
@@ -36,13 +44,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import com.pronotes.app.ui.AppMenuItem
 import com.pronotes.app.ui.LocalMotionStyle
 import com.pronotes.app.ui.LocalPerformanceMode
@@ -58,9 +73,9 @@ private val CreateMenuAccents = listOf(
     Color(0xFFFBBF24), // Import — warm amber
 )
 
+private val CreateMenuBadgeTints = CreateMenuAccents.map { it.copy(alpha = 0.14f) }
 private val CreateMenuGroupTitles = listOf("CREATE", "EXPLORE", "ORGANIZE", "IMPORT")
 private val CreateMenuRowShape = RoundedCornerShape(12.dp)
-private val CreateMenuBadgeShape = RoundedCornerShape(10.dp)
 
 private fun groupForIndex(index: Int): Int = when {
     index < 4 -> 0
@@ -72,13 +87,16 @@ private fun groupForIndex(index: Int): Int = when {
 private fun isGroupStart(index: Int): Boolean = index == 0 || index == 4 || index == 9 || index == 11
 
 /**
- * High-responsiveness library creation menu (+ button & dropdown).
- * Avoids nested MaterialTheme invalidations and heavy per-row measurement so taps open
- * instantaneously with tactile spring feedback and crisp color-coded vector icons.
+ * Ultra-smooth library creation menu (+ button & spring popover).
+ * Uses a fixed-width Popup instead of Material3 DropdownMenu to completely eliminate
+ * IntrinsicSize.Max double-measurement passes and per-row CompositionLocal overhead.
  */
 @Composable
 internal fun LibraryCreateMenu(label: String, items: List<AppMenuItem>) {
     var expanded by remember { mutableStateOf(false) }
+    val expandedState = remember { MutableTransitionState(false) }
+    expandedState.targetState = expanded
+
     val reduceMotion = LocalReduceMotion.current
     val perfMode = LocalPerformanceMode.current
     val motionStyle = LocalMotionStyle.current
@@ -90,6 +108,8 @@ internal fun LibraryCreateMenu(label: String, items: List<AppMenuItem>) {
     )
     val cardShape = appCardShape()
     val scheme = MaterialTheme.colorScheme
+    val density = LocalDensity.current
+    val yOffsetPx = remember(density) { with(density) { 54.dp.roundToPx() } }
 
     Box {
         Surface(
@@ -118,86 +138,143 @@ internal fun LibraryCreateMenu(label: String, items: List<AppMenuItem>) {
             }
         }
 
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            shape = cardShape,
-            containerColor = scheme.surfaceContainerHigh,
-            tonalElevation = 0.dp,
-            shadowElevation = 8.dp,
-            modifier = Modifier
-                .widthIn(min = 268.dp, max = 340.dp)
-                .heightIn(max = 560.dp),
-        ) {
-            Column(
-                Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+        if (expandedState.currentState || expandedState.targetState) {
+            Popup(
+                alignment = Alignment.TopEnd,
+                offset = IntOffset(0, yOffsetPx),
+                onDismissRequest = { expanded = false },
+                properties = PopupProperties(focusable = true),
             ) {
-                Text(
-                    label,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = scheme.onSurface,
-                )
-                Text(
-                    "Notebooks, imports and study tools",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = scheme.onSurfaceVariant,
-                )
-            }
-            items.forEachIndexed { index, item ->
-                val group = groupForIndex(index)
-                val accent = CreateMenuAccents[group]
-                if (isGroupStart(index)) {
-                    if (index != 0) {
-                        HorizontalDivider(
-                            Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                            color = scheme.onSurface.copy(alpha = 0.08f),
+                AnimatedVisibility(
+                    visibleState = expandedState,
+                    enter = if (reduceMotion) fadeIn(snap()) else {
+                        fadeIn(tween(110)) + scaleIn(
+                            initialScale = 0.91f,
+                            transformOrigin = TransformOrigin(0.95f, 0f),
+                            animationSpec = ProMotion.snappySpring(reduceMotion, perfMode, motionStyle),
                         )
-                    }
-                    Text(
-                        CreateMenuGroupTitles[group],
-                        Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = accent,
-                    )
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 1.dp)
-                        .clip(CreateMenuRowShape)
-                        .clickable(enabled = item.enabled) {
-                            expanded = false
-                            item.onClick()
-                        }
-                        .padding(horizontal = 8.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    },
+                    exit = if (reduceMotion) fadeOut(snap()) else {
+                        fadeOut(tween(80)) + scaleOut(
+                            targetScale = 0.94f,
+                            transformOrigin = TransformOrigin(0.95f, 0f),
+                            animationSpec = tween(80),
+                        )
+                    },
                 ) {
-                    Box(
-                        Modifier
-                            .size(34.dp)
-                            .background(accent.copy(alpha = 0.14f), CreateMenuBadgeShape),
-                        contentAlignment = Alignment.Center,
+                    Surface(
+                        shape = cardShape,
+                        color = scheme.surfaceContainerHigh,
+                        tonalElevation = 0.dp,
+                        shadowElevation = 12.dp,
+                        border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.42f)),
+                        modifier = Modifier
+                            .width(292.dp)
+                            .heightIn(max = 560.dp),
                     ) {
-                        CompositionLocalProvider(LocalContentColor provides accent) {
-                            item.icon?.invoke() ?: Icon(Icons.Rounded.ChevronRight, null, Modifier.size(18.dp))
+                        val badgeCornerPx = remember(density) { with(density) { 10.dp.toPx() } }
+                        val dividerColor = scheme.onSurface.copy(alpha = 0.08f)
+                        val disabledColor = scheme.onSurface.copy(alpha = 0.38f)
+                        Column(
+                            modifier = Modifier
+                                .verticalScroll(rememberScrollState())
+                                .padding(bottom = 8.dp),
+                        ) {
+                            Column(
+                                Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                Text(
+                                    label,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = scheme.onSurface,
+                                )
+                                Text(
+                                    "Notebooks, imports and study tools",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = scheme.onSurfaceVariant,
+                                )
+                            }
+                            items.forEachIndexed { index, item ->
+                                val group = groupForIndex(index)
+                                val accent = CreateMenuAccents[group]
+                                val badgeTint = CreateMenuBadgeTints[group]
+                                if (isGroupStart(index)) {
+                                    if (index != 0) {
+                                        HorizontalDivider(
+                                            Modifier.padding(horizontal = 14.dp, vertical = 5.dp),
+                                            color = dividerColor,
+                                        )
+                                    }
+                                    Text(
+                                        CreateMenuGroupTitles[group],
+                                        Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = accent,
+                                    )
+                                }
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(44.dp)
+                                        .padding(horizontal = 8.dp, vertical = 1.dp)
+                                        .clip(CreateMenuRowShape)
+                                        .clickable(enabled = item.enabled) {
+                                            expanded = false
+                                            item.onClick()
+                                        }
+                                        .padding(horizontal = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    Box(
+                                        Modifier
+                                            .size(32.dp)
+                                            .drawBehind {
+                                                drawRoundRect(
+                                                    color = badgeTint,
+                                                    cornerRadius = CornerRadius(badgeCornerPx, badgeCornerPx),
+                                                )
+                                            },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        val vec = item.iconVector
+                                        when {
+                                            vec != null -> Icon(
+                                                imageVector = vec,
+                                                contentDescription = null,
+                                                tint = accent,
+                                                modifier = Modifier.size(19.dp),
+                                            )
+                                            item.icon != null -> CompositionLocalProvider(LocalContentColor provides accent) {
+                                                item.icon.invoke()
+                                            }
+                                            else -> Icon(
+                                                imageVector = Icons.Rounded.ChevronRight,
+                                                contentDescription = null,
+                                                tint = accent,
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        item.label,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium,
+                                        color = if (item.enabled) scheme.onSurface else disabledColor,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(2.dp))
                         }
                     }
-                    Text(
-                        item.label,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = if (item.enabled) scheme.onSurface else scheme.onSurface.copy(alpha = 0.38f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
                 }
             }
-            Spacer(Modifier.height(6.dp))
         }
     }
 }

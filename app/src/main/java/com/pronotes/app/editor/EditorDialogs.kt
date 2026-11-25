@@ -836,16 +836,12 @@ internal fun InlinePageTextEditor(
                         isVerticalScrollBarEnabled = true
                         if (Build.VERSION.SDK_INT >= 29) {
                             val cursorW = (2.5f * ctx.resources.displayMetrics.density).roundToInt().coerceAtLeast(3)
-                            textCursorDrawable = GradientDrawable().apply {
-                                setSize(cursorW, 0)
-                                setColor(0xFF3D6CF4.toInt())
-                                cornerRadius = cursorW / 2f
-                            }
+                            Api29EditTextHelper.setCursor(this, cursorW, 0xFF3D6CF4.toInt())
                         }
                         hint = ""
                         setHintTextColor(if (darkUi) 0x66CBD5E1.toInt() else 0x5564748B)
-                        if (Build.VERSION.SDK_INT >= 33) {
-                            isAutoHandwritingEnabled = true
+                        if (Build.VERSION.SDK_INT >= 34) {
+                            Api34EditTextHelper.enableAutoHandwriting(this)
                         }
                         setText(text)
                         setSelection(text.length)
@@ -1586,18 +1582,18 @@ internal fun InlineStickyNoteEditor(
                             isSingleLine = false
                             isFocusable = true
                             isFocusableInTouchMode = true
-                            if (Build.VERSION.SDK_INT >= 34) isAutoHandwritingEnabled = true
+                            if (Build.VERSION.SDK_INT >= 34) Api34EditTextHelper.enableAutoHandwriting(this)
                             isCursorVisible = true
                             isVerticalScrollBarEnabled = true
                             hint = "Type a note, formula, or checklist…"
                             setHintTextColor(if (lum < 0.38f) 0x88FFFFFF.toInt() else 0x55475569)
                             if (Build.VERSION.SDK_INT >= 29) {
                                 val cursorW = (2f * ctx.resources.displayMetrics.density).roundToInt().coerceAtLeast(3)
-                                textCursorDrawable = GradientDrawable().apply {
-                                    setSize(cursorW, 0)
-                                    setColor(if (lum < 0.38f) android.graphics.Color.WHITE else 0xFF3D6CF4.toInt())
-                                    cornerRadius = cursorW / 2f
-                                }
+                                Api29EditTextHelper.setCursor(
+                                    this,
+                                    cursorW,
+                                    if (lum < 0.38f) android.graphics.Color.WHITE else 0xFF3D6CF4.toInt(),
+                                )
                             }
                             setText(text)
                             setSelection(text.length)
@@ -2038,3 +2034,22 @@ internal fun WebLinkDialog(vm: EditorViewModel, edit: EditorViewModel.WebLinkEdi
         },
     )
 }
+
+@androidx.annotation.RequiresApi(29)
+private object Api29EditTextHelper {
+    fun setCursor(view: EditText, widthPx: Int, color: Int) {
+        view.textCursorDrawable = GradientDrawable().apply {
+            setSize(widthPx, 0)
+            setColor(color)
+            cornerRadius = widthPx / 2f
+        }
+    }
+}
+
+@androidx.annotation.RequiresApi(34)
+private object Api34EditTextHelper {
+    fun enableAutoHandwriting(view: EditText) {
+        view.isAutoHandwritingEnabled = true
+    }
+}
+

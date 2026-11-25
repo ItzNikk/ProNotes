@@ -328,7 +328,10 @@ class Repository private constructor(private val context: Context) {
         updateIndex {
             it.copy(notebooks = it.notebooks + NotebookMeta(id, title, folderId, cover, paper, now, now, pages.size, cover = if (coverPage && !isWhiteboard) "thumb" else coverSpec, isWhiteboard = isWhiteboard))
         }
-        if (coverPage && !isWhiteboard) withContext(Dispatchers.IO) { runCatching { writeThumbnail(id, pages.map { InkCodec.fromDoc(it) }) } }
+        if (coverPage && !isWhiteboard) {
+            // Render & compress the cover thumbnail off the critical navigation path so opening the new notebook is instantaneous.
+            appScope.launch { runCatching { writeThumbnail(id, pages.map { InkCodec.fromDoc(it) }) } }
+        }
         return id
     }
 

@@ -12,6 +12,18 @@ import android.widget.MediaController
 import android.widget.VideoView
 import androidx.activity.ComponentActivity
 
+@androidx.annotation.RequiresApi(30)
+private object Api30VideoDisplayHelper {
+    fun getDisplay(activity: android.app.Activity): android.view.Display? = activity.display
+}
+
+@androidx.annotation.RequiresApi(35)
+private object Api35VideoRefreshHelper {
+    fun enableTouchBoost(window: android.view.Window) {
+        window.frameRateBoostOnTouchEnabled = true
+    }
+}
+
 /** Picture-in-Picture capable local video player for study lectures alongside notes. */
 class VideoActivity : ComponentActivity() {
     private var videoView: VideoView? = null
@@ -19,7 +31,12 @@ class VideoActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         runCatching {
-            val disp = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) display else @Suppress("DEPRECATION") windowManager.defaultDisplay
+            val disp = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Api30VideoDisplayHelper.getDisplay(this)
+            } else {
+                @Suppress("DEPRECATION")
+                windowManager.defaultDisplay
+            }
             val cur = disp?.mode
             val best = disp?.supportedModes
                 ?.filter { cur == null || (it.physicalWidth == cur.physicalWidth && it.physicalHeight == cur.physicalHeight) }
@@ -30,7 +47,7 @@ class VideoActivity : ComponentActivity() {
                     preferredRefreshRate = best.refreshRate
                 }
             }
-            if (Build.VERSION.SDK_INT >= 35) window.frameRateBoostOnTouchEnabled = true
+            if (Build.VERSION.SDK_INT >= 35) Api35VideoRefreshHelper.enableTouchBoost(window)
         }
         val uri = intent?.data
         if (uri == null) {

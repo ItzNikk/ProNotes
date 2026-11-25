@@ -36,6 +36,18 @@ data class PendingImport(
     val title: String? = null,
 )
 
+@androidx.annotation.RequiresApi(30)
+private object Api30DisplayHelper {
+    fun getDisplay(activity: android.app.Activity): android.view.Display? = activity.display
+}
+
+@androidx.annotation.RequiresApi(35)
+private object Api35RefreshHelper {
+    fun enableTouchBoost(window: android.view.Window) {
+        window.frameRateBoostOnTouchEnabled = true
+    }
+}
+
 class MainActivity : ComponentActivity() {
     private var widgetAction by mutableStateOf("")
     private var pendingImport by mutableStateOf<PendingImport?>(null)
@@ -50,7 +62,7 @@ class MainActivity : ComponentActivity() {
     private fun enableHighRefreshRate() {
         runCatching {
             val disp = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                display
+                Api30DisplayHelper.getDisplay(this)
             } else {
                 @Suppress("DEPRECATION")
                 windowManager.defaultDisplay
@@ -71,7 +83,7 @@ class MainActivity : ComponentActivity() {
             }
             // Android 15+: keep Adaptive Refresh Rate boosted to max Hz on touch & stylus input
             if (android.os.Build.VERSION.SDK_INT >= 35) {
-                window.frameRateBoostOnTouchEnabled = true
+                Api35RefreshHelper.enableTouchBoost(window)
             }
         }
     }

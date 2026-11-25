@@ -14,9 +14,45 @@ import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.util.LruCache
+import androidx.annotation.RequiresApi
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import com.pronotes.app.data.PaperStyle
 import java.io.File
+
+@RequiresApi(29)
+private object Api29PageRendererHelper {
+    fun drawCachedPaperNode(
+        canvas: Canvas,
+        cache: LruCache<String, Any>,
+        key: String,
+        w: Int,
+        h: Int,
+        record: (Canvas) -> Unit,
+    ) {
+        var node = cache.get(key) as? android.graphics.RenderNode
+        if (node == null || !node.hasDisplayList()) {
+            node = android.graphics.RenderNode("paper_$key").apply {
+                setPosition(0, 0, w.coerceAtLeast(1), h.coerceAtLeast(1))
+                val rc = beginRecording()
+                try {
+                    record(rc)
+                } finally {
+                    endRecording()
+                }
+            }
+            cache.put(key, node)
+        }
+        canvas.drawRenderNode(node)
+    }
+
+    fun setLighten(paint: Paint) {
+        paint.blendMode = android.graphics.BlendMode.LIGHTEN
+    }
+
+    fun setMultiply(paint: Paint) {
+        paint.blendMode = android.graphics.BlendMode.MULTIPLY
+    }
+}
 
 /** Renders PDF backgrounds with the platform PdfRenderer and keeps a small bitmap cache. */
 class PdfPages(private val file: File) {
@@ -463,20 +499,13 @@ class PageRenderer(private val noteDir: File?) {
         val w = page.width; val h = page.height
         if (android.os.Build.VERSION.SDK_INT >= 29 && canvas.isHardwareAccelerated && paperNodeCache != null) {
             val key = "${page.paper.ordinal}:${w.toInt()}x${h.toInt()}:$bg:$line:${(g * 100f).toInt()}"
-            var node = paperNodeCache.get(key) as? android.graphics.RenderNode
-            if (node == null || !node.hasDisplayList()) {
-                node = android.graphics.RenderNode("paper_$key").apply {
-                    setPosition(0, 0, w.toInt().coerceAtLeast(1), h.toInt().coerceAtLeast(1))
-                    val rc = beginRecording()
-                    try {
-                        drawPaperPattern(rc, page.paper, w, h, line, g)
-                    } finally {
-                        endRecording()
-                    }
-                }
-                paperNodeCache.put(key, node)
-            }
-            canvas.drawRenderNode(node)
+            Api29PageRendererHelper.drawCachedPaperNode(
+                canvas = canvas,
+                cache = paperNodeCache,
+                key = key,
+                w = w.toInt(),
+                h = h.toInt(),
+            ) { rc -> drawPaperPattern(rc, page.paper, w, h, line, g) }
             return
         }
         drawPaperPattern(canvas, page.paper, w, h, line, g)
@@ -1044,7 +1073,7 @@ class PageRenderer(private val noteDir: File?) {
     }
     private val tmp = RectF()
     private val lightenPaint = Paint().apply {
-        if (android.os.Build.VERSION.SDK_INT >= 29) blendMode = android.graphics.BlendMode.LIGHTEN
+        if (android.os.Build.VERSION.SDK_INT >= 29) Api29PageRendererHelper.setLighten(this)
         else xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.LIGHTEN)
     }
     private val darkness = java.util.WeakHashMap<Bitmap, Boolean>()
@@ -1059,7 +1088,7 @@ class PageRenderer(private val noteDir: File?) {
         sum / 144.0 < 0.4
     }
     private val multiplyPaint = Paint().apply {
-        if (android.os.Build.VERSION.SDK_INT >= 29) blendMode = android.graphics.BlendMode.MULTIPLY
+        if (android.os.Build.VERSION.SDK_INT >= 29) Api29PageRendererHelper.setMultiply(this)
         else xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.MULTIPLY)
     }
 
