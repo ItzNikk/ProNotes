@@ -945,43 +945,7 @@ fun ToolButton(
         label = "lift",
     )
 
-    val dragReorderMod = if (onReorderStep != null) {
-        Modifier.pointerInput(t, verticalBar) {
-            val stepPx = 38f * density
-            detectDragGestures(
-                onDragStart = {
-                    dragging = true
-                    hovered = false
-                    dragAccum = 0f
-                    stretchDx = 0f
-                    stretchDy = 0f
-                },
-                onDragEnd = {
-                    dragging = false
-                    dragAccum = 0f
-                    stretchDx = 0f
-                    stretchDy = 0f
-                },
-                onDragCancel = {
-                    dragging = false
-                    dragAccum = 0f
-                    stretchDx = 0f
-                    stretchDy = 0f
-                },
-                onDrag = { change, amount ->
-                    change.consume()
-                    stretchDx = (stretchDx + amount.x).coerceIn(-26f * density, 26f * density)
-                    stretchDy = (stretchDy + amount.y).coerceIn(-26f * density, 26f * density)
-                    dragAccum += if (verticalBar) amount.y else amount.x
-                    if (abs(dragAccum) >= stepPx) {
-                        val dir = if (dragAccum > 0f) 1 else -1
-                        onReorderStep(t, dir)
-                        dragAccum -= dir * stepPx
-                    }
-                },
-            )
-        }
-    } else Modifier
+    val dragReorderMod = Modifier
 
     val pedestalBg = if (darkUi) WorkbenchDarkElevated else WorkbenchLightElevated
     val targetSlotBg = when {
