@@ -462,7 +462,6 @@ internal fun TopBar(
                     icon = { ProIconView(ProIcon.PALETTE, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) },
                 ) { onPageColor() },
             )
-        val moreEntries = buildList {
             add(
                 AppMenuItem(
                     if (vm.currentPage?.bookmarked == true) "Remove bookmark" else "Bookmark page",
