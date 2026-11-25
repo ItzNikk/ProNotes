@@ -2000,22 +2000,20 @@ internal fun StudyTimer(
     if (area.width == 0) return
     val animPosX by androidx.compose.animation.core.animateFloatAsState(
         targetValue = pos.first,
-        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.78f, stiffness = 420f),
+        animationSpec = if (isDragging) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 0.82f, stiffness = 480f),
         label = "timerSnapX",
     )
     val animPosY by androidx.compose.animation.core.animateFloatAsState(
         targetValue = pos.second,
-        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.78f, stiffness = 420f),
+        animationSpec = if (isDragging) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 0.82f, stiffness = 480f),
         label = "timerSnapY",
     )
-    val curFracX = if (isDragging) pos.first else animPosX
-    val curFracY = if (isDragging) pos.second else animPosY
 
     Box(
         Modifier
             .offset {
-                val x = (curFracX * area.width - pill.width / 2f + drag.x).coerceIn(8f, (area.width - pill.width - 8f).coerceAtLeast(8f))
-                val y = (curFracY * area.height - pill.height / 2f + drag.y).coerceIn(8f, (area.height - pill.height - 8f).coerceAtLeast(8f))
+                val x = (animPosX * area.width - pill.width / 2f + drag.x).coerceIn(8f, (area.width - pill.width - 8f).coerceAtLeast(8f))
+                val y = (animPosY * area.height - pill.height / 2f + drag.y).coerceIn(8f, (area.height - pill.height - 8f).coerceAtLeast(8f))
                 IntOffset(x.roundToInt(), y.roundToInt())
             }
             .onSizeChanged { pill = it }
