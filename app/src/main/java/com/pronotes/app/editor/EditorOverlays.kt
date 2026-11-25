@@ -140,6 +140,8 @@ fun SelectionMenu(
     keep: (() -> Unit) -> Unit,
     onShareImage: () -> Unit,
     onConvertToText: (Long) -> Unit = {},
+    transformEnabled: Boolean = false,
+    onToggleTransform: () -> Unit = {},
 ) {
     var colors by remember { mutableStateOf(false) }
     var fontPickerOpen by remember { mutableStateOf(false) }
@@ -164,30 +166,6 @@ fun SelectionMenu(
     val colourLabel = stringResource(R.string.selection_colour)
     val moreLabel = stringResource(R.string.selection_more)
     val deleteLabel = stringResource(R.string.selection_delete)
-    var transformOpen by remember { mutableStateOf(false) }
-    if (transformOpen) {
-        AppDialog(
-            onDismissRequest = { transformOpen = false },
-            title = { Text("Rotate and resize") },
-            text = {
-                Column {
-                    Text("Rotate")
-                    Row {
-                        TextButton(onClick = { keep { vm.rotateSelection(-15f) } }) { Text("−15°") }
-                        TextButton(onClick = { keep { vm.rotateSelection(15f) } }) { Text("+15°") }
-                        TextButton(onClick = { keep { vm.rotateSelection(90f) } }) { Text("90°") }
-                    }
-                    Text("Resize")
-                    Row {
-                        TextButton(onClick = { keep { vm.resizeSelection(0.9f) } }) { Text("Smaller") }
-                        TextButton(onClick = { keep { vm.resizeSelection(1.1f) } }) { Text("Larger") }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { transformOpen = false }) { Text("Done") } },
-        )
-    }
-
     AppSurface(
         role = SurfaceRole.Popover,
         containerColor = Color.Black,
@@ -249,8 +227,8 @@ fun SelectionMenu(
                 SelectionActionIcon("Change font", { fontPickerOpen = true }) {
                     Icon(Icons.Outlined.FontDownload, contentDescription = "Change font", tint = ProButtonPalette.ElectricBlue)
                 }
-                SelectionActionIcon("Rotate and resize", { transformOpen = true }) {
-                    Icon(Icons.Outlined.RotateRight, contentDescription = "Rotate and resize")
+                SelectionActionIcon(if (transformEnabled) "Finish transforming" else "Resize and rotate", onToggleTransform) {
+                    Icon(Icons.Outlined.RotateRight, contentDescription = "Resize and rotate", tint = if (transformEnabled) ProButtonPalette.ElectricBlue else fg)
                 }
                 Box {
                     SelectionActionIcon(moreLabel, { moreOpen = true }) {

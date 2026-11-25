@@ -1176,6 +1176,10 @@ fun EditorScreen(
                     ) {
                         SelectionMenu(
                             vm = vm,
+                            transformEnabled = canvas?.selectionTransformEnabled == true,
+                            onToggleTransform = {
+                                canvas?.let { it.selectionTransformEnabled = !it.selectionTransformEnabled }
+                            },
                             areaSize = areaSize,
                             onDuplicate = {
                                 val ids = vm.duplicateSelection()

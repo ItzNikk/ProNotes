@@ -52,38 +52,36 @@ private fun WorkspaceGlow(modifier: Modifier, paused: Boolean) {
         )
     } else null
     Box(modifier.graphicsLayer { clip = true }.drawWithCache {
-        val radius = (size.minDimension * 0.21f).coerceAtLeast(1f)
+        val radius = (size.maxDimension * 0.88f).coerceAtLeast(1f)
         val primaryGlow = Brush.radialGradient(
-            0f to Color(0xD05CFFD0),
-            0.17f to Color(0xC044E8E0),
-            0.35f to Color(0xA027BFEA),
-            0.56f to Color(0x684479FF),
-            0.79f to Color(0x226236FA),
+            0f to Color(0x8C5CFFD0),
+            0.25f to Color(0x5836CFEA),
+            0.50f to Color(0x294479FF),
+            0.75f to Color(0x146236FA),
             1f to Color(0x006236FA),
             center = Offset.Zero,
             radius = radius,
         )
         val secondaryGlow = Brush.radialGradient(
-            0f to Color(0xD0FFC465),
-            0.17f to Color(0xC0FF9B65),
-            0.35f to Color(0xA0FF796F),
-            0.56f to Color(0x68ED40B7),
-            0.79f to Color(0x227B34ED),
+            0f to Color(0x7AFFC465),
+            0.25f to Color(0x50FF796F),
+            0.50f to Color(0x24ED40B7),
+            0.75f to Color(0x127B34ED),
             1f to Color(0x007B34ED),
             center = Offset.Zero,
             radius = radius,
         )
         onDrawBehind {
             val angle = phase?.value ?: 0f
-            val dx = cos(angle) * size.width * 0.08f
-            val dy = sin(angle) * size.height * 0.10f
-            val pulse = sin(angle) * 0.10f
-            val primaryAlpha = if (effects) 0.90f + pulse else 0.55f
-            val secondaryAlpha = if (effects) 0.90f - pulse else 0.55f
-            translate(size.width * 0.25f + dx, size.height * 0.30f + dy) {
+            val dx = cos(angle) * size.width * 0.20f
+            val dy = sin(angle) * size.height * 0.16f
+            val pulse = sin(angle) * 0.14f
+            val primaryAlpha = if (effects) 0.86f + pulse else 0.55f
+            val secondaryAlpha = if (effects) 0.86f - pulse else 0.55f
+            translate(size.width * 0.24f + dx, size.height * 0.32f + dy) {
                 drawCircle(primaryGlow, radius, center = Offset.Zero, alpha = primaryAlpha)
             }
-            translate(size.width * 0.75f - dx, size.height * 0.72f - dy) {
+            translate(size.width * 0.76f - dx, size.height * 0.73f - dy) {
                 drawCircle(secondaryGlow, radius, center = Offset.Zero, alpha = secondaryAlpha)
             }
         }

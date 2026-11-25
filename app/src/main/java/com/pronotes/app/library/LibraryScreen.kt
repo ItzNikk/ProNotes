@@ -663,8 +663,8 @@ fun LibraryScreen(
                                 }
                                 Spacer(Modifier.width(6.dp))
                             }
-                            AppMenuButton(
-                                contentPadding = PaddingValues(0.dp),
+                            LibraryCreateMenu(
+                                label = appStrings.newAction,
                                 items = listOf(
                                     AppMenuItem(appStrings.notebook, icon = { Icon(Icons.Outlined.Description, null, Modifier.size(18.dp)) }) { newNotebook = true },
                                     AppMenuItem(appStrings.infiniteWhiteboard, icon = { Icon(Icons.Outlined.Draw, null, Modifier.size(18.dp)) }) {
@@ -726,11 +726,11 @@ fun LibraryScreen(
                                             )
                                         }
                                     },
-                                    AppMenuItem("Notebook templates") { destination = "Templates" },
-                                    AppMenuItem("Online books") { destination = "Books" },
-                                    AppMenuItem("Community marketplace") { destination = "Marketplace" },
-                                    AppMenuItem("PDF Station") { destination = "PDF Station" },
-                                    AppMenuItem(stringResource(R.string.library_guide_title)) { showGuide = true },
+                                    AppMenuItem("Notebook templates", icon = { Icon(Icons.Outlined.GridView, null, Modifier.size(18.dp)) }) { destination = "Templates" },
+                                    AppMenuItem("Online books", icon = { Icon(Icons.AutoMirrored.Outlined.MenuBook, null, Modifier.size(18.dp)) }) { destination = "Books" },
+                                    AppMenuItem("Community marketplace", icon = { Icon(Icons.Outlined.Groups, null, Modifier.size(18.dp)) }) { destination = "Marketplace" },
+                                    AppMenuItem("PDF Station", icon = { Icon(Icons.Outlined.Description, null, Modifier.size(18.dp)) }) { destination = "PDF Station" },
+                                    AppMenuItem(stringResource(R.string.library_guide_title), icon = { Icon(Icons.AutoMirrored.Outlined.MenuBook, null, Modifier.size(18.dp)) }) { showGuide = true },
                                     AppMenuItem(appStrings.folder, icon = { Icon(Icons.Outlined.CreateNewFolder, null, Modifier.size(18.dp)) }) { newFolder = true },
                                     AppMenuItem(
                                         if (newBookPrefs.storageFolderLabel.isBlank()) "Choose Storage Folder…"
@@ -742,19 +742,7 @@ fun LibraryScreen(
                                     },
                                     AppMenuItem("Paste notes from another app…", icon = { Icon(Icons.Outlined.ContentPaste, null, Modifier.size(18.dp)) }) { pasteImportOpen = true },
                                 ),
-                                contentDescription = appStrings.newAction,
-                                role = SurfaceRole.Control,
-                                containerColor = ProButtonPalette.ElectricBlue,
-                                shape = CircleShape,
-                            ) {
-                                Row(Modifier.padding(horizontal = 16.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Filled.Add, null, Modifier.size(18.dp), tint = Color.White)
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(appStrings.newAction, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Color.White)
-                                    Spacer(Modifier.width(2.dp))
-                                    Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(18.dp), tint = Color.White)
-                                }
-                            }
+                            )
                         }
 
                         Spacer(Modifier.width(8.dp))
@@ -920,7 +908,35 @@ fun LibraryScreen(
                         gridScrollState.firstVisibleItemIndex > 0 || gridScrollState.firstVisibleItemScrollOffset > 8
                     }
 
-                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                    val dropFolderId = folderId
+                    PdfDropZone(
+                        enabled = section == Section.DOCUMENTS && !showGuide && !compactSidebar,
+                        busy = pdfImportProgress != null,
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        onImport = { uris ->
+                            val destinationFolder = dropFolderId
+                            var failures = 0
+                            try {
+                                for (uri in uris) {
+                                    try {
+                                        repo.importPdf(uri, destinationFolder) { title, page, total ->
+                                            pdfImportProgress = Triple(title, page, total)
+                                        }
+                                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                        throw cancelled
+                                    } catch (_: Exception) {
+                                        failures++
+                                    }
+                                }
+                                if (failures > 0) android.widget.Toast.makeText(
+                                    context, "Could not import $failures PDF file(s). Check that they are readable and unlocked.",
+                                    android.widget.Toast.LENGTH_LONG,
+                                ).show()
+                            } finally {
+                                pdfImportProgress = null
+                            }
+                        },
+                    ) {
                         if (entries.isEmpty()) {
                             if (query.isNotBlank() || (selectedTag != null && section != Section.TRASH)) {
                                 Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {

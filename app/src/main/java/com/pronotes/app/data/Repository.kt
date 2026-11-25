@@ -793,7 +793,9 @@ class Repository private constructor(private val context: Context) {
     ) {
         val pDir = pagesDir(id)
         val mf = manifestFile(id)
-        val writeAllPages = dirtyIds == null || !mf.exists()
+        // A full snapshot must agree with every page file, even if a cancelled
+        // autosave already consumed the caller's dirty-page flags.
+        val writeAllPages = writeFullSnapshot || dirtyIds == null || !mf.exists()
         for (doc in docs) {
             val pf = File(pDir, "${doc.id}.json")
             if (writeAllPages || doc.id in dirtyIds || !pf.exists()) {

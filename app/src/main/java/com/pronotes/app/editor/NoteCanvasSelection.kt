@@ -44,8 +44,31 @@ internal fun NoteCanvasView.beginGrab(px: Float, py: Float): Boolean {
     val sb = RectF(base)
     pageMatrix(selectionPage, tmpMatrix).mapRect(sb)
     val (lx, ly) = toLocal(px, py, selectionPage)
-    if (!sb.contains(px, py)) return false
-    grab = NoteCanvasView.Grab.MOVE
+    val corners = listOf(sb.left to sb.top, sb.right to sb.top, sb.right to sb.bottom, sb.left to sb.bottom)
+    val baseCorners = listOf(base.left to base.top, base.right to base.top, base.right to base.bottom, base.left to base.bottom)
+    val hit = corners.indexOfFirst { (cx, cy) -> hypot(px - cx, py - cy) < handleRadius() }
+    val midHit = listOf(
+        (sb.left to sb.centerY()) to NoteCanvasView.Grab.STRETCH_L,
+        (sb.right to sb.centerY()) to NoteCanvasView.Grab.STRETCH_R,
+        (sb.centerX() to sb.top) to NoteCanvasView.Grab.STRETCH_T,
+        (sb.centerX() to sb.bottom) to NoteCanvasView.Grab.STRETCH_B,
+    ).firstOrNull { (pt, _) -> hypot(px - pt.first, py - pt.second) < handleRadius() * 0.85f }?.second
+    grab = when {
+        selectionTransformEnabled && hit >= 0 -> {
+            val opp = baseCorners[(hit + 2) % 4]
+            anchorX = opp.first
+            anchorY = opp.second
+            NoteCanvasView.Grab.SCALE
+        }
+        selectionTransformEnabled && midHit != null -> midHit
+        selectionTransformEnabled && hypot(px - sb.centerX(), py - (sb.top - rotateHandleOffset())) < handleRadius() -> {
+            anchorX = base.centerX()
+            anchorY = base.centerY()
+            NoteCanvasView.Grab.ROTATE
+        }
+        sb.contains(px, py) -> NoteCanvasView.Grab.MOVE
+        else -> return false
+    }
     activePage = selectionPage
     mode = NoteCanvasView.Mode.MOVE
     grabStartX = lx

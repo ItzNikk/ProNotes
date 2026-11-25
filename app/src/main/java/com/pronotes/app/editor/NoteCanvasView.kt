@@ -355,6 +355,13 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
     var selection: Set<Long> = emptySet()
         private set
     internal var selectionPage = -1
+    private val selectionTransformState = androidx.compose.runtime.mutableStateOf(false)
+    var selectionTransformEnabled: Boolean
+        get() = selectionTransformState.value
+        set(value) {
+            selectionTransformState.value = value
+            layer.invalidate()
+        }
     /** Live move / resize / rotate of the selection, in page coordinates. Baked in on release. */
     internal var liveMatrix: Matrix? = null
     internal enum class Grab { MOVE, SCALE, STRETCH_L, STRETCH_R, STRETCH_T, STRETCH_B, ROTATE }
@@ -2413,6 +2420,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
     internal val tmpMatrix = Matrix()
 
     fun selectItems(page: Int, ids: Set<Long>, outline: List<Pt>? = null) {
+        if (selectionPage != page || selection != ids) selectionTransformEnabled = false
         selection = ids
         selectionPage = page
         selectionOutline = if (ids.isEmpty()) null else outline
@@ -2425,6 +2433,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         if (circleSelect) { circleSelect = false; host.onCircleSelect(false) }
         if (selection.isEmpty()) return
         selection = emptySet()
+        selectionTransformEnabled = false
         selectionOutline = null
         liveMatrix = null
         layer.invalidate()

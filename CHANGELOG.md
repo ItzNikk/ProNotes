@@ -8,10 +8,13 @@ All notable changes to Pro Notes are documented in this file.
 
 ### What's changed
 
-- Selection outlines use a moving light trail, shared with circle-to-lasso conversion. Hold and drag to move a selection. Rotate and resize have their own controls, and the rainbow action has been removed.
+- Dashed lasso outlines are shared with circle-to-lasso conversion. Drag to move a selection; use Resize and Rotate to activate corner, edge, and rotation handles.
+- The New button opens a grouped menu with colored icon tiles for creation, study tools, folders, and imports.
+- Drop PDFs from other apps onto Documents to import them into the current folder, with progress feedback and support for multiple files.
 - Editor bars use black surfaces.
 
 - Failed or interrupted saves retain pending edits for the next save attempt and show a message on failure. Page files are cleaned up only after the new page index is written.
+- Full saves refresh every page file as well as the backup snapshot, preventing stale pages after an interrupted autosave.
 
 - Deleting a page or lasso selection, or dropping a notebook into Trash, now asks for confirmation.
 
@@ -19,7 +22,7 @@ All notable changes to Pro Notes are documented in this file.
 
 - Collapsed sticky notes now carry their handwriting when moved. The wide Library layout animates smoothly when the navigation sidebar changes width.
 
-- A black background across the Library and Settings with two multicolored gradient circles, brighter centers, and wider glowing halos. The circles loop and stay still when motion is reduced.
+- Library and Settings use the original broad, softly feathered background gradients with added mint, cyan, blue, violet, coral, pink, and amber. The gradients loop and stay still when motion is reduced.
 - A brief glow over handwritten ink as it converts to text, plus thicker dashed lasso outlines.
 - Hold a lasso selection with the pen or a finger, scroll with another finger, and release to drop it on the destination page.
 - Press and hold empty paper with the pen to open the same Quick Insert menu as a finger long-press.
