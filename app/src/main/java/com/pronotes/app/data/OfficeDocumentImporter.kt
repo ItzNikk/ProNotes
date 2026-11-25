@@ -298,23 +298,42 @@ object OfficeDocumentImporter {
             return parseLegacyBinaryText(bytes, displayName, "Presentation")
         }
 
-        val mediaPool = entries.entries
+        val mediaByZipPath = LinkedHashMap<String, Pair<String, ByteArray>>()
+        entries.entries
             .filter { it.key.startsWith("ppt/media/") && isImageFileName(it.key) }
-            .mapNotNull { (name, data) ->
+            .forEach { (name, data) ->
                 val ext = name.substringAfterLast('.', "png")
-                saveAssetBytes(data, ext)?.let { it to data }
+                saveAssetBytes(data, ext)?.let { saved ->
+                    mediaByZipPath[name] = saved to data
+                }
             }
+        val mediaPool = mediaByZipPath.values.toList()
 
         val slideW = 1600f
         val slideH = 900f
 
         return slideEntries.mapIndexed { index, slideEntry ->
+            val slideFileNum = Regex("slide(\\d+)\\.xml").find(slideEntry.key)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: (index + 1)
             val slideNum = index + 1
             val lines = extractXmlTextParagraphs(slideEntry.value, "p", "t")
-            val notesBytes = entries["ppt/notesSlides/notesSlide$slideNum.xml"]
+            val notesBytes = entries["ppt/notesSlides/notesSlide$slideFileNum.xml"]
             val notesLines = notesBytes?.let { extractXmlTextParagraphs(it, "p", "t") }
                 ?.filter { it.isNotBlank() && it != slideNum.toString() }
                 .orEmpty()
+
+            // Resolve exact images referenced by this slide's .rels file
+            val relsBytes = entries["ppt/slides/_rels/slide$slideFileNum.xml.rels"]
+            val slideImages = if (relsBytes != null) {
+                val relsText = relsBytes.toString(Charsets.UTF_8)
+                Regex("Target=\"([^\"]+)\"").findAll(relsText)
+                    .mapNotNull { m ->
+                        val target = m.groupValues[1].replace("../", "ppt/")
+                        mediaByZipPath[target]
+                    }
+                    .distinctBy { it.first }
+                    .toList()
+            } else emptyList()
+            val effectiveImages = slideImages.ifEmpty { listOfNotNull(mediaPool.getOrNull(index)) }
 
             val items = mutableListOf<ItemDoc>()
             val slideTitle = lines.firstOrNull()?.takeIf { it.isNotBlank() }
@@ -367,19 +386,19 @@ object OfficeDocumentImporter {
                 )
             }
 
-            mediaPool.getOrNull(index)?.let { (fileName, imgBytes) ->
+            effectiveImages.take(3).forEachIndexed { imgIdx, (fileName, imgBytes) ->
                 val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeByteArray(imgBytes, 0, imgBytes.size, opts)
                 val aspect = if (opts.outWidth > 0 && opts.outHeight > 0) {
                     opts.outHeight.toFloat() / opts.outWidth.toFloat()
                 } else 0.65f
                 val targetW = 460f
-                val targetH = (targetW * aspect).coerceIn(180f, 520f)
+                val targetH = (targetW * aspect).coerceIn(160f, 480f)
                 items.add(
                     ItemDoc.Image(
                         file = fileName,
                         x = 1040f,
-                        y = 160f,
+                        y = (140f + imgIdx * 240f).coerceAtMost(slideH - targetH - 32f),
                         w = targetW,
                         h = targetH
                     )
