@@ -462,21 +462,14 @@ internal fun TopBar(
                     icon = { ProIconView(ProIcon.PALETTE, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) },
                 ) { onPageColor() },
             )
-            add(
-                AppMenuItem(
-                    if (vm.currentPage?.bgImage != null) "Remove page picture" else "Picture as page…",
-                    icon = { ProIconView(ProIcon.IMAGE, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) },
-                ) {
-                    if (vm.currentPage?.bgImage != null) vm.setPageBackground(null) else onPageImage()
-                },
-            )
+        val moreEntries = buildList {
             add(
                 AppMenuItem(
                     if (vm.currentPage?.bookmarked == true) "Remove bookmark" else "Bookmark page",
                     icon = {
                         ProIconView(
                             ProIcon.BOOKMARK,
-                            Color(0xFFE34948),
+                            if (vm.currentPage?.bookmarked == true) Color(0xFFE34948) else MaterialTheme.colorScheme.onSurface,
                             Modifier.size(18.dp),
                             ink = if (vm.currentPage?.bookmarked == true) Color(0xFFE34948) else null,
                         )
@@ -497,6 +490,37 @@ internal fun TopBar(
                     icon = { ProIconView(ProIcon.COPY, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) },
                 ) { vm.duplicatePage() },
             )
+            add(
+                AppMenuItem(
+                    "Focus mode",
+                    icon = { ProIconView(ProIcon.FOCUS, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) },
+                ) { onFocus() },
+            )
+            add(
+                AppMenuItem(
+                    if (vm.readOnly) "Turn off read only" else "Read only",
+                    icon = {
+                        ProIconView(
+                            ProIcon.LOCK,
+                            if (vm.readOnly) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            Modifier.size(18.dp),
+                            ink = if (vm.readOnly) MaterialTheme.colorScheme.primary else null,
+                        )
+                    },
+                ) { vm.toggleReadOnly() },
+            )
+            add(
+                AppMenuItem(
+                    "Rename notebook",
+                    icon = { ProIconView(ProIcon.RENAME, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) },
+                ) { onRename() },
+            )
+            add(
+                AppMenuItem(
+                    "Settings",
+                    icon = { ProIconView(ProIcon.SETTINGS, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) },
+                ) { onSettings() },
+            )
             if (vm.pages.size > 1) {
                 add(
                     AppMenuItem(
@@ -506,56 +530,13 @@ internal fun TopBar(
                     ) { vm.deletePage() },
                 )
             }
-            add(
-                AppMenuItem(
-                    "Rename notebook",
-                    icon = { ProIconView(ProIcon.RENAME, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) },
-                ) { onRename() },
-            )
-            add(
-                AppMenuItem(
-                    if (vm.readOnly) "Turn off read only" else "Read only",
-                    icon = {
-                        ProIconView(
-                            ProIcon.LOCK,
-                            MaterialTheme.colorScheme.onSurface,
-                            Modifier.size(18.dp),
-                            ink = if (vm.readOnly) MaterialTheme.colorScheme.primary else null,
-                        )
-                    },
-                ) { vm.toggleReadOnly() },
-            )
-            add(
-                AppMenuItem(
-                    "Go to page…",
-                    icon = { ProIconView(ProIcon.PAGES, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) },
-                ) { onGoTo() },
-            )
-            add(
-                AppMenuItem(
-                    if (settings.scroll == ScrollDirection.VERTICAL) "Scroll horizontally" else "Scroll vertically",
-                    icon = { Icon(Icons.Outlined.SwapVert, null, Modifier.size(18.dp)) },
-                ) { onScrollToggle() },
-            )
-            add(
-                AppMenuItem(
-                    "Focus mode",
-                    icon = { ProIconView(ProIcon.FOCUS, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) },
-                ) { onFocus() },
-            )
-            add(
-                AppMenuItem(
-                    "Settings",
-                    icon = { ProIconView(ProIcon.SETTINGS, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) },
-                ) { onSettings() },
-            )
         }
         AppMenuButton(
-            contentDescription = "More tools and actions",
-            containerColor = ProButtonPalette.WarmAmber.copy(alpha = if (darkUi) 0.24f else 0.16f),
+            contentDescription = "More actions",
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (darkUi) 0.85f else 0.92f),
             contentPadding = PaddingValues(7.dp),
             buttonContent = {
-                ProIconView(ProIcon.MORE, if (darkUi) Color(0xFFFCD34D) else Color(0xFFB45309), Modifier.size(20.dp))
+                ProIconView(ProIcon.MORE, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp))
             },
             items = moreEntries,
         )
