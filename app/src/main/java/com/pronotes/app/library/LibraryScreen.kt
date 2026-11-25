@@ -990,7 +990,8 @@ fun LibraryScreen(
                                 TextButton(enabled = selectedDocuments.isNotEmpty() && !batchBusy, onClick = { confirmBulkTrash = selectedDocuments.toSet() }) { Text("Trash") }
                             }
                         }
-                    }                    val listBottomPad = 24.dp
+                    }
+                    val listBottomPad = 24.dp
                     val listScrollState = rememberLazyListState()
                     val gridScrollState = rememberLazyGridState()
                     val libraryScrolled = if (listView) {
