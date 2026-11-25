@@ -230,7 +230,6 @@ fun AppSurface(
     ) {
         CompositionLocalProvider(LocalContentColor provides fg) {
             Box {
-                if (role == SurfaceRole.Chrome) BarMotion(Modifier.matchParentSize())
                 Box(Modifier.padding(contentPadding), content = content)
             }
         }

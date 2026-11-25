@@ -678,9 +678,6 @@ fun EditorScreen(
                             onVideo = { videoUrl = "" },
                         )
                     }
-                    if (!hideTools && isFixedBar && settings.toolbarDock == ToolbarDock.TOP) {
-                        com.pronotes.app.ui.BarMotion(Modifier.fillMaxWidth().height(18.dp))
-                    }
                     AnimatedVisibility(showSearch, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         SearchBar(vm)
                     }

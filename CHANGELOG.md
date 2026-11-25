@@ -14,12 +14,12 @@ All notable changes to Pro Notes are documented in this file.
 - Stylus-only mode permits immediate finger navigation, long-press selection and dragging, plus expanded sticky-header dragging while preserving palm-size rejection.
 - Renderer visibility metadata is cached by immutable item-list identity, and triple-tap clustering has bounded passes and hash-based membership.
 - Long documents use binary-search visibility culling rather than scanning every page on every canvas redraw. The window requests the highest supported refresh rate at the current resolution and reapplies it on focus.
-- Added two dark blue/purple workspace glows alongside the moving bright glows, plus a multicolor aurora strip below the top drawing toolbar.
+- Added two dark blue/purple workspace glows alongside the moving bright glows, with the original subtle soft glow below the drawing toolbar.
 - Compact pen controls, text-tool controls tinted with the active text color, and New-menu shapes that follow the roundness preference.
 - Optional video buttons for fixed and floating toolbars, available in Settings > Toolbar. Lasso > More > Add attached comment opens an in-page note linked to the selected content; ordinary handwritten notes retain collapse/expand behavior.
 
 - Rough lasso and circle gestures now disappear after selection, leaving clean dashed bounds. Resize and rotate use a dedicated corner-and-arrow icon.
-- Editor and Settings bars use opaque black surfaces with a subtle bundled Lottie animation that pauses for reduced motion, reduced effects, Classic appearance, and inactive screens.
+- Editor bars use opaque black surfaces and retain the original subtle soft glow below the toolbar. Settings retains its reduced-motion-aware decorative animation.
 - Settings use Material 3 list items, accessible switches, outlined section cards, clearer category headings, and a wider tablet navigation pane. Workspace icons use a rounded style without changing drawing-toolbar glyphs.
 - Restored the previous Compose/Material 3 and Android build-tool versions while investigating startup crashes after the dependency upgrade.
 
