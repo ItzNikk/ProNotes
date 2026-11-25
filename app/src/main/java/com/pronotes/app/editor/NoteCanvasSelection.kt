@@ -101,7 +101,6 @@ internal fun NoteCanvasView.updateGrab(x: Float, y: Float) {
                 if (sx < edge) { transX += step; scrolled = true }
                 else if (sx > width - edge) { transX -= step; scrolled = true }
                 if (scrolled) {
-                    clampTranslation()
                     updateMatrix()
                 }
             }
