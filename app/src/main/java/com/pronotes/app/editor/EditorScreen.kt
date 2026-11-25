@@ -1043,7 +1043,14 @@ fun EditorScreen(
                             onSelectStyle = selectStyle,
                             onResetPosition = resetToolbarPos,
                             modifier = Modifier
-                                .offset { activeDockOffset }
+                                .offset {
+                                    val anim by androidx.compose.animation.core.animateIntOffsetAsState(
+                                        targetValue = activeDockOffset,
+                                        animationSpec = if (dockDragging || reduceMotion) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 0.82f, stiffness = 460f),
+                                        label = "dockOffset",
+                                    )
+                                    anim
+                                }
                                 .onSizeChanged { dockSize = it },
                         )
                     }
