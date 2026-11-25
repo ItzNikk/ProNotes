@@ -711,10 +711,8 @@ internal class NoteCanvasDocLayer(
         canvas.scale(selScale, selScale, sb.centerX(), sb.centerY())
         if (rotating) canvas.rotate(owner.liveDeg, sb.centerX(), sb.centerY())
         val rad = 10f * density
-        if (loop == null) {
-            canvas.drawRoundRect(sb, rad, rad, selHaloPaint)
-            canvas.drawRoundRect(sb, rad, rad, selPaint)
-        }
+        canvas.drawRoundRect(sb, rad, rad, selHaloPaint)
+        canvas.drawRoundRect(sb, rad, rad, selPaint)
         val hr = 6f * density
         val ry = sb.top - owner.rotateHandleOffset()
         canvas.drawLine(sb.centerX(), sb.top, sb.centerX(), ry + hr, handlePaint.apply { strokeWidth = 1.5f * density })

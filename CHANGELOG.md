@@ -6,7 +6,7 @@ All notable changes to Pro Notes are documented in this file.
 
 ### Added
 - **Smart Self-Arranging Study Timer & Live Alerts:** Drag the Study Timer anywhere on screen and it smoothly snaps to the nearest safe perimeter anchor while avoiding docked or floating toolbars. When the device supports Live Alerts (Android 16+ Live Updates / Samsung Now Bar / ongoing chronometer), starting the timer automatically launches a live ticking status-bar/lockscreen alert.
-- **Triple-Tap Handwriting-to-Text Gesture:** Tapping handwritten ink strokes 3 times with the stylus automatically clusters the baseline word/line and converts it into crisp typed text.
+- **Triple-Tap Handwriting-to-Text Gesture:** Tapping handwritten ink strokes 3 times with the stylus automatically clusters the baseline word/line, cleans up the tap dots, and converts it into crisp typed text.
 - **Settings JSON Import / Export:** Export all app preferences, palettes, and presets to a `.json` file and restore them anytime from **Settings → Library & backup → Settings file**.
 - **High Refresh Rate Support:** Automatically selects the highest supported display refresh rate (90Hz / 120Hz / 144Hz) in `MainActivity` for smoother scrolling and ink rendering.
 - **Cross-Page Lasso Movement:** Dragging a Lasso selection across page boundaries now transfers selected strokes, text, stickies, images, and cards cleanly to the destination page with unified undo/redo support.

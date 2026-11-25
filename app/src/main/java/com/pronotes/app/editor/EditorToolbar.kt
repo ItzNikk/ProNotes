@@ -474,7 +474,7 @@ fun FloatingToolbarPill(
             .graphicsLayer { alpha = overlayFade }
             .pointerInput(Unit) {
                 var accumDelta = Offset.Zero
-                detectDragGestures(
+                androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress(
                     onDragStart = {
                         accumDelta = Offset.Zero
                         onDragStart()

@@ -560,7 +560,7 @@ fun TopScrollCloudyBackdrop(
         label = "hazeTopAlpha",
     )
     val scrimAlpha by animateFloatAsState(
-        targetValue = if (scrolled) 0.44f else 0f,
+        targetValue = if (scrolled) (if (active && hazeState != null) 0.22f else 0.88f) else 0f,
         animationSpec = tween(240),
         label = "topScrimAlpha",
     )
@@ -574,23 +574,21 @@ fun TopScrollCloudyBackdrop(
                 if (active && hazeState != null) {
                     Modifier.hazeEffect(
                         state = hazeState,
-                        style = HazeMaterials.regular(surface),
+                        style = HazeMaterials.thin(surface),
                     ) {
                         progressive = HazeProgressive.verticalGradient(
                             startIntensity = 1f,
                             endIntensity = 0f,
                         )
                     }
-                } else if (active && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    Modifier.appBackdropBlur(enabled = true, radiusDp = 12.dp)
                 } else Modifier,
             )
             .background(
                 Brush.verticalGradient(
-                    0.0f to surface.copy(alpha = scrimAlpha * 0.96f),
-                    0.28f to surface.copy(alpha = scrimAlpha * 0.72f),
-                    0.58f to surface.copy(alpha = scrimAlpha * 0.34f),
-                    0.82f to surface.copy(alpha = scrimAlpha * 0.08f),
+                    0.0f to surface.copy(alpha = scrimAlpha),
+                    0.30f to surface.copy(alpha = scrimAlpha * 0.68f),
+                    0.62f to surface.copy(alpha = scrimAlpha * 0.30f),
+                    0.85f to surface.copy(alpha = scrimAlpha * 0.08f),
                     1.0f to Color.Transparent,
                 ),
             ),

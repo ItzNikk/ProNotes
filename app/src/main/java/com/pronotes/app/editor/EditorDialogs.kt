@@ -1876,6 +1876,13 @@ internal fun StudyTimer(
 ) {
     val context = LocalContext.current
     var running by remember { mutableStateOf(settings.studyAutoStart) }
+    val notifPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted && running) {
+            StudyTimerLiveAlert.startOrUpdate(context, vm.title, false, 0L, settings.pomodoroMinutes * 60_000L)
+        }
+    }
     var session by remember { mutableStateOf(0L) }
     var unsaved by remember { mutableStateOf(0L) }
     var pomoMode by remember { mutableStateOf(false) }
@@ -1935,13 +1942,22 @@ internal fun StudyTimer(
     // Start / update / stop device Live Alerts (Android 16 Promoted Ongoing / Now Bar / Chronometer)
     LaunchedEffect(running, idle, pomoMode) {
         if (running && !idle) {
-            StudyTimerLiveAlert.startOrUpdate(
-                context = context,
-                notebookTitle = vm.title,
-                pomoMode = pomoMode,
-                sessionMs = session,
-                pomoRemainingMs = pomoRemMs,
-            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                androidx.core.content.ContextCompat.checkSelfPermission(
+                    context,
+                    android.Manifest.permission.POST_NOTIFICATIONS,
+                ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                notifPermLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                StudyTimerLiveAlert.startOrUpdate(
+                    context = context,
+                    notebookTitle = vm.title,
+                    pomoMode = pomoMode,
+                    sessionMs = session,
+                    pomoRemainingMs = pomoRemMs,
+                )
+            }
         } else {
             StudyTimerLiveAlert.stop(context)
         }
@@ -2006,8 +2022,8 @@ internal fun StudyTimer(
                     onDragStart = { isDragging = true },
                     onDragEnd = {
                         isDragging = false
-                        val nx = ((x + pill.width / 2f) / area.width).coerceIn(0f, 1f)
-                        val ny = ((y + pill.height / 2f) / area.height).coerceIn(0f, 1f)
+                        val nx = (pos.first + drag.x / area.width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                        val ny = (pos.second + drag.y / area.height.coerceAtLeast(1)).coerceIn(0f, 1f)
                         val smart = nearestSmartAnchor(nx, ny)
                         pos = smart
                         drag = Offset.Zero

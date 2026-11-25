@@ -852,27 +852,45 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
     internal var dragStickyActive = false
     internal var dragStickyFromFinger = false
     internal var dragStickyWasExpanded = false
+    internal var dragStickyAttachedIds: Set<Long> = emptySet()
     internal val stickyHoldRunnable = Runnable {
         if (dragStickyId == -1L || dragStickyPage !in pages.indices) return@Runnable
+        captureStickyAttachments()
         dragStickyActive = true
         mode = Mode.STICKY_DRAG
         buzz(HapticFeedbackConstants.LONG_PRESS)
         host.beginEdit(dragStickyPage)
         layer.invalidate()
     }
+    internal fun captureStickyAttachments() {
+        val p = pages.getOrNull(dragStickyPage) ?: return
+        val sticky = p.items.firstOrNull { it is StickyItem && it.id == dragStickyId } as? StickyItem ?: return
+        val sr = sticky.raw
+        dragStickyAttachedIds = if (sticky.collapsed) {
+            emptySet()
+        } else {
+            p.items.filter { (it is InkItem || it is TextItem) && RectF.intersects(sr, it.bounds) }.map { it.id }.toSet()
+        }
+    }
     internal fun moveDraggedSticky(screenX: Float, screenY: Float) {
         val p = pages.getOrNull(dragStickyPage) ?: return
+        val sticky = p.items.firstOrNull { it is StickyItem && it.id == dragStickyId } as? StickyItem ?: return
+        if (dragStickyAttachedIds.isEmpty() && !sticky.collapsed) captureStickyAttachments()
         val (wx, wy) = toLocal(screenX, screenY, dragStickyPage)
         val dx = wx - dragStickyDownWx
         val dy = wy - dragStickyDownWy
+        val bw = sticky.bounds.width()
+        val bh = sticky.bounds.height()
+        val nx = (dragStickyOrigX + dx).coerceIn(16f, (p.width - bw - 16f).coerceAtLeast(16f))
+        val ny = (dragStickyOrigY + dy).coerceIn(16f, (p.height - bh - 16f).coerceAtLeast(16f))
+        val stepDx = nx - sticky.x
+        val stepDy = ny - sticky.y
         val updated = p.items.map { item ->
-            if (item is StickyItem && item.id == dragStickyId) {
-                val bw = item.bounds.width()
-                val bh = item.bounds.height()
-                val nx = (dragStickyOrigX + dx).coerceIn(16f, (p.width - bw - 16f).coerceAtLeast(16f))
-                val ny = (dragStickyOrigY + dy).coerceIn(16f, (p.height - bh - 16f).coerceAtLeast(16f))
-                item.copy(x = nx, y = ny)
-            } else item
+            when {
+                item is StickyItem && item.id == dragStickyId -> item.copy(x = nx, y = ny)
+                item.id in dragStickyAttachedIds -> item.translated(stepDx, stepDy)
+                else -> item
+            }
         }
         pages = pages.toMutableList().also { it[dragStickyPage] = p.copy(items = updated) }
         layer.invalidate()
@@ -883,6 +901,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         dragStickyPage = -1
         dragStickyActive = false
         dragStickyFromFinger = false
+        dragStickyAttachedIds = emptySet()
         dragStickyWasExpanded = false
     }
     private var holdFired = false
@@ -1852,6 +1871,16 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                     penTapCount = 0
                     lastPenTapAt = 0L
                     cancelActiveWetStroke(e)
+                    // Remove tiny tap dots left by the 1st and 2nd taps near the triple-tap point
+                    val dotPad = (28f / scale.coerceAtLeast(0.35f)).coerceIn(16f, 48f)
+                    val tapDotIds = p.items.filterIsInstance<InkItem>().filter { item ->
+                        val b = item.bounds
+                        b.width() <= 14f && b.height() <= 14f &&
+                            hypot(b.centerX() - tx, b.centerY() - ty) <= dotPad
+                    }.map { it.id }.toSet()
+                    if (tapDotIds.isNotEmpty()) {
+                        updatePage(activePage, p.items.filterNot { it.id in tapDotIds })
+                    }
                     val cluster = seedInk.toMutableList()
                     val allInk = p.items.filterIsInstance<InkItem>().filter { it.bounds.width() > 6f || it.bounds.height() > 6f }
                     var expanded = true

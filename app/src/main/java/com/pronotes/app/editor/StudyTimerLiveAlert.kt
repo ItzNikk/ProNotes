@@ -29,13 +29,7 @@ internal object StudyTimerLiveAlert {
         ) {
             return false
         }
-        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return false
-        return if (Build.VERSION.SDK_INT >= 36) {
-            nm.canPostPromotedNotifications()
-        } else {
-            // Ongoing chronometer live pill on Android 13-15 (e.g. Samsung Now Bar / Live Alerts)
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-        }
+        return true
     }
 
     fun startOrUpdate(
