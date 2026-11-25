@@ -147,7 +147,6 @@ import com.pronotes.app.editor.LiveCollabRoomDialog
 import com.pronotes.app.editor.MindNodeItem
 import com.pronotes.app.editor.Tool
 import com.pronotes.app.support.Support
-import com.pronotes.app.ui.AppNavigationBar
 import com.pronotes.app.ui.AppCard
 import com.pronotes.app.ui.AppChip
 import com.pronotes.app.ui.AppDialog
@@ -156,7 +155,6 @@ import com.pronotes.app.ui.AppMenuItem
 import com.pronotes.app.ui.AppPill
 import com.pronotes.app.ui.AppSegmentedControl
 import com.pronotes.app.ui.AppSurface
-import com.pronotes.app.ui.AppTabItem
 import com.pronotes.app.ui.AppToggle
 import com.pronotes.app.ui.ColorEditorDialog
 import com.pronotes.app.ui.LocalReduceMotion
@@ -588,6 +586,16 @@ fun LibraryScreen(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            Section.entries.forEach { destination ->
+                                TextButton(onClick = { section = destination; folderId = null }) {
+                                    Text(
+                                        destination.localizedLabel(appStrings),
+                                        color = if (section == destination) Color(0xFF93C5FD) else Color(0xFFB9BDC7),
+                                        fontWeight = if (section == destination) FontWeight.Bold else FontWeight.Normal,
+                                        maxLines = 1,
+                                    )
+                                }
+                            }
                             open.forEach { n ->
                                 AppSurface(
                                     role = SurfaceRole.Control,
@@ -656,37 +664,6 @@ fun LibraryScreen(
                             }
                         }
                     }
-
-                AppNavigationBar(
-                    applyBottomInset = false,
-                    tabs = listOf(
-                        AppTabItem("Library") { Icon(Icons.Rounded.Description, null, Modifier.size(18.dp)) },
-                        AppTabItem("Books") { Icon(Icons.AutoMirrored.Outlined.MenuBook, null, Modifier.size(18.dp)) },
-                        AppTabItem("Recent") { Icon(Icons.Rounded.AccessTime, null, Modifier.size(18.dp)) },
-                        AppTabItem("Favorites") { Icon(Icons.Rounded.StarBorder, null, Modifier.size(18.dp)) },
-                        AppTabItem("Trash") { Icon(Icons.Rounded.Delete, null, Modifier.size(18.dp)) },
-                    ),
-                    selectedIndex = when (section) {
-                        Section.DOCUMENTS -> 0
-                        Section.RECENT -> 2
-                        Section.FAVORITES -> 3
-                        Section.TRASH -> 4
-                    },
-                    onSelect = { idx ->
-                        if (idx == 1) {
-                            onOpenBookReader()
-                        } else {
-                            section = when (idx) {
-                                0 -> Section.DOCUMENTS
-                                2 -> Section.RECENT
-                                3 -> Section.FAVORITES
-                                else -> Section.TRASH
-                            }
-                            folderId = null
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
 
                     // Page header & crisp actions row
                     Row(

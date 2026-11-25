@@ -147,7 +147,6 @@ import com.pronotes.app.editor.StickyItem
 import com.pronotes.app.editor.TextItem
 import com.pronotes.app.library.CoverArt
 import com.pronotes.app.library.PdfImportLoaderOverlay
-import com.pronotes.app.ui.AppNavigationBar
 import com.pronotes.app.ui.AppCard
 import com.pronotes.app.ui.AppChip
 import com.pronotes.app.ui.AppPill
@@ -155,7 +154,6 @@ import com.pronotes.app.ui.AppSegmentedControl
 import com.pronotes.app.ui.AppSheet
 import com.pronotes.app.ui.AppSliderRow
 import com.pronotes.app.ui.AppSurface
-import com.pronotes.app.ui.AppTabItem
 import com.pronotes.app.ui.LocalReduceMotion
 import com.pronotes.app.ui.ProButtonPalette
 import com.pronotes.app.ui.SurfaceRole
@@ -359,14 +357,6 @@ fun BookReaderHubScreen(
                 .fillMaxSize()
                 .statusBarsPadding(),
         ) {
-            AppNavigationBar(
-                tabs = listOf(
-                    AppTabItem("Library") { Icon(Icons.Outlined.Description, null, Modifier.size(18.dp)) },
-                    AppTabItem("Books") { Icon(Icons.AutoMirrored.Outlined.MenuBook, null, Modifier.size(18.dp)) },
-                ),
-                selectedIndex = 1,
-                onSelect = { idx -> if (idx == 0) onBackToLibrary() },
-            )
             // Reading Room Header
             Row(
                 Modifier
