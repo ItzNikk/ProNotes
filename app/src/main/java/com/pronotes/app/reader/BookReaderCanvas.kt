@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -435,10 +436,11 @@ private fun drawCylindricalBackBitmapMesh(
     mirrorHorizontal: Boolean,
     alpha: Int,
     colorFilter: ColorFilter?,
+    verts: FloatArray,
+    paint: android.graphics.Paint,
 ) {
     val cols = ((curl.sheetRight - curl.sheetLeft) / 32f).toInt().coerceIn(18, 46)
     val rows = (curl.sheetHeight / 36f).toInt().coerceIn(18, 52)
-    val verts = FloatArray((cols + 1) * (rows + 1) * 2)
     val sheetW = curl.sheetRight - curl.sheetLeft
     val sheetH = curl.sheetHeight
     val scale = minOf(sheetW / bmp.width, sheetH / bmp.height)
@@ -462,10 +464,8 @@ private fun drawCylindricalBackBitmapMesh(
             verts[idx++] = projected.y
         }
     }
-    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG).apply {
-        this.alpha = alpha
-        this.colorFilter = colorFilter?.asAndroidColorFilter()
-    }
+    paint.alpha = alpha
+    paint.colorFilter = colorFilter?.asAndroidColorFilter()
     nativeCanvas.drawBitmapMesh(bmp, cols, rows, verts, 0, null, 0, paint)
 }
 
@@ -498,6 +498,10 @@ internal fun BookCurlStage(
     modifier: Modifier = Modifier,
 ) {
     val activeCurl = turnDir != 0 && curlProgress > 0.005f
+    val meshVertices = remember { FloatArray((46 + 1) * (52 + 1) * 2) }
+    val meshPaint = remember {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
+    }
     Box(modifier) {
         if (activeCurl) {
             BookSheetFrame(
@@ -682,6 +686,8 @@ internal fun BookCurlStage(
                                         mirrorHorizontal = mirrorBackUv,
                                         alpha = backAlpha,
                                         colorFilter = colorFilter,
+                                        verts = meshVertices,
+                                        paint = meshPaint,
                                     )
                                 }
                             }

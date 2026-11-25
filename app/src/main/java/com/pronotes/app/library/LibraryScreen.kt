@@ -121,6 +121,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -298,6 +299,19 @@ fun LibraryScreen(
         CatalogDialog(destination == "Books", folderId, { destination = "" }, onOpen)
     }
     var newNotebook by remember { mutableStateOf(false) }
+    var showGuide by rememberSaveable {
+        mutableStateOf(store.pref("library_guide_seen") != "yes" && lib.notebooks.isEmpty())
+    }
+    if (showGuide && pendingImport == null) {
+        fun closeGuide() {
+            store.setPref("library_guide_seen", "yes")
+            showGuide = false
+        }
+        LibraryGuide(
+            onDismiss = ::closeGuide,
+            onCreate = { closeGuide(); newNotebook = true },
+        )
+    }
     var pasteImportOpen by remember { mutableStateOf(false) }
     var folderEdit by remember { mutableStateOf<Folder?>(null) }
     var newFolder by remember { mutableStateOf(false) }
@@ -440,6 +454,7 @@ fun LibraryScreen(
 
     androidx.compose.runtime.CompositionLocalProvider(LocalDragController provides drag) {
         Box(Modifier.fillMaxSize().background(deskBg)) {
+            LibraryGradient(Modifier.matchParentSize(), paused = showGuide)
             Row(Modifier.fillMaxSize()) {
                 AnimatedVisibility(
                     visible = sidebar,
@@ -698,6 +713,7 @@ fun LibraryScreen(
                                     AppMenuItem("Online books") { destination = "Books" },
                                     AppMenuItem("Community marketplace") { destination = "Marketplace" },
                                     AppMenuItem("PDF Station") { destination = "PDF Station" },
+                                    AppMenuItem(stringResource(R.string.library_guide_title)) { showGuide = true },
                                     AppMenuItem(appStrings.folder, icon = { Icon(Icons.Outlined.CreateNewFolder, null, Modifier.size(18.dp)) }) { newFolder = true },
                                     AppMenuItem(
                                         if (newBookPrefs.storageFolderLabel.isBlank()) "Choose Storage Folder…"
