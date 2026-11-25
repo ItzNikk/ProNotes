@@ -20,6 +20,7 @@ import com.pronotes.app.data.PaperStyle
 import com.pronotes.app.data.Repository
 import com.pronotes.app.data.SettingsStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -1873,6 +1874,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             }
             hits += hwHits
 
+            coroutineContext.ensureActive()
             searchHits = hits.sortedBy { it.page }
             activeHit = if (hits.isEmpty()) -1 else 0
             searching = false

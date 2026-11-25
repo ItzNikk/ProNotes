@@ -679,7 +679,7 @@ fun EditorScreen(
                         )
                     }
                     AnimatedVisibility(showSearch, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-                        SearchBar(vm)
+                        SearchBar(vm, onClose = { showSearch = false })
                     }
                 }
             }

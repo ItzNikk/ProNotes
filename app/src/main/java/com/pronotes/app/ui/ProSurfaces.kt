@@ -1,5 +1,7 @@
 package com.pronotes.app.ui
 
+import kotlinx.coroutines.launch
+
 import android.os.Build
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -460,18 +462,27 @@ fun AnimatedGradientText(
     val reduceMotion = LocalReduceMotion.current
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.4f
     val transition = rememberInfiniteTransition(label = "animGradText")
-    val shift = if (reduceMotion) {
-        0.35f
-    } else {
-        transition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = durationMs, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart,
-            ),
-            label = "animGradShift",
-        ).value
+    val driftX = remember { androidx.compose.animation.core.Animatable(0f) }
+    val driftY = remember { androidx.compose.animation.core.Animatable(0f) }
+    val direction = remember { androidx.compose.animation.core.Animatable(0.35f) }
+    LaunchedEffect(reduceMotion, durationMs) {
+        if (reduceMotion) {
+            driftX.snapTo(0f)
+            driftY.snapTo(0f)
+            direction.snapTo(0.35f)
+        } else {
+            while (true) {
+                val travelMs = kotlin.random.Random.nextInt(durationMs.coerceAtLeast(1200), durationMs.coerceAtLeast(1200) + 2200)
+                val x = kotlin.random.Random.nextFloat() * 520f - 260f
+                val y = kotlin.random.Random.nextFloat() * 240f - 120f
+                val angle = direction.value + (kotlin.random.Random.nextFloat() - 0.5f) * 5f
+                kotlinx.coroutines.coroutineScope {
+                    launch { driftX.animateTo(x, tween(travelMs, easing = FastOutSlowInEasing)) }
+                    launch { driftY.animateTo(y, tween(travelMs, easing = FastOutSlowInEasing)) }
+                    launch { direction.animateTo(angle, tween(travelMs, easing = FastOutSlowInEasing)) }
+                }
+            }
+        }
     }
     val pulse = if (reduceMotion || !pulseAlpha) {
         1f
@@ -523,11 +534,12 @@ fun AnimatedGradientText(
         }
     }
     val span = 520f
-    val offset = shift * span
+    val axis = Offset(kotlin.math.cos(direction.value) * span / 2f, kotlin.math.sin(direction.value) * span / 2f)
+    val center = Offset(driftX.value, driftY.value)
     val brush = Brush.linearGradient(
         colors = shiftingPalette,
-        start = Offset(x = -span + offset, y = 0f),
-        end = Offset(x = offset, y = 32f),
+        start = center - axis,
+        end = center + axis,
         tileMode = TileMode.Repeated,
     )
     Text(

@@ -552,7 +552,9 @@ internal fun TopBar(
 }
 
 @Composable
-internal fun SearchBar(vm: EditorViewModel) {
+internal fun SearchBar(vm: EditorViewModel, onClose: () -> Unit) {
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     AppCard(
         hero = false,
         shape = appCardShape(),
@@ -591,8 +593,8 @@ internal fun SearchBar(vm: EditorViewModel) {
                 IconButton(onClick = { vm.stepHit(1) }, enabled = vm.searchHits.isNotEmpty()) {
                     Icon(Icons.Filled.KeyboardArrowDown, "Next match")
                 }
-                IconButton(onClick = vm::clearSearch) {
-                    Icon(Icons.Filled.Close, "Clear search")
+                IconButton(onClick = { vm.clearSearch(); focusManager.clearFocus(); keyboard?.hide(); onClose() }) {
+                    Icon(Icons.Filled.Close, "Cancel search")
                 }
             }
             if (vm.searchHits.isNotEmpty()) {

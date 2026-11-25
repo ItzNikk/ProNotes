@@ -65,6 +65,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.automirrored.outlined.ViewList
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Star
@@ -299,6 +300,9 @@ fun LibraryScreen(
     if (destination == "Books" || destination == "Marketplace") {
         CatalogDialog(destination == "Books", folderId, { destination = "" }, onOpen)
     }
+    val searchFocusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val searchKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    var bulkMoveOpen by remember { mutableStateOf(false) }
     var selectionMode by remember { mutableStateOf(false) }
     var batchBusy by remember { mutableStateOf(false) }
     var selectedDocuments by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -414,6 +418,23 @@ fun LibraryScreen(
     fun dropInto(payload: String, target: String?): Boolean {
         val id = payload.substringAfter(':')
         return when {
+            payload.startsWith("notes:") -> {
+                if (batchBusy) return false
+                val ids = payload.substringAfter(':').split(',').toSet()
+                batchBusy = true
+                scope.launch {
+                    try {
+                        lib.notebooks.filter { it.id in ids && it.deletedAt == null }.forEach { repo.moveNotebook(it.id, target) }
+                        selectedDocuments = emptySet()
+                        selectionMode = false
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        android.widget.Toast.makeText(context, "Could not move every document. Please try again.", android.widget.Toast.LENGTH_LONG).show()
+                    } finally { batchBusy = false }
+                }
+                true
+            }
             payload.startsWith("note:") -> {
                 scope.launch { repo.moveNotebook(id, target) }
                 true
@@ -458,7 +479,6 @@ fun LibraryScreen(
             section == Section.TRASH -> live.sortedByDescending { it.deletedAt }.map { Entry.N(it) }
             section == Section.FAVORITES -> sortNotes(live).map { Entry.N(it) }
             section == Section.RECENT -> live.sortedByDescending { it.opened }.take(30).map { Entry.N(it) }
-            activeTag != null -> sortNotes(live).map { Entry.N(it) }
             q.isNotEmpty() -> lib.folders.filter { it.name.contains(q, ignoreCase = true) || it.emoji.contains(q) }
                 .map(::folderEntry) + sortNotes(live).map { Entry.N(it) }
             else -> lib.folders.filter { it.parentId == folderId }.let { fs ->
@@ -498,13 +518,20 @@ fun LibraryScreen(
                     onDropTo = { s, payload ->
                         when (s) {
                             Section.DOCUMENTS -> dropInto(payload, null)
-                            Section.TRASH -> if (payload.startsWith("note:")) {
+                            Section.TRASH -> if (payload.startsWith("notes:")) {
+                                confirmBulkTrash = payload.substringAfter(':').split(',').toSet()
+                                true
+                            } else if (payload.startsWith("note:")) {
                                 val noteId = payload.substringAfter(':')
                                 val note = lib.notebooks.firstOrNull { it.id == noteId && it.deletedAt == null }
                                 if (note != null) deleting = Entry.N(note)
                                 note != null
                             } else false
-                            Section.FAVORITES -> if (payload.startsWith("note:")) {
+                            Section.FAVORITES -> if (payload.startsWith("notes:")) {
+                                val ids = payload.substringAfter(':').split(',').toSet()
+                                scope.launch { lib.notebooks.filter { it.id in ids && !it.favorite }.forEach { repo.toggleFavorite(it.id) } }
+                                true
+                            } else if (payload.startsWith("note:")) {
                                 val nid = payload.substringAfter(':')
                                 if (lib.notebooks.firstOrNull { it.id == nid }?.favorite == false) scope.launch { repo.toggleFavorite(nid) }
                                 true
@@ -887,6 +914,7 @@ fun LibraryScreen(
                                 },
                                 singleLine = true,
                                 leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                                trailingIcon = { IconButton(onClick = { query = ""; searching = false; searchFocusManager.clearFocus(); searchKeyboard?.hide() }) { Icon(Icons.Filled.Close, "Cancel search") } },
                                 shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier.fillMaxWidth(),
                             )
@@ -913,12 +941,12 @@ fun LibraryScreen(
 
                     if (section != Section.TRASH) {
                         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(onClick = { selectionMode = !selectionMode; selectedDocuments = emptySet() }) {
+                            TextButton(enabled = !batchBusy, onClick = { selectionMode = !selectionMode; selectedDocuments = emptySet() }) {
                                 Text(if (selectionMode) "Done (${selectedDocuments.size})" else "Select")
                             }
                             if (selectionMode) {
-                                TextButton(onClick = { selectedDocuments = entries.filterIsInstance<Entry.N>().map { it.note.id }.toSet() }) { Text("Select all") }
-                                TextButton(onClick = { selectedDocuments = emptySet() }) { Text("Clear") }
+                                TextButton(enabled = !batchBusy, onClick = { selectedDocuments = entries.filterIsInstance<Entry.N>().map { it.note.id }.toSet() }) { Text("Select all") }
+                                TextButton(enabled = !batchBusy, onClick = { selectedDocuments = emptySet() }) { Text("Clear") }
                                 TextButton(enabled = selectedDocuments.isNotEmpty() && !batchBusy, onClick = {
                                     val ids = selectedDocuments
                                     batchBusy = true
@@ -932,6 +960,7 @@ fun LibraryScreen(
                                         } finally { batchBusy = false }
                                     }
                                 }) { Text("Favorite") }
+                                TextButton(enabled = selectedDocuments.isNotEmpty() && !batchBusy, onClick = { bulkMoveOpen = true }) { Text("Move") }
                                 TextButton(enabled = selectedDocuments.isNotEmpty() && !batchBusy, onClick = { confirmBulkTrash = selectedDocuments.toSet() }) { Text("Trash") }
                             }
                         }
@@ -1263,6 +1292,22 @@ fun LibraryScreen(
             renaming = null
             scope.launch { if (e is Entry.F) repo.renameFolder(e.folder.id, name) else repo.renameNotebook((e as Entry.N).note.id, name) }
         }
+    }
+
+    if (bulkMoveOpen) {
+        AppDialog(
+            onDismissRequest = { bulkMoveOpen = false },
+            title = { Text("Move "+selectedDocuments.size+" documents") },
+            confirmButton = { TextButton(onClick = { bulkMoveOpen = false }) { Text("Cancel") } },
+            text = {
+                LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                    item { MoveRow("Documents", null) { bulkMoveOpen = false; dropInto("notes:"+selectedDocuments.joinToString(","), null) } }
+                    items(lib.folders, key = { it.id }) { folder ->
+                        MoveRow(folder.name, folder) { bulkMoveOpen = false; dropInto("notes:"+selectedDocuments.joinToString(","), folder.id) }
+                    }
+                }
+            },
+        )
     }
 
     moving?.let { e ->
@@ -1674,15 +1719,16 @@ private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
             Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.75f)
-                .then(if (note.deletedAt == null && !a.selectionMode) Modifier.libraryDragSource("note:${note.id}", note.title) else Modifier)
+                .then(if (note.deletedAt == null) Modifier.libraryDragSource(if (note.id in a.selectedIds) "notes:"+a.selectedIds.sorted().joinToString(",") else "note:"+note.id, if (note.id in a.selectedIds) "${a.selectedIds.size} documents" else note.title) else Modifier)
                 .combinedClickable(
                     interactionSource = src,
                     indication = null,
                     onClick = { if (note.deletedAt != null) trashPrompt = true else a.onOpenNote(note) },
-                    onLongClick = if (note.deletedAt != null) ({ trashPrompt = true }) else ({ a.onToggleSelect(note.id) }),
+                    onLongClick = if (note.deletedAt != null) ({ trashPrompt = true }) else null,
                 ),
         ) {
             CoverArt(note.coverSpec, note.title, repo.noteDir(note.id), note.modified, Modifier.fillMaxSize())
+            if (note.id in a.selectedIds) Box(Modifier.matchParentSize().background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)).border(2.dp, MaterialTheme.colorScheme.primary, appCardShape()))
             if (a.selectionMode && note.deletedAt == null) Checkbox(
                 checked = note.id in a.selectedIds, onCheckedChange = { a.onToggleSelect(note.id) },
                 modifier = Modifier.align(Alignment.TopStart).padding(4.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f), CircleShape),
@@ -1694,7 +1740,7 @@ private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
         Caption(
             note.title,
             DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(note.modified)),
-            menuItems = remember(note) { noteMenuItems(note, a) },
+            menuItems = remember(note, a) { noteMenuItems(note, a) },
         )
 
     }
@@ -1739,12 +1785,22 @@ private fun Caption(title: String, sub: String, menuItems: List<AppMenuItem>) {
 @Composable
 private fun ListRow(e: Entry, repo: Repository, a: TileActions) {
     var trashPrompt by remember { mutableStateOf(false) }
-    val items = remember(e) { if (e is Entry.N) noteMenuItems(e.note, a) else folderMenuItems(e as Entry.F, a) }
+    var dropHover by remember { mutableStateOf(false) }
+    val items = remember(e, a) { if (e is Entry.N) noteMenuItems(e.note, a) else folderMenuItems(e as Entry.F, a) }
     AppCard(
         hero = false,
         shape = appCardShape(),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
+            .then(when (e) {
+                is Entry.F -> Modifier.libraryDragSource("folder:"+e.folder.id, e.folder.name)
+                    .libraryDropTarget(onHover = { dropHover = it }) { payload -> a.onDrop(payload, e.folder.id) }
+                is Entry.N -> if (e.note.deletedAt == null) Modifier.libraryDragSource(
+                    if (e.note.id in a.selectedIds) "notes:"+a.selectedIds.sorted().joinToString(",") else "note:"+e.note.id,
+                    if (e.note.id in a.selectedIds) a.selectedIds.size.toString()+" documents" else e.note.title,
+                ) else Modifier
+            })
+            .then(if (dropHover || (e is Entry.N && e.note.id in a.selectedIds)) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, appCardShape()) else Modifier),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             if (a.selectionMode && e is Entry.N && e.note.deletedAt == null) Checkbox(
