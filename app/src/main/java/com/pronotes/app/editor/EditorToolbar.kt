@@ -167,8 +167,8 @@ fun AdaptiveFixedToolbar(
     val isVertical = settings.toolbarDock == ToolbarDock.LEFT || settings.toolbarDock == ToolbarDock.RIGHT
     val barBg = Color.Black
     val barFg = Color(0xFFF1F5F9)
-    val rimColor = if (darkUi) Color.White.copy(alpha = 0.09f) else Color(0xFF0F172A).copy(alpha = 0.09f)
-    val hairlineColor = if (darkUi) Color.White.copy(alpha = 0.12f) else Color(0xFF0F172A).copy(alpha = 0.11f)
+    val rimColor = Color.White.copy(alpha = 0.12f)
+    val hairlineColor = Color.White.copy(alpha = 0.15f)
     val reduceEffects = LocalReduceEffects.current
     val context = LocalContext.current
     val store = remember(context) { SettingsStore.get(context) }
@@ -283,7 +283,7 @@ fun AdaptiveFixedToolbar(
                             vertical = true,
                             settings = settings,
                             dockFg = barFg,
-                            darkDock = darkUi,
+                            darkDock = true,
                         )
                     }
                 }
@@ -349,7 +349,7 @@ fun AdaptiveFixedToolbar(
                                     vertical = false,
                                     settings = settings,
                                     dockFg = barFg,
-                                    darkDock = darkUi,
+                                    darkDock = true,
                                 )
                             }
                         }
@@ -410,7 +410,7 @@ fun FloatingToolbarPill(
 ) {
     val dockBg = Color.Black
     val dockFg = Color(0xFFF1F5F9)
-    val hairlineColor = if (darkUi) Color.White.copy(alpha = 0.13f) else Color(0xFF0F172A).copy(alpha = 0.11f)
+    val hairlineColor = Color.White.copy(alpha = 0.15f)
     val reduceEffects = LocalReduceEffects.current
     val density = LocalDensity.current.density
     val visibleTools = remember(settings.toolbarTools) { ToolbarOrder.visible(settings.toolbarTools) }
@@ -473,7 +473,7 @@ fun FloatingToolbarPill(
         contentColor = dockFg,
         shape = if (isVertical) RoundedCornerShape(24.dp) else RoundedCornerShape(22.dp),
         shadowElevation = if (reduceEffects) 0.dp else 14.dp,
-        borderColor = if (darkUi) Color.White.copy(alpha = 0.14f) else Color(0xFF0F172A).copy(alpha = 0.11f),
+        borderColor = Color.White.copy(alpha = 0.16f),
         contentPadding = PaddingValues(
             horizontal = if (isVertical) 5.dp else 8.dp,
             vertical = if (isVertical) 6.dp else 5.dp,
@@ -564,7 +564,7 @@ fun FloatingToolbarPill(
                 }
                 if (layout.showInlineOptions && toolHasInlineOptions(vm.tool)) {
                     StudioHairline(vertical = false, color = hairlineColor)
-                    ToolOptions(vm = vm, vertical = true, settings = settings, dockFg = dockFg, darkDock = darkUi)
+                    ToolOptions(vm = vm, vertical = true, settings = settings, dockFg = dockFg, darkDock = true)
                 }
             }
         } else {
@@ -615,7 +615,7 @@ fun FloatingToolbarPill(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        ToolOptions(vm = vm, vertical = false, settings = settings, dockFg = dockFg, darkDock = darkUi)
+                        ToolOptions(vm = vm, vertical = false, settings = settings, dockFg = dockFg, darkDock = true)
                     }
                 }
                 StudioHairline(vertical = true, color = hairlineColor)
@@ -968,7 +968,7 @@ fun ToolButton(
 
     val dragReorderMod = Modifier
 
-    val pedestalBg = if (darkUi) WorkbenchDarkElevated else WorkbenchLightElevated
+    val pedestalBg = WorkbenchDarkElevated
     val targetSlotBg = when {
         dragging -> ProButtonPalette.ElectricBlue.copy(alpha = 0.22f)
         selected -> androidx.compose.ui.graphics.lerp(pedestalBg, accent, 0.15f)
@@ -1040,8 +1040,8 @@ fun ToolButton(
         ) {
             val glyphTint = when {
                 selected && !hasColorBar -> ProButtonPalette.ElectricBlue
-                selected -> if (darkUi) Color.White else Color(0xFF0F172A)
-                else -> barFg.copy(alpha = 0.78f)
+                selected -> Color.White
+                else -> barFg.copy(alpha = 0.80f)
             }
             ToolGlyph(
                 tool = t,
@@ -1058,7 +1058,7 @@ fun ToolButton(
                 val barW = if (selected) 20.dp else 12.dp
                 val barH = if (selected) 3.5.dp else 2.5.dp
                 val rim = if (ink.luminance() > 0.75f) Color(0xFF0F172A).copy(alpha = 0.35f)
-                else if (ink.luminance() < 0.16f && darkUi) Color.White.copy(alpha = 0.45f)
+                else if (ink.luminance() < 0.16f) Color.White.copy(alpha = 0.45f)
                 else Color.Transparent
                 Box(
                     modifier = Modifier
@@ -1544,9 +1544,9 @@ fun SizeDots(
     darkDock: Boolean = false,
     onPick: (Float) -> Unit,
 ) {
-    val activeBg = if (darkDock) WorkbenchDarkElevated else WorkbenchLightElevated
-    val activeAccent = if (darkDock) Color(0xFF93C5FD) else ProButtonPalette.ElectricBlue
-    val activeBorder = activeAccent.copy(alpha = if (darkDock) 0.65f else 0.50f)
+    val activeBg = WorkbenchDarkElevated
+    val activeAccent = Color(0xFF93C5FD)
+    val activeBorder = activeAccent.copy(alpha = 0.65f)
     sizes.forEachIndexed { i, s ->
         val selected = s == current
         Box(

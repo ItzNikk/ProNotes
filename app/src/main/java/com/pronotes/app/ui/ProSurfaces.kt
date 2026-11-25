@@ -88,6 +88,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.withTransform
@@ -739,7 +740,7 @@ fun TopScrollCloudyBackdrop(
             initialValue = 0f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 9000, easing = LinearEasing),
+                animation = tween(durationMillis = 24000, easing = LinearEasing),
                 repeatMode = RepeatMode.Restart,
             ),
             label = "auroraFlow",
@@ -747,6 +748,13 @@ fun TopScrollCloudyBackdrop(
     } else null
 
     val surface = baseSurface
+    val density = LocalDensity.current
+    val auroraBlurEffect = remember(auroraActive, liveBlur, density) {
+        if (auroraActive && liveBlur && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val radiusPx = with(density) { 26.dp.toPx() }.coerceAtLeast(1f)
+            Api31BlurHelper.createBlur(radiusPx)
+        } else null
+    }
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -766,100 +774,75 @@ fun TopScrollCloudyBackdrop(
             )
             .background(
                 Brush.verticalGradient(
-                    0.0f to surface.copy(alpha = if (auroraActive) scrimAlpha * 0.55f else scrimAlpha),
-                    0.30f to surface.copy(alpha = (if (auroraActive) scrimAlpha * 0.55f else scrimAlpha) * 0.68f),
-                    0.62f to surface.copy(alpha = (if (auroraActive) scrimAlpha * 0.55f else scrimAlpha) * 0.30f),
-                    0.85f to surface.copy(alpha = (if (auroraActive) scrimAlpha * 0.55f else scrimAlpha) * 0.08f),
+                    0.0f to surface.copy(alpha = if (auroraActive) scrimAlpha * 0.28f else scrimAlpha),
+                    0.30f to surface.copy(alpha = (if (auroraActive) scrimAlpha * 0.28f else scrimAlpha) * 0.65f),
+                    0.62f to surface.copy(alpha = (if (auroraActive) scrimAlpha * 0.28f else scrimAlpha) * 0.28f),
+                    0.85f to surface.copy(alpha = (if (auroraActive) scrimAlpha * 0.28f else scrimAlpha) * 0.08f),
                     1.0f to Color.Transparent,
                 ),
-            )
-            .drawWithCache {
-                val w = size.width.coerceAtLeast(1f)
-                val h = size.height.coerceAtLeast(1f)
-                val ribbonBrush = Brush.linearGradient(
-                    colors = FullSpectrumAuroraColors,
-                    start = Offset.Zero,
-                    end = Offset(w * 1.45f, 0f),
-                    tileMode = TileMode.Repeated,
-                )
-                val verticalFadeMask = Brush.verticalGradient(
-                    0.0f to Color.Black,
-                    0.42f to Color.Black.copy(alpha = 0.78f),
-                    0.78f to Color.Black.copy(alpha = 0.28f),
-                    1.0f to Color.Transparent,
-                )
-                // 5 saturated multi-hue aurora plumes spanning almost every color in the spectrum.
-                val plumeRadius = (w * 0.36f).coerceAtLeast(h * 3.2f)
-                val plumes = listOf(
-                    Brush.radialGradient(
-                        listOf(Color(0xFFFF1744).copy(alpha = 0.82f), Color(0xFFFF6D00).copy(alpha = 0.44f), Color.Transparent),
-                        Offset.Zero,
-                        plumeRadius,
-                    ),
-                    Brush.radialGradient(
-                        listOf(Color(0xFFFFD600).copy(alpha = 0.78f), Color(0xFF00E676).copy(alpha = 0.44f), Color.Transparent),
-                        Offset.Zero,
-                        plumeRadius,
-                    ),
-                    Brush.radialGradient(
-                        listOf(Color(0xFF00E5CC).copy(alpha = 0.82f), Color(0xFF00C8FF).copy(alpha = 0.46f), Color.Transparent),
-                        Offset.Zero,
-                        plumeRadius,
-                    ),
-                    Brush.radialGradient(
-                        listOf(Color(0xFF2962FF).copy(alpha = 0.84f), Color(0xFF651FFF).copy(alpha = 0.48f), Color.Transparent),
-                        Offset.Zero,
-                        plumeRadius,
-                    ),
-                    Brush.radialGradient(
-                        listOf(Color(0xFFAA00FF).copy(alpha = 0.84f), Color(0xFFFF1493).copy(alpha = 0.48f), Color.Transparent),
-                        Offset.Zero,
-                        plumeRadius,
-                    ),
-                )
-                onDrawWithContent {
-                    drawContent()
-                    if (auroraActive) {
-                        val phase = auroraPhaseState?.value ?: 0.15f
-                        val twoPi = 2.0 * PI
-                        val shiftX = phase * w * 1.45f
-                        // Offscreen vertical-fade mask so the rich full-spectrum aurora feathers smoothly down into the page.
-                        drawIntoCanvas { canvas ->
-                            val save = canvas.nativeCanvas.saveLayer(0f, 0f, w, h, null)
-                            // Flowing full-spectrum saturated aurora ribbon
-                            withTransform({ translate(left = -shiftX) }) {
-                                drawRect(
-                                    brush = ribbonBrush,
-                                    topLeft = Offset(shiftX, 0f),
-                                    size = size,
-                                    alpha = 0.62f,
-                                )
+            ),
+    ) {
+        if (auroraActive) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(
+                        if (auroraBlurEffect != null) {
+                            Modifier.graphicsLayer {
+                                renderEffect = auroraBlurEffect
+                                clip = false
                             }
-                            // 5 drifting high-saturation aurora plumes (red/orange, gold/lime, mint/cyan, blue/indigo, violet/magenta)
-                            val yScale = (h * 1.15f) / plumeRadius
-                            plumes.forEachIndexed { i, brush ->
-                                val baseFrac = (i + 0.5f) / plumes.size.toFloat()
-                                val drift = (sin(phase * twoPi + i * 1.2566) * 0.14).toFloat()
-                                val cx = ((baseFrac + drift + phase * 0.35f) % 1.2f - 0.1f) * w
-                                withTransform({
-                                    translate(left = cx, top = 0f)
-                                    scale(1f, yScale, Offset.Zero)
-                                }) {
-                                    drawCircle(brush = brush, radius = plumeRadius, center = Offset.Zero)
-                                }
-                            }
-                            // Apply smooth vertical cosine-like feather mask
-                            drawRect(
-                                brush = verticalFadeMask,
-                                size = size,
-                                blendMode = BlendMode.DstIn,
+                        } else Modifier,
+                    )
+                    .drawBehind {
+                        val w = size.width.coerceAtLeast(1f)
+                        val h = size.height.coerceAtLeast(1f)
+                        val phase = (auroraPhaseState?.value ?: 0.15f).coerceIn(0f, 1f)
+                        // Single unified color across the entire bar that gradually morphs through the spectrum.
+                        val palette = FullSpectrumAuroraColors
+                        val segCount = (palette.size - 1).coerceAtLeast(1)
+                        val scaled = phase * segCount
+                        val idx = scaled.toInt().coerceIn(0, segCount - 1)
+                        val frac = (scaled - idx).coerceIn(0f, 1f)
+                        val smoothFrac = frac * frac * (3f - 2f * frac)
+                        val currentColor = lerp(palette[idx], palette[idx + 1], smoothFrac)
+
+                        // Soft, widely feathered single-color atmospheric glow fading gently down from the toolbar.
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                0.00f to currentColor.copy(alpha = 0.36f),
+                                0.18f to currentColor.copy(alpha = 0.28f),
+                                0.42f to currentColor.copy(alpha = 0.16f),
+                                0.68f to currentColor.copy(alpha = 0.065f),
+                                0.88f to currentColor.copy(alpha = 0.018f),
+                                1.00f to Color.Transparent,
+                                startY = 0f,
+                                endY = h,
+                            ),
+                            size = size,
+                        )
+                        // Subtle broad centered bloom of the exact same color for extra depth and softness.
+                        val bloomRadius = (w * 0.62f).coerceAtLeast(h * 3.6f)
+                        withTransform({
+                            translate(left = w * 0.5f, top = 0f)
+                            scale(1f, (h * 0.92f) / bloomRadius, Offset.Zero)
+                        }) {
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    0.0f to currentColor.copy(alpha = 0.20f),
+                                    0.55f to currentColor.copy(alpha = 0.08f),
+                                    1.0f to Color.Transparent,
+                                    center = Offset.Zero,
+                                    radius = bloomRadius,
+                                ),
+                                radius = bloomRadius,
+                                center = Offset.Zero,
                             )
-                            canvas.nativeCanvas.restoreToCount(save)
                         }
-                    }
-                }
-            },
-    )
+                    },
+            )
+        }
+    }
 }
 
 @Composable

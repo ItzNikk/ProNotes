@@ -353,32 +353,32 @@ fun BookReaderHubScreen(
             )),
     ) {
         Column(
-            Modifier
-                .fillMaxSize()
-                .statusBarsPadding(),
+            Modifier.fillMaxSize(),
         ) {
             // Reading Room Header
             Row(
                 Modifier
                     .fillMaxWidth()
+                    .background(Color.Black)
+                    .statusBarsPadding()
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 IconButton(onClick = onBackToLibrary) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to library")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to library", tint = Color.White)
                 }
                 Box(
                     Modifier
                         .size(40.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.secondaryContainer),
+                        .background(Color(0xFF1A1D24)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         Icons.AutoMirrored.Outlined.MenuBook,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        tint = Color(0xFF93C5FD),
                         modifier = Modifier.size(22.dp),
                     )
                 }
@@ -388,7 +388,7 @@ fun BookReaderHubScreen(
                     Text(
                         "${pdfBooks.size} PDF books · ${noteBooks.size} notebooks",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = Color(0xFFB4BCD0),
                     )
                 }
                 AppPill(
@@ -402,7 +402,7 @@ fun BookReaderHubScreen(
                     Text("Import", style = MaterialTheme.typography.labelLarge)
                 }
                 IconButton(onClick = onSettings) {
-                    Icon(Icons.Outlined.Settings, contentDescription = "Settings")
+                    Icon(Icons.Outlined.Settings, contentDescription = "Settings", tint = Color.White)
                 }
             }
 
@@ -1148,8 +1148,9 @@ fun BookReaderScreen(
         ) {
             AppSurface(
                 role = SurfaceRole.Chrome,
-                containerColor = theme.chromeBg,
-                contentColor = theme.inkText,
+                containerColor = Color.Black,
+                contentColor = Color.White,
+                borderColor = Color.White.copy(alpha = 0.14f),
                 shape = RoundedCornerShape(18.dp),
                 shadowElevation = 6.dp,
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
@@ -1164,7 +1165,7 @@ fun BookReaderScreen(
                         onClick = onBack,
                         modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to shelf", tint = theme.inkText)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to shelf", tint = Color.White)
                     }
                     Column(Modifier.weight(1f)) {
                         Text(
@@ -1173,7 +1174,7 @@ fun BookReaderScreen(
                                 fontFamily = FontFamily.Serif,
                                 fontWeight = FontWeight.Bold,
                             ),
-                            color = theme.inkText,
+                            color = Color.White,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -1182,19 +1183,19 @@ fun BookReaderScreen(
                         onClick = { showSearchSheet = true },
                         modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
                     ) {
-                        Icon(Icons.Outlined.Search, contentDescription = stringResource(R.string.reader_search), tint = theme.inkText)
+                        Icon(Icons.Outlined.Search, contentDescription = stringResource(R.string.reader_search), tint = Color.White)
                     }
                     IconButton(
                         onClick = { showContentsSheet = true },
                         modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
                     ) {
-                        Icon(Icons.Outlined.GridView, contentDescription = stringResource(R.string.reader_contents), tint = theme.inkText)
+                        Icon(Icons.Outlined.GridView, contentDescription = stringResource(R.string.reader_contents), tint = Color.White)
                     }
                     IconButton(
                         onClick = { showDisplaySheet = true },
                         modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
                     ) {
-                        Icon(Icons.Outlined.TextFields, contentDescription = stringResource(R.string.reader_display_settings), tint = theme.inkText)
+                        Icon(Icons.Outlined.TextFields, contentDescription = stringResource(R.string.reader_display_settings), tint = Color.White)
                     }
                     val isBookmarked = pages.getOrNull(currentPage)?.bookmarked == true
                     IconButton(
@@ -1206,7 +1207,7 @@ fun BookReaderScreen(
                             contentDescription = stringResource(
                                 if (isBookmarked) R.string.reader_bookmark_remove else R.string.reader_bookmark_add,
                             ),
-                            tint = if (isBookmarked) theme.accent else theme.mutedText,
+                            tint = if (isBookmarked) theme.accent else Color(0xFFB4BCD0),
                         )
                     }
                 }
@@ -1225,8 +1226,9 @@ fun BookReaderScreen(
         ) {
             AppSurface(
                 role = SurfaceRole.Chrome,
-                containerColor = theme.chromeBg,
-                contentColor = theme.inkText,
+                containerColor = Color.Black,
+                contentColor = Color.White,
+                borderColor = Color.White.copy(alpha = 0.14f),
                 shape = RoundedCornerShape(18.dp),
                 shadowElevation = 6.dp,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
@@ -1245,7 +1247,7 @@ fun BookReaderScreen(
                         Icon(
                             Icons.Outlined.ChevronLeft,
                             contentDescription = stringResource(R.string.reader_previous_page),
-                            tint = if (canGoPrev()) theme.inkText else theme.mutedText.copy(alpha = 0.35f),
+                            tint = if (canGoPrev()) Color.White else Color.White.copy(alpha = 0.30f),
                         )
                     }
                     Column(Modifier.weight(1f)) {
@@ -1254,13 +1256,13 @@ fun BookReaderScreen(
                             Text(
                                 "Page ${currentPage + 1} of $totalPages",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = theme.inkText,
+                                color = Color.White,
                                 fontWeight = FontWeight.SemiBold,
                             )
                             Text(
                                 if (zoom > 1.04f) "${(zoom * 100).roundToInt()}% · $pct%" else "$pct% read",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = theme.mutedText,
+                                color = Color(0xFFB4BCD0),
                             )
                         }
                         if (totalPages > 1) {
@@ -1273,9 +1275,9 @@ fun BookReaderScreen(
                                 valueRange = 0f..(totalPages - 1).toFloat(),
                                 steps = (totalPages - 2).coerceAtLeast(0),
                                 colors = SliderDefaults.colors(
-                                    thumbColor = theme.accent,
-                                    activeTrackColor = theme.accent,
-                                    inactiveTrackColor = theme.mutedText.copy(alpha = 0.25f),
+                                    thumbColor = Color(0xFF93C5FD),
+                                    activeTrackColor = Color(0xFF93C5FD),
+                                    inactiveTrackColor = Color.White.copy(alpha = 0.22f),
                                 ),
                                 modifier = Modifier.height(28.dp),
                             )
@@ -1289,7 +1291,7 @@ fun BookReaderScreen(
                         Icon(
                             Icons.Outlined.ChevronRight,
                             contentDescription = stringResource(R.string.reader_next_page),
-                            tint = if (canGoNext()) theme.inkText else theme.mutedText.copy(alpha = 0.35f),
+                            tint = if (canGoNext()) Color.White else Color.White.copy(alpha = 0.30f),
                         )
                     }
                 }

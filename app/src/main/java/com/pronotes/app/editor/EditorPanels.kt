@@ -60,6 +60,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -117,8 +118,8 @@ internal fun TabStrip(
     onSelect: (String) -> Unit,
     onClose: (String) -> Unit,
 ) {
-    val mutedFg = if (darkUi) Color(0xFF8E9BBE) else Color(0xFF475569)
-    val closeFg = if (darkUi) Color(0xFF8FA3C4) else Color(0xFF64748B)
+    val mutedFg = Color(0xFFB4BCD0)
+    val closeFg = Color(0xFF94A3B8)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -154,7 +155,7 @@ internal fun TabStrip(
                 } else {
                     RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
                 }
-                val bg = if (sel) activeTabBg else if (darkUi) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
+                val bg = if (sel) activeTabBg else Color.White.copy(alpha = 0.08f)
                 val labelColor = if (sel) fgColor else mutedFg
                 Row(
                     modifier = Modifier
@@ -331,10 +332,10 @@ internal fun TopBar(
 
         AppMenuButton(
             contentDescription = "Insert into notebook",
-            containerColor = ProButtonPalette.Emerald.copy(alpha = if (darkUi) 0.24f else 0.16f),
+            containerColor = ProButtonPalette.Emerald.copy(alpha = 0.24f),
             contentPadding = PaddingValues(7.dp),
             buttonContent = {
-                ProIconView(ProIcon.ADD, if (darkUi) Color(0xFF6EE7B7) else Color(0xFF047857), Modifier.size(20.dp))
+                ProIconView(ProIcon.ADD, Color(0xFF6EE7B7), Modifier.size(20.dp))
             },
             items = listOf(
                 AppMenuItem("New page after this") { vm.addPage() },
@@ -350,10 +351,10 @@ internal fun TopBar(
         Spacer(Modifier.width(3.dp))
         if (!compact) AppMenuButton(
             contentDescription = "Share and export",
-            containerColor = ProButtonPalette.SkyCyan.copy(alpha = if (darkUi) 0.24f else 0.16f),
+            containerColor = ProButtonPalette.SkyCyan.copy(alpha = 0.24f),
             contentPadding = PaddingValues(7.dp),
             buttonContent = {
-                ProIconView(ProIcon.SHARE, if (darkUi) Color(0xFF7DD3FC) else Color(0xFF0369A1), Modifier.size(20.dp))
+                ProIconView(ProIcon.SHARE, Color(0xFF7DD3FC), Modifier.size(20.dp))
             },
             items = listOf(
                 AppMenuItem("Export as PDF…", icon = { Icon(Icons.Outlined.PictureAsPdf, null, Modifier.size(18.dp)) }) { onExport() },
@@ -541,10 +542,10 @@ internal fun TopBar(
         }
         AppMenuButton(
             contentDescription = "More actions",
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (darkUi) 0.85f else 0.92f),
+            containerColor = Color.White.copy(alpha = 0.14f),
             contentPadding = PaddingValues(7.dp),
             buttonContent = {
-                ProIconView(ProIcon.MORE, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp))
+                ProIconView(ProIcon.MORE, Color.White, Modifier.size(20.dp))
             },
             items = moreEntries,
         )
@@ -555,73 +556,89 @@ internal fun TopBar(
 internal fun SearchBar(vm: EditorViewModel, onClose: () -> Unit) {
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    AppCard(
-        hero = false,
+    val barFg = Color(0xFFF1F5F9)
+    val barMuted = Color(0xFFB4BCD0)
+    AppSurface(
+        role = SurfaceRole.Chrome,
+        containerColor = Color.Black,
+        contentColor = barFg,
+        borderColor = Color.White.copy(alpha = 0.14f),
         shape = appCardShape(),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = vm.searchQuery,
-                    onValueChange = vm::search,
-                    singleLine = true,
-                    placeholder = {
-                        com.pronotes.app.ui.AnimatedGradientSearchPlaceholder("What are you looking for?")
-                    },
-                    leadingIcon = { ProIconView(ProIcon.SEARCH, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.size(20.dp)) },
-                    shape = CircleShape,
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    when {
-                        vm.searching -> "Scanning ink & text…"
-                        vm.searchQuery.isBlank() -> "Text · PDF · Handwriting"
-                        vm.searchHits.isEmpty() -> "No results"
-                        else -> "${vm.activeHit + 1} of ${vm.searchHits.size}"
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                IconButton(onClick = { vm.stepHit(-1) }, enabled = vm.searchHits.isNotEmpty()) {
-                    Icon(Icons.Filled.KeyboardArrowUp, "Previous match")
+        CompositionLocalProvider(LocalContentColor provides barFg) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = vm.searchQuery,
+                        onValueChange = vm::search,
+                        singleLine = true,
+                        placeholder = {
+                            com.pronotes.app.ui.AnimatedGradientSearchPlaceholder("What are you looking for?")
+                        },
+                        leadingIcon = { ProIconView(ProIcon.SEARCH, barMuted, Modifier.size(20.dp)) },
+                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            cursorColor = ProButtonPalette.ElectricBlue,
+                            focusedBorderColor = ProButtonPalette.ElectricBlue,
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.22f),
+                            focusedContainerColor = Color(0xFF14161C),
+                            unfocusedContainerColor = Color(0xFF14161C),
+                        ),
+                        shape = CircleShape,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        when {
+                            vm.searching -> "Scanning ink & text…"
+                            vm.searchQuery.isBlank() -> "Text · PDF · Handwriting"
+                            vm.searchHits.isEmpty() -> "No results"
+                            else -> "${vm.activeHit + 1} of ${vm.searchHits.size}"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = barMuted,
+                    )
+                    IconButton(onClick = { vm.stepHit(-1) }, enabled = vm.searchHits.isNotEmpty()) {
+                        Icon(Icons.Filled.KeyboardArrowUp, "Previous match", tint = if (vm.searchHits.isNotEmpty()) Color.White else barMuted.copy(alpha = 0.35f))
+                    }
+                    IconButton(onClick = { vm.stepHit(1) }, enabled = vm.searchHits.isNotEmpty()) {
+                        Icon(Icons.Filled.KeyboardArrowDown, "Next match", tint = if (vm.searchHits.isNotEmpty()) Color.White else barMuted.copy(alpha = 0.35f))
+                    }
+                    IconButton(onClick = { vm.clearSearch(); focusManager.clearFocus(); keyboard?.hide(); onClose() }) {
+                        Icon(Icons.Filled.Close, "Cancel search", tint = Color.White)
+                    }
                 }
-                IconButton(onClick = { vm.stepHit(1) }, enabled = vm.searchHits.isNotEmpty()) {
-                    Icon(Icons.Filled.KeyboardArrowDown, "Next match")
-                }
-                IconButton(onClick = { vm.clearSearch(); focusManager.clearFocus(); keyboard?.hide(); onClose() }) {
-                    Icon(Icons.Filled.Close, "Cancel search")
-                }
-            }
-            if (vm.searchHits.isNotEmpty()) {
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 160.dp)) {
-                    itemsIndexed(vm.searchHits, key = { idx, hit -> "${hit.page}:$idx:${hit.snippet.hashCode()}" }) { i, hit ->
-                        AppPill(
-                            selected = i == vm.activeHit,
-                            tint = ProButtonPalette.ElectricBlue,
-                            onClick = { vm.jumpToHit(i) },
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                val fg = if (i == vm.activeHit) Color.White else MaterialTheme.colorScheme.onSurface
-                                Text(
-                                    "p.${hit.page + 1}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (i == vm.activeHit) fg else ProButtonPalette.ElectricBlue,
-                                    modifier = Modifier.width(44.dp),
-                                )
-                                Text(
-                                    hit.snippet,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = fg,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
+                if (vm.searchHits.isNotEmpty()) {
+                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 160.dp)) {
+                        itemsIndexed(vm.searchHits, key = { idx, hit -> "${hit.page}:$idx:${hit.snippet.hashCode()}" }) { i, hit ->
+                            AppPill(
+                                selected = i == vm.activeHit,
+                                tint = ProButtonPalette.ElectricBlue,
+                                onClick = { vm.jumpToHit(i) },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    val fg = if (i == vm.activeHit) Color.White else barFg
+                                    Text(
+                                        "p.${hit.page + 1}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (i == vm.activeHit) fg else Color(0xFF93C5FD),
+                                        modifier = Modifier.width(44.dp),
+                                    )
+                                    Text(
+                                        hit.snippet,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = fg,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                             }
                         }
                     }
@@ -780,8 +797,8 @@ internal fun WriteBoxStudioBar(
     pageIndex: Int,
     darkUi: Boolean,
 ) {
-    val barBg = if (darkUi) Color(0xF5161B26) else Color(0xFAFFFFFF)
-    val barFg = if (darkUi) Color(0xFFF1F5F9) else Color(0xFF0F172A)
+    val barBg = Color.Black
+    val barFg = Color(0xFFF1F5F9)
     var textValue by remember(box.id, box.convertedText) { mutableStateOf(box.convertedText) }
 
     AppSurface(

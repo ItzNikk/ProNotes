@@ -207,8 +207,8 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
             }
         }
 
-        Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            Box(Modifier.fillMaxWidth().background(Color.Black)) {
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxWidth().background(Color.Black).statusBarsPadding()) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -217,12 +217,15 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
                     val appStrings = com.pronotes.app.data.LocalAppStrings.current
                     AppSurface(
                         role = SurfaceRole.Control,
+                        containerColor = Color(0xFF1A1A1A),
+                        contentColor = Color.White,
+                        borderColor = Color.White.copy(alpha = 0.16f),
                         shape = appPillShape(),
                         contentPadding = PaddingValues(12.dp),
                         onClick = back,
                         onClickLabel = appStrings.back,
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, appStrings.back, tint = MaterialTheme.colorScheme.onSurface)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, appStrings.back, tint = Color.White)
                     }
                     GradientTitle(if (wide) appStrings.settings else current?.localizedLabel(appStrings) ?: appStrings.settings,
                         MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f), maxLines = 2)

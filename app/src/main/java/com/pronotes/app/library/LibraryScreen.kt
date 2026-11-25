@@ -580,11 +580,16 @@ fun LibraryScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (!sidebar) {
-                            AppPill(
-                                onClick = { if (wide) wideSidebar = true else compactSidebar = true },
+                            AppSurface(
+                                role = SurfaceRole.Control,
+                                containerColor = Color(0xFF18181B),
+                                contentColor = Color.White,
+                                borderColor = Color.White.copy(alpha = 0.16f),
+                                shape = appPillShape(),
                                 contentPadding = PaddingValues(8.dp),
+                                onClick = { if (wide) wideSidebar = true else compactSidebar = true },
                             ) {
-                                ProIconView(ProIcon.SIDEBAR, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp))
+                                ProIconView(ProIcon.SIDEBAR, Color.White, Modifier.size(18.dp))
                             }
                             Spacer(Modifier.width(6.dp))
                         }
@@ -609,7 +614,9 @@ fun LibraryScreen(
                             open.forEach { n ->
                                 AppSurface(
                                     role = SurfaceRole.Control,
-                                    containerColor = MaterialTheme.colorScheme.surface,
+                                    containerColor = Color(0xFF18181B),
+                                    contentColor = Color.White,
+                                    borderColor = Color.White.copy(alpha = 0.16f),
                                     shape = RoundedCornerShape(10.dp),
                                     contentPadding = PaddingValues(start = 12.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
                                     onClick = { onOpen(n.id) },
@@ -619,6 +626,7 @@ fun LibraryScreen(
                                         Text(
                                             n.title,
                                             style = MaterialTheme.typography.labelSmall,
+                                            color = Color.White,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.weight(1f, fill = false),
@@ -628,7 +636,7 @@ fun LibraryScreen(
                                             Modifier.size(20.dp).clip(CircleShape).clickable { store.closeTab(n.id) },
                                             contentAlignment = Alignment.Center,
                                         ) {
-                                            ProIconView(ProIcon.CLOSE, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.size(11.dp))
+                                            ProIconView(ProIcon.CLOSE, Color(0xFFB4BCD0), Modifier.size(11.dp))
                                         }
                                     }
                                 }

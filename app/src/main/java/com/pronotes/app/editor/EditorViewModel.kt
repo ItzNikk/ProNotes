@@ -1598,7 +1598,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         say(if (nextWb) "Switched to ∞ Infinite Whiteboard" else "Switched to standard page")
     }
 
-    fun addPage(atEnd: Boolean = false, paper: PaperStyle? = null, isWhiteboard: Boolean? = null) {
+    fun addPage(atEnd: Boolean = false, paper: PaperStyle? = null, isWhiteboard: Boolean? = null, autoScroll: Boolean = true) {
         val np = newPage().let {
             it.copy(
                 paper = paper ?: it.paper,
@@ -1611,7 +1611,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         structureDirty = true
         undoStack.clear(); redoStack.clear(); refreshUndo()
         scheduleSave(); onPagesChanged?.invoke()
-        onScrollTo?.invoke(at)
+        if (autoScroll) onScrollTo?.invoke(at)
     }
 
     fun deletePage(pageId: String) {

@@ -70,6 +70,8 @@ interface CanvasHost {
     fun onWriteBoxDoubleTap(page: Int, item: WriteBoxItem) {}
     fun onCurrentPage(index: Int)
     fun onPullAddPage()
+    /** Adds a page at the end when dragging a selection past the last page, without fighting the drag scroll. */
+    fun onAddPageForDrop() { onPullAddPage() }
     fun undo()
     fun redo()
     fun pdfBitmap(page: Page, widthPx: Int, onReady: () -> Unit): Bitmap?
@@ -739,7 +741,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         val pad = 24f * density
         val cw = docW * scale; val ch = docH * scale
         val vertical = settings.scroll == ScrollDirection.VERTICAL
-        val maxPull = if (allowPull && settings.pullToAddPage) 180f * density else 0f
+        val maxPull = if (allowPull && (settings.pullToAddPage || (mode == Mode.MOVE && grab == Grab.MOVE))) 180f * density else 0f
         // X axis
         val restX = if (cw <= width) (width - cw) / 2f else width - cw - pad
         val maxX = if (cw <= width) restX else pad
@@ -1021,11 +1023,102 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
     private var selectionScrollY = 0f
     private var selectionScrollStarted = false
 
+    internal var dragScreenX = 0f
+    internal var dragScreenY = 0f
+    private var edgeScrollActive = false
+    private var edgeScrollLastMs = 0L
+    private var edgeEndHoldMs = 0L
+
+    private val edgeScrollRunnable = object : Runnable {
+        override fun run() {
+            if (!edgeScrollActive || mode != Mode.MOVE || grab != Grab.MOVE) {
+                edgeScrollActive = false
+                return
+            }
+            if (selectionScrollPointer == -1 && width > 0 && height > 0) {
+                val now = SystemClock.uptimeMillis()
+                val dt = ((now - edgeScrollLastMs).coerceIn(1L, 48L)) / 16.667f
+                edgeScrollLastMs = now
+                val edge = 88f * density
+                val vertical = settings.scroll == ScrollDirection.VERTICAL
+                var dtx = 0f
+                var dty = 0f
+                if (vertical || isWhiteboard) {
+                    if (dragScreenY < edge) {
+                        val t = ((edge - dragScreenY) / edge).coerceIn(0f, 1f)
+                        dty = (5f + 22f * t * t) * density * dt
+                    } else if (dragScreenY > height - edge) {
+                        val t = ((dragScreenY - (height - edge)) / edge).coerceIn(0f, 1f)
+                        dty = -(5f + 22f * t * t) * density * dt
+                    }
+                }
+                if (!vertical || isWhiteboard) {
+                    if (dragScreenX < edge) {
+                        val t = ((edge - dragScreenX) / edge).coerceIn(0f, 1f)
+                        dtx = (5f + 24f * t * t) * density * dt
+                    } else if (dragScreenX > width - edge) {
+                        val t = ((dragScreenX - (width - edge)) / edge).coerceIn(0f, 1f)
+                        dtx = -(5f + 24f * t * t) * density * dt
+                    }
+                }
+                if (dtx != 0f || dty != 0f) {
+                    val prevX = transX
+                    val prevY = transY
+                    transX += dtx
+                    transY += dty
+                    val pullingForward = (vertical && dty < 0f) || (!vertical && dtx < 0f)
+                    clamp(allowPull = pullingForward && !isWhiteboard)
+                    if (pullingForward && !isWhiteboard && pull >= pullTrigger * 0.65f) {
+                        edgeEndHoldMs += (dt * 16.667f).toLong()
+                        if (edgeEndHoldMs >= 380L) {
+                            edgeEndHoldMs = 0L
+                            host.onAddPageForDrop()
+                            buzz(HapticFeedbackConstants.CLOCK_TICK)
+                            clamp(allowPull = false)
+                        }
+                    } else {
+                        edgeEndHoldMs = 0L
+                    }
+                    if (transX != prevX || transY != prevY) {
+                        updateMatrix()
+                        val (wx, wy) = toLocal(dragScreenX, dragScreenY, selectionPage)
+                        updateGrab(wx, wy, scrollAtEdge = false)
+                        layer.invalidate()
+                        reportSelection()
+                    }
+                } else {
+                    edgeEndHoldMs = 0L
+                }
+            } else {
+                edgeScrollLastMs = SystemClock.uptimeMillis()
+            }
+            if (edgeScrollActive) postOnAnimation(this)
+        }
+    }
+
+    internal fun startEdgeScroll(sx: Float, sy: Float) {
+        dragScreenX = sx
+        dragScreenY = sy
+        edgeEndHoldMs = 0L
+        if (!edgeScrollActive) {
+            edgeScrollActive = true
+            edgeScrollLastMs = SystemClock.uptimeMillis()
+            removeCallbacks(edgeScrollRunnable)
+            postOnAnimation(edgeScrollRunnable)
+        }
+    }
+
+    internal fun stopEdgeScroll() {
+        edgeScrollActive = false
+        edgeEndHoldMs = 0L
+        removeCallbacks(edgeScrollRunnable)
+    }
+
     private fun scrollWhileHoldingSelection(event: MotionEvent, action: Int, holder: Int): Boolean {
         if (mode != Mode.MOVE || grab != Grab.MOVE) return false
         if (action == MotionEvent.ACTION_POINTER_DOWN && selectionScrollPointer == -1) {
             val i = event.actionIndex
-            val palm = settings.palmRejection && (event.getTouchMajor(i) > 26f * density || event.getSize(i) > 0.08f)
+            val palm = settings.palmRejection && event.getTouchMajor(i) > 36f * density
             if (!palm && event.getToolType(i) == MotionEvent.TOOL_TYPE_FINGER && event.getPointerId(i) != holder) {
                 selectionScrollPointer = event.getPointerId(i)
                 selectionScrollX = event.getX(i)
@@ -1036,6 +1129,16 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         }
         if (action == MotionEvent.ACTION_POINTER_UP && event.getPointerId(event.actionIndex) == selectionScrollPointer) {
             selectionScrollPointer = -1
+            val hIdx = event.findPointerIndex(holder)
+            if (hIdx >= 0) {
+                dragScreenX = event.getX(hIdx)
+                dragScreenY = event.getY(hIdx)
+                val (wx, wy) = toLocal(dragScreenX, dragScreenY, selectionPage)
+                updateGrab(wx, wy, scrollAtEdge = false)
+                layer.invalidate()
+                reportSelection()
+            }
+            return true
         }
         val i = event.findPointerIndex(selectionScrollPointer)
         if (action != MotionEvent.ACTION_MOVE || i < 0) return i >= 0
@@ -1049,8 +1152,17 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             if (isWhiteboard || settings.scroll == ScrollDirection.VERTICAL) transY += dy
             selectionScrollX = x
             selectionScrollY = y
-            clamp()
+            clamp(allowPull = !isWhiteboard)
             updateMatrix()
+            val hIdx = event.findPointerIndex(holder)
+            if (hIdx >= 0) {
+                dragScreenX = event.getX(hIdx)
+                dragScreenY = event.getY(hIdx)
+                val (wx, wy) = toLocal(dragScreenX, dragScreenY, selectionPage)
+                updateGrab(wx, wy, scrollAtEdge = false)
+                layer.invalidate()
+                reportSelection()
+            }
         }
         return true
     }
@@ -1587,8 +1699,12 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                         layer.invalidate()
                     }
                     Mode.MOVE -> {
-                        val (wx, wy) = toLocal(e.getX(idx), e.getY(idx), activePage)
-                        updateGrab(wx, wy, scrollAtEdge)
+                        val sx = e.getX(idx)
+                        val sy = e.getY(idx)
+                        dragScreenX = sx
+                        dragScreenY = sy
+                        val (wx, wy) = toLocal(sx, sy, selectionPage)
+                        updateGrab(wx, wy, scrollAtEdge = false)
                         layer.invalidate()
                         reportSelection()
                     }
@@ -1862,6 +1978,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         removeCallbacks(penEmptyPressRunnable)
         removeCallbacks(hoverTimeout)
         removeCallbacks(wetAssertionRunnable)
+        stopEdgeScroll()
         pendingClick?.let { removeCallbacks(it) }; pendingClick = null
         zoomAnim?.cancel(); zoomAnim = null
         layer.stopAnts()
@@ -2204,14 +2321,17 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             pageMatrix(page, tmpMatrix).mapPoints(a)
             a[0] to a[1]
         }
-        // The gesture loop is transient; the selected content gets clean bounds.
-        selectItems(page, ids)
+        // Preserve the drawn circle/loop outline so the selection stays in the drawn shape.
+        selectItems(page, ids, outline = loop)
         if (!circleSelect) { circleSelect = true; host.onCircleSelect(true) }
         layer.playLassoMorph(screen) {}
         activePage = page
         grab = Grab.MOVE
         mode = Mode.MOVE
         grabStartX = grabLocalX; grabStartY = grabLocalY
+        val grabPt = floatArrayOf(grabLocalX, grabLocalY)
+        pageMatrix(page, tmpMatrix).mapPoints(grabPt)
+        startEdgeScroll(grabPt[0], grabPt[1])
         liveScale = 1f; liveScaleX = 1f; liveScaleY = 1f; liveDeg = 0f
         liveMatrix = Matrix()
     }
@@ -2451,6 +2571,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         removeCallbacks(linkLongRunnable)
         removeCallbacks(textPressRunnable)
         removeCallbacks(penEmptyPressRunnable)
+        stopEdgeScroll()
         fingerGrabPointer = -1
         selectionScrollPointer = -1
         feel.stop()
@@ -2506,10 +2627,16 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         if (selectionPage != page || selection != ids) selectionTransformEnabled = false
         selection = ids
         selectionPage = page
-        // The rough gesture is only a preview, never persistent selection chrome.
-        selectionOutline = null
+        selectionOutline = outline?.takeIf { it.size >= 3 }
+        if (ids.isNotEmpty()) {
+            layer.startAnts()
+            layer.popSelection()
+            syncFeel()
+            feel.cue(PaperFeel.Cue.SELECT)
+        } else {
+            layer.stopAnts()
+        }
         layer.invalidate()
-        if (ids.isNotEmpty()) { layer.popSelection(); syncFeel(); feel.cue(PaperFeel.Cue.SELECT) }
         reportSelection()
     }
 
@@ -2520,6 +2647,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         selectionTransformEnabled = false
         selectionOutline = null
         liveMatrix = null
+        layer.stopAnts()
         layer.invalidate()
         reportSelection()
     }

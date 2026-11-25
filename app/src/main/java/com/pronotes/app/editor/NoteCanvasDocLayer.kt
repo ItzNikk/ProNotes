@@ -758,13 +758,47 @@ internal class NoteCanvasDocLayer(
         postInvalidateOnAnimation()
     }
 
+    private val outlineMatrix = Matrix()
+
     private fun drawSelection(canvas: Canvas) {
         if (owner.selection.isEmpty()) return
-        val bounds = owner.selectionPageBounds() ?: return
-        owner.pageMatrix(owner.selectionPage, m).mapRect(bounds)
-        outlinePath.reset()
-        outlinePath.addRoundRect(bounds, 12f * density, 12f * density, Path.Direction.CW)
-        drawDashedLasso(canvas, outlinePath)
+        val outline = owner.selectionOutline
+        if (outline != null && outline.size >= 3) {
+            owner.pageMatrix(owner.selectionPage, outlineMatrix)
+            owner.liveMatrix?.let { outlineMatrix.preConcat(it) }
+            outlinePath.reset()
+            val pt = tmpPt2
+            var prevX = 0f
+            var prevY = 0f
+            var firstX = 0f
+            var firstY = 0f
+            for (i in outline.indices) {
+                pt[0] = outline[i].first
+                pt[1] = outline[i].second
+                outlineMatrix.mapPoints(pt)
+                val sx = pt[0]
+                val sy = pt[1]
+                if (i == 0) {
+                    firstX = sx
+                    firstY = sy
+                    outlinePath.moveTo(sx, sy)
+                } else {
+                    outlinePath.quadTo(prevX, prevY, (prevX + sx) * 0.5f, (prevY + sy) * 0.5f)
+                }
+                prevX = sx
+                prevY = sy
+            }
+            outlinePath.quadTo(prevX, prevY, firstX, firstY)
+            outlinePath.close()
+            canvas.drawPath(outlinePath, lassoFill)
+            drawDashedLasso(canvas, outlinePath)
+        } else {
+            val bounds = owner.selectionPageBounds() ?: return
+            owner.pageMatrix(owner.selectionPage, m).mapRect(bounds)
+            outlinePath.reset()
+            outlinePath.addRoundRect(bounds, 12f * density, 12f * density, Path.Direction.CW)
+            drawDashedLasso(canvas, outlinePath)
+        }
         if (!owner.selectionTransformEnabled) return
         val rotating = owner.grab == NoteCanvasView.Grab.ROTATE && owner.liveMatrix != null
         val wb = (if (rotating) owner.selectionBaseBounds() else owner.selectionPageBounds()) ?: return

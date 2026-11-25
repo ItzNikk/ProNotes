@@ -6,6 +6,11 @@ All notable changes to Pro Notes are documented in this file.
 
 ### What's changed
 
+- Refined the under-toolbar aurora glow into a single unified color across the full width that shifts gradually through the spectrum, with deeper blur (`26dp` on Android 12+) and a softer vertical fade.
+- Fixed dragging lasso selections across pages in both vertical and horizontal scroll modes: added smooth frame-locked edge auto-scrolling when dragging near screen edges, automatic next-page creation when holding or dropping past the last page, reliable hold-and-scroll with a second finger, and clean destination-page placement.
+- Preserved freeform lasso and circle-to-lasso selections in their exact drawn outline shape (with interior polygon hit-testing and smooth curved dashed outlines) instead of collapsing them into a rectangle.
+- Unified app chrome bars (editor tab strip, top bar, fixed/floating toolbars, search bar, Write Box bar, floating canvas pills, Library top bar, Settings header, Kindle Mode header and reader scrubber bars, plus Android status/navigation bars) to pure black with crisp high-contrast light icons and text in both Light and Dark themes.
+
 - Hardened broad Android 8.0–16.0 (`minSdk 26` to `targetSdk 36`) compatibility without removing any features: fixed an Android 13 `NoSuchMethodError` crash in the text box editor (`isAutoHandwritingEnabled` now properly gated at API 34+), isolated all Android 10–16 framework calls (`RenderNode`, `BlendMode`, `Activity.display`, `EditText.textCursorDrawable`/`isAutoHandwritingEnabled`, `VibratorManager`/`VibrationEffect` primitives, `RenderEffect`, Android 15 touch refresh-rate boost and screen-recording detection, and Android 16 promoted live alerts) into `@RequiresApi` helper objects for clean ART verification across older devices, verified all upgraded Compose/Haze/AndroidX AARs support `minSdk <= 23` with aligned Kotlin `2.2.21` stdlib, and added R8 ProGuard keep rules for Haze and Reorderable release stability.
 
 - Upgraded Jetpack Compose BOM to `2026.06.01` (Compose `1.11.4` with Pausable Composition enabled by default in lazy prefetch + Material 3 `1.4.0`), `activity-compose:1.12.4`, `lifecycle-compose:2.10.0`, `navigation-compose:2.9.8`, and `haze:1.7.2` (matched to Kotlin `2.2.21` and `compileSdk 36` for smooth performance without ABI mismatches).

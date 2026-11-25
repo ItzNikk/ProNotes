@@ -769,6 +769,7 @@ fun EditorScreen(
                                         vm.onMindMapTap(page, x, y, existing)
                                     override fun onCurrentPage(index: Int) = vm.onCurrentPage(index)
                                     override fun onPullAddPage() = vm.addPage(atEnd = true)
+                                    override fun onAddPageForDrop() = vm.addPage(atEnd = true, autoScroll = false)
                                     override fun undo() = vm.undo()
                                     override fun redo() = vm.redo()
                                     override fun pdfBitmap(page: Page, widthPx: Int, onReady: () -> Unit) = vm.pdfBitmap(page, widthPx, onReady)
@@ -842,7 +843,7 @@ fun EditorScreen(
                         scrolled = !focus,
                         aurora = true,
                         enabled = settings.topScrollBlur,
-                        height = 34.dp,
+                        height = 56.dp,
                         modifier = Modifier.align(Alignment.TopCenter),
                     )
 
@@ -856,9 +857,9 @@ fun EditorScreen(
                     // Top-Left Floating Undo / Redo + Reset view Pill when Fixed bar isn't hosting Undo/Redo
                     val showFloatingUndoPill = !focus && (!isFixedBar || hideTools || vm.currentPage?.isWhiteboard == true)
                     if (showFloatingUndoPill) {
-                        val undoPillBg = if (darkUi) PopoverDarkBg else PopoverLightBg
-                        val undoPillBorder = if (darkUi) Color.White.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.14f)
-                        val undoFg = if (darkUi) Color(0xFFD1D5DB) else Color(0xFF1F2937)
+                        val undoPillBg = Color.Black
+                        val undoPillBorder = Color.White.copy(alpha = 0.18f)
+                        val undoFg = Color(0xFFF1F5F9)
                         AppSurface(
                             role = SurfaceRole.Chrome,
                             containerColor = undoPillBg,
@@ -1200,14 +1201,16 @@ fun EditorScreen(
                             onColor = { c ->
                                 val ids = vm.selection
                                 val pg = vm.selectionPage
+                                val outline = canvas?.selectionOutline
                                 vm.recolorSelection(c)
-                                canvas?.selectItems(pg, ids)
+                                canvas?.selectItems(pg, ids, outline = outline)
                             },
                             keep = { block ->
                                 val ids = vm.selection
                                 val pg = vm.selectionPage
+                                val outline = canvas?.selectionOutline
                                 block()
-                                canvas?.selectItems(pg, ids)
+                                canvas?.selectItems(pg, ids, outline = outline)
                             },
                             onShareImage = {
                                 scope.launch { vm.selectionImage()?.let { shareBitmap(context, it, vm.title + " selection") } }
@@ -1265,7 +1268,7 @@ fun EditorScreen(
                         val clip = LocalClipboardManager.current
                         AppSurface(
                             role = SurfaceRole.Popover,
-                            containerColor = Color(0xEB1B1F2A),
+                            containerColor = Color.Black,
                             contentColor = Color.White,
                             shape = appPillShape(),
                             shadowElevation = 10.dp,
@@ -1325,7 +1328,7 @@ fun EditorScreen(
                     vm.toast?.let { msg ->
                         AppSurface(
                             role = SurfaceRole.Popover,
-                            containerColor = Color(0xEB1B1F2A),
+                            containerColor = Color.Black,
                             contentColor = Color.White,
                             shape = appPillShape(),
                             onClick = { vm.dismissToast() },
@@ -1768,7 +1771,7 @@ private fun EditorZoomIndicatorOverlay(
     val z = vm.zoomPercent ?: return
     AppSurface(
         role = SurfaceRole.Frost,
-        containerColor = Color(0xE01B1F2A),
+        containerColor = Color.Black,
         contentColor = Color.White,
         shape = appPillShape(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
@@ -1789,12 +1792,13 @@ private fun EditorPageIndicatorPill(
     val pages = vm.pages
     if (pages.isEmpty()) return
     val current = vm.currentPage
-    val pagePillBg = if (darkUi) Color(0xFF2A2A2A) else Color(0xFFE8E5DC)
-    val pagePillFg = if (darkUi) Color.White else Color(0xFF1F2421)
+    val pagePillBg = Color.Black
+    val pagePillFg = Color.White
     AppSurface(
         role = SurfaceRole.Capsule,
         containerColor = pagePillBg,
         contentColor = pagePillFg,
+        borderColor = Color.White.copy(alpha = 0.16f),
         shape = appPillShape(),
         shadowElevation = 4.dp,
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),

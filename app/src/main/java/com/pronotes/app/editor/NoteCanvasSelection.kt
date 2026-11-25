@@ -34,6 +34,20 @@ internal fun NoteCanvasView.selectionBaseBounds(): RectF? {
 internal fun NoteCanvasView.handleRadius() = 24f * density
 internal fun NoteCanvasView.rotateHandleOffset() = 36f * density
 
+private fun pointInOutline(x: Float, y: Float, poly: List<Pt>): Boolean {
+    if (poly.size < 3) return false
+    var inside = false
+    var j = poly.lastIndex
+    for (i in poly.indices) {
+        val xi = poly[i].first; val yi = poly[i].second
+        val xj = poly[j].first; val yj = poly[j].second
+        val intersect = ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / ((yj - yi).takeIf { abs(it) > 1e-6f } ?: 1e-6f) + xi)
+        if (intersect) inside = !inside
+        j = i
+    }
+    return inside
+}
+
 /** Starts move / resize / stretch / rotate when the pen lands on the selection or one of its handles. */
 internal fun NoteCanvasView.beginGrab(px: Float, py: Float): Boolean {
     val base = selectionBaseBounds() ?: return false
@@ -53,6 +67,7 @@ internal fun NoteCanvasView.beginGrab(px: Float, py: Float): Boolean {
         (sb.centerX() to sb.top) to NoteCanvasView.Grab.STRETCH_T,
         (sb.centerX() to sb.bottom) to NoteCanvasView.Grab.STRETCH_B,
     ).firstOrNull { (pt, _) -> hypot(px - pt.first, py - pt.second) < handleRadius() * 0.85f }?.second
+    val insideOutline = selectionOutline?.let { pointInOutline(lx, ly, it) } == true
     grab = when {
         selectionTransformEnabled && hit >= 0 -> {
             val opp = baseCorners[(hit + 2) % 4]
@@ -66,7 +81,7 @@ internal fun NoteCanvasView.beginGrab(px: Float, py: Float): Boolean {
             anchorY = base.centerY()
             NoteCanvasView.Grab.ROTATE
         }
-        sb.contains(px, py) -> NoteCanvasView.Grab.MOVE
+        insideOutline || sb.contains(px, py) -> NoteCanvasView.Grab.MOVE
         else -> return false
     }
     activePage = selectionPage
@@ -80,6 +95,11 @@ internal fun NoteCanvasView.beginGrab(px: Float, py: Float): Boolean {
     liveScaleY = 1f
     liveDeg = 0f
     liveMatrix = Matrix()
+    if (grab == NoteCanvasView.Grab.MOVE) {
+        startEdgeScroll(px, py)
+    } else {
+        stopEdgeScroll()
+    }
     return true
 }
 
@@ -94,15 +114,15 @@ internal fun NoteCanvasView.updateGrab(x: Float, y: Float, scrollAtEdge: Boolean
                 pageMatrix(selectionPage, tmpMatrix).mapPoints(pt)
                 val sx = pt[0]
                 val sy = pt[1]
-                val edge = 64f * density
-                val step = 14f * density
+                val edge = 84f * density
+                val step = 16f * density
                 var scrolled = false
                 if (sy < edge) { transY += step; scrolled = true }
                 else if (sy > height - edge) { transY -= step; scrolled = true }
                 if (sx < edge) { transX += step; scrolled = true }
                 else if (sx > width - edge) { transX -= step; scrolled = true }
                 if (scrolled) {
-                    clamp()
+                    clamp(allowPull = true)
                     updateMatrix()
                     val local = toLocal(sx, sy, selectionPage)
                     moveX = local.first
@@ -159,7 +179,8 @@ internal fun NoteCanvasView.reportSelection() {
 }
 
 internal fun NoteCanvasView.commitMove() {
-    val p = pages.getOrNull(selectionPage) ?: return
+    stopEdgeScroll()
+    val initialPage = pages.getOrNull(selectionPage) ?: return
     val m = liveMatrix
     liveMatrix = null
     if (m != null && !m.isIdentity) {
@@ -169,21 +190,70 @@ internal fun NoteCanvasView.commitMove() {
             val dx = v[Matrix.MTRANS_X]
             val dy = v[Matrix.MTRANS_Y]
             val movedBounds = selectionBaseBounds()?.also { m.mapRect(it) }
+            val vertical = settings.scroll == com.pronotes.app.data.ScrollDirection.VERTICAL
+            val wasPulledPastEnd = pull > pullTrigger * 0.45f
+            pull = 0f
+
+            var addedNewPage = false
             val targetPage = if (movedBounds != null) {
                 val docCx = ox(selectionPage) + movedBounds.centerX()
                 val docCy = oy(selectionPage) + movedBounds.centerY()
+                val (ptrDocX, ptrDocY) = toDoc(dragScreenX, dragScreenY)
                 val lastIdx = pages.lastIndex
-                if (lastIdx >= 0 && docCy > oy(lastIdx) + pages[lastIdx].height) {
-                    host.onPullAddPage()
+                val pastEnd = lastIdx >= 0 && (
+                    wasPulledPastEnd ||
+                        (vertical && (docCy > oy(lastIdx) + pages[lastIdx].height - 12f || ptrDocY > oy(lastIdx) + pages[lastIdx].height + 16f)) ||
+                        (!vertical && (docCx > ox(lastIdx) + pages[lastIdx].width - 12f || ptrDocX > ox(lastIdx) + pages[lastIdx].width + 16f))
+                    )
+                if (pastEnd && !initialPage.isWhiteboard) {
+                    host.onAddPageForDrop()
+                    addedNewPage = true
+                    pages.lastIndex
+                } else {
+                    val centerPage = pageAt(docCx, docCy)
+                    val ptrPage = pageAt(ptrDocX, ptrDocY)
+                    // If the user explicitly dragged their finger/pen onto another page, prefer that page
+                    // when the selection overlaps or approaches it.
+                    if (centerPage != selectionPage) {
+                        centerPage
+                    } else if (ptrPage != selectionPage && ptrPage in pages.indices) {
+                        val tp = pages[ptrPage]
+                        val ptrOnTarget = ptrDocX in ox(ptrPage)..(ox(ptrPage) + tp.width) &&
+                            ptrDocY in oy(ptrPage)..(oy(ptrPage) + tp.height)
+                        if (ptrOnTarget) ptrPage else centerPage
+                    } else {
+                        centerPage
+                    }
                 }
-                pageAt(docCx, docCy)
             } else selectionPage
 
+            val srcPage = pages.getOrNull(selectionPage) ?: return
             if (targetPage != selectionPage && targetPage in pages.indices) {
                 val tp = pages[targetPage]
-                val totalDx = dx + (ox(selectionPage) - ox(targetPage))
-                val totalDy = dy + (oy(selectionPage) - oy(targetPage))
-                val movedToTarget = p.items.filter { it.id in selection }.map { item ->
+                var totalDx = dx + (ox(selectionPage) - ox(targetPage))
+                var totalDy = dy + (oy(selectionPage) - oy(targetPage))
+                // Ensure items dropped in the gap or onto a brand-new page land cleanly inside the target page.
+                if (movedBounds != null && !tp.isWhiteboard) {
+                    val destL = movedBounds.left + (ox(selectionPage) - ox(targetPage))
+                    val destT = movedBounds.top + (oy(selectionPage) - oy(targetPage))
+                    val destR = movedBounds.right + (ox(selectionPage) - ox(targetPage))
+                    val destB = movedBounds.bottom + (oy(selectionPage) - oy(targetPage))
+                    val pad = 32f
+                    var nudgeX = 0f
+                    var nudgeY = 0f
+                    if (destR < pad) nudgeX = pad - destL
+                    else if (destL > tp.width - pad) nudgeX = (tp.width - pad) - destR
+                    if (destB < pad) nudgeY = pad - destT
+                    else if (destT > tp.height - pad) nudgeY = (tp.height - pad) - destB
+                    if (addedNewPage) {
+                        if (destT < pad) nudgeY = pad - destT
+                        if (destL < pad) nudgeX = pad - destL
+                        else if (destR > tp.width - pad) nudgeX = ((tp.width - pad) - destR).coerceAtLeast(pad - destL)
+                    }
+                    totalDx += nudgeX
+                    totalDy += nudgeY
+                }
+                val movedToTarget = srcPage.items.filter { it.id in selection }.map { item ->
                     val movedItem = item.translated(totalDx, totalDy)
                     if (movedItem is MindNodeItem && !tp.isWhiteboard) {
                         val maxX = (tp.width - movedItem.w - 56f).coerceAtLeast(56f)
@@ -194,20 +264,26 @@ internal fun NoteCanvasView.commitMove() {
                     }
                 }
                 updatePages(mapOf(
-                    selectionPage to p.items.filterNot { it.id in selection },
+                    selectionPage to srcPage.items.filterNot { it.id in selection },
                     targetPage to (tp.items + movedToTarget),
                 ))
                 selectionOutline = selectionOutline?.map { (x, y) -> (x + totalDx) to (y + totalDy) }
                 selectionPage = targetPage
                 activePage = targetPage
+                host.onCurrentPage(targetPage)
+                clamp()
+                updateMatrix()
+                if (!vertical || addedNewPage) {
+                    scrollToPage(targetPage, animate = true)
+                }
             } else {
                 host.beginEdit(selectionPage)
-                val items = p.items.map {
+                val items = srcPage.items.map {
                     if (it.id in selection) {
                         val movedItem = it.translated(dx, dy)
-                        if (movedItem is MindNodeItem && !p.isWhiteboard) {
-                            val maxX = (p.width - movedItem.w - 56f).coerceAtLeast(56f)
-                            val maxY = (p.height - movedItem.h - 56f).coerceAtLeast(56f)
+                        if (movedItem is MindNodeItem && !srcPage.isWhiteboard) {
+                            val maxX = (srcPage.width - movedItem.w - 56f).coerceAtLeast(56f)
+                            val maxY = (srcPage.height - movedItem.h - 56f).coerceAtLeast(56f)
                             movedItem.copy(x = movedItem.x.coerceIn(56f, maxX), y = movedItem.y.coerceIn(56f, maxY))
                         } else {
                             movedItem
@@ -222,19 +298,21 @@ internal fun NoteCanvasView.commitMove() {
                     m.mapPoints(a)
                     a[0] to a[1]
                 }
+                clamp()
+                updateMatrix()
             }
         } else {
             host.beginEdit(selectionPage)
             val items = when (grab) {
-                NoteCanvasView.Grab.SCALE -> p.items.map { if (it.id in selection) it.transformed(m, liveScale, 0f) else it }
+                NoteCanvasView.Grab.SCALE -> initialPage.items.map { if (it.id in selection) it.transformed(m, liveScale, 0f) else it }
                 NoteCanvasView.Grab.STRETCH_L,
                 NoteCanvasView.Grab.STRETCH_R,
                 NoteCanvasView.Grab.STRETCH_T,
-                NoteCanvasView.Grab.STRETCH_B -> p.items.map {
+                NoteCanvasView.Grab.STRETCH_B -> initialPage.items.map {
                     if (it.id in selection) it.stretched(grabBase, liveBox) else it
                 }
-                NoteCanvasView.Grab.ROTATE -> p.items.map { if (it.id in selection) it.transformed(m, 1f, liveDeg) else it }
-                NoteCanvasView.Grab.MOVE -> p.items
+                NoteCanvasView.Grab.ROTATE -> initialPage.items.map { if (it.id in selection) it.transformed(m, 1f, liveDeg) else it }
+                NoteCanvasView.Grab.MOVE -> initialPage.items
             }
             updatePage(selectionPage, items)
             // The lasso loop follows the content.

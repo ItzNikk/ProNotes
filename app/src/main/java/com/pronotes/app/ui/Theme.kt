@@ -147,8 +147,8 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
         androidx.compose.runtime.SideEffect {
             (context as? android.app.Activity)?.window?.let { window ->
                 val controller = androidx.core.view.WindowCompat.getInsetsController(window, view)
-                controller.isAppearanceLightStatusBars = !dark
-                controller.isAppearanceLightNavigationBars = !dark
+                controller.isAppearanceLightStatusBars = false
+                controller.isAppearanceLightNavigationBars = false
             }
         }
     }

@@ -240,36 +240,52 @@ fun SelectionMenu(
                     AppContextMenu(
                         expanded = moreOpen,
                         onDismissRequest = { moreOpen = false },
-                        items = listOf(
-                            AppMenuItem(
-                                stringResource(R.string.sheet_lasso_convert),
-                                icon = { Icon(Icons.Outlined.TextFields, contentDescription = null, Modifier.size(18.dp)) },
-                            ) {
-                                vm.convertSelectionToText(onConvertToText)
-                            },
-                            AppMenuItem("Add attached comment") { vm.addSelectionComment() },
-                            AppMenuItem("Flip horizontally", icon = { Icon(Icons.Outlined.Flip, contentDescription = null, Modifier.size(18.dp)) }) {
-                                keep { vm.flipSelection() }
-                            },
-                            AppMenuItem("Bring to front", icon = { Icon(Icons.Outlined.FlipToFront, contentDescription = null, Modifier.size(18.dp)) }) {
-                                keep { vm.arrange(true) }
-                            },
-                            AppMenuItem("Send to back", icon = { Icon(Icons.Outlined.FlipToBack, contentDescription = null, Modifier.size(18.dp)) }) {
-                                keep { vm.arrange(false) }
-                            },
-                            AppMenuItem("Share as image", icon = { Icon(Icons.Outlined.IosShare, contentDescription = null, Modifier.size(18.dp)) }) {
-                                onShareImage()
-                            },
-                            AppMenuItem("Make flashcard", icon = { Icon(Icons.Outlined.Style, contentDescription = null, Modifier.size(18.dp)) }) {
-                                vm.cardFromSelection()
-                            },
-                            AppMenuItem("Add link…", icon = { Icon(Icons.Outlined.Link, contentDescription = null, Modifier.size(18.dp)) }) {
-                                vm.startLinkFromSelection()
-                            },
-                            AppMenuItem("Save as screenshot", icon = { Icon(Icons.Outlined.Image, contentDescription = null, Modifier.size(18.dp)) }) {
-                                vm.saveSelectionScreenshot()
-                            },
-                        ),
+                        items = buildList {
+                            add(
+                                AppMenuItem(
+                                    stringResource(R.string.sheet_lasso_convert),
+                                    icon = { Icon(Icons.Outlined.TextFields, contentDescription = null, Modifier.size(18.dp)) },
+                                ) {
+                                    vm.convertSelectionToText(onConvertToText)
+                                },
+                            )
+                            add(AppMenuItem("Add attached comment") { vm.addSelectionComment() })
+                            add(
+                                AppMenuItem("Flip horizontally", icon = { Icon(Icons.Outlined.Flip, contentDescription = null, Modifier.size(18.dp)) }) {
+                                    keep { vm.flipSelection() }
+                                },
+                            )
+                            add(
+                                AppMenuItem("Bring to front", icon = { Icon(Icons.Outlined.FlipToFront, contentDescription = null, Modifier.size(18.dp)) }) {
+                                    keep { vm.arrange(true) }
+                                },
+                            )
+                            add(
+                                AppMenuItem("Send to back", icon = { Icon(Icons.Outlined.FlipToBack, contentDescription = null, Modifier.size(18.dp)) }) {
+                                    keep { vm.arrange(false) }
+                                },
+                            )
+                            add(
+                                AppMenuItem("Share as image", icon = { Icon(Icons.Outlined.IosShare, contentDescription = null, Modifier.size(18.dp)) }) {
+                                    onShareImage()
+                                },
+                            )
+                            add(
+                                AppMenuItem("Make flashcard", icon = { Icon(Icons.Outlined.Style, contentDescription = null, Modifier.size(18.dp)) }) {
+                                    vm.cardFromSelection()
+                                },
+                            )
+                            add(
+                                AppMenuItem("Add link…", icon = { Icon(Icons.Outlined.Link, contentDescription = null, Modifier.size(18.dp)) }) {
+                                    vm.startLinkFromSelection()
+                                },
+                            )
+                            add(
+                                AppMenuItem("Save as screenshot", icon = { Icon(Icons.Outlined.Image, contentDescription = null, Modifier.size(18.dp)) }) {
+                                    vm.saveSelectionScreenshot()
+                                },
+                            )
+                        },
                     )
                 }
                 SelectionActionIcon(deleteLabel, {
