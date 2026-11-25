@@ -86,6 +86,8 @@ class MainActivity : ComponentActivity() {
                 com.pronotes.app.data.CloudSignInDialogHost()
                 val nav = rememberNavController()
                 val reduceMotion = com.pronotes.app.ui.LocalReduceMotion.current
+                val perfMode = com.pronotes.app.ui.LocalPerformanceMode.current
+                val motionStyle = com.pronotes.app.ui.LocalMotionStyle.current
                 val openSettings: () -> Unit = {
                     if (nav.currentDestination?.route != "settings") nav.navigate("settings") { launchSingleTop = true }
                 }
@@ -108,10 +110,10 @@ class MainActivity : ComponentActivity() {
                 NavHost(
                     navController = nav,
                     startDestination = "library",
-                    enterTransition = { if (reduceMotion) androidx.compose.animation.EnterTransition.None else fadeIn() },
-                    exitTransition = { if (reduceMotion) androidx.compose.animation.ExitTransition.None else fadeOut() },
-                    popEnterTransition = { if (reduceMotion) androidx.compose.animation.EnterTransition.None else fadeIn() },
-                    popExitTransition = { if (reduceMotion) androidx.compose.animation.ExitTransition.None else fadeOut() },
+                    enterTransition = { com.pronotes.app.ui.ProMotion.screenEnter(reduceMotion, perfMode, motionStyle) },
+                    exitTransition = { com.pronotes.app.ui.ProMotion.screenExit(reduceMotion, perfMode, motionStyle) },
+                    popEnterTransition = { com.pronotes.app.ui.ProMotion.screenPopEnter(reduceMotion, perfMode, motionStyle) },
+                    popExitTransition = { com.pronotes.app.ui.ProMotion.screenPopExit(reduceMotion, perfMode, motionStyle) },
                 ) {
                     composable("support") { com.pronotes.app.support.SupportScreen(onBack = { nav.popBackStack() }) }
                     composable("library") {
@@ -147,13 +149,7 @@ class MainActivity : ComponentActivity() {
                             onSwitchNote = { other -> nav.navigate("editor/$other") { popUpTo("library") } },
                         )
                     }
-                    composable(
-                        "settings",
-                        enterTransition = { androidx.compose.animation.EnterTransition.None },
-                        exitTransition = { androidx.compose.animation.ExitTransition.None },
-                        popEnterTransition = { androidx.compose.animation.EnterTransition.None },
-                        popExitTransition = { androidx.compose.animation.ExitTransition.None },
-                    ) {
+                    composable("settings") {
                         SettingsScreen(
                             onBack = { nav.popBackStack() },
                             onSupport = { nav.navigate("support") },

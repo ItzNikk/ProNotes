@@ -3,6 +3,7 @@ package com.pronotes.app.ui
 import kotlinx.coroutines.launch
 
 import android.os.Build
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -256,12 +257,19 @@ fun AppCard(
     val reduceEffects = LocalReduceEffects.current
     val bg = containerColor ?: if (hero) scheme.surfaceContainerHigh else scheme.surface
     val fg = readableSurfaceText(bg, scheme.onSurface)
+    val interactionSource = remember { MutableInteractionSource() }
     val cardMod = modifier
+        .then(if (onClick != null) Modifier.tactilePressScale(interactionSource, pressedScale = 0.985f) else Modifier)
         .then(if (!reduceEffects) Modifier.shadow(if (hero) 4.dp else 1.dp, shape, clip = false) else Modifier)
         .clip(shape)
         .then(
             if (onClick != null) {
-                Modifier.clickable(role = Role.Button, onClick = onClick)
+                Modifier.clickable(
+                    interactionSource = interactionSource,
+                    indication = androidx.compose.foundation.LocalIndication.current,
+                    role = Role.Button,
+                    onClick = onClick,
+                )
             } else Modifier,
         )
 
@@ -304,10 +312,18 @@ fun AppDialog(
     confirmButton: @Composable () -> Unit,
     dismissButton: (@Composable () -> Unit)? = null,
 ) {
+    val reduceMotion = LocalReduceMotion.current
+    val perfMode = LocalPerformanceMode.current
+    val motionStyle = LocalMotionStyle.current
     Dialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
+        val enterProgress = remember { androidx.compose.animation.core.Animatable(if (reduceMotion) 1f else 0f) }
+        LaunchedEffect(reduceMotion) {
+            if (reduceMotion) enterProgress.snapTo(1f)
+            else enterProgress.animateTo(1f, ProMotion.sheetSpring(false, perfMode, motionStyle))
+        }
         LiveDialogBackdrop()
         Box(
             modifier = Modifier
@@ -324,6 +340,14 @@ fun AppDialog(
                 modifier = modifier
                     .widthIn(max = 600.dp)
                     .fillMaxWidth()
+                    .graphicsLayer {
+                        val p = enterProgress.value.coerceIn(0f, 1.04f)
+                        alpha = p.coerceIn(0f, 1f)
+                        val s = 0.94f + 0.06f * p
+                        scaleX = s
+                        scaleY = s
+                        translationY = (1f - p) * 18f
+                    }
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -377,6 +401,8 @@ fun AppPill(
     val scheme = MaterialTheme.colorScheme
     val dark = scheme.background.luminance() < 0.4f
     val reduceMotion = LocalReduceMotion.current
+    val perfMode = LocalPerformanceMode.current
+    val motionStyle = LocalMotionStyle.current
     val activeTint = tint ?: scheme.primary
     val bg by animateColorAsState(
         targetValue = when {
@@ -384,7 +410,7 @@ fun AppPill(
             tint != null -> tint.copy(alpha = if (dark) 0.22f else 0.14f)
             else -> scheme.surfaceVariant
         },
-        animationSpec = if (reduceMotion) snap() else tween(180),
+        animationSpec = ProMotion.quickTween(reduceMotion, 150),
         label = "pillBg",
     )
     val fg = when {
@@ -397,8 +423,8 @@ fun AppPill(
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed && onClick != null && !reduceMotion) 0.96f else 1f,
-        animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.72f, stiffness = 560f),
+        targetValue = if (pressed && onClick != null && !reduceMotion) 0.955f else 1f,
+        animationSpec = ProMotion.snappySpring(reduceMotion, perfMode, motionStyle),
         label = "pillScale",
     )
     val borderTint by animateColorAsState(
@@ -407,7 +433,7 @@ fun AppPill(
             tint != null -> tint.copy(alpha = if (dark) 0.34f else 0.24f)
             else -> scheme.outlineVariant.copy(alpha = if (dark) 0.55f else 0.72f)
         },
-        animationSpec = if (reduceMotion) snap() else tween(180),
+        animationSpec = ProMotion.quickTween(reduceMotion, 150),
         label = "pillBorder",
     )
     Row(
@@ -445,8 +471,8 @@ fun AppPill(
 }
 
 /**
- * Reusable lively repeating multi-colour sweeping gradient text with subtle breathing shimmer.
- * Respects [LocalReduceMotion].
+ * High-performance sweeping multi-colour gradient text rendered purely in the GPU draw phase
+ * (zero per-frame text relayout or Compose recomposition). Respects [LocalReduceMotion] and lifecycle state.
  */
 @Composable
 fun AnimatedGradientText(
@@ -461,93 +487,95 @@ fun AnimatedGradientText(
 ) {
     val reduceMotion = LocalReduceMotion.current
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.4f
-    val transition = rememberInfiniteTransition(label = "animGradText")
-    val driftX = remember { androidx.compose.animation.core.Animatable(0f) }
-    val driftY = remember { androidx.compose.animation.core.Animatable(0f) }
-    val direction = remember { androidx.compose.animation.core.Animatable(0.35f) }
-    LaunchedEffect(reduceMotion, durationMs) {
-        if (reduceMotion) {
-            driftX.snapTo(0f)
-            driftY.snapTo(0f)
-            direction.snapTo(0.35f)
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val lifecycleState = lifecycleOwner.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
+    val animate = !reduceMotion && lifecycleState.value == androidx.lifecycle.Lifecycle.State.RESUMED
+
+    val palette = remember(colors, dark) {
+        if (!colors.isNullOrEmpty()) {
+            if (colors.size >= 2) colors + colors.first() else listOf(colors.first(), colors.first())
+        } else if (dark) {
+            listOf(
+                Color(0xFF60A5FA),
+                Color(0xFFC084FC),
+                Color(0xFFF472B6),
+                Color(0xFFFBBF24),
+                Color(0xFF34D399),
+                Color(0xFF38BDF8),
+                Color(0xFF60A5FA),
+            )
         } else {
-            while (true) {
-                val travelMs = kotlin.random.Random.nextInt(durationMs.coerceAtLeast(1200), durationMs.coerceAtLeast(1200) + 2200)
-                val x = kotlin.random.Random.nextFloat() * 520f - 260f
-                val y = kotlin.random.Random.nextFloat() * 240f - 120f
-                val angle = direction.value + (kotlin.random.Random.nextFloat() - 0.5f) * 5f
-                kotlinx.coroutines.coroutineScope {
-                    launch { driftX.animateTo(x, tween(travelMs, easing = FastOutSlowInEasing)) }
-                    launch { driftY.animateTo(y, tween(travelMs, easing = FastOutSlowInEasing)) }
-                    launch { direction.animateTo(angle, tween(travelMs, easing = FastOutSlowInEasing)) }
-                }
-            }
+            listOf(
+                Color(0xFF2563EB),
+                Color(0xFF7C3AED),
+                Color(0xFFDB2777),
+                Color(0xFFEA580C),
+                Color(0xFF059669),
+                Color(0xFF0284C7),
+                Color(0xFF2563EB),
+            )
         }
     }
-    val pulse = if (reduceMotion || !pulseAlpha) {
-        1f
-    } else {
+
+    val phaseState = if (animate) {
+        val transition = rememberInfiniteTransition(label = "animGradSweep")
         transition.animateFloat(
-            initialValue = 0.80f,
+            initialValue = 0f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 1400, easing = FastOutSlowInEasing),
+                animation = tween(durationMillis = (durationMs * 2).coerceAtLeast(3200), easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "animGradPhase",
+        )
+    } else null
+
+    val pulseState = if (animate && pulseAlpha) {
+        val transition = rememberInfiniteTransition(label = "animGradPulseT")
+        transition.animateFloat(
+            initialValue = 0.84f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1500, easing = FastOutSlowInEasing),
                 repeatMode = RepeatMode.Reverse,
             ),
             label = "animGradPulse",
-        ).value
-    }
-    val palette = if (!colors.isNullOrEmpty()) {
-        if (colors.size >= 2) colors + colors.first() else listOf(colors.first(), colors.first())
-    } else if (dark) {
-        listOf(
-            Color(0xFF60A5FA),
-            Color(0xFFC084FC),
-            Color(0xFFF472B6),
-            Color(0xFFFBBF24),
-            Color(0xFF34D399),
-            Color(0xFF38BDF8),
-            Color(0xFF60A5FA),
         )
-    } else {
-        listOf(
-            Color(0xFF2563EB),
-            Color(0xFF7C3AED),
-            Color(0xFFDB2777),
-            Color(0xFFEA580C),
-            Color(0xFF059669),
-            Color(0xFF0284C7),
-            Color(0xFF2563EB),
-        )
-    }
-    var pattern by remember(text) { mutableIntStateOf(kotlin.random.Random.nextInt()) }
-    LaunchedEffect(text, reduceMotion) {
-        if (!reduceMotion) while (true) {
-            kotlinx.coroutines.delay(kotlin.random.Random.nextLong(3600L, 6400L))
-            pattern = kotlin.random.Random.nextInt()
-        }
-    }
-    val targetPalette = remember(palette, pattern) { palette.shuffled(kotlin.random.Random(pattern)) }
-    val shiftingPalette = targetPalette.mapIndexed { index, target ->
-        androidx.compose.runtime.key(index) {
-            animateColorAsState(target, animationSpec = tween(3000), label = "Text hue").value
-        }
-    }
-    val span = 520f
-    val axis = Offset(kotlin.math.cos(direction.value) * span / 2f, kotlin.math.sin(direction.value) * span / 2f)
-    val center = Offset(driftX.value, driftY.value)
-    val brush = Brush.linearGradient(
-        colors = shiftingPalette,
-        start = center - axis,
-        end = center + axis,
-        tileMode = TileMode.Repeated,
-    )
+    } else null
+
+    val solidStyle = remember(style) { style.copy(color = Color.White) }
+
     Text(
         text = text,
-        style = style.copy(brush = brush),
+        style = solidStyle,
         maxLines = maxLines,
         overflow = overflow,
-        modifier = modifier.graphicsLayer { alpha = pulse },
+        modifier = modifier
+            .graphicsLayer {
+                compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+                alpha = pulseState?.value ?: 1f
+            }
+            .drawWithCache {
+                val span = size.width.coerceAtLeast(320f) * 1.35f
+                val brush = Brush.linearGradient(
+                    colors = palette,
+                    start = Offset.Zero,
+                    end = Offset(span, size.height * 0.35f),
+                    tileMode = TileMode.Repeated,
+                )
+                onDrawWithContent {
+                    drawContent()
+                    val shift = (phaseState?.value ?: 0f) * span
+                    withTransform({ translate(left = -shift) }) {
+                        drawRect(
+                            brush = brush,
+                            topLeft = Offset(shift, 0f),
+                            size = size,
+                            blendMode = androidx.compose.ui.graphics.BlendMode.SrcIn,
+                        )
+                    }
+                }
+            },
     )
 }
 
@@ -770,38 +798,72 @@ fun AppSegmentedControl(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    if (options.isEmpty()) return
     val scheme = MaterialTheme.colorScheme
     val track = scheme.surfaceVariant
     val pillBg = scheme.surfaceContainerHigh
     val shape = appPillShape()
-    Row(
+    val reduceMotion = LocalReduceMotion.current
+    val perfMode = LocalPerformanceMode.current
+    val motionStyle = LocalMotionStyle.current
+    val clampedIndex = selectedIndex.coerceIn(0, options.lastIndex)
+    val animatedIndex by animateFloatAsState(
+        targetValue = clampedIndex.toFloat(),
+        animationSpec = ProMotion.snappySpring(reduceMotion, perfMode, motionStyle),
+        label = "segThumb",
+    )
+    androidx.compose.foundation.layout.BoxWithConstraints(
         modifier = modifier
             .clip(shape)
             .background(track)
             .selectableGroup()
             .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        options.forEachIndexed { i, label ->
-            val sel = i == selectedIndex
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(shape)
-                    .background(if (sel) pillBg else Color.Transparent)
-                    .selectable(selected = sel, role = Role.Tab, onClick = { onSelect(i) })
-                    .heightIn(min = 44.dp)
-                    .padding(horizontal = 6.dp, vertical = 6.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    label,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Medium,
-                    color = if (sel) scheme.onSurface else scheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+        val count = options.size
+        val gap = 3.dp
+        val segWidth = ((maxWidth - gap * (count - 1)) / count).coerceAtLeast(1.dp)
+        val density = LocalDensity.current
+        // Smooth GPU-sliding active pill indicator
+        Box(
+            modifier = Modifier
+                .width(segWidth)
+                .height(44.dp)
+                .graphicsLayer {
+                    val stepPx = with(density) { (segWidth + gap).toPx() }
+                    translationX = animatedIndex * stepPx
+                }
+                .clip(shape)
+                .background(pillBg),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(gap),
+        ) {
+            options.forEachIndexed { i, label ->
+                val sel = i == clampedIndex
+                val textColor by animateColorAsState(
+                    targetValue = if (sel) scheme.onSurface else scheme.onSurfaceVariant,
+                    animationSpec = ProMotion.quickTween(reduceMotion, 130),
+                    label = "segText$i",
                 )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(shape)
+                        .selectable(selected = sel, role = Role.Tab, onClick = { onSelect(i) })
+                        .heightIn(min = 44.dp)
+                        .padding(horizontal = 6.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Medium,
+                        color = textColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }

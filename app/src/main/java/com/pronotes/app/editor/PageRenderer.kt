@@ -125,11 +125,19 @@ class PageRenderer(private val noteDir: File?) {
         }
     }
 
+    private val paperNodeCache: LruCache<String, Any>? = if (android.os.Build.VERSION.SDK_INT >= 29) {
+        LruCache<String, Any>(16)
+    } else null
+    private val stickyLayoutCache = LruCache<String, StaticLayout>(64)
+    private val paperRectScratch = RectF()
+
     fun evictCaches() {
         images.evictAll()
         tapeTiles.clear()
         partsCache.clear()
         visibilityCache.clear()
+        paperNodeCache?.evictAll()
+        stickyLayoutCache.evictAll()
     }
     private val strokeRendererOrNull: CanvasStrokeRenderer? by lazy {
         runCatching { CanvasStrokeRenderer.create() }.getOrNull()
@@ -420,7 +428,8 @@ class PageRenderer(private val noteDir: File?) {
     }
 
     fun drawPaper(canvas: Canvas, page: Page, pdf: Bitmap?, shadow: Boolean, loaderPhase: Float = -1f) {
-        val rect = RectF(0f, 0f, page.width, page.height)
+        paperRectScratch.set(0f, 0f, page.width, page.height)
+        val rect = paperRectScratch
         val bg = if (page.pdfPage >= 0) Color.WHITE else page.paperColor ?: paperColor
         currentBg = if (page.pdfPage >= 0 && darkPdf) Color.BLACK else bg
         if (shadow) {
@@ -447,13 +456,36 @@ class PageRenderer(private val noteDir: File?) {
             return
         }
         currentBg = bg
+        if (page.paper == PaperStyle.BLANK) return
         val line = page.lineColor ?: if (isDark) 0xFF3A3F48.toInt() else 0xFFD5DEEA.toInt()
         /** Spacing multiplier chosen in the template sheet. */
         val g = page.lineScale.coerceIn(0.5f, 2.5f)
+        val w = page.width; val h = page.height
+        if (android.os.Build.VERSION.SDK_INT >= 29 && canvas.isHardwareAccelerated && paperNodeCache != null) {
+            val key = "${page.paper.ordinal}:${w.toInt()}x${h.toInt()}:$bg:$line:${(g * 100f).toInt()}"
+            var node = paperNodeCache.get(key) as? android.graphics.RenderNode
+            if (node == null || !node.hasDisplayList()) {
+                node = android.graphics.RenderNode("paper_$key").apply {
+                    setPosition(0, 0, w.toInt().coerceAtLeast(1), h.toInt().coerceAtLeast(1))
+                    val rc = beginRecording()
+                    try {
+                        drawPaperPattern(rc, page.paper, w, h, line, g)
+                    } finally {
+                        endRecording()
+                    }
+                }
+                paperNodeCache.put(key, node)
+            }
+            canvas.drawRenderNode(node)
+            return
+        }
+        drawPaperPattern(canvas, page.paper, w, h, line, g)
+    }
+
+    private fun drawPaperPattern(canvas: Canvas, paperStyle: PaperStyle, w: Float, h: Float, line: Int, g: Float) {
         linePaint.color = line; boldLine.color = line; boxPaint.color = line
         dotPaint.color = if (isDark) 0xFF4A505A.toInt() else 0xFFC3CCD8.toInt()
         labelPaint.color = if (isDark) 0xFF8A93A3.toInt() else 0xFF9AA4B2.toInt()
-        val w = page.width; val h = page.height
         fun ruled(start: Float, gap: Float, left: Float = 0f, right: Float = w) {
             var y = start
             while (y < h - 40f) { canvas.drawLine(left, y, right, y, linePaint); y += gap * g }
@@ -465,7 +497,7 @@ class PageRenderer(private val noteDir: File?) {
             var y = step
             while (y < h) { canvas.drawLine(0f, y, w, y, paint); y += step }
         }
-        when (page.paper) {
+        when (paperStyle) {
             PaperStyle.BLANK -> Unit
             PaperStyle.RULED -> { ruled(180f, 52f); canvas.drawLine(130f, 0f, 130f, h, marginPaint) }
             PaperStyle.NARROW -> { ruled(160f, 38f); canvas.drawLine(110f, 0f, 110f, h, marginPaint) }
@@ -1003,7 +1035,12 @@ class PageRenderer(private val noteDir: File?) {
             RectF.intersects(visible, tmp.apply { set(b.left + item.dx, b.top + item.dy, b.right + item.dx, b.bottom + item.dy) })
         }
         is WriteBoxItem -> RectF.intersects(visible, item.bounds)
-        else -> true
+        else -> {
+            val b = item.bounds
+            // Small padding accounts for drop shadows, rotation corners, and connectors.
+            val pad = 36f
+            RectF.intersects(visible, tmp.apply { set(b.left - pad, b.top - pad, b.right + pad, b.bottom + pad) })
+        }
     }
     private val tmp = RectF()
     private val lightenPaint = Paint().apply {
@@ -1411,11 +1448,14 @@ class PageRenderer(private val noteDir: File?) {
                     if (!hasChecklist) {
                         stickyText.color = fg
                         stickyText.isStrikeThruText = false
-                        val layout = StaticLayout.Builder.obtain(item.text, 0, item.text.length, stickyText, availW)
+                        val cacheKey = "${item.id}:${item.text.hashCode()}:${item.font}:${(fSize * 10f).toInt()}:$availW:$fg"
+                        val layout = stickyLayoutCache.get(cacheKey) ?: StaticLayout.Builder
+                            .obtain(item.text, 0, item.text.length, TextPaint(stickyText), availW)
                             .setAlignment(Layout.Alignment.ALIGN_NORMAL)
                             .setLineSpacing(2f, 1.12f)
                             .setMaxLines(18)
                             .build()
+                            .also { stickyLayoutCache.put(cacheKey, it) }
                         canvas.translate(r.left + 16f, r.top + barH + 10f)
                         layout.draw(canvas)
                     } else {

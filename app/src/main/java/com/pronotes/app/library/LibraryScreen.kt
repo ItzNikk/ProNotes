@@ -685,9 +685,11 @@ fun LibraryScreen(
                                 }
                             }
                         }
+                        val perfMode = com.pronotes.app.ui.LocalPerformanceMode.current
+                        val motionStyle = com.pronotes.app.ui.LocalMotionStyle.current
                         AnimatedContent(
                             targetState = title,
-                            transitionSpec = { if (reduceMotion) fadeIn(snap()) togetherWith fadeOut(snap()) else fadeIn() togetherWith fadeOut() },
+                            transitionSpec = { com.pronotes.app.ui.ProMotion.contentSwap(reduceMotion, perfMode, motionStyle, 0.03f) },
                             label = "title",
                             modifier = Modifier.weight(1f),
                         ) { t ->
@@ -1021,14 +1023,12 @@ fun LibraryScreen(
                                 EmptyState(section, inFolder = currentFolder != null, onNew = { newNotebook = true })
                             }
                         } else {
+                            val gridPerfMode = com.pronotes.app.ui.LocalPerformanceMode.current
+                            val gridMotionStyle = com.pronotes.app.ui.LocalMotionStyle.current
                             AnimatedContent(
                                 targetState = Triple(section, folderId, listView),
                                 transitionSpec = {
-                                    if (reduceMotion) {
-                                        fadeIn(snap()) togetherWith fadeOut(snap())
-                                    } else {
-                                        (fadeIn() + slideInHorizontally { it / 12 }) togetherWith fadeOut()
-                                    }
+                                    com.pronotes.app.ui.ProMotion.contentSwap(reduceMotion, gridPerfMode, gridMotionStyle, 0.05f)
                                 },
                                 label = "grid",
                             ) { (_, _, asList) ->
@@ -1038,7 +1038,11 @@ fun LibraryScreen(
                                         modifier = Modifier.fillMaxSize(),
                                         contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 12.dp, bottom = listBottomPad),
                                     ) {
-                                        items(entries, key = { keyOf(it) }) { e ->
+                                        items(
+                                            entries,
+                                            key = { keyOf(it) },
+                                            contentType = { if (it is Entry.F) "folder_row" else "note_row" },
+                                        ) { e ->
                                             Box(if (reduceMotion) Modifier else Modifier.animateItem()) { ListRow(e, repo, actions) }
                                         }
                                     }
@@ -1051,7 +1055,11 @@ fun LibraryScreen(
                                         horizontalArrangement = Arrangement.spacedBy(24.dp),
                                         verticalArrangement = Arrangement.spacedBy(24.dp),
                                     ) {
-                                        items(entries, key = { keyOf(it) }) { e ->
+                                        items(
+                                            entries,
+                                            key = { keyOf(it) },
+                                            contentType = { if (it is Entry.F) "folder_tile" else "note_tile" },
+                                        ) { e ->
                                             Box(if (reduceMotion) Modifier else Modifier.animateItem()) {
                                                 when (e) {
                                                     is Entry.F -> FolderTile(e, actions)

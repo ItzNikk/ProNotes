@@ -190,6 +190,8 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
     var selected by rememberSaveable { mutableStateOf<Category?>(null) }
     var backProgress by remember { mutableStateOf(0f) }
     val reduceMotion = com.pronotes.app.ui.LocalReduceMotion.current
+    val perfMode = com.pronotes.app.ui.LocalPerformanceMode.current
+    val motionStyle = com.pronotes.app.ui.LocalMotionStyle.current
     val scrollState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
 
     com.pronotes.app.ui.GlowingWorkspace {
@@ -236,8 +238,7 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
                         AnimatedContent(
                             targetState = category,
                             transitionSpec = {
-                                if (reduceMotion) fadeIn(snap()) togetherWith fadeOut(snap())
-                                else fadeIn(tween(180)) togetherWith fadeOut(tween(100))
+                                com.pronotes.app.ui.ProMotion.contentSwap(reduceMotion, perfMode, motionStyle)
                             },
                             label = "Settings category",
                         ) { target ->
@@ -786,13 +787,26 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                         Info("Applies across titles, studio panels, and interface controls.")
                     }
                     Section("Performance") {
+                        Toggle(
+                            title = "Performance Mode",
+                            sub = "Boosts spring responsiveness, increases adjacent PDF/book page prefetching, and keeps crisp high-res thumbnails.",
+                            value = s.performanceMode == PerformanceMode.MAXIMUM,
+                            onChange = { enabled ->
+                                up {
+                                    it.copy(
+                                        performanceMode = if (enabled) PerformanceMode.MAXIMUM else PerformanceMode.BALANCED,
+                                    )
+                                }
+                            },
+                        )
+                        HorizontalDivider(Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                         Segmented(PerformanceMode.entries.map { it.label }, s.performanceMode.ordinal) { i ->
                             up { it.copy(performanceMode = PerformanceMode.entries[i]) }
                         }
                         val perfDesc = when (s.performanceMode) {
-                            PerformanceMode.BATTERY_SAVER -> "Reduced motion, 2.4 s autosave intervals, and compact cover thumbnails."
-                            PerformanceMode.BALANCED -> "Smooth spring motion, balanced thumbnail resolution, and 1.2 s debounced saves."
-                            PerformanceMode.MAXIMUM -> "Full responsiveness, adjacent PDF page prefetching, and crisp high-res thumbnails."
+                            PerformanceMode.BATTERY_SAVER -> "Battery saver: reduced motion, 2.4 s autosave intervals, 1-page PDF prefetch, and compact cover thumbnails."
+                            PerformanceMode.BALANCED -> "Balanced: crisp spring animations, 3-page PDF prefetch, balanced cover resolution, and 1.2 s debounced saves."
+                            PerformanceMode.MAXIMUM -> "Maximum: snappiest spring physics, 5-page PDF & book prefetch, full-res GPU-uploaded covers, and instant responsiveness."
                         }
                         Info(perfDesc)
                     }

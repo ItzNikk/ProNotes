@@ -75,36 +75,66 @@ internal object BookFlipSoundEngine {
     @Volatile
     private var lastRustleAt = 0L
 
+    private val forwardWave: FloatArray by lazy { synthesizeSwish(forward = true, seed = 4109L) }
+    private val backwardWave: FloatArray by lazy { synthesizeSwish(forward = false, seed = 7321L) }
+    private val rustleWave: FloatArray by lazy { synthesizeRustle(seed = 1847L) }
+
+    private fun synthesizeSwish(forward: Boolean, seed: Long): FloatArray {
+        val totalSamples = (SAMPLE_RATE * 0.25f).toInt()
+        val wave = FloatArray(totalSamples)
+        val rng = Random(seed)
+        var lp1 = 0f
+        var lp2 = 0f
+        var prev = 0f
+        for (i in 0 until totalSamples) {
+            val t = i.toFloat() / totalSamples
+            val liftEnv = exp(-((t - 0.14f) * (t - 0.14f)) / 0.008f) * 0.45f
+            val swishEnv = sin(t * PI).toFloat().let { it * it } * 0.85f
+            val settleEnv = exp(-((t - 0.86f) * (t - 0.86f)) / 0.0018f) * 0.52f
+
+            val white = rng.nextFloat() * 2f - 1f
+            val cutoff = if (forward) (0.18f + 0.34f * sin(t * PI).toFloat()) else (0.15f + 0.28f * sin(t * PI).toFloat())
+            lp1 += cutoff * (white - lp1)
+            lp2 += cutoff * (lp1 - lp2)
+            val bandNoise = (lp1 - lp2 * 0.55f) + (white - prev) * 0.22f
+            prev = white
+
+            val settleThud = sin(2.0 * PI * (if (forward) 105.0 else 92.0) * (i.toDouble() / SAMPLE_RATE)).toFloat() * settleEnv
+            wave[i] = (bandNoise * (liftEnv + swishEnv) + settleThud) * 0.82f
+        }
+        return wave
+    }
+
+    private fun synthesizeRustle(seed: Long): FloatArray {
+        val totalSamples = (SAMPLE_RATE * 0.045f).toInt()
+        val wave = FloatArray(totalSamples)
+        val rng = Random(seed)
+        var lp = 0f
+        for (i in 0 until totalSamples) {
+            val t = i.toFloat() / totalSamples
+            val env = sin(t * PI).toFloat()
+            val w = rng.nextFloat() * 2f - 1f
+            lp += 0.28f * (w - lp)
+            wave[i] = lp * env * 0.55f
+        }
+        return wave
+    }
+
+    private fun scaleToPcm(wave: FloatArray, vol: Float): ShortArray {
+        val pcm = ShortArray(wave.size)
+        for (i in wave.indices) {
+            val s = (wave[i] * vol).coerceIn(-1f, 1f)
+            pcm[i] = (s * Short.MAX_VALUE).toInt().toShort()
+        }
+        return pcm
+    }
+
     fun playPageTurnSwish(volume: Float = 0.72f, forward: Boolean = true) {
         val vol = volume.coerceIn(0.05f, 1f)
         audioExecutor.execute {
             runCatching {
-                val durationSec = 0.25f
-                val totalSamples = (SAMPLE_RATE * durationSec).toInt()
-                val pcm = ShortArray(totalSamples)
-                val rng = Random(System.nanoTime())
-                var lp1 = 0f
-                var lp2 = 0f
-                var prev = 0f
-
-                for (i in 0 until totalSamples) {
-                    val t = i.toFloat() / totalSamples
-                    val liftEnv = exp(-((t - 0.14f) * (t - 0.14f)) / 0.008f) * 0.45f
-                    val swishEnv = sin(t * PI).toFloat().let { it * it } * 0.85f
-                    val settleEnv = exp(-((t - 0.86f) * (t - 0.86f)) / 0.0018f) * 0.52f
-
-                    val white = rng.nextFloat() * 2f - 1f
-                    val cutoff = if (forward) (0.18f + 0.34f * sin(t * PI).toFloat()) else (0.15f + 0.28f * sin(t * PI).toFloat())
-                    lp1 += cutoff * (white - lp1)
-                    lp2 += cutoff * (lp1 - lp2)
-                    val bandNoise = (lp1 - lp2 * 0.55f) + (white - prev) * 0.22f
-                    prev = white
-
-                    val settleThud = sin(2.0 * PI * (if (forward) 105.0 else 92.0) * (i.toDouble() / SAMPLE_RATE)).toFloat() * settleEnv
-                    val sample = ((bandNoise * (liftEnv + swishEnv) + settleThud) * vol * 0.82f).coerceIn(-1f, 1f)
-                    pcm[i] = (sample * Short.MAX_VALUE).toInt().toShort()
-                }
-                playPcm(pcm)
+                val base = if (forward) forwardWave else backwardWave
+                playPcm(scaleToPcm(base, vol))
             }
         }
     }
@@ -116,19 +146,7 @@ internal object BookFlipSoundEngine {
         val vol = (volume * (abs(speedPx) / 48f).coerceIn(0.2f, 0.85f)).coerceIn(0.04f, 0.65f)
         audioExecutor.execute {
             runCatching {
-                val totalSamples = (SAMPLE_RATE * 0.045f).toInt()
-                val pcm = ShortArray(totalSamples)
-                val rng = Random(now)
-                var lp = 0f
-                for (i in 0 until totalSamples) {
-                    val t = i.toFloat() / totalSamples
-                    val env = sin(t * PI).toFloat()
-                    val w = rng.nextFloat() * 2f - 1f
-                    lp += 0.28f * (w - lp)
-                    val s = (lp * env * vol * 0.55f).coerceIn(-1f, 1f)
-                    pcm[i] = (s * Short.MAX_VALUE).toInt().toShort()
-                }
-                playPcm(pcm)
+                playPcm(scaleToPcm(rustleWave, vol))
             }
         }
     }

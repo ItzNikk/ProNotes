@@ -678,17 +678,35 @@ fun EditorScreen(
                             onVideo = { videoUrl = "" },
                         )
                     }
-                    AnimatedVisibility(showSearch, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                    val editorReduceMotion = LocalReduceMotion.current
+                    val editorPerfMode = com.pronotes.app.ui.LocalPerformanceMode.current
+                    val editorMotionStyle = com.pronotes.app.ui.LocalMotionStyle.current
+                    AnimatedVisibility(
+                        showSearch,
+                        enter = expandVertically(
+                            animationSpec = com.pronotes.app.ui.ProMotion.sheetSpring(editorReduceMotion, editorPerfMode, editorMotionStyle),
+                        ) + fadeIn(com.pronotes.app.ui.ProMotion.quickTween(editorReduceMotion, 150)),
+                        exit = shrinkVertically(
+                            animationSpec = com.pronotes.app.ui.ProMotion.quickTween(editorReduceMotion, 140),
+                        ) + fadeOut(com.pronotes.app.ui.ProMotion.quickTween(editorReduceMotion, 110)),
+                    ) {
                         SearchBar(vm, onClose = { showSearch = false })
                     }
                 }
             }
 
             Row(Modifier.weight(1f).fillMaxWidth()) {
+                val pagesReduceMotion = LocalReduceMotion.current
+                val pagesPerfMode = com.pronotes.app.ui.LocalPerformanceMode.current
+                val pagesMotionStyle = com.pronotes.app.ui.LocalMotionStyle.current
                 AnimatedVisibility(
                     showPages && !focus,
-                    enter = slideInHorizontally { -it } + fadeIn(),
-                    exit = slideOutHorizontally { -it } + fadeOut(),
+                    enter = slideInHorizontally(
+                        animationSpec = com.pronotes.app.ui.ProMotion.navOffsetSpring(pagesReduceMotion, pagesPerfMode, pagesMotionStyle),
+                    ) { -it } + fadeIn(com.pronotes.app.ui.ProMotion.quickTween(pagesReduceMotion, 150)),
+                    exit = slideOutHorizontally(
+                        animationSpec = com.pronotes.app.ui.ProMotion.navOffsetSpring(pagesReduceMotion, pagesPerfMode, pagesMotionStyle),
+                    ) { -it } + fadeOut(com.pronotes.app.ui.ProMotion.quickTween(pagesReduceMotion, 115)),
                 ) {
                     PagesPanel(vm, onJump = { vm.goToPage(it) }, onClose = { showPages = false })
                 }

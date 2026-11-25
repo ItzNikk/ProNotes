@@ -97,11 +97,46 @@ private fun typographyFor(font: AppFont, headingGradient: List<Color>?, subGradi
     )
 }
 
+@androidx.compose.runtime.Immutable
+private data class ThemeSlice(
+    val themeMode: ThemeMode,
+    val uiColorScheme: UiColorScheme,
+    val accent: AccentColor,
+    val gradientTitles: Boolean,
+    val colorfulUiText: Boolean,
+    val appFont: AppFont,
+    val cornerRoundnessDp: Float,
+    val performanceMode: PerformanceMode,
+    val motionStyle: MotionStyle,
+    val liveBlur: Boolean,
+    val classicAppearance: Boolean,
+    val reduceEffects: Boolean,
+    val appLanguage: String,
+)
+
+private fun com.pronotes.app.data.AppSettings.toThemeSlice() = ThemeSlice(
+    themeMode = themeMode,
+    uiColorScheme = uiColorScheme,
+    accent = accent,
+    gradientTitles = gradientTitles,
+    colorfulUiText = colorfulUiText,
+    appFont = appFont,
+    cornerRoundnessDp = cornerRoundnessDp,
+    performanceMode = performanceMode,
+    motionStyle = motionStyle,
+    liveBlur = liveBlur,
+    classicAppearance = classicAppearance,
+    reduceEffects = reduceEffects,
+    appLanguage = appLanguage,
+)
+
 @Composable
 fun ProNotesTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
     val store = remember { SettingsStore.get(context) }
-    val settings by store.settings.collectAsStateWithLifecycle()
+    val settings by remember(store) {
+        store.select { it.toThemeSlice() }
+    }.collectAsStateWithLifecycle(initialValue = remember(store) { store.settings.value.toThemeSlice() })
     val dark = when (settings.themeMode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
@@ -120,99 +155,110 @@ fun ProNotesTheme(content: @Composable () -> Unit) {
     val uiScheme = settings.uiColorScheme
     val colorful = uiScheme == UiColorScheme.COLORFUL
     val accent = settings.accent
-    val schemePrimary = Color(uiScheme.seedPrimary)
-    val primary = if (uiScheme == UiColorScheme.SLATE_STUDIO) Color(accent.argb) else if (colorful) schemePrimary else lerp(schemePrimary, Color(accent.argb), 0.35f)
-    val secondary = Color(uiScheme.seedSecondary)
-    val lightBg = Color(uiScheme.lightBg)
-    val lightSurf = Color(uiScheme.lightSurface)
-    val lightVar = if (colorful) Color(0xFFE9E4FB) else lerp(lightBg, schemePrimary, 0.06f)
+    val schemeBundle = remember(uiScheme, accent) {
+        val schemePrimary = Color(uiScheme.seedPrimary)
+        val primary = if (uiScheme == UiColorScheme.SLATE_STUDIO) Color(accent.argb) else if (colorful) schemePrimary else lerp(schemePrimary, Color(accent.argb), 0.35f)
+        val secondary = Color(uiScheme.seedSecondary)
+        val lightBg = Color(uiScheme.lightBg)
+        val lightSurf = Color(uiScheme.lightSurface)
+        val lightVar = if (colorful) Color(0xFFE9E4FB) else lerp(lightBg, schemePrimary, 0.06f)
 
-    val light = lightColorScheme(
-        primary = primary,
-        onPrimary = if (contrastRatio(primary, Color.White) >= contrastRatio(primary, Color(0xFF101218))) Color.White else Color(0xFF101218),
-        primaryContainer = lerp(primary, lightSurf, 0.84f),
-        onPrimaryContainer = lerp(primary, Color(0xFF1F2421), 0.35f),
-        secondary = secondary,
-        onSecondary = if (colorful) Color.White else Color(0xFF111827),
-        tertiary = if (colorful) Color(0xFFB53C58) else primary,
-        tertiaryContainer = if (colorful) Color(0xFFFFD9E1) else lightVar,
-        onTertiaryContainer = if (colorful) Color(0xFF450C20) else Color(0xFF181A1F),
-        secondaryContainer = if (colorful) Color(0xFFB5F2E8) else lightVar,
-        onSecondaryContainer = if (colorful) Color(0xFF093E3B) else Color(0xFF181A1F),
-        background = lightBg,
-        onBackground = Color(0xFF181A1F),
-        surface = lightSurf,
-        onSurface = Color(0xFF181A1F),
-        surfaceVariant = lightVar,
-        onSurfaceVariant = Color(0xFF565B64),
-        surfaceContainer = lightVar,
-        surfaceContainerHigh = if (colorful) Color(0xFFF1E8FF) else lerp(lightSurf, Color.White, 0.64f),
-        outline = Color(0xFF9EA3AE),
-        outlineVariant = lerp(lightVar, Color(0xFF9EA3AE), 0.25f),
-        error = Color(0xFFDC2626),
-    )
-    val darkBg = Color(uiScheme.darkBg)
-    val darkSurf = Color(uiScheme.darkSurface)
-    val darkVar = lerp(darkSurf, Color.White, 0.05f)
-    val darkPrimary = if (accent == AccentColor.GRAPHITE && uiScheme == UiColorScheme.SLATE_STUDIO) {
-        Color(0xFF93C5FD)
-    } else {
-        lerp(primary, Color.White, 0.26f)
+        val light = lightColorScheme(
+            primary = primary,
+            onPrimary = if (contrastRatio(primary, Color.White) >= contrastRatio(primary, Color(0xFF101218))) Color.White else Color(0xFF101218),
+            primaryContainer = lerp(primary, lightSurf, 0.84f),
+            onPrimaryContainer = lerp(primary, Color(0xFF1F2421), 0.35f),
+            secondary = secondary,
+            onSecondary = if (colorful) Color.White else Color(0xFF111827),
+            tertiary = if (colorful) Color(0xFFB53C58) else primary,
+            tertiaryContainer = if (colorful) Color(0xFFFFD9E1) else lightVar,
+            onTertiaryContainer = if (colorful) Color(0xFF450C20) else Color(0xFF181A1F),
+            secondaryContainer = if (colorful) Color(0xFFB5F2E8) else lightVar,
+            onSecondaryContainer = if (colorful) Color(0xFF093E3B) else Color(0xFF181A1F),
+            background = lightBg,
+            onBackground = Color(0xFF181A1F),
+            surface = lightSurf,
+            onSurface = Color(0xFF181A1F),
+            surfaceVariant = lightVar,
+            onSurfaceVariant = Color(0xFF565B64),
+            surfaceContainer = lightVar,
+            surfaceContainerHigh = if (colorful) Color(0xFFF1E8FF) else lerp(lightSurf, Color.White, 0.64f),
+            outline = Color(0xFF9EA3AE),
+            outlineVariant = lerp(lightVar, Color(0xFF9EA3AE), 0.25f),
+            error = Color(0xFFDC2626),
+        )
+        val darkBg = Color(uiScheme.darkBg)
+        val darkSurf = Color(uiScheme.darkSurface)
+        val darkVar = lerp(darkSurf, Color.White, 0.05f)
+        val darkPrimary = if (accent == AccentColor.GRAPHITE && uiScheme == UiColorScheme.SLATE_STUDIO) {
+            Color(0xFF93C5FD)
+        } else {
+            lerp(primary, Color.White, 0.26f)
+        }
+        val darkScheme = darkColorScheme(
+            primary = darkPrimary,
+            onPrimary = Color(0xFF0A0D14),
+            primaryContainer = lerp(darkSurf, primary, 0.34f),
+            onPrimaryContainer = Color(0xFFF1F5F9),
+            secondary = if (colorful) Color(0xFF7ADFD3) else lerp(secondary, Color.White, 0.18f),
+            onSecondary = Color(0xFF0A2020),
+            tertiary = if (colorful) Color(0xFFFFA8BB) else darkPrimary,
+            tertiaryContainer = if (colorful) Color(0xFF58213A) else darkVar,
+            onTertiaryContainer = if (colorful) Color(0xFFFFD9E1) else Color(0xFFF3F4F6),
+            secondaryContainer = if (colorful) Color(0xFF154944) else darkVar,
+            onSecondaryContainer = if (colorful) Color(0xFFB5F2E8) else Color(0xFFF3F4F6),
+            background = darkBg,
+            onBackground = Color(0xFFF3F4F6),
+            surface = darkSurf,
+            onSurface = Color(0xFFF3F4F6),
+            surfaceVariant = darkVar,
+            onSurfaceVariant = Color(0xFFA7ACB8),
+            surfaceContainer = lerp(darkBg, darkSurf, 0.65f),
+            surfaceContainerHigh = if (colorful) Color(0xFF342754) else lerp(darkSurf, Color.White, 0.08f),
+            outline = Color(0xFF5A5E6A),
+            outlineVariant = lerp(darkSurf, Color.White, 0.12f),
+            error = Color(0xFFF28B82),
+        )
+        Triple(light, darkScheme, primary to darkPrimary)
     }
-    val darkScheme = darkColorScheme(
-        primary = darkPrimary,
-        onPrimary = Color(0xFF0A0D14),
-        primaryContainer = lerp(darkSurf, primary, 0.34f),
-        onPrimaryContainer = Color(0xFFF1F5F9),
-        secondary = if (colorful) Color(0xFF7ADFD3) else lerp(secondary, Color.White, 0.18f),
-        onSecondary = Color(0xFF0A2020),
-        tertiary = if (colorful) Color(0xFFFFA8BB) else darkPrimary,
-        tertiaryContainer = if (colorful) Color(0xFF58213A) else darkVar,
-        onTertiaryContainer = if (colorful) Color(0xFFFFD9E1) else Color(0xFFF3F4F6),
-        secondaryContainer = if (colorful) Color(0xFF154944) else darkVar,
-        onSecondaryContainer = if (colorful) Color(0xFFB5F2E8) else Color(0xFFF3F4F6),
-        background = darkBg,
-        onBackground = Color(0xFFF3F4F6),
-        surface = darkSurf,
-        onSurface = Color(0xFFF3F4F6),
-        surfaceVariant = darkVar,
-        onSurfaceVariant = Color(0xFFA7ACB8),
-        surfaceContainer = lerp(darkBg, darkSurf, 0.65f),
-        surfaceContainerHigh = if (colorful) Color(0xFF342754) else lerp(darkSurf, Color.White, 0.08f),
-        outline = Color(0xFF5A5E6A),
-        outlineVariant = lerp(darkSurf, Color.White, 0.12f),
-        error = Color(0xFFF28B82),
-    )
+    val light = schemeBundle.first
+    val darkScheme = schemeBundle.second
+    val primary = schemeBundle.third.first
+    val darkPrimary = schemeBundle.third.second
 
-    // Vibrant multi-stop colorful UI gradient for headings & expressive titles.
+    // Vibrant multi-stop colorful UI gradient for headings & expressive titles (memoized to avoid relayout).
     val enableGradients = settings.gradientTitles || settings.colorfulUiText || colorful
-    val gradient = if (enableGradients) {
-        if (dark) {
-            listOf(
-                lerp(darkPrimary, Color(0xFF60A5FA), 0.35f),
-                Color(0xFFC084FC),
-                Color(0xFFFF7EB6),
-                Color(0xFFFBBF24),
-            )
+    val gradient = remember(enableGradients, dark, primary, darkPrimary) {
+        if (enableGradients) {
+            if (dark) {
+                listOf(
+                    lerp(darkPrimary, Color(0xFF60A5FA), 0.35f),
+                    Color(0xFFC084FC),
+                    Color(0xFFFF7EB6),
+                    Color(0xFFFBBF24),
+                )
+            } else {
+                listOf(
+                    lerp(primary, Color(0xFF2563EB), 0.3f),
+                    Color(0xFF8B5CF6),
+                    Color(0xFFEC4899),
+                    Color(0xFFF97316),
+                )
+            }
         } else {
-            listOf(
-                lerp(primary, Color(0xFF2563EB), 0.3f),
-                Color(0xFF8B5CF6),
-                Color(0xFFEC4899),
-                Color(0xFFF97316),
-            )
+            null
         }
-    } else {
-        null
     }
-    val subGradient = if (settings.colorfulUiText) {
-        if (dark) {
-            listOf(Color(0xFF7DD3FC), Color(0xFFD8B4FE), Color(0xFFF9A8D4))
+    val subGradient = remember(settings.colorfulUiText, dark) {
+        if (settings.colorfulUiText) {
+            if (dark) {
+                listOf(Color(0xFF7DD3FC), Color(0xFFD8B4FE), Color(0xFFF9A8D4))
+            } else {
+                listOf(Color(0xFF1D4ED8), Color(0xFF7C3AED), Color(0xFFDB2777))
+            }
         } else {
-            listOf(Color(0xFF1D4ED8), Color(0xFF7C3AED), Color(0xFFDB2777))
+            null
         }
-    } else {
-        null
     }
     val typography = remember(settings.appFont, gradient, subGradient) {
         typographyFor(settings.appFont, gradient, subGradient)

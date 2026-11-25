@@ -846,6 +846,7 @@ fun BookReaderScreen(
                 pageRenderer.darkPdf = false
                 pageRenderer.renderPage(Canvas(out), page, scale, pdfBmp)
             }
+            out.prepareToDraw()
             bitmapCache.put(key, out)
             withContext(Dispatchers.Main) {
                 readyTrigger[key] = (readyTrigger[key] ?: 0) + 1
@@ -940,19 +941,23 @@ fun BookReaderScreen(
             else -> currentPage
         }
 
-        // Prefetch current and adjacent pages whenever position changes
-        LaunchedEffect(loaded, currentPage, effectiveSpread, renderWidthPx, theme.isDark) {
+        // Prefetch current and adjacent pages scaled by PerformanceMode
+        val prefetchDepth = appSettings.performanceMode.pdfPrefetchPages
+        LaunchedEffect(loaded, currentPage, effectiveSpread, renderWidthPx, theme.isDark, prefetchDepth) {
             if (!loaded || pages.isEmpty()) return@LaunchedEffect
             val order = buildList {
                 add(currentPage)
                 if (effectiveSpread && currentPage + 1 < totalPages) add(currentPage + 1)
-                add(currentPage + pageStep)
-                add(currentPage - pageStep)
-                if (effectiveSpread) {
-                    add(currentPage + pageStep + 1)
-                    add(currentPage - pageStep + 1)
+                for (step in 1..prefetchDepth) {
+                    val fwd = currentPage + pageStep * step
+                    add(fwd)
+                    if (effectiveSpread) add(fwd + 1)
+                    if (step <= 2) {
+                        val bwd = currentPage - pageStep * step
+                        add(bwd)
+                        if (effectiveSpread) add(bwd + 1)
+                    }
                 }
-                add(currentPage + pageStep * 2)
             }.distinct().filter { it in pages.indices }
 
             for (idx in order) {
@@ -1134,8 +1139,8 @@ fun BookReaderScreen(
         // Top Reader Bar
         AnimatedVisibility(
             visible = showChrome,
-            enter = fadeIn(if (reduceMotion) snap() else tween(180)),
-            exit = fadeOut(if (reduceMotion) snap() else tween(180)),
+            enter = com.pronotes.app.ui.ProMotion.barEnter(fromTop = true, reduceMotion = reduceMotion, mode = appSettings.performanceMode),
+            exit = com.pronotes.app.ui.ProMotion.barExit(fromTop = true, reduceMotion = reduceMotion),
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
@@ -1211,8 +1216,8 @@ fun BookReaderScreen(
         // Bottom Page Scrubber Bar
         AnimatedVisibility(
             visible = showChrome,
-            enter = fadeIn(if (reduceMotion) snap() else tween(180)),
-            exit = fadeOut(if (reduceMotion) snap() else tween(180)),
+            enter = com.pronotes.app.ui.ProMotion.barEnter(fromTop = false, reduceMotion = reduceMotion, mode = appSettings.performanceMode),
+            exit = com.pronotes.app.ui.ProMotion.barExit(fromTop = false, reduceMotion = reduceMotion),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()

@@ -167,6 +167,11 @@ internal class NoteCanvasDocLayer(
     }
     private val tmpViewRect = RectF()
     private val tmpPageRect = RectF()
+    private val tmpPullRect = RectF()
+    private val tmpLinkRect = RectF()
+    private val tmpSelRect = RectF()
+    private val tmpArcRect = RectF()
+    private val tmpHandleRect = RectF()
     private val tmpPt2 = FloatArray(2)
     private var cachedGuideScale = -1f
     private var cachedGuideDash: DashPathEffect? = null
@@ -611,10 +616,10 @@ internal class NoteCanvasDocLayer(
         val progress = (owner.pull / owner.pullTrigger).coerceIn(0f, 1f)
         val vertical = owner.settings.scroll == ScrollDirection.VERTICAL
         val last = owner.pages.size - 1
-        val end = RectF(0f, 0f, owner.pages[last].width, owner.pages[last].height)
-        owner.pageMatrix(last, m).mapRect(end)
-        val cx = if (vertical) width / 2f else end.right + owner.pull / 2f
-        val cy = if (vertical) end.bottom + owner.pull / 2f else height / 2f
+        tmpPullRect.set(0f, 0f, owner.pages[last].width, owner.pages[last].height)
+        owner.pageMatrix(last, m).mapRect(tmpPullRect)
+        val cx = if (vertical) width / 2f else tmpPullRect.right + owner.pull / 2f
+        val cy = if (vertical) tmpPullRect.bottom + owner.pull / 2f else height / 2f
         val rad = 22f * density * (0.6f + 0.4f * progress)
         pullPaint.alpha = (90 + 165 * progress).toInt()
         canvas.drawCircle(cx, cy, rad, pullPaint)
@@ -657,16 +662,16 @@ internal class NoteCanvasDocLayer(
 
     private fun drawLinks(canvas: Canvas) {
         val ends = owner.host.linkEnds()
-        val a = FloatArray(2)
+        val a = tmpPt2
         val r = 12f * density
         for (e in ends) {
             if (e.page !in owner.pages.indices) continue
             e.box?.let { b ->
-                val sb = RectF(b)
-                owner.pageMatrix(e.page, m).mapRect(sb)
-                if (RectF.intersects(sb, RectF(0f, 0f, width.toFloat(), height.toFloat()))) {
-                    canvas.drawRoundRect(sb, 8f * density, 8f * density, linkBoxFill)
-                    canvas.drawRoundRect(sb, 8f * density, 8f * density, linkBoxLine)
+                tmpLinkRect.set(b)
+                owner.pageMatrix(e.page, m).mapRect(tmpLinkRect)
+                if (RectF.intersects(tmpLinkRect, tmpViewRect)) {
+                    canvas.drawRoundRect(tmpLinkRect, 8f * density, 8f * density, linkBoxFill)
+                    canvas.drawRoundRect(tmpLinkRect, 8f * density, 8f * density, linkBoxLine)
                 }
             }
             a[0] = e.x
@@ -709,7 +714,9 @@ internal class NoteCanvasDocLayer(
         val pc = owner.circleDetector.activeCandidate(ageNow, owner.gestureConfig) ?: return
         val age = ageNow - pc.createdAtMs
         if (age > owner.gestureConfig.circleWindowMs) return
-        val a = floatArrayOf(pc.endX, pc.endY)
+        val a = tmpPt2
+        a[0] = pc.endX
+        a[1] = pc.endY
         owner.pageMatrix(pc.page, m).mapPoints(a)
         val armed = owner.circleDetector.isHoldArmed()
         val t = if (armed) 1f else (age % 1100) / 1100f
@@ -729,7 +736,8 @@ internal class NoteCanvasDocLayer(
         if (!owner.selectionTransformEnabled) return
         val rotating = owner.grab == NoteCanvasView.Grab.ROTATE && owner.liveMatrix != null
         val wb = (if (rotating) owner.selectionBaseBounds() else owner.selectionPageBounds()) ?: return
-        val sb = RectF(wb)
+        val sb = tmpSelRect
+        sb.set(wb)
         owner.pageMatrix(owner.selectionPage, m).mapRect(sb)
         canvas.save()
         canvas.scale(selScale, selScale, sb.centerX(), sb.centerY())
@@ -742,21 +750,24 @@ internal class NoteCanvasDocLayer(
         canvas.drawLine(sb.centerX(), sb.top, sb.centerX(), ry + hr, handlePaint.apply { strokeWidth = 1.5f * density })
         canvas.drawCircle(sb.centerX(), ry, hr + 2f * density, handleFill)
         canvas.drawCircle(sb.centerX(), ry, hr + 2f * density, selRing)
-        canvas.drawArc(RectF(sb.centerX() - hr * 0.6f, ry - hr * 0.6f, sb.centerX() + hr * 0.6f, ry + hr * 0.6f), -60f, 280f, false, selRing)
-        for ((x, y) in listOf(sb.left to sb.top, sb.right to sb.top, sb.left to sb.bottom, sb.right to sb.bottom)) {
-            canvas.drawCircle(x, y, hr, handleFill)
-            canvas.drawCircle(x, y, hr, selRing)
-        }
+        tmpArcRect.set(sb.centerX() - hr * 0.6f, ry - hr * 0.6f, sb.centerX() + hr * 0.6f, ry + hr * 0.6f)
+        canvas.drawArc(tmpArcRect, -60f, 280f, false, selRing)
+        // Corner handles (zero collection allocation)
+        canvas.drawCircle(sb.left, sb.top, hr, handleFill); canvas.drawCircle(sb.left, sb.top, hr, selRing)
+        canvas.drawCircle(sb.right, sb.top, hr, handleFill); canvas.drawCircle(sb.right, sb.top, hr, selRing)
+        canvas.drawCircle(sb.left, sb.bottom, hr, handleFill); canvas.drawCircle(sb.left, sb.bottom, hr, selRing)
+        canvas.drawCircle(sb.right, sb.bottom, hr, handleFill); canvas.drawCircle(sb.right, sb.bottom, hr, selRing)
         val pw = 8f * density
         val ph = 3.5f * density
-        val hTop = RectF(sb.centerX() - pw, sb.top - ph, sb.centerX() + pw, sb.top + ph)
-        val hBot = RectF(sb.centerX() - pw, sb.bottom - ph, sb.centerX() + pw, sb.bottom + ph)
-        val hLeft = RectF(sb.left - ph, sb.centerY() - pw, sb.left + ph, sb.centerY() + pw)
-        val hRight = RectF(sb.right - ph, sb.centerY() - pw, sb.right + ph, sb.centerY() + pw)
-        for (hRect in listOf(hTop, hBot, hLeft, hRight)) {
-            canvas.drawRoundRect(hRect, ph, ph, handleFill)
-            canvas.drawRoundRect(hRect, ph, ph, selRing)
+        fun drawEdgeHandle(l: Float, t: Float, r: Float, b: Float) {
+            tmpHandleRect.set(l, t, r, b)
+            canvas.drawRoundRect(tmpHandleRect, ph, ph, handleFill)
+            canvas.drawRoundRect(tmpHandleRect, ph, ph, selRing)
         }
+        drawEdgeHandle(sb.centerX() - pw, sb.top - ph, sb.centerX() + pw, sb.top + ph)
+        drawEdgeHandle(sb.centerX() - pw, sb.bottom - ph, sb.centerX() + pw, sb.bottom + ph)
+        drawEdgeHandle(sb.left - ph, sb.centerY() - pw, sb.left + ph, sb.centerY() + pw)
+        drawEdgeHandle(sb.right - ph, sb.centerY() - pw, sb.right + ph, sb.centerY() + pw)
         canvas.restore()
         val label = when {
             rotating -> "${owner.liveDeg.roundToInt()}\u00B0"
