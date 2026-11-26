@@ -1,16 +1,22 @@
 package com.pronotes.app.library
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -46,10 +52,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -61,10 +69,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.pronotes.app.ui.AppMenuItem
-import com.pronotes.app.ui.LocalMotionStyle
-import com.pronotes.app.ui.LocalPerformanceMode
 import com.pronotes.app.ui.LocalReduceMotion
-import com.pronotes.app.ui.ProMotion
 import com.pronotes.app.ui.appCardShape
 import com.pronotes.app.ui.tactilePressScale
 
@@ -78,6 +83,7 @@ private val CreateMenuAccents = listOf(
 private val CreateMenuBadgeTints = CreateMenuAccents.map { it.copy(alpha = 0.14f) }
 private val CreateMenuGroupTitles = listOf("CREATE", "EXPLORE", "ORGANIZE", "IMPORT")
 private val CreateMenuRowShape = RoundedCornerShape(12.dp)
+private val CreateMenuBadgeShape = RoundedCornerShape(10.dp)
 
 private fun groupForIndex(index: Int): Int = when {
     index < 4 -> 0
@@ -89,9 +95,10 @@ private fun groupForIndex(index: Int): Int = when {
 private fun isGroupStart(index: Int): Boolean = index == 0 || index == 4 || index == 9 || index == 11
 
 /**
- * Ultra-smooth library creation menu (+ button & spring popover).
- * Uses a fixed-width Popup instead of Material3 DropdownMenu to completely eliminate
- * IntrinsicSize.Max double-measurement passes and per-row CompositionLocal overhead.
+ * Silky 120Hz library creation menu (+ button & connected spring popover).
+ * Uses a top-right connector caret aligned straight to the rotating + button,
+ * hardware-accelerated scale + slide + fade spring motion, and lightweight row rendering
+ * so opening and closing feels instant and physically connected.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -105,28 +112,40 @@ internal fun LibraryCreateMenu(
     expandedState.targetState = expanded
 
     val reduceMotion = LocalReduceMotion.current
-    val perfMode = LocalPerformanceMode.current
-    val motionStyle = LocalMotionStyle.current
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     val interactionSource = remember { MutableInteractionSource() }
-    val plusRotation = animateFloatAsState(
+    val plusRotation by animateFloatAsState(
         targetValue = if (expanded) 45f else 0f,
-        animationSpec = ProMotion.snappySpring(reduceMotion, perfMode, motionStyle),
+        animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.78f, stiffness = 540f),
         label = "createPlusSpin",
+    )
+    val btnScale by animateFloatAsState(
+        targetValue = if (expanded) 0.94f else 1f,
+        animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.80f, stiffness = 540f),
+        label = "createBtnScale",
+    )
+    val btnBg by animateColorAsState(
+        targetValue = if (expanded) Color(0xFF3464E0) else Color(0xFF254DB5),
+        animationSpec = if (reduceMotion) snap() else tween(140),
+        label = "createBtnBg",
     )
     val cardShape = appCardShape()
     val scheme = MaterialTheme.colorScheme
     val density = LocalDensity.current
-    val yOffsetPx = remember(density) { with(density) { 54.dp.roundToPx() } }
+    val yOffsetPx = remember(density) { with(density) { 46.dp.roundToPx() } }
 
     Box {
         Surface(
             shape = cardShape,
-            color = Color(0xFF254DB5),
+            color = btnBg,
             contentColor = Color.White,
-            border = BorderStroke(1.dp, Color(0xFF749AF0).copy(alpha = 0.55f)),
-            shadowElevation = 4.dp,
+            border = BorderStroke(
+                1.dp,
+                if (expanded) Color(0xFFA5C2FF).copy(alpha = 0.85f) else Color(0xFF749AF0).copy(alpha = 0.55f),
+            ),
+            shadowElevation = if (expanded) 6.dp else 4.dp,
             modifier = Modifier
+                .graphicsLayer { scaleX = btnScale; scaleY = btnScale }
                 .tactilePressScale(interactionSource, pressedScale = 0.93f)
                 .clip(cardShape)
                 .combinedClickable(
@@ -153,12 +172,17 @@ internal fun LibraryCreateMenu(
                     contentDescription = null,
                     modifier = Modifier
                         .size(26.dp)
-                        .graphicsLayer { rotationZ = plusRotation.value },
+                        .graphicsLayer { rotationZ = plusRotation },
                 )
             }
         }
 
         if (expandedState.currentState || expandedState.targetState) {
+            val surfaceBg = scheme.surfaceContainerHigh
+            val borderCol = scheme.outlineVariant.copy(alpha = 0.44f)
+            val dividerColor = scheme.onSurface.copy(alpha = 0.08f)
+            val disabledColor = scheme.onSurface.copy(alpha = 0.38f)
+
             Popup(
                 alignment = Alignment.TopEnd,
                 offset = IntOffset(0, yOffsetPx),
@@ -168,129 +192,161 @@ internal fun LibraryCreateMenu(
                 AnimatedVisibility(
                     visibleState = expandedState,
                     enter = if (reduceMotion) fadeIn(snap()) else {
-                        fadeIn(tween(110)) + scaleIn(
-                            initialScale = 0.91f,
-                            transformOrigin = TransformOrigin(0.95f, 0f),
-                            animationSpec = ProMotion.snappySpring(reduceMotion, perfMode, motionStyle),
-                        )
+                        fadeIn(tween(130)) +
+                            slideInVertically(
+                                initialOffsetY = { -18 },
+                                animationSpec = spring(dampingRatio = 0.82f, stiffness = 500f),
+                            ) +
+                            scaleIn(
+                                initialScale = 0.86f,
+                                transformOrigin = TransformOrigin(0.92f, 0f),
+                                animationSpec = spring(dampingRatio = 0.82f, stiffness = 500f),
+                            )
                     },
                     exit = if (reduceMotion) fadeOut(snap()) else {
-                        fadeOut(tween(80)) + scaleOut(
-                            targetScale = 0.94f,
-                            transformOrigin = TransformOrigin(0.95f, 0f),
-                            animationSpec = tween(80),
-                        )
+                        fadeOut(tween(100)) +
+                            slideOutVertically(
+                                targetOffsetY = { -12 },
+                                animationSpec = tween(100),
+                            ) +
+                            scaleOut(
+                                targetScale = 0.92f,
+                                transformOrigin = TransformOrigin(0.92f, 0f),
+                                animationSpec = tween(100),
+                            )
                     },
                 ) {
-                    Surface(
-                        shape = cardShape,
-                        color = scheme.surfaceContainerHigh,
-                        tonalElevation = 0.dp,
-                        shadowElevation = 12.dp,
-                        border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.42f)),
-                        modifier = Modifier
-                            .width(292.dp)
-                            .heightIn(max = 560.dp),
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        modifier = Modifier.width(292.dp),
                     ) {
-                        val badgeCornerPx = remember(density) { with(density) { 10.dp.toPx() } }
-                        val dividerColor = scheme.onSurface.copy(alpha = 0.08f)
-                        val disabledColor = scheme.onSurface.copy(alpha = 0.38f)
-                        Column(
+                        // Connected caret aligned directly under the center of the 48.dp + button
+                        Canvas(
                             modifier = Modifier
-                                .verticalScroll(rememberScrollState())
-                                .padding(bottom = 8.dp),
+                                .padding(end = 15.dp)
+                                .size(width = 18.dp, height = 8.dp),
                         ) {
-                            Column(
-                                Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                verticalArrangement = Arrangement.spacedBy(2.dp),
-                            ) {
-                                Text(
-                                    label,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = scheme.onSurface,
-                                )
-                                Text(
-                                    "Notebooks, imports and study tools",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = scheme.onSurfaceVariant,
-                                )
+                            val tri = Path().apply {
+                                moveTo(0f, size.height + 1f)
+                                lineTo(size.width * 0.5f, 0f)
+                                lineTo(size.width, size.height + 1f)
+                                close()
                             }
-                            items.forEachIndexed { index, item ->
-                                val group = groupForIndex(index)
-                                val accent = CreateMenuAccents[group]
-                                val badgeTint = CreateMenuBadgeTints[group]
-                                if (isGroupStart(index)) {
-                                    if (index != 0) {
-                                        HorizontalDivider(
-                                            Modifier.padding(horizontal = 14.dp, vertical = 5.dp),
-                                            color = dividerColor,
+                            drawPath(tri, surfaceBg)
+                            val strokePath = Path().apply {
+                                moveTo(0.5f, size.height)
+                                lineTo(size.width * 0.5f, 0.5f)
+                                lineTo(size.width - 0.5f, size.height)
+                            }
+                            drawPath(
+                                strokePath,
+                                borderCol,
+                                style = Stroke(width = 1.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
+                            )
+                        }
+                        Surface(
+                            shape = cardShape,
+                            color = surfaceBg,
+                            tonalElevation = 0.dp,
+                            shadowElevation = 8.dp,
+                            border = BorderStroke(1.dp, borderCol),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 540.dp),
+                        ) {
+                            val scrollState = rememberScrollState()
+                            Column(
+                                modifier = Modifier
+                                    .verticalScroll(scrollState)
+                                    .padding(bottom = 8.dp),
+                            ) {
+                                Column(
+                                    Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                                ) {
+                                    Text(
+                                        label,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = scheme.onSurface,
+                                    )
+                                    Text(
+                                        "Notebooks, imports and study tools",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = scheme.onSurfaceVariant,
+                                    )
+                                }
+                                items.forEachIndexed { index, item ->
+                                    val group = groupForIndex(index)
+                                    val accent = CreateMenuAccents[group]
+                                    val badgeTint = CreateMenuBadgeTints[group]
+                                    if (isGroupStart(index)) {
+                                        if (index != 0) {
+                                            HorizontalDivider(
+                                                Modifier.padding(horizontal = 14.dp, vertical = 5.dp),
+                                                color = dividerColor,
+                                            )
+                                        }
+                                        Text(
+                                            CreateMenuGroupTitles[group],
+                                            Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = accent,
                                         )
                                     }
-                                    Text(
-                                        CreateMenuGroupTitles[group],
-                                        Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = accent,
-                                    )
-                                }
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(44.dp)
-                                        .padding(horizontal = 8.dp, vertical = 1.dp)
-                                        .clip(CreateMenuRowShape)
-                                        .clickable(enabled = item.enabled) {
-                                            expanded = false
-                                            item.onClick()
-                                        }
-                                        .padding(horizontal = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                ) {
-                                    Box(
-                                        Modifier
-                                            .size(32.dp)
-                                            .drawBehind {
-                                                drawRoundRect(
-                                                    color = badgeTint,
-                                                    cornerRadius = CornerRadius(badgeCornerPx, badgeCornerPx),
-                                                )
-                                            },
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        val vec = item.iconVector
-                                        when {
-                                            vec != null -> Icon(
-                                                imageVector = vec,
-                                                contentDescription = null,
-                                                tint = accent,
-                                                modifier = Modifier.size(19.dp),
-                                            )
-                                            item.icon != null -> CompositionLocalProvider(LocalContentColor provides accent) {
-                                                item.icon.invoke()
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(44.dp)
+                                            .padding(horizontal = 8.dp, vertical = 1.dp)
+                                            .clip(CreateMenuRowShape)
+                                            .clickable(enabled = item.enabled) {
+                                                expanded = false
+                                                item.onClick()
                                             }
-                                            else -> Icon(
-                                                imageVector = Icons.Rounded.ChevronRight,
-                                                contentDescription = null,
-                                                tint = accent,
-                                                modifier = Modifier.size(18.dp),
-                                            )
+                                            .padding(horizontal = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        Box(
+                                            Modifier
+                                                .size(32.dp)
+                                                .background(badgeTint, CreateMenuBadgeShape),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            val vec = item.iconVector
+                                            when {
+                                                vec != null -> Icon(
+                                                    imageVector = vec,
+                                                    contentDescription = null,
+                                                    tint = accent,
+                                                    modifier = Modifier.size(19.dp),
+                                                )
+                                                item.icon != null -> CompositionLocalProvider(LocalContentColor provides accent) {
+                                                    item.icon.invoke()
+                                                }
+                                                else -> Icon(
+                                                    imageVector = Icons.Rounded.ChevronRight,
+                                                    contentDescription = null,
+                                                    tint = accent,
+                                                    modifier = Modifier.size(18.dp),
+                                                )
+                                            }
                                         }
+                                        Text(
+                                            item.label,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Medium,
+                                            color = if (item.enabled) scheme.onSurface else disabledColor,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f),
+                                        )
                                     }
-                                    Text(
-                                        item.label,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Medium,
-                                        color = if (item.enabled) scheme.onSurface else disabledColor,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f),
-                                    )
                                 }
+                                Spacer(Modifier.height(2.dp))
                             }
-                            Spacer(Modifier.height(2.dp))
                         }
                     }
                 }

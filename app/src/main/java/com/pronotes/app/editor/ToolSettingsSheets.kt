@@ -68,6 +68,8 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -94,6 +96,7 @@ import com.pronotes.app.data.LassoMode
 import com.pronotes.app.data.PenPreset
 import com.pronotes.app.data.ScribbleSensitivity
 import com.pronotes.app.data.SettingsStore
+import com.pronotes.app.data.SideButton
 import com.pronotes.app.data.ToolDefaults
 import com.pronotes.app.ui.AppCard
 import com.pronotes.app.ui.AppChip
@@ -138,7 +141,11 @@ fun ToolPopoverCard(
 ) {
     var entered by remember(tool) { mutableStateOf(false) }
     LaunchedEffect(tool) { entered = true }
-    val progress by animateFloatAsState(if (entered && visible) 1f else 0f, animationSpec = if (com.pronotes.app.ui.LocalReduceMotion.current) snap() else spring(dampingRatio = 0.78f, stiffness = 650f), label = "Tool menu")
+    val progress by animateFloatAsState(
+        targetValue = if (entered && visible) 1f else 0f,
+        animationSpec = if (com.pronotes.app.ui.LocalReduceMotion.current) snap() else spring(dampingRatio = 0.80f, stiffness = 540f),
+        label = "Tool menu",
+    )
     val pickTape = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) vm.useTapeImage(uri)
     }
@@ -146,12 +153,21 @@ fun ToolPopoverCard(
     val cardFg = if (darkUi) Color.White else Color(0xFF181A1F)
     val borderTint = if (darkUi) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.12f)
     val reduceEffects = LocalReduceEffects.current
+    val slideShiftPx = with(androidx.compose.ui.platform.LocalDensity.current) { 10.dp.toPx() }
+    val origin = if (caretSide == PopoverCaretSide.BOTTOM) TransformOrigin(0.5f, 1f) else TransformOrigin(0.5f, 0f)
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .widthIn(min = 260.dp, max = 360.dp)
-            .graphicsLayer { alpha = progress.coerceIn(0f, 1f); scaleX = 0.97f + progress * 0.03f; scaleY = scaleX }
+            .graphicsLayer {
+                val p = progress.coerceIn(0f, 1.05f)
+                alpha = progress.coerceIn(0f, 1f)
+                transformOrigin = origin
+                scaleX = 0.88f + p * 0.12f
+                scaleY = 0.88f + p * 0.12f
+                translationY = (1f - progress) * (if (caretSide == PopoverCaretSide.BOTTOM) slideShiftPx else -slideShiftPx)
+            }
             .onPreviewKeyEvent { ev ->
                 if (ev.type == KeyEventType.KeyDown && ev.key == Key.Escape) {
                     onDismiss()
@@ -160,14 +176,20 @@ fun ToolPopoverCard(
             },
     ) {
         if (caretSide == PopoverCaretSide.TOP) {
-            Canvas(Modifier.size(width = 24.dp, height = 10.dp)) {
+            Canvas(Modifier.size(width = 22.dp, height = 9.dp)) {
                 val tri = Path().apply {
-                    moveTo(0f, size.height)
+                    moveTo(0f, size.height + 1f)
                     lineTo(size.width / 2f, 0f)
-                    lineTo(size.width, size.height)
+                    lineTo(size.width, size.height + 1f)
                     close()
                 }
                 drawPath(tri, cardBg)
+                val outline = Path().apply {
+                    moveTo(0.5f, size.height)
+                    lineTo(size.width / 2f, 0.5f)
+                    lineTo(size.width - 0.5f, size.height)
+                }
+                drawPath(outline, borderTint, style = Stroke(width = 1.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
             }
         }
         AppSurface(
@@ -270,14 +292,20 @@ fun ToolPopoverCard(
             }
         }
         if (caretSide == PopoverCaretSide.BOTTOM) {
-            Canvas(Modifier.size(width = 24.dp, height = 10.dp)) {
+            Canvas(Modifier.size(width = 22.dp, height = 9.dp)) {
                 val tri = Path().apply {
-                    moveTo(0f, 0f)
+                    moveTo(0f, -1f)
                     lineTo(size.width / 2f, size.height)
-                    lineTo(size.width, 0f)
+                    lineTo(size.width, -1f)
                     close()
                 }
                 drawPath(tri, cardBg)
+                val outline = Path().apply {
+                    moveTo(0.5f, 0f)
+                    lineTo(size.width / 2f, size.height - 0.5f)
+                    lineTo(size.width - 0.5f, 0f)
+                }
+                drawPath(outline, borderTint, style = Stroke(width = 1.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
             }
         }
     }
@@ -325,6 +353,10 @@ private data class PenCardSettings(
     val paperVolume: Float,
     val paperHaptics: Boolean,
     val touchSensitivity: Float,
+    val stylusOnly: Boolean,
+    val palmRejection: Boolean,
+    val hoverCursor: Boolean,
+    val sideButton: SideButton,
     val toolDefaults: ToolDefaults,
 )
 
@@ -361,10 +393,36 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
     val context = LocalContext.current
     val store = vm.notebookSettings
     val s by remember(store) {
-        store.select { PenCardSettings(it.penName, it.paperSound, it.paperVolume, it.paperHaptics, it.touchSensitivity, it.toolDefaults) }
+        store.select {
+            PenCardSettings(
+                it.penName,
+                it.paperSound,
+                it.paperVolume,
+                it.paperHaptics,
+                it.touchSensitivity,
+                it.stylusOnly,
+                it.palmRejection,
+                it.hoverCursor,
+                it.sideButton,
+                it.toolDefaults,
+            )
+        }
     }.collectAsStateWithLifecycle(
         initialValue = remember(store) {
-            store.settings.value.let { PenCardSettings(it.penName, it.paperSound, it.paperVolume, it.paperHaptics, it.touchSensitivity, it.toolDefaults) }
+            store.settings.value.let {
+                PenCardSettings(
+                    it.penName,
+                    it.paperSound,
+                    it.paperVolume,
+                    it.paperHaptics,
+                    it.touchSensitivity,
+                    it.stylusOnly,
+                    it.palmRejection,
+                    it.hoverCursor,
+                    it.sideButton,
+                    it.toolDefaults,
+                )
+            }
         },
     )
     var editingPenName by remember { mutableStateOf(false) }
@@ -377,20 +435,80 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
     val tileIdleBg = if (darkUi) Color(0xFF232326) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
     val mutedFg = fgColor.copy(alpha = 0.68f)
 
-    if (section == 3) AppCard(
-        onClick = { editingPenName = true },
-        containerColor = tileIdleBg,
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 9.dp),
-        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.Edit, contentDescription = "Edit stylus name", Modifier.size(16.dp), tint = ProButtonPalette.ElectricBlue)
-            Spacer(Modifier.width(8.dp))
-            Column(Modifier.weight(1f)) {
-                Text("ACTIVE STYLUS", style = MaterialTheme.typography.labelSmall, color = mutedFg)
-                Text(s.penName.ifBlank { "Pro Stylus" }, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = fgColor)
+    if (section == 3) {
+        AppCard(
+            onClick = { editingPenName = true },
+            containerColor = tileIdleBg,
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 52.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(ProButtonPalette.ElectricBlue.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Outlined.Edit, contentDescription = "Edit stylus name", Modifier.size(16.dp), tint = ProButtonPalette.ElectricBlue)
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("ACTIVE STYLUS", style = MaterialTheme.typography.labelSmall, color = mutedFg, letterSpacing = 0.6.sp)
+                    Text(s.penName.ifBlank { "Pro Stylus" }, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = fgColor)
+                }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(ProButtonPalette.ElectricBlue.copy(alpha = 0.12f))
+                        .padding(horizontal = 9.dp, vertical = 4.dp),
+                ) {
+                    Text("Rename", style = MaterialTheme.typography.labelSmall, color = ProButtonPalette.ElectricBlue, fontWeight = FontWeight.SemiBold)
+                }
             }
-            Text("Rename", style = MaterialTheme.typography.labelSmall, color = ProButtonPalette.ElectricBlue)
+        }
+
+        // Quick Side-Button Action selector
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(tileIdleBg)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text("HOLD SIDE BUTTON", style = MaterialTheme.typography.labelSmall, color = mutedFg, letterSpacing = 0.7.sp)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SideButton.entries.forEach { btn ->
+                    AppChip(
+                        selected = s.sideButton == btn,
+                        onClick = { store.update { it.copy(sideButton = btn) } },
+                        label = btn.label,
+                        tint = ProButtonPalette.ElectricBlue,
+                    )
+                }
+            }
+        }
+
+        // Input & Palm Rejection card
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(tileIdleBg)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("INPUT & PALM PROTECTION", style = MaterialTheme.typography.labelSmall, color = mutedFg, letterSpacing = 0.7.sp)
+            SheetToggleLine("Stylus-only writing", s.stylusOnly, fgColor) { enabled ->
+                store.update { it.copy(stylusOnly = enabled) }
+            }
+            SheetToggleLine("Palm rejection", s.palmRejection, fgColor) { enabled ->
+                store.update { it.copy(palmRejection = enabled) }
+            }
+            SheetToggleLine("Hover cursor preview", s.hoverCursor, fgColor) { enabled ->
+                store.update { it.copy(hoverCursor = enabled) }
+            }
         }
     }
 
@@ -454,32 +572,42 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
         )
     }
     if (section == 3) {
-        SheetToggleLine("Stylus pressure", s.toolDefaults.pressureEnabled, fgColor) { enabled ->
-            store.update { it.copy(toolDefaults = it.toolDefaults.copy(pressureEnabled = enabled)) }
-        }
-        if (s.toolDefaults.pressureEnabled) {
-            SheetSliderRow(
-                "PRESSURE RESPONSE",
-                "${(s.toolDefaults.pressureSensitivity * 100).roundToInt()}%",
-                s.toolDefaults.pressureSensitivity,
-                0.3f..2.0f,
-            ) { v ->
-                store.update { it.copy(toolDefaults = it.toolDefaults.copy(pressureSensitivity = v)) }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(tileIdleBg)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("FEEL & RESPONSE", style = MaterialTheme.typography.labelSmall, color = mutedFg, letterSpacing = 0.7.sp)
+            SheetToggleLine("Stylus pressure", s.toolDefaults.pressureEnabled, fgColor) { enabled ->
+                store.update { it.copy(toolDefaults = it.toolDefaults.copy(pressureEnabled = enabled)) }
             }
-        }
-        SheetSliderRow(
-            "TOUCH SENSITIVITY",
-            "${(s.touchSensitivity * 100).roundToInt()}%",
-            s.touchSensitivity,
-            0.4f..2.0f,
-        ) { v ->
-            store.update { it.copy(touchSensitivity = v) }
-        }
-        SheetToggleLine("Tilt shading", s.toolDefaults.penTiltShading, fgColor) { enabled ->
-            store.update { it.copy(toolDefaults = it.toolDefaults.copy(penTiltShading = enabled)) }
-        }
-        SheetToggleLine("Tap objects with the pen to select", s.toolDefaults.tapSelect, fgColor) { enabled ->
-            store.update { it.copy(toolDefaults = it.toolDefaults.copy(tapSelect = enabled)) }
+            if (s.toolDefaults.pressureEnabled) {
+                SheetSliderRow(
+                    "PRESSURE RESPONSE",
+                    "${(s.toolDefaults.pressureSensitivity * 100).roundToInt()}%",
+                    s.toolDefaults.pressureSensitivity,
+                    0.3f..2.0f,
+                ) { v ->
+                    store.update { it.copy(toolDefaults = it.toolDefaults.copy(pressureSensitivity = v)) }
+                }
+            }
+            SheetSliderRow(
+                "TOUCH SENSITIVITY",
+                "${(s.touchSensitivity * 100).roundToInt()}%",
+                s.touchSensitivity,
+                0.4f..2.0f,
+            ) { v ->
+                store.update { it.copy(touchSensitivity = v) }
+            }
+            SheetToggleLine("Tilt shading", s.toolDefaults.penTiltShading, fgColor) { enabled ->
+                store.update { it.copy(toolDefaults = it.toolDefaults.copy(penTiltShading = enabled)) }
+            }
+            SheetToggleLine("Tap objects with pen to select", s.toolDefaults.tapSelect, fgColor) { enabled ->
+                store.update { it.copy(toolDefaults = it.toolDefaults.copy(tapSelect = enabled)) }
+            }
         }
     }
     if (section == 0) {
@@ -577,15 +705,23 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
     ColorPalettePresetsStrip(vm, Tool.PEN, style, fgColor, darkUi)
     }
     if (section == 3) {
-    Text("SETTINGS", style = MaterialTheme.typography.labelSmall, color = mutedFg, letterSpacing = 0.8.sp)
-    SheetToggleLine("Writing sound", s.paperSound, fgColor) { v -> store.update { it.copy(paperSound = v) } }
-    if (s.paperSound) {
-        SheetSliderRow("VOLUME", "%.0f%%".format(s.paperVolume * 100), s.paperVolume, 0.05f..1f) { v ->
-            store.update { it.copy(paperVolume = v) }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(tileIdleBg)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("PAPER FEEDBACK", style = MaterialTheme.typography.labelSmall, color = mutedFg, letterSpacing = 0.7.sp)
+            SheetToggleLine("Writing sound", s.paperSound, fgColor) { v -> store.update { it.copy(paperSound = v) } }
+            if (s.paperSound) {
+                SheetSliderRow("VOLUME", "%.0f%%".format(s.paperVolume * 100), s.paperVolume, 0.05f..1f) { v ->
+                    store.update { it.copy(paperVolume = v) }
+                }
+            }
+            SheetToggleLine("Paper haptics", s.paperHaptics, fgColor) { v -> store.update { it.copy(paperHaptics = v) } }
         }
-    }
-    SheetToggleLine("Paper haptics", s.paperHaptics, fgColor) { v -> store.update { it.copy(paperHaptics = v) } }
-
     }
     if (editingPenName) {
         var name by remember(s.penName) { mutableStateOf(s.penName) }

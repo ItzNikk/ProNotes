@@ -1764,8 +1764,8 @@ class PageRenderer(private val noteDir: File?) {
                 }
             }
 
-            // Compact sticky top accent header strip (drag to move, tap Pin / Edit / Fold controls on right)
-            val barH = minOf(r.height(), 34f)
+            // Compact sticky top accent header strip (drag to move, tap clear Pin / Edit / Fold pills on right)
+            val barH = minOf(r.height(), 36f)
             fillPaint.color = if (style == "outline") ((item.color and 0x00FFFFFF) or (0x28 shl 24)) else 0x14000000
             canvas.drawRect(r.left, r.top, r.right, r.top + barH, fillPaint)
             // Hairline divider under header
@@ -1773,40 +1773,41 @@ class PageRenderer(private val noteDir: File?) {
             stickyStroke.strokeWidth = 1.2f
             canvas.drawLine(r.left, r.top + barH, r.right, r.top + barH, stickyStroke)
 
-            val btnW = 30f
             val btnGap = 6f
-            // 1. Fold / Minimize button (far right: right-38..right-8)
-            stickyBtnRect.set(r.right - btnW - 8f, r.top + 5f, r.right - 8f, r.top + barH - 5f)
-            fillPaint.color = 0x1F000000
-            canvas.drawRoundRect(stickyBtnRect, 7f, 7f, fillPaint)
+            val foldW = 44f
+            val editW = 44f
+            val pinW = if (item.pinned) 54f else 42f
             stickyText.typeface = android.graphics.Typeface.SANS_SERIF
-            stickyText.textSize = 16f
+            stickyText.textSize = 11.5f
             stickyText.isFakeBoldText = true
+
+            // 1. Fold button (far right: right-52..right-8)
+            stickyBtnRect.set(r.right - foldW - 8f, r.top + 6f, r.right - 8f, r.top + barH - 6f)
+            fillPaint.color = 0x1C000000
+            canvas.drawRoundRect(stickyBtnRect, 8f, 8f, fillPaint)
             stickyText.color = fg
-            val foldGlyph = "−"
-            canvas.drawText(foldGlyph, stickyBtnRect.centerX() - stickyText.measureText(foldGlyph) / 2f, stickyBtnRect.centerY() + 5.5f, stickyText)
+            val foldLabel = "Fold"
+            canvas.drawText(foldLabel, stickyBtnRect.centerX() - stickyText.measureText(foldLabel) / 2f, stickyBtnRect.centerY() + 4f, stickyText)
 
-            // 2. Edit / Type button (middle-right: right-74..right-44)
-            val editRight = r.right - btnW - 8f - btnGap
-            stickyBtnRect.set(editRight - btnW, r.top + 5f, editRight, r.top + barH - 5f)
+            // 2. Edit button (middle-right: right-102..right-58)
+            val editRight = r.right - foldW - 8f - btnGap
+            stickyBtnRect.set(editRight - editW, r.top + 6f, editRight, r.top + barH - 6f)
             fillPaint.color = 0x16000000
-            canvas.drawRoundRect(stickyBtnRect, 7f, 7f, fillPaint)
-            stickyText.textSize = 13.5f
-            val editGlyph = "✎"
-            canvas.drawText(editGlyph, stickyBtnRect.centerX() - stickyText.measureText(editGlyph) / 2f, stickyBtnRect.centerY() + 4.5f, stickyText)
+            canvas.drawRoundRect(stickyBtnRect, 8f, 8f, fillPaint)
+            val editLabel = "Edit"
+            canvas.drawText(editLabel, stickyBtnRect.centerX() - stickyText.measureText(editLabel) / 2f, stickyBtnRect.centerY() + 4f, stickyText)
 
-            // 3. Pin / Lock toggle button (left of edit: right-110..right-80)
-            var rightReserved = btnW * 2f + btnGap + 18f
-            if (r.width() >= 190f) {
-                val pinRight = editRight - btnW - btnGap
-                stickyBtnRect.set(pinRight - btnW, r.top + 5f, pinRight, r.top + barH - 5f)
+            // 3. Pin / Pinned button (left of Edit when wide enough)
+            var rightReserved = foldW + editW + btnGap + 20f
+            if (r.width() >= 220f) {
+                val pinRight = editRight - editW - btnGap
+                stickyBtnRect.set(pinRight - pinW, r.top + 6f, pinRight, r.top + barH - 6f)
                 fillPaint.color = if (item.pinned) 0x4AD95926 else 0x14000000
-                canvas.drawRoundRect(stickyBtnRect, 7f, 7f, fillPaint)
-                stickyText.textSize = 12.5f
-                val pinGlyph = if (item.pinned) "●" else "○"
+                canvas.drawRoundRect(stickyBtnRect, 8f, 8f, fillPaint)
+                val pinLabel = if (item.pinned) "Pinned" else "Pin"
                 stickyText.color = if (item.pinned) 0xFFC2410C.toInt() else fgMuted
-                canvas.drawText(pinGlyph, stickyBtnRect.centerX() - stickyText.measureText(pinGlyph) / 2f, stickyBtnRect.centerY() + 4.5f, stickyText)
-                rightReserved += btnW + btnGap
+                canvas.drawText(pinLabel, stickyBtnRect.centerX() - stickyText.measureText(pinLabel) / 2f, stickyBtnRect.centerY() + 4f, stickyText)
+                rightReserved += pinW + btnGap
             }
             stickyText.isFakeBoldText = false
 

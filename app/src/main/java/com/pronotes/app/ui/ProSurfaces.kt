@@ -26,12 +26,19 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.clickable
@@ -969,8 +976,8 @@ private val ContextMenuShape = RoundedCornerShape(16.dp)
 private val ContextMenuRowShape = RoundedCornerShape(10.dp)
 
 /**
- * Zero-jank spring-animated context menu. Uses a fixed-width Popup without Material3's
- * IntrinsicSize.Max double-measurement pass so opening dropdowns is instantaneous at 120Hz.
+ * Zero-jank spring-animated context menu with a connected anchor caret so every dropdown
+ * visually emerges from its trigger button at 120Hz.
  */
 @Composable
 fun AppContextMenu(
@@ -978,6 +985,8 @@ fun AppContextMenu(
     onDismissRequest: () -> Unit,
     items: List<AppMenuItem>,
     modifier: Modifier = Modifier,
+    showCaret: Boolean = true,
+    caretEndPadding: Dp = 14.dp,
 ) {
     val expandedState = remember { MutableTransitionState(false) }
     expandedState.targetState = expanded
@@ -985,10 +994,10 @@ fun AppContextMenu(
 
     val scheme = MaterialTheme.colorScheme
     val reduceMotion = LocalReduceMotion.current
-    val perfMode = LocalPerformanceMode.current
-    val motionStyle = LocalMotionStyle.current
     val density = LocalDensity.current
-    val yOffsetPx = remember(density) { with(density) { 46.dp.roundToPx() } }
+    val yOffsetPx = remember(density, showCaret) { with(density) { (if (showCaret) 38.dp else 44.dp).roundToPx() } }
+    val surfaceBg = scheme.surfaceContainerHigh
+    val borderCol = scheme.outlineVariant.copy(alpha = 0.44f)
 
     Popup(
         alignment = Alignment.TopEnd,
@@ -999,98 +1008,138 @@ fun AppContextMenu(
         AnimatedVisibility(
             visibleState = expandedState,
             enter = if (reduceMotion) fadeIn(snap()) else {
-                fadeIn(tween(110)) + scaleIn(
-                    initialScale = 0.92f,
-                    transformOrigin = TransformOrigin(0.95f, 0f),
-                    animationSpec = ProMotion.snappySpring(reduceMotion, perfMode, motionStyle),
-                )
+                fadeIn(tween(130)) +
+                    slideInVertically(
+                        initialOffsetY = { -16 },
+                        animationSpec = spring(dampingRatio = 0.82f, stiffness = 540f),
+                    ) +
+                    scaleIn(
+                        initialScale = 0.88f,
+                        transformOrigin = TransformOrigin(0.90f, 0f),
+                        animationSpec = spring(dampingRatio = 0.82f, stiffness = 540f),
+                    )
             },
             exit = if (reduceMotion) fadeOut(snap()) else {
-                fadeOut(tween(80)) + scaleOut(
-                    targetScale = 0.95f,
-                    transformOrigin = TransformOrigin(0.95f, 0f),
-                    animationSpec = tween(80),
-                )
+                fadeOut(tween(95)) +
+                    slideOutVertically(
+                        targetOffsetY = { -10 },
+                        animationSpec = tween(95),
+                    ) +
+                    scaleOut(
+                        targetScale = 0.92f,
+                        transformOrigin = TransformOrigin(0.90f, 0f),
+                        animationSpec = tween(95),
+                    )
             },
         ) {
-            Surface(
-                shape = ContextMenuShape,
-                color = scheme.surfaceContainerHigh,
-                tonalElevation = 0.dp,
-                shadowElevation = 10.dp,
-                border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.42f)),
-                modifier = modifier
-                    .width(228.dp)
-                    .heightIn(max = 420.dp),
+            Column(
+                horizontalAlignment = Alignment.End,
+                modifier = modifier.width(232.dp),
             ) {
-                var actionFired by remember(expanded) { mutableStateOf(false) }
-                Column(
-                    modifier = Modifier
-                        .verticalScroll(rememberScrollState())
-                        .padding(vertical = 6.dp, horizontal = 6.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    items.forEach { item ->
-                        val color = when {
-                            !item.enabled -> scheme.onSurface.copy(alpha = 0.38f)
-                            item.destructive -> scheme.error
-                            item.selected -> ProButtonPalette.ElectricBlue
-                            else -> scheme.onSurface
+                if (showCaret) {
+                    Canvas(
+                        modifier = Modifier
+                            .padding(end = caretEndPadding)
+                            .size(width = 18.dp, height = 8.dp),
+                    ) {
+                        val tri = Path().apply {
+                            moveTo(0f, size.height + 1f)
+                            lineTo(size.width * 0.5f, 0f)
+                            lineTo(size.width, size.height + 1f)
+                            close()
                         }
-                        val rowInteraction = remember { MutableInteractionSource() }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 42.dp)
-                                .tactilePressScale(rowInteraction, enabled = item.enabled, pressedScale = 0.975f)
-                                .clip(ContextMenuRowShape)
-                                .background(if (item.selected) ProButtonPalette.ElectricBlue.copy(alpha = 0.10f) else Color.Transparent)
-                                .clickable(
-                                    interactionSource = rowInteraction,
-                                    indication = androidx.compose.foundation.LocalIndication.current,
-                                    enabled = item.enabled,
-                                ) {
-                                    if (!actionFired) {
-                                        actionFired = true
-                                        onDismissRequest()
-                                        item.onClick()
+                        drawPath(tri, surfaceBg)
+                        val strokePath = Path().apply {
+                            moveTo(0.5f, size.height)
+                            lineTo(size.width * 0.5f, 0.5f)
+                            lineTo(size.width - 0.5f, size.height)
+                        }
+                        drawPath(
+                            strokePath,
+                            borderCol,
+                            style = Stroke(width = 1.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
+                        )
+                    }
+                }
+                Surface(
+                    shape = ContextMenuShape,
+                    color = surfaceBg,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 8.dp,
+                    border = BorderStroke(1.dp, borderCol),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp),
+                ) {
+                    var actionFired by remember(expanded) { mutableStateOf(false) }
+                    Column(
+                        modifier = Modifier
+                            .verticalScroll(rememberScrollState())
+                            .padding(vertical = 6.dp, horizontal = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        items.forEach { item ->
+                            val color = when {
+                                !item.enabled -> scheme.onSurface.copy(alpha = 0.38f)
+                                item.destructive -> scheme.error
+                                item.selected -> ProButtonPalette.ElectricBlue
+                                else -> scheme.onSurface
+                            }
+                            val rowInteraction = remember { MutableInteractionSource() }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 42.dp)
+                                    .tactilePressScale(rowInteraction, enabled = item.enabled, pressedScale = 0.975f)
+                                    .clip(ContextMenuRowShape)
+                                    .background(if (item.selected) ProButtonPalette.ElectricBlue.copy(alpha = 0.10f) else Color.Transparent)
+                                    .clickable(
+                                        interactionSource = rowInteraction,
+                                        indication = androidx.compose.foundation.LocalIndication.current,
+                                        enabled = item.enabled,
+                                    ) {
+                                        if (!actionFired) {
+                                            actionFired = true
+                                            onDismissRequest()
+                                            item.onClick()
+                                        }
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                when {
+                                    item.iconVector != null -> {
+                                        Icon(
+                                            imageVector = item.iconVector,
+                                            contentDescription = null,
+                                            tint = color,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    }
+                                    item.icon != null -> {
+                                        CompositionLocalProvider(LocalContentColor provides color) {
+                                            item.icon.invoke()
+                                        }
                                     }
                                 }
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            when {
-                                item.iconVector != null -> {
+                                Text(
+                                    item.label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (item.selected) FontWeight.SemiBold else FontWeight.Medium,
+                                    color = color,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (item.selected) {
                                     Icon(
-                                        imageVector = item.iconVector,
+                                        Icons.Outlined.Check,
                                         contentDescription = null,
-                                        tint = color,
-                                        modifier = Modifier.size(18.dp),
+                                        tint = ProButtonPalette.ElectricBlue,
+                                        modifier = Modifier.size(16.dp),
                                     )
                                 }
-                                item.icon != null -> {
-                                    CompositionLocalProvider(LocalContentColor provides color) {
-                                        item.icon.invoke()
-                                    }
-                                }
-                            }
-                            Text(
-                                item.label,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = if (item.selected) FontWeight.SemiBold else FontWeight.Medium,
-                                color = color,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            if (item.selected) {
-                                Icon(
-                                    Icons.Outlined.Check,
-                                    contentDescription = null,
-                                    tint = ProButtonPalette.ElectricBlue,
-                                    modifier = Modifier.size(16.dp),
-                                )
                             }
                         }
                     }
@@ -1113,12 +1162,20 @@ fun AppMenuButton(
 ) {
     var expanded by remember { mutableStateOf(false) }
     var lastDismissMs by remember { mutableStateOf(0L) }
+    val reduceMotion = LocalReduceMotion.current
+    val openScale by animateFloatAsState(
+        targetValue = if (expanded) 0.94f else 1f,
+        animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.78f, stiffness = 560f),
+        label = "menuBtnScale",
+    )
     Box(modifier = modifier) {
         AppSurface(
             role = role,
             shape = shape,
             containerColor = containerColor,
+            borderColor = if (expanded) ProButtonPalette.ElectricBlue.copy(alpha = 0.65f) else null,
             contentPadding = contentPadding,
+            modifier = Modifier.graphicsLayer { scaleX = openScale; scaleY = openScale },
             onClick = {
                 val now = android.os.SystemClock.uptimeMillis()
                 if (expanded) {
@@ -1138,6 +1195,7 @@ fun AppMenuButton(
                 lastDismissMs = android.os.SystemClock.uptimeMillis()
             },
             items = items,
+            caretEndPadding = 12.dp,
         )
     }
 }
@@ -1149,39 +1207,72 @@ fun AppChoiceRow(
     options: List<String>,
     onPick: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    subtitle: String? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val reduceMotion = LocalReduceMotion.current
+    val chevronRot by animateFloatAsState(
+        targetValue = if (expanded) 90f else 0f,
+        animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.80f, stiffness = 540f),
+        label = "choiceChevron",
+    )
+    val rowBg by animateColorAsState(
+        targetValue = if (expanded) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent,
+        animationSpec = if (reduceMotion) snap() else tween(140),
+        label = "choiceBg",
+    )
     Box(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
-                .clickable { expanded = true }
-                .padding(horizontal = 4.dp, vertical = 10.dp),
+                .background(rowBg)
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 6.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                value,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+                if (!subtitle.isNullOrBlank()) {
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = if (expanded) 0.16f else 0.09f))
+                    .padding(horizontal = 9.dp, vertical = 4.dp),
+            ) {
+                Text(
+                    value,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
             Spacer(Modifier.width(4.dp))
             Icon(
                 Icons.Outlined.ChevronRight,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
+                tint = if (expanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(18.dp)
+                    .graphicsLayer { rotationZ = chevronRot },
             )
         }
         AppContextMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
+            caretEndPadding = 16.dp,
             items = options.mapIndexed { idx, opt ->
                 AppMenuItem(
                     label = opt,

@@ -2444,6 +2444,66 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         onPagesChanged?.invoke()
     }
 
+    /**
+     * Scans every page in the notebook for highlighter strokes so users can browse
+     * and jump straight to all highlighted pages (optionally filtered by [query]).
+     */
+    fun highlightedPageHits(query: String = ""): List<SearchHit> {
+        val cleanQ = query.trim()
+        val queryNorm = if (cleanQ.isNotEmpty()) normalizeForSearch(cleanQ) else ""
+        val queryTokens = if (queryNorm.isNotEmpty()) tokenizeForSearch(queryNorm) else emptyList()
+        val out = ArrayList<SearchHit>()
+        pages.forEachIndexed { pageIdx, p ->
+            val hlStrokes = p.items.filterIsInstance<InkItem>().filter { it.isHighlighter }
+            if (hlStrokes.isEmpty()) return@forEachIndexed
+            val colors = hlStrokes.map { it.stroke.brush.colorIntArgb }.distinct().take(4)
+            val rects = hlStrokes.map { it.bounds }
+            // Look for nearby text/sticky/write-box content on the highlighted page for a helpful preview
+            val pageTexts = p.items.mapNotNull { item ->
+                when (item) {
+                    is TextItem -> item.text.takeIf { it.isNotBlank() }?.let { item.bounds to it }
+                    is StickyItem -> listOf(item.title, item.text).filter { it.isNotBlank() }.joinToString(" · ")
+                        .takeIf { it.isNotBlank() }?.let { item.bounds to it }
+                    is WriteBoxItem -> item.convertedText.takeIf { it.isNotBlank() }?.let { item.bounds to it }
+                    else -> null
+                }
+            }
+            val nearbySnippet = pageTexts.firstOrNull { (tb, _) ->
+                rects.any { hr ->
+                    val pad = 28f
+                    hr.left - pad <= tb.right && hr.right + pad >= tb.left &&
+                        hr.top - pad <= tb.bottom && hr.bottom + pad >= tb.top
+                }
+            }?.second?.replace('\n', ' ')?.replace(Regex("\\s+"), " ")?.trim()?.take(60)
+            val countLabel = "${hlStrokes.size} highlight${if (hlStrokes.size == 1) "" else "s"}"
+            val snippet = if (!nearbySnippet.isNullOrBlank()) "$countLabel · $nearbySnippet" else "$countLabel on page ${pageIdx + 1}"
+            if (cleanQ.isNotEmpty()) {
+                val searchable = buildString {
+                    append(snippet)
+                    append(" page ")
+                    append(pageIdx + 1)
+                    append(" highlighted ")
+                    pageTexts.forEach { (_, t) -> append(' ').append(t) }
+                }
+                if (scoreTextMatch(searchable, queryNorm, queryTokens) <= 0) return@forEachIndexed
+            }
+            out += SearchHit(
+                page = pageIdx,
+                rects = rects,
+                snippet = snippet,
+                source = "Highlighted",
+                score = 100,
+                highlightColors = colors,
+            )
+        }
+        return out
+    }
+
+    fun jumpToHighlightedPage(hit: SearchHit) {
+        onScrollTo?.invoke(hit.page)
+        onPagesChanged?.invoke()
+    }
+
     fun clearSearch() {
         searchJob?.cancel()
         searching = false

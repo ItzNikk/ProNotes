@@ -14,6 +14,7 @@ data class SearchHit(
     val snippet: String,
     val source: String = "Text",
     val score: Int = 100,
+    val highlightColors: List<Int> = emptyList(),
 )
 
 /**

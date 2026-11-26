@@ -1452,21 +1452,42 @@ internal fun InlineStickyNoteEditor(
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp),
                 role = SurfaceRole.Popover,
                 shadowElevation = 8.dp,
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 5.dp),
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    AppPill(
-                        selected = false,
-                        tint = ProButtonPalette.ElectricBlue,
-                        onClick = { handwritingMode = false },
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    // Clear 2-mode pill so switching between Typing and Drawing on sticky is effortless
+                    Row(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                            .padding(2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(Icons.Outlined.Keyboard, contentDescription = null, Modifier.size(15.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Type Text", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .clickable { handwritingMode = false }
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Icon(Icons.Outlined.Keyboard, contentDescription = null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Type", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(ProButtonPalette.ElectricBlue)
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Icon(Icons.Outlined.Edit, contentDescription = null, Modifier.size(14.dp), tint = Color.White)
+                                Text("Draw", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            }
+                        }
                     }
                     AppPill(
                         selected = true,
@@ -1490,9 +1511,9 @@ internal fun InlineStickyNoteEditor(
     val availH = areaSize.height.toFloat().coerceAtLeast(220f)
 
     val maxCardW = (availW - with(density) { 24.dp.toPx() }).coerceAtLeast(1f)
-    val cardW = (mappedRect?.width() ?: (item.w * zoomScale)).coerceIn(minOf(with(density) { 330.dp.toPx() }, maxCardW), maxCardW)
+    val cardW = (mappedRect?.width() ?: (item.w * zoomScale)).coerceIn(minOf(with(density) { 350.dp.toPx() }, maxCardW), maxCardW)
     val maxCardH = (availH - with(density) { 32.dp.toPx() }).coerceAtLeast(1f)
-    val cardH = (mappedRect?.height() ?: (item.h * zoomScale)).coerceIn(minOf(with(density) { 300.dp.toPx() }, maxCardH), maxCardH)
+    val cardH = (mappedRect?.height() ?: (item.h * zoomScale)).coerceIn(minOf(with(density) { 310.dp.toPx() }, maxCardH), maxCardH)
     val screenLeft = (mappedRect?.left ?: ((availW - cardW) * 0.5f)).coerceIn(with(density) { 12.dp.toPx() }, (availW - cardW - with(density) { 12.dp.toPx() }).coerceAtLeast(with(density) { 12.dp.toPx() }))
     val screenTop = (mappedRect?.top ?: ((availH - cardH) * 0.35f)).coerceIn(with(density) { 12.dp.toPx() }, (availH - cardH - with(density) { 12.dp.toPx() }).coerceAtLeast(with(density) { 12.dp.toPx() }))
 
@@ -1518,7 +1539,7 @@ internal fun InlineStickyNoteEditor(
                 },
         )
 
-        // Clean, spacious inline sticky card — single minimal header + collapsible style tray so ~85% is open writing area
+        // Clean, intuitive inline sticky card — obvious Type|Draw toggle, labeled Style/Fold/Done, animated Style tray
         Column(
             modifier = Modifier
                 .offset { IntOffset(screenLeft.roundToInt(), screenTop.roundToInt()) }
@@ -1541,14 +1562,14 @@ internal fun InlineStickyNoteEditor(
                     indication = null,
                 ) {},
         ) {
-            // Single clean header bar: Title + Handwrite switch + Style tray toggle + Fold + Done
+            // Clear, easy-to-understand header bar: Title + [Type | Draw] + Style + Fold + Done
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Color.Black.copy(alpha = if (lum < 0.38f) 0.16f else 0.055f))
-                    .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                    .padding(start = 12.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 Box(Modifier.weight(1f)) {
                     if (title.isBlank()) {
@@ -1556,6 +1577,7 @@ internal fun InlineStickyNoteEditor(
                             "Note title…",
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                             color = fgMuted,
+                            maxLines = 1,
                         )
                     }
                     BasicTextField(
@@ -1570,160 +1592,240 @@ internal fun InlineStickyNoteEditor(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                // One-tap switch to Handwriting directly on this sticky note (saves typed text underneath!)
+                // Clear 2-option Type | Draw segmented pill
                 Row(
                     modifier = Modifier
                         .clip(CircleShape)
                         .background(Color.Black.copy(alpha = 0.08f))
-                        .clickable {
-                            val live = editTextRef?.text?.toString() ?: text
-                            text = live
-                            vm.saveStickyLive(
-                                text = live,
-                                color = color,
-                                fontSize = fontSize,
-                                font = font,
-                                collapsed = collapsed,
-                                pinned = pinned,
-                                title = title,
-                                style = style,
-                            )
-                            handwritingMode = true
-                            keyboardController?.hide()
-                            vm.tool = Tool.PEN
-                        }
+                        .padding(2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(fgColor.copy(alpha = 0.14f))
+                            .padding(horizontal = 7.dp, vertical = 3.dp),
+                    ) {
+                        Text("Type", style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = FontWeight.Bold)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .clickable {
+                                val live = editTextRef?.text?.toString() ?: text
+                                text = live
+                                vm.saveStickyLive(
+                                    text = live,
+                                    color = color,
+                                    fontSize = fontSize,
+                                    font = font,
+                                    collapsed = collapsed,
+                                    pinned = pinned,
+                                    title = title,
+                                    style = style,
+                                )
+                                handwritingMode = true
+                                keyboardController?.hide()
+                                vm.tool = Tool.PEN
+                            }
+                            .padding(horizontal = 7.dp, vertical = 3.dp),
+                    ) {
+                        Text("Draw", style = MaterialTheme.typography.labelSmall, color = fgMuted, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                // Clearly labeled Style button
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (showStyleTray) ProButtonPalette.ElectricBlue else Color.Black.copy(alpha = 0.07f))
+                        .clickable { showStyleTray = !showStyleTray }
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
-                    Icon(Icons.Outlined.Edit, contentDescription = "Handwrite on sticky", Modifier.size(13.dp), tint = fgColor)
-                    Text("Draw", style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = FontWeight.SemiBold)
-                }
-                IconButton(
-                    onClick = { showStyleTray = !showStyleTray },
-                    modifier = Modifier.size(30.dp),
-                ) {
                     Icon(
                         Icons.Outlined.Tune,
                         contentDescription = "Sticky style & options",
-                        tint = if (showStyleTray) ProButtonPalette.ElectricBlue else fgColor,
-                        modifier = Modifier.size(16.dp),
+                        tint = if (showStyleTray) Color.White else fgColor,
+                        modifier = Modifier.size(13.dp),
+                    )
+                    Text(
+                        "Style",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (showStyleTray) Color.White else fgColor,
+                        fontWeight = FontWeight.SemiBold,
                     )
                 }
-                IconButton(
-                    onClick = {
-                        collapsed = true
-                        commitAndClose()
-                    },
-                    modifier = Modifier.size(30.dp),
+                // Clear Fold pill
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black.copy(alpha = 0.07f))
+                        .clickable {
+                            collapsed = true
+                            commitAndClose()
+                        }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
                 ) {
-                    Icon(
-                        Icons.Outlined.Remove,
-                        contentDescription = "Fold sticky",
-                        tint = fgColor,
-                        modifier = Modifier.size(17.dp),
-                    )
+                    Text("Fold", style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = FontWeight.SemiBold)
                 }
-                TextButton(
-                    onClick = { commitAndClose() },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                // Clear Done pill
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(ProButtonPalette.ElectricBlue)
+                        .clickable { commitAndClose() }
+                        .padding(horizontal = 9.dp, vertical = 4.dp),
                 ) {
-                    Text("Done", color = fgColor, fontWeight = FontWeight.SemiBold)
+                    Text("Done", style = MaterialTheme.typography.labelSmall, color = Color.White, fontWeight = FontWeight.Bold)
                 }
             }
 
-            // Optional collapsible 1-row Style & Actions tray (hidden by default so card stays clean and spacious)
-            if (showStyleTray) {
-                Row(
+            // Smoothly animated Style & Actions tray (clear labeled controls so nothing is cryptic)
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showStyleTray,
+                enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+                exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut(),
+            ) {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color.Black.copy(alpha = if (lum < 0.38f) 0.12f else 0.035f))
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        .background(Color.Black.copy(alpha = if (lum < 0.38f) 0.14f else 0.04f))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    StickyColors.forEach { c ->
-                        val sel = color == c
-                        Box(
-                            modifier = Modifier
-                                .size(20.dp)
-                                .clip(CircleShape)
-                                .background(Color(c))
-                                .border(
-                                    width = if (sel) 2.dp else 1.dp,
-                                    color = if (sel) fgColor else Color.Black.copy(alpha = 0.22f),
-                                    shape = CircleShape,
-                                )
-                                .clickable { color = c },
-                        )
-                    }
-                    Box(Modifier.width(1.dp).height(16.dp).background(fgColor.copy(alpha = 0.18f)))
-                    listOf("classic" to "Plain", "lined" to "Lined", "grid" to "Grid", "dotted" to "Dots").forEach { (key, label) ->
-                        val sel = style == key
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (sel) fgColor.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.05f))
-                                .clickable { style = key }
-                                .padding(horizontal = 7.dp, vertical = 3.dp),
-                        ) {
-                            Text(label, style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal)
+                    // Row 1: Colors & Paper Template
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        StickyColors.forEach { c ->
+                            val sel = color == c
+                            Box(
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(c))
+                                    .border(
+                                        width = if (sel) 2.2.dp else 1.dp,
+                                        color = if (sel) fgColor else Color.Black.copy(alpha = 0.22f),
+                                        shape = CircleShape,
+                                    )
+                                    .clickable { color = c },
+                            )
                         }
-                    }
-                    Box(Modifier.width(1.dp).height(16.dp).background(fgColor.copy(alpha = 0.18f)))
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color.Black.copy(alpha = 0.06f))
-                            .clickable { fontSize = (fontSize - 2f).coerceAtLeast(14f) }
-                            .padding(horizontal = 7.dp, vertical = 3.dp),
-                    ) {
-                        Text("A−", style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = FontWeight.SemiBold)
-                    }
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color.Black.copy(alpha = 0.06f))
-                            .clickable { fontSize = (fontSize + 2f).coerceAtMost(44f) }
-                            .padding(horizontal = 7.dp, vertical = 3.dp),
-                    ) {
-                        Text("A+", style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = FontWeight.SemiBold)
-                    }
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color.Black.copy(alpha = 0.06f))
-                            .clickable {
-                                val et = editTextRef
-                                val cur = et?.text?.toString() ?: text
-                                val pos = (et?.selectionStart ?: cur.length).coerceIn(0, cur.length)
-                                val prefix = if (pos > 0 && cur[pos - 1] != '\n') "\n- [ ] " else "- [ ] "
-                                if (et != null) et.editableText?.insert(pos, prefix)
-                                else text = cur.substring(0, pos) + prefix + cur.substring(pos)
+                        Box(Modifier.width(1.dp).height(16.dp).background(fgColor.copy(alpha = 0.18f)))
+                        listOf("classic" to "Plain", "lined" to "Lined", "grid" to "Grid", "dotted" to "Dots").forEach { (key, label) ->
+                            val sel = style == key
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(7.dp))
+                                    .background(if (sel) fgColor.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.05f))
+                                    .clickable { style = key }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                            ) {
+                                Text(label, style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
                             }
-                            .padding(horizontal = 7.dp, vertical = 3.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Icon(Icons.Outlined.CheckBox, null, Modifier.size(13.dp), tint = fgColor)
-                            Text("Task", style = MaterialTheme.typography.labelSmall, color = fgColor)
                         }
                     }
-                    IconButton(onClick = { pinned = !pinned }, modifier = Modifier.size(26.dp)) {
-                        Icon(if (pinned) Icons.Outlined.Lock else Icons.Outlined.LockOpen, "Pin sticky", tint = if (pinned) fgColor else fgMuted, modifier = Modifier.size(15.dp))
-                    }
-                    IconButton(
-                        onClick = {
-                            val live = editTextRef?.text?.toString() ?: text
-                            vm.commitSticky(live, color, fontSize, font, collapsed, pinned, title, style)
-                            vm.duplicateSticky()
-                        },
-                        modifier = Modifier.size(26.dp),
+                    // Row 2: Text size, Checklist, Pin, Copy, Delete — all clearly labeled!
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Icon(Icons.Outlined.ContentCopy, "Duplicate sticky", tint = fgMuted, modifier = Modifier.size(14.dp))
-                    }
-                    IconButton(onClick = { vm.deleteSticky() }, modifier = Modifier.size(26.dp)) {
-                        Icon(Icons.Outlined.DeleteOutline, "Delete sticky", tint = Color(0xFFDC2626), modifier = Modifier.size(15.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(7.dp))
+                                .background(Color.Black.copy(alpha = 0.07f))
+                                .clickable { fontSize = (fontSize - 2f).coerceAtLeast(14f) }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                        ) {
+                            Text("A−", style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = FontWeight.SemiBold)
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(7.dp))
+                                .background(Color.Black.copy(alpha = 0.07f))
+                                .clickable { fontSize = (fontSize + 2f).coerceAtMost(44f) }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                        ) {
+                            Text("A+", style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = FontWeight.SemiBold)
+                        }
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(7.dp))
+                                .background(Color.Black.copy(alpha = 0.07f))
+                                .clickable {
+                                    val et = editTextRef
+                                    val cur = et?.text?.toString() ?: text
+                                    val pos = (et?.selectionStart ?: cur.length).coerceIn(0, cur.length)
+                                    val prefix = if (pos > 0 && cur[pos - 1] != '\n') "\n- [ ] " else "- [ ] "
+                                    if (et != null) et.editableText?.insert(pos, prefix)
+                                    else text = cur.substring(0, pos) + prefix + cur.substring(pos)
+                                }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            Icon(Icons.Outlined.CheckBox, null, Modifier.size(13.dp), tint = fgColor)
+                            Text("+ Task", style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = FontWeight.Medium)
+                        }
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(7.dp))
+                                .background(if (pinned) Color(0x38D95926) else Color.Black.copy(alpha = 0.07f))
+                                .clickable { pinned = !pinned }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            Icon(
+                                if (pinned) Icons.Outlined.Lock else Icons.Outlined.LockOpen,
+                                null,
+                                Modifier.size(13.dp),
+                                tint = if (pinned) Color(0xFFC2410C) else fgColor,
+                            )
+                            Text(
+                                if (pinned) "Pinned" else "Pin",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (pinned) Color(0xFFC2410C) else fgColor,
+                                fontWeight = if (pinned) FontWeight.Bold else FontWeight.Medium,
+                            )
+                        }
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(7.dp))
+                                .background(Color.Black.copy(alpha = 0.07f))
+                                .clickable {
+                                    val live = editTextRef?.text?.toString() ?: text
+                                    vm.commitSticky(live, color, fontSize, font, collapsed, pinned, title, style)
+                                    vm.duplicateSticky()
+                                }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            Icon(Icons.Outlined.ContentCopy, null, Modifier.size(13.dp), tint = fgColor)
+                            Text("Copy", style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = FontWeight.Medium)
+                        }
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(7.dp))
+                                .background(Color(0x1ADC2626))
+                                .clickable { vm.deleteSticky() }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            Icon(Icons.Outlined.DeleteOutline, null, Modifier.size(13.dp), tint = Color(0xFFDC2626))
+                            Text("Delete", style = MaterialTheme.typography.labelSmall, color = Color(0xFFDC2626), fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
             }

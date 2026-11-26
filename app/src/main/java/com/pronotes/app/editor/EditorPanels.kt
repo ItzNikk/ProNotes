@@ -8,6 +8,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -358,6 +359,37 @@ internal fun TopBar(
 
         Box(Modifier.padding(horizontal = 4.dp).width(1.dp).height(22.dp).background(dividerColor))
 
+        val isBookmarked = vm.currentPage?.bookmarked == true
+        val bmHaptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+        val bmScale by animateFloatAsState(
+            targetValue = if (isBookmarked) 1.08f else 1f,
+            animationSpec = spring(dampingRatio = 0.65f, stiffness = 520f),
+            label = "bookmarkBounce",
+        )
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .graphicsLayer { scaleX = bmScale; scaleY = bmScale }
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (isBookmarked) Color(0xFFE34948).copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f))
+                .clickable(
+                    role = Role.Button,
+                    onClickLabel = if (isBookmarked) "Remove page bookmark" else "Bookmark this page",
+                ) {
+                    bmHaptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                    vm.toggleBookmark()
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            ProIconView(
+                ProIcon.BOOKMARK,
+                if (isBookmarked) Color(0xFFFF6B6B) else fgColor,
+                Modifier.size(19.dp),
+                ink = if (isBookmarked) Color(0xFFE34948) else null,
+            )
+        }
+        Spacer(Modifier.width(3.dp))
+
         AppMenuButton(
             contentDescription = "Insert into notebook",
             containerColor = ProButtonPalette.Emerald.copy(alpha = 0.24f),
@@ -592,6 +624,11 @@ internal fun SearchBar(vm: EditorViewModel, onClose: () -> Unit) {
     val barFg = Color(0xFFF1F5F9)
     val barMuted = Color(0xFFB4BCD0)
     var sourceFilter by remember { mutableStateOf("All") }
+    var activeHighlightIdx by remember { mutableIntStateOf(-1) }
+    val highlightedHits = remember(vm.pages.toList(), vm.searchQuery) {
+        vm.highlightedPageHits(vm.searchQuery)
+    }
+    val showingHighlighted = sourceFilter == "Highlighted"
     val filteredHits = remember(vm.searchHits.toList(), sourceFilter) {
         vm.searchHits.mapIndexed { idx, hit -> idx to hit }.filter { (_, hit) ->
             when (sourceFilter) {
@@ -602,6 +639,8 @@ internal fun SearchBar(vm: EditorViewModel, onClose: () -> Unit) {
             }
         }
     }
+    val hasNavHits = if (showingHighlighted) highlightedHits.isNotEmpty() else vm.searchHits.isNotEmpty()
+
     AppSurface(
         role = SurfaceRole.Chrome,
         containerColor = Color.Black,
@@ -618,10 +657,15 @@ internal fun SearchBar(vm: EditorViewModel, onClose: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         value = vm.searchQuery,
-                        onValueChange = vm::search,
+                        onValueChange = { q ->
+                            vm.search(q)
+                            if (q.isNotBlank() && showingHighlighted && highlightedHits.isEmpty()) {
+                                sourceFilter = "All"
+                            }
+                        },
                         singleLine = true,
                         placeholder = {
-                            com.pronotes.app.ui.AnimatedGradientSearchPlaceholder("Search text, PDF & handwriting…")
+                            com.pronotes.app.ui.AnimatedGradientSearchPlaceholder("Search text, PDF, ink & highlights…")
                         },
                         leadingIcon = { ProIconView(ProIcon.SEARCH, barMuted, Modifier.size(20.dp)) },
                         colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
@@ -639,6 +683,7 @@ internal fun SearchBar(vm: EditorViewModel, onClose: () -> Unit) {
                     Spacer(Modifier.width(8.dp))
                     Text(
                         when {
+                            showingHighlighted -> if (highlightedHits.isEmpty()) "0 highlighted" else "${highlightedHits.size} highlighted page${if (highlightedHits.size == 1) "" else "s"}"
                             vm.searching -> "Scanning ink & text…"
                             vm.searchQuery.isBlank() -> "Text · PDF · Ink"
                             vm.searchHits.isEmpty() -> "No results"
@@ -647,24 +692,77 @@ internal fun SearchBar(vm: EditorViewModel, onClose: () -> Unit) {
                         style = MaterialTheme.typography.labelSmall,
                         color = barMuted,
                     )
-                    IconButton(onClick = { vm.stepHit(-1) }, enabled = vm.searchHits.isNotEmpty()) {
-                        Icon(Icons.Filled.KeyboardArrowUp, "Previous match", tint = if (vm.searchHits.isNotEmpty()) Color.White else barMuted.copy(alpha = 0.35f))
+                    IconButton(
+                        onClick = {
+                            if (showingHighlighted && highlightedHits.isNotEmpty()) {
+                                val next = if (activeHighlightIdx <= 0) highlightedHits.lastIndex else activeHighlightIdx - 1
+                                activeHighlightIdx = next
+                                vm.jumpToHighlightedPage(highlightedHits[next])
+                            } else {
+                                vm.stepHit(-1)
+                            }
+                        },
+                        enabled = hasNavHits,
+                    ) {
+                        Icon(Icons.Filled.KeyboardArrowUp, "Previous match", tint = if (hasNavHits) Color.White else barMuted.copy(alpha = 0.35f))
                     }
-                    IconButton(onClick = { vm.stepHit(1) }, enabled = vm.searchHits.isNotEmpty()) {
-                        Icon(Icons.Filled.KeyboardArrowDown, "Next match", tint = if (vm.searchHits.isNotEmpty()) Color.White else barMuted.copy(alpha = 0.35f))
+                    IconButton(
+                        onClick = {
+                            if (showingHighlighted && highlightedHits.isNotEmpty()) {
+                                val next = (activeHighlightIdx + 1) % highlightedHits.size
+                                activeHighlightIdx = next
+                                vm.jumpToHighlightedPage(highlightedHits[next])
+                            } else {
+                                vm.stepHit(1)
+                            }
+                        },
+                        enabled = hasNavHits,
+                    ) {
+                        Icon(Icons.Filled.KeyboardArrowDown, "Next match", tint = if (hasNavHits) Color.White else barMuted.copy(alpha = 0.35f))
                     }
                     IconButton(onClick = { vm.clearSearch(); focusManager.clearFocus(); keyboard?.hide(); onClose() }) {
                         Icon(Icons.Filled.Close, "Cancel search", tint = Color.White)
                     }
                 }
-                if (vm.searchHits.isNotEmpty()) {
+
+                // Always-accessible filter strip with "Highlighted" pages quick access
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val hlSelected = sourceFilter == "Highlighted"
                     Row(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (hlSelected) Color(0xFFF59E0B) else Color(0xFFF59E0B).copy(alpha = 0.16f))
+                            .clickable {
+                                sourceFilter = if (hlSelected) "All" else "Highlighted"
+                                if (!hlSelected && highlightedHits.isNotEmpty()) {
+                                    activeHighlightIdx = 0
+                                    vm.jumpToHighlightedPage(highlightedHits[0])
+                                }
+                            }
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(if (hlSelected) Color.Black else Color(0xFFFBBF24)),
+                        )
+                        Text(
+                            "Highlighted (${highlightedHits.size})",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (hlSelected) Color.Black else Color(0xFFFDE68A),
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    if (vm.searchHits.isNotEmpty()) {
                         val counts = remember(vm.searchHits.toList()) {
                             mapOf(
                                 "All" to vm.searchHits.size,
@@ -679,10 +777,10 @@ internal fun SearchBar(vm: EditorViewModel, onClose: () -> Unit) {
                                 val selected = sourceFilter == tab
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(7.dp))
+                                        .clip(RoundedCornerShape(8.dp))
                                         .background(if (selected) ProButtonPalette.ElectricBlue else Color.White.copy(alpha = 0.10f))
                                         .clickable { sourceFilter = tab }
-                                        .padding(horizontal = 9.dp, vertical = 4.dp),
+                                        .padding(horizontal = 10.dp, vertical = 5.dp),
                                 ) {
                                     Text(
                                         "$tab ($cnt)",
@@ -694,6 +792,69 @@ internal fun SearchBar(vm: EditorViewModel, onClose: () -> Unit) {
                             }
                         }
                     }
+                }
+
+                if (showingHighlighted) {
+                    if (highlightedHits.isEmpty()) {
+                        Text(
+                            if (vm.searchQuery.isBlank()) "No highlighted pages yet — highlight notes on any page to access them here."
+                            else "No highlighted pages match \"${vm.searchQuery.trim()}\".",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = barMuted,
+                            modifier = Modifier.padding(vertical = 4.dp, horizontal = 2.dp),
+                        )
+                    } else {
+                        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 186.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            itemsIndexed(highlightedHits, key = { _, hit -> "hl:${hit.page}" }) { idx, hit ->
+                                val isActive = idx == activeHighlightIdx || vm.pageIndex == hit.page
+                                AppPill(
+                                    selected = isActive,
+                                    tint = Color(0xFFD97706),
+                                    onClick = {
+                                        activeHighlightIdx = idx
+                                        vm.jumpToHighlightedPage(hit)
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Row(
+                                        Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        val fg = if (isActive) Color.White else barFg
+                                        Text(
+                                            "p.${hit.page + 1}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isActive) Color.White else Color(0xFFFDE68A),
+                                            modifier = Modifier.width(38.dp),
+                                        )
+                                        Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            hit.highlightColors.forEach { argb ->
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(11.dp)
+                                                        .clip(androidx.compose.foundation.shape.CircleShape)
+                                                        .background(Color(argb).copy(alpha = 0.95f))
+                                                        .border(1.dp, Color.White.copy(alpha = 0.55f), androidx.compose.foundation.shape.CircleShape),
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            hit.snippet,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = fg,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if (vm.searchHits.isNotEmpty()) {
                     LazyColumn(Modifier.fillMaxWidth().heightIn(max = 176.dp)) {
                         itemsIndexed(filteredHits, key = { idx, (origIdx, hit) -> "${hit.page}:$origIdx:$idx:${hit.snippet.hashCode()}" }) { _, (origIdx, hit) ->
                             val isActive = origIdx == vm.activeHit
@@ -838,7 +999,7 @@ internal fun PagesPanel(vm: EditorViewModel, onJump: (Int) -> Unit, onClose: () 
                 val marks = vm.pages.indices.filter { vm.pages[it].bookmarked }
                 if (marks.isEmpty()) {
                     Text(
-                        "Bookmark pages from the More menu to list them here.",
+                        "Tap the bookmark icon in the top bar to bookmark pages here.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(16.dp),

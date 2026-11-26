@@ -427,8 +427,13 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                         Toggle("Paper haptics", "Tiny ticks as you write, like paper grain", s.paperHaptics) { v -> up { it.copy(paperHaptics = v) } }
                     }
                     Section("Stylus behaviour") {
-                        Choice("Button click delay", s.penClickDelay.label, PenClickDelay.entries.map { it.label }) { i -> up { it.copy(penClickDelay = PenClickDelay.entries[i]) } }
-                        Toggle("Hover preview", "Show where the pen will touch", s.hoverCursor) { v -> up { it.copy(hoverCursor = v) } }
+                        Choice(
+                            title = "Button click delay",
+                            value = s.penClickDelay.label,
+                            options = PenClickDelay.entries.map { it.label },
+                            subtitle = "Timing window to distinguish single vs. double button clicks",
+                        ) { i -> up { it.copy(penClickDelay = PenClickDelay.entries[i]) } }
+                        Toggle("Hover preview", "Show where the pen tip will touch before writing", s.hoverCursor) { v -> up { it.copy(hoverCursor = v) } }
                         val hoverScope = rememberCoroutineScope()
                         val hoverPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
                             if (uri != null) {
@@ -1178,9 +1183,15 @@ private fun Toggle(title: String, sub: String, value: Boolean, onChange: (Boolea
     )
 }
 @Composable
-private fun Choice(title: String, value: String, options: List<String>, onPick: (Int) -> Unit) {
+private fun Choice(
+    title: String,
+    value: String,
+    options: List<String>,
+    subtitle: String? = null,
+    onPick: (Int) -> Unit,
+) {
     Box(Modifier.padding(horizontal = 12.dp)) {
-        AppChoiceRow(title = title, value = value, options = options, onPick = onPick)
+        AppChoiceRow(title = title, value = value, options = options, onPick = onPick, subtitle = subtitle)
     }
 }
 
@@ -1517,29 +1528,62 @@ private fun PensSection(store: SettingsStore) {
     var renameTarget by remember { mutableStateOf<PenProfile?>(null) }
 
     Section("Your pens") {
-        if (pens.isEmpty()) Info("Tap 'Set up a pen' below or write with a stylus to register it.")
+        if (pens.isEmpty()) Info("Tap 'Set up a pen' below or write with a stylus to register it and map its buttons.")
         pens.forEachIndexed { i, p ->
             if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-            Column(Modifier.padding(vertical = 4.dp)) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    ProIconView(ProIcon.PEN, ProButtonPalette.ElectricBlue, Modifier.size(22.dp))
-                    Spacer(Modifier.size(14.dp))
+            Column(Modifier.padding(vertical = 6.dp)) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(11.dp))
+                            .background(ProButtonPalette.ElectricBlue.copy(alpha = 0.14f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        ProIconView(ProIcon.PEN, ProButtonPalette.ElectricBlue, Modifier.size(20.dp))
+                    }
+                    Spacer(Modifier.size(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(p.displayName(), fontWeight = FontWeight.SemiBold)
-                        Text("${p.brand} · ${p.name}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        Text(
+                            "${p.brand} · ${p.name}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
                     }
                     IconButton(onClick = { renameTarget = p }) { Icon(Icons.Outlined.Edit, "Rename pen") }
                     TextButton(onClick = { store.forgetPen(p.name) }) { Text("Forget") }
                 }
-                Choice("Hold side button", p.sideButton.label, SideButton.entries.map { it.label }) { k -> store.updatePen(p.copy(sideButton = SideButton.entries[k])) }
-                Choice("Click button", p.click.label, PenAction.entries.map { it.label }) { k -> store.updatePen(p.copy(click = PenAction.entries[k])) }
-                Choice("Double-click button", p.doubleClick.label, PenAction.entries.map { it.label }) { k -> store.updatePen(p.copy(doubleClick = PenAction.entries[k])) }
+                Choice(
+                    title = "Hold side button",
+                    value = p.sideButton.label,
+                    options = SideButton.entries.map { it.label },
+                    subtitle = "Temporarily switches tool while held",
+                ) { k -> store.updatePen(p.copy(sideButton = SideButton.entries[k])) }
+                Choice(
+                    title = "Click button",
+                    value = p.click.label,
+                    options = PenAction.entries.map { it.label },
+                    subtitle = "Single press action",
+                ) { k -> store.updatePen(p.copy(click = PenAction.entries[k])) }
+                Choice(
+                    title = "Double-click button",
+                    value = p.doubleClick.label,
+                    options = PenAction.entries.map { it.label },
+                    subtitle = "Quick double press action",
+                ) { k -> store.updatePen(p.copy(doubleClick = PenAction.entries[k])) }
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
         Row(Modifier.fillMaxWidth().clickable { showSetup = true }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             ProIconView(ProIcon.ADD, ProButtonPalette.ElectricBlue, Modifier.size(22.dp)); Spacer(Modifier.size(16.dp))
-            Text("Set up a pen", Modifier.weight(1f))
+            Text("Set up a pen", Modifier.weight(1f), fontWeight = FontWeight.Medium)
         }
     }
 

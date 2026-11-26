@@ -794,9 +794,9 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         stopScrollAnimations()
         zoomAnim?.cancel()
         val distPx = hypot(toX - fromX, toY - fromY)
-        val speedBoost = (abs(velocityX) / (1800f * density)).coerceIn(0f, 1.35f)
-        val frac = (distPx / width.coerceAtLeast(1).toFloat()).coerceIn(0.18f, 1.2f)
-        val durMs = ((150f + 150f * frac) / (1f + speedBoost * 0.55f)).toLong().coerceIn(135L, 300L)
+        val speedBoost = (abs(velocityX) / (2600f * density)).coerceIn(0f, 0.45f)
+        val frac = (distPx / width.coerceAtLeast(1).toFloat()).coerceIn(0.22f, 1.15f)
+        val durMs = ((340f + 190f * frac) / (1f + speedBoost * 0.30f)).toLong().coerceIn(320L, 520L)
         if (abs(toS - fromS) < 0.002f && distPx < 1.5f) {
             scale = toS; transX = toX; transY = toY
             updateMatrix()
@@ -804,7 +804,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         }
         pageAnim = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = durMs
-            interpolator = DecelerateInterpolator(2.2f)
+            interpolator = DecelerateInterpolator(1.65f)
             addUpdateListener { anim ->
                 val t = anim.animatedValue as Float
                 scale = fromS + (toS - fromS) * t
@@ -1156,8 +1156,8 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
     private var stylusPointer = -1          // pointer id of the pen while it touches the screen
     internal var touchActive = false
     internal var pageAtGestureStart = 0
-    private var lastStylusTime = 0L
-    private var stylusHovering = false
+    internal var lastStylusTime = 0L
+    internal var stylusHovering = false
     private var lastHoverButtonHeldAt = 0L
     private var ignoreFingers = false       // swallow the rest of a palm / finger gesture
     internal var lastTapTime = 0L
