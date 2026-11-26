@@ -8,7 +8,28 @@ import kotlin.math.hypot
 
 internal fun NoteCanvasView.select(page: Int, lasso: Lasso, outline: List<Pt>? = null) {
     val p = pages.getOrNull(page) ?: return
-    selectItems(page, p.items.filter { lassoAllows(it) && lasso.selects(it) }.map { it.id }.toSet(), outline)
+    val matchedIds = p.items.filter { lassoAllows(it) && lasso.selects(it) }.map { it.id }.toSet()
+    if (matchedIds.isNotEmpty()) {
+        selectItems(page, matchedIds, outline)
+        return
+    }
+    // Lasso directly on a PDF page (even with zero handwriting): clip/cut/copy/highlight the lassoed PDF region!
+    if (p.pdfPage >= 0) {
+        val raw = RectF(lasso.bounds)
+        val clamped = RectF(
+            raw.left.coerceIn(0f, p.width),
+            raw.top.coerceIn(0f, p.height),
+            raw.right.coerceIn(0f, p.width),
+            raw.bottom.coerceIn(0f, p.height),
+        )
+        if (clamped.width() >= 20f && clamped.height() >= 20f) {
+            clearSelection()
+            val screenRect = pageToScreen(page, clamped) ?: return
+            host.onPdfLassoRegion(page, clamped, screenRect, outline)
+            return
+        }
+    }
+    selectItems(page, emptySet(), null)
 }
 
 internal fun NoteCanvasView.selectionPageBounds(): RectF? {

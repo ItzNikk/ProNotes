@@ -886,7 +886,7 @@ private fun TextCardContent(vm: EditorViewModel) {
     }
     Text(stringResource(R.string.sheet_colour_set), style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.68f))
     Row(verticalAlignment = Alignment.CenterVertically) {
-        CustomSwatches(PenPalette.take(6), vm.textColor ?: vm.penStyle.color, vm) { vm.textColor = it; vm.pushRecent(it) }
+        CustomSwatches(PenPalette.take(8), vm.textColor ?: vm.penStyle.color, vm) { vm.textColor = it; vm.pushRecent(it) }
     }
     SheetSliderRow("TEXT SIZE", "%.0f pt".format(vm.textSize), vm.textSize, 16f..96f) { vm.textSize = it }
     SheetSliderRow(stringResource(R.string.sheet_opacity), "%.0f%%".format(td.textOpacity * 100), td.textOpacity, 0.2f..1f) { v ->

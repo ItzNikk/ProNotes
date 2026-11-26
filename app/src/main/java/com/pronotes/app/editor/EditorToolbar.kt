@@ -1376,7 +1376,7 @@ fun ToolOptions(
                     SizeDots(listOf(28f, 40f, 64f), vm.textSize, fg = dockFg, darkDock = darkDock) { vm.textSize = it }
                     if (!vertical) {
                         Box(Modifier.padding(horizontal = 3.dp).width(1.dp).height(18.dp).background(dockFg.copy(alpha = 0.14f)))
-                        CustomSwatches(PenPalette.take(4), vm.textColor ?: PenPalette.first(), vm) { vm.textColor = it; vm.pushRecent(it) }
+                        CustomSwatches(PenPalette.take(8), vm.textColor ?: PenPalette.first(), vm) { vm.textColor = it; vm.pushRecent(it) }
                     }
                 }
                 t == Tool.TAPE -> {
@@ -1394,7 +1394,7 @@ fun ToolOptions(
                 t == Tool.STICKY -> CustomSwatches(StickyColors, vm.stickyColor, vm) { vm.stickyColor = it }
                 t == Tool.WEBLINK -> CustomSwatches(WebLinkColors, vm.webLinkColor, vm) { vm.webLinkColor = it }
                 t == Tool.MINDMAP -> {
-                    MindPalette.take(5).forEach { c ->
+                    MindPalette.take(8).forEach { c ->
                         Swatch(c, c == vm.mindColor, 18) { vm.recolorMindNode(color = c) }
                     }
                     if (!vertical) {
@@ -1501,17 +1501,19 @@ fun CustomSwatches(base: List<Int>, current: Int, vm: EditorViewModel, onPick: (
 
 @Composable
 fun AddSwatchButton(onClick: () -> Unit) {
+    val outerShape = RoundedCornerShape(7.dp)
+    val innerShape = RoundedCornerShape(5.dp)
     Box(
         Modifier
-            .defaultMinSize(minWidth = 36.dp, minHeight = 36.dp)
-            .clip(CircleShape)
+            .defaultMinSize(minWidth = 34.dp, minHeight = 34.dp)
+            .clip(outerShape)
             .clickable(role = Role.Button, onClickLabel = "Custom colour", onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             Modifier
                 .size(22.dp)
-                .clip(CircleShape)
+                .clip(outerShape)
                 .background(
                     Brush.sweepGradient(
                         listOf(
@@ -1526,8 +1528,8 @@ fun AddSwatchButton(onClick: () -> Unit) {
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            Box(Modifier.size(14.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
-                Icon(Icons.Outlined.Add, "Custom colour", Modifier.size(10.dp))
+            Box(Modifier.size(16.dp).clip(innerShape).background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.Add, "Custom colour", Modifier.size(11.dp))
             }
         }
     }
@@ -1572,7 +1574,7 @@ fun StyleOptions(
             )
         }
     }
-    if (style.colors.size < 8) AddSwatchButton { adding = true }
+    if (style.colors.size < MAX_COLOR_SLOTS) AddSwatchButton { adding = true }
 
     val presets = when (t) {
         Tool.HIGHLIGHTER -> HighlighterPalette + PenPalette

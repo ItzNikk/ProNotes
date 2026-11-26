@@ -49,6 +49,7 @@ enum class Tool { PEN, CRAYON, HIGHLIGHTER, ERASER, SHAPE, LASSO, MINDMAP, TEXT,
 /** Callbacks from the canvas to the editor state. Page indices refer to the notebook's page list. */
 interface CanvasHost {
     fun brush(tool: Tool): Brush
+    fun activePenType(): PenType = PenType.FOUNTAIN
     fun shapeKind(): ShapeKind
     fun eraserRadius(): Float
     fun tapeColor(): Int
@@ -57,6 +58,7 @@ interface CanvasHost {
     fun setItems(page: Int, items: List<PageItem>)
     fun commitPageItemsEdit(changes: Map<Int, List<PageItem>>)
     fun onSelectionChanged(page: Int, ids: Set<Long>, screenBounds: RectF?)
+    fun onPdfLassoRegion(page: Int, rect: RectF, screenBounds: RectF, outline: List<Pt>?) {}
     fun onTextTap(page: Int, x: Float, y: Float, existing: TextItem?)
     /** Called when Tool.TEXT taps or drags a new inline text box directly on the page. */
     fun onTextBoxPlace(page: Int, x: Float, y: Float, w: Float, h: Float) { onTextTap(page, x, y, null) }
@@ -64,6 +66,7 @@ interface CanvasHost {
     fun onPageTap(page: Int, x: Float, y: Float) {}
     fun onStickyTap(page: Int, x: Float, y: Float, existing: StickyItem?)
     fun onStickyToggleCollapse(page: Int, sticky: StickyItem) {}
+    fun onStickyTogglePin(page: Int, sticky: StickyItem) {}
     fun onStickyChecklistToggle(page: Int, sticky: StickyItem, lineIndex: Int) {}
     fun onWebLinkTap(page: Int, x: Float, y: Float, existing: WebLinkItem?) {}
     fun onMindMapTap(page: Int, x: Float, y: Float, existing: MindNodeItem?) {}
@@ -152,7 +155,16 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
     internal val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     internal val effectiveTouchSlop: Float
         get() = (touchSlop / settings.touchSensitivity.coerceIn(0.4f, 2.0f)).coerceIn(2f, touchSlop * 2.5f)
-    internal val scroller = OverScroller(context, DecelerateInterpolator(1.6f))
+    internal val scroller = OverScroller(context, DecelerateInterpolator(1.6f)).apply {
+        setFriction(ViewConfiguration.getScrollFriction() * 0.72f)
+    }
+    internal var pageAnim: ValueAnimator? = null
+    internal fun isPageTurning(): Boolean = !scroller.isFinished || (pageAnim?.isRunning == true)
+    internal fun stopScrollAnimations() {
+        scroller.forceFinished(true)
+        pageAnim?.cancel()
+        pageAnim = null
+    }
     internal var velocity: VelocityTracker? = null
 
     var activeMindNodeId: Long? = null
@@ -381,6 +393,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
 
     private val strokePages = HashMap<InProgressStrokeId, Int>()
     private val strokeTools = HashMap<InProgressStrokeId, Tool>()
+    private val strokeFamilies = HashMap<InProgressStrokeId, String>()
     private val consumedCircleStrokes = HashSet<InProgressStrokeId>()
 
     init {
@@ -402,7 +415,8 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                     val autoTextAdded = ArrayList<InkItem>()
                     val circleCandKey = circleDetector.activeCandidate(SystemClock.uptimeMillis(), gestureConfig)?.strokeKey
                     for (e in keptEntries) {
-                        val item = InkItem(ItemIds.next(), e.value)
+                        val famHint = strokeFamilies.remove(e.key)
+                        val item = InkItem(ItemIds.next(), e.value, familyHint = famHint)
                         if (!circleDetector.attachItemId(e.key, item.id)) {
                             added += item
                             // Never hand an active Circle-to-Lasso loop stroke to Auto Handwriting so it stays ready to hold
@@ -687,7 +701,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         // Horizontal page slots depend on the screen size.
         if (settings.scroll == ScrollDirection.HORIZONTAL && pages.isNotEmpty()) layout(pages)
         // Height-only changes (bars hiding, keyboard) must not refit: refitting there could jump to an older page.
-        val page = (if (!scroller.isFinished) lastTarget else keep).coerceIn(0, (pages.size - 1).coerceAtLeast(0))
+        val page = (if (isPageTurning()) lastTarget else keep).coerceIn(0, (pages.size - 1).coerceAtLeast(0))
         if (pages.isNotEmpty() && (!fitted || w != oldw)) fit(page) else if (settings.scroll == ScrollDirection.HORIZONTAL && pages.isNotEmpty()) { centerOn(page); updateMatrix() } else { clamp(); updateMatrix() }
     }
 
@@ -745,17 +759,61 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
     internal var lastTarget = 0
 
     fun scrollToPage(index: Int, animate: Boolean) {
+        animateToPage(index, animate = animate, velocityX = 0f, fitTargetScale = false)
+    }
+
+    /**
+     * Smooth, velocity-aware page transition for both Notes and PDFs.
+     * Interpolates scale, transX, and transY together so mixed-size PDF pages never pop,
+     * and scales animation duration by remaining distance & release velocity for crisp responsiveness.
+     */
+    internal fun animateToPage(
+        index: Int,
+        animate: Boolean,
+        velocityX: Float = 0f,
+        fitTargetScale: Boolean = false,
+    ) {
         if (index !in pages.indices || width == 0) return
         lastTarget = index
-        val fromX = transX; val fromY = transY
+        val fromS = scale
+        val fromX = transX
+        val fromY = transY
+        if (fitTargetScale) scale = fitScale(index)
         centerOn(index)
-        if (animate) {
-            val toX = transX; val toY = transY
-            transX = fromX; transY = fromY
-            scroller.forceFinished(true)
-            scroller.startScroll(fromX.toInt(), fromY.toInt(), (toX - fromX).toInt(), (toY - fromY).toInt(), 420)
-            postInvalidateOnAnimation()
-        } else updateMatrix()
+        val toS = scale
+        val toX = transX
+        val toY = transY
+        if (!animate) {
+            stopScrollAnimations()
+            updateMatrix()
+            return
+        }
+        scale = fromS
+        transX = fromX
+        transY = fromY
+        stopScrollAnimations()
+        zoomAnim?.cancel()
+        val distPx = hypot(toX - fromX, toY - fromY)
+        val speedBoost = (abs(velocityX) / (1800f * density)).coerceIn(0f, 1.35f)
+        val frac = (distPx / width.coerceAtLeast(1).toFloat()).coerceIn(0.18f, 1.2f)
+        val durMs = ((150f + 150f * frac) / (1f + speedBoost * 0.55f)).toLong().coerceIn(135L, 300L)
+        if (abs(toS - fromS) < 0.002f && distPx < 1.5f) {
+            scale = toS; transX = toX; transY = toY
+            updateMatrix()
+            return
+        }
+        pageAnim = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = durMs
+            interpolator = DecelerateInterpolator(2.2f)
+            addUpdateListener { anim ->
+                val t = anim.animatedValue as Float
+                scale = fromS + (toS - fromS) * t
+                transX = fromX + (toX - fromX) * t
+                transY = fromY + (toY - fromY) * t
+                updateMatrix()
+            }
+            start()
+        }
     }
 
     /** Smoothly pans & zooms the camera so [rect] (in [pageIndex]'s coordinates) fits cleanly on screen. */
@@ -994,9 +1052,12 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
     internal var dragStickyPage: Int = -1
     internal var dragStickyOrigX = 0f
     internal var dragStickyOrigY = 0f
+    internal var dragStickyOrigW = 0f
+    internal var dragStickyOrigH = 0f
     internal var dragStickyDownWx = 0f
     internal var dragStickyDownWy = 0f
     internal var dragStickyActive = false
+    internal var dragStickyResize = false
     internal var dragStickyFromFinger = false
     internal var dragStickyWasExpanded = false
     internal var dragStickyAttachedIds: Set<Long> = emptySet()
@@ -1030,6 +1091,16 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         val (wx, wy) = toLocal(screenX, screenY, dragStickyPage)
         val dx = wx - dragStickyDownWx
         val dy = wy - dragStickyDownWy
+        if (dragStickyResize) {
+            val nw = (dragStickyOrigW + dx).coerceIn(180f, (p.width - sticky.x - 16f).coerceAtLeast(180f))
+            val nh = (dragStickyOrigH + dy).coerceIn(140f, (p.height - sticky.y - 16f).coerceAtLeast(140f))
+            val updated = p.items.map { item ->
+                if (item is StickyItem && item.id == dragStickyId) item.copy(w = nw, h = nh) else item
+            }
+            pages = pages.toMutableList().also { it[dragStickyPage] = p.copy(items = updated) }
+            layer.invalidate()
+            return
+        }
         val bw = sticky.bounds.width()
         val bh = sticky.bounds.height()
         val nx = (dragStickyOrigX + dx).coerceIn(16f, (p.width - bw - 16f).coerceAtLeast(16f))
@@ -1051,6 +1122,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         dragStickyId = -1L
         dragStickyPage = -1
         dragStickyActive = false
+        dragStickyResize = false
         dragStickyFromFinger = false
         dragStickyAttachedIds = emptySet()
         dragStickyWasExpanded = false
@@ -1267,7 +1339,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             MotionEvent.ACTION_DOWN -> {
                 touchActive = true
                 // A swipe that starts while a page turn is still animating counts from its target page.
-                pageAtGestureStart = if (!scroller.isFinished) lastTarget else currentIndex
+                pageAtGestureStart = if (isPageTurning()) lastTarget else currentIndex
                 layer.invalidate()
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> touchActive = false
@@ -1492,15 +1564,43 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             if (wasCircle) { mode = Mode.IGNORE; return }
         }
 
-        // Collapsed sticky messaging icon: quick tap expands, press & hold (~280ms) drags to move it!
-        // Expanded sticky: top-right collapse pill folds, adjacent edit pill opens Sticky Studio,
-        // and dragging the header bar smoothly repositions unpinned sticky notes.
+        // Notein 1:1 Sticky Note direct canvas controls:
+        // - Folded badge: quick tap expands; press & hold moves it (with its hidden ink attached).
+        // - Expanded sticky: top-right controls (Pin / Edit / Fold), header bar drag moves it + attached ink,
+        //   and bottom-right peel corner drags to freely resize width & height directly on paper!
         if (t in setOf(Tool.PEN, Tool.CRAYON, Tool.AUTO_TEXT, Tool.STICKY, Tool.TEXT, Tool.HIGHLIGHTER)) {
-            val hitSticky = pages.getOrNull(activePage)?.items?.filterIsInstance<StickyItem>()
-                ?.lastOrNull { s ->
-                    if (s.collapsed) s.raw.contains(wx, wy)
-                    else s.raw.contains(wx, wy) && wy <= s.raw.top + 42f
-                }
+            val pageStickies = pages.getOrNull(activePage)?.items?.filterIsInstance<StickyItem>().orEmpty()
+            // 1) Check bottom-right direct resize corner on expanded unpinned sticky notes first
+            val resizeSticky = pageStickies.lastOrNull { s ->
+                !s.collapsed && !s.pinned &&
+                    wx in (s.raw.right - 44f)..(s.raw.right + 8f) &&
+                    wy in (s.raw.bottom - 44f)..(s.raw.bottom + 8f)
+            }
+            if (resizeSticky != null) {
+                clearStickyDrag()
+                dragStickyId = resizeSticky.id
+                dragStickyPage = activePage
+                dragStickyOrigX = resizeSticky.x
+                dragStickyOrigY = resizeSticky.y
+                dragStickyOrigW = resizeSticky.w
+                dragStickyOrigH = resizeSticky.h
+                dragStickyDownWx = wx
+                dragStickyDownWy = wy
+                dragStickyActive = true
+                dragStickyResize = true
+                dragStickyFromFinger = false
+                dragStickyWasExpanded = true
+                buzz(HapticFeedbackConstants.CLOCK_TICK)
+                host.beginEdit(activePage)
+                mode = Mode.STICKY_DRAG
+                return
+            }
+
+            // 2) Check collapsed badge or expanded header bar controls
+            val hitSticky = pageStickies.lastOrNull { s ->
+                if (s.collapsed) s.raw.contains(wx, wy)
+                else s.raw.contains(wx, wy) && wy <= s.raw.top + 42f
+            }
             if (hitSticky != null) {
                 if (hitSticky.collapsed) {
                     clearStickyDrag()
@@ -1516,23 +1616,29 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                     mode = Mode.STICKY_DRAG
                     postDelayed(stickyHoldRunnable, 280L)
                     return
-                } else if (wx >= hitSticky.raw.right - 46f) {
+                } else if (wx >= hitSticky.raw.right - 42f) {
                     buzz(HapticFeedbackConstants.CLOCK_TICK)
                     host.onStickyToggleCollapse(activePage, hitSticky)
                     mode = Mode.IGNORE
                     return
-                } else if (wx >= hitSticky.raw.right - 84f) {
+                } else if (wx >= hitSticky.raw.right - 78f) {
                     buzz(HapticFeedbackConstants.CLOCK_TICK)
                     host.onStickyTap(activePage, wx, wy, hitSticky)
                     mode = Mode.IGNORE
                     return
+                } else if (hitSticky.raw.width() >= 190f && wx >= hitSticky.raw.right - 114f) {
+                    buzz(HapticFeedbackConstants.CLOCK_TICK)
+                    host.onStickyTogglePin(activePage, hitSticky)
+                    mode = Mode.IGNORE
+                    return
                 } else if (!hitSticky.pinned) {
-                    // Header bar drag to reposition an expanded sticky note cleanly without stray ink dots.
                     clearStickyDrag()
                     dragStickyId = hitSticky.id
                     dragStickyPage = activePage
                     dragStickyOrigX = hitSticky.x
                     dragStickyOrigY = hitSticky.y
+                    dragStickyOrigW = hitSticky.w
+                    dragStickyOrigH = hitSticky.h
                     dragStickyDownWx = wx
                     dragStickyDownWy = wy
                     dragStickyActive = false
@@ -2184,9 +2290,34 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             }
 
             if (isPressureTool) {
-                if (!td.pressureEnabled) {
+                val activePen = if (strokeTool == Tool.PEN || strokeTool == Tool.AUTO_TEXT) host.activePenType() else null
+                if (!td.pressureEnabled || activePen == PenType.FINELINER || activePen == PenType.DASHED) {
                     target.pressure = 0.5f
                     curPressure = 0.5f
+                } else if (activePen == PenType.CALLIGRAPHY) {
+                    target.pressure = 0.68f
+                    curPressure = 0.68f
+                } else if (activePen == PenType.LETTERING) {
+                    // Authentic hand-lettering contrast: bold thick downstrokes, razor-thin hairline upstrokes (stylus & finger!)
+                    val vertSpeed = if (isDown) 0f else curFiltDy
+                    val dirWeight = when {
+                        vertSpeed > 28f -> (0.78f + (vertSpeed / 900f).coerceIn(0f, 0.22f))
+                        vertSpeed < -28f -> (0.11f + (1f - ((-vertSpeed) / 700f).coerceIn(0f, 1f)) * 0.14f)
+                        else -> 0.44f
+                    }
+                    val rawHw = if (isStylus && inkHasHardwarePressure) {
+                        val cand = if (rawAxisP > 0.002f) rawAxisP else target.pressure
+                        ((cand - inkPressureMin) / inkPressureRange).coerceIn(0.05f, 1.0f)
+                    } else dirWeight
+                    val targetP = if (isStylus && curSawVarP) {
+                        (dirWeight * 0.62f + Math.pow(rawHw.toDouble(), gamma * 0.85).toFloat() * 0.38f).coerceIn(0.08f, 1.0f)
+                    } else {
+                        dirWeight.coerceIn(0.09f, 1.0f)
+                    }
+                    val pAlpha = if (isDown || curPressure.isNaN()) 1.0f else (1f - kotlin.math.exp((-dtSec / 0.016f).toDouble()).toFloat()).coerceIn(0.18f, 0.85f)
+                    val filteredP = if (isDown || curPressure.isNaN()) targetP else (curPressure + (targetP - curPressure) * pAlpha)
+                    curPressure = filteredP
+                    target.pressure = filteredP.coerceIn(0.08f, 1.0f)
                 } else if (isStylus && inkHasHardwarePressure) {
                     val rawCandidate = if (rawAxisP > 0.002f) rawAxisP else target.pressure
                     val normRaw = ((rawCandidate - inkPressureMin) / inkPressureRange).coerceIn(0f, 1.0f)
@@ -2195,7 +2326,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                     } else if (!curFirstP.isNaN() && abs(normRaw - curFirstP) > 0.03f) {
                         curSawVarP = true
                     }
-                    val targetP = when {
+                    val baseTargetP = when {
                         // Passive/capacitive stylus reporting flat 0 or 1 pressure: synthesize subtle velocity taper.
                         !curSawVarP && (normRaw <= 0.005f || normRaw >= 0.995f) -> {
                             val velFactor = (1f - (speedDpPerSec / 1400f).coerceIn(0f, 0.35f))
@@ -2208,19 +2339,31 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                             Math.pow(effRaw.toDouble(), gamma).toFloat().coerceIn(0.08f, 1.0f)
                         }
                     }
+                    // Shape dynamic range per PenType so Ballpoint, Fountain, Brush, and Pencil feel unmistakably different.
+                    val shapedP = when (activePen) {
+                        PenType.BALL -> (0.46f + baseTargetP * 0.24f).coerceIn(0.42f, 0.72f)
+                        PenType.BRUSH -> (0.06f + Math.pow(baseTargetP.toDouble(), 0.78).toFloat() * 0.94f).coerceIn(0.06f, 1.0f)
+                        PenType.PENCIL -> (0.20f + baseTargetP * 0.68f).coerceIn(0.18f, 0.90f)
+                        else -> (0.16f + baseTargetP * 0.80f).coerceIn(0.14f, 0.96f)
+                    }
                     // Time-invariant pressure smoothing (~14ms time constant) works identically from 60Hz to 360Hz.
                     val pAlpha = if (isDown || curPressure.isNaN()) 1.0f else (1f - kotlin.math.exp((-dtSec / 0.014f).toDouble()).toFloat()).coerceIn(0.18f, 0.88f)
-                    val filteredP = if (isDown || curPressure.isNaN()) targetP else (curPressure + (targetP - curPressure) * pAlpha)
+                    val filteredP = if (isDown || curPressure.isNaN()) shapedP else (curPressure + (shapedP - curPressure) * pAlpha)
                     curPressure = filteredP
-                    target.pressure = filteredP.coerceIn(0.08f, 1.0f)
+                    target.pressure = filteredP.coerceIn(0.06f, 1.0f)
                 } else {
-                    // Finger or non-pressure stylus: smooth velocity-responsive natural ink flow.
-                    val velFactor = (1f - (speedDpPerSec / 1350f).coerceIn(0f, 0.32f))
-                    val targetP = (0.34f + 0.34f * velFactor * (sens / 1.35f)).coerceIn(0.20f, 0.92f)
+                    // Finger or non-pressure stylus: distinct pen-type velocity-responsive natural ink flow.
+                    val velFactor = (1f - (speedDpPerSec / 1350f).coerceIn(0f, 0.42f))
+                    val targetP = when (activePen) {
+                        PenType.BALL -> (0.50f + 0.12f * velFactor).coerceIn(0.46f, 0.64f)
+                        PenType.BRUSH -> (0.18f + 0.76f * velFactor * (sens / 1.25f)).coerceIn(0.14f, 0.98f)
+                        PenType.PENCIL -> (0.30f + 0.44f * velFactor).coerceIn(0.24f, 0.78f)
+                        else -> (0.30f + 0.42f * velFactor * (sens / 1.3f)).coerceIn(0.20f, 0.92f)
+                    }
                     val pAlpha = if (isDown || curPressure.isNaN()) 1.0f else (1f - kotlin.math.exp((-dtSec / 0.020f).toDouble()).toFloat()).coerceIn(0.16f, 0.75f)
                     val filteredP = if (isDown || curPressure.isNaN()) targetP else (curPressure + (targetP - curPressure) * pAlpha)
                     curPressure = filteredP
-                    target.pressure = filteredP.coerceIn(0.18f, 0.96f)
+                    target.pressure = filteredP.coerceIn(0.12f, 0.98f)
                 }
             }
 
@@ -2341,6 +2484,12 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         strokeId = id
         strokePages[id] = activePage
         strokeTools[id] = t
+        strokeFamilies[id] = when (t) {
+            Tool.PEN, Tool.AUTO_TEXT -> host.activePenType().family
+            Tool.CRAYON -> Brushes.CRAYON
+            Tool.HIGHLIGHTER -> Brushes.HIGHLIGHTER
+            else -> Brushes.nameOf(host.brush(t))
+        }
         if (shouldTrackHold()) postDelayed(holdRunnable, gestureConfig.holdDelayMs)
     }
 
@@ -2650,6 +2799,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         strokeId = null
         strokePages.remove(id)
         strokeTools.remove(id)
+        strokeFamilies.remove(id)
         val ev = if (event != null) {
             MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
         } else {

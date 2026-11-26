@@ -272,11 +272,6 @@ fun SelectionMenu(
                                 },
                             )
                             add(
-                                AppMenuItem("Make flashcard", icon = { Icon(Icons.Outlined.Style, contentDescription = null, Modifier.size(18.dp)) }) {
-                                    vm.cardFromSelection()
-                                },
-                            )
-                            add(
                                 AppMenuItem("Add link…", icon = { Icon(Icons.Outlined.Link, contentDescription = null, Modifier.size(18.dp)) }) {
                                     vm.startLinkFromSelection()
                                 },
@@ -669,7 +664,7 @@ fun QuickActionsOverlay(
 
     val activeStyle = vm.styleFor(vm.tool) ?: vm.penStyle
     val activeColor = Color(activeStyle.color)
-    val paletteColors = remember(activeStyle.colors) { activeStyle.colors.take(5) }
+    val paletteColors = remember(activeStyle.colors) { activeStyle.colors.take(7) }
     val sizePresets = remember(activeStyle.sizes) {
         val base = activeStyle.sizes.ifEmpty { listOf(2f, 4f, 8f, 14f) }
         base.take(4)
@@ -682,8 +677,9 @@ fun QuickActionsOverlay(
         QuickArcMode.ACTIONS -> listOf(166f, 188f, 210f, 232f)
         QuickArcMode.COLORS -> {
             val count = paletteColors.size + 1 // swatches + custom colour button
-            val start = 154f
-            val step = 15.5f
+            val span = (count - 1).coerceAtLeast(1)
+            val step = (108f / span).coerceIn(12.5f, 16f)
+            val start = 148f
             List(count) { i -> start + i * step }
         }
         QuickArcMode.SIZES -> {
@@ -1015,13 +1011,13 @@ fun QuickActionsOverlay(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(if (isPicked) 24.dp else 21.dp)
-                                    .clip(CircleShape)
+                                    .size(if (isPicked) 23.dp else 20.dp)
+                                    .clip(RoundedCornerShape(6.dp))
                                     .background(Color(argb))
                                     .border(
                                         width = if (isPicked) 2.2.dp else 1.dp,
                                         color = if (isPicked) ProButtonPalette.ElectricBlue else arcBorder,
-                                        shape = CircleShape,
+                                        shape = RoundedCornerShape(6.dp),
                                     ),
                             )
                         }

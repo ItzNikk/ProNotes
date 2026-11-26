@@ -17,22 +17,27 @@ import com.pronotes.app.data.BrushDoc
 import com.pronotes.app.data.ItemDoc
 import com.pronotes.app.data.PageDoc
 
-/** Pen bodies offered in the pen card. All map onto Jetpack Ink stock or custom brushes. */
+/** Pen bodies offered in the pen card. Each has a distinct nib, width physics, opacity, and dry rendering signature. */
 enum class PenType(val label: String, val family: String, val sizeFactor: Float) {
-    FOUNTAIN("Fountain pen", Brushes.PEN, 1f),
-    FINELINER("Fineliner", Brushes.MARKER, 0.42f),
-    LETTERING("Lettering", Brushes.PEN, 1.55f),
-    BALL("Ball pen", Brushes.MARKER, 0.8f),
-    BRUSH("Brush pen", Brushes.PEN, 2.2f),
-    CALLIGRAPHY("Calligraphy", Brushes.CALLIGRAPHY, 1.45f),
-    PENCIL("Pencil", Brushes.PENCIL, 0.9f),
-    DASHED("Dashed pen", Brushes.DASHED, 1f),
+    FOUNTAIN("Fountain pen", Brushes.FOUNTAIN, 1.0f),
+    FINELINER("Fineliner", Brushes.FINELINER, 0.46f),
+    LETTERING("Lettering", Brushes.LETTERING, 1.55f),
+    BALL("Ball pen", Brushes.BALL, 0.78f),
+    BRUSH("Brush pen", Brushes.BRUSH, 2.3f),
+    CALLIGRAPHY("Calligraphy", Brushes.CALLIGRAPHY, 1.55f),
+    PENCIL("Pencil", Brushes.PENCIL, 0.96f),
+    DASHED("Dashed pen", Brushes.DASHED, 1.0f),
 }
 
-/** Brush families come from Jetpack Ink's stock brushes, plus custom calligraphy, pencil & highlighter. */
+/** Brush families come from Jetpack Ink's stock brushes, plus custom calligraphy, pencil, brush & highlighter. */
 @OptIn(androidx.ink.brush.ExperimentalInkCustomBrushApi::class)
 object Brushes {
     const val PEN = "pen"
+    const val FOUNTAIN = "fountain"
+    const val FINELINER = "fineliner"
+    const val BALL = "ball"
+    const val LETTERING = "lettering"
+    const val BRUSH = "brush"
     const val MARKER = "marker"
     const val HIGHLIGHTER = "highlighter"
     const val DASHED = "dashed"
@@ -43,13 +48,15 @@ object Brushes {
     /** Highlighter ink opacity (set from settings); swatches stay opaque. */
     @Volatile var highlightAlpha = 0x73
 
-    private val pen by lazy { StockBrushes.pressurePen() }
-    private val marker by lazy { StockBrushes.marker() }
-    private val highlighter by lazy { buildHighlighter() }
-    private val dashed by lazy { StockBrushes.dashedLine() }
-    private val calligraphy by lazy { buildCalligraphy(0.32f, 35f) }
-    private val pencil by lazy { buildPencil() }
-    private val crayon by lazy { buildCrayon() }
+    private val familyNames = java.util.Collections.synchronizedMap(java.util.WeakHashMap<BrushFamily, String>())
+
+    private val pen by lazy { StockBrushes.pressurePen().also { familyNames[it] = FOUNTAIN } }
+    private val marker by lazy { StockBrushes.marker().also { familyNames[it] = FINELINER } }
+    private val highlighter by lazy { buildHighlighter().also { familyNames[it] = HIGHLIGHTER } }
+    private val dashed by lazy { StockBrushes.dashedLine().also { familyNames[it] = DASHED } }
+    private val calligraphy by lazy { buildCalligraphy(0.20f, 42f) }
+    private val pencil by lazy { buildPencil().also { familyNames[it] = PENCIL } }
+    private val crayon by lazy { buildCrayon().also { familyNames[it] = CRAYON } }
 
     @SuppressLint("RestrictedApi")
     private fun buildHighlighter(): BrushFamily =
@@ -59,22 +66,22 @@ object Brushes {
     private fun buildCalligraphy(roundness: Float, angleDeg: Float): BrushFamily =
         BrushFamily(
             tip = BrushTip(
-                scaleX = 1.15f,
-                scaleY = roundness.coerceIn(0.22f, 1f),
-                cornerRounding = 0.25f,
+                scaleX = 1.42f,
+                scaleY = roundness.coerceIn(0.18f, 0.85f),
+                cornerRounding = 0.08f,
                 rotationDegrees = angleDeg.coerceIn(0f, 180f),
                 behaviors = emptyList(),
             ),
             paint = BrushPaint(),
-        )
+        ).also { familyNames[it] = CALLIGRAPHY }
 
     @SuppressLint("RestrictedApi")
     private fun buildPencil(): BrushFamily =
         BrushFamily(
             tip = BrushTip(
-                scaleX = 0.95f,
-                scaleY = 0.85f,
-                cornerRounding = 0.8f,
+                scaleX = 0.96f,
+                scaleY = 0.88f,
+                cornerRounding = 0.82f,
                 behaviors = emptyList(),
             ),
             paint = BrushPaint(),
@@ -94,22 +101,26 @@ object Brushes {
 
     fun family(name: String): BrushFamily = when (name) {
         HIGHLIGHTER -> highlighter
-        MARKER -> marker
+        MARKER, FINELINER -> marker
         DASHED -> dashed
         CALLIGRAPHY -> calligraphy
         PENCIL -> pencil
         CRAYON -> crayon
+        FOUNTAIN, BALL, LETTERING, BRUSH, PEN -> pen
         else -> pen
     }
 
-    fun nameOf(brush: Brush): String = when (brush.family) {
-        highlighter -> HIGHLIGHTER
-        marker -> MARKER
-        dashed -> DASHED
-        calligraphy -> CALLIGRAPHY
-        pencil -> PENCIL
-        crayon -> CRAYON
-        else -> PEN
+    fun nameOf(brush: Brush): String {
+        familyNames[brush.family]?.let { return it }
+        return when (brush.family) {
+            highlighter -> HIGHLIGHTER
+            marker -> FINELINER
+            dashed -> DASHED
+            calligraphy -> CALLIGRAPHY
+            pencil -> PENCIL
+            crayon -> CRAYON
+            else -> FOUNTAIN
+        }
     }
 
     fun opaque(color: Int) = color or (0xFF shl 24)
@@ -121,8 +132,10 @@ object Brushes {
 
     fun create(family: String, color: Int, size: Float, opacity: Float = 1f): Brush {
         val effOpacity = when (family) {
-            PENCIL -> (opacity * 0.72f).coerceIn(0.2f, 0.9f)
+            PENCIL -> (opacity * 0.64f).coerceIn(0.22f, 0.85f)
             CRAYON -> (opacity * 0.86f).coerceIn(0.35f, 0.96f)
+            BALL -> (opacity * 0.91f).coerceIn(0.35f, 0.96f)
+            BRUSH -> (opacity * 0.90f).coerceIn(0.35f, 0.96f)
             else -> opacity
         }
         val c = if (family == HIGHLIGHTER) {
@@ -135,7 +148,7 @@ object Brushes {
         return Brush.createWithColorIntArgb(family(family), c, size, 0.1f)
     }
 
-    /** Creates a customized pen brush applying stroke style, nib geometry, and real pressure sensitivity. */
+    /** Creates a customized pen brush preserving each PenType's unmistakable nib, opacity, and pressure signature. */
     @SuppressLint("RestrictedApi")
     fun createCustomPen(
         baseFamily: String,
@@ -149,34 +162,53 @@ object Brushes {
         strokeStyle: String,
     ): Brush {
         val sens = pressureSensitivity.coerceIn(0.3f, 2.0f)
-        // Keep base stroke size accurate; dynamic pressure remapping in NoteCanvasView drives live thin-to-thick variation.
-        val effectiveSize = (if (pressureEnabled) size * (0.85f + 0.18f * sens) else size).coerceIn(0.4f, 120f)
         val effOpacity = when (baseFamily) {
-            PENCIL -> (opacity * 0.72f).coerceIn(0.2f, 0.9f)
+            PENCIL -> (opacity * 0.64f).coerceIn(0.22f, 0.85f)
             CRAYON -> (opacity * 0.86f).coerceIn(0.35f, 0.96f)
+            BALL -> (opacity * 0.91f).coerceIn(0.35f, 0.96f)
+            BRUSH -> (opacity * 0.90f).coerceIn(0.35f, 0.96f)
             else -> opacity
         }
         val c = if (effOpacity >= 0.995f) opaque(color) else withAlpha(color, effOpacity)
+
         if (baseFamily == CRAYON) {
-            return Brush.createWithColorIntArgb(crayon, c, effectiveSize, 0.1f)
+            return Brush.createWithColorIntArgb(crayon, c, size.coerceIn(0.8f, 120f), 0.1f)
         }
         if (strokeStyle == "DASHED" || strokeStyle == "DOTTED" || baseFamily == DASHED) {
-            return Brush.createWithColorIntArgb(dashed, c, effectiveSize, 0.1f)
+            return Brush.createWithColorIntArgb(dashed, c, size.coerceIn(0.6f, 120f), 0.1f)
         }
-        if (baseFamily == CALLIGRAPHY || nibRoundness < 0.94f) {
+        // Fineliner is strictly a crisp constant-width monoline technical pen.
+        if (baseFamily == FINELINER || baseFamily == MARKER) {
+            return Brush.createWithColorIntArgb(marker, c, size.coerceIn(0.5f, 80f), 0.1f)
+        }
+        // Calligraphy uses a sharp flat-chisel angled ribbon nib (default 42 deg, thin roundness).
+        if (baseFamily == CALLIGRAPHY) {
+            val chiselRoundness = if (nibRoundness >= 0.90f) 0.20f else nibRoundness.coerceIn(0.18f, 0.55f)
+            val chiselAngle = if (nibAngleDeg <= 1f) 42f else nibAngleDeg
+            val customFamily = buildCalligraphy(chiselRoundness, chiselAngle)
+            return Brush.createWithColorIntArgb(customFamily, c, size.coerceIn(1.2f, 120f), 0.1f)
+        }
+        // Pencil keeps its dedicated pencil family so dry strokes render with real fine graphite grain.
+        if (baseFamily == PENCIL) {
+            return Brush.createWithColorIntArgb(pencil, c, size.coerceIn(0.8f, 100f), 0.1f)
+        }
+        // User-customized flat nib override for other pens if they dialed down nib roundness explicitly.
+        if (nibRoundness < 0.88f) {
             val customFamily = buildCalligraphy(nibRoundness, nibAngleDeg)
-            return Brush.createWithColorIntArgb(customFamily, c, effectiveSize, 0.1f)
+            return Brush.createWithColorIntArgb(customFamily, c, size.coerceIn(0.6f, 120f), 0.1f)
         }
-        val resolvedFamily = when {
-            baseFamily == PENCIL -> if (pressureEnabled) pen else pencil
-            pressureEnabled -> pen
-            else -> marker
+        val effectiveSize = when (baseFamily) {
+            BALL -> size.coerceIn(0.6f, 90f)
+            LETTERING -> (size * (0.94f + 0.18f * sens)).coerceIn(1.0f, 120f)
+            BRUSH -> (size * (0.96f + 0.22f * sens)).coerceIn(1.4f, 140f)
+            else -> (if (pressureEnabled) size * (0.88f + 0.16f * sens) else size).coerceIn(0.6f, 120f)
         }
+        val resolvedFamily = if (pressureEnabled || baseFamily == LETTERING || baseFamily == BRUSH) pen else marker
         return Brush.createWithColorIntArgb(resolvedFamily, c, effectiveSize, 0.1f)
     }
 
-    fun recolor(brush: Brush, color: Int): Brush {
-        val familyName = nameOf(brush)
+    fun recolor(brush: Brush, color: Int, familyHint: String? = null): Brush {
+        val familyName = familyHint?.takeIf { it.isNotBlank() } ?: nameOf(brush)
         val alpha = if (familyName == HIGHLIGHTER) 1f else ((brush.colorIntArgb ushr 24) and 0xFF) / 255f
         return create(familyName, color, brush.size, alpha)
     }
@@ -271,7 +303,7 @@ object InkCodec {
                 is InkItem -> ItemDoc.Ink(
                     inputs = encodeInputs(item.stroke.inputs),
                     brush = BrushDoc(
-                        family = Brushes.nameOf(item.stroke.brush),
+                        family = item.brushFamily,
                         color = item.stroke.brush.colorIntArgb,
                         size = item.stroke.brush.size,
                         epsilon = item.stroke.brush.epsilon,
@@ -331,7 +363,13 @@ object InkCodec {
                             val brush = Brush.createWithColorIntArgb(
                                 Brushes.family(item.brush.family), item.brush.color, item.brush.size, item.brush.epsilon,
                             )
-                            InkItem(ItemIds.next(), Stroke(brush, decodeInputs(item.inputs)), item.dx, item.dy)
+                            InkItem(
+                                id = ItemIds.next(),
+                                stroke = Stroke(brush, decodeInputs(item.inputs)),
+                                dx = item.dx,
+                                dy = item.dy,
+                                familyHint = item.brush.family,
+                            )
                         }
                         is ItemDoc.Text -> TextItem(
                             ItemIds.next(), item.text, item.x, item.y, item.size, item.color,

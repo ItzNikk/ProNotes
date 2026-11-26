@@ -31,22 +31,30 @@ class InkItem(
     val dx: Float = 0f,
     val dy: Float = 0f,
     private val cachedLocal: RectF? = null,
+    val familyHint: String? = null,
 ) : PageItem {
     /** Bounds in the stroke's own coordinates, before the dx/dy offset. */
     val localBounds: RectF = cachedLocal ?: strokeBounds(stroke)
 
-    val isHighlighter: Boolean get() = Brushes.nameOf(stroke.brush) == Brushes.HIGHLIGHTER
-    val isCrayon: Boolean get() = Brushes.nameOf(stroke.brush) == Brushes.CRAYON
+    val brushFamily: String get() = familyHint?.takeIf { it.isNotBlank() } ?: Brushes.nameOf(stroke.brush)
+    val isHighlighter: Boolean get() = brushFamily == Brushes.HIGHLIGHTER
+    val isCrayon: Boolean get() = brushFamily == Brushes.CRAYON
+    val isPencil: Boolean get() = brushFamily == Brushes.PENCIL
+    val isBrushPen: Boolean get() = brushFamily == Brushes.BRUSH
+    val isCalligraphy: Boolean get() = brushFamily == Brushes.CALLIGRAPHY
+    val isLettering: Boolean get() = brushFamily == Brushes.LETTERING
+    val isBallPen: Boolean get() = brushFamily == Brushes.BALL
+    val isFineliner: Boolean get() = brushFamily == Brushes.FINELINER || brushFamily == Brushes.MARKER
 
     override val bounds: RectF
         get() = RectF(localBounds).apply { offset(dx, dy) }
 
     override fun translated(dx: Float, dy: Float): PageItem =
-        InkItem(id, stroke, this.dx + dx, this.dy + dy, localBounds)
+        InkItem(id, stroke, this.dx + dx, this.dy + dy, localBounds, familyHint)
 
-    override fun withId(newId: Long): PageItem = InkItem(newId, stroke, dx, dy, localBounds)
+    override fun withId(newId: Long): PageItem = InkItem(newId, stroke, dx, dy, localBounds, familyHint)
 
-    fun withStroke(newStroke: Stroke): InkItem = InkItem(id, newStroke, dx, dy, localBounds)
+    fun withStroke(newStroke: Stroke): InkItem = InkItem(id, newStroke, dx, dy, localBounds, familyHint)
 }
 
 enum class TextFont(val label: String, val typeface: Typeface) {
@@ -336,7 +344,7 @@ fun PageItem.transformed(m: android.graphics.Matrix, s: Float, deg: Float): Page
     return when (this) {
         is InkItem -> {
             val full = android.graphics.Matrix(m).apply { preTranslate(dx, dy) }
-            InkItem(id, InkCodec.transformStroke(stroke, full, s))
+            InkItem(id, InkCodec.transformStroke(stroke, full, s), familyHint = familyHint)
         }
         is FillItem -> {
             val pts = FloatArray(points.size)
@@ -391,8 +399,8 @@ fun PageItem.stretched(oldBox: RectF, newBox: RectF): PageItem {
                 val p = pts.get(i)
                 mapPt(p.x + dx, p.y + dy)
             }
-            val b = Brushes.create(Brushes.nameOf(stroke.brush), stroke.brush.colorIntArgb, (stroke.brush.size * avgS).coerceIn(1f, 80f))
-            InkItem(id, InkCodec.strokeFromPoints(newPts, b))
+            val b = Brushes.create(brushFamily, stroke.brush.colorIntArgb, (stroke.brush.size * avgS).coerceIn(1f, 80f))
+            InkItem(id, InkCodec.strokeFromPoints(newPts, b), familyHint = familyHint)
         }
         is FillItem -> {
             val pts = FloatArray(points.size)

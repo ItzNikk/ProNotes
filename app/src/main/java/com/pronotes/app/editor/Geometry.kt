@@ -1,6 +1,7 @@
 package com.pronotes.app.editor
 
 import android.graphics.Path
+import android.graphics.RectF
 import android.graphics.Region
 import androidx.compose.runtime.Immutable
 import androidx.graphics.shapes.pill
@@ -316,10 +317,12 @@ private fun polygonError(raw: List<Pt>, poly: List<Pt>, diag: Float): Float {
 }
 
 /**
- * Turns a hand-drawn stroke into a clean shape: line, elbow/zig-zag line, triangle,
- * rectangle, square, diamond, quad, pentagon, hexagon, star, circle or ellipse.
- * When [forceNearest] is true (dedicated Shape tool), picks the closest supported shape
- * within a wider tolerance and returns null only for unrecognisable strokes.
+ * Turns a hand-drawn stroke into a clean shape: line, arrow, elbow/zig-zag, triangle,
+ * rectangle, square, diamond, pentagon, hexagon, star, circle, or ellipse.
+ *
+ * Uses uniform arc-length resampling, loop overshoot trimming, and head-to-head geometric
+ * fitting across canonical shape templates so common shapes (circle, square, rectangle,
+ * triangle) snap reliably instead of collapsing into irregular polygons.
  */
 object ShapeRecognizer {
     /**
@@ -330,9 +333,9 @@ object ShapeRecognizer {
         if (raw.size < 4) return null
         val len = pathLength(raw)
         if (len < 20f) return null
-        val bx = box(raw)
-        val diag = bx.diag.coerceAtLeast(1f)
-        if (forceNearest && diag < 14f) return null
+        val bx0 = box(raw)
+        val diag0 = bx0.diag.coerceAtLeast(1f)
+        if (forceNearest && diag0 < 14f) return null
 
         val start = raw.first()
         val end = raw.last()
@@ -340,25 +343,25 @@ object ShapeRecognizer {
         val straightRatio = endDist / len
 
         // 1. Straight line (with automatic horizontal/vertical snapping within 6°).
-        if (straightRatio > 0.87f) {
+        if (straightRatio > 0.88f) {
             return listOf(densify(listOf(start, snapAxisEnd(start, end))))
         }
 
         // 2. Single-stroke hand-drawn arrow: straight shaft + acute V/chevron tip at the end.
-        detectSingleStrokeArrow(raw, len, diag)?.let { return it }
+        detectSingleStrokeArrow(raw, len, diag0)?.let { return it }
 
         val closed = isClosedLoop(raw)
-        val nearlyClosed = closed || (endDist < max(bx.w, bx.h) * 0.52f && len > max(bx.w, bx.h) * 1.85f)
+        val nearlyClosed = closed || (endDist < max(bx0.w, bx0.h) * 0.58f && len > max(bx0.w, bx0.h) * 1.75f)
 
         if (!nearlyClosed) {
             // Open elbow or zig-zag made of 2–3 straight segments.
-            val pts = simplify(raw, diag * 0.06f)
+            val pts = simplify(raw, diag0 * 0.06f)
             if (pts.size in 3..4 && abs(pathLength(pts) - len) / len < 0.14f) return listOf(densify(pts))
             if (forceNearest) {
                 if (straightRatio >= 0.72f && endDist >= 20f) {
                     return listOf(densify(listOf(start, snapAxisEnd(start, end))))
                 }
-                val relaxedPts = simplify(raw, diag * 0.08f)
+                val relaxedPts = simplify(raw, diag0 * 0.08f)
                 if (relaxedPts.size in 3..4 && abs(pathLength(relaxedPts) - len) / len < 0.24f) {
                     return listOf(densify(relaxedPts))
                 }
@@ -366,51 +369,382 @@ object ShapeRecognizer {
             return null
         }
 
-        val rx = bx.w / 2f; val ry = bx.h / 2f
-        var ellipseErr = Float.MAX_VALUE
-        if (rx > 5f && ry > 5f) {
-            var err = 0f
-            for ((x, y) in raw) err += abs(hypot((x - bx.cx) / rx, (y - bx.cy) / ry) - 1f)
-            ellipseErr = err / raw.size
+        // 3. Clean closed loop: trim small overshoot tail and resample uniformly by arc length
+        //    so slow dwell points while holding the stylus never bias centroids or fit errors.
+        val trimmed = trimLoopOvershoot(raw, diag0)
+        val sample = resampleUniform(trimmed, 96)
+        val bx = box(sample)
+        val diag = bx.diag.coerceAtLeast(1f)
+        if (bx.w < 6f || bx.h < 6f) {
+            return listOf(densify(listOf(start, snapAxisEnd(start, end))))
         }
 
-        val corners = closedCorners(raw, diag * 0.055f)
-        val polyErr = polygonError(raw, corners, diag)
-        val n = corners.size
+        // Compute loop area & isoperimetric circularity (circle = 1.0, square = 0.785, triangle <= 0.605)
+        val area = polygonAreaAbs(sample)
+        val perim = pathLength(sample) + dist(sample.last(), sample.first())
+        val circularity = if (perim > 1f) (4f * Math.PI.toFloat() * area) / (perim * perim) else 0f
 
-        // Five-pointed star: 9–11 alternating inner/outer corners.
-        if (n in 9..11 && polyErr < if (forceNearest) 0.09f else 0.06f) {
-            val d = corners.map { hypot(it.first - bx.cx, it.second - bx.cy) }
+        // --- Candidate 1: Five-pointed star (check before smooth shapes only if strongly alternating) ---
+        val rawCorners = closedCorners(sample, diag * 0.055f)
+        val rawPolyErr = polygonError(sample, rawCorners, diag)
+        if (rawCorners.size in 9..11 && rawPolyErr < if (forceNearest) 0.085f else 0.055f) {
+            val d = rawCorners.map { hypot(it.first - bx.cx, it.second - bx.cy) }
+            val n = rawCorners.size
             val alternates = d.indices.count { i -> (d[i] > d[(i + 1) % n]) != (d[(i + 1) % n] > d[(i + 2) % n]) } >= n - 2
             if (alternates) return ShapeBuilder.build(ShapeKind.STAR, bx.l, bx.t, bx.r, bx.b)
         }
 
-        val polyTol = if (forceNearest) 0.115f else 0.082f
-        val ellipseThreshold = if (forceNearest) 0.44f else 0.32f
-        if (n in 3..8 && polyErr < polyTol && (polyErr < ellipseErr * 0.58f || ellipseErr > 0.09f)) {
-            return listOf(
-                when (n) {
-                    3 -> densify(corners + corners.first())
-                    4 -> quad(corners, bx)
-                    else -> densify(corners + corners.first())
-                },
+        // --- Candidate 2: Circle / Ellipse (centroid + axis-aligned semi-axes fit) ---
+        var meanX = 0f
+        var meanY = 0f
+        for ((x, y) in sample) {
+            meanX += x
+            meanY += y
+        }
+        meanX /= sample.size
+        meanY /= sample.size
+        // Blend centroid with bounding-box center so slight asymmetry doesn't shift the circle off the ink
+        val ecx = meanX * 0.55f + bx.cx * 0.45f
+        val ecy = meanY * 0.55f + bx.cy * 0.45f
+        val erx = bx.w * 0.5f
+        val ery = bx.h * 0.5f
+        val ellipseOutline = ellipse(ecx, ecy, erx, ery, snapCircleRatio = 0.22f)
+        val ellipseErr = meanCurveDist(sample, ellipseOutline, diag)
+
+        // --- Candidate 3: Axis-aligned Square / Rectangle ---
+        val rectPoly = axisAlignedRectCorners(bx, snapSquareRatio = 0.20f)
+        val rectErr = polygonError(sample, rectPoly, diag)
+        val rectCornerCoverage = cornerNeighborhoodCoverage(sample, rectPoly, diag * 0.24f)
+
+        // --- Candidate 4: Diamond (45° rhombus) ---
+        val diamondPoly = listOf(bx.cx to bx.t, bx.r to bx.cy, bx.cx to bx.b, bx.l to bx.cy)
+        val diamondErr = polygonError(sample, diamondPoly, diag)
+        val diamondCoverage = cornerNeighborhoodCoverage(sample, diamondPoly, diag * 0.24f)
+
+        // --- Candidate 5: Oriented (rotated) Rectangle (only when user drew a clearly tilted box) ---
+        val obbPoly = orientedBoundingRect(sample)
+        val obbErr = if (obbPoly != null) polygonError(sample, obbPoly, diag) else Float.MAX_VALUE
+        val obbCoverage = if (obbPoly != null) cornerNeighborhoodCoverage(sample, obbPoly, diag * 0.24f) else 0
+
+        // --- Candidate 6: Best 3-vertex Triangle ---
+        val triPoly = fitBestTriangle(sample)
+        val triErr = if (triPoly != null) polygonError(sample, triPoly, diag) else Float.MAX_VALUE
+        val triCoverage = if (triPoly != null) cornerNeighborhoodCoverage(sample, triPoly, diag * 0.24f) else 0
+
+        // --- Candidate 7: Clean Pentagon / Hexagon (strict corner sharpness required) ---
+        val strictCorners = closedCorners(sample, diag * 0.075f)
+        val sharpPolyCandidate: Pair<List<Pt>, Float>? = if (strictCorners.size in 5..6) {
+            val allSharp = strictCorners.indices.all { i ->
+                val prev = strictCorners[(i - 1 + strictCorners.size) % strictCorners.size]
+                val cur = strictCorners[i]
+                val next = strictCorners[(i + 1) % strictCorners.size]
+                turnAngle(prev, cur, next) >= 42.0
+            }
+            if (allSharp) {
+                val err = polygonError(sample, strictCorners, diag)
+                strictCorners to err
+            } else null
+        } else null
+
+        // Score every candidate cleanly (lower is better).
+        // Add mild structural priors so:
+        // - Circles never lose to squares when corners are empty (coverage < 3)
+        // - Squares/rectangles with 4 visited corners & lower fit error beat circles reliably
+        // - Triangles with circularity < 0.70 and sharp 3-corner fit beat squares & circles
+        // - Axis-aligned squares/rects are preferred over slightly tilted OBBs unless tilted strongly
+        data class Candidate(val score: Float, val rawErr: Float, val build: () -> List<Pt>)
+
+        val candidates = ArrayList<Candidate>(6)
+
+        // Circle / Ellipse score
+        val circleBonus = when {
+            circularity >= 0.85f && rectCornerCoverage <= 2 -> -0.014f
+            circularity >= 0.80f && rectCornerCoverage <= 2 -> -0.008f
+            rectCornerCoverage >= 4 && circularity < 0.83f -> +0.015f
+            else -> 0f
+        }
+        candidates += Candidate(
+            score = ellipseErr + circleBonus,
+            rawErr = ellipseErr,
+            build = { ellipseOutline },
+        )
+
+        // Axis-aligned Square / Rectangle score
+        val rectPenalty = when {
+            rectCornerCoverage == 4 -> -0.006f
+            rectCornerCoverage == 3 -> +0.008f
+            else -> +0.045f // Empty corners => definitely not an axis-aligned rectangle!
+        }
+        candidates += Candidate(
+            score = rectErr + rectPenalty,
+            rawErr = rectErr,
+            build = { densify(rectPoly + rectPoly.first()) },
+        )
+
+        // Diamond score (require all 4 vertices visited & clearly better than circle)
+        val diamondPenalty = when {
+            diamondCoverage == 4 -> +0.005f
+            diamondCoverage == 3 -> +0.022f
+            else -> +0.060f
+        }
+        candidates += Candidate(
+            score = diamondErr + diamondPenalty,
+            rawErr = diamondErr,
+            build = { densify(diamondPoly + diamondPoly.first()) },
+        )
+
+        // Rotated Rectangle score (only win if clearly better than axis-aligned rect & diamond)
+        if (obbPoly != null && obbCoverage >= 3) {
+            val obbPenalty = if (obbCoverage == 4) +0.012f else +0.030f
+            candidates += Candidate(
+                score = obbErr + obbPenalty,
+                rawErr = obbErr,
+                build = { densify(obbPoly + obbPoly.first()) },
             )
         }
-        if (ellipseErr < ellipseThreshold) return listOf(ellipse(bx, rx, ry))
-        if (n in 3..8 && polyErr < if (forceNearest) 0.17f else 0.115f) {
-            return listOf(
-                when (n) {
-                    3 -> densify(corners + corners.first())
-                    4 -> quad(corners, bx)
-                    else -> densify(corners + corners.first())
-                },
+
+        // Triangle score
+        if (triPoly != null && triCoverage == 3) {
+            val triBias = if (circularity < 0.72f) -0.004f else +0.025f
+            candidates += Candidate(
+                score = triErr + triBias,
+                rawErr = triErr,
+                build = { densify(snapTriangleBase(triPoly).let { it + it.first() }) },
             )
+        }
+
+        // Pentagon / Hexagon score (must beat circle AND square by a real margin)
+        if (sharpPolyCandidate != null) {
+            val (polyPts, pErr) = sharpPolyCandidate
+            if (pErr < ellipseErr * 0.72f && pErr < rectErr * 0.80f) {
+                candidates += Candidate(
+                    score = pErr + 0.008f,
+                    rawErr = pErr,
+                    build = { densify(polyPts + polyPts.first()) },
+                )
+            }
+        }
+
+        val best = candidates.minByOrNull { it.score } ?: return null
+        val maxErr = if (forceNearest) 0.135f else 0.088f
+        if (best.rawErr <= maxErr) {
+            return listOf(best.build())
         }
         return null
     }
 
     fun recognize(raw: List<Pt>, forceNearest: Boolean = false): List<Pt>? =
         recognizeMulti(raw, forceNearest)?.firstOrNull()
+
+    /** Trims small overshoot tail at the end of a hand-drawn closed loop so it doesn't skew bounds or corners. */
+    private fun trimLoopOvershoot(raw: List<Pt>, diag: Float): List<Pt> {
+        if (raw.size < 14) return raw
+        val start = raw.first()
+        val half = raw.size / 2
+        var bestIdx = raw.lastIndex
+        var bestDist = dist(start, raw.last())
+        for (i in half until raw.size) {
+            val d = dist(start, raw[i])
+            if (d < bestDist) {
+                bestDist = d
+                bestIdx = i
+            }
+        }
+        // Only trim if the closest pass to start is genuinely close and leaves most of the loop intact
+        return if (bestIdx >= (raw.size * 0.65f).toInt() && bestIdx < raw.lastIndex && bestDist < diag * 0.14f) {
+            raw.subList(0, bestIdx + 1)
+        } else raw
+    }
+
+    /** Resamples a polyline to [count] points spaced evenly by arc length. */
+    private fun resampleUniform(pts: List<Pt>, count: Int): List<Pt> {
+        if (pts.size <= 2 || count <= 2) return pts
+        val total = pathLength(pts)
+        if (total < 1e-3f) return pts
+        val step = total / (count - 1)
+        val out = ArrayList<Pt>(count)
+        out += pts.first()
+        var accum = 0f
+        var prev = pts.first()
+        var i = 1
+        while (i < pts.size && out.size < count - 1) {
+            val cur = pts[i]
+            val seg = dist(prev, cur)
+            if (accum + seg >= step && seg > 1e-4f) {
+                val t = ((step - accum) / seg).coerceIn(0f, 1f)
+                val nx = prev.first + (cur.first - prev.first) * t
+                val ny = prev.second + (cur.second - prev.second) * t
+                val np = nx to ny
+                out += np
+                prev = np
+                accum = 0f
+            } else {
+                accum += seg
+                prev = cur
+                i++
+            }
+        }
+        while (out.size < count) out += pts.last()
+        return out
+    }
+
+    private fun polygonAreaAbs(pts: List<Pt>): Float {
+        if (pts.size < 3) return 0f
+        var sum = 0f
+        for (i in pts.indices) {
+            val a = pts[i]
+            val b = pts[(i + 1) % pts.size]
+            sum += a.first * b.second - b.first * a.second
+        }
+        return abs(sum) * 0.5f
+    }
+
+    /** Mean Euclidean distance from each sample point to the nearest point on a dense closed curve, normalized by [diag]. */
+    private fun meanCurveDist(sample: List<Pt>, curve: List<Pt>, diag: Float): Float {
+        if (sample.isEmpty() || curve.isEmpty()) return Float.MAX_VALUE
+        var sum = 0f
+        for (p in sample) {
+            var best = Float.MAX_VALUE
+            for (q in curve) {
+                val d = hypot(p.first - q.first, p.second - q.second)
+                if (d < best) best = d
+            }
+            sum += best
+        }
+        return sum / sample.size / diag
+    }
+
+    /** Counts how many polygon corners have at least one sample point within [radius]. */
+    private fun cornerNeighborhoodCoverage(sample: List<Pt>, corners: List<Pt>, radius: Float): Int {
+        var count = 0
+        for (c in corners) {
+            if (sample.any { dist(it, c) <= radius }) count++
+        }
+        return count
+    }
+
+    private fun axisAlignedRectCorners(bx: Box, snapSquareRatio: Float): List<Pt> {
+        var l = bx.l
+        var t = bx.t
+        var r = bx.r
+        var b = bx.b
+        if (abs(bx.w - bx.h) / max(bx.w, bx.h).coerceAtLeast(1f) < snapSquareRatio) {
+            val s = (bx.w + bx.h) * 0.5f
+            l = bx.cx - s * 0.5f
+            r = bx.cx + s * 0.5f
+            t = bx.cy - s * 0.5f
+            b = bx.cy + s * 0.5f
+        }
+        return listOf(l to t, r to t, r to b, l to b)
+    }
+
+    /** PCA-aligned oriented bounding rectangle (snapped to square if aspect ratio is near 1:1). */
+    private fun orientedBoundingRect(pts: List<Pt>): List<Pt>? {
+        if (pts.size < 8) return null
+        var mx = 0.0; var my = 0.0
+        for ((x, y) in pts) { mx += x; my += y }
+        mx /= pts.size; my /= pts.size
+        var sxx = 0.0; var syy = 0.0; var sxy = 0.0
+        for ((x, y) in pts) {
+            val dx = x - mx; val dy = y - my
+            sxx += dx * dx; syy += dy * dy; sxy += dx * dy
+        }
+        val theta = 0.5 * atan2(2.0 * sxy, sxx - syy)
+        val degMod = ((Math.toDegrees(theta) % 90.0) + 90.0) % 90.0
+        // If already near axis-aligned (within 15°), let the axis-aligned rect candidate handle it cleanly
+        if (degMod < 15.0 || degMod > 75.0) return null
+        val ux = cos(theta).toFloat(); val uy = sin(theta).toFloat()
+        val vx = -uy; val vy = ux
+        var minU = Float.MAX_VALUE; var maxU = -Float.MAX_VALUE
+        var minV = Float.MAX_VALUE; var maxV = -Float.MAX_VALUE
+        for ((x, y) in pts) {
+            val dx = x - mx.toFloat(); val dy = y - my.toFloat()
+            val u = dx * ux + dy * uy
+            val v = dx * vx + dy * vy
+            if (u < minU) minU = u; if (u > maxU) maxU = u
+            if (v < minV) minV = v; if (v > maxV) maxV = v
+        }
+        var w = maxU - minU
+        var h = maxV - minV
+        if (w < 8f || h < 8f) return null
+        val cu = (minU + maxU) * 0.5f
+        val cv = (minV + maxV) * 0.5f
+        if (abs(w - h) / max(w, h) < 0.16f) {
+            val s = (w + h) * 0.5f
+            w = s; h = s
+        }
+        val hw = w * 0.5f; val hh = h * 0.5f
+        fun toPt(u: Float, v: Float): Pt = (mx.toFloat() + u * ux + v * vx) to (my.toFloat() + u * uy + v * vy)
+        return listOf(
+            toPt(cu - hw, cv - hh),
+            toPt(cu + hw, cv - hh),
+            toPt(cu + hw, cv + hh),
+            toPt(cu - hw, cv + hh),
+        )
+    }
+
+    /** Finds the best-fitting 3 vertices of a closed loop (maximum-area inscribed triangle). */
+    private fun fitBestTriangle(pts: List<Pt>): List<Pt>? {
+        if (pts.size < 6) return null
+        // Vertex A: point farthest from centroid
+        var cx = 0f; var cy = 0f
+        for ((x, y) in pts) { cx += x; cy += y }
+        cx /= pts.size; cy /= pts.size
+        var idxA = 0
+        var bestD = -1f
+        for (i in pts.indices) {
+            val d = hypot(pts[i].first - cx, pts[i].second - cy)
+            if (d > bestD) { bestD = d; idxA = i }
+        }
+        val a = pts[idxA]
+        // Vertex B: point farthest from A
+        var idxB = idxA
+        bestD = -1f
+        for (i in pts.indices) {
+            val d = dist(a, pts[i])
+            if (d > bestD) { bestD = d; idxB = i }
+        }
+        val b = pts[idxB]
+        // Vertex C: point maximizing triangle area (distance to line AB)
+        var idxC = idxA
+        var bestArea = -1f
+        for (i in pts.indices) {
+            val ar = abs(orient2d(a, b, pts[i]))
+            if (ar > bestArea) { bestArea = ar; idxC = i }
+        }
+        val c = pts[idxC]
+        // Refine A once maximizing area against BC so all 3 vertices sit right on the true triangle tips
+        var idxA2 = idxA
+        var bestArea2 = -1f
+        for (i in pts.indices) {
+            val ar = abs(orient2d(b, c, pts[i]))
+            if (ar > bestArea2) { bestArea2 = ar; idxA2 = i }
+        }
+        val a2 = pts[idxA2]
+        if (dist(a2, b) < 12f || dist(b, c) < 12f || dist(c, a2) < 12f) return null
+        return listOf(a2, b, c)
+    }
+
+    /** Gently levels a nearly horizontal triangle base (within 9°) so hand-drawn triangles sit neat and flat. */
+    private fun snapTriangleBase(tri: List<Pt>): List<Pt> {
+        if (tri.size != 3) return tri
+        val out = tri.toMutableList()
+        for (i in 0 until 3) {
+            val j = (i + 1) % 3
+            val p1 = out[i]
+            val p2 = out[j]
+            val dx = p2.first - p1.first
+            val dy = p2.second - p1.second
+            val ang = abs(Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())))
+            if (ang < 9.0 || ang > 171.0) {
+                val midY = (p1.second + p2.second) * 0.5f
+                out[i] = p1.first to midY
+                out[j] = p2.first to midY
+                break
+            }
+        }
+        return out
+    }
 
     /** Snaps nearly horizontal or vertical lines (within 6°) to dead-level / dead-plumb. */
     private fun snapAxisEnd(a: Pt, b: Pt): Pt {
@@ -448,35 +782,18 @@ object ShapeRecognizer {
         return ShapeBuilder.build(ShapeKind.ARROW, tail.first, tail.second, snappedTip.first, snappedTip.second)
     }
 
-    /** Four corners: rectangle (or square) when the sides follow the axes, diamond when they are 45°, otherwise as drawn. */
-    private fun quad(c: List<Pt>, bx: Box): List<Pt> {
-        val angles = c.indices.map { i ->
-            val a = c[i]; val b = c[(i + 1) % c.size]
-            val ang = Math.toDegrees(atan2((b.second - a.second).toDouble(), (b.first - a.first).toDouble()))
-            ((ang % 90) + 90) % 90
+    private fun ellipse(cx: Float, cy: Float, rx0: Float, ry0: Float, snapCircleRatio: Float = 0.22f): List<Pt> {
+        var rx = rx0
+        var ry = ry0
+        if (abs(rx - ry) / max(rx, ry).coerceAtLeast(1f) < snapCircleRatio) {
+            val r = (rx + ry) * 0.5f
+            rx = r
+            ry = r
         }
-        val axis = angles.all { it < 16 || it > 74 }
-        val diagonal = angles.all { it in 29.0..61.0 }
-        return when {
-            axis -> {
-                var l = bx.l; var t = bx.t; var r = bx.r; var b = bx.b
-                if (abs(bx.w - bx.h) / max(bx.w, bx.h) < 0.12f) {
-                    val s = (bx.w + bx.h) / 2f; l = bx.cx - s / 2; r = bx.cx + s / 2; t = bx.cy - s / 2; b = bx.cy + s / 2
-                }
-                densify(listOf(l to t, r to t, r to b, l to b, l to t))
-            }
-            diagonal -> densify(listOf(bx.cx to bx.t, bx.r to bx.cy, bx.cx to bx.b, bx.l to bx.cy, bx.cx to bx.t))
-            else -> densify(c + c.first())
-        }
-    }
-
-    private fun ellipse(bx: Box, rx0: Float, ry0: Float): List<Pt> {
-        var rx = rx0; var ry = ry0
-        if (abs(rx - ry) / max(rx, ry) < 0.16f) { val r = (rx + ry) / 2f; rx = r; ry = r }
         val n = 96
         return List(n + 1) { i ->
             val a = (i / n.toFloat()) * 2.0 * Math.PI
-            (bx.cx + rx * cos(a).toFloat()) to (bx.cy + ry * sin(a).toFloat())
+            (cx + rx * cos(a).toFloat()) to (cy + ry * sin(a).toFloat())
         }
     }
 }
@@ -764,6 +1081,8 @@ class Lasso(points: List<Pt>, private val touching: Boolean = false, private val
         region.setPath(path, Region(bx.l.toInt() - 2, bx.t.toInt() - 2, bx.r.toInt() + 2, bx.b.toInt() + 2))
     }
 
+    val bounds: RectF get() = RectF(polyBox.l, polyBox.t, polyBox.r, polyBox.b)
+
     fun contains(x: Float, y: Float) = region.contains(x.toInt(), y.toInt())
 
     private fun crossesBoundary(a: Pt, b: Pt): Boolean {
@@ -851,14 +1170,37 @@ enum class ShapeKind(val label: String) {
  */
 object ShapeBuilder {
     fun build(kind: ShapeKind, x0: Float, y0: Float, x1: Float, y1: Float): List<List<Pt>> {
-        val l = min(x0, x1); val r = max(x0, x1); val t = min(y0, y1); val b = max(y0, y1)
-        val cx = (l + r) / 2f; val cy = (t + b) / 2f; val rx = (r - l) / 2f; val ry = (b - t) / 2f
+        var ex1 = x1
+        var ey1 = y1
+        // Gentle 5° horizontal/vertical axis snap for lines and arrows
+        if (kind == ShapeKind.AUTO || kind == ShapeKind.LINE || kind == ShapeKind.ARROW || kind == ShapeKind.DOUBLE_ARROW) {
+            val dx = x1 - x0
+            val dy = y1 - y0
+            if (hypot(dx, dy) > 16f) {
+                val ang = abs(Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())))
+                when {
+                    ang < 5.0 || ang > 175.0 -> ey1 = y0
+                    abs(ang - 90.0) < 5.0 -> ex1 = x0
+                }
+            }
+        }
+        var l = min(x0, ex1); var r = max(x0, ex1); var t = min(y0, ey1); var b = max(y0, ey1)
+        var rx = (r - l) / 2f; var ry = (b - t) / 2f
+        val cx = (l + r) / 2f; val cy = (t + b) / 2f
+        // Gentle 8% aspect-ratio snap to exact Square / Circle for common geometric shapes
+        if (kind in setOf(ShapeKind.RECT, ShapeKind.ROUNDED, ShapeKind.ELLIPSE, ShapeKind.DIAMOND) && max(rx, ry) > 12f) {
+            if (abs(rx - ry) / max(rx, ry) < 0.08f) {
+                val s = (rx + ry) * 0.5f
+                rx = s; ry = s
+                l = cx - s; r = cx + s; t = cy - s; b = cy + s
+            }
+        }
         fun closed(vararg p: Pt) = densifyPublic(p.toList() + p.first())
         return when (kind) {
-            ShapeKind.AUTO, ShapeKind.LINE -> listOf(densifyPublic(listOf(x0 to y0, x1 to y1)))
-            ShapeKind.ARROW -> listOf(densifyPublic(listOf(x0 to y0, x1 to y1)), arrowHead(x0, y0, x1, y1))
+            ShapeKind.AUTO, ShapeKind.LINE -> listOf(densifyPublic(listOf(x0 to y0, ex1 to ey1)))
+            ShapeKind.ARROW -> listOf(densifyPublic(listOf(x0 to y0, ex1 to ey1)), arrowHead(x0, y0, ex1, ey1))
             ShapeKind.DOUBLE_ARROW -> listOf(
-                densifyPublic(listOf(x0 to y0, x1 to y1)), arrowHead(x0, y0, x1, y1), arrowHead(x1, y1, x0, y0),
+                densifyPublic(listOf(x0 to y0, ex1 to ey1)), arrowHead(x0, y0, ex1, ey1), arrowHead(ex1, ey1, x0, y0),
             )
             ShapeKind.RECT -> listOf(closed(l to t, r to t, r to b, l to b))
             ShapeKind.ROUNDED -> listOf(roundedRect(l, t, r, b, min(rx, ry) * 0.35f))

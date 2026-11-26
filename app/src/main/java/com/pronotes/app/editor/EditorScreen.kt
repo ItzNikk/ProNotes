@@ -89,6 +89,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AllInclusive
+import androidx.compose.material.icons.outlined.ContentCut
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Crop
 import androidx.compose.material.icons.outlined.FormatAlignCenter
@@ -143,6 +144,12 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -557,11 +564,46 @@ fun EditorScreen(
         vm.notebookSettings.update { it.copy(toolbarDock = ToolbarDock.TOP, toolbarStyle = ToolbarStyle.FIXED_BAR, toolbarPos = "0.50,0.03") }
     }
 
+    // Refresh Android whole-phone system clipboard whenever the app regains window focus
+    val editorLifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(editorLifecycleOwner, vm) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                vm.refreshSystemClipboardState()
+            }
+        }
+        editorLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { editorLifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(workspaceBg)
-            .imePadding(),
+            .imePadding()
+            .onPreviewKeyEvent { ev ->
+                if (ev.type == KeyEventType.KeyDown && ev.isCtrlPressed && vm.textEdit == null && vm.stickyEdit == null) {
+                    when (ev.key) {
+                        Key.V -> {
+                            vm.paste { pg, ids -> canvas?.selectItems(pg, ids) }
+                            true
+                        }
+                        Key.C -> {
+                            if (vm.selection.isNotEmpty()) {
+                                vm.copySelection()
+                                true
+                            } else false
+                        }
+                        Key.X -> {
+                            if (vm.selection.isNotEmpty()) {
+                                vm.cutSelection()
+                                true
+                            } else false
+                        }
+                        else -> false
+                    }
+                } else false
+            },
     ) {
         Column(Modifier.fillMaxSize()) {
             AnimatedVisibility(
@@ -637,7 +679,7 @@ fun EditorScreen(
                                         )
                                     }
                                 },
-                                onPaste = { vm.paste()?.let { (pg, ids) -> canvas?.selectItems(pg, ids) } },
+                                onPaste = { vm.paste { pg, ids -> canvas?.selectItems(pg, ids) } },
                                 onPageColor = { pageColor = true },
                                 onCards = { showCards = true },
                                 onVideo = { videoUrl = "" },
@@ -738,6 +780,7 @@ fun EditorScreen(
                             factory = { ctx ->
                                 NoteCanvasView(ctx, object : CanvasHost {
                                     override fun brush(tool: Tool) = vm.brushFor(tool)
+                                    override fun activePenType() = vm.penType
                                     override fun shapeKind() = vm.shapeKind
                                     override fun eraserRadius() = vm.eraserRadiusPx(density)
                                     override fun tapeColor() = vm.tapeColor
@@ -749,6 +792,12 @@ fun EditorScreen(
                                         vm.commitPageItemsEdit(changes)
                                     override fun onSelectionChanged(page: Int, ids: Set<Long>, screenBounds: android.graphics.RectF?) =
                                         vm.onSelection(page, ids, screenBounds)
+                                    override fun onPdfLassoRegion(
+                                        page: Int,
+                                        rect: android.graphics.RectF,
+                                        screenBounds: android.graphics.RectF,
+                                        outline: List<Pt>?,
+                                    ) = vm.onPdfLassoRegion(page, rect, screenBounds, outline)
                                     override fun onTextTap(page: Int, x: Float, y: Float, existing: TextItem?) {
                                         vm.openInlineTextBox(page, x, y, existing)
                                     }
@@ -761,6 +810,7 @@ fun EditorScreen(
                                     }
                                     override fun onStickyTap(page: Int, x: Float, y: Float, existing: StickyItem?) = vm.openSticky(page, x, y, existing)
                                     override fun onStickyToggleCollapse(page: Int, sticky: StickyItem) = vm.toggleStickyCollapse(page, sticky)
+                                    override fun onStickyTogglePin(page: Int, sticky: StickyItem) = vm.toggleStickyPin(page, sticky)
                                     override fun onStickyChecklistToggle(page: Int, sticky: StickyItem, lineIndex: Int) =
                                         vm.toggleStickyCheckLine(page, sticky, lineIndex)
                                     override fun onWebLinkTap(page: Int, x: Float, y: Float, existing: WebLinkItem?) =
@@ -1200,14 +1250,13 @@ fun EditorScreen(
                                         Modifier
                                             .padding(3.dp)
                                             .size(22.dp)
-                                            .clip(CircleShape)
+                                            .clip(RoundedCornerShape(5.dp))
                                             .background(Color(c))
                                             .clickable { vm.highlightTextSel(c.toInt()) },
                                     )
                                 }
                                 TextButton(onClick = { vm.lineTextSel(strike = false) }) { Text("Underline", color = Color.White) }
                                 TextButton(onClick = { vm.lineTextSel(strike = true) }) { Text("Strike", color = Color.White) }
-                                TextButton(onClick = { vm.cardFromTextSel() }) { Text("Flashcard", color = Color.White) }
                                 TextButton(onClick = {
                                     val q = vm.textSel?.text ?: ""
                                     vm.clearTextSel()
@@ -1224,6 +1273,93 @@ fun EditorScreen(
                                         ),
                                     )
                                 }) { Text("Share", color = Color.White) }
+                            }
+                        }
+                    }
+
+                    // PDF region lasso overlay (lasso directly on PDF content without handwriting)
+                    vm.pdfRegionSel?.let { sel ->
+                        val r = sel.screenBounds
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .pointerInput(sel) {
+                                    detectTapGestures { vm.clearPdfRegionSel() }
+                                },
+                        ) {
+                            Canvas(Modifier.fillMaxSize()) {
+                                val dash = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                    floatArrayOf(14f, 10f),
+                                    0f,
+                                )
+                                drawRect(
+                                    color = Color(0x14000000),
+                                    topLeft = androidx.compose.ui.geometry.Offset(r.left, r.top),
+                                    size = androidx.compose.ui.geometry.Size(r.width().coerceAtLeast(1f), r.height().coerceAtLeast(1f)),
+                                )
+                                drawRect(
+                                    color = Color.Black,
+                                    topLeft = androidx.compose.ui.geometry.Offset(r.left, r.top),
+                                    size = androidx.compose.ui.geometry.Size(r.width().coerceAtLeast(1f), r.height().coerceAtLeast(1f)),
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.2f * density, pathEffect = dash),
+                                )
+                            }
+                            AppSurface(
+                                role = SurfaceRole.Popover,
+                                containerColor = Color.Black,
+                                contentColor = Color.White,
+                                shape = RoundedCornerShape(14.dp),
+                                shadowElevation = 10.dp,
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                modifier = Modifier.offset {
+                                    val y = (r.top - 60f * density).let { if (it < 8f) r.bottom + 12f * density else it }
+                                    IntOffset(
+                                        r.left.roundToInt().coerceIn(8, (areaSize.width - 340f * density).roundToInt().coerceAtLeast(8)),
+                                        y.roundToInt().coerceIn(8, (areaSize.height - 64f * density).roundToInt().coerceAtLeast(8)),
+                                    )
+                                },
+                            ) {
+                                Row(
+                                    Modifier
+                                        .widthIn(max = 640.dp)
+                                        .horizontalScroll(rememberScrollState()),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    TextButton(onClick = {
+                                        vm.cutPdfRegion { p, id -> canvas?.selectItems(p, setOf(id)) }
+                                    }) {
+                                        Icon(Icons.Outlined.ContentCut, null, Modifier.size(16.dp), tint = Color(0xFF93C5FD))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Cut", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                    }
+                                    TextButton(onClick = { vm.copyPdfRegionImage() }) {
+                                        Text("Copy", color = Color.White)
+                                    }
+                                    if (sel.extractedText.isNotBlank()) {
+                                        TextButton(onClick = { vm.copyPdfRegionText() }) {
+                                            Text("Copy text", color = Color.White)
+                                        }
+                                    }
+                                    listOf(0xFFFFE066, 0xFF8CE99A, 0xFF74C0FC).forEach { c ->
+                                        Box(
+                                            Modifier
+                                                .padding(3.dp)
+                                                .size(20.dp)
+                                                .clip(RoundedCornerShape(5.dp))
+                                                .background(Color(c))
+                                                .clickable { vm.highlightPdfRegion(c.toInt()) },
+                                        )
+                                    }
+                                    TextButton(onClick = { vm.savePdfRegionAsSticker() }) {
+                                        Text("Sticker", color = Color.White)
+                                    }
+                                    IconButton(
+                                        onClick = { vm.clearPdfRegionSel() },
+                                        modifier = Modifier.size(32.dp),
+                                    ) {
+                                        Icon(Icons.Filled.Close, "Dismiss PDF lasso", tint = Color.White.copy(alpha = 0.78f), modifier = Modifier.size(16.dp))
+                                    }
+                                }
                             }
                         }
                     }
@@ -1367,7 +1503,7 @@ fun EditorScreen(
                     // Area-capture / Link-target banner
                     val banner = when {
                         vm.capturingCard && vm.backFor != null -> "Drag a box over the answer"
-                        vm.capturingCard -> "Drag a box over what goes on the card"
+                        vm.capturingCard -> "Drag a box to cut from page"
                         vm.linkFrom != null -> "Tap where this should link to"
                         else -> null
                     }
@@ -1423,7 +1559,7 @@ fun EditorScreen(
                             },
                             onPaste = {
                                 quickInsert = null
-                                vm.pasteAt(req.page, req.x, req.y)?.let { (pg, ids) -> canvas?.selectItems(pg, ids) }
+                                vm.pasteAt(req.page, req.x, req.y) { pg, ids -> canvas?.selectItems(pg, ids) }
                             },
                         )
                     }

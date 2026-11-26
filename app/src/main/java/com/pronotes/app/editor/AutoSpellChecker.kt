@@ -224,17 +224,33 @@ object AutoSpellChecker {
     private fun baseLang(languageTag: String): String =
         languageTag.lowercase().substringBefore('-').ifBlank { "en" }
 
+    private val mathSymbolChars = setOf('=', '+', '×', '÷', '±', '≠', '≤', '≥', '≈', '√', '^', '<', '>', 'π', 'Δ', 'Σ', 'θ', 'α', 'β')
+
     /**
      * Auto-corrects obvious typos in [text] for [languageTag] while preserving
-     * punctuation, newlines, capitalization, and non-Latin scripts untouched.
+     * punctuation, math expressions, numbers, newlines, capitalization, and non-Latin scripts untouched.
      */
     fun autoCorrect(text: String, languageTag: String = "en-US"): String {
         if (text.isBlank()) return text
         val lang = baseLang(languageTag)
         // Leave CJK, Devanagari, Arabic, Hebrew, Thai, and other scripts intact.
         if (lang != "en" && lang !in multilingualFixes) return text
+        // Do not alter short equations or expressions containing math operators
+        val looksLikeMath = text.any { it in mathSymbolChars }
         return unicodeWordRegex.replace(text) { match ->
-            correctWord(match.value, lang)
+            val start = match.range.first
+            val end = match.range.last
+            val prev = text.getOrNull(start - 1)
+            val next = text.getOrNull(end + 1)
+            val adjacentNumericOrMath = prev?.isDigit() == true || next?.isDigit() == true ||
+                prev in mathSymbolChars || next in mathSymbolChars ||
+                prev in setOf('$', '₹', '€', '£', '@', '#', '/', '\\', '_') ||
+                next in setOf('(', '/', '\\', '_')
+            if (adjacentNumericOrMath || (looksLikeMath && match.value.length <= 3)) {
+                match.value
+            } else {
+                correctWord(match.value, lang)
+            }
         }
     }
 

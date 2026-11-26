@@ -1278,10 +1278,15 @@ class PageRenderer(private val noteDir: File?) {
         if (!highlighterBehind) return Parts(emptyList(), emptyList(), items)
         partsCache[items]?.let { return it }
         if (partsCache.size > 16) partsCache.clear()
+        val expandedStickies = items.filterIsInstance<StickyItem>().filter { !it.collapsed }
         val fills = ArrayList<PageItem>(); val hl = ArrayList<PageItem>(); val rest = ArrayList<PageItem>()
         for (it in items) when {
             it is FillItem -> fills += it
-            it is InkItem && it.isHighlighter -> hl += it
+            it is InkItem && it.isHighlighter -> {
+                // Highlighters drawn on top of an expanded sticky note stay in `rest` so they appear above the sticky paper.
+                val onSticky = expandedStickies.any { s -> s.paperBounds.contains(it.bounds.centerX(), it.bounds.centerY()) }
+                if (onSticky) rest += it else hl += it
+            }
             else -> rest += it
         }
         return Parts(fills, hl, rest).also { partsCache[items] = it }
@@ -1355,13 +1360,16 @@ class PageRenderer(private val noteDir: File?) {
                 is InkItem -> {
                     canvas.save()
                     canvas.translate(item.dx, item.dy)
-                    if (item.isCrayon) {
-                        drawCrayonStroke(canvas, item)
-                    } else {
-                        scratch.set(worldToScreen)
-                        if (moved) scratch.preConcat(transform!!)
-                        scratch.preTranslate(item.dx, item.dy)
-                        strokeRendererOrNull?.draw(canvas, item.stroke, scratch)
+                    when {
+                        item.isCrayon -> drawCrayonStroke(canvas, item)
+                        item.isPencil -> drawPencilStroke(canvas, item)
+                        item.isBrushPen -> drawBrushStroke(canvas, item, worldToScreen, transform, moved)
+                        else -> {
+                            scratch.set(worldToScreen)
+                            if (moved) scratch.preConcat(transform!!)
+                            scratch.preTranslate(item.dx, item.dy)
+                            strokeRendererOrNull?.draw(canvas, item.stroke, scratch)
+                        }
                     }
                     canvas.restore()
                 }
@@ -1488,6 +1496,140 @@ class PageRenderer(private val noteDir: File?) {
         crayonPaint.shader = null
     }
 
+    private val pencilShaders = HashMap<Int, android.graphics.BitmapShader>()
+    private val pencilPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val pencilPath = Path()
+    private val brushWashPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val brushWashPath = Path()
+
+    /** Generates a fine dry graphite paper-tooth grain tile in [color] for authentic Pencil rendering. */
+    private fun pencilShaderFor(color: Int): android.graphics.BitmapShader {
+        pencilShaders[color]?.let { return it }
+        if (pencilShaders.size > 24) pencilShaders.clear()
+        val sz = 64
+        val bmp = Bitmap.createBitmap(sz, sz, Bitmap.Config.ARGB_8888)
+        val r = Color.red(color); val g = Color.green(color); val b = Color.blue(color)
+        val baseA = ((color ushr 24) and 0xFF).coerceIn(72, 215)
+        val rnd = java.util.Random(0x68A917L)
+        val pixels = IntArray(sz * sz)
+        for (y in 0 until sz) {
+            for (x in 0 until sz) {
+                val n1 = rnd.nextFloat()
+                val n2 = rnd.nextFloat()
+                // Fine mineral graphite stipple: crisp micro-pores & subtle diagonal paper weave
+                val weave = if (((x + y) and 3) == 0) 0.86f else 1.0f
+                val grain = when {
+                    n1 < 0.34f -> 0.08f
+                    n1 < 0.62f -> 0.42f + 0.25f * n2
+                    else -> 0.72f + 0.28f * n2
+                } * weave
+                val a = (baseA * grain).toInt().coerceIn(0, 225)
+                pixels[y * sz + x] = Color.argb(a, r, g, b)
+            }
+        }
+        bmp.setPixels(pixels, 0, sz, 0, 0, sz, sz)
+        return android.graphics.BitmapShader(bmp, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT)
+            .also { pencilShaders[color] = it }
+    }
+
+    /** Renders a Pencil InkItem with fine textured graphite grain and pressure-shaded tonal density. */
+    private fun drawPencilStroke(canvas: Canvas, item: InkItem) {
+        val inputs = item.stroke.inputs
+        val n = inputs.size
+        if (n == 0) return
+        val color = item.stroke.brush.colorIntArgb
+        val baseW = item.stroke.brush.size.coerceAtLeast(1.6f)
+        var avgP = 0f
+        var pCount = 0
+        for (i in 0 until n) {
+            val pr = inputs.get(i).pressure
+            if (pr in 0.01f..1.5f) { avgP += pr; pCount++ }
+        }
+        val meanPressure = if (pCount > 0) (avgP / pCount).coerceIn(0.18f, 1f) else 0.55f
+
+        pencilPath.reset()
+        val p0 = inputs.get(0)
+        pencilPath.moveTo(p0.x, p0.y)
+        if (n == 1) {
+            pencilPath.lineTo(p0.x + 0.5f, p0.y + 0.5f)
+        } else if (n == 2) {
+            val p1 = inputs.get(1)
+            pencilPath.lineTo(p1.x, p1.y)
+        } else {
+            var prevX = p0.x
+            var prevY = p0.y
+            for (i in 1 until n) {
+                val p = inputs.get(i)
+                val dx = p.x - prevX
+                val dy = p.y - prevY
+                if (i < n - 1 && dx * dx + dy * dy < 0.8f) continue
+                pencilPath.quadTo(prevX, prevY, (prevX + p.x) * 0.5f, (prevY + p.y) * 0.5f)
+                prevX = p.x
+                prevY = p.y
+            }
+            pencilPath.lineTo(prevX, prevY)
+        }
+
+        pencilPaint.shader = pencilShaderFor(color)
+        // Core graphite pass: width and darkness subtly respond to pressure
+        pencilPaint.strokeWidth = baseW * (0.86f + 0.28f * meanPressure)
+        pencilPaint.alpha = (135 + (meanPressure * 105f).toInt()).coerceIn(115, 240)
+        canvas.drawPath(pencilPath, pencilPaint)
+
+        // Subtle dry graphite dust edge pass for realistic pencil tooth
+        pencilPaint.strokeWidth = baseW * (1.18f + 0.20f * meanPressure)
+        pencilPaint.alpha = (62 + (meanPressure * 46f).toInt()).coerceIn(48, 118)
+        canvas.drawPath(pencilPath, pencilPaint)
+        pencilPaint.shader = null
+    }
+
+    /** Renders a Brush Pen InkItem with soft painterly wet-edge wash over the expressive Jetpack Ink stroke. */
+    private fun drawBrushStroke(
+        canvas: Canvas,
+        item: InkItem,
+        worldToScreen: Matrix,
+        transform: Matrix?,
+        moved: Boolean,
+    ) {
+        val inputs = item.stroke.inputs
+        val n = inputs.size
+        if (n >= 2) {
+            val color = item.stroke.brush.colorIntArgb
+            val baseA = ((color ushr 24) and 0xFF).coerceIn(40, 255)
+            brushWashPath.reset()
+            val p0 = inputs.get(0)
+            brushWashPath.moveTo(p0.x, p0.y)
+            var prevX = p0.x
+            var prevY = p0.y
+            for (i in 1 until n) {
+                val p = inputs.get(i)
+                val dx = p.x - prevX
+                val dy = p.y - prevY
+                if (i < n - 1 && dx * dx + dy * dy < 1.5f) continue
+                brushWashPath.quadTo(prevX, prevY, (prevX + p.x) * 0.5f, (prevY + p.y) * 0.5f)
+                prevX = p.x
+                prevY = p.y
+            }
+            brushWashPath.lineTo(prevX, prevY)
+            // Soft outer watercolor/sumi brush glaze
+            brushWashPaint.color = (color and 0x00FFFFFF) or ((baseA * 0.22f).toInt().coerceIn(14, 58) shl 24)
+            brushWashPaint.strokeWidth = (item.stroke.brush.size * 1.24f).coerceAtLeast(3f)
+            canvas.drawPath(brushWashPath, brushWashPaint)
+        }
+        scratch.set(worldToScreen)
+        if (moved) scratch.preConcat(transform!!)
+        scratch.preTranslate(item.dx, item.dy)
+        strokeRendererOrNull?.draw(canvas, item.stroke, scratch)
+    }
+
     private val stickyBubblePath = Path()
     private val stickyClipPath = Path()
     private val stickyCornerPath = Path()
@@ -1519,192 +1661,230 @@ class PageRenderer(private val noteDir: File?) {
         }
         val fgMuted = (fg and 0x00FFFFFF) or (0x99 shl 24)
 
-        // Compact messaging/chat-bubble icon when folded (~76x76 world units) — tap to expand, hold to move!
+        // Notein 1:1 folded sticky-note badge (~76x76 world units): crisp folded paper corner + mini ruled lines + pin dot.
         if (item.collapsed) {
             rotated(canvas, r, item.rot) {
-                stickyTmpRect.set(r.left + 5f, r.top + 5f, r.right - 5f, r.bottom - 11f)
-                val rad = 22f
+                val pad = 5f
+                val fold = 18f
+                stickyTmpRect.set(r.left + pad, r.top + pad, r.right - pad, r.bottom - pad)
                 stickyBubblePath.reset()
-                stickyBubblePath.addRoundRect(stickyTmpRect, rad, rad, Path.Direction.CW)
-                // Little chat-bubble pointer tail at bottom-left
-                stickyBubblePath.moveTo(stickyTmpRect.left + 12f, stickyTmpRect.bottom - 2f)
-                stickyBubblePath.lineTo(stickyTmpRect.left + 4f, r.bottom - 2f)
-                stickyBubblePath.lineTo(stickyTmpRect.left + 26f, stickyTmpRect.bottom - 1f)
+                stickyBubblePath.moveTo(stickyTmpRect.left + 12f, stickyTmpRect.top)
+                stickyBubblePath.lineTo(stickyTmpRect.right - 12f, stickyTmpRect.top)
+                stickyBubblePath.quadTo(stickyTmpRect.right, stickyTmpRect.top, stickyTmpRect.right, stickyTmpRect.top + 12f)
+                stickyBubblePath.lineTo(stickyTmpRect.right, stickyTmpRect.bottom - fold)
+                stickyBubblePath.lineTo(stickyTmpRect.right - fold, stickyTmpRect.bottom)
+                stickyBubblePath.lineTo(stickyTmpRect.left + 12f, stickyTmpRect.bottom)
+                stickyBubblePath.quadTo(stickyTmpRect.left, stickyTmpRect.bottom, stickyTmpRect.left, stickyTmpRect.bottom - 12f)
+                stickyBubblePath.lineTo(stickyTmpRect.left, stickyTmpRect.top + 12f)
+                stickyBubblePath.quadTo(stickyTmpRect.left, stickyTmpRect.top, stickyTmpRect.left + 12f, stickyTmpRect.top)
                 stickyBubblePath.close()
 
                 stickyPaint.color = when (style) {
                     "outline" -> if (isDark) 0xEE181C24.toInt() else 0xF8FFFFFF.toInt()
-                    "tinted", "glass" -> (item.color and 0x00FFFFFF) or (0x99 shl 24)
+                    "tinted", "glass" -> (item.color and 0x00FFFFFF) or (0xAA shl 24)
                     else -> item.color
                 }
                 canvas.drawPath(stickyBubblePath, stickyPaint)
-                stickyStroke.color = if (style == "outline") item.color else ((fg and 0x00FFFFFF) or (0x33 shl 24))
-                stickyStroke.strokeWidth = if (style == "outline") 3.2f else 2f
+
+                // Subtle top accent tape strip on folded badge
+                canvas.save()
+                canvas.clipPath(stickyBubblePath)
+                fillPaint.color = if (style == "outline") ((item.color and 0x00FFFFFF) or (0x3A shl 24)) else 0x1A000000
+                canvas.drawRect(stickyTmpRect.left, stickyTmpRect.top, stickyTmpRect.right, stickyTmpRect.top + 14f, fillPaint)
+                canvas.restore()
+
+                // Folded paper corner triangle
+                stickyCornerPath.reset()
+                stickyCornerPath.moveTo(stickyTmpRect.right - fold, stickyTmpRect.bottom)
+                stickyCornerPath.lineTo(stickyTmpRect.right, stickyTmpRect.bottom - fold)
+                stickyCornerPath.lineTo(stickyTmpRect.right - fold, stickyTmpRect.bottom - fold)
+                stickyCornerPath.close()
+                fillPaint.color = 0x2B000000
+                canvas.drawPath(stickyCornerPath, fillPaint)
+
+                stickyStroke.color = if (style == "outline") item.color else ((fg and 0x00FFFFFF) or (0x2E shl 24))
+                stickyStroke.strokeWidth = if (style == "outline") 3.0f else 1.8f
                 canvas.drawPath(stickyBubblePath, stickyStroke)
 
-                // Clean messaging glyph lines inside the compact bubble
-                stickyStroke.color = fg
-                stickyStroke.strokeWidth = 3.2f
+                // Clean mini paper note lines inside badge
+                stickyStroke.color = (fg and 0x00FFFFFF) or (0xBB shl 24)
+                stickyStroke.strokeWidth = 2.8f
                 stickyStroke.strokeCap = Paint.Cap.ROUND
-                val lx = stickyTmpRect.left + 16f
-                val rx = stickyTmpRect.right - 16f
-                val ly1 = stickyTmpRect.centerY() - 8f
-                val ly2 = stickyTmpRect.centerY() + 1f
-                val ly3 = stickyTmpRect.centerY() + 10f
-                canvas.drawLine(lx, ly1, rx, ly1, stickyStroke)
-                canvas.drawLine(lx, ly2, rx - 5f, ly2, stickyStroke)
-                canvas.drawLine(lx, ly3, lx + (rx - lx) * 0.58f, ly3, stickyStroke)
+                val lx = stickyTmpRect.left + 13f
+                val rx = stickyTmpRect.right - 13f
+                canvas.drawLine(lx, stickyTmpRect.top + 26f, rx, stickyTmpRect.top + 26f, stickyStroke)
+                canvas.drawLine(lx, stickyTmpRect.top + 37f, rx - 6f, stickyTmpRect.top + 37f, stickyStroke)
+                canvas.drawLine(lx, stickyTmpRect.top + 48f, lx + (rx - lx) * 0.48f, stickyTmpRect.top + 48f, stickyStroke)
 
-                // Tiny notification/pin dot on top-right if sticky contains text, title, or is pinned
-                if (item.pinned || item.text.isNotBlank() || item.title.isNotBlank()) {
-                    fillPaint.color = if (item.pinned) 0xFFD95926.toInt() else 0xFF3D6CF4.toInt()
-                    canvas.drawCircle(r.right - 10f, r.top + 10f, 8f, fillPaint)
+                // Pin / content indicator dot on top-right
+                val hasInkInside = allItems.any { it is InkItem && item.paperBounds.contains(it.bounds.centerX(), it.bounds.centerY()) }
+                if (item.pinned || item.text.isNotBlank() || item.title.isNotBlank() || hasInkInside) {
+                    fillPaint.color = if (item.pinned) 0xFFE65100.toInt() else 0xFF2563EB.toInt()
+                    canvas.drawCircle(r.right - 9f, r.top + 9f, 7.5f, fillPaint)
                     stickyStroke.color = Color.WHITE
                     stickyStroke.strokeWidth = 2f
-                    canvas.drawCircle(r.right - 10f, r.top + 10f, 8f, stickyStroke)
+                    canvas.drawCircle(r.right - 9f, r.top + 9f, 7.5f, stickyStroke)
                 }
             }
             return
         }
 
         rotated(canvas, r, item.rot) {
+            val radius = 14f
             canvas.save()
             stickyClipPath.reset()
-            stickyClipPath.addRoundRect(r, 18f, 18f, Path.Direction.CW)
+            stickyClipPath.addRoundRect(r, radius, radius, Path.Direction.CW)
             canvas.clipPath(stickyClipPath)
 
             when (style) {
                 "glass", "tinted" -> {
-                    val fillAlpha = if (style == "tinted") 0x66 else 0x4D
+                    val fillAlpha = if (style == "tinted") 0x6A else 0x4E
                     stickyPaint.color = (item.color and 0x00FFFFFF) or (fillAlpha shl 24)
-                    canvas.drawRoundRect(r, 18f, 18f, stickyPaint)
-                    stickyStroke.color = (item.color and 0x00FFFFFF) or (0xB8 shl 24)
-                    stickyStroke.strokeWidth = 2.6f
-                    canvas.drawRoundRect(r, 18f, 18f, stickyStroke)
+                    canvas.drawRoundRect(r, radius, radius, stickyPaint)
+                    stickyStroke.color = (item.color and 0x00FFFFFF) or (0xC0 shl 24)
+                    stickyStroke.strokeWidth = 2.4f
+                    canvas.drawRoundRect(r, radius, radius, stickyStroke)
                 }
                 "outline" -> {
-                    stickyPaint.color = if (isDark) 0xEE181C24.toInt() else 0xF5FFFFFF.toInt()
-                    canvas.drawRoundRect(r, 18f, 18f, stickyPaint)
+                    stickyPaint.color = if (isDark) 0xEE181C24.toInt() else 0xF7FFFFFF.toInt()
+                    canvas.drawRoundRect(r, radius, radius, stickyPaint)
                     stickyStroke.color = item.color
-                    stickyStroke.strokeWidth = 3.5f
+                    stickyStroke.strokeWidth = 3.2f
                     stickyTmpRect.set(r)
                     stickyTmpRect.inset(1.5f, 1.5f)
-                    canvas.drawRoundRect(stickyTmpRect, 17f, 17f, stickyStroke)
+                    canvas.drawRoundRect(stickyTmpRect, radius - 1f, radius - 1f, stickyStroke)
                 }
                 else -> {
                     stickyPaint.color = item.color
-                    canvas.drawRoundRect(r, 18f, 18f, stickyPaint)
+                    canvas.drawRoundRect(r, radius, radius, stickyPaint)
+                    // Subtle Notein paper edge definition
+                    stickyStroke.color = 0x1A000000
+                    stickyStroke.strokeWidth = 1.6f
+                    canvas.drawRoundRect(r, radius, radius, stickyStroke)
                 }
             }
 
-            // Top header bar (drag left area to move unpinned note; tap ✎ to edit; tap ▾ to collapse)
-            val barH = minOf(r.height(), if (item.title.isNotBlank()) 38f else 34f)
-            fillPaint.color = if (style == "outline") ((item.color and 0x00FFFFFF) or (0x28 shl 24)) else 0x16000000
+            // Notein top accent header strip (drag to move, tap Pin / Edit / Fold controls on right)
+            val barH = minOf(r.height(), 38f)
+            fillPaint.color = if (style == "outline") ((item.color and 0x00FFFFFF) or (0x28 shl 24)) else 0x14000000
             canvas.drawRect(r.left, r.top, r.right, r.top + barH, fillPaint)
+            // Hairline divider under header
+            stickyStroke.color = (fg and 0x00FFFFFF) or (0x18 shl 24)
+            stickyStroke.strokeWidth = 1.2f
+            canvas.drawLine(r.left, r.top + barH, r.right, r.top + barH, stickyStroke)
 
-            // 1. Top-right Collapse toggle pill (▾)
-            val toggleW = 30f
-            stickyBtnRect.set(r.right - toggleW - 8f, r.top + 5f, r.right - 8f, r.top + barH - 5f)
-            fillPaint.color = 0x22000000
-            canvas.drawRoundRect(stickyBtnRect, 8f, 8f, fillPaint)
+            val btnW = 30f
+            val btnGap = 6f
+            // 1. Fold / Minimize button (far right: right-38..right-8)
+            stickyBtnRect.set(r.right - btnW - 8f, r.top + 5f, r.right - 8f, r.top + barH - 5f)
+            fillPaint.color = 0x1F000000
+            canvas.drawRoundRect(stickyBtnRect, 7f, 7f, fillPaint)
             stickyText.typeface = android.graphics.Typeface.SANS_SERIF
-            stickyText.textSize = 15f
+            stickyText.textSize = 16f
             stickyText.isFakeBoldText = true
             stickyText.color = fg
-            val toggleGlyph = "▾"
-            val gw = stickyText.measureText(toggleGlyph)
-            canvas.drawText(toggleGlyph, stickyBtnRect.centerX() - gw / 2f, stickyBtnRect.centerY() + 5f, stickyText)
+            val foldGlyph = "−"
+            canvas.drawText(foldGlyph, stickyBtnRect.centerX() - stickyText.measureText(foldGlyph) / 2f, stickyBtnRect.centerY() + 5.5f, stickyText)
 
-            // 2. Adjacent Quick-Edit pill (✎) to open Sticky Studio from any writing tool
-            val editW = 30f
-            stickyBtnRect.set(r.right - toggleW - editW - 14f, r.top + 5f, r.right - toggleW - 14f, r.top + barH - 5f)
-            fillPaint.color = 0x1A000000
-            canvas.drawRoundRect(stickyBtnRect, 8f, 8f, fillPaint)
+            // 2. Edit / Type button (middle-right: right-74..right-44)
+            val editRight = r.right - btnW - 8f - btnGap
+            stickyBtnRect.set(editRight - btnW, r.top + 5f, editRight, r.top + barH - 5f)
+            fillPaint.color = 0x16000000
+            canvas.drawRoundRect(stickyBtnRect, 7f, 7f, fillPaint)
             stickyText.textSize = 13.5f
             val editGlyph = "✎"
-            val ew = stickyText.measureText(editGlyph)
-            canvas.drawText(editGlyph, stickyBtnRect.centerX() - ew / 2f, stickyBtnRect.centerY() + 4.5f, stickyText)
-            stickyText.isFakeBoldText = false
+            canvas.drawText(editGlyph, stickyBtnRect.centerX() - stickyText.measureText(editGlyph) / 2f, stickyBtnRect.centerY() + 4.5f, stickyText)
 
-            var rightReserved = toggleW + editW + 22f
-            if (item.pinned) {
-                val badge = "PIN"
-                stickyText.textSize = 11.5f
-                stickyText.isFakeBoldText = true
-                val bw = stickyText.measureText(badge) + 12f
-                fillPaint.color = 0x44D95926
-                stickyBtnRect.set(r.right - rightReserved - bw, r.top + 6f, r.right - rightReserved, r.top + barH - 6f)
-                canvas.drawRoundRect(stickyBtnRect, 8f, 8f, fillPaint)
-                stickyText.color = fg
-                canvas.drawText(badge, r.right - rightReserved - bw + 6f, r.top + barH / 2f + 4f, stickyText)
-                stickyText.isFakeBoldText = false
-                rightReserved += bw + 8f
+            // 3. Pin / Lock toggle button (left of edit: right-110..right-80)
+            var rightReserved = btnW * 2f + btnGap + 18f
+            if (r.width() >= 190f) {
+                val pinRight = editRight - btnW - btnGap
+                stickyBtnRect.set(pinRight - btnW, r.top + 5f, pinRight, r.top + barH - 5f)
+                fillPaint.color = if (item.pinned) 0x4AD95926 else 0x14000000
+                canvas.drawRoundRect(stickyBtnRect, 7f, 7f, fillPaint)
+                stickyText.textSize = 12.5f
+                val pinGlyph = if (item.pinned) "●" else "○"
+                stickyText.color = if (item.pinned) 0xFFC2410C.toInt() else fgMuted
+                canvas.drawText(pinGlyph, stickyBtnRect.centerX() - stickyText.measureText(pinGlyph) / 2f, stickyBtnRect.centerY() + 4.5f, stickyText)
+                rightReserved += btnW + btnGap
             }
+            stickyText.isFakeBoldText = false
 
             val headerTitle = item.title.trim()
             if (headerTitle.isNotBlank()) {
                 stickyTitleText.color = fg
-                stickyTitleText.textSize = (barH * 0.44f).coerceIn(13f, 19f)
+                stickyTitleText.textSize = (barH * 0.43f).coerceIn(13f, 18f)
                 val maxTitleW = r.width() - rightReserved - 18f
-                val tTitle = android.text.TextUtils.ellipsize(headerTitle, stickyTitleText, maxTitleW.coerceAtLeast(30f), android.text.TextUtils.TruncateAt.END).toString()
+                val tTitle = android.text.TextUtils.ellipsize(headerTitle, stickyTitleText, maxTitleW.coerceAtLeast(24f), android.text.TextUtils.TruncateAt.END).toString()
                 canvas.drawText(tTitle, r.left + 14f, r.top + barH / 2f + stickyTitleText.textSize * 0.35f, stickyTitleText)
-            } else if (!item.pinned && r.width() > 140f) {
-                // Subtle grab handle dots in header center-left so users immediately know it can be dragged
-                fillPaint.color = (fg and 0x00FFFFFF) or (0x44 shl 24)
-                val gripY = r.top + barH * 0.5f
-                for (dot in 0..2) {
-                    canvas.drawCircle(r.left + 18f + dot * 8f, gripY, 2.2f, fillPaint)
-                }
+            } else if (r.width() > 135f) {
+                // Subtle Notein header drag handle bar
+                fillPaint.color = (fg and 0x00FFFFFF) or (if (item.pinned) 0x24 else 0x42 shl 24)
+                val gripW = minOf(38f, (r.width() - rightReserved - 28f).coerceAtLeast(16f))
+                stickyBtnRect.set(r.left + 14f, r.top + barH * 0.5f - 2.2f, r.left + 14f + gripW, r.top + barH * 0.5f + 2.2f)
+                canvas.drawRoundRect(stickyBtnRect, 2.2f, 2.2f, fillPaint)
             }
 
-            // Lined paper accent lines when expanded
-            if (style == "lined") {
-                stickyStroke.color = (fg and 0x00FFFFFF) or (0x22 shl 24)
-                stickyStroke.strokeWidth = 1.4f
-                val step = (item.fontSize * 1.45f).coerceIn(22f, 44f)
-                var ly = r.top + barH + step
-                while (ly < r.bottom - 14f) {
-                    canvas.drawLine(r.left + 14f, ly, r.right - 14f, ly, stickyStroke)
-                    ly += step
+            // Notein paper templates inside expanded sticky note
+            when (style) {
+                "lined" -> {
+                    stickyStroke.color = (fg and 0x00FFFFFF) or (0x22 shl 24)
+                    stickyStroke.strokeWidth = 1.4f
+                    val step = (item.fontSize * 1.45f).coerceIn(24f, 44f)
+                    var ly = r.top + barH + step
+                    while (ly < r.bottom - 14f) {
+                        canvas.drawLine(r.left + 14f, ly, r.right - 14f, ly, stickyStroke)
+                        ly += step
+                    }
                 }
-            } else if (style == "grid") {
-                stickyStroke.color = (fg and 0x00FFFFFF) or (0x1A shl 24)
-                stickyStroke.strokeWidth = 1.0f
-                val step = (item.fontSize * 1.25f).coerceIn(20f, 38f)
-                var gx = r.left + 14f
-                while (gx < r.right - 14f) {
-                    canvas.drawLine(gx, r.top + barH, gx, r.bottom - 14f, stickyStroke)
-                    gx += step
-                }
-                var gy = r.top + barH + step
-                while (gy < r.bottom - 14f) {
-                    canvas.drawLine(r.left + 14f, gy, r.right - 14f, gy, stickyStroke)
-                    gy += step
-                }
-            } else if (style == "dotted") {
-                fillPaint.color = (fg and 0x00FFFFFF) or (0x2C shl 24)
-                val step = (item.fontSize * 1.25f).coerceIn(20f, 38f)
-                var gx = r.left + 14f
-                while (gx < r.right - 14f) {
+                "grid" -> {
+                    stickyStroke.color = (fg and 0x00FFFFFF) or (0x1B shl 24)
+                    stickyStroke.strokeWidth = 1.05f
+                    val step = (item.fontSize * 1.25f).coerceIn(22f, 38f)
+                    var gx = r.left + 14f
+                    while (gx < r.right - 14f) {
+                        canvas.drawLine(gx, r.top + barH, gx, r.bottom - 14f, stickyStroke)
+                        gx += step
+                    }
                     var gy = r.top + barH + step
                     while (gy < r.bottom - 14f) {
-                        canvas.drawCircle(gx, gy, 1.8f, fillPaint)
+                        canvas.drawLine(r.left + 14f, gy, r.right - 14f, gy, stickyStroke)
                         gy += step
                     }
-                    gx += step
+                }
+                "dotted" -> {
+                    fillPaint.color = (fg and 0x00FFFFFF) or (0x30 shl 24)
+                    val step = (item.fontSize * 1.25f).coerceIn(22f, 38f)
+                    var gx = r.left + 16f
+                    while (gx < r.right - 14f) {
+                        var gy = r.top + barH + step
+                        while (gy < r.bottom - 14f) {
+                            canvas.drawCircle(gx, gy, 1.8f, fillPaint)
+                            gy += step
+                        }
+                        gx += step
+                    }
                 }
             }
 
-            // Dog-ear corner curl on bottom-right when expanded
-            if (r.width() > 60f && r.height() > 60f) {
-                val ear = 22f
+            // Notein bottom-right corner peel & direct resize grip
+            if (r.width() > 72f && r.height() > 72f) {
+                val ear = 26f
                 stickyCornerPath.reset()
                 stickyCornerPath.moveTo(r.right - ear, r.bottom)
                 stickyCornerPath.lineTo(r.right, r.bottom - ear)
                 stickyCornerPath.lineTo(r.right - ear, r.bottom - ear)
                 stickyCornerPath.close()
-                fillPaint.color = 0x26000000
+                fillPaint.color = 0x20000000
                 canvas.drawPath(stickyCornerPath, fillPaint)
+
+                if (!item.pinned) {
+                    stickyStroke.color = (fg and 0x00FFFFFF) or (0x55 shl 24)
+                    stickyStroke.strokeWidth = 2.0f
+                    stickyStroke.strokeCap = Paint.Cap.ROUND
+                    canvas.drawLine(r.right - 15f, r.bottom - 5f, r.right - 5f, r.bottom - 15f, stickyStroke)
+                    canvas.drawLine(r.right - 10f, r.bottom - 5f, r.right - 5f, r.bottom - 10f, stickyStroke)
+                }
             }
 
             if (item.text.isNotEmpty()) {

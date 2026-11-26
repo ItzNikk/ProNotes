@@ -51,7 +51,7 @@ fun EditorViewModel.onAreaPicked(page: Int, rect: RectF) {
         }
         return
     }
-    startCardFromArea(page, rect)
+    cutAreaFromPage(page, rect)
 }
 
 fun EditorViewModel.startCardFromArea(page: Int, rect: RectF) {

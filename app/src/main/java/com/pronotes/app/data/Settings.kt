@@ -755,12 +755,12 @@ class SettingsStore private constructor(context: Context, file: String = "settin
     fun pref(key: String, def: String = ""): String = prefs.getString("p_$key", def) ?: def
     fun setPref(key: String, value: String) { prefs.edit().putString("p_$key", value).apply() }
 
-    /** Per-tool colour swatches survive restarts. Up to 8 per tool. */
+    /** Per-tool colour swatches survive restarts. Up to 16 per tool. */
     fun swatches(tool: String, default: List<Int>): List<Int> =
-        prefs.getString("swatch_$tool", null)?.split(',')?.mapNotNull { it.toIntOrNull() }?.distinct()?.take(8)?.takeIf { it.isNotEmpty() } ?: default.distinct().take(8)
+        prefs.getString("swatch_$tool", null)?.split(',')?.mapNotNull { it.toIntOrNull() }?.distinct()?.take(16)?.takeIf { it.isNotEmpty() } ?: default.distinct().take(16)
 
     fun saveSwatches(tool: String, colors: List<Int>) {
-        val encoded = colors.distinct().take(8).joinToString(",")
+        val encoded = colors.distinct().take(16).joinToString(",")
         if (prefs.getString("swatch_$tool", null) != encoded) prefs.edit().putString("swatch_$tool", encoded).apply()
     }
 
@@ -768,7 +768,7 @@ class SettingsStore private constructor(context: Context, file: String = "settin
         prefs.getString("recentColors", "")!!.split(',').mapNotNull { it.toIntOrNull() }
 
     fun pushRecentColor(c: Int) {
-        val list = (listOf(c) + recentColors().filter { it != c }).take(12)
+        val list = (listOf(c) + recentColors().filter { it != c }).take(16)
         prefs.edit().putString("recentColors", list.joinToString(",")).apply()
     }
 

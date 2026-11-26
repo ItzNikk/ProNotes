@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AllInclusive
+import androidx.compose.material.icons.outlined.ContentCut
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Crop
 import androidx.compose.material.icons.outlined.Groups
@@ -448,8 +449,8 @@ internal fun TopBar(
             )
             add(
                 AppMenuItem(
-                    "Flashcard from area",
-                    icon = { Icon(Icons.Outlined.Crop, null, Modifier.size(18.dp)) },
+                    "Cut area from page",
+                    icon = { Icon(Icons.Outlined.ContentCut, null, Modifier.size(18.dp)) },
                 ) { vm.capturingCard = true },
             )
             add(
@@ -512,7 +513,7 @@ internal fun TopBar(
                     },
                 ) { vm.toggleBookmark() },
             )
-            if (vm.hasClipboard) {
+            if (vm.hasAnyClipboardContent()) {
                 add(
                     AppMenuItem(
                         "Paste",
@@ -585,6 +586,17 @@ internal fun SearchBar(vm: EditorViewModel, onClose: () -> Unit) {
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val barFg = Color(0xFFF1F5F9)
     val barMuted = Color(0xFFB4BCD0)
+    var sourceFilter by remember { mutableStateOf("All") }
+    val filteredHits = remember(vm.searchHits.toList(), sourceFilter) {
+        vm.searchHits.mapIndexed { idx, hit -> idx to hit }.filter { (_, hit) ->
+            when (sourceFilter) {
+                "Handwriting" -> hit.source == "Handwriting"
+                "PDF" -> hit.source == "PDF"
+                "Text" -> hit.source != "Handwriting" && hit.source != "PDF"
+                else -> true
+            }
+        }
+    }
     AppSurface(
         role = SurfaceRole.Chrome,
         containerColor = Color.Black,
@@ -604,7 +616,7 @@ internal fun SearchBar(vm: EditorViewModel, onClose: () -> Unit) {
                         onValueChange = vm::search,
                         singleLine = true,
                         placeholder = {
-                            com.pronotes.app.ui.AnimatedGradientSearchPlaceholder("What are you looking for?")
+                            com.pronotes.app.ui.AnimatedGradientSearchPlaceholder("Search text, PDF & handwriting…")
                         },
                         leadingIcon = { ProIconView(ProIcon.SEARCH, barMuted, Modifier.size(20.dp)) },
                         colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
@@ -616,14 +628,14 @@ internal fun SearchBar(vm: EditorViewModel, onClose: () -> Unit) {
                             focusedContainerColor = Color(0xFF14161C),
                             unfocusedContainerColor = Color(0xFF14161C),
                         ),
-                        shape = CircleShape,
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f),
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
                         when {
                             vm.searching -> "Scanning ink & text…"
-                            vm.searchQuery.isBlank() -> "Text · PDF · Handwriting"
+                            vm.searchQuery.isBlank() -> "Text · PDF · Ink"
                             vm.searchHits.isEmpty() -> "No results"
                             else -> "${vm.activeHit + 1} of ${vm.searchHits.size}"
                         },
@@ -641,29 +653,91 @@ internal fun SearchBar(vm: EditorViewModel, onClose: () -> Unit) {
                     }
                 }
                 if (vm.searchHits.isNotEmpty()) {
-                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 160.dp)) {
-                        itemsIndexed(vm.searchHits, key = { idx, hit -> "${hit.page}:$idx:${hit.snippet.hashCode()}" }) { i, hit ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        val counts = remember(vm.searchHits.toList()) {
+                            mapOf(
+                                "All" to vm.searchHits.size,
+                                "Handwriting" to vm.searchHits.count { it.source == "Handwriting" },
+                                "Text" to vm.searchHits.count { it.source != "Handwriting" && it.source != "PDF" },
+                                "PDF" to vm.searchHits.count { it.source == "PDF" },
+                            )
+                        }
+                        listOf("All", "Handwriting", "Text", "PDF").forEach { tab ->
+                            val cnt = counts[tab] ?: 0
+                            if (tab == "All" || cnt > 0) {
+                                val selected = sourceFilter == tab
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(7.dp))
+                                        .background(if (selected) ProButtonPalette.ElectricBlue else Color.White.copy(alpha = 0.10f))
+                                        .clickable { sourceFilter = tab }
+                                        .padding(horizontal = 9.dp, vertical = 4.dp),
+                                ) {
+                                    Text(
+                                        "$tab ($cnt)",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (selected) Color.White else barMuted,
+                                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 176.dp)) {
+                        itemsIndexed(filteredHits, key = { idx, (origIdx, hit) -> "${hit.page}:$origIdx:$idx:${hit.snippet.hashCode()}" }) { _, (origIdx, hit) ->
+                            val isActive = origIdx == vm.activeHit
+                            val badgeColor = when (hit.source) {
+                                "Handwriting" -> Color(0xFFF59E0B)
+                                "PDF" -> Color(0xFF38BDF8)
+                                "Sticky" -> Color(0xFFA78BFA)
+                                "Mind Map" -> Color(0xFF34D399)
+                                else -> Color(0xFF94A3B8)
+                            }
                             AppPill(
-                                selected = i == vm.activeHit,
+                                selected = isActive,
                                 tint = ProButtonPalette.ElectricBlue,
-                                onClick = { vm.jumpToHit(i) },
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                onClick = { vm.jumpToHit(origIdx) },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                    val fg = if (i == vm.activeHit) Color.White else barFg
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    val fg = if (isActive) Color.White else barFg
                                     Text(
                                         "p.${hit.page + 1}",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = if (i == vm.activeHit) fg else Color(0xFF93C5FD),
-                                        modifier = Modifier.width(44.dp),
+                                        color = if (isActive) fg else Color(0xFF93C5FD),
+                                        modifier = Modifier.width(38.dp),
                                     )
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(5.dp))
+                                            .background(if (isActive) Color.White.copy(alpha = 0.22f) else badgeColor.copy(alpha = 0.18f))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                                    ) {
+                                        Text(
+                                            hit.source,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (isActive) Color.White else badgeColor,
+                                            fontWeight = FontWeight.Medium,
+                                        )
+                                    }
                                     Text(
                                         hit.snippet,
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = fg,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f),
                                     )
                                 }
                             }

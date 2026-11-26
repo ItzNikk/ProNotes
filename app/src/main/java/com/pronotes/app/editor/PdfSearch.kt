@@ -8,7 +8,13 @@ import com.tom_roush.pdfbox.text.PDFTextStripper
 import com.tom_roush.pdfbox.text.TextPosition
 import java.io.File
 
-data class SearchHit(val page: Int, val rects: List<RectF>, val snippet: String)
+data class SearchHit(
+    val page: Int,
+    val rects: List<RectF>,
+    val snippet: String,
+    val source: String = "Text",
+    val score: Int = 100,
+)
 
 /**
  * Text index of an imported PDF, built with PdfBox-Android.
@@ -18,20 +24,56 @@ class PdfTextIndex private constructor(private val pages: Map<Int, PageText>) {
 
     private class PageText(val text: String, val boxes: List<RectF?>)
 
+    private fun foldSearchString(raw: String): Pair<String, IntArray> {
+        val sb = StringBuilder(raw.length)
+        val map = IntArray(raw.length + 1)
+        var lastWasSpace = false
+        for (i in raw.indices) {
+            val ch = raw[i]
+            if (ch.isWhitespace()) {
+                if (!lastWasSpace && sb.isNotEmpty()) {
+                    map[sb.length] = i
+                    sb.append(' ')
+                    lastWasSpace = true
+                }
+                continue
+            }
+            lastWasSpace = false
+            val norm = java.text.Normalizer.normalize(ch.toString(), java.text.Normalizer.Form.NFD)
+            for (c in norm) {
+                if (Character.getType(c) != Character.NON_SPACING_MARK.toInt()) {
+                    if (sb.length < map.size) map[sb.length] = i
+                    sb.append(c.lowercaseChar())
+                }
+            }
+        }
+        return sb.toString() to map
+    }
+
     /** [pdfPageToNotePage] maps PDF page numbers to notebook page indices. */
     fun search(query: String, pdfPageToNotePage: (Int) -> Int?): List<SearchHit> {
-        val q = query.trim()
+        val q = foldSearchString(query.trim()).first.trim()
         if (q.isEmpty()) return emptyList()
         val out = ArrayList<SearchHit>()
         for ((pdfPage, pt) in pages.toSortedMap()) {
             val notePage = pdfPageToNotePage(pdfPage) ?: continue
+            val (folded, idxMap) = foldSearchString(pt.text)
             var from = 0
             while (true) {
-                val at = pt.text.indexOf(q, from, ignoreCase = true)
+                val at = folded.indexOf(q, from)
                 if (at < 0) break
-                val rects = mergeLine((at until at + q.length).mapNotNull { pt.boxes.getOrNull(it) })
-                val s = (at - 30).coerceAtLeast(0); val e = (at + q.length + 30).coerceAtMost(pt.text.length)
-                out += SearchHit(notePage, rects, pt.text.substring(s, e).replace('\n', ' ').trim())
+                val origStart = idxMap[at.coerceIn(0, idxMap.lastIndex)]
+                val origEnd = idxMap[(at + q.length - 1).coerceIn(0, idxMap.lastIndex)] + 1
+                val rects = mergeLine((origStart until origEnd).mapNotNull { pt.boxes.getOrNull(it) })
+                val s = (origStart - 30).coerceAtLeast(0)
+                val e = (origEnd + 36).coerceAtMost(pt.text.length)
+                out += SearchHit(
+                    page = notePage,
+                    rects = rects,
+                    snippet = pt.text.substring(s, e).replace('\n', ' ').replace(Regex("\\s+"), " ").trim(),
+                    source = "PDF",
+                    score = 100,
+                )
                 from = at + q.length
             }
         }

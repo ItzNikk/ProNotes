@@ -1062,14 +1062,23 @@ fun BookReaderScreen(
                     if (zoom <= 1.04f) {
                         var totalDx = 0f
                         var tracking = false
+                        var smoothVx = 0f
+                        var lastTimeMs = 0L
                         detectDragGestures(
                             onDragStart = {
                                 totalDx = 0f
+                                smoothVx = 0f
+                                lastTimeMs = android.os.SystemClock.uptimeMillis()
                                 tracking = !settling
                             },
                             onDrag = { change, dragAmount ->
                                 if (tracking) {
                                     change.consume()
+                                    val nowMs = android.os.SystemClock.uptimeMillis()
+                                    val dtSec = ((nowMs - lastTimeMs).coerceAtLeast(4L)) / 1000f
+                                    lastTimeMs = nowMs
+                                    val instVx = dragAmount.x / dtSec
+                                    smoothVx = smoothVx * 0.55f + instVx * 0.45f
                                     totalDx += dragAmount.x
                                     turnDir = when {
                                         totalDx < 0f && canGoNext() -> 1
@@ -1077,7 +1086,7 @@ fun BookReaderScreen(
                                         else -> 0
                                     }
                                     dragProgress = if (turnDir == 0) 0f else
-                                        (abs(totalDx) / (size.width.coerceAtLeast(1) * 0.72f)).coerceIn(0f, 1f)
+                                        (abs(totalDx) / (size.width.coerceAtLeast(1) * 0.65f)).coerceIn(0f, 1f)
                                     curlTouchY = (change.position.y / size.height.coerceAtLeast(1)).coerceIn(0.24f, 0.96f)
                                     if (turnDir != 0 && bookFlipSound && abs(dragAmount.x) > 4f) {
                                         BookFlipSoundEngine.playDragRustleTick(dragAmount.x, appSettings.paperVolume)
@@ -1085,7 +1094,14 @@ fun BookReaderScreen(
                                 }
                             },
                             onDragCancel = { if (tracking) settleTurn(false) },
-                            onDragEnd = { if (tracking) settleTurn(dragProgress >= 0.18f) },
+                            onDragEnd = {
+                                if (tracking) {
+                                    val flickThreshold = 340.dp.toPx()
+                                    val quickFlick = (turnDir == 1 && smoothVx < -flickThreshold) ||
+                                        (turnDir == -1 && smoothVx > flickThreshold)
+                                    settleTurn(turnDir != 0 && (dragProgress >= 0.14f || quickFlick))
+                                }
+                            },
                         )
                     }
                 },

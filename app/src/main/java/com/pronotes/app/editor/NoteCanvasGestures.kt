@@ -18,7 +18,7 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
     velocity?.addMovement(e)
     when (action) {
         MotionEvent.ACTION_DOWN -> {
-            scroller.forceFinished(true)
+            stopScrollAnimations()
             zoomAnim?.cancel()
             mode = NoteCanvasView.Mode.PAN
             panLastX = e.x
@@ -32,28 +32,52 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
             pinched = false
             textSelecting = false
             clearStickyDrag()
-            // Hold on a collapsed sticky note icon to move it; quick tap still expands it.
-            val hitCollapsedSticky = if (!readOnly && pages.isNotEmpty()) {
+            // Notein 1:1 sticky finger interaction:
+            // - Bottom-right peel corner drags to resize directly
+            // - Folded badge or expanded header bar hold-drags to move with attached ink
+            val hitStickyGesture = if (!readOnly && pages.isNotEmpty()) {
                 val (ddx, ddy) = toDoc(e.x, e.y)
                 val pi = pageAt(ddx, ddy)
                 val (lx, ly) = toLocal(e.x, e.y, pi)
-                val s = pages.getOrNull(pi)?.items?.filterIsInstance<StickyItem>()
-                    ?.lastOrNull { it.bounds.contains(lx, ly) && (it.collapsed || (ly <= it.raw.top + 42f && lx < it.raw.right - 84f)) }
-                if (s != null) Triple(pi, s, lx to ly) else null
+                val stickies = pages.getOrNull(pi)?.items?.filterIsInstance<StickyItem>().orEmpty()
+                val resizeHit = stickies.lastOrNull { s ->
+                    !s.collapsed && !s.pinned &&
+                        lx in (s.raw.right - 44f)..(s.raw.right + 8f) &&
+                        ly in (s.raw.bottom - 44f)..(s.raw.bottom + 8f)
+                }
+                if (resizeHit != null) {
+                    Triple(pi, resizeHit, Triple(lx, ly, true))
+                } else {
+                    val s = stickies.lastOrNull {
+                        it.bounds.contains(lx, ly) && (it.collapsed || (ly <= it.raw.top + 42f && lx < it.raw.right - 114f))
+                    }
+                    if (s != null) Triple(pi, s, Triple(lx, ly, false)) else null
+                }
             } else null
             removeCallbacks(textPressRunnable)
-            if (hitCollapsedSticky != null) {
-                val (pi, s, pt) = hitCollapsedSticky
+            if (hitStickyGesture != null) {
+                val (pi, s, info) = hitStickyGesture
+                val (lx, ly, isResize) = info
                 dragStickyId = s.id
                 dragStickyPage = pi
                 dragStickyOrigX = s.x
                 dragStickyOrigY = s.y
-                dragStickyDownWx = pt.first
-                dragStickyDownWy = pt.second
-                dragStickyActive = false
+                dragStickyOrigW = s.w
+                dragStickyOrigH = s.h
+                dragStickyDownWx = lx
+                dragStickyDownWy = ly
                 dragStickyFromFinger = true
                 dragStickyWasExpanded = !s.collapsed
-                postDelayed(stickyHoldRunnable, 280L)
+                if (isResize) {
+                    dragStickyResize = true
+                    dragStickyActive = true
+                    buzz(HapticFeedbackConstants.CLOCK_TICK)
+                    host.beginEdit(pi)
+                } else {
+                    dragStickyResize = false
+                    dragStickyActive = false
+                    postDelayed(stickyHoldRunnable, 280L)
+                }
             } else {
                 // Long-press on PDF text selects it.
                 postDelayed(textPressRunnable, 450)
@@ -114,24 +138,66 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
                 dy *= 0.45f
             }
             val horizontal = settings.scroll == ScrollDirection.HORIZONTAL
-            val paging = !isWhiteboard && !pinched && horizontal && e.pointerCount == 1 && scale <= fitScale() * 1.05f
+            val atFitNow = scale <= fitScale(pageAtGestureStart.coerceIn(0, max(0, pages.size - 1))) * 1.06f
+            val paging = !isWhiteboard && !pinched && horizontal && e.pointerCount == 1 && atFitNow
             if (paging) dy = 0f
-            transX += dx
             if (horizontal && !paging && !isWhiteboard && e.pointerCount == 1 && pages.isNotEmpty()) {
-                val (lo, hi) = pageXRange(pageAtGestureStart.coerceIn(0, pages.size - 1))
-                transX = transX.coerceIn(lo, hi)
-            }
-            if (paging && pages.isNotEmpty()) {
-                val last = pageAtGestureStart >= pages.size - 1
-                var lo = pageCenterX((pageAtGestureStart + 1).coerceAtMost(pages.size - 1))
-                val hi = pageCenterX((pageAtGestureStart - 1).coerceAtLeast(0))
+                val pIdx = pageAtGestureStart.coerceIn(0, pages.size - 1)
+                val (lo, hi) = pageXRange(pIdx)
+                val canPrev = pIdx > 0
+                val canNext = pIdx < pages.lastIndex
+                val maxOver = 135f * density
+                val proposedX = transX + dx
+                // Allow natural elastic overswipe past the left/right edge of a zoomed-in page so users
+                // can swipe to the next/previous PDF or note page without zooming back out first.
+                transX = when {
+                    proposedX < lo -> {
+                        if (canNext) {
+                            val resist = if (transX < lo) 0.42f else 1f
+                            (transX + dx * resist).coerceAtLeast(lo - maxOver)
+                        } else {
+                            (transX + dx * 0.25f).coerceAtLeast(lo - 48f * density)
+                        }
+                    }
+                    proposedX > hi -> {
+                        if (canPrev) {
+                            val resist = if (transX > hi) 0.42f else 1f
+                            (transX + dx * resist).coerceAtMost(hi + maxOver)
+                        } else {
+                            (transX + dx * 0.25f).coerceAtMost(hi + 48f * density)
+                        }
+                    }
+                    else -> proposedX
+                }
+            } else if (paging && pages.isNotEmpty()) {
+                val startIdx = pageAtGestureStart.coerceIn(0, pages.size - 1)
+                val last = startIdx >= pages.size - 1
+                val first = startIdx <= 0
+                var lo = pageCenterX((startIdx + 1).coerceAtMost(pages.size - 1))
+                var hi = pageCenterX((startIdx - 1).coerceAtLeast(0))
                 if (last && settings.pullToAddPage) lo -= 220f * density
-                transX = transX.coerceIn(min(lo, hi), max(lo, hi))
+                val proposed = transX + dx
+                // Soft rubber-band resistance at the first page edge instead of a hard brick wall
+                transX = if (first && proposed > hi) {
+                    (transX + dx * 0.30f).coerceAtMost(hi + 64f * density)
+                } else {
+                    proposed.coerceIn(min(lo, hi), max(lo, hi))
+                }
+            } else {
+                transX += dx
             }
             transY += dy
             panLastX = cx
             panLastY = cy
-            clamp(allowPull = e.pointerCount == 1)
+            // When zoomed in horizontal mode with active edge overswipe, avoid clamp() snapping transX back mid-drag
+            val allowEdgeOverswipe = horizontal && !paging && !isWhiteboard && e.pointerCount == 1
+            if (allowEdgeOverswipe) {
+                val savedX = transX
+                clamp(allowPull = false)
+                transX = savedX
+            } else {
+                clamp(allowPull = e.pointerCount == 1)
+            }
             updateMatrix()
         }
         MotionEvent.ACTION_POINTER_UP -> {
@@ -198,10 +264,12 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
                 val (lx, ly) = toLocal(e.x, e.y, pi)
                 val pItems = pages.getOrNull(pi)?.items.orEmpty()
                 val taskSticky = if (!readOnly) pItems.lastOrNull { it is StickyItem && it.bounds.contains(lx, ly) } as StickyItem? else null
-                val hitCollapse = taskSticky != null && (taskSticky.collapsed || (lx >= taskSticky.raw.right - 46f && ly <= taskSticky.raw.top + 44f))
+                val hitCollapse = taskSticky != null && (taskSticky.collapsed || (lx >= taskSticky.raw.right - 42f && ly <= taskSticky.raw.top + 44f))
                 val hitEdit = taskSticky != null && !taskSticky.collapsed && !hitCollapse &&
-                    (lx >= taskSticky.raw.right - 84f && ly <= taskSticky.raw.top + 44f)
-                val taskIdx = if (!hitCollapse && !hitEdit) taskSticky?.let { findStickyChecklistLine(it, lx, ly) } else null
+                    (lx >= taskSticky.raw.right - 78f && ly <= taskSticky.raw.top + 44f)
+                val hitPin = taskSticky != null && !taskSticky.collapsed && !hitCollapse && !hitEdit &&
+                    taskSticky.raw.width() >= 190f && (lx >= taskSticky.raw.right - 114f && ly <= taskSticky.raw.top + 44f)
+                val taskIdx = if (!hitCollapse && !hitEdit && !hitPin) taskSticky?.let { findStickyChecklistLine(it, lx, ly) } else null
                 if (taskSticky != null && hitCollapse) {
                     buzz(HapticFeedbackConstants.CLOCK_TICK)
                     host.onStickyToggleCollapse(pi, taskSticky)
@@ -212,13 +280,18 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
                     host.onStickyTap(pi, lx, ly, taskSticky)
                     lastTapTime = 0L
                     null
+                } else if (taskSticky != null && hitPin) {
+                    buzz(HapticFeedbackConstants.CLOCK_TICK)
+                    host.onStickyTogglePin(pi, taskSticky)
+                    lastTapTime = 0L
+                    null
                 } else if (taskSticky != null && taskIdx != null) {
                     buzz(HapticFeedbackConstants.CLOCK_TICK)
                     host.onStickyChecklistToggle(pi, taskSticky, taskIdx)
                     lastTapTime = 0L
                     null
                 } else if (taskSticky != null && !taskSticky.collapsed && !readOnly) {
-                    // Notion-style direct tap to edit sticky note inline
+                    // Notein-style direct tap on sticky opens inline editor/toolbar
                     buzz(HapticFeedbackConstants.CLOCK_TICK)
                     host.onStickyTap(pi, lx, ly, taskSticky)
                     lastTapTime = 0L
@@ -317,9 +390,33 @@ internal fun NoteCanvasView.releaseFling(pulled: Boolean) {
         postInvalidateOnAnimation()
         return
     }
-    val atFit = scale <= fitScale() * 1.05f
+    val start = pageAtGestureStart.coerceIn(0, max(0, pages.size - 1))
+    val atFit = scale <= fitScale(start) * 1.06f
     if (horizontal && !atFit && pages.isNotEmpty()) {
-        val (lo, hi) = pageXRange(pageAtGestureStart.coerceIn(0, pages.size - 1))
+        val (lo, hi) = pageXRange(start)
+        val overNext = lo - transX
+        val overPrev = transX - hi
+        val edgeTurnDist = 72f * density
+        val edgeFlickVel = 680f * density
+        // Zoomed-in edge overswipe turns smoothly to the adjacent page!
+        if (overNext > edgeTurnDist || (overNext > 14f * density && vx < -edgeFlickVel)) {
+            if (start < pages.lastIndex) {
+                animateToPage(start + 1, animate = true, velocityX = vx, fitTargetScale = true)
+                return
+            }
+        } else if (overPrev > edgeTurnDist || (overPrev > 14f * density && vx > edgeFlickVel)) {
+            if (start > 0) {
+                animateToPage(start - 1, animate = true, velocityX = vx, fitTargetScale = true)
+                return
+            }
+        }
+        // Spring back smoothly if nudged slightly past the edge, otherwise fling within the zoomed page
+        val clampedX = transX.coerceIn(lo, hi)
+        if (abs(clampedX - transX) > 1f) {
+            scroller.startScroll(transX.toInt(), transY.toInt(), (clampedX - transX).toInt(), 0, 180)
+            postInvalidateOnAnimation()
+            return
+        }
         val ch = docH * scale
         scroller.fling(
             transX.toInt(), transY.toInt(), vx.toInt(), vy.toInt(), lo.toInt(), hi.toInt(),
@@ -328,13 +425,19 @@ internal fun NoteCanvasView.releaseFling(pulled: Boolean) {
         postInvalidateOnAnimation()
         return
     }
-    if (horizontal && atFit && !pulled) {
-        val start = pageAtGestureStart.coerceIn(0, max(0, pages.size - 1))
-        var target = currentIndex.coerceIn((start - 1).coerceAtLeast(0), (start + 1).coerceAtMost(pages.size - 1))
-        if (vx < -400) target = (start + 1).coerceAtMost(pages.size - 1)
-        else if (vx > 400) target = (start - 1).coerceAtLeast(0)
-        scale = fitScale(target)
-        scrollToPage(target, animate = true)
+    if (horizontal && atFit && !pulled && pages.isNotEmpty()) {
+        val startCenterX = pageCenterX(start)
+        val dragDeltaX = transX - startCenterX
+        val turnThresholdPx = (width * 0.22f).coerceIn(64f * density, 180f * density)
+        val flickVelPx = 220f * density
+        val target = when {
+            vx < -flickVelPx && dragDeltaX <= 12f * density -> (start + 1).coerceAtMost(pages.lastIndex)
+            vx > flickVelPx && dragDeltaX >= -12f * density -> (start - 1).coerceAtLeast(0)
+            dragDeltaX < -turnThresholdPx -> (start + 1).coerceAtMost(pages.lastIndex)
+            dragDeltaX > turnThresholdPx -> (start - 1).coerceAtLeast(0)
+            else -> start
+        }
+        animateToPage(target, animate = true, velocityX = vx, fitTargetScale = true)
         return
     }
     val cw = docW * scale
