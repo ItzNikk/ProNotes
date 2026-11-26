@@ -6,6 +6,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/ItzNikk/ProNotes?label=LATEST%20RELEASE&style=flat-square&color=1A84FF)](https://github.com/ItzNikk/ProNotes/releases/latest)
 [![Download APK](https://img.shields.io/badge/DOWNLOAD-APK-111827?style=flat-square&logo=android&logoColor=white)](https://github.com/ItzNikk/ProNotes/releases/latest/download/ProNotes.apk)
+[![Download Beta APK](https://img.shields.io/badge/DOWNLOAD-BETA%20APK-7C3AED?style=flat-square&logo=android&logoColor=white)](https://github.com/ItzNikk/ProNotes/releases?q=prerelease%3Atrue)
 [![License](https://img.shields.io/badge/LICENSE-Apache%202.0-64748B?style=flat-square)](LICENSE)
 ![Android 8.0+](https://img.shields.io/badge/ANDROID-8.0%2B-3DDC84?style=flat-square&logo=android&logoColor=white)
 

@@ -47,11 +47,10 @@ import java.util.concurrent.atomic.AtomicReference
  * live throughput & ETA, ForegroundService background execution, and PackageInstaller commit.
  */
 object Updater {
-    private const val API_LATEST = "https://api.github.com/repos/ItzNikk/ProNotes/releases/latest"
-    private const val API_LIST = "https://api.github.com/repos/ItzNikk/ProNotes/releases?per_page=10"
-    private const val USER_AGENT = "ProNotes-Android"
-    const val ACTION_INSTALL_RESULT = "com.pronotes.app.INSTALL_RESULT"
-    const val NOTIF_READY_TO_INSTALL = 4203
+    private const val API_LIST = "https://api.github.com/repos/ItzNikk/ProNotes/releases?per_page=20"
+    private const val USER_AGENT = "ProNotes-Beta-Android"
+    const val ACTION_INSTALL_RESULT = "com.pronotes.app.beta.INSTALL_RESULT"
+    const val NOTIF_READY_TO_INSTALL = 4204
 
     data class Release(val tag: String, val apkUrl: String, val notes: String, val size: Long)
 
@@ -93,10 +92,10 @@ object Updater {
     private enum class ControlSignal { PAUSE, CANCEL }
 
     private fun updateDir(context: Context) = File(context.cacheDir, "updates").apply { mkdirs() }
-    private fun partFile(context: Context) = File(updateDir(context), "ProNotes.apk.part")
-    private fun metaFile(context: Context) = File(updateDir(context), "ProNotes.apk.meta")
-    private fun segmentsFile(context: Context) = File(updateDir(context), "ProNotes.apk.seg")
-    private fun finalApkFile(context: Context) = File(updateDir(context), "ProNotes.apk")
+    private fun partFile(context: Context) = File(updateDir(context), "ProNotes-Beta.apk.part")
+    private fun metaFile(context: Context) = File(updateDir(context), "ProNotes-Beta.apk.meta")
+    private fun segmentsFile(context: Context) = File(updateDir(context), "ProNotes-Beta.apk.seg")
+    private fun finalApkFile(context: Context) = File(updateDir(context), "ProNotes-Beta.apk")
 
     fun startDownload(context: Context) {
         if (phase == Phase.DOWNLOADING || phase == Phase.INSTALLING) return
@@ -289,13 +288,19 @@ object Updater {
 
     private fun parseRelease(obj: JsonObject): Release? {
         if (obj["draft"]?.jsonPrimitive?.booleanOrNull == true) return null
+        val isPrerelease = obj["prerelease"]?.jsonPrimitive?.booleanOrNull == true
         val tag = obj.str("tag_name") ?: return null
         val assets = obj["assets"]?.jsonArray?.map { it.jsonObject }.orEmpty()
-        val asset = assets.firstOrNull {
+        val betaAsset = assets.firstOrNull {
+            val n = it.str("name").orEmpty()
+            n.equals("ProNotes-Beta.apk", ignoreCase = true) ||
+                (n.contains("beta", ignoreCase = true) && n.endsWith(".apk", ignoreCase = true))
+        }
+        // Beta channel only accepts pre-releases or releases containing a Beta APK asset
+        if (!isPrerelease && betaAsset == null) return null
+        val asset = betaAsset ?: assets.firstOrNull {
             val n = it.str("name").orEmpty()
             n.endsWith(".apk", ignoreCase = true) && !n.contains("unsigned", ignoreCase = true)
-        } ?: assets.firstOrNull {
-            (it.str("name") ?: "").endsWith(".apk", ignoreCase = true)
         } ?: return null
         val url = asset.str("browser_download_url") ?: return null
         return Release(
@@ -307,10 +312,6 @@ object Updater {
     }
 
     private fun fetchLatest(): Release? {
-        val (code, body) = openGitHubJson(API_LATEST)
-        if (code in 200..299) {
-            return parseRelease(Json.parseToJsonElement(body).jsonObject)
-        }
         val (listCode, listBody) = openGitHubJson(API_LIST)
         if (listCode !in 200..299) {
             throw IllegalStateException("GitHub check failed (HTTP $listCode)")
