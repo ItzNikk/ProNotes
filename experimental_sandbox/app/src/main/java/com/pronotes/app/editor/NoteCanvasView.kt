@@ -1,0 +1,2944 @@
+package com.pronotes.app.editor
+
+import android.animation.ValueAnimator
+import android.annotation.SuppressLint
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.DashPathEffect
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
+import android.os.SystemClock
+import android.text.TextPaint
+import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
+import android.view.VelocityTracker
+import android.view.View
+import android.view.ViewConfiguration
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
+import android.widget.FrameLayout
+import android.widget.OverScroller
+import androidx.ink.authoring.InProgressStrokeId
+import androidx.ink.authoring.InProgressStrokesFinishedListener
+import androidx.ink.authoring.InProgressStrokesView
+import androidx.ink.brush.Brush
+import androidx.ink.geometry.AffineTransform
+import androidx.ink.geometry.Intersection.intersects
+import androidx.ink.geometry.MutableParallelogram
+import androidx.ink.geometry.MutableSegment
+import androidx.ink.geometry.MutableVec
+import androidx.ink.strokes.Stroke
+import androidx.input.motionprediction.MotionEventPredictor
+import com.pronotes.app.BuildConfig
+import com.pronotes.app.R
+import com.pronotes.app.data.AppSettings
+import com.pronotes.app.data.ScrollDirection
+import com.pronotes.app.data.SideButton
+import kotlin.math.abs
+import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
+
+enum class Tool { PEN, CRAYON, HIGHLIGHTER, ERASER, SHAPE, LASSO, MINDMAP, TEXT, AUTO_TEXT, IMAGE, STICKY, WEBLINK, TAPE, STICKER, LASER }
+
+/** Callbacks from the canvas to the editor state. Page indices refer to the notebook's page list. */
+interface CanvasHost {
+    fun brush(tool: Tool): Brush
+    fun shapeKind(): ShapeKind
+    fun eraserRadius(): Float
+    fun tapeColor(): Int
+    fun tapeFreehand(): Boolean
+    fun beginEdit(page: Int)
+    fun setItems(page: Int, items: List<PageItem>)
+    fun commitPageItemsEdit(changes: Map<Int, List<PageItem>>)
+    fun onSelectionChanged(page: Int, ids: Set<Long>, screenBounds: RectF?)
+    fun onTextTap(page: Int, x: Float, y: Float, existing: TextItem?)
+    /** Called when Tool.TEXT taps or drags a new inline text box directly on the page. */
+    fun onTextBoxPlace(page: Int, x: Float, y: Float, w: Float, h: Float) { onTextTap(page, x, y, null) }
+    fun isKeyboardMode(): Boolean = false
+    fun onPageTap(page: Int, x: Float, y: Float) {}
+    fun onStickyTap(page: Int, x: Float, y: Float, existing: StickyItem?)
+    fun onStickyToggleCollapse(page: Int, sticky: StickyItem) {}
+    fun onStickyChecklistToggle(page: Int, sticky: StickyItem, lineIndex: Int) {}
+    fun onWebLinkTap(page: Int, x: Float, y: Float, existing: WebLinkItem?) {}
+    fun onMindMapTap(page: Int, x: Float, y: Float, existing: MindNodeItem?) {}
+    fun onWriteBoxDoubleTap(page: Int, item: WriteBoxItem) {}
+    fun onCurrentPage(index: Int)
+    fun onPullAddPage()
+    /** Adds a page at the end when dragging a selection past the last page, without fighting the drag scroll. */
+    fun onAddPageForDrop() { onPullAddPage() }
+    fun undo()
+    fun redo()
+    fun pdfBitmap(page: Page, widthPx: Int, onReady: () -> Unit): Bitmap?
+    fun highlights(page: Int): List<RectF>
+    fun activeHighlight(): Pair<Int, RectF>?
+    /** Fill colour for new closed shapes, or null for outline only. */
+    fun shapeFill(): Int?
+    /** A pen loop around content was drawn; show (or hide, with null) the "Select" chip. */
+    fun onCircleCandidate(screenBounds: RectF?)
+    /** Circle-and-hold made a selection (true) or that selection ended (false). The toolbar shows lasso meanwhile. */
+    fun onCircleSelect(active: Boolean) {}
+    /** Ink link ends to draw as badges. */
+    fun linkEnds(): List<LinkEnd> = emptyList()
+    /** A box was dragged for a new flashcard (page space). */
+    fun onAreaPicked(page: Int, rect: RectF) {}
+    /** The other end of a new ink link was tapped (page space). */
+    fun onLinkTarget(page: Int, x: Float, y: Float) {}
+    fun onLinkLongPress(id: String) {}
+    fun onOpenUrl(url: String) {}
+    /** Pattern for new tape ("stripes", "dots", "image:<file>", ...). */
+    fun tapePattern(): String = "stripes"
+    /** The pen is down (true) or lifted (false): the toolbar fades while you write under it. */
+    fun onPenActive(active: Boolean) {}
+    /** Sharp viewport render of a zoomed PDF page, if ready. */
+    fun pdfDetail(page: Int): EditorViewModel.Detail? = null
+    /** (page, visible region in page units, screen px per unit) for zoomed PDF pages. */
+    fun requestDetail(wants: List<Triple<Int, RectF, Float>>, onReady: () -> Unit) {}
+    /** Long-press on PDF text (page space). Return true when a word was selected. */
+    fun onTextPress(page: Int, x: Float, y: Float): Boolean = false
+    fun onTextDrag(x: Float, y: Float) {}
+    fun onTextEnd(screen: RectF?) {}
+    fun onTextClear() {}
+    fun textSelection(page: Int): List<RectF> = emptyList()
+    fun onEraserLifted()
+    fun onZoom(percent: Int?)
+    /** Settings for the pen with this input-device name (registers new pens). */
+    fun penProfile(deviceName: String): com.pronotes.app.data.PenProfile
+    /** Pen button clicked while hovering (no touch). */
+    fun onPenButton(doubleClick: Boolean, x: Float, y: Float, deviceName: String)
+    /** Colour and on-screen size of the hover dot, or null for no dot. */
+    fun hoverInk(): Pair<Int, Float>?
+    /** Called when user places a new WriteBoxItem on the canvas with Tool.TEXT. */
+    fun onPlaceWriteBox(page: Int, x: Float, y: Float, w: Float, h: Float) {}
+    /** Called after user pauses writing inside a WriteBoxItem to auto-convert strokes to text. */
+    fun onAutoConvertWriteBox(page: Int, boxId: Long) {}
+    /** Called when user focuses or taps inside/outside a WriteBoxItem. */
+    fun onSelectWriteBox(page: Int, boxId: Long?) {}
+    /** Shows a brief non-blocking hint (e.g. 'Shape not recognised'). */
+    fun onHint(message: String) {}
+    /** Called when scribble-to-erase removed one or more items so an undo snackbar can appear. */
+    fun onFreshInk(page: Int, ink: List<InkItem>) {}
+    fun onScribbleErased() {}
+    /** Quick double-tap gesture on handwritten ink to convert the line/cluster to typed text. */
+    fun onQuickConvertInk(page: Int, ids: Set<Long>) {}
+    /** Long-press on empty page space (not PDF text and not an existing item): opens Quick Insert. */
+    fun onEmptyPageLongPress(page: Int, x: Float, y: Float, screenX: Float, screenY: Float) {}
+}
+
+/**
+ * The drawing surface: every page of the notebook laid out in one scrollable document,
+ * vertically or horizontally. Jetpack Ink's [InProgressStrokesView] renders wet ink with
+ * low latency; everything else is drawn by [DocLayer].
+ *
+ * Input routing:
+ *  - stylus tip -> active tool
+ *  - stylus eraser end (Wacom, Surface, USI) -> eraser
+ *  - stylus side button held (S Pen, Wacom, USI, Lenovo, Xiaomi...) -> side-button action
+ *  - fingers -> scroll / fling / pinch-zoom; 2-finger tap = undo, 3-finger tap = redo
+ */
+@SuppressLint("ViewConstructor", "ClickableViewAccessibility")
+class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLayout(context) {
+
+    // The document layer uses density to configure its paints and dash lengths at construction.
+    internal val density = resources.displayMetrics.density
+    internal val layer = NoteCanvasDocLayer(context, this)
+    private val wetInk = InProgressStrokesView(context)
+    private val predictor = MotionEventPredictor.newInstance(this)
+    internal val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+    internal val effectiveTouchSlop: Float
+        get() = (touchSlop / settings.touchSensitivity.coerceIn(0.4f, 2.0f)).coerceIn(2f, touchSlop * 2.5f)
+    internal val scroller = OverScroller(context, DecelerateInterpolator(1.6f))
+    internal var velocity: VelocityTracker? = null
+
+    var activeMindNodeId: Long? = null
+        set(value) {
+            field = value
+            renderer?.activeMindNodeId = value
+            layer.invalidate()
+        }
+
+    var moveMindSubtree: Boolean = false
+
+    var renderer: PageRenderer? = null
+        set(value) {
+            field = value
+            value?.activeMindNodeId = activeMindNodeId
+            layer.invalidate()
+        }
+
+    var tool: Tool = Tool.PEN
+        set(value) {
+            // Laser ink is a pointer, not ink: it goes away when you pick another tool.
+            if (field == Tool.LASER && value != Tool.LASER) layer.clearLasers()
+            field = value
+            layer.hoverDot = null; layer.hoverAt = null
+            val showGuide = settings.toolDefaults.alignGuideLine &&
+                (value == Tool.AUTO_TEXT || (value == Tool.PEN && (settings.toolDefaults.alignHandwriting || settings.toolDefaults.autoHandwriting)))
+            if (showGuide) {
+                val p = pages.getOrNull(currentIndex)
+                if (p != null && (layer.guideLinePage != currentIndex || layer.guideLineY <= 24f)) {
+                    layer.guideLinePage = currentIndex
+                    layer.guideLineX = 48f
+                    layer.guideLineY = defaultGuideBaselineY(p)
+                }
+            } else {
+                layer.guideLinePage = -1
+            }
+            layer.invalidate()
+        }
+
+    internal fun guideLineBandHeight(p: Page): Float {
+        val g = p.lineScale.coerceIn(0.6f, 2.0f)
+        val step = when (p.paper) {
+            com.pronotes.app.data.PaperStyle.NARROW -> 38f * g
+            com.pronotes.app.data.PaperStyle.COLLEGE -> 42f * g
+            com.pronotes.app.data.PaperStyle.WIDE -> 64f * g
+            com.pronotes.app.data.PaperStyle.HANDWRITING,
+            com.pronotes.app.data.PaperStyle.SEYES,
+            com.pronotes.app.data.PaperStyle.CALLIGRAPHY -> 56f * g
+            else -> 52f * g
+        }
+        return (step * 0.66f).coerceIn(24f, 64f)
+    }
+
+    internal fun defaultGuideBaselineY(p: Page): Float {
+        val g = p.lineScale.coerceIn(0.6f, 2.0f)
+        val y = when (p.paper) {
+            com.pronotes.app.data.PaperStyle.NARROW -> 160f + 38f * g
+            com.pronotes.app.data.PaperStyle.COLLEGE -> 170f + 42f * g
+            com.pronotes.app.data.PaperStyle.WIDE -> 190f + 64f * g
+            com.pronotes.app.data.PaperStyle.RULED,
+            com.pronotes.app.data.PaperStyle.CORNELL,
+            com.pronotes.app.data.PaperStyle.LEGAL,
+            com.pronotes.app.data.PaperStyle.HANDWRITING,
+            com.pronotes.app.data.PaperStyle.SEYES,
+            com.pronotes.app.data.PaperStyle.CALLIGRAPHY -> 180f + 52f * g
+            else -> 220f
+        }
+        return y.coerceIn(64f, (p.height - 48f).coerceAtLeast(64f))
+    }
+
+    internal fun snapGuideBaselineY(p: Page, rawY: Float): Float {
+        val g = p.lineScale.coerceIn(0.6f, 2.0f)
+        val (start, step) = when (p.paper) {
+            com.pronotes.app.data.PaperStyle.RULED,
+            com.pronotes.app.data.PaperStyle.CORNELL,
+            com.pronotes.app.data.PaperStyle.LEGAL,
+            com.pronotes.app.data.PaperStyle.MEETING,
+            com.pronotes.app.data.PaperStyle.STUDY,
+            com.pronotes.app.data.PaperStyle.DAILY,
+            com.pronotes.app.data.PaperStyle.TODO,
+            com.pronotes.app.data.PaperStyle.PLANNER,
+            com.pronotes.app.data.PaperStyle.TWO_COLUMN -> 180f to (52f * g)
+            com.pronotes.app.data.PaperStyle.NARROW -> 160f to (38f * g)
+            com.pronotes.app.data.PaperStyle.COLLEGE -> 170f to (42f * g)
+            com.pronotes.app.data.PaperStyle.WIDE -> 190f to (64f * g)
+            com.pronotes.app.data.PaperStyle.GRID,
+            com.pronotes.app.data.PaperStyle.DOTTED -> 40f to (40f * g)
+            com.pronotes.app.data.PaperStyle.SMALL_GRID,
+            com.pronotes.app.data.PaperStyle.GRAPH -> 24f to (24f * g)
+            else -> return rawY.coerceIn(56f, (p.height - 32f).coerceAtLeast(56f))
+        }
+        val idx = ((rawY - start) / step).roundToInt().coerceAtLeast(0)
+        return (start + idx * step).coerceIn(56f, (p.height - 32f).coerceAtLeast(56f))
+    }
+
+    /** Waiting for a dragged box (new flashcard) or a tap (other end of an ink link). */
+    var capturing = false
+    var linkPicking = false
+    private var capturingDrag = false
+
+    private var linkPress: LinkEnd? = null
+    private var linkLongFired = false
+    private var linkPressX = 0f
+    private var linkPressY = 0f
+    private val linkLongRunnable = Runnable { linkPress?.let { linkLongFired = true; buzz(); host.onLinkLongPress(it.id) } }
+    /** Target of the last link jump, pulsed for a moment so the eye finds it. */
+    internal var linkFlash: Triple<Int, Float, Float>? = null
+    internal var linkFlashAt = 0L
+
+    private fun linkAt(x: Float, y: Float): LinkEnd? {
+        val ends = host.linkEnds()
+        if (ends.isEmpty()) return null
+        val a = FloatArray(2)
+        return ends.firstOrNull { e ->
+            if (e.page !in pages.indices) return@firstOrNull false
+            a[0] = e.x; a[1] = e.y; pageMatrix(e.page, tmpMatrix).mapPoints(a)
+            hypot(x - a[0], y - a[1]) < 24f * density
+        }
+    }
+
+    /** A finger tap (or any tap in read-only mode) inside linked content. */
+    internal fun linkBoxAt(x: Float, y: Float): LinkEnd? {
+        val ends = host.linkEnds()
+        if (ends.isEmpty()) return null
+        val (dx, dy) = toDoc(x, y)
+        val pi = pageAt(dx, dy)
+        val (lx, ly) = toLocal(x, y, pi)
+        return ends.firstOrNull { e -> e.page == pi && e.box != null && RectF(e.box).apply { inset(-12f, -12f) }.contains(lx, ly) }
+    }
+
+    internal fun jumpTo(e: LinkEnd) {
+        buzz()
+        e.url?.let { host.onOpenUrl(it); return }
+        if (e.toPage !in pages.indices) return
+        scrollToPage(e.toPage, animate = true)
+        linkFlash = Triple(e.toPage, e.tx, e.ty); linkFlashAt = SystemClock.uptimeMillis()
+        layer.invalidate()
+    }
+
+    /** Read-only: pen and fingers only scroll and zoom; nothing can be changed. */
+    var readOnly = false
+        set(v) {
+            field = v
+            if (v) {
+                cancelCurrent(lastTouchEvent)
+                clearSelection()
+                clearCircleCandidate()
+            }
+        }
+
+    /** Side-button action of the pen currently in use (from its own pen profile). */
+    private var penSide: SideButton? = null
+
+    /** True when the app is in dark mode; the desk around pages follows it. */
+    var darkUi = false
+        set(value) { field = value; layer.invalidate() }
+
+    internal fun deskArgb(): Int = when (settings.deskColor) {
+        com.pronotes.app.data.DeskColor.AUTO -> if (darkUi) 0xFF141518.toInt() else 0xFFECEEF1.toInt()
+        else -> settings.deskColor.argb
+    }
+
+    internal var gestureConfig = GestureConfig.fromSettings(AppSettings())
+
+    var straightenPenInk = false
+    var settings = AppSettings()
+        set(value) {
+            val relayout = field.scroll != value.scroll ||
+                (value.scroll == ScrollDirection.HORIZONTAL && field.toolbarDock != value.toolbarDock)
+            field = value
+            gestureConfig = GestureConfig.fromSettings(value)
+            if (relayout && pages.isNotEmpty()) {
+                val keep = if (fitted) currentIndex else startPage
+                layout(pages)
+                fit(keep)
+            }
+            layer.invalidate()
+        }
+
+    // ------------------------------------------------------------ document layout
+    internal var pages: List<Page> = emptyList()
+    private var origins = FloatArray(0)      // x0, y0 per page in document units
+    internal var docW = 0f
+    internal var docH = 0f
+    private val gap = 56f
+    var currentIndex = 0
+        private set
+
+    // view transform: document -> screen
+    internal val viewMatrix = Matrix()
+    private val inverse = Matrix()
+    internal var scale = 1f
+    internal var transX = 0f
+    internal var transY = 0f
+    private var fitted = false
+    /** Page to show on first layout (the one the notebook was closed on). */
+    var startPage = 0
+    internal var pull = 0f                      // overscroll past the last page, screen px
+    internal val pullTrigger get() = 110f * density
+
+    // selection lives on a single page
+    var selection: Set<Long> = emptySet()
+        private set
+    internal var selectionPage = -1
+    private val selectionTransformState = androidx.compose.runtime.mutableStateOf(false)
+    var selectionTransformEnabled: Boolean
+        get() = selectionTransformState.value
+        set(value) {
+            selectionTransformState.value = value
+            layer.invalidate()
+        }
+    /** Live move / resize / rotate of the selection, in page coordinates. Baked in on release. */
+    internal var liveMatrix: Matrix? = null
+    internal enum class Grab { MOVE, SCALE, STRETCH_L, STRETCH_R, STRETCH_T, STRETCH_B, ROTATE }
+    internal var grab = Grab.MOVE
+    internal var anchorX = 0f
+    internal var anchorY = 0f
+    internal var grabStartX = 0f
+    internal var grabStartY = 0f
+    internal var liveScale = 1f
+    internal var liveDeg = 0f
+    internal val grabBase = RectF()
+    internal val liveBox = RectF()
+    internal var liveScaleX = 1f
+    internal var liveScaleY = 1f
+
+    private val strokePages = HashMap<InProgressStrokeId, Int>()
+    private val strokeTools = HashMap<InProgressStrokeId, Tool>()
+    private val consumedCircleStrokes = HashSet<InProgressStrokeId>()
+
+    init {
+        setWillNotDraw(false)
+        addView(layer, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(wetInk, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        runCatching { wetInk.eagerInit() }
+        wetInk.addFinishedStrokesListener(object : InProgressStrokesFinishedListener {
+            override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
+                val byPage = strokes.entries.groupBy { strokePages.remove(it.key) ?: currentIndex }
+                for ((pi, entries) in byPage) {
+                    val p = pages.getOrNull(pi)
+                    val entryTools = entries.associate { it.key to (strokeTools.remove(it.key) ?: tool) }
+                    val keptEntries = if (p == null) emptyList() else entries.filterNot { e ->
+                        consumedCircleStrokes.remove(e.key)
+                    }
+                    if (p == null || keptEntries.isEmpty()) continue
+                    val added = ArrayList<InkItem>(keptEntries.size)
+                    val autoTextAdded = ArrayList<InkItem>()
+                    val circleCandKey = circleDetector.activeCandidate(SystemClock.uptimeMillis(), gestureConfig)?.strokeKey
+                    for (e in keptEntries) {
+                        val item = InkItem(ItemIds.next(), e.value)
+                        if (!circleDetector.attachItemId(e.key, item.id)) {
+                            added += item
+                            // Never hand an active Circle-to-Lasso loop stroke to Auto Handwriting so it stays ready to hold
+                            if (entryTools[e.key] == Tool.AUTO_TEXT && e.key != circleCandKey) autoTextAdded += item
+                        }
+                    }
+                    if (added.isEmpty()) continue
+                    host.beginEdit(pi)
+                    updatePage(pi, p.items + added)
+                    // Keep the writing guide line aligned directly beneath the finished stroke baseline
+                    if (settings.toolDefaults.alignGuideLine &&
+                        (tool == Tool.AUTO_TEXT || (tool == Tool.PEN && (settings.toolDefaults.alignHandwriting || settings.toolDefaults.autoHandwriting)))
+                    ) {
+                        val lastInk = added.last()
+                        layer.guideLinePage = pi
+                        layer.guideLineX = lastInk.bounds.left
+                        layer.guideLineY = snapGuideBaselineY(p, lastInk.bounds.bottom + 4f)
+                        layer.invalidate()
+                    }
+                    val boxes = pages.getOrNull(pi)?.items?.filterIsInstance<WriteBoxItem>().orEmpty()
+                    if (autoTextAdded.isNotEmpty()) {
+                        host.onFreshInk(pi, autoTextAdded)
+                    } else if (settings.toolDefaults.autoHandwriting || straightenPenInk) {
+                        val circleItemId = circleDetector.activeCandidate(SystemClock.uptimeMillis(), gestureConfig)?.itemId ?: -1L
+                        host.onFreshInk(pi, added.filter { ink ->
+                            (settings.toolDefaults.autoHandwriting || keptEntries.any { entry -> entryTools[entry.key] == Tool.PEN && entry.value === ink.stroke }) &&
+                                !ink.isHighlighter && ink.id != circleItemId && boxes.none { RectF.intersects(it.raw, ink.bounds) }
+                        })
+                    }
+                    if (boxes.isNotEmpty()) {
+                        for (wb in boxes) {
+                            val boxRect = wb.raw
+                            val hit = added.any { ink -> RectF.intersects(boxRect, ink.bounds) || boxRect.contains(ink.bounds.centerX(), ink.bounds.centerY()) }
+                            if (hit) {
+                                scheduleAutoConvert(pi, wb.id)
+                            }
+                        }
+                    }
+                }
+                wetInk.removeFinishedStrokes(strokes.keys)
+            }
+        })
+    }
+
+    private var dragLocation: Pt? = null
+    private val scrollDuringDrop = object : Runnable {
+        override fun run() {
+            val (x, y) = dragLocation ?: return
+            val horizontal = settings.scroll == ScrollDirection.HORIZONTAL
+            val edge = 44f * density
+            val distance = if (horizontal) x else y
+            val extent = if (horizontal) width else height
+            val step = when {
+                distance < edge -> (1f - distance / edge).coerceIn(0f, 1f)
+                distance > extent - edge -> -((distance - (extent - edge)) / edge).coerceIn(0f, 1f)
+                else -> 0f
+            } * 12f * density
+            if (step != 0f) {
+                scroller.forceFinished(true)
+                if (horizontal) transX += step else transY += step
+                if (!isWhiteboard) clamp()
+                updateMatrix()
+            }
+            invalidate()
+            postOnAnimation(this)
+        }
+    }
+
+    fun previewDrop(x: Float, y: Float) {
+        val first = dragLocation == null
+        dragLocation = x to y
+        if (first) postOnAnimation(scrollDuringDrop)
+    }
+
+    fun clearDropPreview() {
+        dragLocation = null
+        removeCallbacks(scrollDuringDrop)
+        invalidate()
+    }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        val (x, y) = dragLocation ?: return
+        if (dropPoint(x, y) == null) return
+        val paint = dropPreviewPaint
+        canvas.drawCircle(x, y, 17f * density, paint)
+        canvas.drawLine(x - 24f * density, y, x + 24f * density, y, paint)
+        canvas.drawLine(x, y - 24f * density, x, y + 24f * density, paint)
+    }
+
+    private val dropPreviewPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF357EF5.toInt()
+        style = Paint.Style.STROKE
+        strokeWidth = 3f * density
+    }
+
+    fun dropPoint(x: Float, y: Float): Triple<Int, Float, Float>? {
+        val (dx, dy) = toDoc(x, y)
+        val page = pageAt(dx, dy)
+        val sheet = pages.getOrNull(page) ?: return null
+        val (px, py) = toLocal(x, y, page)
+        return if (px in 0f..sheet.width && py in 0f..sheet.height) Triple(page, px, py) else null
+    }
+
+    fun redraw() { layer.invalidate() }
+
+    var editingTextItemId: Long?
+        get() = renderer?.hiddenTextItemId
+        set(value) {
+            if (renderer?.hiddenTextItemId != value) {
+                renderer?.hiddenTextItemId = value
+                layer.invalidate()
+            }
+        }
+
+    var editingStickyItemId: Long?
+        get() = renderer?.hiddenStickyItemId
+        set(value) {
+            if (renderer?.hiddenStickyItemId != value) {
+                renderer?.hiddenStickyItemId = value
+                layer.invalidate()
+            }
+        }
+
+    fun currentZoomScale(): Float = scale
+
+    fun pageToScreen(page: Int, r: RectF): RectF? {
+        if (page !in pages.indices) return null
+        return RectF(r).also { pageMatrix(page, tmpMatrix).mapRect(it) }
+    }
+
+    /** Replaces the page list (after undo, page add/delete, recolour...). */
+    fun setPages(newPages: List<Page>) {
+        val structural = newPages.size != pages.size || newPages.zip(pages).any { (a, b) -> a.id != b.id || a.width != b.width || a.height != b.height }
+        val keepSel = selectionPage in newPages.indices && pages.getOrNull(selectionPage)?.id == newPages[selectionPage].id
+        pages = newPages
+        if (structural) layout(newPages)
+        if (!fitted && width > 0 && newPages.isNotEmpty()) fit(startPage.coerceIn(0, (newPages.size - 1).coerceAtLeast(0)))
+        if (keepSel) {
+            val ids = newPages[selectionPage].items.map { it.id }.toSet()
+            selection = selection.filter { it in ids }.toSet()
+        } else selection = emptySet()
+        clamp()
+        updateMatrix()
+        reportSelection()
+    }
+
+    internal fun updatePage(index: Int, items: List<PageItem>) {
+        val p = pages.getOrNull(index) ?: return
+        pages = pages.toMutableList().also { it[index] = p.copy(items = items) }
+        host.setItems(index, items)
+        layer.invalidate()
+    }
+
+    internal fun updatePages(changes: Map<Int, List<PageItem>>) {
+        pages = pages.toMutableList().apply {
+            changes.forEach { (index, items) -> this[index] = this[index].copy(items = items) }
+        }
+        host.commitPageItemsEdit(changes)
+        layer.invalidate()
+    }
+
+    private fun layout(list: List<Page>) {
+        origins = FloatArray(list.size * 2)
+        val vertical = settings.scroll == ScrollDirection.VERTICAL
+        val maxW = list.maxOfOrNull { it.width } ?: 0f
+        val maxH = list.maxOfOrNull { it.height } ?: 0f
+        var cursor = 0f
+        list.forEachIndexed { i, p ->
+            if (vertical) {
+                origins[i * 2] = (maxW - p.width) / 2f; origins[i * 2 + 1] = cursor; cursor += p.height + gap
+            } else {
+                // Horizontal paging: each page sits in a slot one screen wide at fit size,
+                // so neighbouring pages stay off screen (one page at a time).
+                val fit = horizontalFit(p)
+                val slot = if (width > 0 && fit > 0f) max(p.width + gap, width / fit) else p.width + gap
+                origins[i * 2] = cursor + (slot - p.width) / 2f
+                origins[i * 2 + 1] = (maxH - p.height) / 2f
+                cursor += slot
+            }
+        }
+        if (!vertical) cursor += gap   // layout below subtracts one gap
+        if (vertical) { docW = maxW; docH = max(0f, cursor - gap) } else { docW = max(0f, cursor - gap); docH = maxH }
+    }
+
+    private val tmpRangePts = FloatArray(4)
+
+    /** Binary-search the laid-out page slots with safe overscan so pages never pop or load blank at edges. */
+    internal fun visiblePageRange(): IntRange {
+        if (pages.isEmpty()) return IntRange.EMPTY
+        if (width <= 0 || height <= 0 || origins.size < pages.size * 2) return pages.indices
+        val horizontal = settings.scroll == ScrollDirection.HORIZONTAL
+        tmpRangePts[0] = 0f
+        tmpRangePts[1] = 0f
+        tmpRangePts[2] = width.toFloat()
+        tmpRangePts[3] = height.toFloat()
+        inverse.mapPoints(tmpRangePts)
+        val margin = (96f * density) / scale.coerceAtLeast(0.1f)
+        val low = (if (horizontal) minOf(tmpRangePts[0], tmpRangePts[2]) else minOf(tmpRangePts[1], tmpRangePts[3])) - margin
+        val high = (if (horizontal) maxOf(tmpRangePts[0], tmpRangePts[2]) else maxOf(tmpRangePts[1], tmpRangePts[3])) + margin
+        fun start(i: Int) = if (horizontal) ox(i) else oy(i)
+        fun end(i: Int) = start(i) + if (horizontal) pages[i].width else pages[i].height
+        var l = 0
+        var r = pages.size
+        while (l < r) {
+            val mid = (l + r) ushr 1
+            if (end(mid) < low) l = mid + 1 else r = mid
+        }
+        var first = l
+        r = pages.size
+        while (l < r) {
+            val mid = (l + r) ushr 1
+            if (start(mid) <= high) l = mid + 1 else r = mid
+        }
+        var last = l - 1
+        if (pages.getOrNull(currentIndex)?.isWhiteboard == true) {
+            first = minOf(first, currentIndex)
+            last = maxOf(last, currentIndex)
+        }
+        first = first.coerceIn(0, pages.lastIndex)
+        last = last.coerceIn(0, pages.lastIndex)
+        return if (first <= last) first..last else IntRange.EMPTY
+    }
+    internal fun ox(i: Int) = origins.getOrElse(i * 2) { 0f }
+    internal fun oy(i: Int) = origins.getOrElse(i * 2 + 1) { 0f }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        val keep = if (!fitted) startPage.coerceIn(0, (pages.size - 1).coerceAtLeast(0)) else currentIndex
+        // Horizontal page slots depend on the screen size.
+        if (settings.scroll == ScrollDirection.HORIZONTAL && pages.isNotEmpty()) layout(pages)
+        // Height-only changes (bars hiding, keyboard) must not refit: refitting there could jump to an older page.
+        val page = if (!scroller.isFinished) lastTarget else keep
+        if (pages.isNotEmpty() && (!fitted || w != oldw)) fit(page) else if (settings.scroll == ScrollDirection.HORIZONTAL && pages.isNotEmpty()) { centerOn(page); updateMatrix() } else { clamp(); updateMatrix() }
+    }
+
+    internal fun fitScale(i: Int = currentIndex): Float {
+        val p = pages.getOrNull(i) ?: return 1f
+        val margin = 40f * density
+        return if (settings.scroll == ScrollDirection.VERTICAL) min((width - margin) / p.width, 3f)
+        else horizontalFit(p)
+    }
+
+    /** Space kept free for a floating toolbar at the top or bottom edge. */
+    /** The floating toolbar sits over the page (and fades while you write), so pages use the full height. */
+    private fun toolbarInset(): Float = 0f
+
+    /** Centre pages in the space left by the toolbar (horizontal mode). */
+    private fun toolbarShift(): Float = when (settings.toolbarDock) {
+        com.pronotes.app.data.ToolbarDock.TOP -> toolbarInset() / 2f
+        com.pronotes.app.data.ToolbarDock.BOTTOM -> -toolbarInset() / 2f
+        else -> 0f
+    }
+
+    /** Whole page visible, clear of the floating toolbar. */
+    private fun horizontalFit(p: Page): Float {
+        if (width == 0 || height == 0) return 0f
+        val margin = 32f * density
+        return min((width - margin) / p.width, (height - margin - toolbarInset()) / p.height).coerceAtLeast(0.05f)
+    }
+
+    private fun fit(index: Int) {
+        if (width == 0 || pages.isEmpty()) return
+        scale = fitScale(index)
+        centerOn(index)
+        fitted = true
+        updateMatrix()
+    }
+
+    internal fun centerOn(index: Int) {
+        val p = pages.getOrNull(index) ?: return
+        if (settings.scroll == ScrollDirection.VERTICAL) {
+            transY = -oy(index) * scale + 20f * density
+            transX = (width - docW * scale) / 2f
+        } else {
+            transX = (width - p.width * scale) / 2f - ox(index) * scale
+            transY = (height - docH * scale) / 2f + toolbarShift()
+        }
+        clamp()
+    }
+
+    /** transX that centres page [i] horizontally at the current scale. */
+    internal fun pageCenterX(i: Int): Float {
+        val p = pages.getOrNull(i) ?: return transX
+        return (width - p.width * scale) / 2f - ox(i) * scale
+    }
+
+    internal var lastTarget = 0
+
+    fun scrollToPage(index: Int, animate: Boolean) {
+        if (index !in pages.indices || width == 0) return
+        lastTarget = index
+        val fromX = transX; val fromY = transY
+        centerOn(index)
+        if (animate) {
+            val toX = transX; val toY = transY
+            transX = fromX; transY = fromY
+            scroller.forceFinished(true)
+            scroller.startScroll(fromX.toInt(), fromY.toInt(), (toX - fromX).toInt(), (toY - fromY).toInt(), 420)
+            postInvalidateOnAnimation()
+        } else updateMatrix()
+    }
+
+    /** Smoothly pans & zooms the camera so [rect] (in [pageIndex]'s coordinates) fits cleanly on screen. */
+    fun fitRect(pageIndex: Int, rect: RectF, animate: Boolean = true) {
+        val p = pages.getOrNull(pageIndex) ?: return
+        if (width == 0 || height == 0 || rect.width() <= 1f || rect.height() <= 1f) return
+        zoomAnim?.cancel()
+        scroller.forceFinished(true)
+        val fromS = scale; val fromX = transX; val fromY = transY
+        val padPx = 48f * density
+        val availW = (width - padPx * 2f).coerceAtLeast(120f)
+        val availH = (height - padPx * 2f).coerceAtLeast(120f)
+        val targetScale = min(availW / rect.width(), availH / rect.height()).coerceIn(fitScale(pageIndex) * 0.6f, 3.2f)
+        val docCenterX = ox(pageIndex) + rect.centerX()
+        val docCenterY = oy(pageIndex) + rect.centerY()
+        scale = targetScale
+        transX = width / 2f - docCenterX * scale
+        transY = height / 2f - docCenterY * scale
+        if (!p.isWhiteboard) clamp()
+        val toS = scale; val toX = transX; val toY = transY
+        if (!animate) { updateMatrix(); return }
+        scale = fromS; transX = fromX; transY = fromY
+        zoomAnim = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 320; interpolator = DecelerateInterpolator()
+            addUpdateListener {
+                val t = it.animatedValue as Float
+                scale = fromS + (toS - fromS) * t
+                transX = fromX + (toX - fromX) * t
+                transY = fromY + (toY - fromY) * t
+                updateMatrix()
+            }
+            start()
+        }
+    }
+
+    internal val isWhiteboard: Boolean
+        get() = pages.getOrNull(currentIndex)?.isWhiteboard == true
+
+    internal fun clamp(allowPull: Boolean = false) {
+        if (isWhiteboard) {
+            pull = 0f
+            return
+        }
+        val pad = 24f * density
+        val cw = docW * scale; val ch = docH * scale
+        val vertical = settings.scroll == ScrollDirection.VERTICAL
+        val maxPull = if (allowPull && (settings.pullToAddPage || (mode == Mode.MOVE && grab == Grab.MOVE))) 180f * density else 0f
+        // X axis
+        val restX = if (cw <= width) (width - cw) / 2f else width - cw - pad
+        val maxX = if (cw <= width) restX else pad
+        transX = transX.coerceIn(restX - if (!vertical) maxPull else 0f, maxX)
+        // Y axis
+        val restY = if (ch <= height && !vertical) (height - ch) / 2f + toolbarShift() else min(height - ch - pad, pad)
+        val maxY = if (ch <= height && !vertical) restY else pad
+        transY = transY.coerceIn(restY - if (vertical) maxPull else 0f, maxY)
+        pull = if (!allowPull) 0f else if (vertical) max(0f, restY - transY) else max(0f, restX - transX)
+    }
+
+    private val detailRunnable = Runnable { askForDetailNow() }
+
+    internal fun updateMatrix() {
+        viewMatrix.reset()
+        viewMatrix.postScale(scale, scale)
+        viewMatrix.postTranslate(transX, transY)
+        viewMatrix.invert(inverse)
+        val idx = computeCurrent()
+        if (pages.isNotEmpty() && idx != currentIndex) {
+            currentIndex = idx; host.onCurrentPage(idx)
+            if (settings.scroll == ScrollDirection.HORIZONTAL) { syncFeel(); feel.cue(PaperFeel.Cue.PAGE) }
+        }
+        layer.invalidate()
+        if (selection.isNotEmpty()) reportSelection()
+        // Debounce PDF detail requests so scrolling/flinging never cancels & spawns coroutines every frame.
+        removeCallbacks(detailRunnable)
+        postDelayed(detailRunnable, 150L)
+    }
+
+    private val detailViewRect = RectF()
+    private val detailPageRect = RectF()
+    private val detailInvMatrix = Matrix()
+    private val detailPageMatrix = Matrix()
+    private val tmpCurrentPt = FloatArray(2)
+
+    /** Asks for sharp detail of the PDF pages on screen when zoomed past what the base bitmap holds. */
+    private fun askForDetailNow() {
+        if (width == 0 || pages.isEmpty()) return
+        val vis = visiblePageRange()
+        if (vis.isEmpty()) return
+        var hasPdf = false
+        for (i in vis) {
+            if (pages[i].pdfPage >= 0) {
+                hasPdf = true
+                break
+            }
+        }
+        if (!hasPdf) return
+        val wants = ArrayList<Triple<Int, RectF, Float>>(2)
+        detailViewRect.set(0f, 0f, width.toFloat(), height.toFloat())
+        for (i in vis) {
+            val p = pages[i]
+            if (p.pdfPage < 0 || p.width * scale < 1700f) continue
+            val pm = pageMatrix(i, detailPageMatrix)
+            detailPageRect.set(0f, 0f, p.width, p.height)
+            pm.mapRect(detailPageRect)
+            if (!RectF.intersects(detailPageRect, detailViewRect)) continue
+            pm.invert(detailInvMatrix)
+            val local = RectF(detailViewRect)
+            detailInvMatrix.mapRect(local)
+            local.inset(-local.width() * 0.08f, -local.height() * 0.08f)
+            if (!local.intersect(0f, 0f, p.width, p.height)) continue
+            wants += Triple(i, local, scale)
+        }
+        host.requestDetail(wants) { layer.postInvalidate() }
+    }
+
+    private fun computeCurrent(): Int {
+        val count = pages.size
+        if (count == 0) return 0
+        if (count == 1) return 0
+        tmpCurrentPt[0] = width * 0.5f
+        tmpCurrentPt[1] = height * 0.5f
+        inverse.mapPoints(tmpCurrentPt)
+        val vertical = settings.scroll == ScrollDirection.VERTICAL
+        val target = if (vertical) tmpCurrentPt[1] else tmpCurrentPt[0]
+        // Binary search nearest page center along the monotonic scroll axis (O(log N), zero allocations).
+        var lo = 0
+        var hi = count - 1
+        while (lo < hi) {
+            val mid = (lo + hi) ushr 1
+            val p = pages[mid]
+            val c = if (vertical) oy(mid) + p.height * 0.5f else ox(mid) + p.width * 0.5f
+            if (c < target) lo = mid + 1 else hi = mid
+        }
+        if (lo > 0) {
+            val pA = pages[lo - 1]
+            val pB = pages[lo]
+            val dA = abs((if (vertical) oy(lo - 1) + pA.height * 0.5f else ox(lo - 1) + pA.width * 0.5f) - target)
+            val dB = abs((if (vertical) oy(lo) + pB.height * 0.5f else ox(lo) + pB.width * 0.5f) - target)
+            if (dA < dB) return lo - 1
+        }
+        return lo
+    }
+
+    override fun computeScroll() {
+        if (scroller.computeScrollOffset()) {
+            transX = scroller.currX.toFloat(); transY = scroller.currY.toFloat()
+            clamp(); updateMatrix()
+            postInvalidateOnAnimation()
+        }
+    }
+
+    internal fun toDoc(x: Float, y: Float): Pt {
+        val a = floatArrayOf(x, y)
+        inverse.mapPoints(a)
+        return a[0] to a[1]
+    }
+
+    internal fun pageAt(dx: Float, dy: Float): Int {
+        if (pages.isEmpty()) return -1
+        val vertical = settings.scroll == ScrollDirection.VERTICAL
+        pages.forEachIndexed { i, p ->
+            if (dx >= ox(i) && dx <= ox(i) + p.width && dy >= oy(i) && dy <= oy(i) + p.height) return i
+        }
+        // Between pages: pick the nearest along the scroll axis.
+        var best = 0; var bestD = Float.MAX_VALUE
+        pages.forEachIndexed { i, p ->
+            val d = if (vertical) abs(dy - (oy(i) + p.height / 2f)) else abs(dx - (ox(i) + p.width / 2f))
+            if (d < bestD) { bestD = d; best = i }
+        }
+        return best
+    }
+
+    internal fun toLocal(x: Float, y: Float, page: Int): Pt {
+        val (dx, dy) = toDoc(x, y)
+        return (dx - ox(page)) to (dy - oy(page))
+    }
+
+    fun screenToPage(sx: Float, sy: Float): Triple<Int, Float, Float> {
+        val (dx, dy) = toDoc(sx, sy)
+        val pi = pageAt(dx, dy)
+        val (lx, ly) = toLocal(sx, sy, pi)
+        return Triple(pi, lx, ly)
+    }
+
+    internal fun pageMatrix(page: Int, out: Matrix): Matrix {
+        out.set(viewMatrix); out.preTranslate(ox(page), oy(page)); return out
+    }
+
+    // ------------------------------------------------------------------ input
+
+    internal enum class Mode { NONE, INK, ERASE, LASSO, MOVE, LASER, PAN, TAP, SHAPE_DRAG, TAPE, MIND_DRAG, WRITE_BOX_DRAG, STICKY_DRAG, IGNORE }
+
+    private var pendingConvertPage = -1
+    private var pendingConvertBoxId = -1L
+    private val autoConvertRunnable = Runnable {
+        val p = pendingConvertPage
+        val bid = pendingConvertBoxId
+        if (p >= 0 && bid != -1L) {
+            host.onAutoConvertWriteBox(p, bid)
+        }
+    }
+
+    private fun scheduleAutoConvert(page: Int, boxId: Long) {
+        removeCallbacks(autoConvertRunnable)
+        pendingConvertPage = page
+        pendingConvertBoxId = boxId
+        postDelayed(autoConvertRunnable, 900L)
+    }
+
+    private var lastTouchEvent: MotionEvent? = null
+    private fun recordLastTouchEvent(e: MotionEvent) {
+        lastTouchEvent?.recycle()
+        lastTouchEvent = MotionEvent.obtain(e)
+    }
+
+    private fun holdSlopPx(): Float = max(effectiveTouchSlop, gestureConfig.holdSlopDp * density / settings.touchSensitivity.coerceIn(0.5f, 1.8f))
+
+    internal var mode = Mode.NONE
+    private var activePointer = -1
+    internal var activePage = 0
+    private var strokeId: InProgressStrokeId? = null
+    private var strokeTool = Tool.PEN
+    private val points = ArrayList<Pt>()       // page-local points of the current gesture
+    private val lassoPoints = ArrayList<Pt>()  // screen points
+    internal var lastErase: Pt? = null
+    private var dragMindId: Long = -1L
+    private var dragMindOrigX = 0f
+    private var dragMindOrigY = 0f
+    private var dragMindOrigPos: Map<Long, Pair<Float, Float>> = emptyMap()
+    private var dragMindOrigPage = 0
+    private var dragMindMoved = false
+    private var dragMindDownWx = 0f
+    private var dragMindDownWy = 0f
+    // Hold-to-move state for collapsed (closed) sticky note icons
+    internal var dragStickyId: Long = -1L
+    internal var dragStickyPage: Int = -1
+    internal var dragStickyOrigX = 0f
+    internal var dragStickyOrigY = 0f
+    internal var dragStickyDownWx = 0f
+    internal var dragStickyDownWy = 0f
+    internal var dragStickyActive = false
+    internal var dragStickyFromFinger = false
+    internal var dragStickyWasExpanded = false
+    internal var dragStickyAttachedIds: Set<Long> = emptySet()
+    internal val stickyHoldRunnable = Runnable {
+        val sticky = draggedSticky() ?: return@Runnable
+        if (sticky.pinned) return@Runnable
+        captureStickyAttachments()
+        dragStickyActive = true
+        mode = Mode.STICKY_DRAG
+        buzz(HapticFeedbackConstants.LONG_PRESS)
+        host.beginEdit(dragStickyPage)
+        layer.invalidate()
+    }
+    private fun draggedSticky(): StickyItem? =
+        pages.getOrNull(dragStickyPage)?.items?.firstOrNull { it.id == dragStickyId } as? StickyItem
+
+    private fun captureStickyAttachments() {
+        val page = pages.getOrNull(dragStickyPage) ?: return
+        val sticky = draggedSticky() ?: return
+        val paper = sticky.paperBounds
+        dragStickyAttachedIds = page.items.filter { item ->
+            if (item !is InkItem && item !is TextItem) return@filter false
+            val bounds = item.bounds
+            paper.contains(bounds.centerX(), bounds.centerY())
+        }.map { it.id }.toSet()
+    }
+    internal fun moveDraggedSticky(screenX: Float, screenY: Float) {
+        val p = pages.getOrNull(dragStickyPage) ?: return
+        val sticky = draggedSticky() ?: return
+        if (sticky.pinned) return
+        val (wx, wy) = toLocal(screenX, screenY, dragStickyPage)
+        val dx = wx - dragStickyDownWx
+        val dy = wy - dragStickyDownWy
+        val bw = sticky.bounds.width()
+        val bh = sticky.bounds.height()
+        val nx = (dragStickyOrigX + dx).coerceIn(16f, (p.width - bw - 16f).coerceAtLeast(16f))
+        val ny = (dragStickyOrigY + dy).coerceIn(16f, (p.height - bh - 16f).coerceAtLeast(16f))
+        val stepDx = nx - sticky.x
+        val stepDy = ny - sticky.y
+        val updated = p.items.map { item ->
+            when {
+                item is StickyItem && item.id == dragStickyId -> item.copy(x = nx, y = ny)
+                item.id in dragStickyAttachedIds -> item.translated(stepDx, stepDy)
+                else -> item
+            }
+        }
+        pages = pages.toMutableList().also { it[dragStickyPage] = p.copy(items = updated) }
+        layer.invalidate()
+    }
+    internal fun clearStickyDrag() {
+        removeCallbacks(stickyHoldRunnable)
+        dragStickyId = -1L
+        dragStickyPage = -1
+        dragStickyActive = false
+        dragStickyFromFinger = false
+        dragStickyAttachedIds = emptySet()
+        dragStickyWasExpanded = false
+    }
+    private var holdFired = false
+    private var lastMovePt: Pt? = null
+    private var downTime = 0L
+    private var downX = 0f
+    private var downY = 0f
+    private var sawStylus = false
+
+    // finger gesture state
+    internal var panLastX = 0f
+    internal var panLastY = 0f
+    internal var pinchStartDist = 0f
+    internal var pinchStartScale = 1f
+    /** True once two fingers zoomed in this gesture: then no page turning and no fling. */
+    internal var pinched = false
+    /** Fit size of the page the gesture started on, fixed for the whole pinch. */
+    internal var gestureFit = 1f
+    internal var maxFingers = 0
+    internal var fingerDownTime = 0L
+    internal var fingerMoved = false
+    internal var fingerStartX = 0f
+    internal var fingerStartY = 0f
+
+    private val holdRunnable = Runnable { onHold() }
+
+    override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean = true
+
+    private var stylusPointer = -1          // pointer id of the pen while it touches the screen
+    internal var touchActive = false
+    internal var pageAtGestureStart = 0
+    private var lastStylusTime = 0L
+    private var stylusHovering = false
+    private var lastHoverButtonHeldAt = 0L
+    private var ignoreFingers = false       // swallow the rest of a palm / finger gesture
+    internal var lastTapTime = 0L
+    internal var lastTapX = 0f
+    internal var lastTapY = 0f
+    private var lastPenTapAt = 0L
+    private var lastPenTapX = 0f
+    private var lastPenTapY = 0f
+    private var lastPenTapPage = -1
+    private var penTapCount = 0
+
+    private fun isPen(type: Int) = type == MotionEvent.TOOL_TYPE_STYLUS || type == MotionEvent.TOOL_TYPE_ERASER
+
+    internal var fingerContactPointer = -1
+    private var fingerGrabPointer = -1
+    private var selectionScrollPointer = -1
+    private var selectionScrollX = 0f
+    private var selectionScrollY = 0f
+    private var selectionScrollStarted = false
+
+    internal var dragScreenX = 0f
+    internal var dragScreenY = 0f
+    private var edgeScrollActive = false
+    private var edgeScrollLastMs = 0L
+    private var edgeEndHoldMs = 0L
+
+    private val edgeScrollRunnable = object : Runnable {
+        override fun run() {
+            if (!edgeScrollActive || mode != Mode.MOVE || grab != Grab.MOVE) {
+                edgeScrollActive = false
+                return
+            }
+            if (selectionScrollPointer == -1 && width > 0 && height > 0) {
+                val now = SystemClock.uptimeMillis()
+                val dt = ((now - edgeScrollLastMs).coerceIn(1L, 48L)) / 16.667f
+                edgeScrollLastMs = now
+                val edge = 88f * density
+                val vertical = settings.scroll == ScrollDirection.VERTICAL
+                var dtx = 0f
+                var dty = 0f
+                if (vertical || isWhiteboard) {
+                    if (dragScreenY < edge) {
+                        val t = ((edge - dragScreenY) / edge).coerceIn(0f, 1f)
+                        dty = (5f + 22f * t * t) * density * dt
+                    } else if (dragScreenY > height - edge) {
+                        val t = ((dragScreenY - (height - edge)) / edge).coerceIn(0f, 1f)
+                        dty = -(5f + 22f * t * t) * density * dt
+                    }
+                }
+                if (!vertical || isWhiteboard) {
+                    if (dragScreenX < edge) {
+                        val t = ((edge - dragScreenX) / edge).coerceIn(0f, 1f)
+                        dtx = (5f + 24f * t * t) * density * dt
+                    } else if (dragScreenX > width - edge) {
+                        val t = ((dragScreenX - (width - edge)) / edge).coerceIn(0f, 1f)
+                        dtx = -(5f + 24f * t * t) * density * dt
+                    }
+                }
+                if (dtx != 0f || dty != 0f) {
+                    val prevX = transX
+                    val prevY = transY
+                    transX += dtx
+                    transY += dty
+                    val pullingForward = (vertical && dty < 0f) || (!vertical && dtx < 0f)
+                    clamp(allowPull = pullingForward && !isWhiteboard)
+                    if (pullingForward && !isWhiteboard && pull >= pullTrigger * 0.65f) {
+                        edgeEndHoldMs += (dt * 16.667f).toLong()
+                        if (edgeEndHoldMs >= 380L) {
+                            edgeEndHoldMs = 0L
+                            host.onAddPageForDrop()
+                            buzz(HapticFeedbackConstants.CLOCK_TICK)
+                            clamp(allowPull = false)
+                        }
+                    } else {
+                        edgeEndHoldMs = 0L
+                    }
+                    if (transX != prevX || transY != prevY) {
+                        updateMatrix()
+                        val (wx, wy) = toLocal(dragScreenX, dragScreenY, selectionPage)
+                        updateGrab(wx, wy, scrollAtEdge = false)
+                        layer.invalidate()
+                        reportSelection()
+                    }
+                } else {
+                    edgeEndHoldMs = 0L
+                }
+            } else {
+                edgeScrollLastMs = SystemClock.uptimeMillis()
+            }
+            if (edgeScrollActive) postOnAnimation(this)
+        }
+    }
+
+    internal fun startEdgeScroll(sx: Float, sy: Float) {
+        dragScreenX = sx
+        dragScreenY = sy
+        edgeEndHoldMs = 0L
+        if (!edgeScrollActive) {
+            edgeScrollActive = true
+            edgeScrollLastMs = SystemClock.uptimeMillis()
+            removeCallbacks(edgeScrollRunnable)
+            postOnAnimation(edgeScrollRunnable)
+        }
+    }
+
+    internal fun stopEdgeScroll() {
+        edgeScrollActive = false
+        edgeEndHoldMs = 0L
+        removeCallbacks(edgeScrollRunnable)
+    }
+
+    private fun scrollWhileHoldingSelection(event: MotionEvent, action: Int, holder: Int): Boolean {
+        if (mode != Mode.MOVE || grab != Grab.MOVE) return false
+        if (action == MotionEvent.ACTION_POINTER_DOWN && selectionScrollPointer == -1) {
+            val i = event.actionIndex
+            val palm = settings.palmRejection && event.getTouchMajor(i) > 36f * density
+            if (!palm && event.getToolType(i) == MotionEvent.TOOL_TYPE_FINGER && event.getPointerId(i) != holder) {
+                selectionScrollPointer = event.getPointerId(i)
+                selectionScrollX = event.getX(i)
+                selectionScrollY = event.getY(i)
+                selectionScrollStarted = false
+                scroller.forceFinished(true)
+            }
+        }
+        if (action == MotionEvent.ACTION_POINTER_UP && event.getPointerId(event.actionIndex) == selectionScrollPointer) {
+            selectionScrollPointer = -1
+            val hIdx = event.findPointerIndex(holder)
+            if (hIdx >= 0) {
+                dragScreenX = event.getX(hIdx)
+                dragScreenY = event.getY(hIdx)
+                val (wx, wy) = toLocal(dragScreenX, dragScreenY, selectionPage)
+                updateGrab(wx, wy, scrollAtEdge = false)
+                layer.invalidate()
+                reportSelection()
+            }
+            return true
+        }
+        val i = event.findPointerIndex(selectionScrollPointer)
+        if (action != MotionEvent.ACTION_MOVE || i < 0) return i >= 0
+        val x = event.getX(i)
+        val y = event.getY(i)
+        val dx = x - selectionScrollX
+        val dy = y - selectionScrollY
+        if (selectionScrollStarted || hypot(dx, dy) > effectiveTouchSlop) {
+            selectionScrollStarted = true
+            if (isWhiteboard || settings.scroll == ScrollDirection.HORIZONTAL) transX += dx
+            if (isWhiteboard || settings.scroll == ScrollDirection.VERTICAL) transY += dy
+            selectionScrollX = x
+            selectionScrollY = y
+            clamp(allowPull = !isWhiteboard)
+            updateMatrix()
+            val hIdx = event.findPointerIndex(holder)
+            if (hIdx >= 0) {
+                dragScreenX = event.getX(hIdx)
+                dragScreenY = event.getY(hIdx)
+                val (wx, wy) = toLocal(dragScreenX, dragScreenY, selectionPage)
+                updateGrab(wx, wy, scrollAtEdge = false)
+                layer.invalidate()
+                reportSelection()
+            }
+        }
+        return true
+    }
+
+    /**
+     * Routing rules:
+     *  1. The pen always wins. If a palm is already on the glass when the pen lands,
+     *     the palm gesture is dropped and the pen draws.
+     *  2. While the pen is down, fingers can scroll only during an active selection move.
+     *  3. Fingers only draw when "Draw with stylus only" is off. Otherwise they scroll and zoom.
+     *  4. Palm rejection: a finger that lands right after the pen was near is ignored.
+     */
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        recordLastTouchEvent(event)
+        predictor.record(event)
+        val action = normalizeStylusAction(event)
+        val now = SystemClock.uptimeMillis()
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                touchActive = true
+                // A swipe that starts while a page turn is still animating counts from its target page.
+                pageAtGestureStart = if (!scroller.isFinished) lastTarget else currentIndex
+                layer.invalidate()
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> touchActive = false
+        }
+        // Ink link badges answer any finger or pen, even in read-only mode.
+        if (event.actionMasked == MotionEvent.ACTION_DOWN && !capturing && !linkPicking) {
+            linkAt(event.x, event.y)?.let { hit ->
+                linkPress = hit; linkLongFired = false; linkPressX = event.x; linkPressY = event.y
+                postDelayed(linkLongRunnable, 600)
+                return true
+            }
+        }
+        linkPress?.let { lp ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_MOVE -> if (hypot(event.x - linkPressX, event.y - linkPressY) > effectiveTouchSlop * 5) { removeCallbacks(linkLongRunnable); linkPress = null }
+                MotionEvent.ACTION_UP -> { removeCallbacks(linkLongRunnable); linkPress = null; if (!linkLongFired) jumpTo(lp) }
+                MotionEvent.ACTION_CANCEL -> { removeCallbacks(linkLongRunnable); linkPress = null }
+            }
+            return true
+        }
+        if (readOnly) { handleFingers(event, action); return true }
+        val penIndex = (0 until event.pointerCount).firstOrNull { isPen(event.getToolType(it)) }
+        if (penIndex != null) { sawStylus = true; lastStylusTime = now; lastPenTouchAt = now }
+        if (action == MotionEvent.ACTION_POINTER_DOWN) removeCallbacks(penEmptyPressRunnable)
+        if (fingerGrabPointer != -1) {
+            val holder = fingerGrabPointer
+            val index = event.findPointerIndex(holder)
+            when {
+                action == MotionEvent.ACTION_CANCEL || index < 0 -> cancelCurrent(event)
+                action == MotionEvent.ACTION_UP || (action == MotionEvent.ACTION_POINTER_UP && event.actionIndex == index) -> {
+                    if ((event.flags and MotionEvent.FLAG_CANCELED) != 0) cancelCurrent(event)
+                    else handleDraw(event, MotionEvent.ACTION_UP, holder)
+                    ignoreFingers = action == MotionEvent.ACTION_POINTER_UP
+                }
+                else -> {
+                    val scrolling = scrollWhileHoldingSelection(event, action, holder)
+                    if (action == MotionEvent.ACTION_MOVE) handleDraw(event, action, holder, scrollAtEdge = !scrolling)
+                }
+            }
+            return true
+        }
+
+        // --- pen
+        if (stylusPointer == -1 && penIndex != null) {
+            val landing = action == MotionEvent.ACTION_DOWN ||
+                (action == MotionEvent.ACTION_POINTER_DOWN && isPen(event.getToolType(event.actionIndex)))
+            if (landing) {
+                // The hover preview must never stay behind as a ghost dot once the pen touches.
+                clearHover()
+                // Each pen keeps its own settings.
+                penSide = event.device?.name?.let { host.penProfile(it).sideButton }
+                if (settings.penHaptics) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                host.onTextClear()
+                host.onPenActive(true)
+                if (mode == Mode.PAN) endPan() else if (mode != Mode.NONE) cancelCurrent(event)
+                stylusPointer = event.getPointerId(if (action == MotionEvent.ACTION_DOWN) 0 else event.actionIndex)
+                handleDraw(event, MotionEvent.ACTION_DOWN, stylusPointer)
+                return true
+            }
+        }
+        if (stylusPointer != -1) {
+            val sIdx = event.findPointerIndex(stylusPointer)
+            when {
+                action == MotionEvent.ACTION_CANCEL -> {
+                    touchActive = false
+                    cancelCurrent(event)
+                    stylusPointer = -1
+                    ignoreFingers = event.pointerCount > 1
+                    host.onPenActive(false)
+                }
+                sIdx < 0 -> {
+                    touchActive = false
+                    cancelCurrent(event)
+                    stylusPointer = -1
+                    host.onPenActive(false)
+                }
+                action == MotionEvent.ACTION_UP || (action == MotionEvent.ACTION_POINTER_UP && event.actionIndex == sIdx) -> {
+                    touchActive = false
+                    host.onPenActive(false)
+                    handleDraw(event, MotionEvent.ACTION_UP, stylusPointer)
+                    stylusPointer = -1
+                    ignoreFingers = action == MotionEvent.ACTION_POINTER_UP
+                }
+                else -> {
+                    val scrolling = scrollWhileHoldingSelection(event, action, stylusPointer)
+                    if (action == MotionEvent.ACTION_MOVE) handleDraw(event, action, stylusPointer, scrollAtEdge = !scrolling)
+                }
+            }
+            return true
+        }
+
+        // --- fingers
+        if ((event.flags and MotionEvent.FLAG_CANCELED) != 0 &&
+            (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP || action == MotionEvent.ACTION_CANCEL)
+        ) {
+            cancelCurrent(event)
+            if (mode == Mode.PAN) endPan()
+            ignoreFingers = true
+            return true
+        }
+        val palmMs = (850L / settings.touchSensitivity.coerceIn(0.4f, 2.0f)).toLong()
+        if (action == MotionEvent.ACTION_DOWN) {
+            val isLargePalm = event.getTouchMajor(0) > 26f * density || event.getSize(0) > 0.08f
+            ignoreFingers = settings.palmRejection && sawStylus && isLargePalm && (
+                stylusHovering ||
+                    (now - lastStylusTime < palmMs) ||
+                    (isLargePalm && now - lastStylusTime < 2500L)
+                )
+        }
+        if (action == MotionEvent.ACTION_POINTER_DOWN && !ignoreFingers && settings.palmRejection && sawStylus) {
+            val idx = event.actionIndex
+            val isLargePalm = event.getTouchMajor(idx) > 26f * density || event.getSize(idx) > 0.08f
+            if (isLargePalm && (stylusHovering || now - lastStylusTime < 2000L)) {
+                return true
+            }
+        }
+        if (ignoreFingers) {
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) ignoreFingers = false
+            return true
+        }
+        if (action == MotionEvent.ACTION_DOWN && !capturing && !linkPicking && selection.isNotEmpty() && beginGrab(event.x, event.y)) {
+            scroller.forceFinished(true)
+            fingerGrabPointer = event.getPointerId(0)
+            activePointer = fingerGrabPointer
+            return true
+        }
+        if ((capturing || linkPicking) && event.pointerCount == 1 && mode != Mode.PAN) {
+            handleDraw(event, action, event.getPointerId(0))
+            return true
+        }
+        val fingerDraws = !settings.stylusOnly
+        if (fingerDraws && mode != Mode.PAN) {
+            if (event.pointerCount == 1) {
+                if (action == MotionEvent.ACTION_DOWN) host.onPenActive(true)
+                if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) host.onPenActive(false)
+                handleDraw(event, action, event.getPointerId(0))
+                return true
+            }
+            // A second finger while finger-drawing: switch to scroll / zoom.
+            host.onPenActive(false)
+            cancelCurrent(event)
+            mode = Mode.PAN
+            handleFingers(event, MotionEvent.ACTION_POINTER_DOWN)
+            return true
+        }
+        if (action == MotionEvent.ACTION_DOWN) requestUnbufferedDispatch(event)
+        handleFingers(event, action)
+        return true
+    }
+
+    private fun endPan() {
+        mode = Mode.NONE
+        maxFingers = 0; fingerDownTime = 0L; pinchStartDist = 0f; pull = 0f
+        velocity?.recycle(); velocity = null
+        host.onZoom(null)
+        clamp(); updateMatrix()
+    }
+
+    internal fun buzz(kind: Int = HapticFeedbackConstants.LONG_PRESS) {
+        if (settings.haptics) performHapticFeedback(kind)
+    }
+
+    /** Legacy S Pen firmware reports button-held events with custom action codes 211-214. */
+    private fun normalizeStylusAction(e: MotionEvent): Int = when (e.actionMasked) {
+        211 -> MotionEvent.ACTION_DOWN
+        212 -> MotionEvent.ACTION_UP
+        213 -> MotionEvent.ACTION_MOVE
+        214 -> MotionEvent.ACTION_CANCEL
+        else -> e.actionMasked
+    }
+
+    private fun sideButtonHeld(e: MotionEvent): Boolean {
+        if (e.actionMasked in 211..214) return true
+        val bs = e.buttonState
+        if (bs and (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_STYLUS_SECONDARY or MotionEvent.BUTTON_SECONDARY) != 0) return true
+        if (e.actionButton == MotionEvent.BUTTON_STYLUS_PRIMARY || e.actionButton == MotionEvent.BUTTON_STYLUS_SECONDARY) {
+            return e.actionMasked == MotionEvent.ACTION_BUTTON_PRESS || e.actionMasked == MotionEvent.ACTION_DOWN
+        }
+        return false
+    }
+
+    private fun effectiveTool(e: MotionEvent, index: Int = 0): Tool {
+        if (e.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER) return Tool.ERASER
+        val heldNow = sideButtonHeld(e) ||
+            (e.actionMasked == MotionEvent.ACTION_DOWN && SystemClock.uptimeMillis() - lastHoverButtonHeldAt < 95L)
+        if (heldNow) {
+            when (penSide ?: settings.sideButton) {
+                SideButton.ERASER -> return Tool.ERASER
+                SideButton.LASSO -> return Tool.LASSO
+                SideButton.NONE -> Unit
+            }
+        }
+        return tool
+    }
+
+
+    private fun beginDrawDown(e: MotionEvent, pIdx: Int, pid: Int, px: Float, py: Float) {
+        val (ddx, ddy) = toDoc(px, py)
+        activePage = pageAt(ddx, ddy)
+        points.clear()
+        holdFired = false
+        downTime = SystemClock.uptimeMillis(); downX = px; downY = py
+        val (wx, wy) = toLocal(px, py, activePage)
+        points += wx to wy
+        lastMovePt = wx to wy
+        val t = effectiveTool(e, pIdx)
+        strokeTool = t
+        if (capturing) {
+            mode = Mode.LASSO; capturingDrag = true
+            lassoPoints.clear(); lassoPoints += px to py
+            layer.lasso = lassoPoints; layer.startAnts()
+            return
+        }
+        if (linkPicking) { mode = Mode.IGNORE; host.onLinkTarget(activePage, wx, wy); return }
+
+        // Handles resize / rotate; touching inside the selection moves it, whatever the tool.
+        if (selection.isNotEmpty() && t != Tool.ERASER && beginGrab(px, py)) return
+        if (selection.isNotEmpty()) {
+            val wasCircle = circleSelect
+            clearSelection()
+            // After circle-to-select, a tap outside just lets go and goes back to the pen.
+            if (wasCircle) { mode = Mode.IGNORE; return }
+        }
+
+        // Collapsed sticky messaging icon: quick tap expands, press & hold (~280ms) drags to move it!
+        // Expanded sticky: top-right collapse pill folds, adjacent edit pill opens Sticky Studio,
+        // and dragging the header bar smoothly repositions unpinned sticky notes.
+        if (t in setOf(Tool.PEN, Tool.CRAYON, Tool.AUTO_TEXT, Tool.STICKY, Tool.TEXT, Tool.HIGHLIGHTER)) {
+            val hitSticky = pages.getOrNull(activePage)?.items?.filterIsInstance<StickyItem>()
+                ?.lastOrNull { s ->
+                    if (s.collapsed) s.raw.contains(wx, wy)
+                    else s.raw.contains(wx, wy) && wy <= s.raw.top + 42f
+                }
+            if (hitSticky != null) {
+                if (hitSticky.collapsed) {
+                    clearStickyDrag()
+                    dragStickyId = hitSticky.id
+                    dragStickyPage = activePage
+                    dragStickyOrigX = hitSticky.x
+                    dragStickyOrigY = hitSticky.y
+                    dragStickyDownWx = wx
+                    dragStickyDownWy = wy
+                    dragStickyActive = false
+                    dragStickyFromFinger = false
+                    dragStickyWasExpanded = false
+                    mode = Mode.STICKY_DRAG
+                    postDelayed(stickyHoldRunnable, 280L)
+                    return
+                } else if (wx >= hitSticky.raw.right - 46f) {
+                    buzz(HapticFeedbackConstants.CLOCK_TICK)
+                    host.onStickyToggleCollapse(activePage, hitSticky)
+                    mode = Mode.IGNORE
+                    return
+                } else if (wx >= hitSticky.raw.right - 84f) {
+                    buzz(HapticFeedbackConstants.CLOCK_TICK)
+                    host.onStickyTap(activePage, wx, wy, hitSticky)
+                    mode = Mode.IGNORE
+                    return
+                } else if (!hitSticky.pinned) {
+                    // Header bar drag to reposition an expanded sticky note cleanly without stray ink dots.
+                    clearStickyDrag()
+                    dragStickyId = hitSticky.id
+                    dragStickyPage = activePage
+                    dragStickyOrigX = hitSticky.x
+                    dragStickyOrigY = hitSticky.y
+                    dragStickyDownWx = wx
+                    dragStickyDownWy = wy
+                    dragStickyActive = false
+                    dragStickyFromFinger = false
+                    dragStickyWasExpanded = true
+                    mode = Mode.STICKY_DRAG
+                    return
+                }
+            }
+        }
+
+        when (t) {
+            Tool.PEN, Tool.CRAYON, Tool.HIGHLIGHTER, Tool.AUTO_TEXT -> {
+                if (t == Tool.PEN || t == Tool.CRAYON) {
+                    val hitBox = pages.getOrNull(activePage)?.items?.filterIsInstance<WriteBoxItem>()?.lastOrNull { it.raw.contains(wx, wy) }
+                    if (hitBox != null) {
+                        removeCallbacks(autoConvertRunnable)
+                        host.onSelectWriteBox(activePage, hitBox.id)
+                    }
+                }
+                if (settings.toolDefaults.alignGuideLine && (t == Tool.AUTO_TEXT || (t == Tool.PEN && (settings.toolDefaults.alignHandwriting || settings.toolDefaults.autoHandwriting)))) {
+                    val curP = pages.getOrNull(activePage)
+                    if (curP != null) {
+                        val sameLine = layer.guideLinePage == activePage && abs((wy + 20f) - layer.guideLineY) < 42f
+                        layer.guideLinePage = activePage
+                        layer.guideLineX = wx
+                        if (!sameLine) {
+                            layer.guideLineY = snapGuideBaselineY(curP, wy + 22f)
+                        }
+                        layer.invalidate()
+                    }
+                }
+                startInk(e, pid, t)
+            }
+            Tool.SHAPE -> if (host.shapeKind() == ShapeKind.AUTO) startInk(e, pid, t) else {
+                mode = Mode.SHAPE_DRAG
+                layer.shapePreview = null
+            }
+            Tool.ERASER -> {
+                mode = Mode.ERASE
+                syncFeel(); feelX = px; feelY = py; feelT = e.eventTime
+                feel.start(PaperFeel.Texture.ERASER)
+                host.beginEdit(activePage)
+                lastErase = wx to wy
+                eraseAt(wx, wy)
+                layer.eraserAt = px to py
+            }
+            Tool.LASSO -> {
+                mode = Mode.LASSO
+                lassoPoints.clear(); lassoPoints += px to py
+                layer.lasso = lassoPoints
+                layer.startAnts()
+            }
+            Tool.LASER -> {
+                mode = Mode.LASER
+                layer.laserBegin(toDoc(px, py))
+            }
+            Tool.TAPE -> { mode = Mode.TAPE; layer.tapePreview = null }
+            Tool.MINDMAP -> {
+                val p = pages.getOrNull(activePage)
+                val allItems = p?.items ?: emptyList()
+                val hidden = renderer?.hiddenMindNodeIds(allItems) ?: emptySet()
+                val hit = allItems.lastOrNull { it is MindNodeItem && it.id !in hidden && it.bounds.contains(wx, wy) } as MindNodeItem?
+                if (hit != null) {
+                    dragMindId = hit.id
+                    dragMindOrigX = hit.x
+                    dragMindOrigY = hit.y
+                    dragMindOrigPage = activePage
+                    dragMindMoved = false
+                    dragMindDownWx = wx
+                    dragMindDownWy = wy
+                    dragMindOrigPos = if (moveMindSubtree) {
+                        val subIds = HashSet<Long>().apply { add(hit.id) }
+                        var added = true
+                        while (added) {
+                            added = false
+                            for (it in allItems) {
+                                if (it is MindNodeItem && it.parentId in subIds && subIds.add(it.id)) added = true
+                            }
+                        }
+                        allItems.filterIsInstance<MindNodeItem>().filter { it.id in subIds }.associate { it.id to (it.x to it.y) }
+                    } else {
+                        mapOf(hit.id to (hit.x to hit.y))
+                    }
+                    mode = Mode.MIND_DRAG
+                } else {
+                    mode = Mode.TAP
+                }
+            }
+            Tool.TEXT -> {
+                val allItems = pages[activePage].items
+                val hitBox = allItems.filterIsInstance<WriteBoxItem>().lastOrNull { it.raw.contains(wx, wy) }
+                if (hitBox != null) {
+                    removeCallbacks(autoConvertRunnable)
+                    host.onSelectWriteBox(activePage, hitBox.id)
+                    // Tapping the top-right status badge toggles Ink/Text or converts immediately
+                    if (wx >= hitBox.raw.right - 220f && wy <= hitBox.raw.top + 44f) {
+                        buzz()
+                        host.onWriteBoxDoubleTap(activePage, hitBox)
+                        mode = Mode.IGNORE
+                    } else {
+                        // Write directly inside the box with real low-latency ink!
+                        strokeTool = Tool.PEN
+                        startInk(e, pid, Tool.PEN)
+                    }
+                } else {
+                    val hitText = allItems.filterIsInstance<TextItem>().lastOrNull { it.bounds.contains(wx, wy) }
+                    if (hitText != null) {
+                        mode = Mode.TAP
+                    } else {
+                        mode = Mode.WRITE_BOX_DRAG
+                        layer.writeBoxPreview = null
+                    }
+                }
+            }
+            Tool.STICKY, Tool.WEBLINK -> mode = Mode.TAP
+            Tool.IMAGE, Tool.STICKER -> mode = Mode.IGNORE
+        }
+    }
+
+    private fun handleDraw(e: MotionEvent, action: Int, pid: Int, scrollAtEdge: Boolean = true) {
+        if (pages.isEmpty()) return
+        val pIdx = e.findPointerIndex(pid).coerceAtLeast(0)
+        val px = e.getX(pIdx)
+        val py = e.getY(pIdx)
+        when (action) {
+            MotionEvent.ACTION_DOWN -> {
+                scroller.forceFinished(true)
+                requestUnbufferedDispatch(e)
+                activePointer = pid
+                val now = SystemClock.uptimeMillis()
+                // Circle to select: press and hold the pulsing blue circle at the end of a closed loop.
+                val armed = circleDetector.tryArmHold(
+                    px = px,
+                    py = py,
+                    nowMs = now,
+                    isPen = isPen(e.getToolType(pIdx)) || !settings.stylusOnly,
+                    density = density,
+                    config = gestureConfig,
+                ) { page, x, y ->
+                    val a = floatArrayOf(x, y)
+                    pageMatrix(page, tmpMatrix).mapPoints(a)
+                    a[0] to a[1]
+                }
+                if (armed) {
+                    armedDownEvent?.recycle()
+                    armedDownEvent = MotionEvent.obtain(e)
+                    mode = Mode.IGNORE
+                    layer.invalidate()
+                    postDelayed(circleHoldRunnable, gestureConfig.circleHoldDelayMs)
+                    return
+                }
+                host.onCircleCandidate(null)
+                beginDrawDown(e, pIdx, pid, px, py)
+                if (e.getToolType(pIdx) == MotionEvent.TOOL_TYPE_STYLUS &&
+                    mode == Mode.TAP &&
+                    !capturing && !linkPicking && isEmptyPaper(activePage, px, py)
+                ) postDelayed(penEmptyPressRunnable, ViewConfiguration.getLongPressTimeout().toLong())
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val idx = e.findPointerIndex(activePointer).takeIf { it >= 0 } ?: return
+                if (hypot(e.getX(idx) - downX, e.getY(idx) - downY) > effectiveTouchSlop) {
+                    removeCallbacks(penEmptyPressRunnable)
+                }
+                if (circleDetector.isHoldArmed()) {
+                    if (!circleDetector.shouldCancelHoldOnMove(e.getX(idx), e.getY(idx), holdSlopPx())) {
+                        return
+                    }
+                    // Movement past slop: replay the preserved ACTION_DOWN first so zero initial points are dropped.
+                    removeCallbacks(circleHoldRunnable)
+                    circleDetector.reset()
+                    host.onCircleCandidate(null)
+                    val downEv = armedDownEvent
+                    armedDownEvent = null
+                    if (downEv != null) {
+                        try {
+                            val dIdx = downEv.findPointerIndex(activePointer).coerceAtLeast(0)
+                            beginDrawDown(downEv, dIdx, activePointer, downEv.getX(dIdx), downEv.getY(dIdx))
+                        } finally {
+                            downEv.recycle()
+                        }
+                    } else {
+                        beginDrawDown(e, idx, activePointer, e.getX(idx), e.getY(idx))
+                    }
+                    layer.invalidate()
+                }
+                when (mode) {
+                    Mode.INK -> {
+                        if (isPen(e.getToolType(idx)) && sideButtonHeld(e) && (penSide ?: settings.sideButton) == SideButton.ERASER) {
+                            cancelActiveWetStroke(e)
+                            points.clear()
+                            strokeTool = Tool.ERASER
+                            mode = Mode.ERASE
+                            syncFeel(); feelX = e.getX(idx); feelY = e.getY(idx); feelT = e.eventTime
+                            feel.start(PaperFeel.Texture.ERASER)
+                            host.beginEdit(activePage)
+                            val (wx, wy) = toLocal(e.getX(idx), e.getY(idx), activePage)
+                            lastErase = wx to wy
+                            eraseAt(wx, wy)
+                            layer.eraserAt = e.getX(idx) to e.getY(idx)
+                            layer.invalidate()
+                            return
+                        }
+                        val id = strokeId ?: return
+                        val fx = e.getX(idx); val fy = e.getY(idx)
+                        feel.move(hypot(fx - feelX, fy - feelY), e.eventTime - feelT)
+                        feelX = fx; feelY = fy; feelT = e.eventTime
+                        for (h in 0 until e.historySize) points += toLocal(e.getHistoricalX(idx, h), e.getHistoricalY(idx, h), activePage)
+                        val cur = toLocal(e.getX(idx), e.getY(idx), activePage)
+                        points += cur
+                        trackHold(cur)
+                        if (holdFired) return
+                        val predicted = predictor.predict()
+                        val remapped = remapInkEvent(e, activePointer, isPredicted = false)
+                        val remappedPred = predicted?.let { remapInkEvent(it, activePointer, isPredicted = true) }
+                        try {
+                            wetInk.addToStroke(remapped, activePointer, id, remappedPred)
+                        } finally {
+                            if (remapped !== e) remapped.recycle()
+                            if (remappedPred != null && remappedPred !== predicted) remappedPred.recycle()
+                            predicted?.recycle()
+                        }
+                    }
+                    Mode.ERASE -> {
+                        // A recognized scribble erases its target once. The trailing lift must never become a free eraser.
+                        feel.move(hypot(e.getX(idx) - feelX, e.getY(idx) - feelY), e.eventTime - feelT)
+                        feelX = e.getX(idx); feelY = e.getY(idx); feelT = e.eventTime
+                        for (h in 0 until e.historySize) {
+                            val (hx, hy) = toLocal(e.getHistoricalX(idx, h), e.getHistoricalY(idx, h), activePage)
+                            eraseAt(hx, hy)
+                        }
+                        val (wx, wy) = toLocal(e.getX(idx), e.getY(idx), activePage)
+                        eraseAt(wx, wy)
+                        layer.eraserAt = e.getX(idx) to e.getY(idx)
+                        layer.invalidate()
+                    }
+                    Mode.LASSO -> {
+                        if (settings.lassoMode == com.pronotes.app.data.LassoMode.RECT || capturingDrag) {
+                            val (sx, sy) = lassoPoints.first()
+                            val cx = e.getX(idx); val cy = e.getY(idx)
+                            lassoPoints.clear()
+                            lassoPoints += listOf(sx to sy, cx to sy, cx to cy, sx to cy, sx to sy)
+                        } else {
+                            for (h in 0 until e.historySize) lassoPoints += e.getHistoricalX(idx, h) to e.getHistoricalY(idx, h)
+                            lassoPoints += e.getX(idx) to e.getY(idx)
+                        }
+                        layer.invalidate()
+                    }
+                    Mode.MOVE -> {
+                        val sx = e.getX(idx)
+                        val sy = e.getY(idx)
+                        dragScreenX = sx
+                        dragScreenY = sy
+                        val (wx, wy) = toLocal(sx, sy, selectionPage)
+                        updateGrab(wx, wy, scrollAtEdge = false)
+                        layer.invalidate()
+                        reportSelection()
+                    }
+                    Mode.LASER -> {
+                        for (h in 0 until e.historySize) layer.laserAdd(toDoc(e.getHistoricalX(idx, h), e.getHistoricalY(idx, h)))
+                        layer.laserAdd(toDoc(e.getX(idx), e.getY(idx)))
+                    }
+                    Mode.SHAPE_DRAG -> {
+                        val (sx, sy) = points.first()
+                        val (cx, cy) = toLocal(e.getX(idx), e.getY(idx), activePage)
+                        layer.shapePreview = runCatching { ShapeBuilder.build(host.shapeKind(), sx, sy, cx, cy) }.getOrNull() ?: layer.shapePreview
+                        layer.invalidate()
+                    }
+                    Mode.WRITE_BOX_DRAG -> {
+                        val (wx, wy) = toLocal(e.getX(idx), e.getY(idx), activePage)
+                        val (x0, y0) = points.first()
+                        if (hypot(wx - x0, wy - y0) > 16f) {
+                            val page = pages[activePage]
+                            val l = min(x0, wx).coerceIn(20f, page.width - 180f)
+                            val r = max(x0, wx).coerceIn(l + 160f, page.width - 20f)
+                            val t = min(y0, wy).coerceIn(20f, page.height - 110f)
+                            val b = max(y0, wy).coerceIn(t + 90f, page.height - 20f)
+                            layer.writeBoxPreview = RectF(l, t, r, b)
+                            layer.invalidate()
+                        }
+                    }
+                    Mode.TAPE -> {
+                        if (host.tapeFreehand()) {
+                            for (h in 0 until e.historySize) points += toLocal(e.getHistoricalX(idx, h), e.getHistoricalY(idx, h), activePage)
+                            points += toLocal(e.getX(idx), e.getY(idx), activePage)
+                            layer.tapeFree = ArrayList(points)
+                        } else {
+                            val (sx, sy) = points.first()
+                            val (cx, cy) = toLocal(e.getX(idx), e.getY(idx), activePage)
+                            layer.tapePreview = tapeRect(sx, sy, cx, cy)
+                        }
+                        layer.invalidate()
+                    }
+                    Mode.MIND_DRAG -> {
+                        val (wx, wy) = toLocal(e.getX(idx), e.getY(idx), dragMindOrigPage)
+                        val dx = wx - dragMindDownWx
+                        val dy = wy - dragMindDownWy
+                        if (!dragMindMoved && hypot(dx, dy) * scale > effectiveTouchSlop * 0.6f) {
+                            dragMindMoved = true
+                            host.beginEdit(dragMindOrigPage)
+                        }
+                        if (dragMindMoved) {
+                            val p = pages.getOrNull(dragMindOrigPage) ?: return
+                            val updated = p.items.map { item ->
+                                val orig = if (item is MindNodeItem) dragMindOrigPos[item.id] else null
+                                if (item is MindNodeItem && orig != null) {
+                                    var nx = orig.first + dx
+                                    var ny = orig.second + dy
+                                    if (!p.isWhiteboard) {
+                                        val maxX = (p.width - item.w - 56f).coerceAtLeast(56f)
+                                        val maxY = (p.height - item.h - 56f).coerceAtLeast(56f)
+                                        nx = nx.coerceIn(56f, maxX)
+                                        ny = ny.coerceIn(56f, maxY)
+                                    }
+                                    item.copy(x = nx, y = ny)
+                                } else item
+                            }
+                            pages = pages.toMutableList().also { it[dragMindOrigPage] = p.copy(items = updated) }
+                            layer.invalidate()
+                        }
+                    }
+                    Mode.STICKY_DRAG -> {
+                        if (dragStickyActive) {
+                            moveDraggedSticky(e.getX(idx), e.getY(idx))
+                        } else if (dragStickyWasExpanded) {
+                            if (hypot(e.getX(idx) - downX, e.getY(idx) - downY) > effectiveTouchSlop * 0.65f) {
+                                captureStickyAttachments()
+                                dragStickyActive = true
+                                buzz(HapticFeedbackConstants.CLOCK_TICK)
+                                host.beginEdit(dragStickyPage)
+                                moveDraggedSticky(e.getX(idx), e.getY(idx))
+                            }
+                        } else if (hypot(e.getX(idx) - downX, e.getY(idx) - downY) > effectiveTouchSlop * 2f) {
+                            removeCallbacks(stickyHoldRunnable)
+                        }
+                    }
+                    else -> Unit
+                }
+            }
+            MotionEvent.ACTION_UP -> {
+                removeCallbacks(holdRunnable)
+                feel.stop()
+                if (mode == Mode.INK && feel.sound) feel.cue(PaperFeel.Cue.LIFT)
+                if (circleDetector.isHoldArmed()) {
+                    circleDetector.reset()
+                    removeCallbacks(circleHoldRunnable)
+                    armedDownEvent?.recycle(); armedDownEvent = null
+                    host.onCircleCandidate(null)
+                    clearTransientExitState(cancelWetEvent = null, clearWet = false)
+                    assertNoSurvivingWetStroke("pen-up", null)
+                    return
+                }
+                val isTap = SystemClock.uptimeMillis() - downTime < 350 && hypot(px - downX, py - downY) < effectiveTouchSlop
+                val upStrokeId = strokeId
+                when (mode) {
+                    Mode.INK -> finishInk(e, isTap)
+                    Mode.ERASE -> {
+                        layer.eraserAt = null
+                        layer.invalidate()
+                        if (strokeTool == Tool.ERASER && tool == Tool.ERASER) host.onEraserLifted()
+                    }
+                    Mode.LASSO -> {
+                        val local = lassoPoints.map { toLocal(it.first, it.second, activePage) }
+                        layer.lasso = null
+                        layer.stopAnts()
+                        if (capturingDrag) {
+                            capturingDrag = false
+                            if (local.size > 3) {
+                                val r = RectF(local.minOf { it.first }, local.minOf { it.second }, local.maxOf { it.first }, local.maxOf { it.second })
+                                if (r.width() > 20f && r.height() > 20f) host.onAreaPicked(activePage, r)
+                            }
+                        } else {
+                            val dragLen = if (local.size > 1) pathLength(local) else 0f
+                            if (isTap || local.size <= 3 || dragLen < 18f / scale.coerceAtLeast(0.25f)) {
+                                // Tap-to-select in Lasso mode: pick the topmost selectable item under the tap.
+                                val (wx, wy) = toLocal(px, py, activePage)
+                                val hitId = topSelectableItemAt(activePage, wx, wy)
+                                if (hitId != null) {
+                                    selectItems(activePage, setOf(hitId), outline = null)
+                                    buzz(HapticFeedbackConstants.CLOCK_TICK)
+                                } else {
+                                    clearSelection()
+                                }
+                            } else {
+                                select(
+                                    activePage,
+                                    Lasso(local, settings.lassoTouching),
+                                    outline = local.takeIf { settings.lassoMode != com.pronotes.app.data.LassoMode.RECT },
+                                )
+                            }
+                        }
+                        layer.invalidate()
+                    }
+                    Mode.MOVE -> commitMove()
+                    Mode.LASER -> laserUp()
+                    Mode.SHAPE_DRAG -> {
+                        // Build from the final pen position, so a quick flick still makes a full-size shape.
+                        val (sx, sy) = points.first()
+                        val (ex, ey) = toLocal(px, py, activePage)
+                        val shapes = (if (hypot(ex - sx, ey - sy) >= 6f) runCatching { ShapeBuilder.build(host.shapeKind(), sx, sy, ex, ey) }.getOrNull() else null)
+                            ?: layer.shapePreview
+                        layer.shapePreview = null
+                        val moved = hypot(px - downX, py - downY) > effectiveTouchSlop * 0.6f
+                        if (shapes != null && (!isTap || moved)) addShapes(shapes, fillable = host.shapeKind().closed)
+                        layer.invalidate()
+                    }
+                    Mode.WRITE_BOX_DRAG -> {
+                        layer.writeBoxPreview = null
+                        val (wx, wy) = toLocal(px, py, activePage)
+                        val (x0, y0) = points.first()
+                        val page = pages[activePage]
+                        val dragged = hypot(wx - x0, wy - y0) > 28f
+                        val boxW = if (dragged) abs(wx - x0).coerceIn(240f, page.width - 40f) else 560f.coerceAtMost(page.width - 64f)
+                        val boxH = if (dragged) abs(wy - y0).coerceIn(100f, page.height - 40f) else 160f
+                        val boxX = (if (dragged) min(x0, wx) else (x0 - 24f)).coerceIn(24f, (page.width - boxW - 24f).coerceAtLeast(24f))
+                        val boxY = (if (dragged) min(y0, wy) else (y0 - 24f)).coerceIn(24f, (page.height - boxH - 24f).coerceAtLeast(24f))
+                        buzz(HapticFeedbackConstants.CLOCK_TICK)
+                        host.onTextBoxPlace(activePage, boxX, boxY, boxW, boxH)
+                        layer.invalidate()
+                    }
+                    Mode.TAPE -> {
+                        val r = layer.tapePreview
+                        val free = layer.tapeFree
+                        layer.tapePreview = null; layer.tapeFree = null
+                        val (wx, wy) = toLocal(px, py, activePage)
+                        when {
+                            isTap -> toggleTapeAt(activePage, wx, wy)
+                            free != null && pathLength(free) > 24f -> {
+                                // Light smoothing so the tape edge is not jittery.
+                                val pts = simplifyForTape(free)
+                                val abs = FloatArray(pts.size * 2).also { a -> pts.forEachIndexed { k, (x, y) -> a[k * 2] = x; a[k * 2 + 1] = y } }
+                                val p = pages[activePage]
+                                host.beginEdit(activePage)
+                                updatePage(activePage, p.items + freehandTape(ItemIds.next(), abs, host.tapeColor(), 46f, host.tapePattern()))
+                            }
+                            r != null -> addTape(r)
+                            else -> toggleTapeAt(activePage, wx, wy)
+                        }
+                        layer.invalidate()
+                    }
+                    Mode.MIND_DRAG -> {
+                        val p = pages.getOrNull(dragMindOrigPage)
+                        if (dragMindMoved && p != null) {
+                            updatePage(dragMindOrigPage, p.items)
+                        } else if (p != null) {
+                            val node = p.items.firstOrNull { it is MindNodeItem && it.id == dragMindId } as MindNodeItem?
+                            val (wx, wy) = toLocal(px, py, dragMindOrigPage)
+                            host.onMindMapTap(dragMindOrigPage, wx, wy, node)
+                        }
+                        dragMindId = -1L
+                        dragMindMoved = false
+                        dragMindOrigPos = emptyMap()
+                    }
+                    Mode.STICKY_DRAG -> {
+                        removeCallbacks(stickyHoldRunnable)
+                        val sp = pages.getOrNull(dragStickyPage)
+                        if (dragStickyActive && sp != null) {
+                            updatePage(dragStickyPage, sp.items)
+                        } else if (sp != null) {
+                            val sticky = sp.items.filterIsInstance<StickyItem>().firstOrNull { it.id == dragStickyId }
+                            if (sticky != null) {
+                                buzz(HapticFeedbackConstants.CLOCK_TICK)
+                                if (dragStickyWasExpanded) {
+                                    // Quick tap on expanded sticky header opens Sticky Studio to edit text/color/style.
+                                    val (wx, wy) = toLocal(px, py, dragStickyPage)
+                                    host.onStickyTap(dragStickyPage, wx, wy, sticky)
+                                } else {
+                                    host.onStickyToggleCollapse(dragStickyPage, sticky)
+                                }
+                            }
+                        }
+                        clearStickyDrag()
+                    }
+                    Mode.TAP -> {
+                        val (wx, wy) = toLocal(px, py, activePage)
+                        val items = pages[activePage].items
+                        when (strokeTool) {
+                            Tool.TEXT -> {
+                                val hit = items.lastOrNull { it is TextItem && it.bounds.contains(wx, wy) } as TextItem?
+                                host.onTextTap(activePage, wx, wy, hit)
+                            }
+                            Tool.WEBLINK -> {
+                                val hit = items.lastOrNull { it is WebLinkItem && it.bounds.contains(wx, wy) } as WebLinkItem?
+                                if (hit != null && wx >= hit.bounds.right - 56f && wy <= hit.bounds.top + 56f) {
+                                    host.onOpenUrl(hit.url)
+                                } else {
+                                    host.onWebLinkTap(activePage, wx, wy, hit)
+                                }
+                            }
+                            Tool.MINDMAP -> {
+                                val hidden = renderer?.hiddenMindNodeIds(items) ?: emptySet()
+                                val hit = items.lastOrNull { it is MindNodeItem && it.id !in hidden && it.bounds.contains(wx, wy) } as MindNodeItem?
+                                host.onMindMapTap(activePage, wx, wy, hit)
+                            }
+                            else -> {
+                                val hit = items.lastOrNull { it is StickyItem && it.bounds.contains(wx, wy) } as StickyItem?
+                                val lineHit = hit?.let { findStickyChecklistLine(it, wx, wy) }
+                                if (hit != null && lineHit != null) host.onStickyChecklistToggle(activePage, hit, lineHit)
+                                else host.onStickyTap(activePage, wx, wy, hit)
+                            }
+                        }
+                    }
+                    else -> Unit
+                }
+                clearTransientExitState(cancelWetEvent = null, clearWet = false)
+                assertNoSurvivingWetStroke("pen-up", upStrokeId)
+            }
+            MotionEvent.ACTION_CANCEL -> { cancelCurrent(e) }
+        }
+    }
+
+    internal val feel = PaperFeel(context, this)
+    internal fun syncFeel() { feel.sound = settings.paperSound; feel.haptics = settings.paperHaptics; feel.volume = settings.paperVolume }
+    private var feelX = 0f
+    private var feelY = 0f
+    private var feelT = 0L
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        removeCallbacks(holdRunnable)
+        removeCallbacks(circleHoldRunnable)
+        removeCallbacks(stickyHoldRunnable)
+        removeCallbacks(autoConvertRunnable)
+        removeCallbacks(linkLongRunnable)
+        removeCallbacks(textPressRunnable)
+        removeCallbacks(penEmptyPressRunnable)
+        removeCallbacks(hoverTimeout)
+        removeCallbacks(wetAssertionRunnable)
+        stopEdgeScroll()
+        pendingClick?.let { removeCallbacks(it) }; pendingClick = null
+        zoomAnim?.cancel(); zoomAnim = null
+        layer.stopAnts()
+        velocity?.recycle(); velocity = null
+        armedDownEvent?.recycle(); armedDownEvent = null
+        lastTouchEvent?.recycle(); lastTouchEvent = null
+        feel.release()
+    }
+
+    private var inkFiltX = Float.NaN
+    private var inkFiltY = Float.NaN
+    private var inkPrevRawX = Float.NaN
+    private var inkPrevRawY = Float.NaN
+    private var inkFiltDx = 0f
+    private var inkFiltDy = 0f
+    private var inkLastTimeMs = -1L
+    private var inkLastPressure = Float.NaN
+    private var inkLastTilt = Float.NaN
+    private var inkSawVariablePressure = false
+    private var inkFirstPressure = Float.NaN
+    private var inkPressureMin = 0f
+    private var inkPressureRange = 1f
+    private var inkHasHardwarePressure = true
+    private val remapPropsPool = Array(16) { MotionEvent.PointerProperties() }
+    private val remapCoordsPool = Array(16) { MotionEvent.PointerCoords() }
+
+    /** Time-invariant exponential smoothing factor alpha(dtSec, cutoffHz) for the 1€ Filter. */
+    private fun oneEuroAlpha(dtSec: Float, cutoffHz: Float): Float {
+        val tau = 1f / (2f * Math.PI.toFloat() * cutoffHz.coerceAtLeast(0.5f))
+        return (1f / (1f + tau / dtSec)).coerceIn(0.08f, 1f)
+    }
+
+    /**
+     * Universal high-frequency stylus remapper preserving 100% of batched historical samples (60Hz–360Hz+).
+     * Uses a sample-rate-independent One-Euro (1€) filter for zero-lag fast strokes and jitter-free slow writing,
+     * normalizes OEM stylus pressure ranges (S-Pen, USI, MPP, Lenovo, Xiaomi, passive/capacitive styluses),
+     * enforces monotonic timestamps to eliminate digitizer kinks, and keeps predicted events strictly read-only.
+     */
+    private fun remapInkEvent(e: MotionEvent, pid: Int, isPredicted: Boolean = false): MotionEvent {
+        val td = settings.toolDefaults
+        val isDrawingTool = strokeTool == Tool.PEN ||
+            strokeTool == Tool.CRAYON ||
+            strokeTool == Tool.AUTO_TEXT ||
+            strokeTool == Tool.HIGHLIGHTER ||
+            strokeTool == Tool.SHAPE
+        if (!isDrawingTool) return e
+        val idx = e.findPointerIndex(pid)
+        val count = e.pointerCount
+        if (idx < 0 || count <= 0 || count > remapPropsPool.size) return e
+
+        val props = if (count == remapPropsPool.size) remapPropsPool else Array(count) { remapPropsPool[it] }
+        val coords = if (count == remapCoordsPool.size) remapCoordsPool else Array(count) { remapCoordsPool[it] }
+        for (i in 0 until count) e.getPointerProperties(i, props[i])
+
+        val isStylus = isPen(props[idx].toolType)
+        val isPressureTool = strokeTool == Tool.PEN || strokeTool == Tool.CRAYON || strokeTool == Tool.AUTO_TEXT
+        val sens = td.pressureSensitivity.coerceIn(0.3f, 2.0f)
+        val gamma = (0.70 / sens.toDouble()).coerceIn(0.32, 2.35)
+        val userStab = td.penStabilization.coerceIn(0f, 1f)
+        // Light baseline micro-jitter removal even at 0 stabilization so every stylus draws cleanly;
+        // scales smoothly with user stabilization without adding lag on fast strokes.
+        val effStab = if (isPressureTool) (0.14f + userStab * 0.86f).coerceIn(0.14f, 1f) else 0.18f
+        val minCutoffHz = (14.5f - effStab * 11.2f).coerceIn(2.6f, 16f)
+        val betaSlope = (0.018f - effStab * 0.011f).coerceIn(0.005f, 0.024f)
+        val actionMasked = e.actionMasked
+
+        var curPressure = inkLastPressure
+        var curTilt = inkLastTilt
+        var curFiltX = inkFiltX
+        var curFiltY = inkFiltY
+        var curPrevRawX = inkPrevRawX
+        var curPrevRawY = inkPrevRawY
+        var curFiltDx = inkFiltDx
+        var curFiltDy = inkFiltDy
+        var curTimeMs = inkLastTimeMs
+        var curSawVarP = inkSawVariablePressure
+        var curFirstP = inkFirstPressure
+        val invDensity = 1f / density.coerceAtLeast(1f)
+
+        fun applyRemapToTarget(
+            target: MotionEvent.PointerCoords,
+            rawAxisP: Float,
+            sampleTimeMs: Long,
+            isDown: Boolean,
+            isMove: Boolean,
+            isUp: Boolean,
+        ): Long {
+            val monoTime = when {
+                isDown || curTimeMs < 0L -> sampleTimeMs
+                sampleTimeMs <= curTimeMs -> curTimeMs + 1L
+                else -> sampleTimeMs
+            }
+            val dtSec = if (isDown || curTimeMs < 0L) 0.008f else ((monoTime - curTimeMs).coerceIn(1L, 50L) / 1000f)
+
+            var speedDpPerSec = 0f
+            if (isDown || curFiltX.isNaN() || curFiltY.isNaN()) {
+                curFiltX = target.x
+                curFiltY = target.y
+                curPrevRawX = target.x
+                curPrevRawY = target.y
+                curFiltDx = 0f
+                curFiltDy = 0f
+            } else if (isMove || isUp) {
+                val rawDx = (target.x - curPrevRawX) * invDensity / dtSec
+                val rawDy = (target.y - curPrevRawY) * invDensity / dtSec
+                val dAlpha = oneEuroAlpha(dtSec, 24f)
+                curFiltDx += (rawDx - curFiltDx) * dAlpha
+                curFiltDy += (rawDy - curFiltDy) * dAlpha
+                speedDpPerSec = hypot(curFiltDx, curFiltDy)
+                val cutoff = minCutoffHz + betaSlope * speedDpPerSec
+                val posAlpha = if (isUp) 0.85f else oneEuroAlpha(dtSec, cutoff)
+                // Gently damp speculative predicted points at low speeds to eliminate rubber-band overshoot.
+                val finalAlpha = if (isPredicted) (posAlpha * (0.45f + (speedDpPerSec / 650f).coerceIn(0f, 0.45f))) else posAlpha
+                curPrevRawX = target.x
+                curPrevRawY = target.y
+                curFiltX += (target.x - curFiltX) * finalAlpha
+                curFiltY += (target.y - curFiltY) * finalAlpha
+                target.x = curFiltX
+                target.y = curFiltY
+            }
+
+            if (isPressureTool) {
+                if (!td.pressureEnabled) {
+                    target.pressure = 0.5f
+                    curPressure = 0.5f
+                } else if (isStylus && inkHasHardwarePressure) {
+                    val rawCandidate = if (rawAxisP > 0.002f) rawAxisP else target.pressure
+                    val normRaw = ((rawCandidate - inkPressureMin) / inkPressureRange).coerceIn(0f, 1.0f)
+                    if (curFirstP.isNaN() && normRaw > 0.005f) {
+                        curFirstP = normRaw
+                    } else if (!curFirstP.isNaN() && abs(normRaw - curFirstP) > 0.03f) {
+                        curSawVarP = true
+                    }
+                    val targetP = when {
+                        // Passive/capacitive stylus reporting flat 0 or 1 pressure: synthesize subtle velocity taper.
+                        !curSawVarP && (normRaw <= 0.005f || normRaw >= 0.995f) -> {
+                            val velFactor = (1f - (speedDpPerSec / 1400f).coerceIn(0f, 0.35f))
+                            (0.42f + 0.24f * velFactor * (sens / 1.2f)).coerceIn(0.22f, 0.82f)
+                        }
+                        // Prevent abrupt 0-pressure drop spikes on lift-off (common on USI/MPP digitizers).
+                        isUp && !curPressure.isNaN() && normRaw < 0.05f -> (curPressure * 0.72f).coerceIn(0.10f, 0.85f)
+                        else -> {
+                            val effRaw = if (isDown && normRaw < 0.06f) 0.14f else normRaw.coerceIn(0.01f, 1.0f)
+                            Math.pow(effRaw.toDouble(), gamma).toFloat().coerceIn(0.08f, 1.0f)
+                        }
+                    }
+                    // Time-invariant pressure smoothing (~14ms time constant) works identically from 60Hz to 360Hz.
+                    val pAlpha = if (isDown || curPressure.isNaN()) 1.0f else (1f - kotlin.math.exp((-dtSec / 0.014f).toDouble()).toFloat()).coerceIn(0.18f, 0.88f)
+                    val filteredP = if (isDown || curPressure.isNaN()) targetP else (curPressure + (targetP - curPressure) * pAlpha)
+                    curPressure = filteredP
+                    target.pressure = filteredP.coerceIn(0.08f, 1.0f)
+                } else {
+                    // Finger or non-pressure stylus: smooth velocity-responsive natural ink flow.
+                    val velFactor = (1f - (speedDpPerSec / 1350f).coerceIn(0f, 0.32f))
+                    val targetP = (0.34f + 0.34f * velFactor * (sens / 1.35f)).coerceIn(0.20f, 0.92f)
+                    val pAlpha = if (isDown || curPressure.isNaN()) 1.0f else (1f - kotlin.math.exp((-dtSec / 0.020f).toDouble()).toFloat()).coerceIn(0.16f, 0.75f)
+                    val filteredP = if (isDown || curPressure.isNaN()) targetP else (curPressure + (targetP - curPressure) * pAlpha)
+                    curPressure = filteredP
+                    target.pressure = filteredP.coerceIn(0.18f, 0.96f)
+                }
+            }
+
+            // Smooth stylus tilt axis so calligraphy/brush nibs never jitter on coarse tilt digitizers.
+            if (isStylus) {
+                val rawTilt = target.getAxisValue(MotionEvent.AXIS_TILT)
+                if (rawTilt > 0f) {
+                    val tAlpha = if (isDown || curTilt.isNaN()) 1.0f else (1f - kotlin.math.exp((-dtSec / 0.022f).toDouble()).toFloat()).coerceIn(0.15f, 0.75f)
+                    curTilt = if (isDown || curTilt.isNaN()) rawTilt else (curTilt + (rawTilt - curTilt) * tAlpha)
+                    target.setAxisValue(MotionEvent.AXIS_TILT, curTilt)
+                }
+            }
+
+            curTimeMs = monoTime
+            return monoTime
+        }
+
+        val histSize = e.historySize
+        var out: MotionEvent? = null
+
+        // Replay all historical sub-frame samples first so 120–360Hz digitizer precision is preserved intact.
+        for (h in 0 until histSize) {
+            for (i in 0 until count) e.getHistoricalPointerCoords(i, h, coords[i])
+            val rawP = e.getHistoricalPressure(idx, h)
+            val hTime = applyRemapToTarget(
+                target = coords[idx],
+                rawAxisP = rawP,
+                sampleTimeMs = e.getHistoricalEventTime(h),
+                isDown = false,
+                isMove = true,
+                isUp = false,
+            )
+            if (out == null) {
+                out = MotionEvent.obtain(
+                    e.downTime, hTime, e.action, count, props, coords,
+                    e.metaState, e.buttonState, e.xPrecision, e.yPrecision,
+                    e.deviceId, e.edgeFlags, e.source, e.flags,
+                )
+            } else {
+                out.addBatch(hTime, coords, e.metaState)
+            }
+        }
+
+        // Now remap the current latest sample.
+        for (i in 0 until count) e.getPointerCoords(i, coords[i])
+        val rawAxisP = e.getAxisValue(MotionEvent.AXIS_PRESSURE, idx)
+        val curT = applyRemapToTarget(
+            target = coords[idx],
+            rawAxisP = rawAxisP,
+            sampleTimeMs = e.eventTime,
+            isDown = actionMasked == MotionEvent.ACTION_DOWN,
+            isMove = actionMasked == MotionEvent.ACTION_MOVE,
+            isUp = actionMasked == MotionEvent.ACTION_UP || actionMasked == MotionEvent.ACTION_POINTER_UP,
+        )
+
+        val result = if (out == null) {
+            MotionEvent.obtain(
+                e.downTime, curT, e.action, count, props, coords,
+                e.metaState, e.buttonState, e.xPrecision, e.yPrecision,
+                e.deviceId, e.edgeFlags, e.source, e.flags,
+            )
+        } else {
+            out.addBatch(curT, coords, e.metaState)
+            out
+        }
+
+        if (!isPredicted) {
+            inkLastPressure = curPressure
+            inkLastTilt = curTilt
+            inkFiltX = curFiltX
+            inkFiltY = curFiltY
+            inkPrevRawX = curPrevRawX
+            inkPrevRawY = curPrevRawY
+            inkFiltDx = curFiltDx
+            inkFiltDy = curFiltDy
+            inkLastTimeMs = curTimeMs
+            inkSawVariablePressure = curSawVarP
+            inkFirstPressure = curFirstP
+        }
+        return result
+    }
+
+    private fun startInk(e: MotionEvent, pid: Int, t: Tool) {
+        // A stroke that was never finished or cancelled would stay on screen forever as ghost ink.
+        cancelActiveWetStroke(e)
+        removeCallbacks(wetAssertionRunnable)
+        mode = Mode.INK
+        inkFiltX = Float.NaN; inkFiltY = Float.NaN
+        inkPrevRawX = Float.NaN; inkPrevRawY = Float.NaN
+        inkFiltDx = 0f; inkFiltDy = 0f
+        inkLastTimeMs = -1L
+        inkLastPressure = Float.NaN
+        inkLastTilt = Float.NaN
+        inkSawVariablePressure = false
+        inkFirstPressure = Float.NaN
+        // Calibrate pressure range once per stroke from the active input device for universal stylus support.
+        val pRange = runCatching { e.device?.getMotionRange(MotionEvent.AXIS_PRESSURE, e.source) ?: e.device?.getMotionRange(MotionEvent.AXIS_PRESSURE) }.getOrNull()
+        if (pRange != null && pRange.range > 0.05f) {
+            inkPressureMin = pRange.min
+            inkPressureRange = pRange.range
+            inkHasHardwarePressure = true
+        } else {
+            inkPressureMin = 0f
+            inkPressureRange = 1f
+            inkHasHardwarePressure = isPen(e.getToolType(e.findPointerIndex(pid).coerceAtLeast(0)))
+        }
+        syncFeel()
+        val ptrIdx = e.findPointerIndex(pid).coerceAtLeast(0)
+        feelX = e.getX(ptrIdx); feelY = e.getY(ptrIdx); feelT = e.eventTime
+        feel.start(if (t == Tool.HIGHLIGHTER) PaperFeel.Texture.MARKER else PaperFeel.Texture.PENCIL)
+        val toWorld = Matrix(inverse).apply { postTranslate(-ox(activePage), -oy(activePage)) }
+        val remapped = remapInkEvent(e, pid)
+        val id = try {
+            wetInk.startStroke(remapped, pid, host.brush(t), toWorld, Matrix())
+        } finally {
+            if (remapped !== e) remapped.recycle()
+        }
+        strokeId = id
+        strokePages[id] = activePage
+        strokeTools[id] = t
+        if (shouldTrackHold()) postDelayed(holdRunnable, gestureConfig.holdDelayMs)
+    }
+
+    private fun shouldTrackHold(): Boolean =
+        strokeTool == Tool.SHAPE ||
+            strokeTool == Tool.HIGHLIGHTER ||
+            (settings.holdToShape && strokeTool in setOf(Tool.PEN, Tool.CRAYON, Tool.AUTO_TEXT))
+
+    private fun finishInk(e: MotionEvent, isTap: Boolean) {
+        val id = strokeId ?: return
+        if (holdFired) {
+            cancelActiveWetStroke(e)
+            return
+        }
+        val p = pages[activePage]
+        val (tx, ty) = points.first()
+        if (isTap && p.items.any { it is TapeItem && it.bounds.contains(tx, ty) }) {
+            cancelActiveWetStroke(e)
+            toggleTapeAt(activePage, tx, ty)
+            return
+        }
+        if (!settings.tripleTapToText || !isTap) penTapCount = 0
+        if (settings.tripleTapToText && isTap && e.getToolType(e.actionIndex) == MotionEvent.TOOL_TYPE_STYLUS && e.eventTime - e.downTime < 180L && (strokeTool == Tool.PEN || strokeTool == Tool.AUTO_TEXT)) {
+            val nowMs = SystemClock.uptimeMillis()
+            val hitPad = (12f / scale.coerceAtLeast(0.35f)).coerceIn(6f, 24f)
+            val sameSpot = lastPenTapPage == activePage &&
+                nowMs - lastPenTapAt in 35L..420L &&
+                hypot(e.x - lastPenTapX, e.y - lastPenTapY) < effectiveTouchSlop * 1.5f
+            penTapCount = if (sameSpot) penTapCount + 1 else 1
+            if (penTapCount >= 3) {
+                // Triple-tap with stylus on handwritten ink: cluster baseline & convert to text
+                val seedInk = p.items.filterIsInstance<InkItem>().filter { item ->
+                    val b = item.bounds
+                    tx in (b.left - hitPad)..(b.right + hitPad) &&
+                        ty in (b.top - hitPad)..(b.bottom + hitPad) &&
+                        (b.width() > 6f || b.height() > 6f)
+                }
+                if (seedInk.isNotEmpty()) {
+                    penTapCount = 0
+                    lastPenTapAt = 0L
+                    cancelActiveWetStroke(e)
+                    val cluster = seedInk.toMutableList()
+                    val allInk = p.items.filterIsInstance<InkItem>().filter { it.bounds.width() > 6f || it.bounds.height() > 6f }
+                    val baseline = RectF(cluster.first().bounds).apply { cluster.drop(1).forEach { union(it.bounds) } }
+                    val clusterIds = cluster.mapTo(HashSet()) { it.id }
+                    var passes = 0
+                    var expanded = true
+                    while (expanded && passes++ < 4 && cluster.size < 256) {
+                        expanded = false
+                        val union = RectF(cluster.first().bounds).apply { cluster.drop(1).forEach { union(it.bounds) } }
+                        val lineTol = (baseline.height() * 0.5f).coerceIn(12f, 40f)
+                        for (cand in allInk) {
+                            if (cand.id in clusterIds) continue
+                            val cb = cand.bounds
+                            val verticalOverlap = cb.centerY() in (baseline.top - lineTol)..(baseline.bottom + lineTol)
+                            val horizontalNear = cb.right >= union.left - 72f && cb.left <= union.right + 72f
+                            if (verticalOverlap && horizontalNear) {
+                                cluster += cand
+                                clusterIds += cand.id
+                                expanded = true
+                            }
+                        }
+                    }
+                    val ids = cluster.map { it.id }.toSet()
+                    selectItems(activePage, ids, outline = null)
+                    buzz(HapticFeedbackConstants.LONG_PRESS)
+                    host.onQuickConvertInk(activePage, ids)
+                    return
+                }
+            }
+            lastPenTapAt = nowMs
+            lastPenTapX = e.x
+            lastPenTapY = e.y
+            lastPenTapPage = activePage
+            if (p.items.any { it is InkItem && !it.isHighlighter && it.bounds.contains(tx, ty) }) {
+                cancelActiveWetStroke(e)
+                return
+            }
+        }
+        if (isTap && strokeTool == Tool.PEN && settings.toolDefaults.tapSelect) {
+            topSelectableItemAt(activePage, tx, ty)?.let { hit ->
+                cancelActiveWetStroke(e)
+                selectItems(activePage, setOf(hit))
+                return
+            }
+        }
+        // Scribble-to-erase: uses the same surgical hit-testing & eraser policy as live scribble.
+        if (!isTap && (strokeTool == Tool.PEN || strokeTool == Tool.CRAYON || strokeTool == Tool.HIGHLIGHTER) && settings.scribbleToErase &&
+            isDeliberateScribble(points, scale / density, e.eventTime - e.downTime, gestureConfig)) {
+            val hit = scribbleHitIds(activePage, points)
+            if (hit.isNotEmpty()) {
+                cancelActiveWetStroke(e)
+                val hitItems = p.items.filter { it.id in hit }
+                val gone = hitItems.map { RectF(it.bounds).also { r -> pageMatrix(activePage, tmpMatrix).mapRect(r) } }
+                val strokeColors = hitItems.mapNotNull { item ->
+                    when (item) {
+                        is InkItem -> item.stroke.brush.colorIntArgb
+                        is TextItem -> item.color
+                        is StickyItem -> item.color
+                        is TapeItem -> item.color
+                        else -> null
+                    }
+                }
+                host.beginEdit(activePage)
+                updatePage(activePage, p.items.filterNot { it.id in hit })
+                layer.puff(gone, strokeColors)
+                syncFeel(); feel.cue(PaperFeel.Cue.TAP)
+                host.onScribbleErased()
+                return
+            }
+        }
+        if (strokeTool == Tool.SHAPE) {
+            val shapes = ShapeRecognizer.recognizeMulti(points, forceNearest = true)
+            if (shapes != null) {
+                cancelActiveWetStroke(e)
+                addShapes(shapes, fillable = shapes.size == 1 && isClosedLoop(shapes.first(), gestureConfig))
+                buzz(); syncFeel(); feel.cue(PaperFeel.Cue.SNAP)
+                return
+            }
+            // Nothing matched: silently keep the freehand stroke editable.
+        }
+        // Highlighter: always straight, or straightened when it was nearly straight anyway.
+        if (strokeTool == Tool.HIGHLIGHTER && points.size > 1) {
+            val hMode = settings.highlighterMode
+            val len = pathLength(points)
+            val straighten = hMode == com.pronotes.app.data.HighlighterMode.STRAIGHT ||
+                (hMode == com.pronotes.app.data.HighlighterMode.AUTO && isNearlyStraight(points, max(10f, len * 0.07f)))
+            if (straighten) {
+                cancelActiveWetStroke(e)
+                addStraightHighlight(points.first(), points.last())
+                return
+            }
+        }
+        // Offer unified circle-to-select when a closed pen or auto-handwriting loop encloses selectable content.
+        if (settings.circleToLasso &&
+            (strokeTool == Tool.PEN || strokeTool == Tool.AUTO_TEXT) &&
+            (tool == Tool.PEN || tool == Tool.AUTO_TEXT) &&
+            !sideButtonHeld(e) &&
+            circleDetector.isValidLoopCandidate(points, scale, density, gestureConfig)
+        ) {
+            val ids = loopSelects(activePage, points)
+            if (ids.isNotEmpty()) {
+                val cand = circleDetector.offerCandidate(id, activePage, ids, points, SystemClock.uptimeMillis())
+                if (cand != null) {
+                    val loopBox = RectF(points.minOf { it.first }, points.minOf { it.second }, points.maxOf { it.first }, points.maxOf { it.second })
+                    host.onCircleCandidate(pageToScreen(activePage, loopBox))
+                    layer.invalidate()
+                }
+            }
+        }
+        strokeId = null
+        val remapped = remapInkEvent(e, activePointer)
+        try {
+            wetInk.finishStroke(remapped, activePointer, id)
+        } finally {
+            if (remapped !== e) remapped.recycle()
+        }
+    }
+
+    /** What a hand-drawn loop would select: anything mostly or partly inside. */
+    private fun loopSelects(page: Int, loop: List<Pt>): Set<Long> {
+        val p = pages.getOrNull(page) ?: return emptySet()
+        val lasso = Lasso(loop, true, minInside = 0.01f)
+        return p.items.filter { lassoAllows(it) && lasso.selects(it) }.map { it.id }.toSet()
+    }
+
+    internal val circleDetector = CircleDetector()
+    private var armedDownEvent: MotionEvent? = null
+    private val circleHoldRunnable = Runnable { fireCircleHold() }
+
+    /** Activates circle selection cleanly for both live-hold and post-lift hold. */
+    private fun activateCircleSelection(
+        page: Int,
+        loop: List<Pt>,
+        targetIds: Set<Long>,
+        grabLocalX: Float,
+        grabLocalY: Float,
+        itemIdToRemove: Long = -1L,
+    ) {
+        val p = pages.getOrNull(page) ?: return
+        if (itemIdToRemove != -1L) {
+            host.beginEdit(page)
+            updatePage(page, p.items.filterNot { it.id == itemIdToRemove })
+        }
+        val latest = pages.getOrNull(page) ?: return
+        val presentIds = latest.items.mapTo(HashSet()) { it.id }
+        val ids = (targetIds + loopSelects(page, loop)).filterTo(HashSet()) { it in presentIds }
+        if (ids.isEmpty()) return
+        buzz()
+        val screen = loop.map { (x, y) ->
+            val a = floatArrayOf(x, y)
+            pageMatrix(page, tmpMatrix).mapPoints(a)
+            a[0] to a[1]
+        }
+        // Preserve the drawn circle/loop outline so the selection stays in the drawn shape.
+        selectItems(page, ids, outline = loop)
+        if (!circleSelect) { circleSelect = true; host.onCircleSelect(true) }
+        layer.playLassoMorph(screen) {}
+        activePage = page
+        grab = Grab.MOVE
+        mode = Mode.MOVE
+        grabStartX = grabLocalX; grabStartY = grabLocalY
+        val grabPt = floatArrayOf(grabLocalX, grabLocalY)
+        pageMatrix(page, tmpMatrix).mapPoints(grabPt)
+        startEdgeScroll(grabPt[0], grabPt[1])
+        liveScale = 1f; liveScaleX = 1f; liveScaleY = 1f; liveDeg = 0f
+        liveMatrix = Matrix()
+    }
+
+    /** The end of the loop was held: the loop ink becomes the lasso and the pen can drag at once. */
+    private fun fireCircleHold() {
+        val (pc, downScreen) = circleDetector.triggerArmedHold() ?: return
+        armedDownEvent?.recycle(); armedDownEvent = null
+        host.onCircleCandidate(null)
+        if (pc.itemId == -1L && pc.strokeKey is InProgressStrokeId) {
+            consumedCircleStrokes += pc.strokeKey
+        }
+        val (lx, ly) = toLocal(downScreen.first, downScreen.second, pc.page)
+        activateCircleSelection(
+            page = pc.page,
+            loop = pc.loop,
+            targetIds = pc.targetIds,
+            grabLocalX = lx,
+            grabLocalY = ly,
+            itemIdToRemove = pc.itemId,
+        )
+    }
+
+    /** The loop was held still before lifting: its ink becomes the lasso and the pen can drag it straight away. */
+    private fun fireLiveCircle(ids: Set<Long>) {
+        holdFired = true
+        val page = activePage
+        val loop = ArrayList(points)
+        cancelActiveWetStroke()
+        clearCircleCandidate()
+        val (lx, ly) = points.last()
+        activateCircleSelection(
+            page = page,
+            loop = loop,
+            targetIds = ids,
+            grabLocalX = lx,
+            grabLocalY = ly,
+        )
+    }
+
+    private fun addStraightHighlight(a: Pt, b0: Pt) {
+        val p = pages.getOrNull(activePage) ?: return
+        var b = b0
+        // Nearly level lines become perfectly level.
+        if (abs(b.second - a.second) < abs(b.first - a.first) * 0.12f) b = b.first to a.second
+        val stroke = InkCodec.strokeFromPoints(densifyPublic(listOf(a, b)), host.brush(Tool.HIGHLIGHTER))
+        host.beginEdit(activePage)
+        updatePage(activePage, p.items + InkItem(ItemIds.next(), stroke))
+    }
+
+    private fun trackHold(cur: Pt) {
+        val last = lastMovePt
+        if (last == null || hypot(cur.first - last.first, cur.second - last.second) * scale > 2f * density) {
+            lastMovePt = cur
+            removeCallbacks(holdRunnable)
+            if (shouldTrackHold()) postDelayed(holdRunnable, gestureConfig.holdDelayMs)
+        }
+    }
+
+    /** Pen held still at the end of a stroke: circle-to-lasso or snap to a shape. */
+    private fun onHold() {
+        if (mode != Mode.INK || holdFired || SystemClock.uptimeMillis() - downTime < gestureConfig.holdDelayMs) return
+        if (strokeId == null || tool != strokeTool) return
+        pages.getOrNull(activePage) ?: return
+        if (points.size < 5 || pathLength(points) < 24f) return
+        // A scribble that ends with a pause is still a scribble (erase), never a shape.
+        if ((strokeTool == Tool.PEN || strokeTool == Tool.CRAYON || strokeTool == Tool.HIGHLIGHTER) && settings.scribbleToErase &&
+            isDeliberateScribble(points, scale / density, SystemClock.uptimeMillis() - downTime, gestureConfig) &&
+            scribbleHitIds(activePage, points).isNotEmpty()) return
+
+        // Draw-and-hold snaps to shapes (never hijacks into lasso).
+        // Converting a loop to lasso only happens when pressing & holding the pulsing circle indicator after lifting.
+
+        // Highlighter holds snap to shapes or straight highlight lines.
+        if (strokeTool == Tool.HIGHLIGHTER) {
+            holdFired = true
+            cancelActiveWetStroke()
+            val shape = if (isClosedLoop(points, gestureConfig)) ShapeRecognizer.recognize(points) else null
+            if (shape != null) {
+                val p2 = pages[activePage]
+                host.beginEdit(activePage)
+                updatePage(activePage, p2.items + InkItem(ItemIds.next(), InkCodec.strokeFromPoints(shape, host.brush(Tool.HIGHLIGHTER))))
+            } else addStraightHighlight(points.first(), points.last())
+            buzz()
+            return
+        }
+        if (strokeTool == Tool.SHAPE || (settings.holdToShape && strokeTool in setOf(Tool.PEN, Tool.CRAYON, Tool.AUTO_TEXT))) {
+            val shapes = ShapeRecognizer.recognizeMulti(points, forceNearest = (strokeTool == Tool.SHAPE)) ?: return
+            holdFired = true
+            cancelActiveWetStroke()
+            addShapes(
+                shapes = shapes,
+                fillable = strokeTool == Tool.SHAPE && shapes.size == 1 && isClosedLoop(shapes.first(), gestureConfig),
+                brushTool = strokeTool,
+            )
+            buzz(); syncFeel(); feel.cue(PaperFeel.Cue.SNAP)
+        }
+    }
+
+    private fun cancelActiveWetStroke(event: MotionEvent? = lastTouchEvent) {
+        val id = strokeId ?: return
+        strokeId = null
+        strokePages.remove(id)
+        strokeTools.remove(id)
+        val ev = if (event != null) {
+            MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+        } else {
+            val now = SystemClock.uptimeMillis()
+            MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, downX, downY, 0)
+        }
+        try {
+            wetInk.cancelStroke(id, ev)
+        } finally {
+            ev.recycle()
+        }
+    }
+
+    /** Lasso filter from settings: which kinds of content can be selected. */
+    internal fun lassoAllows(item: PageItem): Boolean {
+        val f = settings.lassoFilter
+        return when (item) {
+            is InkItem -> if (item.isHighlighter) f.highlighter else f.ink
+            is TextItem -> f.text
+            is ImageItem -> f.images
+            is FillItem -> f.ink
+            else -> f.other
+        }
+    }
+
+    private fun addShapes(shapes: List<List<Pt>>, fillable: Boolean = false, brushTool: Tool = Tool.SHAPE) {
+        val p = pages.getOrNull(activePage) ?: return
+        val effectiveBrushTool = when (brushTool) {
+            Tool.PEN, Tool.CRAYON, Tool.AUTO_TEXT, Tool.HIGHLIGHTER -> brushTool
+            else -> Tool.SHAPE
+        }
+        val brush = host.brush(effectiveBrushTool)
+        val items = ArrayList<PageItem>()
+        val fill = if (fillable) host.shapeFill() else null
+        val outline = shapes.firstOrNull()
+        if (fill != null && outline != null && outline.size > 2) {
+            val arr = FloatArray(outline.size * 2)
+            outline.forEachIndexed { i, (x, y) -> arr[i * 2] = x; arr[i * 2 + 1] = y }
+            items += FillItem(ItemIds.next(), arr, fill)
+        }
+        shapes.filter { it.size > 1 }.forEach { items += InkItem(ItemIds.next(), InkCodec.strokeFromPoints(it, brush)) }
+        if (items.isEmpty()) return
+        host.beginEdit(activePage)
+        updatePage(activePage, p.items + items)
+        if (settings.lassoAfterShape) selectItems(activePage, items.map { it.id }.toSet())
+    }
+
+    // ------------------------------------------------------- circle to select
+
+    /** The user tapped the "Select" chip: turn the drawn loop into a selection. */
+    fun acceptCircle() {
+        val pc = circleDetector.activeCandidate(SystemClock.uptimeMillis(), gestureConfig) ?: return
+        pc.pendingRemoval = true
+        circleDetector.reset()
+        host.onCircleCandidate(null)
+        if (pc.itemId == -1L && pc.strokeKey is InProgressStrokeId) {
+            consumedCircleStrokes += pc.strokeKey
+        }
+        val p = pages.getOrNull(pc.page) ?: return
+        if (pc.itemId != -1L) updatePage(pc.page, p.items.filterNot { it.id == pc.itemId })
+        val latest = pages.getOrNull(pc.page) ?: return
+        selectItems(pc.page, pc.targetIds.filter { id -> latest.items.any { it.id == id } }.toSet())
+        buzz()
+    }
+
+    fun clearCircleCandidate() {
+        if (circleDetector.state == CircleDetector.State.Idle) return
+        circleDetector.reset()
+        armedDownEvent?.recycle(); armedDownEvent = null
+        removeCallbacks(circleHoldRunnable)
+        host.onCircleCandidate(null)
+    }
+
+    /** Keeps points at least 8 units apart, averaging neighbours for a smooth tape path. */
+    private fun simplifyForTape(pts: List<Pt>): List<Pt> {
+        val spaced = ArrayList<Pt>()
+        for (p in pts) if (spaced.isEmpty() || hypot(p.first - spaced.last().first, p.second - spaced.last().second) > 8f) spaced += p
+        if (spaced.size < 3) return spaced.ifEmpty { pts.take(2) }
+        return spaced.mapIndexed { i, p ->
+            if (i == 0 || i == spaced.size - 1) p
+            else ((spaced[i - 1].first + p.first * 2 + spaced[i + 1].first) / 4f) to ((spaced[i - 1].second + p.second * 2 + spaced[i + 1].second) / 4f)
+        }
+    }
+
+    private fun tapeRect(x0: Float, y0: Float, x1: Float, y1: Float): RectF {
+        val thick = 46f
+        return if (abs(x1 - x0) >= abs(y1 - y0)) RectF(min(x0, x1), y0 - thick / 2, max(x0, x1), y0 + thick / 2)
+        else RectF(x0 - thick / 2, min(y0, y1), x0 + thick / 2, max(y0, y1))
+    }
+
+    private fun addTape(r: RectF) {
+        if (r.width() < 30f && r.height() < 30f) return
+        val p = pages[activePage]
+        host.beginEdit(activePage)
+        updatePage(activePage, p.items + TapeItem(ItemIds.next(), r.left, r.top, r.width(), r.height(), host.tapeColor(), pattern = host.tapePattern()))
+    }
+
+    private fun toggleTapeAt(page: Int, x: Float, y: Float) {
+        val p = pages.getOrNull(page) ?: return
+        val hit = p.items.lastOrNull { it is TapeItem && it.bounds.contains(x, y) } as TapeItem? ?: return
+        updatePage(page, p.items.map { if (it.id == hit.id) hit.copy(revealed = !hit.revealed) else it })
+        buzz(HapticFeedbackConstants.CLOCK_TICK)
+    }
+
+    private var pendingCheckStrokeId: InProgressStrokeId? = null
+    private val wetAssertionRunnable = Runnable {
+        if (!BuildConfig.DEBUG) return@Runnable
+        val staleId = pendingCheckStrokeId
+        pendingCheckStrokeId = null
+        val leaked = !touchActive && mode == Mode.NONE &&
+            (strokeId != null || (staleId != null && staleId in strokePages))
+        if (leaked) {
+            android.util.Log.w("NoteCanvasView", "In-progress stroke survived pen-up")
+        }
+    }
+
+    private fun assertNoSurvivingWetStroke(reason: String, finishedId: InProgressStrokeId? = null) {
+        if (!BuildConfig.DEBUG) return
+        if (strokeId != null || (reason == "cancel" && strokePages.isNotEmpty())) {
+            android.util.Log.w("NoteCanvasView", "In-progress stroke survived $reason")
+            return
+        }
+        if (finishedId != null && finishedId in strokePages) {
+            pendingCheckStrokeId = finishedId
+            removeCallbacks(wetAssertionRunnable)
+            postDelayed(wetAssertionRunnable, 350L)
+        }
+    }
+
+    private fun clearTransientExitState(cancelWetEvent: MotionEvent?, clearWet: Boolean) {
+        removeCallbacks(holdRunnable)
+        removeCallbacks(circleHoldRunnable)
+        removeCallbacks(linkLongRunnable)
+        removeCallbacks(textPressRunnable)
+        removeCallbacks(penEmptyPressRunnable)
+        stopEdgeScroll()
+        fingerGrabPointer = -1
+        selectionScrollPointer = -1
+        feel.stop()
+        if (clearWet) {
+            cancelActiveWetStroke(cancelWetEvent)
+            if (circleDetector.isHoldArmed()) {
+                circleDetector.reset()
+                host.onCircleCandidate(null)
+            }
+        }
+        armedDownEvent?.recycle(); armedDownEvent = null
+        if (mode == Mode.LASSO) layer.stopAnts()
+        layer.lasso = null
+        layer.shapePreview = null
+        layer.tapePreview = null
+        layer.tapeFree = null
+        layer.writeBoxPreview = null
+        layer.eraserAt = null
+        clearHover()
+        liveMatrix = null
+        lastErase = null
+        holdFired = false
+        capturingDrag = false
+        dragMindId = -1L
+        dragMindMoved = false
+        dragMindOrigPos = emptyMap()
+        clearStickyDrag()
+        mode = Mode.NONE
+        activePointer = -1
+        layer.invalidate()
+    }
+
+    private fun cancelCurrent(e: MotionEvent?) {
+        clearTransientExitState(cancelWetEvent = e ?: lastTouchEvent, clearWet = true)
+        assertNoSurvivingWetStroke("cancel", null)
+    }
+
+    // ------------------------------------------------------------- laser
+
+    /** Laser is strictly a pointer and never converts to a lasso selection. */
+    private fun laserUp() {
+        layer.laserEnd()
+    }
+
+    // ----------------------------------------------------------- selection & gesture state (implementations in NoteCanvasEraser/Selection/Gestures/DocLayer.kt)
+
+    /** Page-space loop drawn around a lasso selection (null = plain box). */
+    internal var selectionOutline: List<Pt>? = null
+    private var circleSelect = false
+    internal val tmpMatrix = Matrix()
+
+    fun selectItems(page: Int, ids: Set<Long>, outline: List<Pt>? = null) {
+        if (selectionPage != page || selection != ids) selectionTransformEnabled = false
+        selection = ids
+        selectionPage = page
+        selectionOutline = outline?.takeIf { it.size >= 3 }
+        if (ids.isNotEmpty()) {
+            layer.startAnts()
+            layer.popSelection()
+            syncFeel()
+            feel.cue(PaperFeel.Cue.SELECT)
+        } else {
+            layer.stopAnts()
+        }
+        layer.invalidate()
+        reportSelection()
+    }
+
+    fun clearSelection() {
+        if (circleSelect) { circleSelect = false; host.onCircleSelect(false) }
+        if (selection.isEmpty()) return
+        selection = emptySet()
+        selectionTransformEnabled = false
+        selectionOutline = null
+        liveMatrix = null
+        layer.stopAnts()
+        layer.invalidate()
+        reportSelection()
+    }
+
+    internal var textSelecting = false
+    internal var textPage = 0
+    private fun isEmptyPaper(pageIndex: Int, screenX: Float, screenY: Float): Boolean {
+        val page = pages.getOrNull(pageIndex) ?: return false
+        val (x, y) = toLocal(screenX, screenY, pageIndex)
+        if (x !in 0f..page.width || y !in 0f..page.height) return false
+        return page.items.none { it.bounds.contains(x, y) }
+    }
+
+    private val penEmptyPressRunnable = Runnable {
+        if (stylusPointer == -1 || !isEmptyPaper(activePage, downX, downY)) return@Runnable
+        val page = activePage
+        val x = downX
+        val y = downY
+        val (localX, localY) = toLocal(x, y, page)
+        cancelCurrent(lastTouchEvent)
+        mode = Mode.IGNORE
+        host.onPenActive(false)
+        buzz()
+        host.onEmptyPageLongPress(page, localX, localY, x, y)
+    }
+
+    internal val textPressRunnable = Runnable {
+        if (fingerMoved || maxFingers != 1 || mode != Mode.PAN) return@Runnable
+        val (dx, dy) = toDoc(fingerStartX, fingerStartY)
+        val pi = pageAt(dx, dy)
+        val (lx, ly) = toLocal(fingerStartX, fingerStartY, pi)
+        if (host.onTextPress(pi, lx, ly)) {
+            textSelecting = true; textPage = pi
+            scroller.forceFinished(true)
+            buzz()
+            layer.invalidate()
+        } else if (!readOnly && isEmptyPaper(pi, fingerStartX, fingerStartY)) {
+            mode = Mode.NONE
+            velocity?.recycle(); velocity = null
+            buzz(HapticFeedbackConstants.LONG_PRESS)
+            host.onEmptyPageLongPress(pi, lx, ly, fingerStartX, fingerStartY)
+        } else if (!readOnly && settings.stylusOnly) {
+            val target = pages.getOrNull(pi)?.items?.lastOrNull { lassoAllows(it) && it.bounds.contains(lx, ly) }
+            if (target != null) {
+                selectItems(pi, setOf(target.id))
+                fingerMoved = true
+                if (beginGrab(fingerStartX, fingerStartY)) {
+                    activePointer = fingerContactPointer
+                    fingerGrabPointer = fingerContactPointer
+                }
+                buzz(HapticFeedbackConstants.LONG_PRESS)
+            }
+        }
+    }
+
+    /** Double-tap with a finger: zoom in to 2x around the tap, or back to fit. */
+    internal var zoomAnim: ValueAnimator? = null
+
+    fun resetWhiteboardView() {
+        if (pages.isEmpty() || width == 0) return
+        zoomAnim?.cancel()
+        scroller.forceFinished(true)
+        val page = currentIndex
+        val p = pages[page]
+        val fromS = scale; val fromX = transX; val fromY = transY
+        val toS = fitScale(page)
+        val toX = (width - p.width * toS) / 2f - ox(page) * toS
+        val toY = (height - p.height * toS) / 2f - oy(page) * toS
+        zoomAnim = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 280; interpolator = DecelerateInterpolator()
+            addUpdateListener {
+                val t = it.animatedValue as Float
+                scale = fromS + (toS - fromS) * t
+                transX = fromX + (toX - fromX) * t
+                transY = fromY + (toY - fromY) * t
+                updateMatrix()
+            }
+            start()
+        }
+    }
+
+    // ------------------------------------------------ pen button click / double click (hovering)
+    internal var lastPenTouchAt = 0L      // last time the pen touched the screen
+    internal var buttonDown = false
+    internal var buttonDownAt = 0L
+    internal var lastClickAt = 0L
+    internal var pendingClick: Runnable? = null
+    internal val hoverTimeout = Runnable { clearHover() }
+
+    // Stylus hover: show the eraser ring when the side button is held over the page.
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        val tt = event.getToolType(0)
+        if (tt == MotionEvent.TOOL_TYPE_STYLUS || tt == MotionEvent.TOOL_TYPE_ERASER) {
+            lastStylusTime = SystemClock.uptimeMillis(); sawStylus = true
+            trackPenButton(event)
+            when (event.actionMasked) {
+                MotionEvent.ACTION_HOVER_MOVE, MotionEvent.ACTION_HOVER_ENTER -> {
+                    stylusHovering = true
+                    if (sideButtonHeld(event)) lastHoverButtonHeldAt = SystemClock.uptimeMillis()
+                    val erasing = effectiveTool(event) == Tool.ERASER
+                    layer.hoverAt = if (erasing) event.x to event.y else null
+                    // Hover preview: custom imported hover cursor or a dot in the pen's colour and size.
+                    val hasCustomHover = settings.customHoverIconPath.isNotBlank()
+                    layer.hoverDot = if (!erasing && settings.hoverCursor && stylusPointer == -1 && mode == Mode.NONE &&
+                        (hasCustomHover || tool == Tool.PEN || tool == Tool.CRAYON || tool == Tool.AUTO_TEXT || tool == Tool.HIGHLIGHTER || tool == Tool.SHAPE))
+                        (host.hoverInk() ?: (0xFF3D6CF4.toInt() to 6f)).let { (c, s) -> Triple(event.x, event.y, c to s * scale) } else null
+                    // Update writing guide line position when hovering in Auto-Text or Align Handwriting mode
+                    if (!erasing && settings.toolDefaults.alignGuideLine && (tool == Tool.AUTO_TEXT || (tool == Tool.PEN && settings.toolDefaults.alignHandwriting))) {
+                        val (ddx, ddy) = toDoc(event.x, event.y)
+                        val pi = pageAt(ddx, ddy)
+                        if (pi in pages.indices) {
+                            val (lx, ly) = toLocal(event.x, event.y, pi)
+                            layer.guideLinePage = pi
+                            layer.guideLineX = lx
+                            layer.guideLineY = ly + 22f
+                        }
+                    }
+                    layer.invalidate()
+                    // Some pens never send HOVER_EXIT: drop the dot when hover reports stop.
+                    removeCallbacks(hoverTimeout); postDelayed(hoverTimeout, 350)
+                }
+                MotionEvent.ACTION_HOVER_EXIT -> {
+                    stylusHovering = false
+                    clearHover()
+                }
+            }
+        }
+        return super.dispatchGenericMotionEvent(event)
+    }
+
+    fun refresh() = layer.invalidate()
+}

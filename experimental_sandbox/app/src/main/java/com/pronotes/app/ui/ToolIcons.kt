@@ -1,0 +1,408 @@
+package com.pronotes.app.ui
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.graphics.luminance
+import com.pronotes.app.editor.PenType
+import com.pronotes.app.editor.ShapeBuilder
+import com.pronotes.app.editor.ShapeKind
+import com.pronotes.app.editor.Tool
+
+/*
+ * Toolbar icon set (24-unit grid, 1.75 stroke, round caps), taken from
+ * pro_notes_toolbar_icons_v2. Shapes are SVG path data drawn with Compose.
+ */
+
+internal sealed interface Part
+internal data class P(val d: String, val dashed: Boolean = false, val filled: Boolean = false, val body: Boolean = false) : Part
+internal data class C(val cx: Float, val cy: Float, val r: Float, val filled: Boolean = false, val body: Boolean = false) : Part
+internal data class Rr(val x: Float, val y: Float, val w: Float, val h: Float, val rx: Float, val body: Boolean = false) : Part
+
+enum class ProIcon(internal val parts: List<Part>) {
+    SIDEBAR(listOf(Rr(3.5f, 4.5f, 17f, 15f, 2.5f), P("M9.5 4.5v15"))),
+    SEARCH(listOf(C(11f, 11f, 6.5f), P("M20 20l-4.4-4.4"))),
+    UNDO(listOf(P("M9 14L4 9l5-5"), P("M4 9h10.5a5.5 5.5 0 0 1 0 11H11"))),
+    REDO(listOf(P("M15 14l5-5-5-5"), P("M20 9H9.5a5.5 5.5 0 0 0 0 11H13"))),
+    PEN(listOf(P("M14.5 4.5l5 5L9.5 19.5l-5.5 1 1-5.5z", body = true), P("M12.5 6.5l5 5"), P("M5 15l4 4"))),
+    CRAYON(listOf(
+        P("M13.8 4.2l6 6-9.5 9.5-5.8.8.8-5.8z", body = true),
+        P("M11.6 6.4l6 6"),
+        P("M8.8 9.2l6 6"),
+        P("M5.6 14.4l4 4"),
+    )),
+    HIGHLIGHTER(listOf(P("M14.5 4l5.5 5.5-8 8-5.5-5.5z", body = true), P("M6.5 12L4.5 17l2.5 2.5 4.5-1.5"), P("M14 21h7"))),
+    ERASER(listOf(
+        P("M5.5 14.5l8-8a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L11 19.5H8L5.5 17a1.2 1.2 0 0 1 0-2.5z"),
+        P("M10 10l5.5 5.5"), P("M12 19.5h8"),
+    )),
+    SHAPES(listOf(C(7.5f, 7.5f, 4f, body = true), P("M16.5 4L21 12.5h-9z"), Rr(6f, 15f, 12f, 5.5f, 1.5f))),
+    LASSO(listOf(
+        P("M12 4c4.4 0 8 1.8 8 4.5S16.4 13 12 13 4 11.2 4 8.5 7.6 4 12 4z", dashed = true),
+        P("M9 12.8c-1.2 2.2-.6 4.6 1.8 5.2 1.8.4 3-.6 2.7-1.8"), C(13.5f, 19.2f, 1.3f),
+    )),
+    IMAGE(listOf(Rr(3.5f, 4.5f, 17f, 15f, 2.5f), C(9f, 10f, 1.7f), P("M3.5 17l5-5 4 4 3-3 5 4.5"))),
+    TEXT(listOf(
+        Rr(4f, 4f, 16f, 16f, 2.5f, body = true),
+        P("M7.5 8.5V7h9v1.5"),
+        P("M12 7v10"),
+        P("M9.8 17h4.4"),
+        C(4f, 4f, 1.1f, true), C(20f, 4f, 1.1f, true), C(4f, 20f, 1.1f, true), C(20f, 20f, 1.1f, true),
+    )),
+    KEYBOARD(listOf(
+        Rr(2.5f, 5.5f, 19f, 13f, 2.5f, body = true),
+        C(6.5f, 9.5f, 0.9f, true), C(10.2f, 9.5f, 0.9f, true), C(13.8f, 9.5f, 0.9f, true), C(17.5f, 9.5f, 0.9f, true),
+        C(6.5f, 12.8f, 0.9f, true), C(10.2f, 12.8f, 0.9f, true), C(13.8f, 12.8f, 0.9f, true), C(17.5f, 12.8f, 0.9f, true),
+        P("M7.5 15.8h9"),
+    )),
+    WRITE_BOX(listOf(
+        Rr(3.5f, 4.5f, 17f, 15f, 2.5f, body = true),
+        P("M6.5 15.5h11", dashed = true),
+        P("M6.5 12l2.2-5.5L11 12M7.1 10.6h3.2"),
+        P("M14.2 11.5l3.8-3.8 1.4 1.4-3.8 3.8-1.8.4z"),
+    )),
+    LASER(listOf(
+        P("M12.2 11.8l-7.6 7.6a1.5 1.5 0 0 0 2.1 2.1l7.6-7.6z"), P("M13.8 10.2l1.6-1.6"),
+        C(18f, 6f, 1.5f, filled = true, body = true), P("M18 2.5v1.2M21.5 6h-1.2M20.5 3.5l-.9.9M15.5 3.5l.9.9"),
+    )),
+    ADD(listOf(P("M12 5v14M5 12h14"))),
+    SHARE(listOf(P("M12 15V4"), P("M8 8l4-4 4 4"), P("M5 12v6.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V12"))),
+    MORE(listOf(C(5.5f, 12f, 1.2f, true), C(12f, 12f, 1.2f, true), C(18.5f, 12f, 1.2f, true))),
+    // Same style, for the extra tools and actions.
+    STICKY(listOf(P("M5 4.5h14a1 1 0 0 1 1 1V14l-6 6H5a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1z", body = true), P("M20 14h-5a1 1 0 0 0-1 1v5"))),
+    MINDMAP(listOf(
+        Rr(3f, 9.2f, 6.4f, 5.6f, 2.8f, body = true),
+        C(18.2f, 5.5f, 2.3f, body = true),
+        C(19f, 12f, 2.1f, body = true),
+        C(18.2f, 18.5f, 2.3f, body = true),
+        P("M9.4 10.8C12.2 10.2 13.5 6.2 15.9 5.7"),
+        P("M9.4 12h7.5"),
+        P("M9.4 13.2C12.2 13.8 13.5 17.8 15.9 18.3"),
+    )),
+    TAPE(listOf(C(9f, 10f, 5.5f, body = true), C(9f, 10f, 2f), P("M9 15.5h11l-1.5 2 1.5 2H9"))),
+    STICKER(listOf(C(12f, 12f, 8.5f, body = true), P("M8.5 14.5c1.8 2 5.2 2 7 0"), C(9.3f, 10f, 0.9f, true), C(14.7f, 10f, 0.9f, true))),
+    PAGES(listOf(Rr(4f, 4f, 7f, 7f, 1.5f), Rr(13f, 4f, 7f, 7f, 1.5f), Rr(4f, 13f, 7f, 7f, 1.5f), Rr(13f, 13f, 7f, 7f, 1.5f))),
+    HOME(listOf(P("M4 11l8-7 8 7"), P("M6 9.5V19a1 1 0 0 0 1 1h3.5v-5h3v5H17a1 1 0 0 0 1-1V9.5"))),
+    BOOKMARK(listOf(P("M7 4.5h10a1 1 0 0 1 1 1V20l-6-4-6 4V5.5a1 1 0 0 1 1-1z", body = true))),
+    FOCUS(listOf(P("M4 9V5.5a1.5 1.5 0 0 1 1.5-1.5H9"), P("M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9"), P("M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15"), P("M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"))),
+    CLOSE(listOf(P("M6 6l12 12M18 6L6 18"))),
+    // Settings categories and rows: same thin-line style as the toolbar.
+    DOCUMENT(listOf(Rr(5f, 3.5f, 14f, 17f, 2.5f), P("M8.5 8.5h7M8.5 12h7M8.5 15.5h4"))),
+    TOOLBAR(listOf(Rr(3f, 13f, 18f, 7f, 3.5f), C(8f, 16.5f, 1f, true), C(12f, 16.5f, 1f, true), C(16f, 16.5f, 1f, true), P("M8 6.5h8"))),
+    PALETTE(listOf(
+        P("M12 4a8 8 0 1 0 0 16c1.1 0 1.6-.8 1.3-1.7-.4-1 .3-2.1 1.5-2.1H17a3 3 0 0 0 3-3C20 7.6 16.5 4 12 4z"),
+        C(8f, 11f, 1f, true), C(10.5f, 7.5f, 1f, true), C(14.5f, 7.5f, 1f, true),
+    )),
+    FOLDER(listOf(P("M3.5 7.5a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"))),
+    INFO(listOf(C(12f, 12f, 8.5f), P("M12 11v5"), C(12f, 8f, 0.7f, true))),
+    HEART(listOf(P("M12 20s-7.5-4.6-7.5-10A4.2 4.2 0 0 1 12 7.6 4.2 4.2 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10z", body = true))),
+    STAR(listOf(P("M12 3.5l2.2 5.3 5.8.5-4.4 3.8 1.3 5.6L12 15.6l-4.9 3.1 1.3-5.6L4 9.3l5.8-.5z"))),
+    DOWNLOAD(listOf(P("M12 4v11"), P("M8 11l4 4 4-4"), P("M5 19h14"))),
+    RESTORE(listOf(P("M4.5 12a7.5 7.5 0 1 0 2.4-5.5"), P("M4.5 5v4h4"), P("M12 8.5V12l2.5 1.5"))),
+    /** Precision studio gear with inner ring and 8 radial teeth. */
+    SETTINGS(listOf(
+        C(12f, 12f, 3.2f, body = true),
+        C(12f, 12f, 6.2f),
+        P("M12 3.2v2.4M12 18.4v2.4M3.2 12h2.4M18.4 12h2.4"),
+        P("M5.8 5.8l1.7 1.7M16.5 16.5l1.7 1.7M18.2 5.8l-1.7 1.7M7.5 16.5l-1.7 1.7"),
+    )),
+    // Glyphs for Web Links, Slide Show, Split View, Concept Map Fit, and More menus
+    WEBLINK(listOf(
+        P("M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71", body = true),
+        P("M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"),
+    )),
+    SLIDESHOW(listOf(
+        Rr(3f, 4.5f, 18f, 12.5f, 2.5f, body = true),
+        P("M10.5 8.5l4.5 2.3-4.5 2.3z", filled = true),
+        P("M12 17v3.5M8 20.5h8"),
+    )),
+    SPLIT(listOf(
+        Rr(3.5f, 4.5f, 17f, 15f, 2.5f),
+        P("M12 4.5v15"),
+        P("M6.5 9h3M14.5 9h3M6.5 12.5h3M14.5 12.5h3"),
+    )),
+    FIT_MAP(listOf(
+        P("M4 8.5V5a1 1 0 0 1 1-1h3.5M15.5 4H19a1 1 0 0 1 1 1v3.5M20 15.5V19a1 1 0 0 1-1 1h-3.5M8.5 20H5a1 1 0 0 1-1-1v-3.5"),
+        Rr(8.5f, 8.5f, 7f, 7f, 2f, body = true),
+    )),
+    BOOK(listOf(
+        P("M12 6.2c-1.8-1.4-4.2-1.9-7-1.4a1 1 0 0 0-.8 1v12.5a1 1 0 0 0 1.2 1c2.5-.5 4.7 0 6.6 1.3"),
+        P("M12 6.2c1.8-1.4 4.2-1.9 7-1.4a1 1 0 0 1 .8 1v12.5a1 1 0 0 1-1.2 1c-2.5-.5-4.7 0-6.6 1.3"),
+        P("M12 6.2v14.4"),
+    )),
+    HOVER_LABEL(listOf(
+        Rr(4f, 4.5f, 16f, 8f, 4f, body = true),
+        P("M8 8.5h8"),
+        P("M12 12.5v7M9 17.5l3 2.5 3-2.5"),
+    )),
+    FLASHCARDS(listOf(
+        Rr(3.5f, 6.5f, 13.5f, 14f, 2.5f, body = true),
+        P("M7.5 4h11a2 2 0 0 1 2 2v11.5"),
+        P("M10.5 10l-2 3.5h3.5l-1.5 3.5"),
+    )),
+    TEMPLATE(listOf(
+        Rr(4f, 4f, 16f, 16f, 2.5f),
+        P("M4 9.5h16M4 14.5h16M9.5 4v16"),
+    )),
+    PDF_EXPORT(listOf(
+        P("M6 3.5h8l4.5 4.5v12.5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1z"),
+        P("M14 3.5V8h4.5"),
+        P("M12 18v-6M9.5 14.5L12 12l2.5 2.5"),
+    )),
+    LOCK(listOf(
+        Rr(5.5f, 10.5f, 13f, 9.5f, 2.5f, body = true),
+        P("M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"),
+    )),
+    TIMER(listOf(
+        C(12f, 13f, 7.5f),
+        P("M12 9.5V13l2.5 1.8M9.5 3.5h5M12 3.5v2"),
+    )),
+    RENAME(listOf(
+        P("M4 19.5h4.5L19 9a2 2 0 0 0 0-2.8l-1.2-1.2a2 2 0 0 0-2.8 0L4.5 15.5z"),
+        P("M13.5 6.5l4 4"),
+    )),
+    COPY(listOf(
+        Rr(8.5f, 8.5f, 11.5f, 11.5f, 2f),
+        P("M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"),
+    )),
+    TRASH(listOf(
+        P("M4.5 6.5h15M9 6.5V4.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"),
+        P("M6.5 6.5l1 13a1.5 1.5 0 0 0 1.5 1.5h6a1.5 1.5 0 0 0 1.5-1.5l1-13"),
+        P("M10 10.5v6M14 10.5v6"),
+    )),
+}
+
+private val parsed = HashMap<String, Path>()
+private fun pathOf(d: String): Path = parsed.getOrPut(d) { PathParser().parsePathString(d).toPath() }
+
+/**
+ * Computes an adaptive high-contrast border color when an icon or pen tip is filled with [ink]
+ * so that white/bright ink on light toolbars gets a dark border and black/dark ink on dark toolbars
+ * gets a crisp light border.
+ */
+internal fun adaptiveInkBorderColor(ink: Color, baseTint: Color): Color {
+    val inkLum = ink.luminance()
+    val tintLum = baseTint.luminance()
+    return when {
+        inkLum > 0.65f -> Color(0xFF14171F) // Bright/white/yellow ink -> crisp dark border
+        inkLum < 0.25f -> Color(0xFFF8FAFC) // Dark/black/navy ink -> crisp snow border
+        else -> if (tintLum > 0.5f) Color(0xFFF8FAFC) else Color(0xFF14171F)
+    }
+}
+
+/**
+ * Draws an icon. [ink], when set, fills the icon's "body" part, so the active
+ * pen shows its ink colour and the shapes icon shows its fill, with an adaptive
+ * contrasting border so readability is always preserved.
+ */
+@Composable
+fun ProIconView(icon: ProIcon, tint: Color, modifier: Modifier = Modifier, ink: Color? = null, inkAlpha: Float = 0.9f) {
+    Canvas(modifier) { drawProIcon(icon, tint, ink, inkAlpha) }
+}
+
+fun DrawScope.drawProIcon(icon: ProIcon, tint: Color, ink: Color?, inkAlpha: Float = 0.9f) {
+    val k = size.minDimension / 24f
+    val ox = (size.width - 24f * k) / 2f
+    val oy = (size.height - 24f * k) / 2f
+    translate(ox, oy) {
+        scale(k, k, pivot = Offset.Zero) {
+            val stroke = Stroke(width = 1.75f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            val bodyBorderStroke = Stroke(width = 2.05f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            val dashed = Stroke(width = 1.75f, cap = StrokeCap.Round, join = StrokeJoin.Round, pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 3f)))
+            val bodyBorder = if (ink != null) adaptiveInkBorderColor(ink, tint) else tint
+            val outline = if (ink != null) {
+                // If tint has low contrast against ink, use adaptive border for outline as well
+                val lumDiff = kotlin.math.abs(ink.luminance() - tint.luminance())
+                if (lumDiff < 0.28f) bodyBorder else tint
+            } else tint
+            for (part in icon.parts) when (part) {
+                is P -> {
+                    val path = pathOf(part.d)
+                    if (part.body && ink != null) {
+                        drawPath(path, ink.copy(alpha = inkAlpha))
+                        drawPath(path, bodyBorder, style = bodyBorderStroke)
+                    }
+                    if (part.filled) {
+                        drawPath(path, if (part.body && ink != null) ink else outline)
+                    } else if (!(part.body && ink != null)) {
+                        drawPath(path, outline, style = if (part.dashed) dashed else stroke)
+                    }
+                }
+                is C -> {
+                    if (part.body && ink != null) {
+                        drawCircle(ink.copy(alpha = inkAlpha), part.r, Offset(part.cx, part.cy))
+                        drawCircle(bodyBorder, part.r, Offset(part.cx, part.cy), style = bodyBorderStroke)
+                    } else if (part.filled) {
+                        drawCircle(outline, part.r, Offset(part.cx, part.cy))
+                    } else {
+                        drawCircle(outline, part.r, Offset(part.cx, part.cy), style = stroke)
+                    }
+                }
+                is Rr -> {
+                    if (part.body && ink != null) {
+                        drawRoundRect(ink.copy(alpha = inkAlpha), Offset(part.x, part.y), Size(part.w, part.h), CornerRadius(part.rx))
+                        drawRoundRect(bodyBorder, Offset(part.x, part.y), Size(part.w, part.h), CornerRadius(part.rx), style = bodyBorderStroke)
+                    } else {
+                        drawRoundRect(outline, Offset(part.x, part.y), Size(part.w, part.h), CornerRadius(part.rx), style = stroke)
+                    }
+                }
+            }
+        }
+    }
+}
+
+fun iconFor(tool: Tool): ProIcon = when (tool) {
+    Tool.PEN -> ProIcon.PEN
+    Tool.CRAYON -> ProIcon.CRAYON
+    Tool.HIGHLIGHTER -> ProIcon.HIGHLIGHTER
+    Tool.ERASER -> ProIcon.ERASER
+    Tool.SHAPE -> ProIcon.SHAPES
+    Tool.LASSO -> ProIcon.LASSO
+    Tool.TEXT -> ProIcon.TEXT
+    Tool.AUTO_TEXT -> ProIcon.WRITE_BOX
+    Tool.IMAGE -> ProIcon.IMAGE
+    Tool.STICKY -> ProIcon.STICKY
+    Tool.WEBLINK -> ProIcon.WEBLINK
+    Tool.MINDMAP -> ProIcon.MINDMAP
+    Tool.TAPE -> ProIcon.TAPE
+    Tool.STICKER -> ProIcon.STICKER
+    Tool.LASER -> ProIcon.LASER
+}
+
+/** Tool icon. Colour tools always show their current [inkColor]; the shapes icon is multicolour. */
+@Composable
+fun ToolGlyph(tool: Tool, tint: Color, inkColor: Color, modifier: Modifier = Modifier, active: Boolean = false) {
+    if (tool == Tool.SHAPE) {
+        Canvas(modifier) { drawShapesIcon(tint) }
+        return
+    }
+    val ink = when (tool) {
+        Tool.PEN, Tool.CRAYON, Tool.AUTO_TEXT, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.HIGHLIGHTER, Tool.TEXT, Tool.MINDMAP -> inkColor
+        Tool.LASER -> if (active) Color(0xFFFF3B30) else null
+        else -> null
+    }
+    val alpha = when {
+        tool == Tool.HIGHLIGHTER -> 0.72f
+        tool == Tool.TEXT || tool == Tool.AUTO_TEXT -> 0.45f
+        active -> 0.94f
+        else -> 0.85f
+    }
+    ProIconView(iconFor(tool), tint, modifier, ink, alpha)
+}
+
+/** Circle, triangle and rounded box in three colours. */
+private fun DrawScope.drawShapesIcon(tint: Color) {
+    val k = size.minDimension / 24f
+    translate((size.width - 24f * k) / 2f, (size.height - 24f * k) / 2f) {
+        scale(k, k, pivot = Offset.Zero) {
+            val s = Stroke(width = 1.75f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            drawCircle(Color(0xFFFF6B6B), 4f, Offset(7.5f, 7.5f))
+            drawCircle(tint, 4f, Offset(7.5f, 7.5f), style = s)
+            val tri = pathOf("M16.5 4L21 12.5h-9z")
+            drawPath(tri, Color(0xFFFFC53D)); drawPath(tri, tint, style = s)
+            drawRoundRect(Color(0xFF4D9BFF), Offset(6f, 15f), Size(12f, 5.5f), CornerRadius(1.5f))
+            drawRoundRect(tint, Offset(6f, 15f), Size(12f, 5.5f), CornerRadius(1.5f), style = s)
+        }
+    }
+}
+
+/** Pen bodies for the pen card, with adaptive border around the ink tip so dark/light ink stays readable. */
+@Composable
+fun PenGlyph(type: PenType, tint: Color, ink: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) { drawPen(tint, ink, type) }
+}
+
+private fun DrawScope.drawPen(tint: Color, ink: Color, type: PenType) {
+    val k = size.minDimension / 24f
+    fun p(x: Float, y: Float) = Offset(x * k, y * k)
+    val s = Stroke(width = 1.7f * k, cap = StrokeCap.Round, join = StrokeJoin.Round)
+    val nibBorderStroke = Stroke(width = 1.45f * k, cap = StrokeCap.Round, join = StrokeJoin.Round)
+    val nibBorder = adaptiveInkBorderColor(ink, tint)
+    rotate(45f) {
+        when (type) {
+            PenType.LETTERING, PenType.FOUNTAIN -> {
+                drawRoundRect(tint, p(9.5f, 9f), Size(5f * k, 13f * k), CornerRadius(1.6f * k), style = s)
+                val nib = Path().apply { moveTo(9.5f * k, 9f * k); lineTo(12f * k, 1.8f * k); lineTo(14.5f * k, 9f * k); close() }
+                drawPath(nib, ink)
+                drawPath(nib, nibBorder, style = nibBorderStroke)
+                drawLine(nibBorder, p(12f, 4.5f), p(12f, 8f), 1.1f * k, StrokeCap.Round)
+            }
+            PenType.FINELINER, PenType.BALL -> {
+                drawRoundRect(tint, p(10f, 7f), Size(4f * k, 15f * k), CornerRadius(2f * k), style = s)
+                val nib = Path().apply { moveTo(10.5f * k, 7f * k); lineTo(12f * k, 2.5f * k); lineTo(13.5f * k, 7f * k); close() }
+                drawPath(nib, ink)
+                drawPath(nib, nibBorder, style = nibBorderStroke)
+                drawLine(tint, p(13.8f, 9f), p(13.8f, 14f), 1.1f * k, StrokeCap.Round)
+            }
+            PenType.DASHED -> {
+                drawRoundRect(tint, p(10f, 7f), Size(4f * k, 15f * k), CornerRadius(2f * k), style = s)
+                val nib = Path().apply { moveTo(10.5f * k, 7f * k); lineTo(12f * k, 2.5f * k); lineTo(13.5f * k, 7f * k); close() }
+                drawPath(nib, ink)
+                drawPath(nib, nibBorder, style = nibBorderStroke)
+                for (y in listOf(9f, 12.5f, 16f)) {
+                    drawLine(nibBorder, p(12f, y), p(12f, y + 2f), 2.1f * k, StrokeCap.Round)
+                    drawLine(ink, p(12f, y), p(12f, y + 2f), 1.3f * k, StrokeCap.Round)
+                }
+            }
+            PenType.CALLIGRAPHY -> {
+                drawRoundRect(tint, p(9.2f, 9f), Size(5.6f * k, 13f * k), CornerRadius(1.4f * k), style = s)
+                val nib = Path().apply { moveTo(9.2f * k, 9f * k); lineTo(10.6f * k, 2.2f * k); lineTo(13.8f * k, 3.6f * k); lineTo(14.8f * k, 9f * k); close() }
+                drawPath(nib, ink)
+                drawPath(nib, nibBorder, style = nibBorderStroke)
+                drawLine(nibBorder, p(10.6f, 2.2f), p(13.8f, 3.6f), 1.4f * k, StrokeCap.Round)
+            }
+            PenType.PENCIL -> {
+                drawRoundRect(tint, p(9.8f, 8.5f), Size(4.4f * k, 12.5f * k), CornerRadius(1.0f * k), style = s)
+                drawLine(tint, p(12f, 8.5f), p(12f, 21f), 1.0f * k, StrokeCap.Round)
+                val cone = Path().apply { moveTo(9.8f * k, 8.5f * k); lineTo(12f * k, 2.2f * k); lineTo(14.2f * k, 8.5f * k); close() }
+                drawPath(cone, nibBorder, style = nibBorderStroke)
+                val tip = Path().apply { moveTo(11.1f * k, 4.8f * k); lineTo(12f * k, 2.2f * k); lineTo(12.9f * k, 4.8f * k); close() }
+                drawPath(tip, ink)
+            }
+            PenType.BRUSH -> {
+                drawRoundRect(tint, p(10f, 11f), Size(4f * k, 11f * k), CornerRadius(1.5f * k), style = s)
+                val nib = Path().apply {
+                    moveTo(10f * k, 11f * k); cubicTo(9f * k, 7f * k, 11f * k, 3f * k, 12f * k, 1.5f * k)
+                    cubicTo(13f * k, 3f * k, 15f * k, 7f * k, 14f * k, 11f * k); close()
+                }
+                drawPath(nib, ink)
+                drawPath(nib, nibBorder, style = nibBorderStroke)
+            }
+        }
+    }
+}
+
+/** Small outline preview of a shape for the shape picker. */
+@Composable
+fun ShapeGlyph(kind: ShapeKind, tint: Color, modifier: Modifier = Modifier, fill: Color? = null) {
+    Canvas(modifier) {
+        val k = size.minDimension / 24f
+        val s = Stroke(width = 1.6f * k, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        if (kind == ShapeKind.AUTO) {
+            drawPath(Path().apply { moveTo(4f * k, 16f * k); cubicTo(6f * k, 4f * k, 14f * k, 22f * k, 20f * k, 8f * k) }, tint, style = s)
+            drawCircle(tint, 1.4f * k, Offset(20f * k, 8f * k))
+            return@Canvas
+        }
+        val lines = ShapeBuilder.build(kind, 4f * k, 5f * k, 20f * k, 19f * k)
+        lines.forEachIndexed { li, pts ->
+            val path = Path()
+            pts.forEachIndexed { i, (x, y) -> if (i == 0) path.moveTo(x, y) else path.lineTo(x, y) }
+            if (li == 0 && fill != null && kind.closed) drawPath(path, fill)
+            drawPath(path, tint, style = s)
+        }
+    }
+}

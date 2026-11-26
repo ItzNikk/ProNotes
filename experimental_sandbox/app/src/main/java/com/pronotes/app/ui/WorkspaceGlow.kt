@@ -1,0 +1,98 @@
+package com.pronotes.app.ui
+
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.BoxWithConstraintsScope
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import kotlin.math.cos
+import kotlin.math.PI
+import kotlin.math.sin
+
+@Composable
+internal fun GlowingWorkspace(
+    paused: Boolean = false,
+    content: @Composable BoxWithConstraintsScope.() -> Unit,
+) {
+    MaterialTheme(colorScheme = MaterialTheme.colorScheme) {
+        BoxWithConstraints(Modifier.fillMaxSize().background(if (MaterialTheme.colorScheme.background.luminance() < 0.4f) Color.Black else MaterialTheme.colorScheme.background)) {
+            WorkspaceGlow(Modifier.matchParentSize(), paused)
+            content()
+        }
+    }
+}
+
+@Composable
+private fun WorkspaceGlow(modifier: Modifier, paused: Boolean) {
+    val effects = !LocalClassicAppearance.current && !LocalReduceEffects.current
+    val lifecycleState = LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
+    val phase = if (effects && !paused && !LocalReduceMotion.current && lifecycleState.value == Lifecycle.State.RESUMED) {
+        rememberInfiniteTransition(label = "Library background").animateFloat(
+            initialValue = 0f,
+            targetValue = (2 * PI).toFloat(),
+            animationSpec = infiniteRepeatable(tween(24_000, easing = LinearEasing)),
+            label = "Gradient orbit",
+        )
+    } else null
+    Box(modifier.graphicsLayer { clip = true }.drawWithCache {
+        val radius = (size.minDimension * 0.46f).coerceAtLeast(1f)
+        val primaryGlow = Brush.radialGradient(
+            0f to Color(0x505CFFD0),
+            0.25f to Color(0x5836CFEA),
+            0.50f to Color(0x294479FF),
+            0.75f to Color(0x146236FA),
+            1f to Color(0x006236FA),
+            center = Offset.Zero,
+            radius = radius,
+        )
+        val secondaryGlow = Brush.radialGradient(
+            0f to Color(0x44FFC465),
+            0.25f to Color(0x50FF796F),
+            0.50f to Color(0x24ED40B7),
+            0.75f to Color(0x127B34ED),
+            1f to Color(0x007B34ED),
+            center = Offset.Zero,
+            radius = radius,
+        )
+        val blueGlow = Brush.radialGradient(listOf(Color(0x38213895), Color.Transparent), center = Offset.Zero, radius = radius * 0.75f)
+        val purpleGlow = Brush.radialGradient(listOf(Color(0x38652699), Color.Transparent), center = Offset.Zero, radius = radius * 0.75f)
+        onDrawBehind {
+            val angle = phase?.value ?: 0f
+            translate(size.width * 0.78f + sin(angle) * size.width * 0.12f, size.height * 0.20f) {
+                drawCircle(blueGlow, radius * 0.75f, Offset.Zero)
+            }
+            translate(size.width * 0.20f, size.height * 0.82f + cos(angle) * size.height * 0.10f) {
+                drawCircle(purpleGlow, radius * 0.75f, Offset.Zero)
+            }
+            val dx = cos(angle) * size.width * 0.20f
+            val dy = sin(angle) * size.height * 0.16f
+            val pulse = sin(angle) * 0.14f
+            val primaryAlpha = if (effects) 0.86f + pulse else 0.55f
+            val secondaryAlpha = if (effects) 0.86f - pulse else 0.55f
+            translate(size.width * 0.24f + dx, size.height * 0.32f + dy) {
+                drawCircle(primaryGlow, radius, center = Offset.Zero, alpha = primaryAlpha)
+            }
+            translate(size.width * 0.76f - dx, size.height * 0.73f - dy) {
+                drawCircle(secondaryGlow, radius, center = Offset.Zero, alpha = secondaryAlpha)
+            }
+        }
+    })
+}

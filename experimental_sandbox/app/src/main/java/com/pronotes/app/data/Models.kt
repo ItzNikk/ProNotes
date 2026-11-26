@@ -1,0 +1,287 @@
+package com.pronotes.app.data
+
+import androidx.compose.runtime.Immutable
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
+enum class PaperStyle(val label: String) {
+    BLANK("Blank"),
+    RULED("Ruled"),
+    NARROW("Narrow ruled"),
+    GRID("Grid"),
+    DOTTED("Dotted"),
+    CORNELL("Cornell"),
+    TODO("To-do"),
+    PLANNER("Weekly"),
+    MUSIC("Music"),
+    // v8 templates
+    COLLEGE("College ruled"),
+    WIDE("Wide ruled"),
+    LEGAL("Legal pad"),
+    HANDWRITING("Handwriting practice"),
+    SMALL_GRID("Small grid"),
+    GRAPH("Graph paper"),
+    ISOMETRIC("Isometric"),
+    HEX("Hexagons"),
+    DAILY("Daily planner"),
+    MONTHLY("Monthly"),
+    MEETING("Meeting notes"),
+    STUDY("Study notes"),
+    TWO_COLUMN("Two columns"),
+    STORYBOARD("Storyboard"),
+    CHECKLIST("Checklist"),
+    TABLATURE("Guitar tab"),
+    // v15.2 templates
+    SEYES("French Seyes"),
+    CALLIGRAPHY("Calligraphy guide"),
+    ENGINEERING("Engineering 5mm"),
+    CORNELL_GRID("Cornell grid"),
+    DOT_CORNELL("Dotted Cornell"),
+    HABIT_TRACKER("Habit tracker"),
+    DAY_TIMEBLOCK("Time-block day"),
+    COMIC_PANELS("Comic 6-panel"),
+    ;
+
+    /** Groups for the paper template picker. */
+    val group: String get() = when (this) {
+        BLANK, RULED, NARROW, COLLEGE, WIDE, LEGAL, HANDWRITING, SEYES, CALLIGRAPHY -> "Writing"
+        GRID, SMALL_GRID, GRAPH, ENGINEERING, DOTTED, ISOMETRIC, HEX -> "Grids"
+        TODO, CHECKLIST, PLANNER, DAILY, DAY_TIMEBLOCK, MONTHLY, MEETING, HABIT_TRACKER -> "Planning"
+        CORNELL, CORNELL_GRID, DOT_CORNELL, STUDY, TWO_COLUMN, STORYBOARD, COMIC_PANELS -> "Study"
+        MUSIC, TABLATURE -> "Music"
+    }
+
+    val visibleInPicker: Boolean get() = true
+
+    companion object {
+        val pickerEntries: List<PaperStyle> get() = entries.filter { it.visibleInPicker }
+    }
+}
+
+@Immutable
+@Serializable
+data class Folder(
+    val id: String,
+    val name: String,
+    val parentId: String? = null,
+    val color: Int,
+    val created: Long,
+    val emoji: String = "",
+    val modified: Long = created,
+)
+
+/**
+ * Cover encodings:
+ *   "solid:<argb>"            plain colour
+ *   "pattern:<name>:<argb>"   generated pattern (dots, waves, grid, stripes, linen)
+ *   "image:<file>"            photo stored in the notebook folder
+ *   "thumb"                   live thumbnail of the first page
+ */
+@Immutable
+@Serializable
+data class NotebookMeta(
+    val id: String,
+    val title: String,
+    val folderId: String? = null,
+    val coverColor: Int,
+    val paper: PaperStyle = PaperStyle.RULED,
+    val created: Long,
+    val modified: Long,
+    val pageCount: Int = 1,
+    val favorite: Boolean = false,
+    val fromPdf: Boolean = false,
+    val cover: String = "",
+    val opened: Long = modified,
+    /** Set when the notebook is in the trash. */
+    val deletedAt: Long? = null,
+    val isWhiteboard: Boolean = false,
+    val tags: List<String> = emptyList(),
+) {
+    val coverSpec: String get() = cover.ifBlank { if (fromPdf) "thumb" else "solid:$coverColor" }
+}
+
+@Immutable
+@Serializable
+data class LibraryIndex(
+    val folders: List<Folder> = emptyList(),
+    val notebooks: List<NotebookMeta> = emptyList(),
+)
+
+@Immutable
+@Serializable
+data class BrushDoc(val family: String, val color: Int, val size: Float, val epsilon: Float)
+
+@Immutable
+@Serializable
+sealed class ItemDoc {
+    @Immutable
+    @Serializable
+    @SerialName("ink")
+    data class Ink(val inputs: String, val brush: BrushDoc, val dx: Float = 0f, val dy: Float = 0f) : ItemDoc()
+
+    @Immutable
+    @Serializable
+    @SerialName("text")
+    data class Text(
+        val text: String, val x: Float, val y: Float, val size: Float, val color: Int,
+        val font: String = "SANS", val bold: Boolean = false, val italic: Boolean = false,
+        val underline: Boolean = false, val gradient: Int? = null, val align: String = "LEFT",
+        val rot: Float = 0f, val customFontPath: String = "",
+    ) : ItemDoc()
+
+    @Immutable
+    @Serializable
+    @SerialName("fill")
+    data class Fill(val points: List<Float>, val color: Int, val dx: Float = 0f, val dy: Float = 0f) : ItemDoc()
+
+    @Immutable
+    @Serializable
+    @SerialName("image")
+    data class Image(val file: String, val x: Float, val y: Float, val w: Float, val h: Float, val rot: Float = 0f) : ItemDoc()
+
+    @Immutable
+    @Serializable
+    @SerialName("tape")
+    data class Tape(
+        val x: Float, val y: Float, val w: Float, val h: Float, val color: Int, val rot: Float = 0f,
+        /** Freehand tape: path points relative to (x, y), and its thickness. */
+        val pts: List<Float> = emptyList(), val thick: Float = 46f,
+        /** "stripes", "plain", "dots", "grid", "checks", "zigzag", "stars", "hearts" or "image:<file>". */
+        val pattern: String = "stripes",
+    ) : ItemDoc()
+
+    @Immutable
+    @Serializable
+    @SerialName("sticky")
+    data class Sticky(
+        val x: Float, val y: Float, val w: Float, val h: Float, val color: Int, val text: String, val rot: Float = 0f,
+        val fontSize: Float = 28f, val font: String = "SANS", val collapsed: Boolean = false, val pinned: Boolean = false,
+        val title: String = "", val style: String = "classic",
+    ) : ItemDoc()
+
+    @Immutable
+    @Serializable
+    @SerialName("mindnode")
+    data class MindNode(
+        val nodeId: Long,
+        val x: Float,
+        val y: Float,
+        val w: Float,
+        val h: Float,
+        val label: String,
+        val parentId: Long? = null,
+        val color: Int,
+        val shape: String = "pill",
+        val collapsed: Boolean = false,
+        val notes: String = "",
+        val tag: String = "",
+    ) : ItemDoc()
+
+    @Immutable
+    @Serializable
+    @SerialName("weblink")
+    data class WebLink(
+        val url: String,
+        val title: String,
+        val note: String = "",
+        val x: Float,
+        val y: Float,
+        val w: Float = 380f,
+        val h: Float = 136f,
+        val color: Int = 0xFF2A78D6.toInt(),
+        val rot: Float = 0f,
+    ) : ItemDoc()
+
+    @Serializable
+    @SerialName("writebox")
+    data class WriteBox(
+        val x: Float,
+        val y: Float,
+        val w: Float = 640f,
+        val h: Float = 320f,
+        val lineSpacing: Float = 48f,
+        val strokeColor: Int = 0x884A70E2.toInt(),
+        val fillColor: Int = 0x144A70E2.toInt(),
+        val inkItemIds: List<Long> = emptyList(),
+        val convertedText: String = "",
+        val isConverted: Boolean = false,
+        val font: String = "SANS",
+        val fontSize: Float = 24f,
+        val rot: Float = 0f,
+    ) : ItemDoc()
+}
+
+@Immutable
+@Serializable
+data class PageDoc(
+    val id: String,
+    val width: Float,
+    val height: Float,
+    val paper: PaperStyle,
+    val pdfPage: Int = -1,
+    val items: List<ItemDoc> = emptyList(),
+    val bookmarked: Boolean = false,
+    /** Paper colour for this page; null follows the app setting. */
+    val paperColor: Int? = null,
+    /** Set on a notebook's cover page: the cover design drawn full-page (see NotebookMeta.cover). */
+    val cover: String? = null,
+    /** Custom page: a picture file in the notebook folder used as the page background. */
+    val bgImage: String? = null,
+    /** Template tuning: line spacing multiplier and line colour (null = default). */
+    val lineScale: Float = 1f,
+    val lineColor: Int? = null,
+    val isWhiteboard: Boolean = false,
+    val tags: List<String> = emptyList(),
+)
+
+@Immutable
+@Serializable
+data class NoteDoc(val version: Int = 2, val pages: List<PageDoc>)
+
+/** Standard page size in world units (roughly A4 at 150 dpi). */
+object PageSize {
+    const val WIDTH = 1240f
+    const val HEIGHT = 1754f
+}
+
+/** Page size presets in millimetres; world units are 150 dpi (5.906 per mm). */
+enum class PagePreset(
+    val label: String,
+    val wMm: Float,
+    val hMm: Float,
+    val recommended: Boolean = false,
+    val isWhiteboard: Boolean = false,
+) {
+    A4("A4", 210f, 297f, recommended = true),
+    LETTER("Letter", 215.9f, 279.4f),
+    TABLOID("Tabloid", 279.4f, 431.8f),
+    A5("A5", 148f, 210f),
+    A3("A3", 297f, 420f),
+    SQUARE("Square", 210f, 210f),
+    WIDE("16:9", 297f, 167f),
+    PHONE("Phone", 75f, 160f),
+    WHITEBOARD("Whiteboard", 520f, 360f, isWhiteboard = true),
+    CUSTOM("Custom", 210f, 297f);
+
+    companion object {
+        const val UNITS_PER_MM = 1240f / 210f
+    }
+}
+
+val CoverColors = listOf(
+    0xFF24483F.toInt(), 0xFF2E4A7A.toInt(), 0xFF7A2E42.toInt(), 0xFFB98A2E.toInt(),
+    0xFF1E2321.toInt(), 0xFF35655A.toInt(), 0xFF8D6E63.toInt(), 0xFF3D6CF4.toInt(),
+    0xFF2BB673.toInt(), 0xFFF2994A.toInt(), 0xFFEB5757.toInt(), 0xFF9B51E0.toInt(),
+)
+
+val FolderColors = listOf(
+    0xFF24483F.toInt(), 0xFF2E4A7A.toInt(), 0xFF2F6B4F.toInt(), 0xFF7A2E42.toInt(),
+    0xFFB98A2E.toInt(), 0xFF1E2321.toInt(), 0xFF3D6CF4.toInt(), 0xFF34C759.toInt(),
+    0xFF8E9189.toInt(), 0xFF5A5F58.toInt(),
+)
+
+val CoverPatterns = listOf(
+    "leather", "kraft", "linen", "marble", "terrazzo", "plaid", "geometric", "gradient",
+    "spiral", "dots", "waves", "grid", "stripes", "scales",
+)

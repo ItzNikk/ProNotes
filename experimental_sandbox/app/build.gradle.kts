@@ -1,0 +1,169 @@
+import java.util.Base64
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
+}
+
+android {
+    namespace = "com.pronotes.app"
+    compileSdk = 36
+
+    defaultConfig {
+        applicationId = "com.pronotes.app"
+        minSdk = 26
+        targetSdk = 36
+        versionCode = (System.getenv("VERSION_CODE") ?: "23").toInt()
+        versionName = System.getenv("VERSION_NAME") ?: "17.0.0"
+        // Keep the default APK lean: only English resources are bundled; additional UI & handwriting language packs download on demand.
+        resourceConfigurations += listOf("en")
+        // Developer support: set pronotes.upi / pronotes.upiName in gradle.properties
+        // (or SUPPORT_UPI / SUPPORT_UPI_NAME in CI). Empty hides UPI payment button, while support messages remain visible.
+        val upi = System.getenv("SUPPORT_UPI") ?: (project.findProperty("pronotes.upi") as String? ?: "")
+        val upiName = System.getenv("SUPPORT_UPI_NAME") ?: (project.findProperty("pronotes.upiName") as String? ?: "Pro Notes")
+        val cloudProjectId = System.getenv("CLOUD_PROJECT_ID") ?: (project.findProperty("pronotes.cloudProjectId") as String? ?: "")
+        val cloudDbId = System.getenv("CLOUD_DB_ID") ?: (project.findProperty("pronotes.cloudDbId") as String? ?: "(default)")
+        val cloudApiKey = System.getenv("CLOUD_API_KEY") ?: (project.findProperty("pronotes.cloudApiKey") as String? ?: "")
+        val googleClientId = System.getenv("GOOGLE_CLIENT_ID") ?: (project.findProperty("pronotes.googleClientId") as String? ?: "")
+        buildConfigField("String", "SUPPORT_UPI", "\"$upi\"")
+        buildConfigField("String", "SUPPORT_UPI_NAME", "\"$upiName\"")
+        buildConfigField("String", "CLOUD_PROJECT_ID", "\"$cloudProjectId\"")
+        buildConfigField("String", "CLOUD_DB_ID", "\"$cloudDbId\"")
+        buildConfigField("String", "CLOUD_API_KEY", "\"$cloudApiKey\"")
+        buildConfigField("String", "GOOGLE_CLIENT_ID", "\"$googleClientId\"")
+    }
+
+    signingConfigs {
+        val ksPath = System.getenv("SIGNING_KEYSTORE_PATH")
+        if (!ksPath.isNullOrBlank() && file(ksPath).exists()) {
+            create("release") {
+                storeFile = file(ksPath)
+                storeType = "pkcs12"
+                storePassword = System.getenv("SIGNING_STORE_PASSWORD")
+                keyAlias = System.getenv("SIGNING_KEY_ALIAS")
+                keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+            }
+        }
+        getByName("debug") {
+            val userKs = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            val projectKs = rootProject.file("debug.keystore")
+            val b64 = rootProject.file("debug.keystore.base64")
+            if (!userKs.exists() && b64.exists()) {
+                try {
+                    userKs.parentFile?.mkdirs()
+                    userKs.writeBytes(Base64.getDecoder().decode(b64.readText().trim()))
+                } catch (_: Throwable) {}
+            }
+            if (userKs.exists()) {
+                storeFile = userKs
+            } else if (projectKs.exists()) {
+                storeFile = projectKs
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
+        }
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            isDebuggable = false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+
+    packaging {
+        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+    }
+
+    lint {
+        abortOnError = true
+        warningsAsErrors = false
+        checkReleaseBuilds = false
+    }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
+        freeCompilerArgs.add("-Xcontext-parameters")
+    }
+}
+
+dependencies {
+    val composeBom = platform("androidx.compose:compose-bom:2026.06.01")
+    implementation(composeBom)
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.compose.animation:animation")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended:1.7.8")
+
+    implementation("androidx.core:core-ktx:1.16.0")
+    implementation("androidx.activity:activity-compose:1.12.4")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
+    implementation("androidx.navigation:navigation-compose:2.9.8")
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
+
+    // Jetpack Ink: low-latency stylus strokes, brushes, geometry (eraser hit tests), rendering, storage.
+    val ink = "1.0.0"
+    implementation("androidx.ink:ink-authoring:$ink")
+    implementation("androidx.ink:ink-brush:$ink")
+    implementation("androidx.ink:ink-geometry:$ink")
+    implementation("androidx.ink:ink-rendering:$ink")
+    implementation("androidx.ink:ink-strokes:$ink")
+    implementation("androidx.ink:ink-storage:$ink")
+    // Motion prediction lowers perceived pen latency.
+    implementation("androidx.input:input-motionprediction:1.0.0")
+
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.8")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation("io.coil-kt.coil3:coil-compose:3.3.0")
+    // Drag-to-reorder lists (pages panel, toolbar customisation).
+    implementation("sh.calvin.reorderable:reorderable:2.4.3")
+    // Rounded polygons, stars and blobs for the shape tool.
+    implementation("androidx.graphics:graphics-shapes:1.0.1")
+    // Colour wheel + brightness slider for custom colours.
+    implementation("com.github.skydoves:colorpicker-compose:1.1.2")
+    // Hardware-accelerated progressive blur (Haze — matched to Kotlin 2.2.21 & Compose 1.10+).
+    implementation("dev.chrisbanes.haze:haze:1.7.2")
+    implementation("dev.chrisbanes.haze:haze-materials:1.7.2")
+    // PDF text extraction for in-document search.
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    // On-device handwriting-to-text recognition (ML Kit Digital Ink Recognition).
+    implementation("com.google.mlkit:digital-ink-recognition:18.1.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation(composeBom)
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+}

@@ -1,0 +1,20 @@
+Pro Notes
+Copyright 2026 ItzNikk (https://github.com/ItzNikk)
+
+This product is developed by ItzNikk and licensed under the Apache License,
+Version 2.0. Any redistribution, fork, or derivative work, in source or binary
+form, must keep this NOTICE file and must visibly credit the original author:
+
+    "Based on Pro Notes by ItzNikk — https://github.com/ItzNikk/ProNotes"
+
+The "Pro Notes" name and app icon identify the original project and may not be
+used to endorse or promote derived products without prior written permission.
+
+Third-party components:
+  - Jetpack Ink, Jetpack Compose, AndroidX libraries (Apache 2.0, Google LLC)
+  - Jetpack Graphics Shapes (Apache 2.0, Google LLC)
+  - PdfBox-Android (Apache 2.0, Tom Roush / The Apache Software Foundation)
+  - colorpicker-compose (Apache 2.0, skydoves)
+  - Reorderable (Apache 2.0, Calvin Liang)
+  - Coil (Apache 2.0, Coil Contributors)
+  - kotlinx.serialization, kotlinx.coroutines (Apache 2.0, JetBrains)

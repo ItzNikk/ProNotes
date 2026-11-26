@@ -1,0 +1,109 @@
+<resources>
+    <string name="app_name">Pro Notes</string>
+    <string name="action_undo">Undo</string>
+    <string name="pull_to_add_page">Pull to add a page</string>
+    <string name="release_to_add_page">Release to add a page</string>
+
+    <!-- Phase 2: Toolbar, Quick Actions & Selection -->
+    <string name="toolbar_style_fixed">Fixed bar</string>
+    <string name="toolbar_style_floating">Floating pill</string>
+    <string name="toolbar_style_compact">Compact</string>
+    <string name="toolbar_dock_top">Top edge</string>
+    <string name="toolbar_dock_bottom">Bottom edge</string>
+    <string name="toolbar_dock_left">Left edge</string>
+    <string name="toolbar_dock_right">Right edge</string>
+    <string name="toolbar_dock_floating">Floating</string>
+    <string name="toolbar_more_tools">More tools</string>
+    <string name="toolbar_layout_menu">Toolbar style and position</string>
+    <string name="toolbar_drag_handle">Drag to reposition toolbar</string>
+    <string name="toolbar_reset_position">Reset toolbar position</string>
+    <string name="toolbar_undo">Undo</string>
+    <string name="toolbar_redo">Redo</string>
+    <string name="toolbar_reset_view">Reset view</string>
+
+    <!-- Appearance switches -->
+    <string name="setting_classic_appearance">Classic appearance</string>
+    <string name="setting_classic_appearance_sub">Use solid surfaces and turn off blur and glass effects across the app</string>
+    <string name="setting_reduce_effects">Reduce glow and shadow effects</string>
+    <string name="setting_reduce_effects_sub">Flatten drop shadows, borders, and halo highlights</string>
+
+    <!-- Tool display names -->
+    <string name="tool_pen">Pen</string>
+    <string name="tool_highlighter">Highlighter</string>
+    <string name="tool_eraser">Eraser</string>
+    <string name="tool_shapes">Shapes</string>
+    <string name="tool_selection">Selection (Lasso)</string>
+    <string name="tool_concept_maps">Concept Maps</string>
+    <string name="tool_image">Image</string>
+    <string name="tool_text">Text and Write Box</string>
+    <string name="tool_sticky">Sticky note</string>
+    <string name="tool_weblink">Link Previews</string>
+    <string name="tool_tape">Masking tape</string>
+    <string name="tool_sticker">Sticker</string>
+    <string name="tool_laser">Laser pointer</string>
+
+    <!-- Tool settings sheets -->
+    <string name="sheet_opacity">OPACITY</string>
+    <string name="sheet_thickness">THICKNESS</string>
+    <string name="sheet_default_width">DEFAULT WIDTH</string>
+    <string name="sheet_default_size">DEFAULT SIZE</string>
+    <string name="sheet_colour_set">COLOUR SET</string>
+    <string name="sheet_browse_stickers">Browse stickers</string>
+    <string name="sheet_choose_image">Choose image from device</string>
+    <string name="sheet_lock_aspect">Lock aspect ratio</string>
+    <string name="sheet_image_frame">Subtle page frame border</string>
+    <string name="sheet_sticker_hint">Choose a default scale and opacity for newly placed stickers, or browse the library.</string>
+    <string name="sheet_image_hint">Choose default sizing and opacity for newly inserted images.</string>
+    <string name="sheet_lasso_convert">Convert to text</string>
+
+    <!-- Quick Actions & Quick Insert -->
+    <string name="quick_actions_title">Quick Actions</string>
+    <string name="quick_actions_close">Close Quick Actions</string>
+    <string name="quick_actions_previous_tool">Previous tool</string>
+    <string name="quick_actions_tool_settings">Tool settings</string>
+    <string name="quick_actions_palette">Colour palette</string>
+    <string name="quick_actions_thickness">Stroke thickness</string>
+    <string name="quick_actions_more_tools">More tools</string>
+    <string name="quick_actions_colour">Ink colour</string>
+    <string name="quick_insert_title">Quick Insert</string>
+    <string name="quick_insert_write_box">Write Box</string>
+    <string name="quick_insert_text_box">Text box</string>
+    <string name="quick_insert_sticky">Sticky note</string>
+    <string name="quick_insert_link_preview">Link Preview</string>
+    <string name="quick_insert_image">Image</string>
+    <string name="quick_insert_sticker">Sticker</string>
+    <string name="quick_insert_paste">Paste</string>
+
+    <!-- Reader Mode accessibility -->
+    <string name="reader_previous_page">Previous page</string>
+    <string name="reader_next_page">Next page</string>
+    <string name="reader_bookmark_add">Bookmark page</string>
+    <string name="reader_bookmark_remove">Remove bookmark</string>
+    <string name="reader_display_settings">Reading display settings</string>
+    <string name="reader_contents">Table of contents and bookmarks</string>
+    <string name="reader_search">Search inside book</string>
+
+    <!-- Selection (Lasso) actions -->
+    <string name="selection_link">Link</string>
+    <string name="selection_unlink">Unlink</string>
+    <string name="selection_cut">Cut</string>
+    <string name="selection_copy">Copy</string>
+    <string name="selection_duplicate">Duplicate</string>
+    <string name="selection_palette_tint">Multi-colour tint</string>
+    <string name="selection_colour">Colour</string>
+    <string name="selection_rotate">Rotate 90 degrees</string>
+    <string name="selection_more">More selection actions</string>
+    <string name="selection_delete">Delete</string>
+    <string name="library_guide_title">Getting started</string>
+    <string name="library_guide_test_notice">Test build for preview only. Keep your current version until the stable release is available.</string>
+    <string name="library_guide_progress">Step %1$d of %2$d</string>
+    <string name="library_guide_create_title">Start a notebook</string>
+    <string name="library_guide_create_body">Open the + menu to create a notebook, start a Quick Note, or pick a template.</string>
+    <string name="library_guide_write_title">Write, type, and rearrange</string>
+    <string name="library_guide_write_body">Choose Pen for handwriting or Keyboard for typing. Use Lasso to circle a selection and move it. Tap Undo to reverse your last edit.</string>
+    <string name="library_guide_read_title">Bring in your reading</string>
+    <string name="library_guide_read_body">Use + → Import files to add a PDF to your library. Open it as a notebook to write on it, or switch to Kindle Mode to turn pages like a book.</string>
+    <string name="library_guide_close">Close</string>
+    <string name="library_guide_create">Create notebook</string>
+    <string name="library_guide_next">Next</string>
+</resources>

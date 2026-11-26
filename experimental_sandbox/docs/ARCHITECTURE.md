@@ -1,0 +1,72 @@
+# Pro Notes Architecture
+
+Pro Notes is a native Android application built with Kotlin, Jetpack Compose, Material 3, and Jetpack Ink.
+
+## Repository Layout
+
+| Path | Purpose |
+|---|---|
+| `app/` | Primary Android application module (`com.pronotes.app`) |
+| `benchmark/` | Baseline profile and startup/scroll macrobenchmark module |
+| `docs/` | Architecture documentation and README screenshots |
+| `.github/workflows/` | CI APK build and GitHub Release automation |
+| `scripts/` | Local preview server for workspace builds |
+
+## Application Module (`com.pronotes.app`)
+
+### Top-Level Entry Points & System Components
+- `MainActivity.kt`: Single-activity Compose host managing navigation (`library`, `books`, `reader/{id}`, `editor/{id}`, `settings`, `support`) and inbound `ACTION_VIEW` / `ACTION_SEND` file imports.
+- `ProNotesApplication.kt`: Application class configuring process-wide initialization.
+- `UpdateCheckReceiver.kt`, `UpdatedReceiver.kt`, `InstallResultReceiver.kt`: Background release-check scheduling, package-replacement handling, and `PackageInstaller` status callbacks.
+
+### `com.pronotes.app.data`
+- `Models.kt`: Core library data models (`LibraryIndex`, `NotebookMeta`, `Folder`, `PaperStyle`).
+- `Repository.kt`: Local filesystem persistence for notebooks, incremental page saves (`pages.index.json`, per-page `.json` files), thumbnails, PDF imports, and backup/restore archives.
+- `OfficeDocumentImporter.kt`: Native parser and page generator for `.docx`, `.pptx`, `.xlsx`, `.csv`, `.epub`, and rich text documents.
+- `Settings.kt`: App and per-stylus settings store (`AppSettings`, `SettingsStore`, `PenProfile`, `EraserFilter`, `LassoFilter`, `UiColorScheme`).
+- `Study.kt`: Flashcards (`Flashcard`), ink links (`InkLink`), and SlideShow (`SlideCard`) models and `study.json` store.
+- `AtomicFiles.kt`: Temp-file write-and-rename helper preventing partial writes on crash.
+- `CloudSync.kt`: Cross-device sync and Live Study Room transport (zero-key public relay by default, optional Firestore REST configuration via build properties).
+- `Updater.kt`, `UpdateDownloadService.kt`: Resumable 4-stream parallel HTTP Range APK fast downloader (with automatic single-stream fallback) and GitHub Releases checker.
+
+### `com.pronotes.app.editor`
+- `EditorScreen.kt`: Editor screen scaffold, canvas hosting, dock snap edge preview rails, and export/page dialogs.
+- `EditorDialogs.kt`: Extracted editor overlays and sheets (`InlinePageTextEditor` unified direct-on-page transparent text box and Keyboard Mode editor with native stylus-to-text `EditText`, inline ML Kit handwriting capture toggle, 8-handle resizing, and keyboard-docked formatting bar; plus `MindNodeDialog`, `StickerSheet`, `StudyTimer`, `WebLinkDialog`).
+- `EditorPanels.kt`: Notebook tab strip (`TabStrip`), workspace header bar (`TopBar`), in-note search bar (`SearchBar`), reorderable page thumbnail drawer (`PagesPanel`), and Write Box studio bar (`WriteBoxStudioBar`).
+- `SplitViewPanel.kt`: Side-by-side Split View secondary notebook panel with independent page rendering and reduced-motion loading support.
+- `EditorToolbar.kt`: Redesigned open studio workbench toolbar (`Top`, `Bottom`, `Left`, `Right` fixed rail and draggable floating dock) with elevated ink-tinted tool pedestals, hairline-separated contextual controls (1-tap Pen nib cycler, Highlighter straightening, Shape picker & fill, Eraser mode & highlighter-only filter, Lasso freeform/box & touch/inside toggles), angled stroke-weight previews, drag-to-reorder, and overflow menu.
+- `ToolSettingsSheets.kt`: Dedicated per-tool configuration sheets (`Pen`, `Highlighter`, `Eraser`, `Shapes`, `Selection (Lasso)`, `Text and Write Box`, `Sticker`, `Image`, `Masking tape`, `Sticky note`, `Link Previews`, `Concept Maps`, `Laser pointer`).
+- `EditorOverlays.kt`: Clamped contextual overlays for `Selection (Lasso)` actions (including async ink-to-text conversion), curved dual-arc native `Popup` stylus `Quick Actions` palette with dynamic colour/thickness/more-tools outer arc and auto edge mirroring, and empty-page `Quick Insert`.
+- `EditorViewModel.kt`, `EditorViewModelMindMap.kt`, `EditorViewModelStudy.kt`, `EditorViewModelWriteBox.kt`: Core notebook state, undo/redo command history, page lifecycle, search, and Split View coordination (`EditorViewModel.kt`), modularized by responsibility into Concept Map layout/editing (`EditorViewModelMindMap.kt`), Flashcards, Ink Links, and SlideShow (`EditorViewModelStudy.kt`), and Write Box, PDF text selection, screenshot export, and Keyboard Mode (`EditorViewModelWriteBox.kt`).
+- `HandwritingRecognizer.kt`: Clean-room on-device handwriting-to-text engine backed by ML Kit Digital Ink Recognition (timed vector strokes, `WritingArea`, `preContext`, ranked top-5 candidates) with a directional cosine polyline offline fallback.
+- `HandwritingFont.kt`, `HandwritingStudioDialog.kt`: Offline personal handwriting letter library (`a–z`, `A–Z`, `0–9`, `. , ? !`, 3 recorded copies per character) and organic Jetpack Ink stroke synthesizer with paper-line baseline snapping, word wrapping, and live ruled-paper preview studio.
+- `NoteCanvasView.kt`, `NoteCanvasEraser.kt`, `NoteCanvasSelection.kt`, `NoteCanvasGestures.kt`, `NoteCanvasDocLayer.kt`: Android `View` canvas integrating `InProgressStrokesView` (Jetpack Ink) and `MotionEventPredictor`, modularized into core input routing and wet-ink authoring (`NoteCanvasView.kt`), stroke/pixel eraser and scribble-to-erase hit testing (`NoteCanvasEraser.kt`), selection and transform handles (`NoteCanvasSelection.kt`), finger pan/pinch/fling/zoom and stylus hover tracking (`NoteCanvasGestures.kt`), and the document/overlay rendering layer (`NoteCanvasDocLayer.kt`).
+- `PageModel.kt`: Runtime canvas item and stroke models (`Page`, `InkStroke`, `TextItem`, `WriteBoxItem`, `StickyItem`, `ImageItem`, `TapeItem`, `WebLinkItem`, `MindNodeItem`).
+- `InkCodec.kt`: Binary/JSON serialisation codec preserving backward compatibility with stored notebooks and strokes, plus per-tool stroke opacity helpers.
+- `PageRenderer.kt`: High-resolution page background, PDF tile, ink stroke, shape, sticky, Write Box, and Concept Map renderer with LRU bitmap caching and active inline text item suppression (`hiddenTextItemId`).
+- `Geometry.kt`: Geometric shape recogniser, closed-loop, circular-swirl/axis/zig-zag scribble detectors, and segment-intersection `Lasso` hit-testing helpers.
+- `PdfSearch.kt`: PdfBox-Android text extraction and bounding-box search highlighter.
+- `PaperFeel.kt`: Synthesised pen/paper acoustic feedback and haptic triggers.
+- `Stickers.kt`, `TapePatterns.kt`, `ToolbarOrder.kt`: Built-in sticker assets, masking tape patterns, toolbar ordering defaults, single-pass adaptive toolbar layout, and bounds-clamping math.
+- `StudyKit.kt`, `StudyUi.kt`, `SlideShowUi.kt`, `CollabUi.kt`: Flashcard review, ink linking, SlideShow presentation, and Live Study Room UI overlays.
+
+### `com.pronotes.app.library`
+- `LibraryScreen.kt`: Notebook, folder, and tag browser with search, trash recovery, import/export workflows, 48 dp touch targets, and `LocalReduceMotion` transition compliance.
+- `LibraryDialogs.kt`: Studio notebook creation dialog (`NewNotebookDialog`) with live layered cover + spine + peeking-paper preview, categorised cover gallery, live-tinted paper template studio, and visual layout/orientation cards, plus folder, tag management, rename dialogs, and PDF import loading overlays.
+- `Covers.kt`: Notebook cover renderers (`solid`, `pattern`, `image`, `thumb`) and paper template previews.
+- `DragDrop.kt`: Cross-platform finger and stylus drag-and-drop helpers.
+
+### `com.pronotes.app.reader`
+- `BookReaderArea.kt`: Dedicated Reader Mode hub (`BookReaderHubScreen`) and page-turn reader (`BookReaderScreen`) with Paper/Sepia/Night themes, tablet spread layout, 2D diagonal bottom-corner drag tracking, `LocalReduceMotion` instant-turn support, and localised 48 dp accessibility controls.
+- `BookReaderCanvas.kt`: Extracted Reader Mode 3D cylindrical bottom-corner page-curl stage (`BookCurlStage`) rendered via `Canvas.drawBitmapMesh` (26×26 cylindrical mesh) with curved tube mouth silhouette, real back-page spread content and single-page bleed-through, glossy specular tube lighting, dual cast shadows, page sheet surface (`BookSheetFrame`), shimmer-aware loader preview, and synthesised paper-turn audio engine (`BookFlipSoundEngine`).
+
+### `com.pronotes.app.settings` & `com.pronotes.app.support`
+- `SettingsScreen.kt`: Categorised settings screens for Stylus (with automatic pen deduplication and unified stylus behaviour card), Gestures, Workspace, Appearance (including Classic appearance and Reduced effects toggles), Backup, and About/Updates.
+- `SupportScreen.kt`: Project highlights, sharing actions, optional developer UPI contribution, 48 dp Back navigation target, and `LocalReduceMotion` compliance on appreciation feedback.
+
+### `com.pronotes.app.ui`
+- `Theme.kt`: Material 3 theme builder (`ProNotesTheme`), typography presets, `UiColorScheme` palette mapping, and composition locals for Classic appearance, reduced effects, and reduced motion.
+- `ProSurfaces.kt`, `Components.kt`: Shared surface, card, pill, chip, slider, dialog, bottom-sheet components, and Android 12+ backdrop blur modifier with solid-surface fallback.
+- `ToolIcons.kt`: Vector path icon definitions (`ProIcon`, `ToolGlyph`) with adaptive ink-contrast borders.
+- `MovingLetters.kt`: Kinetic text reveal animations (`ScaleInAnimatedText`, `FadeAnimatedText`).
+- `UpdateDialog.kt`: Release-notes and download-progress dialog for in-app updates.
