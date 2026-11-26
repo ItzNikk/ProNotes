@@ -516,7 +516,16 @@ internal class NoteCanvasDocLayer(
             }
             val hl = owner.host.highlights(i)
             if (hl.isNotEmpty()) r.drawHighlights(canvas, hl, active?.takeIf { it.first == i }?.second)
-            owner.host.textSelection(i).forEach { canvas.drawRoundRect(it, 4f, 4f, textSelPaint) }
+            val tsel = owner.host.textSelection(i)
+            if (tsel.isNotEmpty()) {
+                val clip = canvas.clipBounds
+                val cl = clip.left.toFloat(); val ct = clip.top.toFloat()
+                val cr = clip.right.toFloat(); val cb = clip.bottom.toFloat()
+                for (tr in tsel) {
+                    if (tr.right < cl || tr.left > cr || tr.bottom < ct || tr.top > cb) continue
+                    canvas.drawRoundRect(tr, 4f, 4f, textSelPaint)
+                }
+            }
             when {
                 i != owner.selectionPage -> r.drawItems(canvas, p.items, m)
                 sourceItems != null -> r.drawItems(canvas, remainingItems, m)
@@ -694,10 +703,12 @@ internal class NoteCanvasDocLayer(
 
     private fun drawLinks(canvas: Canvas) {
         val ends = owner.host.linkEnds()
+        if (ends.isEmpty() && owner.linkFlash == null) return
+        val visRange = owner.visiblePageRange()
         val a = tmpPt2
         val r = 12f * density
         for (e in ends) {
-            if (e.page !in owner.pages.indices) continue
+            if (e.page !in visRange || e.page !in owner.pages.indices) continue
             e.box?.let { b ->
                 tmpLinkRect.set(b)
                 owner.pageMatrix(e.page, m).mapRect(tmpLinkRect)

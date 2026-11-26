@@ -183,7 +183,7 @@ object ProMotion {
     }
 }
 
-/** GPU-only tactile press scale micro-interaction (zero layout invalidation). */
+/** GPU-only tactile press scale micro-interaction (zero layout invalidation or per-frame recomposition). */
 fun Modifier.tactilePressScale(
     interactionSource: InteractionSource,
     enabled: Boolean = true,
@@ -196,14 +196,15 @@ fun Modifier.tactilePressScale(
         this
     } else {
         val pressed by interactionSource.collectIsPressedAsState()
-        val scale by animateFloatAsState(
+        val scaleState = animateFloatAsState(
             targetValue = if (pressed) pressedScale else 1f,
             animationSpec = ProMotion.snappySpring(false, mode, style),
             label = "tactilePress",
         )
         this.graphicsLayer {
-            scaleX = scale
-            scaleY = scale
+            val s = scaleState.value
+            scaleX = s
+            scaleY = s
         }
     }
 }

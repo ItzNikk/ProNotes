@@ -880,16 +880,20 @@ class PageRenderer(private val noteDir: File?) {
         }
     }
 
+    private val wbInvMatrix = Matrix()
+    private val wbWorldRect = RectF()
+    private val wbOriginRect = RectF()
+
     /** Unbounded whiteboard backdrop: infinite grid/dots across the viewport plus a subtle origin frame. */
     fun drawInfiniteBackdrop(canvas: Canvas, pageWorldToScreen: Matrix, viewW: Float, viewH: Float, page: Page) {
         val bg = page.paperColor ?: paperColor
         currentBg = bg
         pagePaint.color = bg
         canvas.drawRect(0f, 0f, viewW, viewH, pagePaint)
-        val inv = Matrix()
-        if (!pageWorldToScreen.invert(inv)) return
-        val world = RectF(0f, 0f, viewW, viewH)
-        inv.mapRect(world)
+        if (!pageWorldToScreen.invert(wbInvMatrix)) return
+        wbWorldRect.set(0f, 0f, viewW, viewH)
+        wbInvMatrix.mapRect(wbWorldRect)
+        val world = wbWorldRect
 
         val line = page.lineColor ?: if (isDark) 0xFF333944.toInt() else 0xFFD9E1EC.toInt()
         val dotCol = if (isDark) 0xFF474E5C.toInt() else 0xFFC0CAD8.toInt()
@@ -933,17 +937,25 @@ class PageRenderer(private val noteDir: File?) {
         }
         // Subtle origin crosshair and soft starting sheet outline so spatial orientation is always clear.
         wbOriginPaint.color = if (isDark) 0x33FFFFFF else 0x26000000
-        canvas.drawRoundRect(RectF(0f, 0f, page.width, page.height), 14f, 14f, wbOriginPaint)
+        wbOriginRect.set(0f, 0f, page.width, page.height)
+        canvas.drawRoundRect(wbOriginRect, 14f, 14f, wbOriginPaint)
         linePaint.color = if (isDark) 0x44FFFFFF else 0x303D6CF4
         canvas.drawLine(-40f, 0f, 40f, 0f, linePaint)
         canvas.drawLine(0f, -40f, 0f, 40f, linePaint)
         canvas.restore()
     }
 
-    /** IDs of mind-map nodes whose ancestor is collapsed. */
+    private val hiddenMindCache = java.util.IdentityHashMap<List<PageItem>, Set<Long>>()
+
+    /** IDs of mind-map nodes whose ancestor is collapsed (cached by immutable item-list identity). */
     fun hiddenMindNodeIds(items: List<PageItem>): Set<Long> {
+        hiddenMindCache[items]?.let { return it }
+        if (hiddenMindCache.size > 16) hiddenMindCache.clear()
         val nodes = items.filterIsInstance<MindNodeItem>()
-        if (nodes.isEmpty()) return emptySet()
+        if (nodes.isEmpty()) {
+            hiddenMindCache[items] = emptySet()
+            return emptySet()
+        }
         val byId = nodes.associateBy { it.id }
         val hidden = HashSet<Long>()
         for (n in nodes) {
@@ -958,7 +970,135 @@ class PageRenderer(private val noteDir: File?) {
                 cur = p.parentId
             }
         }
+        hiddenMindCache[items] = hidden
         return hidden
+    }
+
+    /** Lightweight 256-unit spatial hash grid for O(visible) culling on dense pages while preserving exact z-order. */
+    private class SpatialGrid(val items: List<PageItem>) {
+        val cells = HashMap<Long, IntArray>()
+        val counts = HashMap<Long, Int>()
+        val stamps = IntArray(items.size)
+        var hitBuf = IntArray(minOf(items.size, 256).coerceAtLeast(32))
+        var token = 1
+
+        init {
+            val invCell = 1f / CELL_SIZE
+            for (idx in items.indices) {
+                val item = items[idx]
+                val l: Float; val t: Float; val r: Float; val b: Float
+                when (item) {
+                    is InkItem -> {
+                        val lb = item.localBounds
+                        l = lb.left + item.dx; t = lb.top + item.dy; r = lb.right + item.dx; b = lb.bottom + item.dy
+                    }
+                    is WriteBoxItem -> {
+                        val wb = item.bounds
+                        l = wb.left; t = wb.top; r = wb.right; b = wb.bottom
+                    }
+                    else -> {
+                        val ob = item.bounds
+                        l = ob.left - 36f; t = ob.top - 36f; r = ob.right + 36f; b = ob.bottom + 36f
+                    }
+                }
+                val x0 = kotlin.math.floor((l * invCell).toDouble()).toInt()
+                val x1 = kotlin.math.floor((r * invCell).toDouble()).toInt()
+                val y0 = kotlin.math.floor((t * invCell).toDouble()).toInt()
+                val y1 = kotlin.math.floor((b * invCell).toDouble()).toInt()
+                // Guard huge spanning items from flooding thousands of cells
+                val cx0 = x0; val cx1 = if (x1 - x0 > 32) x0 + 32 else x1
+                val cy0 = y0; val cy1 = if (y1 - y0 > 32) y0 + 32 else y1
+                for (cy in cy0..cy1) {
+                    for (cx in cx0..cx1) {
+                        val key = packCell(cx, cy)
+                        val curCount = counts[key] ?: 0
+                        var arr = cells[key]
+                        if (arr == null) {
+                            arr = IntArray(8)
+                            cells[key] = arr
+                        } else if (curCount >= arr.size) {
+                            arr = arr.copyOf(arr.size * 2)
+                            cells[key] = arr
+                        }
+                        arr[curCount] = idx
+                        counts[key] = curCount + 1
+                    }
+                }
+            }
+        }
+
+        fun queryVisible(
+            rect: RectF,
+            transformIds: Set<Long>,
+            out: ArrayList<PageItem>,
+        ) {
+            out.clear()
+            token++
+            if (token == Int.MAX_VALUE) {
+                stamps.fill(0)
+                token = 1
+            }
+            val tok = token
+            val invCell = 1f / CELL_SIZE
+            val x0 = kotlin.math.floor((rect.left * invCell).toDouble()).toInt()
+            val x1 = kotlin.math.floor((rect.right * invCell).toDouble()).toInt()
+            val y0 = kotlin.math.floor((rect.top * invCell).toDouble()).toInt()
+            val y1 = kotlin.math.floor((rect.bottom * invCell).toDouble()).toInt()
+            // If viewport covers an enormous area (very zoomed out whiteboard), fall back directly to full list.
+            if ((x1 - x0 + 1).toLong() * (y1 - y0 + 1).toLong() > 600L) {
+                out.addAll(items)
+                return
+            }
+            var hitCount = 0
+            for (cy in y0..y1) {
+                for (cx in x0..x1) {
+                    val key = packCell(cx, cy)
+                    val arr = cells[key] ?: continue
+                    val n = counts[key] ?: 0
+                    for (k in 0 until n) {
+                        val idx = arr[k]
+                        if (stamps[idx] != tok) {
+                            stamps[idx] = tok
+                            if (hitCount >= hitBuf.size) hitBuf = hitBuf.copyOf(hitBuf.size * 2)
+                            hitBuf[hitCount++] = idx
+                        }
+                    }
+                }
+            }
+            if (transformIds.isNotEmpty()) {
+                for (idx in items.indices) {
+                    if (stamps[idx] != tok && items[idx].id in transformIds) {
+                        stamps[idx] = tok
+                        if (hitCount >= hitBuf.size) hitBuf = hitBuf.copyOf(hitBuf.size * 2)
+                        hitBuf[hitCount++] = idx
+                    }
+                }
+            }
+            if (hitCount > 1) java.util.Arrays.sort(hitBuf, 0, hitCount)
+            for (k in 0 until hitCount) out.add(items[hitBuf[k]])
+        }
+
+        companion object {
+            const val CELL_SIZE = 256f
+            fun packCell(cx: Int, cy: Int): Long = (cx.toLong() shl 32) or (cy.toLong() and 0xFFFFFFFFL)
+        }
+    }
+
+    private val spatialCache = java.util.IdentityHashMap<List<PageItem>, SpatialGrid>()
+    private val culledScratch = ArrayList<PageItem>(128)
+    private val hlClipRect = RectF()
+    private val hlVisibleScratch = ArrayList<PageItem>(32)
+
+    private fun spatialCandidates(items: List<PageItem>, transformIds: Set<Long>): List<PageItem> {
+        if (items.size < 48) return items
+        var grid = spatialCache[items]
+        if (grid == null) {
+            if (spatialCache.size > 16) spatialCache.clear()
+            grid = SpatialGrid(items)
+            spatialCache[items] = grid
+        }
+        grid.queryVisible(visible, transformIds, culledScratch)
+        return culledScratch
     }
 
     /**
@@ -972,23 +1112,51 @@ class PageRenderer(private val noteDir: File?) {
         transform: Matrix? = null,
         transformIds: Set<Long> = emptySet(),
     ) {
-        // The part of the page currently on screen, in page coordinates. Anything outside is skipped.
+        if (items.isEmpty()) return
+        // The part of the page currently on screen, in page coordinates. Anything outside is culled.
         val clip = canvas.clipBounds
         visible.set(clip.left.toFloat(), clip.top.toFloat(), clip.right.toFloat(), clip.bottom.toFloat())
         val hiddenNodes = hiddenMindNodeIds(items)
-        val nodes = items.filterIsInstance<MindNodeItem>().filter { it.id !in hiddenNodes }
-        if (nodes.isNotEmpty()) drawMindConnectors(canvas, items, nodes, transform, transformIds)
+        val hasMindNodes = items.any { it is MindNodeItem }
+        if (hasMindNodes) {
+            val nodes = items.filterIsInstance<MindNodeItem>().filter { it.id !in hiddenNodes }
+            if (nodes.isNotEmpty()) drawMindConnectors(canvas, items, nodes, transform, transformIds)
+        }
         val parts = partsOf(items)
         if (parts.hasHighlight) {
-            drawSeq(canvas, parts.fills, worldToScreen, transform, transformIds, hiddenNodes, items)
-            // Highlights blend with the page so text always stays on top: multiply keeps dark text dark
-            // on light pages, lighten keeps light text bright on dark pages.
-            // The offscreen layer covers only the visible area, not the whole screen.
-            val layer = canvas.saveLayer(visible, if (isDark) lightenPaint else multiplyPaint)
-            drawSeq(canvas, parts.highlights, worldToScreen, transform, transformIds, hiddenNodes, items)
-            canvas.restoreToCount(layer)
-            drawSeq(canvas, parts.rest, worldToScreen, transform, transformIds, hiddenNodes, items)
-        } else drawSeq(canvas, items, worldToScreen, transform, transformIds, hiddenNodes, items)
+            if (parts.fills.isNotEmpty()) {
+                drawSeq(canvas, spatialCandidates(parts.fills, transformIds), worldToScreen, transform, transformIds, hiddenNodes, items)
+            }
+            // Cull off-screen highlights before allocating an expensive GPU offscreen saveLayer!
+            hlVisibleScratch.clear()
+            hlClipRect.setEmpty()
+            val hlCandidates = spatialCandidates(parts.highlights, transformIds)
+            for (hl in hlCandidates) {
+                val moved = transform != null && hl.id in transformIds
+                if (moved) {
+                    hlVisibleScratch.add(hl)
+                    hlClipRect.union(visible)
+                } else if (onScreen(hl)) {
+                    hlVisibleScratch.add(hl)
+                    if (hl is InkItem) {
+                        val b = hl.localBounds
+                        hlClipRect.union(b.left + hl.dx - 16f, b.top + hl.dy - 16f, b.right + hl.dx + 16f, b.bottom + hl.dy + 16f)
+                    } else {
+                        hlClipRect.union(hl.bounds)
+                    }
+                }
+            }
+            if (hlVisibleScratch.isNotEmpty() && hlClipRect.intersect(visible)) {
+                val layer = canvas.saveLayer(hlClipRect, if (isDark) lightenPaint else multiplyPaint)
+                drawSeq(canvas, hlVisibleScratch, worldToScreen, transform, transformIds, hiddenNodes, items)
+                canvas.restoreToCount(layer)
+            }
+            if (parts.rest.isNotEmpty()) {
+                drawSeq(canvas, spatialCandidates(parts.rest, transformIds), worldToScreen, transform, transformIds, hiddenNodes, items)
+            }
+        } else {
+            drawSeq(canvas, spatialCandidates(items, transformIds), worldToScreen, transform, transformIds, hiddenNodes, items)
+        }
     }
 
     private fun drawMindConnectors(
@@ -1013,6 +1181,12 @@ class PageRenderer(private val noteDir: File?) {
             if (transform != null && child.id in transformIds) {
                 pt[0] = cx; pt[1] = cy; transform.mapPoints(pt); cx = pt[0]; cy = pt[1]
             }
+            // Viewport cull mind-map connectors whose cubic curve bounding box lies off-screen.
+            val minX = minOf(px, cx) - 48f
+            val maxX = maxOf(px, cx) + 48f
+            val minY = minOf(py, cy) - 48f
+            val maxY = maxOf(py, cy) + 48f
+            if (maxX < visible.left || minX > visible.right || maxY < visible.top || minY > visible.bottom) continue
             val horiz = kotlin.math.abs(cx - px) >= kotlin.math.abs(cy - py) * 0.72f
             mindPath.reset()
             mindPath.moveTo(px, py)
@@ -1212,22 +1386,34 @@ class PageRenderer(private val noteDir: File?) {
             .also { crayonShaders[color] = it }
     }
 
-    /** Renders a Crayon InkItem with dry waxy texture grain and organic double-pass tooth. */
+    /** Renders a Crayon InkItem with smooth midpoint quadratic curves and dry waxy texture grain. */
     private fun drawCrayonStroke(canvas: Canvas, item: InkItem) {
         val inputs = item.stroke.inputs
-        if (inputs.size == 0) return
+        val n = inputs.size
+        if (n == 0) return
         val color = item.stroke.brush.colorIntArgb
         val width = item.stroke.brush.size.coerceAtLeast(4f)
         crayonPath.reset()
         val p0 = inputs.get(0)
         crayonPath.moveTo(p0.x, p0.y)
-        if (inputs.size == 1) {
+        if (n == 1) {
             crayonPath.lineTo(p0.x + 0.5f, p0.y + 0.5f)
+        } else if (n == 2) {
+            val p1 = inputs.get(1)
+            crayonPath.lineTo(p1.x, p1.y)
         } else {
-            for (i in 1 until inputs.size) {
+            var prevX = p0.x
+            var prevY = p0.y
+            for (i in 1 until n) {
                 val p = inputs.get(i)
-                crayonPath.lineTo(p.x, p.y)
+                val dx = p.x - prevX
+                val dy = p.y - prevY
+                if (i < n - 1 && dx * dx + dy * dy < 1.25f) continue
+                crayonPath.quadTo(prevX, prevY, (prevX + p.x) * 0.5f, (prevY + p.y) * 0.5f)
+                prevX = p.x
+                prevY = p.y
             }
+            crayonPath.lineTo(prevX, prevY)
         }
         crayonPaint.shader = crayonShaderFor(color)
         crayonPaint.strokeWidth = width
@@ -1831,9 +2017,18 @@ class PageRenderer(private val noteDir: File?) {
         textPaint.shader = null
     }
 
-    /** Search hits, in page coordinates. */
+    /** Search hits, in page coordinates (viewport culled). */
     fun drawHighlights(canvas: Canvas, rects: List<RectF>, active: RectF?) {
-        for (r in rects) canvas.drawRoundRect(r, 4f, 4f, if (r == active) activeHighlight else highlightPaint)
+        if (rects.isEmpty()) return
+        val clip = canvas.clipBounds
+        val cl = clip.left.toFloat()
+        val ct = clip.top.toFloat()
+        val cr = clip.right.toFloat()
+        val cb = clip.bottom.toFloat()
+        for (r in rects) {
+            if (r.right < cl || r.left > cr || r.bottom < ct || r.top > cb) continue
+            canvas.drawRoundRect(r, 4f, 4f, if (r == active) activeHighlight else highlightPaint)
+        }
     }
 
     /** Renders a whole page into [canvas] scaled by [scale]. Used by export and thumbnails. */

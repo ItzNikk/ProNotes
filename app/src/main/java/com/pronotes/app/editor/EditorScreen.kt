@@ -843,7 +843,7 @@ fun EditorScreen(
                         scrolled = !focus,
                         aurora = true,
                         enabled = settings.topScrollBlur,
-                        height = 56.dp,
+                        height = 34.dp,
                         modifier = Modifier.align(Alignment.TopCenter),
                     )
 

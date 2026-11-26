@@ -113,6 +113,7 @@ import com.pronotes.app.ui.ProButtonPalette
 import com.pronotes.app.ui.ProIcon
 import com.pronotes.app.ui.ProIconView
 import com.pronotes.app.ui.SurfaceRole
+import com.pronotes.app.ui.tactilePressScale
 import com.pronotes.app.ui.ToolGlyph
 import com.pronotes.app.ui.appPillShape
 import kotlin.math.roundToInt
@@ -560,13 +561,21 @@ private fun SelectionActionIcon(
     onClick: () -> Unit,
     content: @Composable () -> Unit,
 ) {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Box(
         modifier = Modifier
             .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+            .tactilePressScale(interaction, pressedScale = 0.90f)
             .clip(CircleShape)
             .semantics { contentDescription = label }
             .focusable()
-            .clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
+            .clickable(
+                interactionSource = interaction,
+                indication = androidx.compose.foundation.LocalIndication.current,
+                role = Role.Button,
+                onClickLabel = label,
+                onClick = onClick,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         content()

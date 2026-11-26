@@ -17,6 +17,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -102,6 +103,7 @@ import com.pronotes.app.ui.SurfaceRole
 import com.pronotes.app.ui.Swatch
 import com.pronotes.app.ui.ToolGlyph
 import com.pronotes.app.ui.appPillShape
+import com.pronotes.app.ui.tactilePressScale
 import kotlin.math.abs
 
 private val WorkbenchDarkBg = Color(0xFF131720)
@@ -481,23 +483,7 @@ fun FloatingToolbarPill(
         modifier = modifier
             .then(if (isVertical) Modifier.width(66.dp) else Modifier.widthIn(max = maxDockW))
             .height(if (isVertical) maxDockH else 62.dp)
-            .graphicsLayer { alpha = overlayFade() }
-            .pointerInput(Unit) {
-                var accumDelta = Offset.Zero
-                detectDragGestures(
-                    onDragStart = {
-                        accumDelta = Offset.Zero
-                        onDragStart()
-                    },
-                    onDragCancel = { onDragEnd() },
-                    onDragEnd = { onDragEnd() },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        accumDelta += dragAmount
-                        onDragDelta(accumDelta)
-                    },
-                )
-            },
+            .graphicsLayer { alpha = overlayFade() },
     ) {
         val reorderTool = { toolToMove: Tool, step: Int ->
             val idx = visibleTools.indexOf(toolToMove)
@@ -640,22 +626,40 @@ private fun ToolbarUndoRedoCluster(
     val undoLabel = stringResource(R.string.toolbar_undo)
     val redoLabel = stringResource(R.string.toolbar_redo)
     val items = @Composable {
+        val undoInteraction = remember { MutableInteractionSource() }
+        val redoInteraction = remember { MutableInteractionSource() }
         Box(
             modifier = Modifier
-                .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+                .defaultMinSize(minWidth = 46.dp, minHeight = 46.dp)
+                .tactilePressScale(undoInteraction, enabled = vm.canUndo, pressedScale = 0.88f)
                 .clip(CircleShape)
                 .focusable()
-                .clickable(enabled = vm.canUndo, role = Role.Button, onClickLabel = undoLabel, onClick = vm::undo),
+                .clickable(
+                    interactionSource = undoInteraction,
+                    indication = androidx.compose.foundation.LocalIndication.current,
+                    enabled = vm.canUndo,
+                    role = Role.Button,
+                    onClickLabel = undoLabel,
+                    onClick = vm::undo,
+                ),
             contentAlignment = Alignment.Center,
         ) {
             ProIconView(ProIcon.UNDO, if (vm.canUndo) fgColor else fgColor.copy(alpha = 0.25f), Modifier.size(18.dp))
         }
         Box(
             modifier = Modifier
-                .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+                .defaultMinSize(minWidth = 46.dp, minHeight = 46.dp)
+                .tactilePressScale(redoInteraction, enabled = vm.canRedo, pressedScale = 0.88f)
                 .clip(CircleShape)
                 .focusable()
-                .clickable(enabled = vm.canRedo, role = Role.Button, onClickLabel = redoLabel, onClick = vm::redo),
+                .clickable(
+                    interactionSource = redoInteraction,
+                    indication = androidx.compose.foundation.LocalIndication.current,
+                    enabled = vm.canRedo,
+                    role = Role.Button,
+                    onClickLabel = redoLabel,
+                    onClick = vm::redo,
+                ),
             contentAlignment = Alignment.Center,
         ) {
             ProIconView(ProIcon.REDO, if (vm.canRedo) fgColor else fgColor.copy(alpha = 0.25f), Modifier.size(18.dp))
@@ -676,8 +680,10 @@ private fun OverflowToolsButton(
     onPickTool: (Tool) -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
+    var lastDismissMs by remember { mutableStateOf(0L) }
     val desc = stringResource(R.string.toolbar_more_tools)
     val hasActiveOverflow = tools.any { it == vm.tool }
+    val interaction = remember { MutableInteractionSource() }
     val menuItems = tools.map { tool ->
         val name = toolDisplayName(tool)
         val ink = Color(vm.styleFor(tool)?.color ?: vm.penStyle.color)
@@ -691,12 +697,26 @@ private fun OverflowToolsButton(
     Box {
         Box(
             modifier = Modifier
-                .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+                .defaultMinSize(minWidth = 46.dp, minHeight = 46.dp)
+                .tactilePressScale(interaction, pressedScale = 0.90f)
                 .clip(RoundedCornerShape(14.dp))
                 .background(if (hasActiveOverflow) ProButtonPalette.ElectricBlue.copy(alpha = 0.14f) else Color.Transparent)
                 .semantics { contentDescription = desc }
                 .focusable()
-                .clickable(role = Role.Button, onClickLabel = desc) { open = true },
+                .clickable(
+                    interactionSource = interaction,
+                    indication = androidx.compose.foundation.LocalIndication.current,
+                    role = Role.Button,
+                    onClickLabel = desc,
+                ) {
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (open) {
+                        open = false
+                        lastDismissMs = now
+                    } else if (now - lastDismissMs > 180L) {
+                        open = true
+                    }
+                },
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -716,7 +736,10 @@ private fun OverflowToolsButton(
         }
         AppContextMenu(
             expanded = open,
-            onDismissRequest = { open = false },
+            onDismissRequest = {
+                open = false
+                lastDismissMs = android.os.SystemClock.uptimeMillis()
+            },
             items = menuItems,
         )
     }
@@ -731,25 +754,44 @@ private fun ToolbarLayoutMenuButton(
     onResetPosition: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
+    var lastDismissMs by remember { mutableStateOf(0L) }
     var showCustomize by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val store = remember(context) { SettingsStore.get(context) }
     val desc = stringResource(R.string.toolbar_layout_menu)
+    val interaction = remember { MutableInteractionSource() }
     Box {
         Box(
             modifier = Modifier
-                .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+                .defaultMinSize(minWidth = 46.dp, minHeight = 46.dp)
+                .tactilePressScale(interaction, pressedScale = 0.90f)
                 .clip(CircleShape)
                 .semantics { contentDescription = desc }
                 .focusable()
-                .clickable(role = Role.Button, onClickLabel = desc) { open = true },
+                .clickable(
+                    interactionSource = interaction,
+                    indication = androidx.compose.foundation.LocalIndication.current,
+                    role = Role.Button,
+                    onClickLabel = desc,
+                ) {
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (open) {
+                        open = false
+                        lastDismissMs = now
+                    } else if (now - lastDismissMs > 180L) {
+                        open = true
+                    }
+                },
             contentAlignment = Alignment.Center,
         ) {
-            ProIconView(ProIcon.TOOLBAR, fgColor.copy(alpha = 0.78f), Modifier.size(18.dp))
+            ProIconView(ProIcon.TOOLBAR, fgColor.copy(alpha = 0.82f), Modifier.size(18.dp))
         }
         AppContextMenu(
             expanded = open,
-            onDismissRequest = { open = false },
+            onDismissRequest = {
+                open = false
+                lastDismissMs = android.os.SystemClock.uptimeMillis()
+            },
             items = listOf(
                 AppMenuItem("Customize tools…") { showCustomize = true },
                 AppMenuItem(stringResource(R.string.toolbar_style_fixed), selected = settings.toolbarStyle == ToolbarStyle.FIXED_BAR) {
@@ -920,13 +962,8 @@ fun ToolButton(
     )
     val hasColorBar = t in setOf(Tool.PEN, Tool.CRAYON, Tool.AUTO_TEXT, Tool.HIGHLIGHTER, Tool.SHAPE, Tool.TEXT, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.MINDMAP)
     val accent = if (hasColorBar) {
-        // Ensure near-white or near-black ink still reads distinctly as an accent rim
-        val lum = ink.luminance()
-        when {
-            darkUi && lum < 0.08f -> Color(0xFF93C5FD)
-            !darkUi && lum > 0.88f -> ProButtonPalette.ElectricBlue
-            else -> ink
-        }
+        // Ensure near-black ink reads brightly on the pure black toolbar in both themes
+        if (ink.luminance() < 0.08f) Color(0xFF93C5FD) else ink
     } else {
         ProButtonPalette.ElectricBlue
     }
@@ -981,13 +1018,21 @@ fun ToolButton(
         label = "slotBg",
     )
     val pedestalShape = RoundedCornerShape(14.dp)
+    val buttonInteraction = remember { MutableInteractionSource() }
 
     Box(
         modifier = Modifier
             .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+            .tactilePressScale(buttonInteraction, pressedScale = 0.91f)
+            .clip(pedestalShape)
             .semantics { contentDescription = name }
             .focusable()
-            .clickable(role = Role.Button, onClickLabel = name) {
+            .clickable(
+                interactionSource = buttonInteraction,
+                indication = androidx.compose.foundation.LocalIndication.current,
+                role = Role.Button,
+                onClickLabel = name,
+            ) {
                 if (!selected) vm.tool = t else onOpenPopover()
             },
         contentAlignment = Alignment.Center,
@@ -1399,13 +1444,22 @@ private fun StudioQuickChip(
     } else {
         fg.copy(alpha = 0.85f)
     }
+    val chipInteraction = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
+            .defaultMinSize(minHeight = 36.dp)
+            .tactilePressScale(chipInteraction, pressedScale = 0.93f)
             .clip(RoundedCornerShape(10.dp))
             .background(bg)
             .border(1.dp, border, RoundedCornerShape(10.dp))
-            .clickable(role = Role.Button, onClickLabel = label, onClick = onClick)
-            .padding(horizontal = 9.dp, vertical = 6.dp),
+            .clickable(
+                interactionSource = chipInteraction,
+                indication = androidx.compose.foundation.LocalIndication.current,
+                role = Role.Button,
+                onClickLabel = label,
+                onClick = onClick,
+            )
+            .padding(horizontal = 10.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -1549,17 +1603,24 @@ fun SizeDots(
     val activeBorder = activeAccent.copy(alpha = 0.65f)
     sizes.forEachIndexed { i, s ->
         val selected = s == current
+        val dotInteraction = remember { MutableInteractionSource() }
         Box(
             Modifier
                 .padding(horizontal = 1.dp)
-                .size(34.dp)
+                .size(38.dp)
+                .tactilePressScale(dotInteraction, pressedScale = 0.90f)
                 .clip(RoundedCornerShape(11.dp))
                 .background(if (selected) activeBg else Color.Transparent)
                 .then(
                     if (selected) Modifier.border(1.2.dp, activeBorder, RoundedCornerShape(11.dp))
                     else Modifier,
                 )
-                .clickable(role = Role.Button, onClickLabel = "Size ${s.toInt()}") { onPick(s) },
+                .clickable(
+                    interactionSource = dotInteraction,
+                    indication = androidx.compose.foundation.LocalIndication.current,
+                    role = Role.Button,
+                    onClickLabel = "Size ${s.toInt()}",
+                ) { onPick(s) },
             contentAlignment = Alignment.Center,
         ) {
             if (ring) {

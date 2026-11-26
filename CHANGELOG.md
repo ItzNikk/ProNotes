@@ -6,6 +6,11 @@ All notable changes to Pro Notes are documented in this file.
 
 ### What's changed
 
+- Reverted the under-toolbar backdrop back to the original subtle soft glow (removing the aurora effect and continuous color-shift redraws) while keeping the progressive vertical blur.
+- Added aggressive rendering culling across the canvas: cached page-space spatial-grid item culling for dense pages, tight viewport-culled highlight `saveLayer` blending, viewport culling for mind-map connectors, search/PDF highlights, PDF text selections, and off-screen page links, plus zero-allocation whiteboard backdrop rendering.
+- Improved ink smoothness across all active and passive styluses with a sample-rate-independent One-Euro (`1€`) filter across all drawing tools (Pen, Crayon, Auto-Text, Highlighter, and Shapes), monotonic timestamp guarding, OEM hardware pressure/tilt calibration with soft liftoff taper, velocity-based fallback tapering for non-pressure styluses, and smooth quadratic Bezier crayon strokes.
+- Improved button action smoothness and reliability by moving tactile press scaling strictly to the GPU `graphicsLayer` (zero Compose recompositions), removing the tap-stealing full-bar drag handler from the floating toolbar, adding dismiss-bounce protection and single-fire action guards to context/toolbar menus, and giving editor/overlay buttons consistent press feedback and generous touch targets.
+
 - Refined the under-toolbar aurora glow into a single unified color across the full width that shifts gradually through the spectrum, with deeper blur (`26dp` on Android 12+) and a softer vertical fade.
 - Fixed dragging lasso selections across pages in both vertical and horizontal scroll modes: added smooth frame-locked edge auto-scrolling when dragging near screen edges, automatic next-page creation when holding or dropping past the last page, reliable hold-and-scroll with a second finger, and clean destination-page placement.
 - Preserved freeform lasso and circle-to-lasso selections in their exact drawn outline shape (with interior polygon hit-testing and smooth curved dashed outlines) instead of collapsing them into a rectangle.

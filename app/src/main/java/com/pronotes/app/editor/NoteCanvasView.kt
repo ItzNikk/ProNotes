@@ -1988,22 +1988,43 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         feel.release()
     }
 
-    private var stabX = Float.NaN
-    private var stabY = Float.NaN
-    private var lastFilteredPressure = Float.NaN
+    private var inkFiltX = Float.NaN
+    private var inkFiltY = Float.NaN
+    private var inkPrevRawX = Float.NaN
+    private var inkPrevRawY = Float.NaN
+    private var inkFiltDx = 0f
+    private var inkFiltDy = 0f
+    private var inkLastTimeMs = -1L
+    private var inkLastPressure = Float.NaN
+    private var inkLastTilt = Float.NaN
+    private var inkSawVariablePressure = false
+    private var inkFirstPressure = Float.NaN
+    private var inkPressureMin = 0f
+    private var inkPressureRange = 1f
+    private var inkHasHardwarePressure = true
     private val remapPropsPool = Array(16) { MotionEvent.PointerProperties() }
     private val remapCoordsPool = Array(16) { MotionEvent.PointerCoords() }
 
+    /** Time-invariant exponential smoothing factor alpha(dtSec, cutoffHz) for the 1€ Filter. */
+    private fun oneEuroAlpha(dtSec: Float, cutoffHz: Float): Float {
+        val tau = 1f / (2f * Math.PI.toFloat() * cutoffHz.coerceAtLeast(0.5f))
+        return (1f / (1f + tau / dtSec)).coerceIn(0.08f, 1f)
+    }
+
     /**
-     * High-frequency stylus remapper preserving 100% of batched historical samples (up to 240Hz+).
-     * Reuses pre-allocated pointer pools for zero GC churn, applies velocity-adaptive stabilization
-     * (smooth on slow strokes, zero lag on fast flicks), and keeps predicted events read-only so
-     * speculative samples never pollute real stylus filter state.
+     * Universal high-frequency stylus remapper preserving 100% of batched historical samples (60Hz–360Hz+).
+     * Uses a sample-rate-independent One-Euro (1€) filter for zero-lag fast strokes and jitter-free slow writing,
+     * normalizes OEM stylus pressure ranges (S-Pen, USI, MPP, Lenovo, Xiaomi, passive/capacitive styluses),
+     * enforces monotonic timestamps to eliminate digitizer kinks, and keeps predicted events strictly read-only.
      */
     private fun remapInkEvent(e: MotionEvent, pid: Int, isPredicted: Boolean = false): MotionEvent {
         val td = settings.toolDefaults
-        val isPressureTool = strokeTool == Tool.PEN || strokeTool == Tool.CRAYON || strokeTool == Tool.AUTO_TEXT
-        if (!isPressureTool) return e
+        val isDrawingTool = strokeTool == Tool.PEN ||
+            strokeTool == Tool.CRAYON ||
+            strokeTool == Tool.AUTO_TEXT ||
+            strokeTool == Tool.HIGHLIGHTER ||
+            strokeTool == Tool.SHAPE
+        if (!isDrawingTool) return e
         val idx = e.findPointerIndex(pid)
         val count = e.pointerCount
         if (idx < 0 || count <= 0 || count > remapPropsPool.size) return e
@@ -2013,60 +2034,142 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         for (i in 0 until count) e.getPointerProperties(i, props[i])
 
         val isStylus = isPen(props[idx].toolType)
+        val isPressureTool = strokeTool == Tool.PEN || strokeTool == Tool.CRAYON || strokeTool == Tool.AUTO_TEXT
         val sens = td.pressureSensitivity.coerceIn(0.3f, 2.0f)
-        val gamma = (0.68 / sens.toDouble()).coerceIn(0.32, 2.40)
-        val stab = td.penStabilization.coerceIn(0f, 1f)
+        val gamma = (0.70 / sens.toDouble()).coerceIn(0.32, 2.35)
+        val userStab = td.penStabilization.coerceIn(0f, 1f)
+        // Light baseline micro-jitter removal even at 0 stabilization so every stylus draws cleanly;
+        // scales smoothly with user stabilization without adding lag on fast strokes.
+        val effStab = if (isPressureTool) (0.14f + userStab * 0.86f).coerceIn(0.14f, 1f) else 0.18f
+        val minCutoffHz = (14.5f - effStab * 11.2f).coerceIn(2.6f, 16f)
+        val betaSlope = (0.018f - effStab * 0.011f).coerceIn(0.005f, 0.024f)
         val actionMasked = e.actionMasked
 
-        var curPressure = lastFilteredPressure
-        var curStabX = stabX
-        var curStabY = stabY
+        var curPressure = inkLastPressure
+        var curTilt = inkLastTilt
+        var curFiltX = inkFiltX
+        var curFiltY = inkFiltY
+        var curPrevRawX = inkPrevRawX
+        var curPrevRawY = inkPrevRawY
+        var curFiltDx = inkFiltDx
+        var curFiltDy = inkFiltDy
+        var curTimeMs = inkLastTimeMs
+        var curSawVarP = inkSawVariablePressure
+        var curFirstP = inkFirstPressure
+        val invDensity = 1f / density.coerceAtLeast(1f)
 
-        fun applyRemapToTarget(target: MotionEvent.PointerCoords, rawAxisP: Float, isDown: Boolean, isMove: Boolean) {
-            if (!td.pressureEnabled) {
-                target.pressure = 0.5f
-                curPressure = 0.5f
-            } else if (isStylus) {
-                val rawP = (if (rawAxisP > 0.005f) rawAxisP else target.pressure).coerceIn(0.01f, 1.0f)
-                val effectiveRaw = if (isDown && rawP < 0.08f) 0.16f else rawP
-                val curvedP = Math.pow(effectiveRaw.toDouble(), gamma).toFloat().coerceIn(0.06f, 1.0f)
-                val pAlpha = if (isDown) 1.0f else if (isMove) 0.58f else 1.0f
-                val filteredP = if (isDown || curPressure.isNaN()) curvedP else (curPressure + (curvedP - curPressure) * pAlpha)
-                curPressure = filteredP
-                target.pressure = filteredP.coerceIn(0.06f, 1.0f)
-            } else {
-                target.pressure = (0.35f + 0.45f * (sens / 2f)).coerceIn(0.18f, 1.0f)
+        fun applyRemapToTarget(
+            target: MotionEvent.PointerCoords,
+            rawAxisP: Float,
+            sampleTimeMs: Long,
+            isDown: Boolean,
+            isMove: Boolean,
+            isUp: Boolean,
+        ): Long {
+            val monoTime = when {
+                isDown || curTimeMs < 0L -> sampleTimeMs
+                sampleTimeMs <= curTimeMs -> curTimeMs + 1L
+                else -> sampleTimeMs
+            }
+            val dtSec = if (isDown || curTimeMs < 0L) 0.008f else ((monoTime - curTimeMs).coerceIn(1L, 50L) / 1000f)
+
+            var speedDpPerSec = 0f
+            if (isDown || curFiltX.isNaN() || curFiltY.isNaN()) {
+                curFiltX = target.x
+                curFiltY = target.y
+                curPrevRawX = target.x
+                curPrevRawY = target.y
+                curFiltDx = 0f
+                curFiltDy = 0f
+            } else if (isMove || isUp) {
+                val rawDx = (target.x - curPrevRawX) * invDensity / dtSec
+                val rawDy = (target.y - curPrevRawY) * invDensity / dtSec
+                val dAlpha = oneEuroAlpha(dtSec, 24f)
+                curFiltDx += (rawDx - curFiltDx) * dAlpha
+                curFiltDy += (rawDy - curFiltDy) * dAlpha
+                speedDpPerSec = hypot(curFiltDx, curFiltDy)
+                val cutoff = minCutoffHz + betaSlope * speedDpPerSec
+                val posAlpha = if (isUp) 0.85f else oneEuroAlpha(dtSec, cutoff)
+                // Gently damp speculative predicted points at low speeds to eliminate rubber-band overshoot.
+                val finalAlpha = if (isPredicted) (posAlpha * (0.45f + (speedDpPerSec / 650f).coerceIn(0f, 0.45f))) else posAlpha
+                curPrevRawX = target.x
+                curPrevRawY = target.y
+                curFiltX += (target.x - curFiltX) * finalAlpha
+                curFiltY += (target.y - curFiltY) * finalAlpha
+                target.x = curFiltX
+                target.y = curFiltY
             }
 
-            if (stab > 0.04f && isMove) {
-                if (curStabX.isNaN() || curStabY.isNaN()) {
-                    curStabX = target.x
-                    curStabY = target.y
+            if (isPressureTool) {
+                if (!td.pressureEnabled) {
+                    target.pressure = 0.5f
+                    curPressure = 0.5f
+                } else if (isStylus && inkHasHardwarePressure) {
+                    val rawCandidate = if (rawAxisP > 0.002f) rawAxisP else target.pressure
+                    val normRaw = ((rawCandidate - inkPressureMin) / inkPressureRange).coerceIn(0f, 1.0f)
+                    if (curFirstP.isNaN() && normRaw > 0.005f) {
+                        curFirstP = normRaw
+                    } else if (!curFirstP.isNaN() && abs(normRaw - curFirstP) > 0.03f) {
+                        curSawVarP = true
+                    }
+                    val targetP = when {
+                        // Passive/capacitive stylus reporting flat 0 or 1 pressure: synthesize subtle velocity taper.
+                        !curSawVarP && (normRaw <= 0.005f || normRaw >= 0.995f) -> {
+                            val velFactor = (1f - (speedDpPerSec / 1400f).coerceIn(0f, 0.35f))
+                            (0.42f + 0.24f * velFactor * (sens / 1.2f)).coerceIn(0.22f, 0.82f)
+                        }
+                        // Prevent abrupt 0-pressure drop spikes on lift-off (common on USI/MPP digitizers).
+                        isUp && !curPressure.isNaN() && normRaw < 0.05f -> (curPressure * 0.72f).coerceIn(0.10f, 0.85f)
+                        else -> {
+                            val effRaw = if (isDown && normRaw < 0.06f) 0.14f else normRaw.coerceIn(0.01f, 1.0f)
+                            Math.pow(effRaw.toDouble(), gamma).toFloat().coerceIn(0.08f, 1.0f)
+                        }
+                    }
+                    // Time-invariant pressure smoothing (~14ms time constant) works identically from 60Hz to 360Hz.
+                    val pAlpha = if (isDown || curPressure.isNaN()) 1.0f else (1f - kotlin.math.exp((-dtSec / 0.014f).toDouble()).toFloat()).coerceIn(0.18f, 0.88f)
+                    val filteredP = if (isDown || curPressure.isNaN()) targetP else (curPressure + (targetP - curPressure) * pAlpha)
+                    curPressure = filteredP
+                    target.pressure = filteredP.coerceIn(0.08f, 1.0f)
                 } else {
-                    // Velocity-adaptive EMA: smooths micro-tremor on slow writing, tracks fast flicks directly
-                    val distPx = hypot(target.x - curStabX, target.y - curStabY)
-                    val speedBoost = (distPx / (28f * density)).coerceIn(0f, 0.55f)
-                    val alpha = ((1f - stab * 0.62f) + speedBoost).coerceIn(0.28f, 0.96f)
-                    curStabX += (target.x - curStabX) * alpha
-                    curStabY += (target.y - curStabY) * alpha
-                    target.x = curStabX
-                    target.y = curStabY
+                    // Finger or non-pressure stylus: smooth velocity-responsive natural ink flow.
+                    val velFactor = (1f - (speedDpPerSec / 1350f).coerceIn(0f, 0.32f))
+                    val targetP = (0.34f + 0.34f * velFactor * (sens / 1.35f)).coerceIn(0.20f, 0.92f)
+                    val pAlpha = if (isDown || curPressure.isNaN()) 1.0f else (1f - kotlin.math.exp((-dtSec / 0.020f).toDouble()).toFloat()).coerceIn(0.16f, 0.75f)
+                    val filteredP = if (isDown || curPressure.isNaN()) targetP else (curPressure + (targetP - curPressure) * pAlpha)
+                    curPressure = filteredP
+                    target.pressure = filteredP.coerceIn(0.18f, 0.96f)
                 }
-            } else if (isDown) {
-                curStabX = target.x
-                curStabY = target.y
             }
+
+            // Smooth stylus tilt axis so calligraphy/brush nibs never jitter on coarse tilt digitizers.
+            if (isStylus) {
+                val rawTilt = target.getAxisValue(MotionEvent.AXIS_TILT)
+                if (rawTilt > 0f) {
+                    val tAlpha = if (isDown || curTilt.isNaN()) 1.0f else (1f - kotlin.math.exp((-dtSec / 0.022f).toDouble()).toFloat()).coerceIn(0.15f, 0.75f)
+                    curTilt = if (isDown || curTilt.isNaN()) rawTilt else (curTilt + (rawTilt - curTilt) * tAlpha)
+                    target.setAxisValue(MotionEvent.AXIS_TILT, curTilt)
+                }
+            }
+
+            curTimeMs = monoTime
+            return monoTime
         }
 
         val histSize = e.historySize
         var out: MotionEvent? = null
 
-        // Replay all historical sub-frame samples first so 120–240Hz digitizer precision is preserved intact
+        // Replay all historical sub-frame samples first so 120–360Hz digitizer precision is preserved intact.
         for (h in 0 until histSize) {
             for (i in 0 until count) e.getHistoricalPointerCoords(i, h, coords[i])
             val rawP = e.getHistoricalPressure(idx, h)
-            applyRemapToTarget(coords[idx], rawP, isDown = false, isMove = true)
-            val hTime = e.getHistoricalEventTime(h)
+            val hTime = applyRemapToTarget(
+                target = coords[idx],
+                rawAxisP = rawP,
+                sampleTimeMs = e.getHistoricalEventTime(h),
+                isDown = false,
+                isMove = true,
+                isUp = false,
+            )
             if (out == null) {
                 out = MotionEvent.obtain(
                     e.downTime, hTime, e.action, count, props, coords,
@@ -2078,31 +2181,41 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             }
         }
 
-        // Now remap the current latest sample
+        // Now remap the current latest sample.
         for (i in 0 until count) e.getPointerCoords(i, coords[i])
         val rawAxisP = e.getAxisValue(MotionEvent.AXIS_PRESSURE, idx)
-        applyRemapToTarget(
-            coords[idx],
-            rawAxisP,
+        val curT = applyRemapToTarget(
+            target = coords[idx],
+            rawAxisP = rawAxisP,
+            sampleTimeMs = e.eventTime,
             isDown = actionMasked == MotionEvent.ACTION_DOWN,
             isMove = actionMasked == MotionEvent.ACTION_MOVE,
+            isUp = actionMasked == MotionEvent.ACTION_UP || actionMasked == MotionEvent.ACTION_POINTER_UP,
         )
 
         val result = if (out == null) {
             MotionEvent.obtain(
-                e.downTime, e.eventTime, e.action, count, props, coords,
+                e.downTime, curT, e.action, count, props, coords,
                 e.metaState, e.buttonState, e.xPrecision, e.yPrecision,
                 e.deviceId, e.edgeFlags, e.source, e.flags,
             )
         } else {
-            out.addBatch(e.eventTime, coords, e.metaState)
+            out.addBatch(curT, coords, e.metaState)
             out
         }
 
         if (!isPredicted) {
-            lastFilteredPressure = curPressure
-            stabX = curStabX
-            stabY = curStabY
+            inkLastPressure = curPressure
+            inkLastTilt = curTilt
+            inkFiltX = curFiltX
+            inkFiltY = curFiltY
+            inkPrevRawX = curPrevRawX
+            inkPrevRawY = curPrevRawY
+            inkFiltDx = curFiltDx
+            inkFiltDy = curFiltDy
+            inkLastTimeMs = curTimeMs
+            inkSawVariablePressure = curSawVarP
+            inkFirstPressure = curFirstP
         }
         return result
     }
@@ -2112,7 +2225,25 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         cancelActiveWetStroke(e)
         removeCallbacks(wetAssertionRunnable)
         mode = Mode.INK
-        stabX = Float.NaN; stabY = Float.NaN
+        inkFiltX = Float.NaN; inkFiltY = Float.NaN
+        inkPrevRawX = Float.NaN; inkPrevRawY = Float.NaN
+        inkFiltDx = 0f; inkFiltDy = 0f
+        inkLastTimeMs = -1L
+        inkLastPressure = Float.NaN
+        inkLastTilt = Float.NaN
+        inkSawVariablePressure = false
+        inkFirstPressure = Float.NaN
+        // Calibrate pressure range once per stroke from the active input device for universal stylus support.
+        val pRange = runCatching { e.device?.getMotionRange(MotionEvent.AXIS_PRESSURE, e.source) ?: e.device?.getMotionRange(MotionEvent.AXIS_PRESSURE) }.getOrNull()
+        if (pRange != null && pRange.range > 0.05f) {
+            inkPressureMin = pRange.min
+            inkPressureRange = pRange.range
+            inkHasHardwarePressure = true
+        } else {
+            inkPressureMin = 0f
+            inkPressureRange = 1f
+            inkHasHardwarePressure = isPen(e.getToolType(e.findPointerIndex(pid).coerceAtLeast(0)))
+        }
         syncFeel()
         val ptrIdx = e.findPointerIndex(pid).coerceAtLeast(0)
         feelX = e.getX(ptrIdx); feelY = e.getY(ptrIdx); feelT = e.eventTime

@@ -244,12 +244,24 @@ fun AppSurface(
     }
     val stroke = resolvedBorderColor?.let { BorderStroke(0.85.dp, it) }
 
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressModifier = if (onClick != null) {
+        Modifier.tactilePressScale(interactionSource, enabled = enabled, pressedScale = 0.965f)
+    } else Modifier
     val clickModifier = if (onClick != null) {
-        Modifier.clickable(enabled = enabled, onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
+        Modifier.clickable(
+            interactionSource = interactionSource,
+            indication = androidx.compose.foundation.LocalIndication.current,
+            enabled = enabled,
+            onClickLabel = onClickLabel,
+            role = Role.Button,
+            onClick = onClick,
+        )
     } else Modifier
 
     Surface(
         modifier = modifier
+            .then(pressModifier)
             .then(if (effectiveElevation > 0.dp) Modifier.shadow(effectiveElevation, shape, clip = false) else Modifier)
             .clip(shape)
             .then(clickModifier),
@@ -445,7 +457,7 @@ fun AppPill(
     val shape = appPillShape()
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
+    val scaleState = animateFloatAsState(
         targetValue = if (pressed && onClick != null && !reduceMotion) 0.955f else 1f,
         animationSpec = ProMotion.snappySpring(reduceMotion, perfMode, motionStyle),
         label = "pillScale",
@@ -462,8 +474,9 @@ fun AppPill(
     Row(
         modifier = modifier
             .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
+                val s = scaleState.value
+                scaleX = s
+                scaleY = s
             }
             .then(
                 if (selected && !LocalReduceEffects.current) {
@@ -686,23 +699,9 @@ fun AnimatedGradientSearchPlaceholder(
     )
 }
 
-private val FullSpectrumAuroraColors = listOf(
-    Color(0xFFFF1744), // Vivid crimson red
-    Color(0xFFFF6D00), // Saturated tangerine orange
-    Color(0xFFFFD600), // Electric gold amber
-    Color(0xFF00E676), // Vivid neon emerald-lime
-    Color(0xFF00E5CC), // Bright aurora mint-teal
-    Color(0xFF00C8FF), // Luminous electric cyan
-    Color(0xFF2962FF), // Deep electric cobalt blue
-    Color(0xFF651FFF), // Saturated royal indigo
-    Color(0xFFAA00FF), // Electric ultraviolet
-    Color(0xFFFF1493), // Hot neon magenta-pink
-    Color(0xFFFF1744), // Seamless spectrum loop
-)
-
 /**
  * Soft progressive top scroll blur powered by Haze (hardware-accelerated RenderEffect progressive mask)
- * with smooth cosine-falloff scrim fallback and optional vivid full-spectrum under-toolbar aurora.
+ * with a gentle, restrained cosine-falloff soft glow beneath the top bar.
  */
 @Composable
 fun TopScrollCloudyBackdrop(
@@ -728,33 +727,9 @@ fun TopScrollCloudyBackdrop(
         label = "topScrimAlpha",
     )
     if (scrimAlpha <= 0.01f && blurAlpha <= 0.01f) return
-    val baseSurface = MaterialTheme.colorScheme.surface
-    val reduceMotion = LocalReduceMotion.current
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    val lifecycleState = lifecycleOwner.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
-    val auroraActive = aurora && enabled && scrolled && !reduceEffects
-    val auroraAnimate = auroraActive && !reduceMotion && lifecycleState.value == androidx.lifecycle.Lifecycle.State.RESUMED
-
-    val auroraPhaseState = if (auroraAnimate) {
-        rememberInfiniteTransition(label = "underToolbarAurora").animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 24000, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart,
-            ),
-            label = "auroraFlow",
-        )
-    } else null
-
-    val surface = baseSurface
-    val density = LocalDensity.current
-    val auroraBlurEffect = remember(auroraActive, liveBlur, density) {
-        if (auroraActive && liveBlur && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val radiusPx = with(density) { 26.dp.toPx() }.coerceAtLeast(1f)
-            Api31BlurHelper.createBlur(radiusPx)
-        } else null
-    }
+    val surface = MaterialTheme.colorScheme.surface
+    val subtleAccent = MaterialTheme.colorScheme.primary
+    val subtleGlow = aurora && enabled && scrolled && !classic && !reduceEffects
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -774,75 +749,25 @@ fun TopScrollCloudyBackdrop(
             )
             .background(
                 Brush.verticalGradient(
-                    0.0f to surface.copy(alpha = if (auroraActive) scrimAlpha * 0.28f else scrimAlpha),
-                    0.30f to surface.copy(alpha = (if (auroraActive) scrimAlpha * 0.28f else scrimAlpha) * 0.65f),
-                    0.62f to surface.copy(alpha = (if (auroraActive) scrimAlpha * 0.28f else scrimAlpha) * 0.28f),
-                    0.85f to surface.copy(alpha = (if (auroraActive) scrimAlpha * 0.28f else scrimAlpha) * 0.08f),
+                    0.0f to surface.copy(alpha = scrimAlpha),
+                    0.30f to surface.copy(alpha = scrimAlpha * 0.65f),
+                    0.62f to surface.copy(alpha = scrimAlpha * 0.28f),
+                    0.85f to surface.copy(alpha = scrimAlpha * 0.08f),
                     1.0f to Color.Transparent,
                 ),
-            ),
-    ) {
-        if (auroraActive) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .then(
-                        if (auroraBlurEffect != null) {
-                            Modifier.graphicsLayer {
-                                renderEffect = auroraBlurEffect
-                                clip = false
-                            }
-                        } else Modifier,
-                    )
-                    .drawBehind {
-                        val w = size.width.coerceAtLeast(1f)
-                        val h = size.height.coerceAtLeast(1f)
-                        val phase = (auroraPhaseState?.value ?: 0.15f).coerceIn(0f, 1f)
-                        // Single unified color across the entire bar that gradually morphs through the spectrum.
-                        val palette = FullSpectrumAuroraColors
-                        val segCount = (palette.size - 1).coerceAtLeast(1)
-                        val scaled = phase * segCount
-                        val idx = scaled.toInt().coerceIn(0, segCount - 1)
-                        val frac = (scaled - idx).coerceIn(0f, 1f)
-                        val smoothFrac = frac * frac * (3f - 2f * frac)
-                        val currentColor = lerp(palette[idx], palette[idx + 1], smoothFrac)
-
-                        // Soft, widely feathered single-color atmospheric glow fading gently down from the toolbar.
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                0.00f to currentColor.copy(alpha = 0.36f),
-                                0.18f to currentColor.copy(alpha = 0.28f),
-                                0.42f to currentColor.copy(alpha = 0.16f),
-                                0.68f to currentColor.copy(alpha = 0.065f),
-                                0.88f to currentColor.copy(alpha = 0.018f),
-                                1.00f to Color.Transparent,
-                                startY = 0f,
-                                endY = h,
-                            ),
-                            size = size,
-                        )
-                        // Subtle broad centered bloom of the exact same color for extra depth and softness.
-                        val bloomRadius = (w * 0.62f).coerceAtLeast(h * 3.6f)
-                        withTransform({
-                            translate(left = w * 0.5f, top = 0f)
-                            scale(1f, (h * 0.92f) / bloomRadius, Offset.Zero)
-                        }) {
-                            drawCircle(
-                                brush = Brush.radialGradient(
-                                    0.0f to currentColor.copy(alpha = 0.20f),
-                                    0.55f to currentColor.copy(alpha = 0.08f),
-                                    1.0f to Color.Transparent,
-                                    center = Offset.Zero,
-                                    radius = bloomRadius,
-                                ),
-                                radius = bloomRadius,
-                                center = Offset.Zero,
-                            )
-                        }
-                    },
             )
-        }
-    }
+            .then(
+                if (subtleGlow) {
+                    Modifier.background(
+                        Brush.verticalGradient(
+                            0.0f to subtleAccent.copy(alpha = 0.09f),
+                            0.45f to subtleAccent.copy(alpha = 0.035f),
+                            1.0f to Color.Transparent,
+                        ),
+                    )
+                } else Modifier,
+            ),
+    )
 }
 
 @Composable
@@ -1098,6 +1023,7 @@ fun AppContextMenu(
                     .width(228.dp)
                     .heightIn(max = 420.dp),
             ) {
+                var actionFired by remember(expanded) { mutableStateOf(false) }
                 Column(
                     modifier = Modifier
                         .verticalScroll(rememberScrollState())
@@ -1111,15 +1037,24 @@ fun AppContextMenu(
                             item.selected -> ProButtonPalette.ElectricBlue
                             else -> scheme.onSurface
                         }
+                        val rowInteraction = remember { MutableInteractionSource() }
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 40.dp)
+                                .heightIn(min = 42.dp)
+                                .tactilePressScale(rowInteraction, enabled = item.enabled, pressedScale = 0.975f)
                                 .clip(ContextMenuRowShape)
                                 .background(if (item.selected) ProButtonPalette.ElectricBlue.copy(alpha = 0.10f) else Color.Transparent)
-                                .clickable(enabled = item.enabled) {
-                                    onDismissRequest()
-                                    item.onClick()
+                                .clickable(
+                                    interactionSource = rowInteraction,
+                                    indication = androidx.compose.foundation.LocalIndication.current,
+                                    enabled = item.enabled,
+                                ) {
+                                    if (!actionFired) {
+                                        actionFired = true
+                                        onDismissRequest()
+                                        item.onClick()
+                                    }
                                 }
                                 .padding(horizontal = 10.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -1177,19 +1112,31 @@ fun AppMenuButton(
     buttonContent: @Composable BoxScope.() -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    var lastDismissMs by remember { mutableStateOf(0L) }
     Box(modifier = modifier) {
         AppSurface(
             role = role,
             shape = shape,
             containerColor = containerColor,
             contentPadding = contentPadding,
-            onClick = { expanded = true },
+            onClick = {
+                val now = android.os.SystemClock.uptimeMillis()
+                if (expanded) {
+                    expanded = false
+                    lastDismissMs = now
+                } else if (now - lastDismissMs > 180L) {
+                    expanded = true
+                }
+            },
             onClickLabel = contentDescription,
             content = buttonContent,
         )
         AppContextMenu(
             expanded = expanded,
-            onDismissRequest = { expanded = false },
+            onDismissRequest = {
+                expanded = false
+                lastDismissMs = android.os.SystemClock.uptimeMillis()
+            },
             items = items,
         )
     }

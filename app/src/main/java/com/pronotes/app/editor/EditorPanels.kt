@@ -15,6 +15,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -101,6 +102,7 @@ import com.pronotes.app.ui.ProIconView
 import com.pronotes.app.ui.ScaleInAnimatedText
 import com.pronotes.app.ui.SurfaceRole
 import com.pronotes.app.ui.appCardShape
+import com.pronotes.app.ui.tactilePressScale
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
@@ -129,13 +131,21 @@ internal fun TabStrip(
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        val homeInteraction = remember { MutableInteractionSource() }
         Box(
             modifier = Modifier
-                .defaultMinSize(minWidth = 40.dp, minHeight = 40.dp)
+                .defaultMinSize(minWidth = 42.dp, minHeight = 42.dp)
+                .tactilePressScale(homeInteraction, pressedScale = 0.90f)
                 .clip(CircleShape)
                 .focusable()
                 .semantics { contentDescription = "Library" }
-                .clickable(role = Role.Button, onClickLabel = "Library", onClick = onHome),
+                .clickable(
+                    interactionSource = homeInteraction,
+                    indication = androidx.compose.foundation.LocalIndication.current,
+                    role = Role.Button,
+                    onClickLabel = "Library",
+                    onClick = onHome,
+                ),
             contentAlignment = Alignment.Center,
         ) {
             ProIconView(ProIcon.HOME, mutedFg, Modifier.size(18.dp))
@@ -204,13 +214,21 @@ internal fun TabStrip(
             }
         }
 
+        val addInteraction = remember { MutableInteractionSource() }
         Box(
             modifier = Modifier
-                .defaultMinSize(minWidth = 38.dp, minHeight = 38.dp)
+                .defaultMinSize(minWidth = 42.dp, minHeight = 42.dp)
+                .tactilePressScale(addInteraction, pressedScale = 0.90f)
                 .clip(CircleShape)
                 .focusable()
                 .semantics { contentDescription = "Add page" }
-                .clickable(role = Role.Button, onClickLabel = "Add page", onClick = onNewPageTab),
+                .clickable(
+                    interactionSource = addInteraction,
+                    indication = androidx.compose.foundation.LocalIndication.current,
+                    role = Role.Button,
+                    onClickLabel = "Add page",
+                    onClick = onNewPageTab,
+                ),
             contentAlignment = Alignment.Center,
         ) {
             ProIconView(ProIcon.ADD, mutedFg, Modifier.size(17.dp))
@@ -234,14 +252,23 @@ internal fun BarIcon(
         active -> activeFg
         else -> fgColor
     }
+    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
             .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+            .tactilePressScale(interaction, enabled = enabled, pressedScale = 0.90f)
             .clip(RoundedCornerShape(11.dp))
             .background(if (active) activeBg else Color.Transparent)
             .focusable()
             .semantics { contentDescription = label }
-            .clickable(enabled = enabled, role = Role.Button, onClickLabel = label, onClick = onClick),
+            .clickable(
+                interactionSource = interaction,
+                indication = androidx.compose.foundation.LocalIndication.current,
+                enabled = enabled,
+                role = Role.Button,
+                onClickLabel = label,
+                onClick = onClick,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         ProIconView(icon, tint, Modifier.size(20.dp))
