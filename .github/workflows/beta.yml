@@ -1,0 +1,88 @@
+name: Build Beta APK
+
+on:
+  push:
+    branches: [pronotes-beta]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-beta:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: experimental_sandbox
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+
+      - name: Restore signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: pronotes-beta-debug-keystore-v1
+
+      - name: Signing from secrets (optional)
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+            echo "SIGNING_KEYSTORE_PATH=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
+          fi
+
+      - name: Work out the beta version
+        run: |
+          TOP=$(grep -m1 -oE '^## v[0-9]+(\.[0-9]+)*' CHANGELOG.md | sed 's/^## v//')
+          NAME="${TOP:-17.0.0}-beta.${GITHUB_RUN_NUMBER}"
+          echo "VERSION_NAME=$NAME" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v$NAME" >> "$GITHUB_ENV"
+
+      - name: Build Beta release APK
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          SUPPORT_UPI: ${{ secrets.SUPPORT_UPI }}
+          SUPPORT_UPI_NAME: Pro Notes Beta
+          CLOUD_PROJECT_ID: ${{ secrets.CLOUD_PROJECT_ID }}
+          CLOUD_DB_ID: ${{ secrets.CLOUD_DB_ID }}
+          CLOUD_API_KEY: ${{ secrets.CLOUD_API_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+        run: |
+          if [ -f gradle/wrapper/gradle-wrapper.jar ]; then
+            sh ./gradlew :app:assembleRelease --stacktrace
+          else
+            gradle :app:assembleRelease --stacktrace
+          fi
+          mkdir -p dist
+          cp app/build/outputs/apk/release/*.apk dist/ProNotes-Beta.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ProNotes-Beta-apk
+          path: experimental_sandbox/dist/ProNotes-Beta.apk
+
+      - name: Publish GitHub Beta Pre-Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          name: Pro Notes Beta ${{ env.VERSION_NAME }}
+          prerelease: true
+          make_latest: false
+          files: experimental_sandbox/dist/ProNotes-Beta.apk
+          body: |
+            Experimental Beta build from `experimental_sandbox/` (`com.pronotes.app.beta`).
+            Installs side-by-side alongside the main Pro Notes app (`com.pronotes.app`).

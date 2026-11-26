@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Pro Notes</string>
+    <string name="app_name">Pro Notes Beta</string>
     <string name="action_undo">Undo</string>
     <string name="pull_to_add_page">Pull to add a page</string>
     <string name="release_to_add_page">Release to add a page</string>
