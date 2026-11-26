@@ -75,6 +75,7 @@ import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
@@ -931,10 +932,13 @@ internal fun InlinePageTextEditor(
                             }
                         })
                         editTextRef = this
+                        setOnClickListener {
+                            if (!handwriteMode) showSoftKeyboard(forceIfNoExternal = false)
+                        }
                         val openImeIfNeeded = {
                             requestFocus()
                             setSelection(length())
-                            if (!handwriteMode && !hasExternalKeyboard) {
+                            if (!handwriteMode && (!hasExternalKeyboard || edit.existing != null)) {
                                 keyboardController?.show()
                                 val imm = ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
                                 imm?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
@@ -1265,16 +1269,16 @@ internal fun InlinePageTextEditor(
                         showHandwritingStudio = true
                     }
 
-                    // Colour square
+                    // Circular colour dot
                     Box(
                         modifier = Modifier
                             .size(28.dp)
-                            .clip(RoundedCornerShape(7.dp))
+                            .clip(CircleShape)
                             .clickable { showColorPicker = true }
                             .padding(3.dp)
-                            .clip(RoundedCornerShape(5.dp))
+                            .clip(CircleShape)
                             .background(Color(textColor))
-                            .border(1.4.dp, barFg.copy(alpha = 0.35f), RoundedCornerShape(5.dp)),
+                            .border(1.4.dp, barFg.copy(alpha = 0.35f), CircleShape),
                     )
                 }
 
@@ -1397,6 +1401,7 @@ internal fun InlineStickyNoteEditor(
     val density = LocalDensity.current
     val item = edit.item
     var handwritingMode by remember(edit.item.id) { mutableStateOf(false) }
+    var showStyleTray by remember(edit.item.id) { mutableStateOf(false) }
     var text by remember(edit) { mutableStateOf(item.text) }
     var title by remember(edit) { mutableStateOf(item.title) }
     var color by remember(edit) { mutableIntStateOf(item.color) }
@@ -1405,17 +1410,12 @@ internal fun InlineStickyNoteEditor(
     var style by remember(edit) { mutableStateOf(item.style.ifBlank { "classic" }) }
     var pinned by remember(edit) { mutableStateOf(item.pinned) }
     var collapsed by remember(edit) { mutableStateOf(item.collapsed) }
-    var showPresetMenu by remember { mutableStateOf(false) }
     var showSavePresetDialog by remember { mutableStateOf(false) }
     var newPresetName by remember { mutableStateOf("") }
     var editTextRef by remember { mutableStateOf<EditText?>(null) }
     var suppressWatcher by remember { mutableStateOf(false) }
 
     val settingsStore = com.pronotes.app.data.SettingsStore.get(context)
-    val presets: List<com.pronotes.app.data.StickyPreset> = remember(settingsStore, vm.settingsFlow.value.customStickyPresetsJson) {
-        settingsStore.stickyPresets()
-    }
-
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val hasExternalKeyboard = remember(context) {
         val cfg = context.resources.configuration
@@ -1452,12 +1452,30 @@ internal fun InlineStickyNoteEditor(
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp),
                 role = SurfaceRole.Popover,
                 shadowElevation = 8.dp,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { handwritingMode = false }) { Text("Text") }
-                    Text("Handwriting", style = MaterialTheme.typography.labelLarge)
-                    TextButton(onClick = { commitAndClose() }) { Text("Done") }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    AppPill(
+                        selected = false,
+                        tint = ProButtonPalette.ElectricBlue,
+                        onClick = { handwritingMode = false },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    ) {
+                        Icon(Icons.Outlined.Keyboard, contentDescription = null, Modifier.size(15.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Type Text", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    }
+                    AppPill(
+                        selected = true,
+                        tint = ProButtonPalette.Emerald,
+                        onClick = { commitAndClose() },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Text("Done", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
                 }
             }
         }
@@ -1469,14 +1487,14 @@ internal fun InlineStickyNoteEditor(
     }
 
     val availW = areaSize.width.toFloat().coerceAtLeast(280f)
-    val availH = areaSize.height.toFloat().coerceAtLeast(200f)
+    val availH = areaSize.height.toFloat().coerceAtLeast(220f)
 
-    val maxCardW = (availW - with(density) { 32.dp.toPx() }).coerceAtLeast(1f)
-    val cardW = (mappedRect?.width() ?: (item.w * zoomScale)).coerceIn(minOf(with(density) { 300.dp.toPx() }, maxCardW), maxCardW)
-    val maxCardH = (availH - with(density) { 48.dp.toPx() }).coerceAtLeast(1f)
-    val cardH = (mappedRect?.height() ?: (item.h * zoomScale)).coerceIn(minOf(with(density) { 260.dp.toPx() }, maxCardH), maxCardH)
-    val screenLeft = (mappedRect?.left ?: ((availW - cardW) * 0.5f)).coerceIn(with(density) { 16.dp.toPx() }, (availW - cardW - with(density) { 16.dp.toPx() }).coerceAtLeast(with(density) { 16.dp.toPx() }))
-    val screenTop = (mappedRect?.top ?: ((availH - cardH) * 0.4f)).coerceIn(with(density) { 16.dp.toPx() }, (availH - cardH - with(density) { 16.dp.toPx() }).coerceAtLeast(with(density) { 16.dp.toPx() }))
+    val maxCardW = (availW - with(density) { 24.dp.toPx() }).coerceAtLeast(1f)
+    val cardW = (mappedRect?.width() ?: (item.w * zoomScale)).coerceIn(minOf(with(density) { 330.dp.toPx() }, maxCardW), maxCardW)
+    val maxCardH = (availH - with(density) { 32.dp.toPx() }).coerceAtLeast(1f)
+    val cardH = (mappedRect?.height() ?: (item.h * zoomScale)).coerceIn(minOf(with(density) { 300.dp.toPx() }, maxCardH), maxCardH)
+    val screenLeft = (mappedRect?.left ?: ((availW - cardW) * 0.5f)).coerceIn(with(density) { 12.dp.toPx() }, (availW - cardW - with(density) { 12.dp.toPx() }).coerceAtLeast(with(density) { 12.dp.toPx() }))
+    val screenTop = (mappedRect?.top ?: ((availH - cardH) * 0.35f)).coerceIn(with(density) { 12.dp.toPx() }, (availH - cardH - with(density) { 12.dp.toPx() }).coerceAtLeast(with(density) { 12.dp.toPx() }))
 
     val cardWDp = with(density) { cardW.toDp() }
     val cardHDp = with(density) { cardH.toDp() }
@@ -1500,7 +1518,7 @@ internal fun InlineStickyNoteEditor(
                 },
         )
 
-        // Notein 1:1 inline sticky card
+        // Clean, spacious inline sticky card — single minimal header + collapsible style tray so ~85% is open writing area
         Column(
             modifier = Modifier
                 .offset { IntOffset(screenLeft.roundToInt(), screenTop.roundToInt()) }
@@ -1523,19 +1541,19 @@ internal fun InlineStickyNoteEditor(
                     indication = null,
                 ) {},
         ) {
-            // Notein tinted header bar: editable title + Pin/Lock + Fold + Duplicate + Delete + Done
+            // Single clean header bar: Title + Handwrite switch + Style tray toggle + Fold + Done
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = if (lum < 0.38f) 0.18f else 0.06f))
+                    .background(Color.Black.copy(alpha = if (lum < 0.38f) 0.16f else 0.055f))
                     .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 Box(Modifier.weight(1f)) {
                     if (title.isBlank()) {
                         Text(
-                            "Title…",
+                            "Note title…",
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                             color = fgMuted,
                         )
@@ -1552,14 +1570,43 @@ internal fun InlineStickyNoteEditor(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
+                // One-tap switch to Handwriting directly on this sticky note (saves typed text underneath!)
+                Row(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.08f))
+                        .clickable {
+                            val live = editTextRef?.text?.toString() ?: text
+                            text = live
+                            vm.saveStickyLive(
+                                text = live,
+                                color = color,
+                                fontSize = fontSize,
+                                font = font,
+                                collapsed = collapsed,
+                                pinned = pinned,
+                                title = title,
+                                style = style,
+                            )
+                            handwritingMode = true
+                            keyboardController?.hide()
+                            vm.tool = Tool.PEN
+                        }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Icon(Icons.Outlined.Edit, contentDescription = "Handwrite on sticky", Modifier.size(13.dp), tint = fgColor)
+                    Text("Draw", style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = FontWeight.SemiBold)
+                }
                 IconButton(
-                    onClick = { pinned = !pinned },
+                    onClick = { showStyleTray = !showStyleTray },
                     modifier = Modifier.size(30.dp),
                 ) {
                     Icon(
-                        if (pinned) Icons.Outlined.Lock else Icons.Outlined.LockOpen,
-                        contentDescription = if (pinned) "Unpin sticky" else "Pin sticky",
-                        tint = if (pinned) fgColor else fgMuted,
+                        Icons.Outlined.Tune,
+                        contentDescription = "Sticky style & options",
+                        tint = if (showStyleTray) ProButtonPalette.ElectricBlue else fgColor,
                         modifier = Modifier.size(16.dp),
                     )
                 }
@@ -1577,43 +1624,6 @@ internal fun InlineStickyNoteEditor(
                         modifier = Modifier.size(17.dp),
                     )
                 }
-                if (!edit.isNew) {
-                    IconButton(
-                        onClick = {
-                            val live = editTextRef?.text?.toString() ?: text
-                            vm.commitSticky(
-                                text = live,
-                                color = color,
-                                fontSize = fontSize,
-                                font = font,
-                                collapsed = collapsed,
-                                pinned = pinned,
-                                title = title,
-                                style = style,
-                            )
-                            vm.duplicateSticky()
-                        },
-                        modifier = Modifier.size(30.dp),
-                    ) {
-                        Icon(
-                            Icons.Outlined.ContentCopy,
-                            contentDescription = "Duplicate sticky",
-                            tint = fgMuted,
-                            modifier = Modifier.size(15.dp),
-                        )
-                    }
-                    IconButton(
-                        onClick = { vm.deleteSticky() },
-                        modifier = Modifier.size(30.dp),
-                    ) {
-                        Icon(
-                            Icons.Outlined.DeleteOutline,
-                            contentDescription = "Delete sticky",
-                            tint = Color(0xFFDC2626),
-                            modifier = Modifier.size(16.dp),
-                        )
-                    }
-                }
                 TextButton(
                     onClick = { commitAndClose() },
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
@@ -1622,147 +1632,108 @@ internal fun InlineStickyNoteEditor(
                 }
             }
 
-            // Mode segmented control: Text vs Handwriting-on-sticky
-            com.pronotes.app.ui.AppSegmentedControl(
-                options = listOf("Text", "Handwriting"),
-                selectedIndex = 0,
-                onSelect = { mode ->
-                    if (mode == 1) {
-                        text = editTextRef?.text?.toString() ?: text
-                        handwritingMode = true
-                        keyboardController?.hide()
-                        vm.tool = Tool.PEN
+            // Optional collapsible 1-row Style & Actions tray (hidden by default so card stays clean and spacious)
+            if (showStyleTray) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.Black.copy(alpha = if (lum < 0.38f) 0.12f else 0.035f))
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    StickyColors.forEach { c ->
+                        val sel = color == c
+                        Box(
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clip(CircleShape)
+                                .background(Color(c))
+                                .border(
+                                    width = if (sel) 2.dp else 1.dp,
+                                    color = if (sel) fgColor else Color.Black.copy(alpha = 0.22f),
+                                    shape = CircleShape,
+                                )
+                                .clickable { color = c },
+                        )
                     }
-                },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
-            )
-
-            // Square color swatches row (8 Notein sticky colors)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 10.dp, vertical = 3.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                StickyColors.forEach { c ->
-                    val sel = color == c
-                    Box(
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clip(RoundedCornerShape(5.dp))
-                            .background(Color(c))
-                            .border(
-                                width = if (sel) 2.dp else 1.dp,
-                                color = if (sel) fgColor else Color.Black.copy(alpha = 0.22f),
-                                shape = RoundedCornerShape(5.dp),
-                            )
-                            .clickable { color = c },
-                    )
-                }
-            }
-
-            // Notein paper template & quick formatting strip
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 10.dp, vertical = 3.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                val templates = listOf(
-                    "classic" to "Plain",
-                    "lined" to "Lined",
-                    "grid" to "Grid",
-                    "dotted" to "Dotted",
-                    "tinted" to "Tinted",
-                    "outline" to "Outline",
-                )
-                templates.forEach { (key, label) ->
-                    val sel = style == key
+                    Box(Modifier.width(1.dp).height(16.dp).background(fgColor.copy(alpha = 0.18f)))
+                    listOf("classic" to "Plain", "lined" to "Lined", "grid" to "Grid", "dotted" to "Dots").forEach { (key, label) ->
+                        val sel = style == key
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (sel) fgColor.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.05f))
+                                .clickable { style = key }
+                                .padding(horizontal = 7.dp, vertical = 3.dp),
+                        ) {
+                            Text(label, style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal)
+                        }
+                    }
+                    Box(Modifier.width(1.dp).height(16.dp).background(fgColor.copy(alpha = 0.18f)))
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(
-                                if (sel) fgColor.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.05f),
-                            )
-                            .border(
-                                width = if (sel) 1.dp else 0.dp,
-                                color = if (sel) fgColor.copy(alpha = 0.45f) else Color.Transparent,
-                                shape = RoundedCornerShape(6.dp),
-                            )
-                            .clickable { style = key }
+                            .background(Color.Black.copy(alpha = 0.06f))
+                            .clickable { fontSize = (fontSize - 2f).coerceAtLeast(14f) }
                             .padding(horizontal = 7.dp, vertical = 3.dp),
                     ) {
-                        Text(
-                            label,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = fgColor,
-                            fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
-                        )
+                        Text("A−", style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = FontWeight.SemiBold)
                     }
-                }
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color.Black.copy(alpha = 0.07f))
-                        .clickable {
-                            val et = editTextRef
-                            val cur = et?.text?.toString() ?: text
-                            val pos = (et?.selectionStart ?: cur.length).coerceIn(0, cur.length)
-                            val prefix = if (pos > 0 && cur[pos - 1] != '\n') "\n- [ ] " else "- [ ] "
-                            if (et != null) {
-                                et.editableText?.insert(pos, prefix)
-                            } else {
-                                text = cur.substring(0, pos) + prefix + cur.substring(pos)
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.Black.copy(alpha = 0.06f))
+                            .clickable { fontSize = (fontSize + 2f).coerceAtMost(44f) }
+                            .padding(horizontal = 7.dp, vertical = 3.dp),
+                    ) {
+                        Text("A+", style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = FontWeight.SemiBold)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.Black.copy(alpha = 0.06f))
+                            .clickable {
+                                val et = editTextRef
+                                val cur = et?.text?.toString() ?: text
+                                val pos = (et?.selectionStart ?: cur.length).coerceIn(0, cur.length)
+                                val prefix = if (pos > 0 && cur[pos - 1] != '\n') "\n- [ ] " else "- [ ] "
+                                if (et != null) et.editableText?.insert(pos, prefix)
+                                else text = cur.substring(0, pos) + prefix + cur.substring(pos)
                             }
+                            .padding(horizontal = 7.dp, vertical = 3.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Icon(Icons.Outlined.CheckBox, null, Modifier.size(13.dp), tint = fgColor)
+                            Text("Task", style = MaterialTheme.typography.labelSmall, color = fgColor)
                         }
-                        .padding(horizontal = 7.dp, vertical = 3.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Icon(Icons.Outlined.CheckBox, null, Modifier.size(13.dp), tint = fgColor)
-                        Text("Task", style = MaterialTheme.typography.labelSmall, color = fgColor)
                     }
-                }
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color.Black.copy(alpha = 0.07f))
-                        .clickable { fontSize = (fontSize - 2f).coerceAtLeast(16f) }
-                        .padding(horizontal = 7.dp, vertical = 3.dp),
-                ) {
-                    Text("A-", style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = FontWeight.SemiBold)
-                }
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color.Black.copy(alpha = 0.07f))
-                        .clickable { fontSize = (fontSize + 2f).coerceAtMost(48f) }
-                        .padding(horizontal = 7.dp, vertical = 3.dp),
-                ) {
-                    Text("A+", style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = FontWeight.SemiBold)
-                }
-                val fonts = listOf("SANS" to "Sans", "SERIF" to "Serif", "MONO" to "Mono", "HAND" to "Hand")
-                val curFontIdx = fonts.indexOfFirst { it.first.equals(font, ignoreCase = true) }.coerceAtLeast(0)
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color.Black.copy(alpha = 0.07f))
-                        .clickable { font = fonts[(curFontIdx + 1) % fonts.size].first }
-                        .padding(horizontal = 7.dp, vertical = 3.dp),
-                ) {
-                    Text(fonts[curFontIdx].second, style = MaterialTheme.typography.labelSmall, color = fgColor)
+                    IconButton(onClick = { pinned = !pinned }, modifier = Modifier.size(26.dp)) {
+                        Icon(if (pinned) Icons.Outlined.Lock else Icons.Outlined.LockOpen, "Pin sticky", tint = if (pinned) fgColor else fgMuted, modifier = Modifier.size(15.dp))
+                    }
+                    IconButton(
+                        onClick = {
+                            val live = editTextRef?.text?.toString() ?: text
+                            vm.commitSticky(live, color, fontSize, font, collapsed, pinned, title, style)
+                            vm.duplicateSticky()
+                        },
+                        modifier = Modifier.size(26.dp),
+                    ) {
+                        Icon(Icons.Outlined.ContentCopy, "Duplicate sticky", tint = fgMuted, modifier = Modifier.size(14.dp))
+                    }
+                    IconButton(onClick = { vm.deleteSticky() }, modifier = Modifier.size(26.dp)) {
+                        Icon(Icons.Outlined.DeleteOutline, "Delete sticky", tint = Color(0xFFDC2626), modifier = Modifier.size(15.dp))
+                    }
                 }
             }
 
-            // 2. Card Body: Direct multiline AndroidView EditText with full keyboard shortcuts
+            // Spacious Card Body: Direct multiline AndroidView EditText with comfortable density & smooth scrolling
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
@@ -1780,7 +1751,7 @@ internal fun InlineStickyNoteEditor(
                             if (Build.VERSION.SDK_INT >= 34) Api34EditTextHelper.enableAutoHandwriting(this)
                             isCursorVisible = true
                             isVerticalScrollBarEnabled = true
-                            hint = "Type a note, formula, or checklist…"
+                            hint = "Write your note…"
                             setHintTextColor(if (lum < 0.38f) 0x88FFFFFF.toInt() else 0x55475569)
                             if (Build.VERSION.SDK_INT >= 29) {
                                 val cursorW = (2f * ctx.resources.displayMetrics.density).roundToInt().coerceAtLeast(3)
@@ -1875,9 +1846,9 @@ internal fun InlineStickyNoteEditor(
                             "HAND" -> android.graphics.Typeface.create("cursive", android.graphics.Typeface.NORMAL)
                             else -> android.graphics.Typeface.SANS_SERIF
                         }
-                        et.setTextSize(TypedValue.COMPLEX_UNIT_PX, (fontSize * zoomScale * 0.9f).coerceIn(13f, 96f))
+                        et.setTextSize(TypedValue.COMPLEX_UNIT_PX, (fontSize * zoomScale * 0.78f).coerceIn(13f, 72f))
                         et.setTextColor(if (lum < 0.38f) android.graphics.Color.WHITE else 0xFF1E293B.toInt())
-                        et.setLineSpacing(0f, 1.15f)
+                        et.setLineSpacing(0f, 1.12f)
                     },
                 )
             }

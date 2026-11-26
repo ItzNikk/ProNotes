@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -106,17 +107,15 @@ private val StudioSquareGrid: List<List<Int>> = listOf(
     ).map { it.toInt() },
 )
 
-/** A crisp square studio colour tile with an adaptive contrasting border frame so light and dark swatches stay readable on any toolbar. */
+/** A crisp circular colour swatch with an adaptive contrasting rim so light and dark swatches stay readable on any toolbar. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Swatch(color: Int, selected: Boolean, size: Int = 26, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     val label = remember(color) { "Colour #" + String.format("%08X", color) }
     val tileColor = Color(color)
     val lum = tileColor.luminance()
-    val cornerDp = if (size <= 20) 5.dp else 7.dp
-    val outerCornerDp = if (size <= 20) 7.dp else 9.dp
-    val innerShape = RoundedCornerShape(cornerDp)
-    val outerShape = RoundedCornerShape(outerCornerDp)
+    val innerShape = CircleShape
+    val outerShape = CircleShape
 
     val innerRimColor = when {
         tileColor.alpha < 0.05f -> MaterialTheme.colorScheme.outline

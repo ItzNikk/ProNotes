@@ -45,10 +45,13 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.PlayCircleOutline
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -90,6 +93,7 @@ import com.pronotes.app.data.SettingsStore
 import com.pronotes.app.data.ToolbarDock
 import com.pronotes.app.data.ToolbarStyle
 import com.pronotes.app.ui.AppContextMenu
+import com.pronotes.app.ui.AppDialog
 import com.pronotes.app.ui.AppMenuItem
 import com.pronotes.app.ui.AppSurface
 import com.pronotes.app.ui.ColorEditorDialog
@@ -1391,7 +1395,26 @@ fun ToolOptions(
                         ) { vm.tapeFreehand = !vm.tapeFreehand }
                     }
                 }
-                t == Tool.STICKY -> CustomSwatches(StickyColors, vm.stickyColor, vm) { vm.stickyColor = it }
+                t == Tool.STICKY -> {
+                    if (!vertical) {
+                        StudioQuickChip(
+                            label = "Text",
+                            active = vm.stickyInputMode == 0,
+                            accent = ProButtonPalette.ElectricBlue,
+                            fg = dockFg,
+                            darkDock = darkDock,
+                        ) { vm.updateStickyInputMode(0) }
+                        StudioQuickChip(
+                            label = "Handwrite",
+                            active = vm.stickyInputMode == 1,
+                            accent = ProButtonPalette.Emerald,
+                            fg = dockFg,
+                            darkDock = darkDock,
+                        ) { vm.updateStickyInputMode(1) }
+                        Box(Modifier.padding(horizontal = 3.dp).width(1.dp).height(18.dp).background(dockFg.copy(alpha = 0.14f)))
+                    }
+                    CustomSwatches(StickyColors, vm.stickyColor, vm) { vm.stickyColor = it }
+                }
                 t == Tool.WEBLINK -> CustomSwatches(WebLinkColors, vm.webLinkColor, vm) { vm.webLinkColor = it }
                 t == Tool.MINDMAP -> {
                     MindPalette.take(8).forEach { c ->
@@ -1501,19 +1524,17 @@ fun CustomSwatches(base: List<Int>, current: Int, vm: EditorViewModel, onPick: (
 
 @Composable
 fun AddSwatchButton(onClick: () -> Unit) {
-    val outerShape = RoundedCornerShape(7.dp)
-    val innerShape = RoundedCornerShape(5.dp)
     Box(
         Modifier
             .defaultMinSize(minWidth = 34.dp, minHeight = 34.dp)
-            .clip(outerShape)
+            .clip(CircleShape)
             .clickable(role = Role.Button, onClickLabel = "Custom colour", onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             Modifier
                 .size(22.dp)
-                .clip(outerShape)
+                .clip(CircleShape)
                 .background(
                     Brush.sweepGradient(
                         listOf(
@@ -1528,7 +1549,7 @@ fun AddSwatchButton(onClick: () -> Unit) {
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            Box(Modifier.size(16.dp).clip(innerShape).background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(16.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
                 Icon(Icons.Outlined.Add, "Custom colour", Modifier.size(11.dp))
             }
         }
@@ -1547,6 +1568,11 @@ fun StyleOptions(
     var editing by remember { mutableStateOf<Int?>(null) }
     var adding by remember { mutableStateOf(false) }
     var removeMenu by remember { mutableStateOf<Int?>(null) }
+    var paletteMenu by remember { mutableStateOf(false) }
+    var savingPalette by remember { mutableStateOf(false) }
+    val colorPresets = remember(vm.settingsFlow.value.customColorPresetsJson) {
+        vm.colorPalettePresets()
+    }
 
     SizeDots(style.sizes, style.size, fg = dockFg, darkDock = darkDock) { sz ->
         vm.updateStyle(t, style.copy(size = sz))
@@ -1575,6 +1601,85 @@ fun StyleOptions(
         }
     }
     if (style.colors.size < MAX_COLOR_SLOTS) AddSwatchButton { adding = true }
+    Box {
+        Box(
+            Modifier
+                .defaultMinSize(minWidth = 34.dp, minHeight = 34.dp)
+                .clip(CircleShape)
+                .clickable(role = Role.Button, onClickLabel = "Colour presets") { paletteMenu = true },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Outlined.Palette,
+                contentDescription = "Colour presets",
+                modifier = Modifier.size(18.dp),
+                tint = dockFg.copy(alpha = 0.82f),
+            )
+        }
+        AppContextMenu(
+            expanded = paletteMenu,
+            onDismissRequest = { paletteMenu = false },
+            items = buildList {
+                colorPresets.forEach { preset ->
+                    add(
+                        AppMenuItem(
+                            label = preset.name,
+                            icon = {
+                                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    preset.colors.take(4).forEach { col ->
+                                        Box(
+                                            Modifier
+                                                .size(9.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(col))
+                                                .border(0.6.dp, Color.Black.copy(alpha = 0.2f), CircleShape),
+                                        )
+                                    }
+                                }
+                            },
+                        ) {
+                            vm.applyColorPalettePreset(t, preset)
+                        },
+                    )
+                }
+                add(
+                    AppMenuItem(
+                        label = "Save current as preset…",
+                        icon = { Icon(Icons.Outlined.Add, contentDescription = null, Modifier.size(16.dp)) },
+                    ) {
+                        savingPalette = true
+                    },
+                )
+            },
+        )
+    }
+
+    if (savingPalette) {
+        var presetName by remember { mutableStateOf("") }
+        AppDialog(
+            onDismissRequest = { savingPalette = false },
+            title = { Text("Save colour preset") },
+            text = {
+                OutlinedTextField(
+                    value = presetName,
+                    onValueChange = { presetName = it.take(28) },
+                    label = { Text("Preset name") },
+                    placeholder = { Text("e.g. Biology, Pastel Ink") },
+                    singleLine = true,
+                    shape = CircleShape,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.saveCurrentColorPalettePreset(t, presetName)
+                    savingPalette = false
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { savingPalette = false }) { Text("Cancel") }
+            },
+        )
+    }
 
     val presets = when (t) {
         Tool.HIGHLIGHTER -> HighlighterPalette + PenPalette

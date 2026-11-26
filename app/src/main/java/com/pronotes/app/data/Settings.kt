@@ -295,7 +295,7 @@ data class AppSettings(
     val fingerTapUndo: Boolean = true,
     val doubleTapZoom: Boolean = true,
     // pages
-    val scroll: ScrollDirection = ScrollDirection.VERTICAL,
+    val scroll: ScrollDirection = ScrollDirection.HORIZONTAL,
     val pullToAddPage: Boolean = true,
     val paperTint: PaperTint = PaperTint.WHITE,
     val defaultPaper: PaperStyle = PaperStyle.RULED,
@@ -389,6 +389,8 @@ data class AppSettings(
     val appLanguage: String = "",
     /** User-customized sticky note presets persisted as JSON. */
     val customStickyPresetsJson: String = "",
+    /** User-saved custom colour palette presets persisted as delimited strings. */
+    val customColorPresetsJson: String = "",
 ) {
     fun toolbarState(): ToolbarState {
         val parts = toolbarPos.split(',')
@@ -440,6 +442,83 @@ data class StickyPreset(
             StickyPreset("p_rose", "Rose Memo", 0xFFFFCDD2.toInt(), "tinted", "plain", "SERIF", 28f, 20f),
             StickyPreset("p_lavender", "Lavender Idea", 0xFFE1BEE7.toInt(), "classic", "plain", "HAND", 30f, 22f),
             StickyPreset("p_ocean", "Ocean Action", 0xFFB3E5FC.toInt(), "outline", "dotted", "SANS", 26f, 18f),
+        )
+    }
+}
+
+/** Curated or user-saved palette of toolbar colours that can be applied to any drawing tool in one tap. */
+@Immutable
+data class ColorPalettePreset(
+    val id: String,
+    val name: String,
+    val colors: List<Int>,
+    val builtIn: Boolean = false,
+) {
+    companion object {
+        val DEFAULT_PRESETS: List<ColorPalettePreset> = listOf(
+            ColorPalettePreset(
+                id = "cp_classic",
+                name = "Classic",
+                colors = listOf(
+                    0xFF1B1F2A, 0xFF1D4ED8, 0xFFDC2626, 0xFF15803D,
+                    0xFF7C3AED, 0xFFEA580C, 0xFF0D9488, 0xFFDB2777,
+                ).map { it.toInt() },
+                builtIn = true,
+            ),
+            ColorPalettePreset(
+                id = "cp_study",
+                name = "Study Notes",
+                colors = listOf(
+                    0xFF111827, 0xFF2563EB, 0xFFE11D48, 0xFF059669,
+                    0xFFD97706, 0xFF6D28D9, 0xFF0284C7, 0xFF475569,
+                ).map { it.toInt() },
+                builtIn = true,
+            ),
+            ColorPalettePreset(
+                id = "cp_pastel",
+                name = "Pastel",
+                colors = listOf(
+                    0xFF64748B, 0xFF93C5FD, 0xFFFDA4AF, 0xFF86EFAC,
+                    0xFFC4B5FD, 0xFFFDBA74, 0xFF67E8F9, 0xFFF9A8D4,
+                ).map { it.toInt() },
+                builtIn = true,
+            ),
+            ColorPalettePreset(
+                id = "cp_earth",
+                name = "Earth & Ink",
+                colors = listOf(
+                    0xFF292524, 0xFF78350F, 0xFFB45309, 0xFF4D7C0F,
+                    0xFF115E59, 0xFF9A3412, 0xFF6B705C, 0xFFA98467,
+                ).map { it.toInt() },
+                builtIn = true,
+            ),
+            ColorPalettePreset(
+                id = "cp_vivid",
+                name = "Vivid",
+                colors = listOf(
+                    0xFF000000, 0xFF0066FF, 0xFFFF2D55, 0xFF00C853,
+                    0xFFFF9500, 0xFFAF52DE, 0xFF00B8D4, 0xFFFFD600,
+                ).map { it.toInt() },
+                builtIn = true,
+            ),
+            ColorPalettePreset(
+                id = "cp_highlight",
+                name = "Highlighter",
+                colors = listOf(
+                    0xFFFFF176, 0xFFA5F3FC, 0xFFFBCFE8, 0xFFBBF7D0,
+                    0xFFFED7AA, 0xFFDDD6FE, 0xFFFEF08A, 0xFFD9F99D,
+                ).map { it.toInt() },
+                builtIn = true,
+            ),
+            ColorPalettePreset(
+                id = "cp_mono",
+                name = "Monochrome",
+                colors = listOf(
+                    0xFF000000, 0xFF1F2937, 0xFF374151, 0xFF4B5563,
+                    0xFF6B7280, 0xFF9CA3AF, 0xFFD1D5DB, 0xFFFFFFFF,
+                ).map { it.toInt() },
+                builtIn = true,
+            ),
         )
     }
 }
@@ -598,6 +677,7 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             storageFolderLabel = prefs.getString("storageFolderLabel", "") ?: "",
             appLanguage = prefs.getString("appLanguage", "") ?: "",
             customStickyPresetsJson = prefs.getString("customStickyPresetsJson", "") ?: "",
+            customColorPresetsJson = prefs.getString("customColorPresetsJson", "") ?: "",
         )
     }
 
@@ -747,6 +827,7 @@ class SettingsStore private constructor(context: Context, file: String = "settin
         putS("storageFolderLabel", prev.storageFolderLabel, s.storageFolderLabel)
         putS("appLanguage", prev.appLanguage, s.appLanguage)
         putS("customStickyPresetsJson", prev.customStickyPresetsJson, s.customStickyPresetsJson)
+        putS("customColorPresetsJson", prev.customColorPresetsJson, s.customColorPresetsJson)
 
         if (dirty) ed.apply()
     }
@@ -810,6 +891,43 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             "${it.id}||${it.name}||${it.color}||${it.style}||${it.paperStyle}||${it.font}||${it.fontSize}||${it.cornerRadius}||${it.pinned}"
         }
         update { it.copy(customStickyPresetsJson = serialized) }
+    }
+
+    fun customColorPalettePresets(): List<ColorPalettePreset> {
+        val raw = _settings.value.customColorPresetsJson
+        if (raw.isBlank()) return emptyList()
+        return raw.split(";;").mapNotNull { entry ->
+            val p = entry.split("||")
+            if (p.size < 3) return@mapNotNull null
+            val cols = p[2].split(',').mapNotNull { it.toIntOrNull() }.distinct().take(16)
+            if (cols.isEmpty()) null
+            else ColorPalettePreset(id = p[0], name = p[1], colors = cols, builtIn = false)
+        }
+    }
+
+    fun colorPalettePresets(): List<ColorPalettePreset> =
+        customColorPalettePresets() + ColorPalettePreset.DEFAULT_PRESETS
+
+    fun saveColorPalettePreset(name: String, colors: List<Int>): ColorPalettePreset {
+        val cleanName = name.trim().replace("||", " ").replace(";;", " ").ifBlank { "My Palette" }.take(28)
+        val cleanColors = colors.distinct().take(16).ifEmpty { ColorPalettePreset.DEFAULT_PRESETS.first().colors }
+        val existing = customColorPalettePresets()
+        val preset = ColorPalettePreset(
+            id = "cp_user_${System.currentTimeMillis()}",
+            name = cleanName,
+            colors = cleanColors,
+            builtIn = false,
+        )
+        val updated = (listOf(preset) + existing.filterNot { it.name.equals(cleanName, ignoreCase = true) }).take(20)
+        val serialized = updated.joinToString(";;") { "${it.id}||${it.name}||${it.colors.joinToString(",")}" }
+        update { it.copy(customColorPresetsJson = serialized) }
+        return preset
+    }
+
+    fun deleteColorPalettePreset(id: String) {
+        val updated = customColorPalettePresets().filterNot { it.id == id }
+        val serialized = updated.joinToString(";;") { "${it.id}||${it.name}||${it.colors.joinToString(",")}" }
+        update { it.copy(customColorPresetsJson = serialized) }
     }
 
     // --------------------------------------------------------------- pens

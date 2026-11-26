@@ -2576,7 +2576,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                 return
             }
         }
-        // Scribble-to-erase: uses the same surgical hit-testing & eraser policy as live scribble.
+        // Scribble-to-erase: uses surgical hit-testing for ink strokes AND individual words in converted text.
         if (!isTap && (strokeTool == Tool.PEN || strokeTool == Tool.CRAYON || strokeTool == Tool.HIGHLIGHTER) && settings.scribbleToErase &&
             isDeliberateScribble(points, scale / density, e.eventTime - e.downTime, gestureConfig)) {
             val hit = scribbleHitIds(activePage, points)
@@ -2596,6 +2596,19 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                 host.beginEdit(activePage)
                 updatePage(activePage, p.items.filterNot { it.id in hit })
                 layer.puff(gone, strokeColors)
+                syncFeel(); feel.cue(PaperFeel.Cue.TAP)
+                host.onScribbleErased()
+                return
+            }
+            val wordErase = scribbleEraseTextWords(activePage, points)
+            if (wordErase != null) {
+                cancelActiveWetStroke(e)
+                val (updatedItems, visuals) = wordErase
+                val gone = visuals.map { (rect, _) -> RectF(rect).also { r -> pageMatrix(activePage, tmpMatrix).mapRect(r) } }
+                val colors = visuals.map { it.second }
+                host.beginEdit(activePage)
+                updatePage(activePage, updatedItems)
+                layer.puff(gone, colors)
                 syncFeel(); feel.cue(PaperFeel.Cue.TAP)
                 host.onScribbleErased()
                 return
@@ -2763,7 +2776,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         // A scribble that ends with a pause is still a scribble (erase), never a shape.
         if ((strokeTool == Tool.PEN || strokeTool == Tool.CRAYON || strokeTool == Tool.HIGHLIGHTER) && settings.scribbleToErase &&
             isDeliberateScribble(points, scale / density, SystemClock.uptimeMillis() - downTime, gestureConfig) &&
-            scribbleHitIds(activePage, points).isNotEmpty()) return
+            (scribbleHitIds(activePage, points).isNotEmpty() || scribbleEraseTextWords(activePage, points) != null)) return
 
         // Draw-and-hold snaps to shapes (never hijacks into lasso).
         // Converting a loop to lasso only happens when pressing & holding the pulsing circle indicator after lifting.

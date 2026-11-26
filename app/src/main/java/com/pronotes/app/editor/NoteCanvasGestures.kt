@@ -140,7 +140,15 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
             val horizontal = settings.scroll == ScrollDirection.HORIZONTAL
             val atFitNow = scale <= fitScale(pageAtGestureStart.coerceIn(0, max(0, pages.size - 1))) * 1.06f
             val paging = !isWhiteboard && !pinched && horizontal && e.pointerCount == 1 && atFitNow
-            if (paging) dy = 0f
+            if (paging) {
+                dy = 0f
+                val totalDx = abs(cx - fingerStartX)
+                val totalDy = abs(cy - fingerStartY)
+                // In horizontal mode, strictly ignore vertical up/down swipes so only left/right swipes work
+                if (totalDy > totalDx * 1.15f && totalDx < 32f * density) {
+                    dx = 0f
+                }
+            }
             if (horizontal && !paging && !isWhiteboard && e.pointerCount == 1 && pages.isNotEmpty()) {
                 val pIdx = pageAtGestureStart.coerceIn(0, pages.size - 1)
                 val (lo, hi) = pageXRange(pIdx)
@@ -330,10 +338,22 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
                     lastTapY = e.y
                     if (selection.isNotEmpty()) clearSelection()
                     clearCircleCandidate()
-                    if (host.isKeyboardMode()) {
-                        val (dx, dy) = toDoc(e.x, e.y)
-                        val pi = pageAt(dx, dy)
-                        val (lx, ly) = toLocal(e.x, e.y, pi)
+                    val (dx, dy) = toDoc(e.x, e.y)
+                    val pi = pageAt(dx, dy)
+                    val (lx, ly) = toLocal(e.x, e.y, pi)
+                    val hitPad = (12f / scale).coerceIn(8f, 24f)
+                    val hitText = if (!readOnly) {
+                        pages.getOrNull(pi)?.items?.filterIsInstance<TextItem>()?.lastOrNull { t ->
+                            val b = t.bounds
+                            lx >= b.left - hitPad && lx <= b.right + hitPad &&
+                                ly >= b.top - hitPad && ly <= b.bottom + hitPad
+                        }
+                    } else null
+                    if (hitText != null) {
+                        buzz(HapticFeedbackConstants.CLOCK_TICK)
+                        lastTapTime = 0L
+                        host.onTextTap(pi, lx, ly, hitText)
+                    } else if (host.isKeyboardMode()) {
                         host.onPageTap(pi, lx, ly)
                     }
                 }
@@ -430,14 +450,16 @@ internal fun NoteCanvasView.releaseFling(pulled: Boolean) {
         val dragDeltaX = transX - startCenterX
         val turnThresholdPx = (width * 0.22f).coerceIn(64f * density, 180f * density)
         val flickVelPx = 220f * density
+        val verticalDominant = abs(vy) > abs(vx) * 1.25f && abs(dragDeltaX) < turnThresholdPx
         val target = when {
+            verticalDominant -> start
             vx < -flickVelPx && dragDeltaX <= 12f * density -> (start + 1).coerceAtMost(pages.lastIndex)
             vx > flickVelPx && dragDeltaX >= -12f * density -> (start - 1).coerceAtLeast(0)
             dragDeltaX < -turnThresholdPx -> (start + 1).coerceAtMost(pages.lastIndex)
             dragDeltaX > turnThresholdPx -> (start - 1).coerceAtLeast(0)
             else -> start
         }
-        animateToPage(target, animate = true, velocityX = vx, fitTargetScale = true)
+        animateToPage(target, animate = true, velocityX = if (verticalDominant) 0f else vx, fitTargetScale = true)
         return
     }
     val cw = docW * scale

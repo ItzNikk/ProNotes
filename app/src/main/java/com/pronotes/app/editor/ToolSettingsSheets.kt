@@ -10,6 +10,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -84,6 +85,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pronotes.app.R
+import com.pronotes.app.data.ColorPalettePreset
 import com.pronotes.app.data.EraserFilter
 import com.pronotes.app.data.EraserMode
 import com.pronotes.app.data.HighlighterMode
@@ -247,8 +249,17 @@ fun ToolPopoverCard(
                                 pickTape.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                             }
                         }
-                        Tool.STICKY -> Row(verticalAlignment = Alignment.CenterVertically) {
-                            CustomSwatches(StickyColors, vm.stickyColor, vm) { vm.stickyColor = it }
+                        Tool.STICKY -> {
+                            SheetSegments(listOf("Type Text", "Handwrite"), vm.stickyInputMode) { vm.updateStickyInputMode(it) }
+                            Text(
+                                if (vm.stickyInputMode == 0) "Tap the page to place a sticky note and type right away."
+                                else "Tap the page to place a sticky note and handwrite directly on it.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = cardFg.copy(alpha = 0.68f),
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CustomSwatches(StickyColors, vm.stickyColor, vm) { vm.stickyColor = it }
+                            }
                         }
                         Tool.WEBLINK -> Row(verticalAlignment = Alignment.CenterVertically) {
                             CustomSwatches(WebLinkColors, vm.webLinkColor, vm) { vm.webLinkColor = it }
@@ -504,6 +515,7 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         StyleOptions(vm, Tool.PEN, style, fgColor, darkUi, vertical = false)
     }
+    ColorPalettePresetsStrip(vm, Tool.PEN, style, fgColor, darkUi)
 
     HorizontalDivider(color = fgColor.copy(alpha = 0.08f))
     SheetSliderRow(stringResource(R.string.sheet_thickness), "%.1f pt".format(style.size), style.size, 0.5f..20f) { v ->
@@ -562,6 +574,7 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
     }
 
     HorizontalDivider(color = fgColor.copy(alpha = 0.08f))
+    ColorPalettePresetsStrip(vm, Tool.PEN, style, fgColor, darkUi)
     }
     if (section == 3) {
     Text("SETTINGS", style = MaterialTheme.typography.labelSmall, color = mutedFg, letterSpacing = 0.8.sp)
@@ -658,6 +671,7 @@ private fun HighlighterCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         StyleOptions(vm, Tool.HIGHLIGHTER, style, fgColor, darkUi, vertical = false)
     }
+    ColorPalettePresetsStrip(vm, Tool.HIGHLIGHTER, style, fgColor, darkUi)
     SheetSliderRow(stringResource(R.string.sheet_thickness), "%.0f pt".format(style.size), style.size, 6f..70f) { v ->
         val sizes = style.sizes.map { if (it == style.size) v else it }
         vm.updateStyle(Tool.HIGHLIGHTER, style.copy(size = v, sizes = sizes))
@@ -1102,6 +1116,7 @@ private fun ShapeCardContent(vm: EditorViewModel) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         StyleOptions(vm, Tool.SHAPE, vm.shapeStyle, fgColor, darkUi, vertical = false)
     }
+    ColorPalettePresetsStrip(vm, Tool.SHAPE, vm.shapeStyle, fgColor, darkUi)
     SheetSliderRow(stringResource(R.string.sheet_thickness), "%.1f pt".format(vm.shapeStyle.size), vm.shapeStyle.size, 0.5f..20f) { v ->
         val sizes = vm.shapeStyle.sizes.map { if (it == vm.shapeStyle.size) v else it }
         vm.updateStyle(Tool.SHAPE, vm.shapeStyle.copy(size = v, sizes = sizes))
@@ -1174,6 +1189,7 @@ private fun CrayonCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Col
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         StyleOptions(vm, Tool.CRAYON, style, fgColor, darkUi, vertical = false)
     }
+    ColorPalettePresetsStrip(vm, Tool.CRAYON, style, fgColor, darkUi)
     HorizontalDivider(color = fgColor.copy(alpha = 0.08f))
     SheetSliderRow("WAX TIP SIZE", "%.1f pt".format(style.size), style.size, 4f..40f) { v ->
         val sizes = style.sizes.map { if (it == style.size) v else it }
@@ -1190,6 +1206,130 @@ private fun CrayonCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Col
         style = MaterialTheme.typography.labelSmall,
         color = fgColor.copy(alpha = 0.68f),
     )
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun ColorPalettePresetsStrip(
+    vm: EditorViewModel,
+    tool: Tool,
+    style: ToolStyle,
+    fgColor: Color,
+    darkUi: Boolean,
+) {
+    val settings by vm.settingsFlow.collectAsStateWithLifecycle()
+    val presets = remember(settings.customColorPresetsJson) {
+        vm.colorPalettePresets()
+    }
+    var savingDialog by remember { mutableStateOf(false) }
+    var menuForId by remember { mutableStateOf<String?>(null) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "COLOUR PRESETS",
+                style = MaterialTheme.typography.labelSmall,
+                color = fgColor.copy(alpha = 0.68f),
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(
+                onClick = { savingDialog = true },
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+            ) {
+                Text("+ Save current", style = MaterialTheme.typography.labelSmall, color = ProButtonPalette.ElectricBlue, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            presets.forEach { preset ->
+                val isActive = style.colors == preset.colors
+                val cardBg = when {
+                    isActive -> ProButtonPalette.ElectricBlue.copy(alpha = if (darkUi) 0.22f else 0.12f)
+                    darkUi -> Color(0xFF232326)
+                    else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                }
+                val cardBorder = if (isActive) ProButtonPalette.ElectricBlue else fgColor.copy(alpha = 0.14f)
+                Box {
+                    Column(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(cardBg)
+                            .border(if (isActive) 1.4.dp else 1.dp, cardBorder, RoundedCornerShape(12.dp))
+                            .combinedClickable(
+                                onClick = { vm.applyColorPalettePreset(tool, preset) },
+                                onLongClick = if (!preset.builtIn) ({ menuForId = preset.id }) else null,
+                            )
+                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
+                        Text(
+                            preset.name,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                            color = fgColor,
+                            maxLines = 1,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                            preset.colors.take(6).forEach { col ->
+                                Box(
+                                    Modifier
+                                        .size(11.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(col))
+                                        .border(0.7.dp, Color.Black.copy(alpha = 0.22f), CircleShape),
+                                )
+                            }
+                        }
+                    }
+                    if (!preset.builtIn) {
+                        AppContextMenu(
+                            expanded = menuForId == preset.id,
+                            onDismissRequest = { menuForId = null },
+                            items = listOf(
+                                AppMenuItem("Delete preset", destructive = true) {
+                                    vm.deleteColorPalettePreset(preset.id)
+                                },
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (savingDialog) {
+        var name by remember { mutableStateOf("") }
+        AppDialog(
+            onDismissRequest = { savingDialog = false },
+            title = { Text("Save colour preset") },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it.take(28) },
+                    label = { Text("Preset name") },
+                    placeholder = { Text("e.g. Biology, Pastel Ink") },
+                    singleLine = true,
+                    shape = CircleShape,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.saveCurrentColorPalettePreset(tool, name)
+                    savingDialog = false
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { savingDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)

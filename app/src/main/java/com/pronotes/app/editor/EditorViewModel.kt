@@ -162,6 +162,14 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var tapePattern by mutableStateOf(saved.getOrNull(16) ?: "stripes")
     var tapeFreehand by mutableStateOf(saved.getOrNull(15).toBoolean())
     var stickyColor by mutableStateOf(saved.getOrNull(8)?.toIntOrNull() ?: StickyColors[0])
+    /** 0 = Type Text (opens inline keyboard editor), 1 = Handwrite (places sticky and switches to pen). */
+    var stickyInputMode by mutableStateOf(store.pref("sticky_input_mode", "0").toIntOrNull()?.coerceIn(0, 1) ?: 0)
+        private set
+    fun updateStickyInputMode(mode: Int) {
+        val m = mode.coerceIn(0, 1)
+        stickyInputMode = m
+        store.setPref("sticky_input_mode", m.toString())
+    }
     var webLinkColor by mutableStateOf(saved.getOrNull(26)?.toIntOrNull() ?: WebLinkColors[0])
 
     // ------------------------------------------------------------ selection
@@ -397,6 +405,35 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         if (s.colors.size <= 1 || index !in s.colors.indices) return
         val colors = s.colors.toMutableList().also { it.removeAt(index) }
         updateStyle(t, s.copy(colors = colors, color = if (s.color in colors) s.color else colors.first()))
+    }
+
+    fun colorPalettePresets(): List<com.pronotes.app.data.ColorPalettePreset> =
+        store.colorPalettePresets()
+
+    fun applyColorPalettePreset(t: Tool, preset: com.pronotes.app.data.ColorPalettePreset) {
+        val s = styleFor(t) ?: return
+        val cols = preset.colors.distinct().take(MAX_COLOR_SLOTS)
+        if (cols.isEmpty()) return
+        updateStyle(t, s.copy(colors = cols, color = cols.first()))
+        say("Applied \"${preset.name}\" colours")
+    }
+
+    fun saveCurrentColorPalettePreset(t: Tool, name: String) {
+        val s = styleFor(t) ?: return
+        val savedPreset = store.saveColorPalettePreset(name, s.colors)
+        say("Saved colour preset \"${savedPreset.name}\"")
+    }
+
+    fun deleteColorPalettePreset(id: String) {
+        store.deleteColorPalettePreset(id)
+    }
+
+    /** Returns the selected TextItem when the Lasso selection targets editable text. */
+    fun selectedTextItem(): TextItem? {
+        if (selection.isEmpty()) return null
+        val p = pages.getOrNull(selectionPage) ?: return null
+        val texts = p.items.filter { it.id in selection && it is TextItem }.filterIsInstance<TextItem>()
+        return if (texts.size == 1) texts.first() else null
     }
 
     fun onEraserLifted() { if (settingsFlow.value.eraserAutoSwitch) tool = previousTool }
@@ -1641,23 +1678,57 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun openSticky(page: Int, x: Float, y: Float, existing: StickyItem?) {
         val p = pages.getOrNull(page) ?: return
         if (existing == null) {
-            // Place sticky note directly on the page (no popup!) and switch to Pen so the user can write right on it.
-            val w = 420f
-            val h = 360f
+            // Spacious default sticky note so plenty of text or handwriting fits comfortably.
+            val w = 500f
+            val h = 440f
             val sx = (x - w / 2f).coerceIn(16f, (p.width - w - 16f).coerceAtLeast(16f))
             val sy = (y - h / 2f).coerceIn(16f, (p.height - h - 16f).coerceAtLeast(16f))
-            val placed = StickyItem(ItemIds.next(), sx, sy, w, h, stickyColor, "", fontSize = 24f)
+            val placed = StickyItem(ItemIds.next(), sx, sy, w, h, stickyColor, "", fontSize = 20f)
             beginEdit(page)
             applyItems(page, p.items + placed)
-            if (tool == Tool.STICKY) {
-                tool = if (settingsFlow.value.toolDefaults.autoHandwriting) Tool.AUTO_TEXT else Tool.PEN
+            if (stickyInputMode == 0) {
+                // Text mode: open clean inline keyboard editor immediately on the placed sticky note.
+                stickyEdit = StickyEdit(page, placed, isNew = false)
+            } else {
+                // Handwriting mode: switch straight to pen so the user can write directly on the sticky note.
+                if (tool == Tool.STICKY) {
+                    tool = if (settingsFlow.value.toolDefaults.autoHandwriting) Tool.AUTO_TEXT else Tool.PEN
+                }
+                say("Sticky note placed — handwrite directly on it, or tap to type")
             }
-            say("Sticky note placed — write directly on it, or tap ▾ to collapse")
         } else if (existing.collapsed) {
             toggleStickyCollapse(page, existing)
         } else {
             stickyEdit = StickyEdit(page, existing, false)
         }
+    }
+
+    /** Persists live sticky changes without closing the active editor (used when toggling to Handwriting mode). */
+    fun saveStickyLive(
+        text: String,
+        color: Int,
+        fontSize: Float = 20f,
+        font: String = "SANS",
+        collapsed: Boolean = false,
+        pinned: Boolean = false,
+        title: String = "",
+        style: String = "classic",
+    ) {
+        val edit = stickyEdit ?: return
+        val p = pages.getOrNull(edit.page) ?: return
+        val item = edit.item.copy(
+            text = text,
+            color = color,
+            fontSize = fontSize.coerceIn(14f, 44f),
+            font = font,
+            collapsed = collapsed,
+            pinned = pinned,
+            title = title.trim(),
+            style = style,
+        )
+        stickyEdit = edit.copy(item = item, isNew = false)
+        val exists = p.items.any { it.id == item.id }
+        applyItems(edit.page, if (exists) p.items.map { if (it.id == item.id) item else it } else p.items + item)
     }
 
     fun toggleStickyCollapse(page: Int, sticky: StickyItem) {
@@ -1678,7 +1749,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     fun commitSticky(
         text: String,
         color: Int,
-        fontSize: Float = 28f,
+        fontSize: Float = 20f,
         font: String = "SANS",
         collapsed: Boolean = false,
         pinned: Boolean = false,
@@ -1691,7 +1762,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val item = edit.item.copy(
             text = text,
             color = color,
-            fontSize = fontSize.coerceIn(18f, 48f),
+            fontSize = fontSize.coerceIn(14f, 44f),
             font = font,
             collapsed = collapsed,
             pinned = pinned,
@@ -1699,7 +1770,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             style = style,
         )
         beginEdit(edit.page)
-        applyItems(edit.page, if (edit.isNew) p.items + item else p.items.map { if (it.id == item.id) item else it })
+        val exists = p.items.any { it.id == item.id }
+        applyItems(edit.page, if (!exists || edit.isNew) p.items + item else p.items.map { if (it.id == item.id) item else it })
     }
 
     fun toggleStickyCheckLine(page: Int, sticky: StickyItem, lineIndex: Int) {

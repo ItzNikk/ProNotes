@@ -467,6 +467,11 @@ internal fun TopBar(
             )
             add(
                 AppMenuItem(
+                    if (vm.settingsFlow.value.scroll == ScrollDirection.HORIZONTAL) "Switch to vertical scroll" else "Switch to horizontal pages",
+                ) { onScrollToggle() },
+            )
+            add(
+                AppMenuItem(
                     "Split view",
                     icon = { ProIconView(ProIcon.SPLIT, MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp)) },
                 ) { onSplit() },

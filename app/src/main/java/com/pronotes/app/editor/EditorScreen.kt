@@ -675,7 +675,7 @@ fun EditorScreen(
                                 onScrollToggle = {
                                     vm.notebookSettings.update {
                                         it.copy(
-                                            scroll = if (it.scroll == ScrollDirection.VERTICAL) ScrollDirection.HORIZONTAL else ScrollDirection.VERTICAL,
+                                            scroll = if (it.scroll == ScrollDirection.HORIZONTAL) ScrollDirection.VERTICAL else ScrollDirection.HORIZONTAL,
                                         )
                                     }
                                 },

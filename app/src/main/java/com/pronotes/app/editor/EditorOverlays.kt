@@ -183,6 +183,24 @@ fun SelectionMenu(
                     .horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                val editableText = vm.selectedTextItem()
+                if (editableText != null) {
+                    Surface(
+                        onClick = {
+                            vm.openInlineTextBox(vm.selectionPage, editableText.x, editableText.y, editableText)
+                        },
+                        shape = appPillShape(),
+                        color = ProButtonPalette.Emerald,
+                        contentColor = Color.White,
+                        modifier = Modifier.padding(2.dp).defaultMinSize(minHeight = 48.dp),
+                    ) {
+                        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Outlined.Keyboard, contentDescription = null, Modifier.size(18.dp), tint = Color.White)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Edit", style = MaterialTheme.typography.labelLarge, color = Color.White)
+                        }
+                    }
+                }
                 Surface(
                     onClick = { vm.startLinkFromSelection() },
                     shape = appPillShape(),

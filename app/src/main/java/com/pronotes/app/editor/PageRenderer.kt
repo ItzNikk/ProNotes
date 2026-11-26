@@ -1764,8 +1764,8 @@ class PageRenderer(private val noteDir: File?) {
                 }
             }
 
-            // Notein top accent header strip (drag to move, tap Pin / Edit / Fold controls on right)
-            val barH = minOf(r.height(), 38f)
+            // Compact sticky top accent header strip (drag to move, tap Pin / Edit / Fold controls on right)
+            val barH = minOf(r.height(), 34f)
             fillPaint.color = if (style == "outline") ((item.color and 0x00FFFFFF) or (0x28 shl 24)) else 0x14000000
             canvas.drawRect(r.left, r.top, r.right, r.top + barH, fillPaint)
             // Hairline divider under header
@@ -1889,16 +1889,16 @@ class PageRenderer(private val noteDir: File?) {
 
             if (item.text.isNotEmpty()) {
                 stickyText.typeface = resolveStickyTypeface(item.font)
-                val fSize = item.fontSize.coerceIn(14f, 64f) * (r.width() / 280f).coerceIn(0.45f, 3.5f)
+                val fSize = item.fontSize.coerceIn(12f, 48f) * (r.width() / 440f).coerceIn(0.65f, 1.45f)
                     stickyText.textSize = fSize
-                    val availW = (r.width() - 32f).toInt().coerceAtLeast(16)
+                    val availW = (r.width() - 24f).toInt().coerceAtLeast(16)
                     val lines = item.text.split('\n')
                     val hasChecklist = lines.any {
                         val tr = it.trimStart()
                         tr.startsWith("- [ ] ") || tr.startsWith("- [x] ", ignoreCase = true) || tr.startsWith("☐ ") || tr.startsWith("☑ ")
                     }
                     canvas.save()
-                    canvas.clipRect(r.left + 12f, r.top + barH + 4f, r.right - 12f, r.bottom - 10f)
+                    canvas.clipRect(r.left + 10f, r.top + barH + 3f, r.right - 10f, r.bottom - 8f)
                     if (!hasChecklist) {
                         stickyText.color = fg
                         stickyText.isStrikeThruText = false
@@ -1906,14 +1906,14 @@ class PageRenderer(private val noteDir: File?) {
                         val layout = stickyLayoutCache.get(cacheKey) ?: StaticLayout.Builder
                             .obtain(item.text, 0, item.text.length, TextPaint(stickyText), availW)
                             .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                            .setLineSpacing(2f, 1.12f)
-                            .setMaxLines(18)
+                            .setLineSpacing(1f, 1.08f)
+                            .setMaxLines(40)
                             .build()
                             .also { stickyLayoutCache.put(cacheKey, it) }
-                        canvas.translate(r.left + 16f, r.top + barH + 10f)
+                        canvas.translate(r.left + 12f, r.top + barH + 7f)
                         layout.draw(canvas)
                     } else {
-                        var cy = r.top + barH + 10f
+                        var cy = r.top + barH + 7f
                         val checkCol = if (isTranslucentStyle) item.color else 0xFF3D6CF4.toInt()
                         for (line in lines) {
                             if (cy > r.bottom - 10f) break

@@ -591,9 +591,17 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                     }
                 }
                 Category.PAGES -> {
-                    Section("Scrolling") {
-                        Segmented(ScrollDirection.entries.map { it.label }, s.scroll.ordinal) { i -> up { it.copy(scroll = ScrollDirection.entries[i]) } }
-                        Toggle("Pull to add a page", "Scroll past the last page to add one", s.pullToAddPage) { v -> up { it.copy(pullToAddPage = v) } }
+                    Section("Pages & Swiping") {
+                        Text(
+                            "SCROLL DIRECTION",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 16.dp, top = 8.dp),
+                        )
+                        Segmented(ScrollDirection.entries.map { it.label }, s.scroll.ordinal) { i ->
+                            up { it.copy(scroll = ScrollDirection.entries[i]) }
+                        }
+                        Toggle("Swipe to add a page", "Swipe past the last page to add a new page", s.pullToAddPage) { v -> up { it.copy(pullToAddPage = v) } }
                         Toggle("Page numbers", "Show a number under each page", s.pageNumbers) { v -> up { it.copy(pageNumbers = v) } }
                         Toggle("Dark PDF pages", "Invert PDF pages for reading at night", s.darkPdf) { v -> up { it.copy(darkPdf = v) } }
                         Toggle("Keep screen on", "While a notebook is open", s.keepScreenOn) { v -> up { it.copy(keepScreenOn = v) } }
