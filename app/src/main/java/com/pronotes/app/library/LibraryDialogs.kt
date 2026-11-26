@@ -713,6 +713,32 @@ internal fun NewNotebookDialog(
         )
     }
 
+    val screenWidthDp = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp
+    val wide = screenWidthDp >= 590
+    val density = androidx.compose.ui.platform.LocalDensity.current
+
+    // Pre-warm visible paper templates off the main thread so scrolling the template gallery has zero frame drops.
+    androidx.compose.runtime.LaunchedEffect(previewPaperColor, effectiveLandscape) {
+        val tileW = with(density) { (if (effectiveLandscape) 86.dp else 66.dp).toPx() }.toInt().coerceAtLeast(64)
+        val tileH = with(density) { (if (effectiveLandscape) 60.dp else 88.dp).toPx() }.toInt().coerceAtLeast(64)
+        val bucketW = (((tileW + 31) / 32) * 32).coerceAtLeast(64)
+        val bucketH = (tileH * (bucketW.toFloat() / tileW)).toInt().coerceAtLeast(64)
+        val pw = if (effectiveLandscape) com.pronotes.app.data.PageSize.HEIGHT else com.pronotes.app.data.PageSize.WIDTH
+        val ph = if (effectiveLandscape) com.pronotes.app.data.PageSize.WIDTH else com.pronotes.app.data.PageSize.HEIGHT
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            CreatorPaperSections.forEach { (_, styles) ->
+                styles.forEach { st ->
+                    if (st != PaperStyle.BLANK) {
+                        CoverCache.paper(st, previewPaperColor, bucketW, bucketH, pw, ph)
+                    }
+                }
+            }
+            CreatorPatternCoverSpecs.forEach { (spec, _) ->
+                CoverCache.get(spec, bucketW, bucketH)
+            }
+        }
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -721,7 +747,7 @@ internal fun NewNotebookDialog(
             shape = RoundedCornerShape(22.dp),
             color = galleryBg,
             tonalElevation = 0.dp,
-            shadowElevation = 24.dp,
+            shadowElevation = 10.dp,
             modifier = Modifier
                 .padding(horizontal = 16.dp, vertical = 20.dp)
                 .fillMaxWidth()
@@ -730,13 +756,11 @@ internal fun NewNotebookDialog(
                 .border(1.dp, dividerColor, RoundedCornerShape(22.dp)),
         ) {
             Column(Modifier.fillMaxSize()) {
-                BoxWithConstraints(
+                Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth(),
                 ) {
-                    val wide = maxWidth >= 560.dp
-
                     val inspectorMod = if (wide) Modifier.width(244.dp).fillMaxHeight() else Modifier.fillMaxWidth().heightIn(max = 225.dp)
                     val browserMod = if (wide) Modifier.fillMaxHeight() else Modifier.fillMaxWidth()
 

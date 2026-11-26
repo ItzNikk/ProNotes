@@ -536,15 +536,26 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
 
     /** Replaces the page list (after undo, page add/delete, recolour...). */
     fun setPages(newPages: List<Page>) {
-        val structural = newPages.size != pages.size || newPages.zip(pages).any { (a, b) -> a.id != b.id || a.width != b.width || a.height != b.height }
+        if (newPages.isEmpty() && pages.isNotEmpty()) return
+        val structural = origins.size != newPages.size * 2 ||
+            newPages.size != pages.size ||
+            newPages.zip(pages).any { (a, b) -> a.id != b.id || a.width != b.width || a.height != b.height }
         val keepSel = selectionPage in newPages.indices && pages.getOrNull(selectionPage)?.id == newPages[selectionPage].id
         pages = newPages
+        if (newPages.isNotEmpty()) {
+            currentIndex = currentIndex.coerceIn(0, newPages.lastIndex)
+            activePage = activePage.coerceIn(0, newPages.lastIndex)
+            lastTarget = lastTarget.coerceIn(0, newPages.lastIndex)
+        }
         if (structural) layout(newPages)
         if (!fitted && width > 0 && newPages.isNotEmpty()) fit(startPage.coerceIn(0, (newPages.size - 1).coerceAtLeast(0)))
         if (keepSel) {
             val ids = newPages[selectionPage].items.map { it.id }.toSet()
             selection = selection.filter { it in ids }.toSet()
-        } else selection = emptySet()
+        } else {
+            selection = emptySet()
+            selectionPage = -1
+        }
         clamp()
         updateMatrix()
         reportSelection()
@@ -565,15 +576,24 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         layer.invalidate()
     }
 
+    private var originsMonotonic = true
+
     private fun layout(list: List<Page>) {
         origins = FloatArray(list.size * 2)
         val vertical = settings.scroll == ScrollDirection.VERTICAL
         val maxW = list.maxOfOrNull { it.width } ?: 0f
         val maxH = list.maxOfOrNull { it.height } ?: 0f
         var cursor = 0f
+        var mono = true
+        var prevStart = Float.NEGATIVE_INFINITY
+        var prevEnd = Float.NEGATIVE_INFINITY
         list.forEachIndexed { i, p ->
             if (vertical) {
                 origins[i * 2] = (maxW - p.width) / 2f; origins[i * 2 + 1] = cursor; cursor += p.height + gap
+                val s = origins[i * 2 + 1]
+                val e = s + p.height
+                if (s < prevStart || e < prevEnd) mono = false
+                prevStart = s; prevEnd = e
             } else {
                 // Horizontal paging: each page sits in a slot one screen wide at fit size,
                 // so neighbouring pages stay off screen (one page at a time).
@@ -582,60 +602,92 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                 origins[i * 2] = cursor + (slot - p.width) / 2f
                 origins[i * 2 + 1] = (maxH - p.height) / 2f
                 cursor += slot
+                val s = origins[i * 2]
+                val e = s + p.width
+                if (s < prevStart || e < prevEnd) mono = false
+                prevStart = s; prevEnd = e
             }
         }
+        originsMonotonic = mono
         if (!vertical) cursor += gap   // layout below subtracts one gap
         if (vertical) { docW = maxW; docH = max(0f, cursor - gap) } else { docW = max(0f, cursor - gap); docH = maxH }
     }
 
     private val tmpRangePts = FloatArray(4)
 
-    /** Binary-search the laid-out page slots with safe overscan so pages never pop or load blank at edges. */
+    /** Binary-search the laid-out page slots with safe overscan so pages never pop or disappear while writing. */
     internal fun visiblePageRange(): IntRange {
         if (pages.isEmpty()) return IntRange.EMPTY
-        if (width <= 0 || height <= 0 || origins.size < pages.size * 2) return pages.indices
+        if (width <= 0 || height <= 0 || origins.size < pages.size * 2 || !scale.isFinite() || scale <= 0.01f) {
+            return pages.indices
+        }
         val horizontal = settings.scroll == ScrollDirection.HORIZONTAL
         tmpRangePts[0] = 0f
         tmpRangePts[1] = 0f
         tmpRangePts[2] = width.toFloat()
         tmpRangePts[3] = height.toFloat()
         inverse.mapPoints(tmpRangePts)
-        val margin = (96f * density) / scale.coerceAtLeast(0.1f)
+        if (!tmpRangePts[0].isFinite() || !tmpRangePts[1].isFinite() || !tmpRangePts[2].isFinite() || !tmpRangePts[3].isFinite()) {
+            return pages.indices
+        }
+        val margin = (240f * density) / scale.coerceAtLeast(0.1f)
         val low = (if (horizontal) minOf(tmpRangePts[0], tmpRangePts[2]) else minOf(tmpRangePts[1], tmpRangePts[3])) - margin
         val high = (if (horizontal) maxOf(tmpRangePts[0], tmpRangePts[2]) else maxOf(tmpRangePts[1], tmpRangePts[3])) + margin
         fun start(i: Int) = if (horizontal) ox(i) else oy(i)
         fun end(i: Int) = start(i) + if (horizontal) pages[i].width else pages[i].height
-        var l = 0
-        var r = pages.size
-        while (l < r) {
-            val mid = (l + r) ushr 1
-            if (end(mid) < low) l = mid + 1 else r = mid
+
+        var first: Int
+        var last: Int
+        if (!originsMonotonic || pages.size <= 16) {
+            first = pages.size
+            last = -1
+            for (i in pages.indices) {
+                if (end(i) >= low && start(i) <= high) {
+                    if (i < first) first = i
+                    last = i
+                }
+            }
+        } else {
+            var l = 0
+            var r = pages.size
+            while (l < r) {
+                val mid = (l + r) ushr 1
+                if (end(mid) < low) l = mid + 1 else r = mid
+            }
+            first = l
+            r = pages.size
+            while (l < r) {
+                val mid = (l + r) ushr 1
+                if (start(mid) <= high) l = mid + 1 else r = mid
+            }
+            last = l - 1
         }
-        var first = l
-        r = pages.size
-        while (l < r) {
-            val mid = (l + r) ushr 1
-            if (start(mid) <= high) l = mid + 1 else r = mid
+        // Always include the current page, active writing page (±1 neighbors), and selection page so no active page can ever disappear.
+        val cur = currentIndex.coerceIn(0, pages.lastIndex)
+        first = minOf(first, (cur - 1).coerceAtLeast(0))
+        last = maxOf(last, (cur + 1).coerceAtMost(pages.lastIndex))
+        if (activePage in pages.indices) {
+            first = minOf(first, (activePage - 1).coerceAtLeast(0))
+            last = maxOf(last, (activePage + 1).coerceAtMost(pages.lastIndex))
         }
-        var last = l - 1
-        if (pages.getOrNull(currentIndex)?.isWhiteboard == true) {
-            first = minOf(first, currentIndex)
-            last = maxOf(last, currentIndex)
+        if (selection.isNotEmpty() && selectionPage in pages.indices) {
+            first = minOf(first, selectionPage)
+            last = maxOf(last, selectionPage)
         }
         first = first.coerceIn(0, pages.lastIndex)
         last = last.coerceIn(0, pages.lastIndex)
-        return if (first <= last) first..last else IntRange.EMPTY
+        return if (first <= last) first..last else pages.indices
     }
     internal fun ox(i: Int) = origins.getOrElse(i * 2) { 0f }
     internal fun oy(i: Int) = origins.getOrElse(i * 2 + 1) { 0f }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        val keep = if (!fitted) startPage.coerceIn(0, (pages.size - 1).coerceAtLeast(0)) else currentIndex
+        val keep = if (!fitted) startPage.coerceIn(0, (pages.size - 1).coerceAtLeast(0)) else currentIndex.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
         // Horizontal page slots depend on the screen size.
         if (settings.scroll == ScrollDirection.HORIZONTAL && pages.isNotEmpty()) layout(pages)
         // Height-only changes (bars hiding, keyboard) must not refit: refitting there could jump to an older page.
-        val page = if (!scroller.isFinished) lastTarget else keep
+        val page = (if (!scroller.isFinished) lastTarget else keep).coerceIn(0, (pages.size - 1).coerceAtLeast(0))
         if (pages.isNotEmpty() && (!fitted || w != oldw)) fit(page) else if (settings.scroll == ScrollDirection.HORIZONTAL && pages.isNotEmpty()) { centerOn(page); updateMatrix() } else { clamp(); updateMatrix() }
     }
 

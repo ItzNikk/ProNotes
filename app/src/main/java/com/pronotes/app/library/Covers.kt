@@ -105,7 +105,7 @@ fun CoverArt(
                             .data(file)
                             .memoryCacheKey(file.path + cacheKey)
                             .diskCacheKey(file.path + cacheKey)
-                            .crossfade(160)
+                            .crossfade(false)
                             .build()
                     }
                     AsyncImage(
@@ -117,49 +117,61 @@ fun CoverArt(
                 }
             }
             else -> {
+                val isSolidOnly = remember(spec) { !spec.startsWith("pattern:") }
                 val baseColor = remember(spec) {
                     val parts = spec.split(':')
                     Color((parts.lastOrNull()?.toLongOrNull() ?: 0xFF3D6CF4).toInt())
                 }
-                val explicitSize = remember(explicitWidth, explicitHeight, density) {
-                    if (explicitWidth != null && explicitHeight != null) {
-                        IntSize(
-                            with(density) { explicitWidth.toPx() }.roundToInt().coerceAtLeast(1),
-                            with(density) { explicitHeight.toPx() }.roundToInt().coerceAtLeast(1),
+                if (isSolidOnly) {
+                    // Pure GPU vector draw for solid covers: zero Bitmap allocation, zero coroutine launch, instant 120fps scroll!
+                    Canvas(Modifier.fillMaxSize().background(baseColor)) {
+                        drawRect(
+                            color = Color(0x29000000),
+                            topLeft = Offset(size.width * 0.82f, 0f),
+                            size = androidx.compose.ui.geometry.Size(size.width * 0.05f, size.height),
                         )
-                    } else null
-                }
-                var measuredSize by remember { mutableStateOf(explicitSize ?: IntSize.Zero) }
-                val effectiveSize = explicitSize ?: measuredSize
-                val maxW = perfMode.thumbWidthPx.coerceAtLeast(180)
-                val (targetW, targetH) = remember(effectiveSize, maxW) {
-                    quantizeThumbSize(effectiveSize.width, effectiveSize.height, maxW)
-                }
-
-                var bmp by remember(spec, targetW, targetH) {
-                    mutableStateOf(if (targetW > 0) CoverCache.peek(spec, targetW, targetH) else null)
-                }
-                LaunchedEffect(spec, targetW, targetH) {
-                    if (targetW > 0 && bmp == null) {
-                        bmp = CoverCache.getAsync(spec, targetW, targetH)
                     }
-                }
-                val canvasMod = if (explicitSize == null) {
-                    Modifier
-                        .fillMaxSize()
-                        .background(baseColor)
-                        .onSizeChanged { if (it != measuredSize) measuredSize = it }
                 } else {
-                    Modifier
-                        .fillMaxSize()
-                        .background(baseColor)
-                }
-                Canvas(canvasMod) {
-                    val ready = bmp
-                    if (ready != null) {
-                        drawIntoCanvas { c ->
-                            coverDestRect.set(0f, 0f, size.width, size.height)
-                            c.nativeCanvas.drawBitmap(ready, null, coverDestRect, coverDrawPaint)
+                    val explicitSize = remember(explicitWidth, explicitHeight, density) {
+                        if (explicitWidth != null && explicitHeight != null) {
+                            IntSize(
+                                with(density) { explicitWidth.toPx() }.roundToInt().coerceAtLeast(1),
+                                with(density) { explicitHeight.toPx() }.roundToInt().coerceAtLeast(1),
+                            )
+                        } else null
+                    }
+                    var measuredSize by remember { mutableStateOf(explicitSize ?: IntSize.Zero) }
+                    val effectiveSize = explicitSize ?: measuredSize
+                    val maxW = perfMode.thumbWidthPx.coerceAtLeast(180)
+                    val (targetW, targetH) = remember(effectiveSize, maxW) {
+                        quantizeThumbSize(effectiveSize.width, effectiveSize.height, maxW)
+                    }
+
+                    var bmp by remember(spec, targetW, targetH) {
+                        mutableStateOf(if (targetW > 0) CoverCache.peek(spec, targetW, targetH) else null)
+                    }
+                    LaunchedEffect(spec, targetW, targetH) {
+                        if (targetW > 0 && bmp == null) {
+                            bmp = CoverCache.getAsync(spec, targetW, targetH)
+                        }
+                    }
+                    val canvasMod = if (explicitSize == null) {
+                        Modifier
+                            .fillMaxSize()
+                            .background(baseColor)
+                            .onSizeChanged { if (it != measuredSize) measuredSize = it }
+                    } else {
+                        Modifier
+                            .fillMaxSize()
+                            .background(baseColor)
+                    }
+                    Canvas(canvasMod) {
+                        val ready = bmp
+                        if (ready != null) {
+                            drawIntoCanvas { c ->
+                                coverDestRect.set(0f, 0f, size.width, size.height)
+                                c.nativeCanvas.drawBitmap(ready, null, coverDestRect, coverDrawPaint)
+                            }
                         }
                     }
                 }
@@ -170,7 +182,6 @@ fun CoverArt(
                             .align(Alignment.TopCenter)
                             .padding(top = 18.dp, start = 14.dp, end = 10.dp)
                             .fillMaxWidth(0.76f)
-                            .shadow(2.dp, RoundedCornerShape(4.dp))
                             .clip(RoundedCornerShape(4.dp))
                             .background(Color(0xFFF4EEDF))
                             .padding(horizontal = 8.dp, vertical = 7.dp),
@@ -351,6 +362,10 @@ fun PaperPreview(
     explicitWidth: Dp? = null,
     explicitHeight: Dp? = null,
 ) {
+    if (style == PaperStyle.BLANK) {
+        Box(modifier.background(Color(tint)))
+        return
+    }
     val pw = if (landscape) PageSize.HEIGHT else PageSize.WIDTH
     val ph = if (landscape) PageSize.WIDTH else PageSize.HEIGHT
     val perfMode = LocalPerformanceMode.current

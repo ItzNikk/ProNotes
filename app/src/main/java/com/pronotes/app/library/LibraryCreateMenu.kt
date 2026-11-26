@@ -10,7 +10,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -91,8 +93,13 @@ private fun isGroupStart(index: Int): Boolean = index == 0 || index == 4 || inde
  * Uses a fixed-width Popup instead of Material3 DropdownMenu to completely eliminate
  * IntrinsicSize.Max double-measurement passes and per-row CompositionLocal overhead.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun LibraryCreateMenu(label: String, items: List<AppMenuItem>) {
+internal fun LibraryCreateMenu(
+    label: String,
+    items: List<AppMenuItem>,
+    onLongPress: (() -> Unit)? = null,
+) {
     var expanded by remember { mutableStateOf(false) }
     val expandedState = remember { MutableTransitionState(false) }
     expandedState.targetState = expanded
@@ -100,6 +107,7 @@ internal fun LibraryCreateMenu(label: String, items: List<AppMenuItem>) {
     val reduceMotion = LocalReduceMotion.current
     val perfMode = LocalPerformanceMode.current
     val motionStyle = LocalMotionStyle.current
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     val interactionSource = remember { MutableInteractionSource() }
     val plusRotation = animateFloatAsState(
         targetValue = if (expanded) 45f else 0f,
@@ -113,14 +121,26 @@ internal fun LibraryCreateMenu(label: String, items: List<AppMenuItem>) {
 
     Box {
         Surface(
-            onClick = { expanded = !expanded },
-            interactionSource = interactionSource,
             shape = cardShape,
             color = Color(0xFF254DB5),
             contentColor = Color.White,
             border = BorderStroke(1.dp, Color(0xFF749AF0).copy(alpha = 0.55f)),
             shadowElevation = 4.dp,
-            modifier = Modifier.tactilePressScale(interactionSource, pressedScale = 0.93f),
+            modifier = Modifier
+                .tactilePressScale(interactionSource, pressedScale = 0.93f)
+                .clip(cardShape)
+                .combinedClickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = { expanded = !expanded },
+                    onLongClick = if (onLongPress != null) {
+                        {
+                            expanded = false
+                            haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            onLongPress()
+                        }
+                    } else null,
+                ),
         ) {
             Box(
                 Modifier

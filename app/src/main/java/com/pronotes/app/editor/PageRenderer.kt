@@ -1110,19 +1110,26 @@ class PageRenderer(private val noteDir: File?) {
 
     private val spatialCache = java.util.IdentityHashMap<List<PageItem>, SpatialGrid>()
     private val culledScratch = ArrayList<PageItem>(128)
+    private val culledFillsScratch = ArrayList<PageItem>(32)
+    private val culledHighlightsScratch = ArrayList<PageItem>(32)
+    private val culledRestScratch = ArrayList<PageItem>(128)
     private val hlClipRect = RectF()
     private val hlVisibleScratch = ArrayList<PageItem>(32)
 
-    private fun spatialCandidates(items: List<PageItem>, transformIds: Set<Long>): List<PageItem> {
+    private fun spatialCandidates(
+        items: List<PageItem>,
+        transformIds: Set<Long>,
+        scratchList: ArrayList<PageItem> = culledScratch,
+    ): List<PageItem> {
         if (items.size < 48 || visible.width() > 1e6f) return items
         var grid = spatialCache[items]
         if (grid == null) {
-            if (spatialCache.size > 16) spatialCache.clear()
+            if (spatialCache.size > 24) spatialCache.clear()
             grid = SpatialGrid(items)
             spatialCache[items] = grid
         }
-        grid.queryVisible(visible, transformIds, culledScratch)
-        return culledScratch
+        grid.queryVisible(visible, transformIds, scratchList)
+        return scratchList
     }
 
     /**
@@ -1140,14 +1147,14 @@ class PageRenderer(private val noteDir: File?) {
         // The part of the page currently on screen, in page coordinates. Generous overscan prevents edge pops;
         // if clipBounds is empty (e.g. unclipped software/export canvas), disable culling completely.
         val clip = canvas.clipBounds
-        if (clip.isEmpty) {
+        if (clip.isEmpty || clip.width() <= 0 || clip.height() <= 0) {
             visible.set(-1e7f, -1e7f, 1e7f, 1e7f)
         } else {
             visible.set(
-                clip.left.toFloat() - 120f,
-                clip.top.toFloat() - 120f,
-                clip.right.toFloat() + 120f,
-                clip.bottom.toFloat() + 120f,
+                clip.left.toFloat() - 180f,
+                clip.top.toFloat() - 180f,
+                clip.right.toFloat() + 180f,
+                clip.bottom.toFloat() + 180f,
             )
         }
         val hiddenNodes = hiddenMindNodeIds(items)
@@ -1159,7 +1166,7 @@ class PageRenderer(private val noteDir: File?) {
         val parts = partsOf(items)
         if (parts.hasHighlight) {
             if (parts.fills.isNotEmpty()) {
-                drawSeq(canvas, spatialCandidates(parts.fills, transformIds), worldToScreen, transform, transformIds, hiddenNodes, items)
+                drawSeq(canvas, spatialCandidates(parts.fills, transformIds, culledFillsScratch), worldToScreen, transform, transformIds, hiddenNodes, items)
             }
             // Cull off-screen highlights before allocating an expensive GPU offscreen saveLayer,
             // with full brush-width padding so wide highlighter strokes never clip.
@@ -1168,7 +1175,7 @@ class PageRenderer(private val noteDir: File?) {
             var hlT = Float.POSITIVE_INFINITY
             var hlR = Float.NEGATIVE_INFINITY
             var hlB = Float.NEGATIVE_INFINITY
-            val hlCandidates = spatialCandidates(parts.highlights, transformIds)
+            val hlCandidates = spatialCandidates(parts.highlights, transformIds, culledHighlightsScratch)
             for (hl in hlCandidates) {
                 val moved = transform != null && hl.id in transformIds
                 if (moved) {
@@ -1200,10 +1207,10 @@ class PageRenderer(private val noteDir: File?) {
                 }
             }
             if (parts.rest.isNotEmpty()) {
-                drawSeq(canvas, spatialCandidates(parts.rest, transformIds), worldToScreen, transform, transformIds, hiddenNodes, items)
+                drawSeq(canvas, spatialCandidates(parts.rest, transformIds, culledRestScratch), worldToScreen, transform, transformIds, hiddenNodes, items)
             }
         } else {
-            drawSeq(canvas, spatialCandidates(items, transformIds), worldToScreen, transform, transformIds, hiddenNodes, items)
+            drawSeq(canvas, spatialCandidates(items, transformIds, culledScratch), worldToScreen, transform, transformIds, hiddenNodes, items)
         }
     }
 

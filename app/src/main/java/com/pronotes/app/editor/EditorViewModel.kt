@@ -2005,11 +2005,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         saveJob = viewModelScope.launch {
             delay(debounceMs)
             val snapshot = pages.toList()
-            val dirtySnap = synchronized(dirtyPageIds) {
-                HashSet(dirtyPageIds).also { dirtyPageIds.clear() }
-            }
+            if (snapshot.isEmpty()) return@launch
+            val dirtySnap = synchronized(dirtyPageIds) { HashSet(dirtyPageIds) }
             val structSnap = structureDirty
-            structureDirty = false
             try {
                 repo.savePages(
                     id = noteId,
@@ -2018,9 +2016,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                     structureChanged = structSnap,
                     writeFullSnapshot = false,
                 )
+                synchronized(dirtyPageIds) { dirtyPageIds.removeAll(dirtySnap) }
+                if (structSnap) structureDirty = false
             } catch (failure: Exception) {
-                dirtyPageIds.addAll(dirtySnap)
-                if (structSnap) structureDirty = true
                 if (failure is kotlinx.coroutines.CancellationException) throw failure
                 say("Could not save changes. Your edits are still open. Please free some storage and try again.")
             }
@@ -2041,6 +2039,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         if (!loaded) return
         saveJob?.cancel()
         val snapshot = pages.toList()
+        if (snapshot.isEmpty()) return
         val dirtySnap = synchronized(dirtyPageIds) {
             HashSet(dirtyPageIds).also { dirtyPageIds.clear() }
         }
@@ -2055,7 +2054,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                     writeFullSnapshot = true,
                 )
             } catch (failure: Exception) {
-                dirtyPageIds.addAll(dirtySnap)
+                synchronized(dirtyPageIds) { dirtyPageIds.addAll(dirtySnap) }
                 structureDirty = true
                 if (failure is kotlinx.coroutines.CancellationException) throw failure
                 withContext(Dispatchers.Main) {

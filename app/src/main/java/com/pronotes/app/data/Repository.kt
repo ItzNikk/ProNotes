@@ -760,6 +760,12 @@ class Repository private constructor(private val context: Context) {
 
     private fun loadPageDocsSync(id: String): List<PageDoc>? {
         val manifestF = manifestFile(id)
+        val legacyFile = File(noteDir(id), "note.json")
+        val legacyPages = if (legacyFile.exists()) {
+            runCatching { json.decodeFromString(NoteDoc.serializer(), legacyFile.readText()).pages }.getOrNull()
+        } else null
+        val legacyById = legacyPages?.associateBy { it.id }.orEmpty()
+
         if (manifestF.exists()) {
             val manifest = runCatching {
                 json.decodeFromString(PagesManifest.serializer(), manifestF.readText())
@@ -767,24 +773,35 @@ class Repository private constructor(private val context: Context) {
             if (manifest != null && manifest.pageIds.isNotEmpty()) {
                 val pDir = pagesDir(id)
                 val loaded = ArrayList<PageDoc>(manifest.pageIds.size)
-                var complete = true
                 for (pid in manifest.pageIds) {
                     val pf = File(pDir, "$pid.json")
                     val pd = if (pf.exists()) {
                         runCatching { json.decodeFromString(PageDoc.serializer(), pf.readText()) }.getOrNull()
                     } else null
-                    if (pd == null) {
-                        complete = false
-                        break
+                    val resolved = pd ?: legacyById[pid]
+                    if (resolved != null) {
+                        loaded += resolved
                     }
-                    loaded += pd
                 }
-                if (complete) return loaded
+                // Merge any legacy pages that exist in note.json if manifest was incomplete, so no page is ever dropped
+                if (loaded.size < (legacyPages?.size ?: 0) && legacyPages != null) {
+                    val seen = loaded.mapTo(HashSet()) { it.id }
+                    for (lp in legacyPages) {
+                        if (seen.add(lp.id)) loaded += lp
+                    }
+                }
+                if (loaded.isNotEmpty()) return loaded
             }
         }
-        val legacyFile = File(noteDir(id), "note.json")
-        if (!legacyFile.exists()) return null
-        return runCatching { json.decodeFromString(NoteDoc.serializer(), legacyFile.readText()).pages }.getOrNull()
+        if (!legacyPages.isNullOrEmpty()) return legacyPages
+        // Last-resort recovery: scan pages/ directory if both manifest.json and note.json were missing/corrupted
+        val pDir = pagesDir(id)
+        val recovered = pDir.listFiles()
+            ?.filter { it.isFile && it.name.endsWith(".json") }
+            ?.sortedBy { it.lastModified() }
+            ?.mapNotNull { f -> runCatching { json.decodeFromString(PageDoc.serializer(), f.readText()) }.getOrNull() }
+            .orEmpty()
+        return recovered.takeIf { it.isNotEmpty() }
     }
 
     private fun writePageDocsIncremental(
@@ -794,6 +811,7 @@ class Repository private constructor(private val context: Context) {
         structureChanged: Boolean,
         writeFullSnapshot: Boolean,
     ) {
+        if (docs.isEmpty()) return
         val pDir = pagesDir(id)
         val mf = manifestFile(id)
         // A full snapshot must agree with every page file, even if a cancelled
@@ -805,8 +823,9 @@ class Repository private constructor(private val context: Context) {
                 AtomicFiles.writeTextAtomic(pf, json.encodeToString(PageDoc.serializer(), doc))
             }
         }
-        if (structureChanged || !mf.exists()) {
-            val keepIds = docs.map { it.id }.toSet()
+        val keepIds = docs.map { it.id }.toSet()
+        val allExist = docs.all { File(pDir, "${it.id}.json").exists() }
+        if ((structureChanged || !mf.exists()) && allExist) {
             AtomicFiles.writeTextAtomic(
                 mf,
                 json.encodeToString(
@@ -822,7 +841,7 @@ class Repository private constructor(private val context: Context) {
             }
         }
         val noteFile = File(noteDir(id), "note.json")
-        if (writeFullSnapshot || !noteFile.exists()) {
+        if (writeFullSnapshot || structureChanged || !noteFile.exists()) {
             AtomicFiles.writeTextAtomic(noteFile, json.encodeToString(NoteDoc.serializer(), NoteDoc(pages = docs)))
         }
     }
@@ -854,7 +873,7 @@ class Repository private constructor(private val context: Context) {
 
     suspend fun loadPages(id: String): List<Page> = withContext(Dispatchers.IO) {
         val docs = loadPageDocsSync(id)
-        docs?.map { InkCodec.fromDoc(it) }
+        docs?.map { InkCodec.fromDoc(it) }?.takeIf { it.isNotEmpty() }
             ?: listOf(Page(UUID.randomUUID().toString(), PageSize.WIDTH, PageSize.HEIGHT, PaperStyle.RULED))
     }
 
@@ -865,33 +884,32 @@ class Repository private constructor(private val context: Context) {
         structureChanged: Boolean = true,
         writeFullSnapshot: Boolean = false,
     ) = withContext(Dispatchers.IO) {
+        if (pages.isEmpty()) return@withContext
         saveLock.withLock {
             val pDir = pagesDir(id)
             val mf = manifestFile(id)
             val needFullManifest = structureChanged || !mf.exists()
             val idsToWrite = dirtyPageIds
-            val docs = if (writeFullSnapshot || idsToWrite == null || !File(noteDir(id), "note.json").exists()) {
+            val docs = if (writeFullSnapshot || needFullManifest || idsToWrite == null || !File(noteDir(id), "note.json").exists()) {
                 pages.map { InkCodec.toDoc(it) }
             } else {
                 // Only serialize pages that actually changed when performing an incremental debounced write.
-                val manifestOnly = PagesManifest(updatedAt = System.currentTimeMillis(), pageIds = pages.map { it.id })
                 for (page in pages) {
                     val pf = File(pDir, "${page.id}.json")
                     if (page.id in idsToWrite || !pf.exists()) {
                         AtomicFiles.writeTextAtomic(pf, json.encodeToString(PageDoc.serializer(), InkCodec.toDoc(page)))
                     }
                 }
-                if (needFullManifest) {
-                    val keep = pages.map { it.id }.toSet()
-                    AtomicFiles.writeTextAtomic(mf, json.encodeToString(PagesManifest.serializer(), manifestOnly))
-                    pDir.listFiles()?.forEach { f ->
-                        if (f.isFile && f.name.endsWith(".json") && f.name.removeSuffix(".json") !in keep) f.delete()
-                    }
-                }
                 null
             }
             if (docs != null) {
-                writePageDocsIncremental(id, docs, dirtyIds = idsToWrite, structureChanged = needFullManifest, writeFullSnapshot = true)
+                writePageDocsIncremental(
+                    id = id,
+                    docs = docs,
+                    dirtyIds = idsToWrite,
+                    structureChanged = needFullManifest,
+                    writeFullSnapshot = writeFullSnapshot || needFullManifest,
+                )
             }
         }
         // The library thumbnail shows page 1, so only redraw it when page 1 itself changed.

@@ -827,6 +827,36 @@ fun LibraryScreen(
                             LibraryCreateMenu(
                                 label = appStrings.newAction,
                                 items = createItems,
+                                onLongPress = {
+                                    scope.launch {
+                                        val k = PagePreset.UNITS_PER_MM
+                                        val defaultPreset = newBookPrefs.defaultPreset
+                                        val defaultLandscape = newBookPrefs.defaultLandscape
+                                        val defaultPaper = newBookPrefs.defaultPaper
+                                        var w = defaultPreset.wMm * k
+                                        var h = defaultPreset.hMm * k
+                                        if (!defaultPreset.isWhiteboard && defaultLandscape != (w > h)) {
+                                            val t = w; w = h; h = t
+                                        }
+                                        val startColor = CoverColors.getOrElse(6) { CoverColors.first() }
+                                        val coverSpec = if (newBookPrefs.thumbCovers) "thumb" else "solid:$startColor"
+                                        val includeCoverPage = newBookPrefs.defaultCoverPage && coverSpec != "thumb" && !defaultPreset.isWhiteboard
+                                        val defaultTitle = if (defaultPreset.isWhiteboard) "Whiteboard" else appStrings.untitledNotebook
+                                        val id = repo.createNotebook(
+                                            defaultTitle,
+                                            folderId,
+                                            startColor,
+                                            defaultPaper,
+                                            coverSpec,
+                                            width = w,
+                                            height = h,
+                                            paperColor = null,
+                                            coverPage = includeCoverPage,
+                                            isWhiteboard = defaultPreset.isWhiteboard,
+                                        )
+                                        onOpen(id)
+                                    }
+                                },
                             )
                         }
 
@@ -1075,7 +1105,7 @@ fun LibraryScreen(
                                             key = { keyOf(it) },
                                             contentType = { if (it is Entry.F) "folder_row" else "note_row" },
                                         ) { e ->
-                                            Box(if (reduceMotion) Modifier else Modifier.animateItem()) { ListRow(e, repo, actions) }
+                                            ListRow(e, repo, actions)
                                         }
                                     }
                                 } else {
@@ -1092,11 +1122,9 @@ fun LibraryScreen(
                                             key = { keyOf(it) },
                                             contentType = { if (it is Entry.F) "folder_tile" else "note_tile" },
                                         ) { e ->
-                                            Box(if (reduceMotion) Modifier else Modifier.animateItem()) {
-                                                when (e) {
-                                                    is Entry.F -> FolderTile(e, actions)
-                                                    is Entry.N -> NotebookTile(e.note, repo, actions)
-                                                }
+                                            when (e) {
+                                                is Entry.F -> FolderTile(e, actions)
+                                                is Entry.N -> NotebookTile(e.note, repo, actions)
                                             }
                                         }
                                     }
