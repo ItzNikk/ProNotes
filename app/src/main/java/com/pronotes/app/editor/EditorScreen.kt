@@ -854,66 +854,19 @@ fun EditorScreen(
                         label = "ov",
                     )
 
-                    // Top-Left Floating Undo / Redo + Reset view Pill when Fixed bar isn't hosting Undo/Redo
-                    val showFloatingUndoPill = !focus && (!isFixedBar || hideTools || vm.currentPage?.isWhiteboard == true)
-                    if (showFloatingUndoPill) {
-                        val undoPillBg = Color.Black
-                        val undoPillBorder = Color.White.copy(alpha = 0.18f)
-                        val undoFg = Color(0xFFF1F5F9)
-                        AppSurface(
-                            role = SurfaceRole.Chrome,
-                            containerColor = undoPillBg,
-                            contentColor = undoFg,
-                            shape = RoundedCornerShape(16.dp),
-                            borderColor = undoPillBorder,
-                            shadowElevation = if (reduceEffects) 0.dp else 6.dp,
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .padding(start = 12.dp, top = 12.dp)
-                                .graphicsLayer { alpha = overlayFadeState.value },
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                            ) {
-                                if (!isFixedBar || hideTools) {
-                                    BarIcon(
-                                        icon = ProIcon.UNDO,
-                                        label = stringResource(R.string.toolbar_undo),
-                                        enabled = vm.canUndo,
-                                        fgColor = undoFg,
-                                        onClick = vm::undo,
-                                    )
-                                    BarIcon(
-                                        icon = ProIcon.REDO,
-                                        label = stringResource(R.string.toolbar_redo),
-                                        enabled = vm.canRedo,
-                                        fgColor = undoFg,
-                                        onClick = vm::redo,
-                                    )
-                                }
-                                if (vm.currentPage?.isWhiteboard == true) {
-                                    if (!isFixedBar || hideTools) {
-                                        Box(
-                                            Modifier
-                                                .padding(horizontal = 4.dp)
-                                                .width(1.dp)
-                                                .height(18.dp)
-                                                .background(undoPillBorder),
-                                        )
-                                    }
-                                    TextButton(
-                                        onClick = { canvas?.resetWhiteboardView() },
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                        modifier = Modifier.defaultMinSize(minHeight = 48.dp),
-                                    ) {
-                                        Text(stringResource(R.string.toolbar_reset_view), style = MaterialTheme.typography.labelSmall, color = ProButtonPalette.ElectricBlue)
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    // Top-Left Floating Undo / Redo + Reset view Pill (scoped so scrolling pages never recomposes EditorScreen)
+                    EditorFloatingUndoPill(
+                        vm = vm,
+                        canvas = canvas,
+                        focus = focus,
+                        isFixedBar = isFixedBar,
+                        hideTools = hideTools,
+                        reduceEffects = reduceEffects,
+                        overlayFade = { overlayFadeState.value },
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(start = 12.dp, top = 12.dp),
+                    )
 
                     // Floating pill / Compact toolbar state & strict bounds clamping
                     var dockSize by remember { mutableStateOf(IntSize.Zero) }
@@ -1160,66 +1113,17 @@ fun EditorScreen(
                         }
                     }
 
-                    // Floating Selection (Lasso) contextual menu
-                    val sb = vm.selectionBounds
-                    var selMenuSize by remember { mutableStateOf(IntSize.Zero) }
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = vm.selection.isNotEmpty() && sb != null,
-                        enter = if (reduceMotion) fadeIn(androidx.compose.animation.core.snap()) else fadeIn(androidx.compose.animation.core.tween(160)) + scaleIn(
-                            initialScale = 0.86f,
-                            animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.76f, stiffness = 480f),
-                        ),
-                        exit = if (reduceMotion) fadeOut(androidx.compose.animation.core.snap()) else fadeOut(androidx.compose.animation.core.tween(130)) + scaleOut(
-                            targetScale = 0.88f,
-                            animationSpec = androidx.compose.animation.core.tween(130),
-                        ),
-                        modifier = Modifier
-                            .onSizeChanged { selMenuSize = it }
-                            .offset {
-                                val b = sb ?: android.graphics.RectF()
-                                val mw = if (selMenuSize.width > 0) selMenuSize.width else (420 * density).roundToInt()
-                                val mh = if (selMenuSize.height > 0) selMenuSize.height else (64 * density).roundToInt()
-                                val below = b.bottom + 18 * density
-                                val y = if (below + mh < areaSize.height - 8f) below else (b.top - mh - 18f * density).coerceAtLeast(8f)
-                                IntOffset(
-                                    b.left.roundToInt().coerceIn(8, (areaSize.width - mw - 8).coerceAtLeast(8)),
-                                    y.roundToInt().coerceIn(8, (areaSize.height - mh - 8).coerceAtLeast(8)),
-                                )
-                            },
-                    ) {
-                        SelectionMenu(
-                            vm = vm,
-                            transformEnabled = canvas?.selectionTransformEnabled == true,
-                            onToggleTransform = {
-                                canvas?.let { it.selectionTransformEnabled = !it.selectionTransformEnabled }
-                            },
-                            areaSize = areaSize,
-                            onDuplicate = {
-                                val ids = vm.duplicateSelection()
-                                canvas?.selectItems(vm.selectionPage, ids)
-                            },
-                            onColor = { c ->
-                                val ids = vm.selection
-                                val pg = vm.selectionPage
-                                val outline = canvas?.selectionOutline
-                                vm.recolorSelection(c)
-                                canvas?.selectItems(pg, ids, outline = outline)
-                            },
-                            keep = { block ->
-                                val ids = vm.selection
-                                val pg = vm.selectionPage
-                                val outline = canvas?.selectionOutline
-                                block()
-                                canvas?.selectItems(pg, ids, outline = outline)
-                            },
-                            onShareImage = {
-                                scope.launch { vm.selectionImage()?.let { shareBitmap(context, it, vm.title + " selection") } }
-                            },
-                            onConvertToText = { newId ->
-                                canvas?.selectItems(vm.selectionPage, setOf(newId))
-                            },
-                        )
-                    }
+                    // Floating Selection (Lasso) contextual menu (scoped so dragging/scrolling selection never recomposes EditorScreen)
+                    EditorSelectionMenuOverlay(
+                        vm = vm,
+                        canvas = canvas,
+                        areaSize = areaSize,
+                        density = density,
+                        reduceMotion = reduceMotion,
+                        onShareImage = {
+                            scope.launch { vm.selectionImage()?.let { shareBitmap(context, it, vm.title + " selection") } }
+                        },
+                    )
 
                     // Floating On-Canvas Write Box Studio Bar
                     val activeWb = vm.activeWriteBox()
@@ -1728,6 +1632,146 @@ fun EditorScreen(
 }
 
 // Extracted panels in EditorPanels.kt, SplitViewPanel.kt, and EditorDialogs.kt
+
+@Composable
+private fun EditorFloatingUndoPill(
+    vm: EditorViewModel,
+    canvas: NoteCanvasView?,
+    focus: Boolean,
+    isFixedBar: Boolean,
+    hideTools: Boolean,
+    reduceEffects: Boolean,
+    overlayFade: () -> Float,
+    modifier: Modifier = Modifier,
+) {
+    val isWhiteboard = vm.currentPage?.isWhiteboard == true
+    val showFloatingUndoPill = !focus && (!isFixedBar || hideTools || isWhiteboard)
+    if (!showFloatingUndoPill) return
+    val undoPillBg = Color.Black
+    val undoPillBorder = Color.White.copy(alpha = 0.18f)
+    val undoFg = Color(0xFFF1F5F9)
+    AppSurface(
+        role = SurfaceRole.Chrome,
+        containerColor = undoPillBg,
+        contentColor = undoFg,
+        shape = RoundedCornerShape(16.dp),
+        borderColor = undoPillBorder,
+        shadowElevation = if (reduceEffects) 0.dp else 6.dp,
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+        modifier = modifier.graphicsLayer { alpha = overlayFade() },
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            if (!isFixedBar || hideTools) {
+                BarIcon(
+                    icon = ProIcon.UNDO,
+                    label = stringResource(R.string.toolbar_undo),
+                    enabled = vm.canUndo,
+                    fgColor = undoFg,
+                    onClick = vm::undo,
+                )
+                BarIcon(
+                    icon = ProIcon.REDO,
+                    label = stringResource(R.string.toolbar_redo),
+                    enabled = vm.canRedo,
+                    fgColor = undoFg,
+                    onClick = vm::redo,
+                )
+            }
+            if (isWhiteboard) {
+                if (!isFixedBar || hideTools) {
+                    Box(
+                        Modifier
+                            .padding(horizontal = 4.dp)
+                            .width(1.dp)
+                            .height(18.dp)
+                            .background(undoPillBorder),
+                    )
+                }
+                TextButton(
+                    onClick = { canvas?.resetWhiteboardView() },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    modifier = Modifier.defaultMinSize(minHeight = 48.dp),
+                ) {
+                    Text(stringResource(R.string.toolbar_reset_view), style = MaterialTheme.typography.labelSmall, color = ProButtonPalette.ElectricBlue)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditorSelectionMenuOverlay(
+    vm: EditorViewModel,
+    canvas: NoteCanvasView?,
+    areaSize: IntSize,
+    density: Float,
+    reduceMotion: Boolean,
+    onShareImage: () -> Unit,
+) {
+    val visible by remember(vm) {
+        androidx.compose.runtime.derivedStateOf { vm.selection.isNotEmpty() && vm.selectionBounds != null }
+    }
+    var selMenuSize by remember { mutableStateOf(IntSize.Zero) }
+    androidx.compose.animation.AnimatedVisibility(
+        visible = visible,
+        enter = if (reduceMotion) fadeIn(androidx.compose.animation.core.snap()) else fadeIn(androidx.compose.animation.core.tween(160)) + scaleIn(
+            initialScale = 0.86f,
+            animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.76f, stiffness = 480f),
+        ),
+        exit = if (reduceMotion) fadeOut(androidx.compose.animation.core.snap()) else fadeOut(androidx.compose.animation.core.tween(130)) + scaleOut(
+            targetScale = 0.88f,
+            animationSpec = androidx.compose.animation.core.tween(130),
+        ),
+        modifier = Modifier
+            .onSizeChanged { selMenuSize = it }
+            .offset {
+                // Read vm.selectionBounds strictly in placement phase so scrolling/moving never recomposes!
+                val b = vm.selectionBounds ?: android.graphics.RectF()
+                val mw = if (selMenuSize.width > 0) selMenuSize.width else (420 * density).roundToInt()
+                val mh = if (selMenuSize.height > 0) selMenuSize.height else (64 * density).roundToInt()
+                val below = b.bottom + 18 * density
+                val y = if (below + mh < areaSize.height - 8f) below else (b.top - mh - 18f * density).coerceAtLeast(8f)
+                IntOffset(
+                    b.left.roundToInt().coerceIn(8, (areaSize.width - mw - 8).coerceAtLeast(8)),
+                    y.roundToInt().coerceIn(8, (areaSize.height - mh - 8).coerceAtLeast(8)),
+                )
+            },
+    ) {
+        SelectionMenu(
+            vm = vm,
+            transformEnabled = canvas?.selectionTransformEnabled == true,
+            onToggleTransform = {
+                canvas?.let { it.selectionTransformEnabled = !it.selectionTransformEnabled }
+            },
+            areaSize = areaSize,
+            onDuplicate = {
+                val ids = vm.duplicateSelection()
+                canvas?.selectItems(vm.selectionPage, ids)
+            },
+            onColor = { c ->
+                val ids = vm.selection
+                val pg = vm.selectionPage
+                val outline = canvas?.selectionOutline
+                vm.recolorSelection(c)
+                canvas?.selectItems(pg, ids, outline = outline)
+            },
+            keep = { block ->
+                val ids = vm.selection
+                val pg = vm.selectionPage
+                val outline = canvas?.selectionOutline
+                block()
+                canvas?.selectItems(pg, ids, outline = outline)
+            },
+            onShareImage = onShareImage,
+            onConvertToText = { newId ->
+                canvas?.selectItems(vm.selectionPage, setOf(newId))
+            },
+        )
+    }
+}
 
 @Composable
 private fun EditorHandwritingGlowOverlay(

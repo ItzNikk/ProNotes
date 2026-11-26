@@ -91,18 +91,21 @@ class DragController {
 
 val LocalDragController = compositionLocalOf<DragController?> { null }
 
+private class OriginHolder(var value: Offset = Offset.Zero)
+
 /** Long-press to pick this item up. */
 @Composable
 fun Modifier.libraryDragSource(payload: String, label: String = ""): Modifier {
     val ctrl = LocalDragController.current ?: return this
-    var origin by remember { mutableStateOf(Offset.Zero) }
+    // Plain holder avoids recomposing every visible tile on every scroll frame when onGloballyPositioned fires.
+    val origin = remember { OriginHolder() }
     val lbl by rememberUpdatedState(label)
     return this
-        .onGloballyPositioned { origin = it.positionInRoot() }
+        .onGloballyPositioned { origin.value = it.positionInRoot() }
         .pointerInput(payload) {
             var current = Offset.Zero
             detectDragGesturesAfterLongPress(
-                onDragStart = { local -> current = origin + local; ctrl.start(payload, lbl, current) },
+                onDragStart = { local -> current = origin.value + local; ctrl.start(payload, lbl, current) },
                 onDrag = { change, amount -> change.consume(); current += amount; ctrl.move(current) },
                 onDragEnd = { ctrl.end() },
                 onDragCancel = { ctrl.cancel() },
@@ -117,6 +120,8 @@ fun Modifier.libraryDropTarget(onHover: (Boolean) -> Unit, onDrop: (String) -> B
     val key = remember { Any() }
     val hover by rememberUpdatedState(onHover)
     val drop by rememberUpdatedState(onDrop)
+    val hoverForward = remember(key) { { h: Boolean -> hover(h) } }
+    val dropForward = remember(key) { { p: String -> drop(p) } }
     DisposableEffect(key) { onDispose { ctrl.unregister(key) } }
-    return this.onGloballyPositioned { ctrl.register(key, it.boundsInRoot(), { h -> hover(h) }, { p -> drop(p) }) }
+    return this.onGloballyPositioned { ctrl.register(key, it.boundsInRoot(), hoverForward, dropForward) }
 }

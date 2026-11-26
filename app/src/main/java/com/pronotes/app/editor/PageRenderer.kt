@@ -172,6 +172,8 @@ class PageRenderer(private val noteDir: File?) {
         tapeTiles.clear()
         partsCache.clear()
         visibilityCache.clear()
+        hiddenMindCache.clear()
+        spatialCache.clear()
         paperNodeCache?.evictAll()
         stickyLayoutCache.evictAll()
     }
@@ -978,38 +980,49 @@ class PageRenderer(private val noteDir: File?) {
     private class SpatialGrid(val items: List<PageItem>) {
         val cells = HashMap<Long, IntArray>()
         val counts = HashMap<Long, Int>()
+        val oversized: IntArray
         val stamps = IntArray(items.size)
         var hitBuf = IntArray(minOf(items.size, 256).coerceAtLeast(32))
         var token = 1
 
         init {
             val invCell = 1f / CELL_SIZE
+            val big = ArrayList<Int>(4)
             for (idx in items.indices) {
                 val item = items[idx]
                 val l: Float; val t: Float; val r: Float; val b: Float
                 when (item) {
                     is InkItem -> {
                         val lb = item.localBounds
-                        l = lb.left + item.dx; t = lb.top + item.dy; r = lb.right + item.dx; b = lb.bottom + item.dy
+                        val pad = (item.stroke.brush.size * 1.5f).coerceAtLeast(36f)
+                        l = lb.left + item.dx - pad; t = lb.top + item.dy - pad
+                        r = lb.right + item.dx + pad; b = lb.bottom + item.dy + pad
                     }
                     is WriteBoxItem -> {
                         val wb = item.bounds
-                        l = wb.left; t = wb.top; r = wb.right; b = wb.bottom
+                        l = wb.left - 32f; t = wb.top - 32f; r = wb.right + 32f; b = wb.bottom + 32f
                     }
                     else -> {
                         val ob = item.bounds
-                        l = ob.left - 36f; t = ob.top - 36f; r = ob.right + 36f; b = ob.bottom + 36f
+                        l = ob.left - 64f; t = ob.top - 64f; r = ob.right + 64f; b = ob.bottom + 64f
                     }
+                }
+                if (!l.isFinite() || !t.isFinite() || !r.isFinite() || !b.isFinite()) {
+                    big.add(idx)
+                    continue
                 }
                 val x0 = kotlin.math.floor((l * invCell).toDouble()).toInt()
                 val x1 = kotlin.math.floor((r * invCell).toDouble()).toInt()
                 val y0 = kotlin.math.floor((t * invCell).toDouble()).toInt()
                 val y1 = kotlin.math.floor((b * invCell).toDouble()).toInt()
-                // Guard huge spanning items from flooding thousands of cells
-                val cx0 = x0; val cx1 = if (x1 - x0 > 32) x0 + 32 else x1
-                val cy0 = y0; val cy1 = if (y1 - y0 > 32) y0 + 32 else y1
-                for (cy in cy0..cy1) {
-                    for (cx in cx0..cx1) {
+                val span = (x1 - x0 + 1).toLong() * (y1 - y0 + 1).toLong()
+                // Large spanning items (big images, long strokes, fills) go into oversized so they are NEVER truncated or dropped.
+                if (span <= 0L || span > 64L) {
+                    big.add(idx)
+                    continue
+                }
+                for (cy in y0..y1) {
+                    for (cx in x0..x1) {
                         val key = packCell(cx, cy)
                         val curCount = counts[key] ?: 0
                         var arr = cells[key]
@@ -1025,6 +1038,7 @@ class PageRenderer(private val noteDir: File?) {
                     }
                 }
             }
+            oversized = IntArray(big.size) { big[it] }
         }
 
         fun queryVisible(
@@ -1033,23 +1047,33 @@ class PageRenderer(private val noteDir: File?) {
             out: ArrayList<PageItem>,
         ) {
             out.clear()
+            val invCell = 1f / CELL_SIZE
+            val x0 = kotlin.math.floor((rect.left * invCell).toDouble()).toInt()
+            val x1 = kotlin.math.floor((rect.right * invCell).toDouble()).toInt()
+            val y0 = kotlin.math.floor((rect.top * invCell).toDouble()).toInt()
+            val y1 = kotlin.math.floor((rect.bottom * invCell).toDouble()).toInt()
+            // If viewport covers an enormous area (very zoomed out whiteboard or unclipped export), return full list directly.
+            val cellCount = (x1 - x0 + 1).toLong() * (y1 - y0 + 1).toLong()
+            if (cellCount <= 0L || cellCount > 600L) {
+                out.addAll(items)
+                return
+            }
             token++
             if (token == Int.MAX_VALUE) {
                 stamps.fill(0)
                 token = 1
             }
             val tok = token
-            val invCell = 1f / CELL_SIZE
-            val x0 = kotlin.math.floor((rect.left * invCell).toDouble()).toInt()
-            val x1 = kotlin.math.floor((rect.right * invCell).toDouble()).toInt()
-            val y0 = kotlin.math.floor((rect.top * invCell).toDouble()).toInt()
-            val y1 = kotlin.math.floor((rect.bottom * invCell).toDouble()).toInt()
-            // If viewport covers an enormous area (very zoomed out whiteboard), fall back directly to full list.
-            if ((x1 - x0 + 1).toLong() * (y1 - y0 + 1).toLong() > 600L) {
-                out.addAll(items)
-                return
-            }
             var hitCount = 0
+            // Always include oversized spanning items so nothing can ever vanish at page edges.
+            for (k in oversized.indices) {
+                val idx = oversized[k]
+                if (stamps[idx] != tok) {
+                    stamps[idx] = tok
+                    if (hitCount >= hitBuf.size) hitBuf = hitBuf.copyOf(hitBuf.size * 2)
+                    hitBuf[hitCount++] = idx
+                }
+            }
             for (cy in y0..y1) {
                 for (cx in x0..x1) {
                     val key = packCell(cx, cy)
@@ -1090,7 +1114,7 @@ class PageRenderer(private val noteDir: File?) {
     private val hlVisibleScratch = ArrayList<PageItem>(32)
 
     private fun spatialCandidates(items: List<PageItem>, transformIds: Set<Long>): List<PageItem> {
-        if (items.size < 48) return items
+        if (items.size < 48 || visible.width() > 1e6f) return items
         var grid = spatialCache[items]
         if (grid == null) {
             if (spatialCache.size > 16) spatialCache.clear()
@@ -1113,9 +1137,19 @@ class PageRenderer(private val noteDir: File?) {
         transformIds: Set<Long> = emptySet(),
     ) {
         if (items.isEmpty()) return
-        // The part of the page currently on screen, in page coordinates. Anything outside is culled.
+        // The part of the page currently on screen, in page coordinates. Generous overscan prevents edge pops;
+        // if clipBounds is empty (e.g. unclipped software/export canvas), disable culling completely.
         val clip = canvas.clipBounds
-        visible.set(clip.left.toFloat(), clip.top.toFloat(), clip.right.toFloat(), clip.bottom.toFloat())
+        if (clip.isEmpty) {
+            visible.set(-1e7f, -1e7f, 1e7f, 1e7f)
+        } else {
+            visible.set(
+                clip.left.toFloat() - 120f,
+                clip.top.toFloat() - 120f,
+                clip.right.toFloat() + 120f,
+                clip.bottom.toFloat() + 120f,
+            )
+        }
         val hiddenNodes = hiddenMindNodeIds(items)
         val hasMindNodes = items.any { it is MindNodeItem }
         if (hasMindNodes) {
@@ -1127,29 +1161,43 @@ class PageRenderer(private val noteDir: File?) {
             if (parts.fills.isNotEmpty()) {
                 drawSeq(canvas, spatialCandidates(parts.fills, transformIds), worldToScreen, transform, transformIds, hiddenNodes, items)
             }
-            // Cull off-screen highlights before allocating an expensive GPU offscreen saveLayer!
+            // Cull off-screen highlights before allocating an expensive GPU offscreen saveLayer,
+            // with full brush-width padding so wide highlighter strokes never clip.
             hlVisibleScratch.clear()
-            hlClipRect.setEmpty()
+            var hlL = Float.POSITIVE_INFINITY
+            var hlT = Float.POSITIVE_INFINITY
+            var hlR = Float.NEGATIVE_INFINITY
+            var hlB = Float.NEGATIVE_INFINITY
             val hlCandidates = spatialCandidates(parts.highlights, transformIds)
             for (hl in hlCandidates) {
                 val moved = transform != null && hl.id in transformIds
                 if (moved) {
                     hlVisibleScratch.add(hl)
-                    hlClipRect.union(visible)
+                    hlL = minOf(hlL, visible.left); hlT = minOf(hlT, visible.top)
+                    hlR = maxOf(hlR, visible.right); hlB = maxOf(hlB, visible.bottom)
                 } else if (onScreen(hl)) {
                     hlVisibleScratch.add(hl)
                     if (hl is InkItem) {
                         val b = hl.localBounds
-                        hlClipRect.union(b.left + hl.dx - 16f, b.top + hl.dy - 16f, b.right + hl.dx + 16f, b.bottom + hl.dy + 16f)
+                        val pad = (hl.stroke.brush.size * 1.5f).coerceAtLeast(48f)
+                        hlL = minOf(hlL, b.left + hl.dx - pad)
+                        hlT = minOf(hlT, b.top + hl.dy - pad)
+                        hlR = maxOf(hlR, b.right + hl.dx + pad)
+                        hlB = maxOf(hlB, b.bottom + hl.dy + pad)
                     } else {
-                        hlClipRect.union(hl.bounds)
+                        val b = hl.bounds
+                        hlL = minOf(hlL, b.left - 48f); hlT = minOf(hlT, b.top - 48f)
+                        hlR = maxOf(hlR, b.right + 48f); hlB = maxOf(hlB, b.bottom + 48f)
                     }
                 }
             }
-            if (hlVisibleScratch.isNotEmpty() && hlClipRect.intersect(visible)) {
-                val layer = canvas.saveLayer(hlClipRect, if (isDark) lightenPaint else multiplyPaint)
-                drawSeq(canvas, hlVisibleScratch, worldToScreen, transform, transformIds, hiddenNodes, items)
-                canvas.restoreToCount(layer)
+            if (hlVisibleScratch.isNotEmpty() && hlL < hlR && hlT < hlB) {
+                hlClipRect.set(hlL, hlT, hlR, hlB)
+                if (hlClipRect.intersect(visible)) {
+                    val layer = canvas.saveLayer(hlClipRect, if (isDark) lightenPaint else multiplyPaint)
+                    drawSeq(canvas, hlVisibleScratch, worldToScreen, transform, transformIds, hiddenNodes, items)
+                    canvas.restoreToCount(layer)
+                }
             }
             if (parts.rest.isNotEmpty()) {
                 drawSeq(canvas, spatialCandidates(parts.rest, transformIds), worldToScreen, transform, transformIds, hiddenNodes, items)
@@ -1232,17 +1280,21 @@ class PageRenderer(private val noteDir: File?) {
         return Parts(fills, hl, rest).also { partsCache[items] = it }
     }
 
-    private fun onScreen(item: PageItem): Boolean = when (item) {
-        is InkItem -> {
-            val b = item.localBounds
-            RectF.intersects(visible, tmp.apply { set(b.left + item.dx, b.top + item.dy, b.right + item.dx, b.bottom + item.dy) })
-        }
-        is WriteBoxItem -> RectF.intersects(visible, item.bounds)
-        else -> {
-            val b = item.bounds
-            // Small padding accounts for drop shadows, rotation corners, and connectors.
-            val pad = 36f
-            RectF.intersects(visible, tmp.apply { set(b.left - pad, b.top - pad, b.right + pad, b.bottom + pad) })
+    private fun onScreen(item: PageItem): Boolean {
+        if (visible.width() > 1e6f) return true
+        return when (item) {
+            is InkItem -> {
+                val b = item.localBounds
+                val pad = (item.stroke.brush.size * 1.5f).coerceAtLeast(36f)
+                RectF.intersects(visible, tmp.apply { set(b.left + item.dx - pad, b.top + item.dy - pad, b.right + item.dx + pad, b.bottom + item.dy + pad) })
+            }
+            is WriteBoxItem -> RectF.intersects(visible, item.bounds)
+            else -> {
+                val b = item.bounds
+                // Padding accounts for drop shadows, rotation corners, and connectors.
+                val pad = 64f
+                RectF.intersects(visible, tmp.apply { set(b.left - pad, b.top - pad, b.right + pad, b.bottom + pad) })
+            }
         }
     }
     private val tmp = RectF()
@@ -2017,16 +2069,17 @@ class PageRenderer(private val noteDir: File?) {
         textPaint.shader = null
     }
 
-    /** Search hits, in page coordinates (viewport culled). */
+    /** Search hits, in page coordinates (viewport culled with safe margin). */
     fun drawHighlights(canvas: Canvas, rects: List<RectF>, active: RectF?) {
         if (rects.isEmpty()) return
         val clip = canvas.clipBounds
-        val cl = clip.left.toFloat()
-        val ct = clip.top.toFloat()
-        val cr = clip.right.toFloat()
-        val cb = clip.bottom.toFloat()
+        val cull = !clip.isEmpty
+        val cl = clip.left.toFloat() - 32f
+        val ct = clip.top.toFloat() - 32f
+        val cr = clip.right.toFloat() + 32f
+        val cb = clip.bottom.toFloat() + 32f
         for (r in rects) {
-            if (r.right < cl || r.left > cr || r.bottom < ct || r.top > cb) continue
+            if (cull && (r.right < cl || r.left > cr || r.bottom < ct || r.top > cb)) continue
             canvas.drawRoundRect(r, 4f, 4f, if (r == active) activeHighlight else highlightPaint)
         }
     }

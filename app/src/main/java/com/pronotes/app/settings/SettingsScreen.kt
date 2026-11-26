@@ -75,6 +75,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -308,7 +309,9 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
     val context = LocalContext.current
     fun up(block: (AppSettings) -> AppSettings) = store.update(block)
     val detailListState = rememberLazyListState()
-    val scrolled = detailListState.firstVisibleItemIndex > 0 || detailListState.firstVisibleItemScrollOffset > 10
+    val scrolled by remember(detailListState) {
+        derivedStateOf { detailListState.firstVisibleItemIndex > 0 || detailListState.firstVisibleItemScrollOffset > 10 }
+    }
     Box(Modifier.fillMaxSize()) {
     LazyColumn(
         state = detailListState,

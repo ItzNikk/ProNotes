@@ -115,6 +115,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -956,23 +957,25 @@ fun LibraryScreen(
                         }
                     }
 
-                    val actions = TileActions(
-                        onOpenFolder = { f -> section = Section.DOCUMENTS; query = ""; searching = false; folderId = f.id },
-                        onOpenNote = { if (selectionMode) toggleDocument(it.id) else onOpen(it.id) },
-                        selectionMode = selectionMode,
-                        selectedIds = selectedDocuments,
-                        onToggleSelect = { toggleDocument(it) },
-                        onRename = { renaming = it },
-                        onMove = { moving = it },
-                        onDelete = { deleting = it },
-                        onEditFolder = { folderEdit = it },
-                        onCover = { coverFor = it },
-                        onFavorite = { scope.launch { repo.toggleFavorite(it.id) } },
-                        onDuplicate = { scope.launch { repo.duplicateNotebook(it.id) } },
-                        onRestore = { scope.launch { repo.restoreNotebook(it.id) } },
-                        onDeleteForever = { forever = it },
-                        onDrop = { payload, target -> dropInto(payload, target) },
-                    )
+                    val actions = remember(selectionMode, selectedDocuments, repo) {
+                        TileActions(
+                            onOpenFolder = { f -> section = Section.DOCUMENTS; query = ""; searching = false; folderId = f.id },
+                            onOpenNote = { if (selectionMode) toggleDocument(it.id) else onOpen(it.id) },
+                            selectionMode = selectionMode,
+                            selectedIds = selectedDocuments,
+                            onToggleSelect = { toggleDocument(it) },
+                            onRename = { renaming = it },
+                            onMove = { moving = it },
+                            onDelete = { deleting = it },
+                            onEditFolder = { folderEdit = it },
+                            onCover = { coverFor = it },
+                            onFavorite = { scope.launch { repo.toggleFavorite(it.id) } },
+                            onDuplicate = { scope.launch { repo.duplicateNotebook(it.id) } },
+                            onRestore = { scope.launch { repo.restoreNotebook(it.id) } },
+                            onDeleteForever = { forever = it },
+                            onDrop = { payload, target -> dropInto(payload, target) },
+                        )
+                    }
 
                     if (section != Section.TRASH) {
                         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1003,10 +1006,14 @@ fun LibraryScreen(
                     val listBottomPad = 24.dp
                     val listScrollState = rememberLazyListState()
                     val gridScrollState = rememberLazyGridState()
-                    val libraryScrolled = if (listView) {
-                        listScrollState.firstVisibleItemIndex > 0 || listScrollState.firstVisibleItemScrollOffset > 8
-                    } else {
-                        gridScrollState.firstVisibleItemIndex > 0 || gridScrollState.firstVisibleItemScrollOffset > 8
+                    val libraryScrolled by remember(listView, listScrollState, gridScrollState) {
+                        derivedStateOf {
+                            if (listView) {
+                                listScrollState.firstVisibleItemIndex > 0 || listScrollState.firstVisibleItemScrollOffset > 8
+                            } else {
+                                gridScrollState.firstVisibleItemIndex > 0 || gridScrollState.firstVisibleItemScrollOffset > 8
+                            }
+                        }
                     }
 
                     val dropFolderId = folderId
@@ -1747,9 +1754,10 @@ private fun NotebookTile(note: NotebookMeta, repo: Repository, a: TileActions) {
                 Icon(Icons.Filled.Star, null, tint = Color(0xFFF2C94C), modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(20.dp))
             }
         }
+        val formattedDate = remember(note.modified) { libraryDateFormat.get()!!.format(Date(note.modified)) }
         Caption(
             note.title,
-            DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(note.modified)),
+            formattedDate,
             menuItems = remember(note, a) { noteMenuItems(note, a) },
         )
 
@@ -1837,9 +1845,12 @@ private fun ListRow(e: Entry, repo: Repository, a: TileActions) {
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
                     Text(if (e is Entry.F) e.folder.name else (e as Entry.N).note.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                    Text(
+                    val subLabel = remember(e) {
                         if (e is Entry.F) "${e.count} items"
-                        else (e as Entry.N).note.let { "${it.pageCount} pages · " + DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it.modified)) },
+                        else (e as Entry.N).note.let { "${it.pageCount} pages · " + libraryDateFormat.get()!!.format(Date(it.modified)) }
+                    }
+                    Text(
+                        subLabel,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1875,6 +1886,8 @@ private fun ListRow(e: Entry, repo: Repository, a: TileActions) {
 }
 
 // Tag badges, ManageTagsDialog, MoveRow, NameDialog, FolderDialog, CoverDialog, and NewNotebookDialog extracted to LibraryDialogs.kt
+
+private val libraryDateFormat = ThreadLocal.withInitial { DateFormat.getDateInstance(DateFormat.MEDIUM) }
 
 @Composable
 private fun UpdatePill() {

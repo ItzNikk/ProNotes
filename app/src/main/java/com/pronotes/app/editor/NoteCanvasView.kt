@@ -588,14 +588,21 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         if (vertical) { docW = maxW; docH = max(0f, cursor - gap) } else { docW = max(0f, cursor - gap); docH = maxH }
     }
 
-    /** Binary-search the laid-out page slots instead of visiting an entire document per frame. */
+    private val tmpRangePts = FloatArray(4)
+
+    /** Binary-search the laid-out page slots with safe overscan so pages never pop or load blank at edges. */
     internal fun visiblePageRange(): IntRange {
         if (pages.isEmpty()) return IntRange.EMPTY
+        if (width <= 0 || height <= 0 || origins.size < pages.size * 2) return pages.indices
         val horizontal = settings.scroll == ScrollDirection.HORIZONTAL
-        val a = toDoc(0f, 0f)
-        val b = toDoc(width.toFloat(), height.toFloat())
-        val low = if (horizontal) minOf(a.first, b.first) else minOf(a.second, b.second)
-        val high = if (horizontal) maxOf(a.first, b.first) else maxOf(a.second, b.second)
+        tmpRangePts[0] = 0f
+        tmpRangePts[1] = 0f
+        tmpRangePts[2] = width.toFloat()
+        tmpRangePts[3] = height.toFloat()
+        inverse.mapPoints(tmpRangePts)
+        val margin = (96f * density) / scale.coerceAtLeast(0.1f)
+        val low = (if (horizontal) minOf(tmpRangePts[0], tmpRangePts[2]) else minOf(tmpRangePts[1], tmpRangePts[3])) - margin
+        val high = (if (horizontal) maxOf(tmpRangePts[0], tmpRangePts[2]) else maxOf(tmpRangePts[1], tmpRangePts[3])) + margin
         fun start(i: Int) = if (horizontal) ox(i) else oy(i)
         fun end(i: Int) = start(i) + if (horizontal) pages[i].width else pages[i].height
         var l = 0
@@ -615,6 +622,8 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             first = minOf(first, currentIndex)
             last = maxOf(last, currentIndex)
         }
+        first = first.coerceIn(0, pages.lastIndex)
+        last = last.coerceIn(0, pages.lastIndex)
         return if (first <= last) first..last else IntRange.EMPTY
     }
     internal fun ox(i: Int) = origins.getOrElse(i * 2) { 0f }
@@ -753,6 +762,8 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         pull = if (!allowPull) 0f else if (vertical) max(0f, restY - transY) else max(0f, restX - transX)
     }
 
+    private val detailRunnable = Runnable { askForDetailNow() }
+
     internal fun updateMatrix() {
         viewMatrix.reset()
         viewMatrix.postScale(scale, scale)
@@ -765,19 +776,24 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         }
         layer.invalidate()
         if (selection.isNotEmpty()) reportSelection()
-        askForDetail()
+        // Debounce PDF detail requests so scrolling/flinging never cancels & spawns coroutines every frame.
+        removeCallbacks(detailRunnable)
+        postDelayed(detailRunnable, 150L)
     }
 
     private val detailViewRect = RectF()
     private val detailPageRect = RectF()
     private val detailInvMatrix = Matrix()
     private val detailPageMatrix = Matrix()
+    private val tmpCurrentPt = FloatArray(2)
 
     /** Asks for sharp detail of the PDF pages on screen when zoomed past what the base bitmap holds. */
-    private fun askForDetail() {
+    private fun askForDetailNow() {
         if (width == 0 || pages.isEmpty()) return
+        val vis = visiblePageRange()
+        if (vis.isEmpty()) return
         var hasPdf = false
-        for (i in pages.indices) {
+        for (i in vis) {
             if (pages[i].pdfPage >= 0) {
                 hasPdf = true
                 break
@@ -786,7 +802,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         if (!hasPdf) return
         val wants = ArrayList<Triple<Int, RectF, Float>>(2)
         detailViewRect.set(0f, 0f, width.toFloat(), height.toFloat())
-        for (i in pages.indices) {
+        for (i in vis) {
             val p = pages[i]
             if (p.pdfPage < 0 || p.width * scale < 1700f) continue
             val pm = pageMatrix(i, detailPageMatrix)
@@ -804,16 +820,31 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
     }
 
     private fun computeCurrent(): Int {
-        if (pages.isEmpty()) return 0
-        val (cx, cy) = toDoc(width / 2f, height / 2f)
+        val count = pages.size
+        if (count == 0) return 0
+        if (count == 1) return 0
+        tmpCurrentPt[0] = width * 0.5f
+        tmpCurrentPt[1] = height * 0.5f
+        inverse.mapPoints(tmpCurrentPt)
         val vertical = settings.scroll == ScrollDirection.VERTICAL
-        var best = 0; var bestD = Float.MAX_VALUE
-        pages.forEachIndexed { i, p ->
-            val c = if (vertical) oy(i) + p.height / 2f else ox(i) + p.width / 2f
-            val d = abs(c - if (vertical) cy else cx)
-            if (d < bestD) { bestD = d; best = i }
+        val target = if (vertical) tmpCurrentPt[1] else tmpCurrentPt[0]
+        // Binary search nearest page center along the monotonic scroll axis (O(log N), zero allocations).
+        var lo = 0
+        var hi = count - 1
+        while (lo < hi) {
+            val mid = (lo + hi) ushr 1
+            val p = pages[mid]
+            val c = if (vertical) oy(mid) + p.height * 0.5f else ox(mid) + p.width * 0.5f
+            if (c < target) lo = mid + 1 else hi = mid
         }
-        return best
+        if (lo > 0) {
+            val pA = pages[lo - 1]
+            val pB = pages[lo]
+            val dA = abs((if (vertical) oy(lo - 1) + pA.height * 0.5f else ox(lo - 1) + pA.width * 0.5f) - target)
+            val dB = abs((if (vertical) oy(lo) + pB.height * 0.5f else ox(lo) + pB.width * 0.5f) - target)
+            if (dA < dB) return lo - 1
+        }
+        return lo
     }
 
     override fun computeScroll() {

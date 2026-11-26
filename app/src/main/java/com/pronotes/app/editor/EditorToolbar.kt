@@ -446,9 +446,12 @@ fun FloatingToolbarPill(
     val maxDockH = if (isVertical) (areaH - 24.dp).coerceAtLeast(220.dp) else 84.dp
 
     val dragHandleDesc = stringResource(R.string.toolbar_drag_handle)
+    val latestDragStart by androidx.compose.runtime.rememberUpdatedState(onDragStart)
+    val latestDragDelta by androidx.compose.runtime.rememberUpdatedState(onDragDelta)
+    val latestDragEnd by androidx.compose.runtime.rememberUpdatedState(onDragEnd)
 
     val dragHandleModifier = Modifier
-        .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+        .defaultMinSize(minWidth = if (isVertical) 44.dp else 30.dp, minHeight = if (isVertical) 30.dp else 44.dp)
         .clip(RoundedCornerShape(14.dp))
         .semantics { contentDescription = dragHandleDesc }
         .focusable()
@@ -457,14 +460,14 @@ fun FloatingToolbarPill(
             detectDragGestures(
                 onDragStart = {
                     accumDelta = Offset.Zero
-                    onDragStart()
+                    latestDragStart()
                 },
-                onDragCancel = { onDragEnd() },
-                onDragEnd = { onDragEnd() },
+                onDragCancel = { latestDragEnd() },
+                onDragEnd = { latestDragEnd() },
                 onDrag = { change, dragAmount ->
                     change.consume()
                     accumDelta += dragAmount
-                    onDragDelta(accumDelta)
+                    latestDragDelta(accumDelta)
                 },
             )
         }
@@ -558,6 +561,15 @@ fun FloatingToolbarPill(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
+                Box(dragHandleModifier, contentAlignment = Alignment.Center) {
+                    Box(
+                        Modifier
+                            .width(4.dp)
+                            .height(22.dp)
+                            .clip(CircleShape)
+                            .background(dockFg.copy(alpha = 0.34f)),
+                    )
+                }
                 Row(
                     modifier = Modifier
                         .weight(1f, fill = false)

@@ -88,22 +88,22 @@ internal class NoteCanvasDocLayer(
 
     private val lassoHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 7.2f * owner.density
+        strokeWidth = 7.4f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         color = 0xE6FFFFFF.toInt()
     }
     private val lassoPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 6.5f * owner.density
+        strokeWidth = 5.4f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        color = 0xFF3D6CF4.toInt()
+        color = Color.BLACK
     }
-    private val lassoFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x183D6CF4 }
+    private val lassoFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x12000000 }
     private val selHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 10f * owner.density
+        strokeWidth = 9.2f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         color = 0xE6FFFFFF.toInt()
@@ -111,10 +111,10 @@ internal class NoteCanvasDocLayer(
     }
     private val selPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 6.5f * owner.density
+        strokeWidth = 5.4f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        color = 0xFF3D6CF4.toInt()
+        color = Color.BLACK
         pathEffect = DashPathEffect(floatArrayOf(22f * owner.density, 14f * owner.density), 0f)
     }
     private val guideBaselinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -136,28 +136,28 @@ internal class NoteCanvasDocLayer(
         style = Paint.Style.FILL
         color = 0xEE3D6CF4.toInt()
     }
-    private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3D6CF4.toInt() }
+    private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK }
     private val handleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         setShadowLayer(4f * owner.density, 0f, 1.5f * owner.density, 0x38000000)
     }
     private val handleActiveFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF2563EB.toInt()
-        setShadowLayer(5f * owner.density, 0f, 2f * owner.density, 0x482563EB)
+        color = Color.BLACK
+        setShadowLayer(5f * owner.density, 0f, 2f * owner.density, 0x48000000)
     }
     private val selRing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 2.0f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        color = 0xFF2563EB.toInt()
+        color = Color.BLACK
     }
     private val handleGlyph = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 1.7f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        color = 0xFF2563EB.toInt()
+        color = Color.BLACK
     }
     private val handleGlyphActive = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -168,7 +168,7 @@ internal class NoteCanvasDocLayer(
     }
     private val handleGlyphFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = 0xFF2563EB.toInt()
+        color = Color.BLACK
     }
     private val handleGlyphActiveFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
@@ -233,10 +233,15 @@ internal class NoteCanvasDocLayer(
     private val m = Matrix()
 
     fun startAnts() {
+        // Never restart from phase 0 if already smoothly flowing.
+        if (antsAnim?.isRunning == true) return
         antsAnim?.cancel()
-        antsAnim = ValueAnimator.ofFloat(0f, 26f * density).apply {
-            duration = 600
+        val period = (22f + 14f) * density
+        antsAnim = ValueAnimator.ofFloat(0f, period).apply {
+            duration = 850L
+            interpolator = android.view.animation.LinearInterpolator()
             repeatCount = ValueAnimator.INFINITE
+            repeatMode = ValueAnimator.RESTART
             addUpdateListener {
                 antsPhase = it.animatedValue as Float
                 invalidate()
@@ -476,7 +481,8 @@ internal class NoteCanvasDocLayer(
         r.paperColor = owner.settings.paperTint.argb
         r.highlighterBehind = owner.settings.highlighterBehind
         pageNumberPaint.color = if (Color.luminance(desk) < 0.4f) 0xFFB0B6C0.toInt() else 0xFF7B8391.toInt()
-        tmpViewRect.set(0f, 0f, width.toFloat(), height.toFloat())
+        val viewMargin = 36f * density
+        tmpViewRect.set(-viewMargin, -viewMargin, width.toFloat() + viewMargin, height.toFloat() + viewMargin)
         val active = owner.host.activeHighlight()
         val loaderPhase = ((SystemClock.uptimeMillis() % 1200L) / 1200f)
         var anyPdfLoading = false
@@ -519,10 +525,11 @@ internal class NoteCanvasDocLayer(
             val tsel = owner.host.textSelection(i)
             if (tsel.isNotEmpty()) {
                 val clip = canvas.clipBounds
-                val cl = clip.left.toFloat(); val ct = clip.top.toFloat()
-                val cr = clip.right.toFloat(); val cb = clip.bottom.toFloat()
+                val cull = !clip.isEmpty
+                val cl = clip.left.toFloat() - 24f; val ct = clip.top.toFloat() - 24f
+                val cr = clip.right.toFloat() + 24f; val cb = clip.bottom.toFloat() + 24f
                 for (tr in tsel) {
-                    if (tr.right < cl || tr.left > cr || tr.bottom < ct || tr.top > cb) continue
+                    if (cull && (tr.right < cl || tr.left > cr || tr.bottom < ct || tr.top > cb)) continue
                     canvas.drawRoundRect(tr, 4f, 4f, textSelPaint)
                 }
             }
@@ -820,6 +827,12 @@ internal class NoteCanvasDocLayer(
         canvas.scale(selScale, selScale, sb.centerX(), sb.centerY())
         if (rotating) canvas.rotate(owner.liveDeg, sb.centerX(), sb.centerY())
         val rad = 10f * density
+        if (antsPhase != cachedLassoPhase || cachedLassoDash == null) {
+            cachedLassoPhase = antsPhase
+            cachedLassoDash = DashPathEffect(floatArrayOf(22f * density, 14f * density), antsPhase)
+        }
+        selHaloPaint.pathEffect = cachedLassoDash
+        selPaint.pathEffect = cachedLassoDash
         canvas.drawRoundRect(sb, rad, rad, selHaloPaint)
         canvas.drawRoundRect(sb, rad, rad, selPaint)
 
