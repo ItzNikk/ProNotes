@@ -314,22 +314,26 @@ private fun computeCylindricalCurl(
 ): CylindricalCurlGeometry {
     val p = progress.coerceIn(0.001f, 1f)
     val arcSin = sin(p * PI).toFloat().coerceAtLeast(0f)
-    val clampedTouch = touchY.coerceIn(0.24f, 0.96f)
+    val clampedTouch = touchY.coerceIn(0.06f, 0.94f)
 
     // In 2-page spread mode, only the active right (forward) or left (backward) leaf turns across the spine.
     val sheetL = if (spread && turnDir > 0) w * 0.5f else 0f
     val sheetR = if (spread && turnDir < 0) w * 0.5f else w
     val sheetW = (sheetR - sheetL).coerceAtLeast(1f)
 
-    // Cylinder radius swells smoothly into a rich 3D tube through mid-turn, then relaxes flat at settlement.
-    val swell = kotlin.math.sqrt(arcSin.coerceIn(0f, 1f))
-    val radius = (sheetW * (if (spread) (0.014f + 0.155f * swell) else (0.012f + 0.118f * swell))).coerceAtLeast(4f)
+    // Deep, lush 3D paper roll radius: swells generously during the turn for an unmistakably curly real-book feel.
+    val swell = Math.pow(arcSin.coerceIn(0f, 1f).toDouble(), 0.42).toFloat()
+    val radius = (sheetW * (if (spread) (0.026f + 0.225f * swell) else (0.022f + 0.195f * swell))).coerceAtLeast(6f)
     val halfPiR = (PI * 0.5).toFloat() * radius
     val piR = PI.toFloat() * radius
 
-    // Diagonal angle starts tilted from the bottom corner and straightens smoothly toward vertical as the page settles.
-    val baseTilt = (clampedTouch - 0.5f) * 1.1f
-    val tilt = baseTilt * (1f - p * p)
+    // Truly adaptive flip angle: dragging from the top corner curls downward diagonally,
+    // dragging from the bottom corner curls upward diagonally, and middle-edge drags roll gracefully sideways.
+    // Smoothly straightens toward the spine near settlement so the turned page lands flat.
+    val signedFromMid = (clampedTouch - 0.5f) * 2f // -0.88 (top) .. +0.88 (bottom)
+    val baseTilt = (signedFromMid * 0.92f).coerceIn(-0.82f, 0.82f)
+    val settleEase = (1f - p * p * 0.88f).coerceIn(0.12f, 1f)
+    val tilt = baseTilt * settleEase
     val cosA = kotlin.math.cos(tilt.toDouble()).toFloat()
     val sinA = sin(tilt.toDouble()).toFloat()
     val nx = if (turnDir > 0) cosA else -cosA
@@ -344,18 +348,17 @@ private fun computeCylindricalCurl(
         Offset(sheetL, h),
     )
     val projs = sheetCorners.map { it.x * nx + it.y * ny }
-    val maxProj = projs.maxOrNull() ?: 0f // Always the bottom outer corner (sheetR, h) or (sheetL, h)
-    val minProj = projs.minOrNull() ?: 0f // Opposite top corner
+    // Automatically picks the exact active outer corner (top-right, bottom-right, top-left, or bottom-left)!
+    val maxProj = projs.maxOrNull() ?: 0f
+    val minProj = projs.minOrNull() ?: 0f
 
-    // Start with cylinder crest right at the bottom corner (maxProj - halfPiR), sweep cleanly to settlement.
-    val startOffset = maxProj - halfPiR * 0.92f
+    // Start with cylinder crest tight at the grabbed corner/edge, sweep smoothly across to full turn.
+    val startOffset = maxProj - halfPiR * 0.86f
     val endOffset = if (spread) {
-        // Settle the spine edge cleanly at x = w * 0.5f so back page lays flat over the opposite half.
         val spineProj = (w * 0.5f) * nx + (h * 0.5f) * ny
         spineProj - halfPiR - 2f
     } else {
-        // Clear the entire single-page sheet smoothly off the opposite edge.
-        minProj - piR - sheetW * 0.06f
+        minProj - piR - sheetW * 0.08f
     }
     val lineOffset = startOffset + (endOffset - startOffset) * p
 
@@ -710,20 +713,20 @@ internal fun BookCurlStage(
                                 }
                             }
 
-                            // Cylindrical 3D specular tube highlight + deep valley crease shadow across `[crest .. valley]`
+                            // Deep 3D cylindrical roll lighting: crisp dark curl edge, bright paper-sheen crest, and rich valley shadow
                             val tubeStart = curl.crestMid
-                            val tubeSpan = (r * 1.65f).coerceAtLeast(24f)
+                            val tubeSpan = (r * 1.85f).coerceAtLeast(30f)
                             val tubeEnd = Offset(tubeStart.x - nx * tubeSpan, tubeStart.y - ny * tubeSpan)
-                            val hiAlpha = if (theme.isDark) 0.22f else 0.72f
+                            val hiAlpha = if (theme.isDark) 0.28f else 0.84f
                             drawRect(
                                 brush = Brush.linearGradient(
                                     colorStops = arrayOf(
-                                        0.00f to Color.Black.copy(alpha = 0.34f * arcSin.coerceAtLeast(0.32f)),
-                                        0.16f to Color.Black.copy(alpha = 0.10f * arcSin.coerceAtLeast(0.25f)),
-                                        0.38f to Color.White.copy(alpha = hiAlpha * arcSin.coerceAtLeast(0.45f)),
-                                        0.56f to Color.White.copy(alpha = hiAlpha * 0.40f),
-                                        0.76f to Color.Black.copy(alpha = 0.22f * arcSin.coerceAtLeast(0.30f)),
-                                        0.92f to Color.Black.copy(alpha = 0.07f * arcSin.coerceAtLeast(0.20f)),
+                                        0.00f to Color.Black.copy(alpha = 0.40f * arcSin.coerceAtLeast(0.36f)),
+                                        0.14f to Color.Black.copy(alpha = 0.14f * arcSin.coerceAtLeast(0.28f)),
+                                        0.34f to Color.White.copy(alpha = hiAlpha * arcSin.coerceAtLeast(0.52f)),
+                                        0.52f to Color.White.copy(alpha = hiAlpha * 0.48f),
+                                        0.72f to Color.Black.copy(alpha = 0.28f * arcSin.coerceAtLeast(0.34f)),
+                                        0.90f to Color.Black.copy(alpha = 0.09f * arcSin.coerceAtLeast(0.22f)),
                                         1.00f to Color.Transparent,
                                     ),
                                     start = tubeStart,

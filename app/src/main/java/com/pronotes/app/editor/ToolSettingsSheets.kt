@@ -265,7 +265,22 @@ fun ToolPopoverCard(
                             onPickImage()
                         })
                         Tool.TAPE -> {
-                            SheetSegments(listOf("Straight", "Freehand"), if (vm.tapeFreehand) 1 else 0) { vm.tapeFreehand = it == 1 }
+                            SheetSegments(
+                                listOf("Straight", "Rectangle", "Freehand"),
+                                when (vm.tapeMode) {
+                                    TapeMode.STRAIGHT -> 0
+                                    TapeMode.RECTANGLE -> 1
+                                    TapeMode.FREEHAND -> 2
+                                },
+                            ) { idx ->
+                                vm.updateTapeMode(
+                                    when (idx) {
+                                        1 -> TapeMode.RECTANGLE
+                                        2 -> TapeMode.FREEHAND
+                                        else -> TapeMode.STRAIGHT
+                                    },
+                                )
+                            }
                             Row(verticalAlignment = Alignment.CenterVertically) { CustomSwatches(TapeColors, vm.tapeColor, vm) { vm.tapeColor = it } }
                             TapePatternPicker(vm) {
                                 pickTape.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))

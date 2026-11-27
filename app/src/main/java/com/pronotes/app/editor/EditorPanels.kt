@@ -390,6 +390,19 @@ internal fun TopBar(
         }
         Spacer(Modifier.width(3.dp))
 
+        val insertItems = remember(vm, onImportFiles, onAddWebLink, onVideo, onTemplates) {
+            listOf(
+                AppMenuItem("New page after this") { vm.addPage() },
+                AppMenuItem("New page at the end") { vm.addPage(atEnd = true) },
+                AppMenuItem("Add table") { vm.openAddTable() },
+                AppMenuItem("Add web page (live)") { onAddWebLink() },
+                AppMenuItem("Add write box") { vm.addWriteBox() },
+                AppMenuItem("Import file") { onImportFiles() },
+                AppMenuItem("Floating video") { onVideo() },
+                AppMenuItem("Infinite whiteboard page") { vm.addPage(paper = PaperStyle.DOTTED, isWhiteboard = true) },
+                AppMenuItem("Choose a template…") { onTemplates() },
+            )
+        }
         AppMenuButton(
             contentDescription = "Insert into notebook",
             containerColor = ProButtonPalette.Emerald.copy(alpha = 0.24f),
@@ -397,18 +410,16 @@ internal fun TopBar(
             buttonContent = {
                 ProIconView(ProIcon.ADD, Color(0xFF6EE7B7), Modifier.size(20.dp))
             },
-            items = listOf(
-                AppMenuItem("New page after this") { vm.addPage() },
-                AppMenuItem("New page at the end") { vm.addPage(atEnd = true) },
-                AppMenuItem("Add write box") { vm.addWriteBox() },
-                AppMenuItem("Import file") { onImportFiles() },
-                AppMenuItem("Add web link") { onAddWebLink() },
-                AppMenuItem("Floating video") { onVideo() },
-                AppMenuItem("Infinite whiteboard page") { vm.addPage(paper = PaperStyle.DOTTED, isWhiteboard = true) },
-                AppMenuItem("Choose a template…") { onTemplates() },
-            ),
+            items = insertItems,
         )
         Spacer(Modifier.width(3.dp))
+        val shareItems = remember(onExport, onShare, onSharePage) {
+            listOf(
+                AppMenuItem("Export as PDF…", iconVector = Icons.Outlined.PictureAsPdf) { onExport() },
+                AppMenuItem("Share PDF", iconVector = Icons.Outlined.IosShare) { onShare() },
+                AppMenuItem("Share this page as image", iconVector = Icons.Outlined.Image) { onSharePage() },
+            )
+        }
         if (!compact) AppMenuButton(
             contentDescription = "Share and export",
             containerColor = ProButtonPalette.SkyCyan.copy(alpha = 0.24f),
@@ -416,11 +427,7 @@ internal fun TopBar(
             buttonContent = {
                 ProIconView(ProIcon.SHARE, Color(0xFF7DD3FC), Modifier.size(20.dp))
             },
-            items = listOf(
-                AppMenuItem("Export as PDF…", icon = { Icon(Icons.Outlined.PictureAsPdf, null, Modifier.size(18.dp)) }) { onExport() },
-                AppMenuItem("Share PDF", icon = { Icon(Icons.Outlined.IosShare, null, Modifier.size(18.dp)) }) { onShare() },
-                AppMenuItem("Share this page as image", icon = { Icon(Icons.Outlined.Image, null, Modifier.size(18.dp)) }) { onSharePage() },
-            ),
+            items = shareItems,
         )
         Spacer(Modifier.width(3.dp))
         val moreEntries = buildList {

@@ -637,7 +637,7 @@ internal fun NewNotebookDialog(
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.4f
     val accentBlue = Color(0xFF0A84FF)
 
-    var name by remember { mutableStateOf("") }
+    val nameState = remember { mutableStateOf("") }
     // Default to warm kraft-taupe "Simple" cover unless user prefers Page 1 thumbnails
     val startColor = remember { CoverColors.getOrElse(6) { CoverColors.first() } }
     var cover by remember { mutableStateOf(if (defaults.thumbCovers) "thumb" else "solid:$startColor") }
@@ -698,7 +698,7 @@ internal fun NewNotebookDialog(
         val k = PagePreset.UNITS_PER_MM
         onCreate(
             NewBook(
-                name = name.trim().ifBlank { if (preset.isWhiteboard) "Whiteboard" else "Untitled Notebook" },
+                name = nameState.value.trim().ifBlank { if (preset.isWhiteboard) "Whiteboard" else "Untitled Notebook" },
                 cover = if (cover == "photo") "" else cover,
                 coverColor = color,
                 paper = paper,
@@ -715,29 +715,6 @@ internal fun NewNotebookDialog(
 
     val screenWidthDp = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp
     val wide = screenWidthDp >= 590
-    val density = androidx.compose.ui.platform.LocalDensity.current
-
-    // Pre-warm visible paper templates off the main thread so scrolling the template gallery has zero frame drops.
-    androidx.compose.runtime.LaunchedEffect(previewPaperColor, effectiveLandscape) {
-        val tileW = with(density) { (if (effectiveLandscape) 86.dp else 66.dp).toPx() }.toInt().coerceAtLeast(64)
-        val tileH = with(density) { (if (effectiveLandscape) 60.dp else 88.dp).toPx() }.toInt().coerceAtLeast(64)
-        val bucketW = (((tileW + 31) / 32) * 32).coerceAtLeast(64)
-        val bucketH = (tileH * (bucketW.toFloat() / tileW)).toInt().coerceAtLeast(64)
-        val pw = if (effectiveLandscape) com.pronotes.app.data.PageSize.HEIGHT else com.pronotes.app.data.PageSize.WIDTH
-        val ph = if (effectiveLandscape) com.pronotes.app.data.PageSize.WIDTH else com.pronotes.app.data.PageSize.HEIGHT
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-            CreatorPaperSections.forEach { (_, styles) ->
-                styles.forEach { st ->
-                    if (st != PaperStyle.BLANK) {
-                        CoverCache.paper(st, previewPaperColor, bucketW, bucketH, pw, ph)
-                    }
-                }
-            }
-            CreatorPatternCoverSpecs.forEach { (spec, _) ->
-                CoverCache.get(spec, bucketW, bucketH)
-            }
-        }
-    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -747,7 +724,7 @@ internal fun NewNotebookDialog(
             shape = RoundedCornerShape(22.dp),
             color = galleryBg,
             tonalElevation = 0.dp,
-            shadowElevation = 10.dp,
+            shadowElevation = 4.dp,
             modifier = Modifier
                 .padding(horizontal = 16.dp, vertical = 20.dp)
                 .fillMaxWidth()
@@ -775,8 +752,7 @@ internal fun NewNotebookDialog(
                                 primaryText = primaryText,
                                 mutedText = mutedText,
                                 accentBlue = accentBlue,
-                                name = name,
-                                onNameChange = { name = it },
+                                nameState = nameState,
                                 isWhiteboard = preset.isWhiteboard,
                                 cover = cover,
                                 photo = photo,
@@ -844,8 +820,7 @@ internal fun NewNotebookDialog(
                                 primaryText = primaryText,
                                 mutedText = mutedText,
                                 accentBlue = accentBlue,
-                                name = name,
-                                onNameChange = { name = it },
+                                nameState = nameState,
                                 isWhiteboard = preset.isWhiteboard,
                                 cover = cover,
                                 photo = photo,
@@ -974,6 +949,54 @@ internal fun NewNotebookDialog(
 }
 
 @Composable
+private fun CreatorTitleField(
+    nameState: androidx.compose.runtime.MutableState<String>,
+    isWhiteboard: Boolean,
+    dark: Boolean,
+    pillBorder: Color,
+    primaryText: Color,
+    mutedText: Color,
+    accentBlue: Color,
+    strings: com.pronotes.app.data.AppStrings,
+) {
+    val name = nameState.value
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = strings.title,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = primaryText,
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (dark) Color(0xFF282A2E) else MaterialTheme.colorScheme.surface)
+                .border(1.dp, pillBorder, RoundedCornerShape(10.dp))
+                .padding(horizontal = 12.dp, vertical = 11.dp),
+        ) {
+            if (name.isEmpty()) {
+                Text(
+                    text = if (isWhiteboard) "Untitled Whiteboard" else strings.untitledNotebook,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = mutedText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            BasicTextField(
+                value = name,
+                onValueChange = { nameState.value = it },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = primaryText),
+                cursorBrush = SolidColor(accentBlue),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
 private fun CreatorInspectorPane(
     modifier: Modifier,
     wide: Boolean,
@@ -983,8 +1006,7 @@ private fun CreatorInspectorPane(
     primaryText: Color,
     mutedText: Color,
     accentBlue: Color,
-    name: String,
-    onNameChange: (String) -> Unit,
+    nameState: androidx.compose.runtime.MutableState<String>,
     isWhiteboard: Boolean,
     cover: String,
     photo: Uri?,
@@ -1002,41 +1024,17 @@ private fun CreatorInspectorPane(
             .padding(horizontal = 18.dp, vertical = 18.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        // Title input isolated so typing never recomposes the template gallery.
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = strings.title,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = primaryText,
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (dark) Color(0xFF282A2E) else MaterialTheme.colorScheme.surface)
-                    .border(1.dp, pillBorder, RoundedCornerShape(10.dp))
-                    .padding(horizontal = 12.dp, vertical = 11.dp),
-            ) {
-                if (name.isEmpty()) {
-                    Text(
-                        text = if (isWhiteboard) "Untitled Whiteboard" else strings.untitledNotebook,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = mutedText,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                BasicTextField(
-                    value = name,
-                    onValueChange = onNameChange,
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = primaryText),
-                    cursorBrush = SolidColor(accentBlue),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
+        // Title input completely isolated in its own recomposition scope so typing never recomposes any preview or gallery tile.
+        CreatorTitleField(
+            nameState = nameState,
+            isWhiteboard = isWhiteboard,
+            dark = dark,
+            pillBorder = pillBorder,
+            primaryText = primaryText,
+            mutedText = mutedText,
+            accentBlue = accentBlue,
+            strings = strings,
+        )
 
         val wDp = if (wide) (if (effectiveLandscape) 128.dp else 92.dp) else (if (effectiveLandscape) 78.dp else 56.dp)
         val hDp = if (wide) (if (effectiveLandscape) 90.dp else 122.dp) else (if (effectiveLandscape) 56.dp else 76.dp)

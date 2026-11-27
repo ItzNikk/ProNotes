@@ -923,20 +923,27 @@ class Repository private constructor(private val context: Context) {
                 if (n.id == id) n.copy(modified = System.currentTimeMillis(), pageCount = pages.size) else n
             })
         }
-        val treeUri = SettingsStore.get(context).settings.value.storageFolderUri
-        if (treeUri.isNotBlank()) {
+        val primaryTreeUri = SettingsStore.get(context).settings.value.storageFolderUri
+        val linkedCloudUris = CloudStorageStore.linkedFolderUris(context)
+        val allMirrorUris = buildList {
+            if (primaryTreeUri.isNotBlank()) add(primaryTreeUri)
+            linkedCloudUris.forEach { if (it.isNotBlank() && it != primaryTreeUri) add(it) }
+        }
+        if (allMirrorUris.isNotEmpty()) {
             val title = meta(id)?.title ?: "Notebook"
             val libJson = readSerializedLibraryIndex()
             val noteJson = readSerializedNoteDoc(id)
             appScope.launch {
-                StorageFolderSync.mirrorNotebook(
-                    context = context,
-                    treeUriStr = treeUri,
-                    libraryJson = libJson,
-                    noteId = id,
-                    noteTitle = title,
-                    noteJson = noteJson,
-                )
+                allMirrorUris.forEach { targetTreeUri ->
+                    StorageFolderSync.mirrorNotebook(
+                        context = context,
+                        treeUriStr = targetTreeUri,
+                        libraryJson = libJson,
+                        noteId = id,
+                        noteTitle = title,
+                        noteJson = noteJson,
+                    )
+                }
             }
         }
     }

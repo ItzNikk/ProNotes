@@ -88,34 +88,34 @@ internal class NoteCanvasDocLayer(
 
     private val lassoHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 7.4f * owner.density
+        strokeWidth = 3.4f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        color = 0xE6FFFFFF.toInt()
+        color = 0xCCFFFFFF.toInt()
     }
     private val lassoPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 5.4f * owner.density
+        strokeWidth = 1.85f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         color = Color.BLACK
     }
-    private val lassoFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x12000000 }
+    private val lassoFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x0E000000 }
     private val selHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 9.2f * owner.density
+        strokeWidth = 3.4f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        color = 0xE6FFFFFF.toInt()
-        pathEffect = DashPathEffect(floatArrayOf(22f * owner.density, 14f * owner.density), 0f)
+        color = 0xCCFFFFFF.toInt()
+        pathEffect = DashPathEffect(floatArrayOf(9f * owner.density, 6f * owner.density), 0f)
     }
     private val selPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 5.4f * owner.density
+        strokeWidth = 1.85f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         color = Color.BLACK
-        pathEffect = DashPathEffect(floatArrayOf(22f * owner.density, 14f * owner.density), 0f)
+        pathEffect = DashPathEffect(floatArrayOf(9f * owner.density, 6f * owner.density), 0f)
     }
     private val guideBaselinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -139,29 +139,29 @@ internal class NoteCanvasDocLayer(
     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK }
     private val handleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
-        setShadowLayer(4f * owner.density, 0f, 1.5f * owner.density, 0x38000000)
+        setShadowLayer(2.5f * owner.density, 0f, 1f * owner.density, 0x30000000)
     }
     private val handleActiveFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.BLACK
-        setShadowLayer(5f * owner.density, 0f, 2f * owner.density, 0x48000000)
+        setShadowLayer(3.5f * owner.density, 0f, 1.5f * owner.density, 0x42000000)
     }
     private val selRing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 2.0f * owner.density
+        strokeWidth = 1.35f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         color = Color.BLACK
     }
     private val handleGlyph = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1.7f * owner.density
+        strokeWidth = 1.25f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         color = Color.BLACK
     }
     private val handleGlyphActive = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1.7f * owner.density
+        strokeWidth = 1.25f * owner.density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         color = Color.WHITE
@@ -236,9 +236,9 @@ internal class NoteCanvasDocLayer(
         // Never restart from phase 0 if already smoothly flowing.
         if (antsAnim?.isRunning == true) return
         antsAnim?.cancel()
-        val period = (22f + 14f) * density
+        val period = (9f + 6f) * density
         antsAnim = ValueAnimator.ofFloat(0f, period).apply {
-            duration = 850L
+            duration = 620L
             interpolator = android.view.animation.LinearInterpolator()
             repeatCount = ValueAnimator.INFINITE
             repeatMode = ValueAnimator.RESTART
@@ -549,8 +549,10 @@ internal class NoteCanvasDocLayer(
                 tapePreviewPaint.style = Paint.Style.FILL
             }
             shapePreview?.takeIf { i == owner.activePage && it.isNotEmpty() }?.let { lines ->
-                val shapeBrush = owner.host.brush(Tool.SHAPE)
-                val fill = if (owner.host.shapeKind().closed) owner.host.shapeFill() else null
+                val previewTool = if (owner.mode == NoteCanvasView.Mode.HOLD_SHAPE_ADJUST) owner.holdShapeBrushTool else Tool.SHAPE
+                val shapeBrush = owner.host.brush(previewTool)
+                val fillable = if (owner.mode == NoteCanvasView.Mode.HOLD_SHAPE_ADJUST) owner.holdShapeFillable else owner.host.shapeKind().closed
+                val fill = if (fillable) owner.host.shapeFill() else null
                 if (fill != null) {
                     val outline = lines.first()
                     if (outline.size > 2) {
@@ -826,34 +828,33 @@ internal class NoteCanvasDocLayer(
         canvas.save()
         canvas.scale(selScale, selScale, sb.centerX(), sb.centerY())
         if (rotating) canvas.rotate(owner.liveDeg, sb.centerX(), sb.centerY())
-        val rad = 10f * density
+        val rad = 7f * density
         if (antsPhase != cachedLassoPhase || cachedLassoDash == null) {
             cachedLassoPhase = antsPhase
-            cachedLassoDash = DashPathEffect(floatArrayOf(22f * density, 14f * density), antsPhase)
+            cachedLassoDash = DashPathEffect(floatArrayOf(9f * density, 6f * density), antsPhase)
         }
         selHaloPaint.pathEffect = cachedLassoDash
         selPaint.pathEffect = cachedLassoDash
         canvas.drawRoundRect(sb, rad, rad, selHaloPaint)
         canvas.drawRoundRect(sb, rad, rad, selPaint)
 
-        // Elevated rotate handle button with curved arrow + crisp arrowhead
-        val rotR = 11.5f * density
+        // Compact rotate handle button with curved arrow
+        val rotR = 8.2f * density
         val rx = sb.centerX()
         val ry = sb.top - owner.rotateHandleOffset()
-        canvas.drawLine(rx, sb.top, rx, ry + rotR, handlePaint.apply { strokeWidth = 1.8f * density })
+        canvas.drawLine(rx, sb.top, rx, ry + rotR, handlePaint.apply { strokeWidth = 1.3f * density })
         val rotActive = owner.liveMatrix != null && owner.grab == NoteCanvasView.Grab.ROTATE
         canvas.drawCircle(rx, ry, rotR, if (rotActive) handleActiveFill else handleFill)
         if (!rotActive) canvas.drawCircle(rx, ry, rotR, selRing)
-        val iconR = rotR * 0.48f
+        val iconR = rotR * 0.46f
         val rStroke = if (rotActive) handleGlyphActive else handleGlyph
         val rFill = if (rotActive) handleGlyphActiveFill else handleGlyphFill
         tmpArcRect.set(rx - iconR, ry - iconR, rx + iconR, ry + iconR)
         canvas.drawArc(tmpArcRect, -62f, 268f, false, rStroke)
-        // Arrowhead at end of arc (-62 + 268 = 206 deg -> pointing up-right along tangent)
         val tipAngle = Math.toRadians(-62.0)
         val tipX = rx + (iconR * cos(tipAngle)).toFloat()
         val tipY = ry + (iconR * sin(tipAngle)).toFloat()
-        val ah = 3.2f * density
+        val ah = 2.4f * density
         rotateArrowPath.reset()
         rotateArrowPath.moveTo(tipX + ah * 0.55f, tipY + ah * 0.65f)
         rotateArrowPath.lineTo(tipX - ah * 0.85f, tipY + ah * 0.35f)
@@ -861,15 +862,15 @@ internal class NoteCanvasDocLayer(
         rotateArrowPath.close()
         canvas.drawPath(rotateArrowPath, rFill)
 
-        // Corner resize handles with elevated circular pill + subtle diagonal resize cue
-        val hr = 7.6f * density
+        // Compact corner resize handles
+        val hr = 5.0f * density
         val scaleActive = owner.liveMatrix != null && owner.grab == NoteCanvasView.Grab.SCALE
         val cFill = if (scaleActive) handleActiveFill else handleFill
         val cGlyph = if (scaleActive) handleGlyphActive else handleGlyph
         fun drawCornerHandle(cx: Float, cy: Float, diagSign: Float) {
             canvas.drawCircle(cx, cy, hr, cFill)
             if (!scaleActive) canvas.drawCircle(cx, cy, hr, selRing)
-            val d = hr * 0.34f
+            val d = hr * 0.32f
             canvas.drawLine(cx - d, cy - d * diagSign, cx + d, cy + d * diagSign, cGlyph)
         }
         drawCornerHandle(sb.left, sb.top, 1f)
@@ -877,9 +878,9 @@ internal class NoteCanvasDocLayer(
         drawCornerHandle(sb.left, sb.bottom, -1f)
         drawCornerHandle(sb.right, sb.bottom, 1f)
 
-        // Edge stretch handles (clean elevated pill capsules)
-        val pw = 9.5f * density
-        val ph = 3.6f * density
+        // Slim edge stretch bars (thin black-outlined pills)
+        val pw = 6.2f * density
+        val ph = 2.1f * density
         fun drawEdgeHandle(l: Float, t: Float, r: Float, b: Float, active: Boolean) {
             tmpHandleRect.set(l, t, r, b)
             canvas.drawRoundRect(tmpHandleRect, ph, ph, if (active) handleActiveFill else handleFill)
@@ -936,7 +937,7 @@ internal class NoteCanvasDocLayer(
         // Keep the entire contour dashed, including circle-to-lasso conversion.
         if (antsPhase != cachedLassoPhase || cachedLassoDash == null) {
             cachedLassoPhase = antsPhase
-            cachedLassoDash = DashPathEffect(floatArrayOf(22f * density, 14f * density), antsPhase)
+            cachedLassoDash = DashPathEffect(floatArrayOf(9f * density, 6f * density), antsPhase)
         }
         lassoHaloPaint.pathEffect = cachedLassoDash
         lassoPaint.pathEffect = cachedLassoDash

@@ -74,6 +74,7 @@ import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material.icons.outlined.Remove
+import androidx.compose.material.icons.outlined.TableChart
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Icon
@@ -2239,13 +2240,14 @@ internal fun WebLinkDialog(vm: EditorViewModel, edit: EditorViewModel.WebLinkEdi
     var linkTitle by remember(edit) { mutableStateOf(edit.item.title) }
     var note by remember(edit) { mutableStateOf(edit.item.note) }
     var color by remember(edit) { mutableStateOf(edit.item.color) }
+    var embedded by remember(edit) { mutableStateOf(if (edit.isNew) true else edit.item.embedded) }
     AppDialog(
         onDismissRequest = { vm.webLinkEdit = null },
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ProIconView(ProIcon.WEBLINK, Color(color), Modifier.size(22.dp), ink = Color(color).copy(alpha = 0.25f))
                 Spacer(Modifier.width(8.dp))
-                Text(if (edit.isNew) "Add Link Preview" else "Link Preview", Modifier.weight(1f))
+                Text(if (edit.isNew) "Add Web Page" else "Edit Web Page", Modifier.weight(1f))
                 if (!edit.isNew && url.isNotBlank()) {
                     TextButton(onClick = { vm.openExternalUrl(url) }) { Text("Open URL") }
                 }
@@ -2253,6 +2255,18 @@ internal fun WebLinkDialog(vm: EditorViewModel, edit: EditorViewModel.WebLinkEdi
         },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                AppSegmentedControl(
+                    options = listOf("Live Web Page", "Link Card"),
+                    selectedIndex = if (embedded) 0 else 1,
+                    onSelect = { embedded = it == 0 },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    if (embedded) "Opens live inside this page — scroll, tap links, drag the top bar to move, or drag the corner to resize."
+                    else "Places a compact clickable bookmark card on the page.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 OutlinedTextField(
                     value = url,
                     onValueChange = { url = it },
@@ -2271,16 +2285,18 @@ internal fun WebLinkDialog(vm: EditorViewModel, edit: EditorViewModel.WebLinkEdi
                     placeholder = { Text("Uses domain automatically if empty") },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
-                    value = note,
-                    onValueChange = { note = it },
-                    minLines = 2,
-                    maxLines = 4,
-                    shape = RoundedCornerShape(16.dp),
-                    label = { Text("Reference note (optional)") },
-                    placeholder = { Text("Why this link matters for this chapter…") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                if (!embedded) {
+                    OutlinedTextField(
+                        value = note,
+                        onValueChange = { note = it },
+                        minLines = 2,
+                        maxLines = 4,
+                        shape = RoundedCornerShape(16.dp),
+                        label = { Text("Reference note (optional)") },
+                        placeholder = { Text("Why this link matters for this chapter…") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
                 Text("ACCENT COLOUR", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     WebLinkColors.forEach { c -> Swatch(c, c == color, 20) { color = c } }
@@ -2288,8 +2304,8 @@ internal fun WebLinkDialog(vm: EditorViewModel, edit: EditorViewModel.WebLinkEdi
             }
         },
         confirmButton = {
-            TextButton(enabled = url.trim().isNotBlank(), onClick = { vm.commitWebLink(url, linkTitle, note, color) }) {
-                Text("Save")
+            TextButton(enabled = url.trim().isNotBlank(), onClick = { vm.commitWebLink(url, linkTitle, note, color, embedded) }) {
+                Text(if (embedded) "Embed Page" else "Save")
             }
         },
         dismissButton = {
@@ -2298,6 +2314,403 @@ internal fun WebLinkDialog(vm: EditorViewModel, edit: EditorViewModel.WebLinkEdi
                     if (edit.isNew) "Cancel" else "Delete",
                     color = if (edit.isNew) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
                 )
+            }
+        },
+    )
+}
+
+private val TableAccentPalette = listOf(
+    0xFF2563EB.toInt(),
+    0xFF0F766E.toInt(),
+    0xFF7C3AED.toInt(),
+    0xFFDC2626.toInt(),
+    0xFFD97706.toInt(),
+    0xFF334155.toInt(),
+    0xFF059669.toInt(),
+    0xFFDB2777.toInt(),
+)
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun AddTableDialog(
+    defaultColor: Int,
+    onDismiss: () -> Unit,
+    onCreate: (rows: Int, cols: Int, headerRow: Boolean, color: Int) -> Unit,
+) {
+    var rows by remember { mutableIntStateOf(4) }
+    var cols by remember { mutableIntStateOf(3) }
+    var headerRow by remember { mutableStateOf(true) }
+    var color by remember { mutableIntStateOf(defaultColor) }
+    val accent = Color(color)
+
+    AppDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.TableChart, contentDescription = null, tint = accent, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Insert Table")
+            }
+        },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Works on both notebooks and PDFs. Write directly on cells with your pen or tap any cell to type with the keyboard.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                // Mini live table preview
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(1.2.dp, accent.copy(alpha = 0.65f), RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerLowest),
+                ) {
+                    val previewRows = rows.coerceAtMost(6)
+                    val previewCols = cols.coerceAtMost(6)
+                    repeat(previewRows) { r ->
+                        val isHdr = headerRow && r == 0
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(if (isHdr) 22.dp else 18.dp)
+                                .background(
+                                    when {
+                                        isHdr -> accent.copy(alpha = 0.20f)
+                                        r % 2 == 1 -> accent.copy(alpha = 0.05f)
+                                        else -> Color.Transparent
+                                    },
+                                ),
+                        ) {
+                            repeat(previewCols) { c ->
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxSize()
+                                        .border(0.5.dp, accent.copy(alpha = 0.28f)),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    if (isHdr) {
+                                        Box(
+                                            Modifier
+                                                .fillMaxWidth(0.5f)
+                                                .height(3.dp)
+                                                .clip(CircleShape)
+                                                .background(accent.copy(alpha = 0.55f)),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // Rows & Columns steppers
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TableStepper("Rows", rows, 2, 14, Modifier.weight(1f)) { rows = it }
+                    TableStepper("Columns", cols, 2, 8, Modifier.weight(1f)) { cols = it }
+                }
+                // Header row toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Header row", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                        Text("Tinted bold top row", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    androidx.compose.material3.Switch(checked = headerRow, onCheckedChange = { headerRow = it })
+                }
+                Text("ACCENT COLOUR", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TableAccentPalette.forEach { c -> Swatch(c, c == color, 22) { color = c } }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onCreate(rows, cols, headerRow, color) }) {
+                Text("Insert Table")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+    )
+}
+
+@Composable
+private fun TableStepper(
+    label: String,
+    value: Int,
+    min: Int,
+    max: Int,
+    modifier: Modifier = Modifier,
+    onChange: (Int) -> Unit,
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            IconButton(onClick = { if (value > min) onChange(value - 1) }, enabled = value > min, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Outlined.Remove, contentDescription = "Decrease $label", modifier = Modifier.size(18.dp))
+            }
+            Text("$value", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            IconButton(onClick = { if (value < max) onChange(value + 1) }, enabled = value < max, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Outlined.Add, contentDescription = "Increase $label", modifier = Modifier.size(18.dp))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun TableEditorDialog(
+    edit: EditorViewModel.TableEdit,
+    onSave: (TableItem) -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var rows by remember(edit) { mutableIntStateOf(edit.item.rows) }
+    var cols by remember(edit) { mutableIntStateOf(edit.item.cols) }
+    var headerRow by remember(edit) { mutableStateOf(edit.item.headerRow) }
+    var color by remember(edit) { mutableIntStateOf(edit.item.color) }
+    val cells = remember(edit) {
+        mutableStateListOf<String>().apply {
+            val total = edit.item.rows * edit.item.cols
+            for (i in 0 until total) add(edit.item.cells.getOrElse(i) { "" })
+        }
+    }
+    var selRow by remember(edit) { mutableIntStateOf(edit.row.coerceIn(0, (edit.item.rows - 1).coerceAtLeast(0))) }
+    var selCol by remember(edit) { mutableIntStateOf(edit.col.coerceIn(0, (edit.item.cols - 1).coerceAtLeast(0))) }
+
+    fun cellIndex(r: Int, c: Int): Int = r * cols + c
+    fun cellValue(r: Int, c: Int): String = cells.getOrElse(cellIndex(r, c)) { "" }
+    fun setCellValue(r: Int, c: Int, value: String) {
+        val idx = cellIndex(r, c)
+        if (idx in cells.indices) cells[idx] = value
+    }
+
+    fun addRow() {
+        if (rows >= 20) return
+        repeat(cols) { cells.add("") }
+        rows++
+        selRow = rows - 1
+    }
+
+    fun removeRow() {
+        if (rows <= 1) return
+        repeat(cols) { if (cells.isNotEmpty()) cells.removeAt(cells.lastIndex) }
+        rows--
+        selRow = selRow.coerceIn(0, rows - 1)
+    }
+
+    fun addCol() {
+        if (cols >= 12) return
+        val next = ArrayList<String>(rows * (cols + 1))
+        for (r in 0 until rows) {
+            for (c in 0 until cols) next.add(cellValue(r, c))
+            next.add("")
+        }
+        cells.clear()
+        cells.addAll(next)
+        cols++
+        selCol = cols - 1
+    }
+
+    fun removeCol() {
+        if (cols <= 1) return
+        val next = ArrayList<String>(rows * (cols - 1))
+        for (r in 0 until rows) {
+            for (c in 0 until cols - 1) next.add(cellValue(r, c))
+        }
+        cells.clear()
+        cells.addAll(next)
+        cols--
+        selCol = selCol.coerceIn(0, cols - 1)
+    }
+
+    fun stepCell(delta: Int) {
+        val total = (rows * cols).coerceAtLeast(1)
+        val next = ((selRow * cols + selCol) + delta + total) % total
+        selRow = next / cols
+        selCol = next % cols
+    }
+
+    val accent = Color(color)
+    val activeIdx = cellIndex(selRow, selCol)
+    val activeText = cells.getOrElse(activeIdx) { "" }
+    val activeLabel = if (headerRow && selRow == 0) "Header ${selCol + 1}" else "Row ${selRow + 1} · Col ${selCol + 1}"
+
+    AppDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.TableChart, contentDescription = null, tint = accent, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Edit Table", Modifier.weight(1f))
+                Text(
+                    "${rows}×${cols}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Interactive mini-table grid: tap any cell to select and type
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 210.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(1.2.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                        .horizontalScroll(rememberScrollState())
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    Column {
+                        for (r in 0 until rows) {
+                            val isHdr = headerRow && r == 0
+                            Row {
+                                for (c in 0 until cols) {
+                                    val isSel = r == selRow && c == selCol
+                                    val txt = cellValue(r, c)
+                                    Box(
+                                        modifier = Modifier
+                                            .width(96.dp)
+                                            .height(38.dp)
+                                            .background(
+                                                when {
+                                                    isSel -> accent.copy(alpha = 0.22f)
+                                                    isHdr -> accent.copy(alpha = 0.12f)
+                                                    r % 2 == 1 -> accent.copy(alpha = 0.04f)
+                                                    else -> Color.Transparent
+                                                },
+                                            )
+                                            .border(
+                                                width = if (isSel) 2.dp else 0.5.dp,
+                                                color = if (isSel) accent else accent.copy(alpha = 0.28f),
+                                            )
+                                            .clickable {
+                                                selRow = r
+                                                selCol = c
+                                            }
+                                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                                        contentAlignment = Alignment.CenterStart,
+                                    ) {
+                                        Text(
+                                            text = txt.ifBlank { if (isHdr) "H${c + 1}" else "·" },
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = if (isHdr || isSel) FontWeight.SemiBold else FontWeight.Normal,
+                                            color = if (txt.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                                            else MaterialTheme.colorScheme.onSurface,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Active cell keyboard input + Prev/Next navigation
+                OutlinedTextField(
+                    value = activeText,
+                    onValueChange = { setCellValue(selRow, selCol, it) },
+                    label = { Text(activeLabel) },
+                    placeholder = { Text("Type cell text…") },
+                    minLines = 1,
+                    maxLines = 3,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    TextButton(onClick = { stepCell(-1) }, modifier = Modifier.weight(1f)) {
+                        Text("← Prev Cell")
+                    }
+                    TextButton(onClick = { stepCell(1) }, modifier = Modifier.weight(1f)) {
+                        Text("Next Cell →")
+                    }
+                }
+
+                // Row & Column quick structure controls
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    TextButton(onClick = { addRow() }, enabled = rows < 20, modifier = Modifier.weight(1f)) {
+                        Text("+ Row")
+                    }
+                    TextButton(onClick = { removeRow() }, enabled = rows > 1, modifier = Modifier.weight(1f)) {
+                        Text("− Row")
+                    }
+                    TextButton(onClick = { addCol() }, enabled = cols < 12, modifier = Modifier.weight(1f)) {
+                        Text("+ Col")
+                    }
+                    TextButton(onClick = { removeCol() }, enabled = cols > 1, modifier = Modifier.weight(1f)) {
+                        Text("− Col")
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Header row", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    androidx.compose.material3.Switch(checked = headerRow, onCheckedChange = { headerRow = it })
+                }
+
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TableAccentPalette.forEach { c -> Swatch(c, c == color, 20) { color = c } }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val rowScale = rows.toFloat() / edit.item.rows.coerceAtLeast(1)
+                    val colScale = cols.toFloat() / edit.item.cols.coerceAtLeast(1)
+                    val nextW = (edit.item.w * colScale).coerceIn(220f, 1120f)
+                    val nextH = (edit.item.h * rowScale).coerceIn(96f, 1400f)
+                    onSave(
+                        edit.item.copy(
+                            rows = rows,
+                            cols = cols,
+                            w = nextW,
+                            h = nextH,
+                            cells = cells.toList(),
+                            color = color,
+                            headerRow = headerRow,
+                        ),
+                    )
+                },
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onDelete) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         },
     )

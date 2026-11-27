@@ -25,7 +25,7 @@ internal fun NoteCanvasView.eraserAllows(item: PageItem): Boolean {
         is InkItem -> if (item.isHighlighter) ef.highlighter else ef.ink
         is FillItem -> ef.shapes
         is TextItem, is WriteBoxItem -> ef.text
-        is StickyItem, is TapeItem, is WebLinkItem, is MindNodeItem -> ef.stickyAndTape
+        is StickyItem, is TapeItem, is WebLinkItem, is MindNodeItem, is TableItem -> ef.stickyAndTape
         is ImageItem -> ef.images
     }
 }

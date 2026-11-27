@@ -73,6 +73,7 @@ import androidx.compose.material.icons.rounded.AccessTime
 import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.ChevronLeft
+import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.ContentPaste
@@ -359,6 +360,7 @@ fun LibraryScreen(
         )
     }
     var pasteImportOpen by remember { mutableStateOf(false) }
+    var cloudStorageOpen by remember { mutableStateOf(false) }
     var folderEdit by remember { mutableStateOf<Folder?>(null) }
     var newFolder by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<Entry?>(null) }
@@ -818,6 +820,10 @@ fun LibraryScreen(
                                         else "Storage: ${newBookPrefs.storageFolderLabel}",
                                         iconVector = Icons.Rounded.FolderSpecial,
                                     ) { pickStorageFolder.launch(null) },
+                                    AppMenuItem(
+                                        "Cloud Storage (Drive · OneDrive · iCloud)",
+                                        iconVector = Icons.Rounded.Cloud,
+                                    ) { cloudStorageOpen = true },
                                     AppMenuItem(appStrings.importFiles, iconVector = Icons.Rounded.UploadFile) {
                                         importFilesLauncher.launch(arrayOf("*/*"))
                                     },
@@ -1274,6 +1280,35 @@ fun LibraryScreen(
                 ) { Text("Import") }
             },
             dismissButton = { TextButton(onClick = { pasteImportOpen = false }) { Text("Cancel") } },
+        )
+    }
+
+    if (cloudStorageOpen) {
+        com.pronotes.app.data.CloudStorageDialog(
+            repo = repo,
+            onImportDocuments = { uris ->
+                if (uris.isNotEmpty()) scope.launch {
+                    try {
+                        runCatching {
+                            repo.importFiles(uris, folderId) { title, page, total ->
+                                pdfImportProgress = Triple(title, page, total)
+                            }
+                        }.onSuccess { id ->
+                            id?.let(onOpen)
+                        }.onFailure { err ->
+                            val msg = if (err is SecurityException) {
+                                "This PDF is password-protected or locked."
+                            } else {
+                                "Could not import document from cloud storage."
+                            }
+                            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    } finally {
+                        pdfImportProgress = null
+                    }
+                }
+            },
+            onDismiss = { cloudStorageOpen = false },
         )
     }
 

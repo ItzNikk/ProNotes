@@ -765,6 +765,7 @@ fun EditorScreen(
                 }
 
                 var areaSize by remember { mutableStateOf(IntSize.Zero) }
+                var viewportTick by remember { mutableIntStateOf(0) }
                 Box(
                     Modifier
                         .weight(1f)
@@ -785,6 +786,7 @@ fun EditorScreen(
                                     override fun eraserRadius() = vm.eraserRadiusPx(density)
                                     override fun tapeColor() = vm.tapeColor
                                     override fun tapeFreehand() = vm.tapeFreehand
+                                    override fun tapeMode() = vm.tapeMode
                                     override fun onFreshInk(page: Int, ink: List<InkItem>) = vm.queueHandwriting(page, ink)
                                     override fun beginEdit(page: Int) = vm.beginEdit(page)
                                     override fun setItems(page: Int, items: List<PageItem>) = vm.setItems(page, items)
@@ -815,6 +817,8 @@ fun EditorScreen(
                                         vm.toggleStickyCheckLine(page, sticky, lineIndex)
                                     override fun onWebLinkTap(page: Int, x: Float, y: Float, existing: WebLinkItem?) =
                                         vm.openWebLink(page, x, y, existing)
+                                    override fun onTableTap(page: Int, item: TableItem, row: Int, col: Int) =
+                                        vm.openTableEditor(page, item, row, col)
                                     override fun onMindMapTap(page: Int, x: Float, y: Float, existing: MindNodeItem?) =
                                         vm.onMindMapTap(page, x, y, existing)
                                     override fun onCurrentPage(index: Int) = vm.onCurrentPage(index)
@@ -876,11 +880,20 @@ fun EditorScreen(
                                     it.renderer = vm.renderer()
                                     it.settings = settings
                                     it.tool = vm.tool
+                                    it.onViewportChanged = { viewportTick++ }
                                     canvas = it
                                 }
                             },
                         )
                     }
+
+                    // Live interactive embedded web pages anchored directly on the note page
+                    EmbeddedWebPagesOverlay(
+                        vm = vm,
+                        canvas = canvas,
+                        areaSize = areaSize,
+                        viewportTick = viewportTick,
+                    )
 
                     EditorHandwritingGlowOverlay(
                         vm = vm,
@@ -1543,6 +1556,10 @@ fun EditorScreen(
                                 quickInsert = null
                                 vm.openSticky(req.page, req.x, req.y, null)
                             },
+                            onTable = {
+                                quickInsert = null
+                                vm.openAddTable(req.page, req.x, req.y)
+                            },
                             onWebLink = {
                                 quickInsert = null
                                 vm.openWebLink(req.page, req.x, req.y, null)
@@ -1572,6 +1589,11 @@ fun EditorScreen(
                             onOpenToolSettings = { t ->
                                 vm.tool = t
                                 activePopoverTool = t
+                            },
+                            onAddTable = { vm.openAddTable() },
+                            onAddWebPage = {
+                                val p = vm.currentPage
+                                vm.openWebLink(vm.pageIndex, (p?.width ?: 1200f) / 2f, 220f, null)
                             },
                             onDismiss = { wheelAt = null },
                         )
@@ -1698,6 +1720,28 @@ fun EditorScreen(
     }
 
     vm.webLinkEdit?.let { edit -> WebLinkDialog(vm, edit) }
+
+    if (vm.addingTable) {
+        AddTableDialog(
+            defaultColor = vm.tableColor,
+            onDismiss = {
+                vm.addingTable = false
+                vm.pendingTableOrigin = null
+            },
+            onCreate = { rows, cols, headerRow, color ->
+                vm.insertTable(rows, cols, headerRow, color)
+            },
+        )
+    }
+
+    vm.tableEdit?.let { edit ->
+        TableEditorDialog(
+            edit = edit,
+            onSave = { updated -> vm.commitTableEdit(updated) },
+            onDelete = { vm.deleteTable(edit.page, edit.item.id) },
+            onDismiss = { vm.tableEdit = null },
+        )
+    }
 
     if (pageColor) {
         val opts = listOf(0xFFFFFFFF, 0xFFFBF7EC, 0xFFF1F2F4, 0xFFFFF4E0, 0xFFEAF4FF, 0xFFEFF8EC, 0xFF22252B).map { it.toInt() }

@@ -1037,6 +1037,13 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                 }
                 Category.LIBRARY -> {
                     CloudAccountSection(s)
+                    Section("Cloud storage (Drive · OneDrive · iCloud)") {
+                        val libRepo = remember { Repository.get(context) }
+                        com.pronotes.app.data.CloudStorageProvidersPanel(
+                            repo = libRepo,
+                            modifier = Modifier.padding(16.dp),
+                        )
+                    }
                     Section("Notes storage folder") {
                         StorageFolderRows(s) { block -> up(block) }
                     }

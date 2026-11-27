@@ -135,15 +135,18 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     private var chipJob: Job? = null
     var zoomPercent by mutableStateOf<Int?>(null)
         private set
-    private var clipboard: List<PageItem> = emptyList()
-    var hasClipboard by mutableStateOf(false)
+    private object ProNotesClipboard {
+        @Volatile var items: List<PageItem> = emptyList()
+        @Volatile var lastInternalCopyMs: Long = 0L
+        @Volatile var lastMirroredSystemClipTimestamp: Long = -1L
+    }
+
+    var hasClipboard by mutableStateOf(ProNotesClipboard.items.isNotEmpty())
         private set
     var systemHasClipboard by mutableStateOf(false)
         private set
     private val sysClipboard: android.content.ClipboardManager? =
         app.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-    private var lastInternalCopyMs: Long = 0L
-    private var lastMirroredSystemClipTimestamp: Long = -1L
     private var lastExternalClipChangeMs: Long = 0L
     private var suppressNextSystemClipEvent: Boolean = false
     private val systemClipListener = android.content.ClipboardManager.OnPrimaryClipChangedListener {
@@ -161,6 +164,19 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     var tapeColor by mutableStateOf(saved.getOrNull(7)?.toIntOrNull() ?: TapeColors[0])
     var tapePattern by mutableStateOf(saved.getOrNull(16) ?: "stripes")
     var tapeFreehand by mutableStateOf(saved.getOrNull(15).toBoolean())
+    var tapeMode by mutableStateOf(
+        runCatching { TapeMode.valueOf(store.pref("tape_mode", "")) }.getOrElse {
+            if (saved.getOrNull(15).toBoolean()) TapeMode.FREEHAND else TapeMode.STRAIGHT
+        },
+    )
+        private set
+    fun updateTapeMode(mode: TapeMode) {
+        tapeMode = mode
+        tapeFreehand = mode == TapeMode.FREEHAND
+        store.setPref("tape_mode", mode.name)
+    }
+    var customTapes by mutableStateOf(com.pronotes.app.data.CustomTapeStore.listTapes(app))
+        private set
     var stickyColor by mutableStateOf(saved.getOrNull(8)?.toIntOrNull() ?: StickyColors[0])
     /** 0 = Type Text (opens inline keyboard editor), 1 = Handwrite (places sticky and switches to pen). */
     var stickyInputMode by mutableStateOf(store.pref("sticky_input_mode", "0").toIntOrNull()?.coerceIn(0, 1) ?: 0)
@@ -192,11 +208,16 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
     )
     data class StickyEdit(val page: Int, val item: StickyItem, val isNew: Boolean)
     data class WebLinkEdit(val page: Int, val item: WebLinkItem, val isNew: Boolean)
+    data class TableEdit(val page: Int, val item: TableItem, val row: Int = 0, val col: Int = 0)
     data class MindNodeEdit(val page: Int, val item: MindNodeItem, val isNew: Boolean)
     enum class MindLayout(val label: String) { RADIAL("Radial"), TREE("Tree"), ORG_CHART("Org") }
     var textEdit by mutableStateOf<TextEdit?>(null)
     var stickyEdit by mutableStateOf<StickyEdit?>(null)
     var webLinkEdit by mutableStateOf<WebLinkEdit?>(null)
+    var tableEdit by mutableStateOf<TableEdit?>(null)
+    var addingTable by mutableStateOf(false)
+    var pendingTableOrigin by mutableStateOf<Triple<Int, Float, Float>?>(null)
+    var tableColor by mutableStateOf(0xFF2563EB.toInt())
     var mindNodeEdit by mutableStateOf<MindNodeEdit?>(null)
     var activeMindNodeId by mutableStateOf<Long?>(null)
     var mindColor by mutableStateOf(saved.getOrNull(27)?.toIntOrNull() ?: MindPalette[0])
@@ -476,11 +497,68 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val p = pages.getOrNull(selectionPage) ?: return
         val picked = p.items.filter { it.id in selection }
         if (picked.isEmpty()) return
-        clipboard = picked
+        ProNotesClipboard.items = picked
+        ProNotesClipboard.lastInternalCopyMs = System.currentTimeMillis()
         hasClipboard = true
-        lastInternalCopyMs = System.currentTimeMillis()
         mirrorSelectionToSystemClipboard(picked)
-        say("Copied")
+        val hasInk = picked.any { it is InkItem }
+        say(if (hasInk) "Handwriting copied — tap Paste anywhere" else "Copied")
+    }
+
+    /** Recognizes selected handwriting (or text items) and copies clean plain text directly to the system clipboard. */
+    fun copySelectionAsText() {
+        val p = pages.getOrNull(selectionPage) ?: return
+        val picked = p.items.filter { it.id in selection }
+        if (picked.isEmpty()) return
+        val cm = sysClipboard ?: return
+        val existingText = picked.mapNotNull { item ->
+            when (item) {
+                is TextItem -> item.text.trim().takeIf { it.isNotEmpty() }
+                is StickyItem -> item.text.trim().takeIf { it.isNotEmpty() }
+                is WebLinkItem -> item.url.trim().takeIf { it.isNotEmpty() }
+                is TableItem -> item.cells.filter { it.isNotBlank() }.joinToString(" | ").takeIf { it.isNotEmpty() }
+                is MindNodeItem -> item.label.trim().takeIf { it.isNotEmpty() }
+                is WriteBoxItem -> item.convertedText.trim().takeIf { it.isNotEmpty() }
+                else -> null
+            }
+        }
+        val selectedInk = picked.filterIsInstance<InkItem>()
+        if (selectedInk.isEmpty()) {
+            val joined = existingText.joinToString("\n\n")
+            if (joined.isBlank()) {
+                say("No handwriting or text selected")
+                return
+            }
+            runCatching {
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("Pro Notes", joined))
+                systemHasClipboard = true
+            }
+            say("Copied text to clipboard")
+            return
+        }
+        viewModelScope.launch {
+            val union = RectF(selectedInk.first().bounds)
+            selectedInk.forEach { union.union(it.bounds) }
+            val timedStrokes = extractTimedStrokes(selectedInk)
+            val result = HandwritingRecognizer.recognize(
+                strokes = timedStrokes,
+                writingWidth = union.width().coerceAtLeast(64f),
+                writingHeight = union.height().coerceAtLeast(48f),
+                languageTag = settingsFlow.value.toolDefaults.handwritingLanguage,
+                allowFallback = true,
+            )
+            val recognized = result.text.trim()
+            val combined = (existingText + listOfNotNull(recognized.takeIf { it.isNotBlank() })).joinToString("\n\n").trim()
+            if (combined.isBlank()) {
+                say("Could not read handwriting as text")
+                return@launch
+            }
+            runCatching {
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("Pro Notes Handwriting", combined))
+                systemHasClipboard = true
+            }
+            say("Copied handwriting as text")
+        }
     }
 
     private fun mirrorSelectionToSystemClipboard(items: List<PageItem>) {
@@ -491,6 +569,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 is TextItem -> item.text.trim().takeIf { it.isNotEmpty() }
                 is StickyItem -> item.text.trim().takeIf { it.isNotEmpty() }
                 is WebLinkItem -> item.url.trim().takeIf { it.isNotEmpty() }
+                is TableItem -> item.cells.filter { it.isNotBlank() }.joinToString(" | ").takeIf { it.isNotEmpty() }
                 is MindNodeItem -> item.label.trim().takeIf { it.isNotEmpty() }
                 is WriteBoxItem -> item.convertedText.trim().takeIf { it.isNotEmpty() }
                 else -> null
@@ -501,11 +580,14 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             runCatching {
                 suppressNextSystemClipEvent = true
                 cm.setPrimaryClip(android.content.ClipData.newPlainText("Pro Notes", extractedText))
-                lastMirroredSystemClipTimestamp = cm.primaryClipDescription?.timestamp ?: System.currentTimeMillis()
+                val ts = cm.primaryClipDescription?.timestamp ?: System.currentTimeMillis()
+                ProNotesClipboard.lastMirroredSystemClipTimestamp = ts
+                ProNotesClipboard.lastInternalCopyMs = maxOf(ProNotesClipboard.lastInternalCopyMs, ts, System.currentTimeMillis())
                 systemHasClipboard = true
             }
         } else {
-            // Render ink/image selection to a cached PNG and share its content URI to the phone clipboard
+            // Render ink/image selection to a cached PNG so it can also be pasted into other Android apps,
+            // while keeping ProNotesClipboard vector strokes authoritative when pasting inside Pro Notes!
             viewModelScope.launch {
                 val bmp = selectionImage() ?: return@launch
                 val uri = withContext(Dispatchers.IO) {
@@ -521,7 +603,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                     runCatching {
                         suppressNextSystemClipEvent = true
                         cm.setPrimaryClip(android.content.ClipData.newUri(app.contentResolver, "Pro Notes Selection", uri))
-                        lastMirroredSystemClipTimestamp = cm.primaryClipDescription?.timestamp ?: System.currentTimeMillis()
+                        val ts = cm.primaryClipDescription?.timestamp ?: System.currentTimeMillis()
+                        ProNotesClipboard.lastMirroredSystemClipTimestamp = ts
+                        ProNotesClipboard.lastInternalCopyMs = maxOf(ProNotesClipboard.lastInternalCopyMs, ts, System.currentTimeMillis())
                         systemHasClipboard = true
                     }
                 }
@@ -654,7 +738,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         systemHasClipboard = hasPrimary
         if (hasPrimary) {
             val ts = runCatching { cm.primaryClipDescription?.timestamp ?: 0L }.getOrDefault(0L)
-            if (ts > 0L && ts != lastMirroredSystemClipTimestamp && ts > lastInternalCopyMs) {
+            if (ts > 0L && ts != ProNotesClipboard.lastMirroredSystemClipTimestamp && ts > ProNotesClipboard.lastInternalCopyMs) {
                 lastExternalClipChangeMs = maxOf(lastExternalClipChangeMs, ts)
             }
         }
@@ -662,7 +746,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     /** True when either internal selection clipboard or Android whole-phone system clipboard has content. */
     fun hasAnyClipboardContent(): Boolean {
-        if (clipboard.isNotEmpty() || systemHasClipboard) return true
+        if (ProNotesClipboard.items.isNotEmpty() || systemHasClipboard) return true
         val hasSys = runCatching { sysClipboard?.hasPrimaryClip() == true }.getOrDefault(false)
         if (hasSys != systemHasClipboard) systemHasClipboard = hasSys
         return hasSys
@@ -670,14 +754,14 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     /** Returns true if the phone's system clipboard was updated more recently than our in-app selection copy. */
     private fun shouldPreferSystemClipboard(): Boolean {
-        if (clipboard.isEmpty()) return true
+        if (ProNotesClipboard.items.isEmpty()) return true
         val cm = sysClipboard ?: return false
         if (!runCatching { cm.hasPrimaryClip() }.getOrDefault(false)) return false
         val descTs = runCatching { cm.primaryClipDescription?.timestamp ?: 0L }.getOrDefault(0L)
-        if (descTs > 0L && descTs != lastMirroredSystemClipTimestamp && descTs > lastInternalCopyMs) {
+        if (descTs > 0L && descTs != ProNotesClipboard.lastMirroredSystemClipTimestamp && descTs > ProNotesClipboard.lastInternalCopyMs + 250L) {
             return true
         }
-        return lastExternalClipChangeMs > lastInternalCopyMs
+        return lastExternalClipChangeMs > ProNotesClipboard.lastInternalCopyMs + 250L
     }
 
     /** Pastes from either the phone's Android system clipboard (text, HTML, images/screenshots) or in-app selection clipboard. */
@@ -699,17 +783,18 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val p = pages.getOrNull(idx) ?: return null
 
         fun pasteInternal(): Pair<Int, Set<Long>>? {
-            if (clipboard.isEmpty()) return null
+            val clipItems = ProNotesClipboard.items
+            if (clipItems.isEmpty()) return null
             val copies = if (x != null && y != null) {
-                val union = RectF(clipboard.first().bounds).apply {
-                    clipboard.drop(1).forEach { union(it.bounds) }
+                val union = RectF(clipItems.first().bounds).apply {
+                    clipItems.drop(1).forEach { union(it.bounds) }
                 }
                 val dx = x - union.centerX()
                 val dy = y - union.centerY()
-                clipboard.map { it.translated(dx, dy).withId(ItemIds.next()) }
+                clipItems.map { it.translated(dx, dy).withId(ItemIds.next()) }
             } else {
-                val nudged = clipboard.map { it.translated(40f, 40f).withId(ItemIds.next()) }
-                clipboard = nudged
+                val nudged = clipItems.map { it.translated(40f, 40f).withId(ItemIds.next()) }
+                ProNotesClipboard.items = nudged
                 nudged
             }
             beginEdit(idx)
@@ -976,13 +1061,31 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
 
     fun useTapeImage(uri: Uri) {
         viewModelScope.launch {
-            val name = runCatching { repo.saveImage(noteId, uri) }.getOrNull()
-            if (name == null) {
-                say("Could not read image.")
+            val app = getApplication<Application>()
+            val fileName = withContext(Dispatchers.IO) {
+                com.pronotes.app.data.CustomTapeStore.importTape(app, uri)
+            }
+            if (fileName == null) {
+                say("Could not read tape image.")
                 return@launch
             }
-            tapePattern = "image:$name"
+            customTapes = com.pronotes.app.data.CustomTapeStore.listTapes(app)
+            tapePattern = "apptape:$fileName"
+            renderer().evictCaches()
             tool = Tool.TAPE
+            say("Custom tape saved for reuse")
+        }
+    }
+
+    fun deleteCustomTape(fileName: String) {
+        val app = getApplication<Application>()
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                com.pronotes.app.data.CustomTapeStore.deleteTape(app, fileName)
+            }
+            customTapes = com.pronotes.app.data.CustomTapeStore.listTapes(app)
+            if (tapePattern == "apptape:$fileName") tapePattern = "stripes"
+            renderer().evictCaches()
         }
     }
 
@@ -1085,6 +1188,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 is TapeItem -> item.copy(color = color)
                 is StickyItem -> item.copy(color = color)
                 is WebLinkItem -> item.copy(color = color)
+                is TableItem -> item.copy(color = color)
                 is WriteBoxItem -> item.copy(
                     strokeColor = (color and 0x00FFFFFF) or (0x88 shl 24),
                     fillColor = (color and 0x00FFFFFF) or (0x14 shl 24),
@@ -1219,6 +1323,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                     is TapeItem -> item.copy(color = c)
                     is StickyItem -> item.copy(color = c)
                     is WebLinkItem -> item.copy(color = c)
+                    is TableItem -> item.copy(color = c)
                     is WriteBoxItem -> item.copy(
                         strokeColor = (c and 0x00FFFFFF) or (0x88 shl 24),
                         fillColor = (c and 0x00FFFFFF) or (0x14 shl 24),
@@ -1846,21 +1951,69 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         applyItems(pageIndex, p.items + item)
     }
 
-    fun commitWebLink(url: String, linkTitle: String, note: String, color: Int) {
+    fun commitWebLink(url: String, linkTitle: String, note: String, color: Int, embedded: Boolean = false) {
         val edit = webLinkEdit ?: return
         webLinkEdit = null
         val p = pages.getOrNull(edit.page) ?: return
         val normalized = normalizeUrl(url)
-        if (normalized.isBlank()) return
+        if (normalized.isBlank() || !isAllowedWebPageUrl(normalized)) {
+            say("Please enter a valid http:// or https:// web address.")
+            return
+        }
         webLinkColor = color
         val cleanTitle = linkTitle.trim().ifBlank {
             runCatching { android.net.Uri.parse(normalized).host?.removePrefix("www.") ?: normalized }.getOrDefault(normalized)
         }
         val cleanNote = note.trim()
-        val ch = if (cleanNote.isBlank()) 124f else 156f
-        val item = edit.item.copy(url = normalized, title = cleanTitle, note = cleanNote, color = color, h = maxOf(edit.item.h, ch))
+        val cw = if (embedded) maxOf(edit.item.w, 600f).coerceAtMost((p.width - 64f).coerceAtLeast(320f)) else 420f
+        val ch = if (embedded) maxOf(edit.item.h, 460f).coerceAtMost((p.height - 96f).coerceAtLeast(260f)) else if (cleanNote.isBlank()) 124f else 156f
+        val sx = edit.item.x.coerceIn(24f, (p.width - cw - 24f).coerceAtLeast(24f))
+        val sy = edit.item.y.coerceIn(24f, (p.height - ch - 24f).coerceAtLeast(24f))
+        val item = edit.item.copy(
+            url = normalized,
+            title = cleanTitle,
+            note = cleanNote,
+            color = color,
+            x = sx,
+            y = sy,
+            w = cw,
+            h = ch,
+            embedded = embedded,
+        )
         beginEdit(edit.page)
         applyItems(edit.page, if (edit.isNew) p.items + item else p.items.map { if (it.id == item.id) item else it })
+    }
+
+    fun updateWebLinkGeometry(page: Int, id: Long, x: Float, y: Float, w: Float, h: Float, commit: Boolean) {
+        val p = pages.getOrNull(page) ?: return
+        val updated = p.items.map { if (it is WebLinkItem && it.id == id) it.copy(x = x, y = y, w = w, h = h) else it }
+        if (commit) {
+            beginEdit(page)
+            applyItems(page, updated)
+        } else {
+            pages[page] = p.copy(items = updated)
+        }
+    }
+
+    fun setWebLinkEmbedded(page: Int, id: Long, embedded: Boolean) {
+        val p = pages.getOrNull(page) ?: return
+        beginEdit(page)
+        applyItems(
+            page,
+            p.items.map { item ->
+                if (item is WebLinkItem && item.id == id) {
+                    val nw = if (embedded) maxOf(item.w, 600f).coerceAtMost((p.width - 64f).coerceAtLeast(320f)) else 420f
+                    val nh = if (embedded) maxOf(item.h, 460f).coerceAtMost((p.height - 96f).coerceAtLeast(260f)) else 136f
+                    item.copy(embedded = embedded, w = nw, h = nh)
+                } else item
+            },
+        )
+    }
+
+    fun removeWebLinkItem(page: Int, id: Long) {
+        val p = pages.getOrNull(page) ?: return
+        beginEdit(page)
+        applyItems(page, p.items.filterNot { it.id == id })
     }
 
     fun deleteWebLink() {
@@ -1870,6 +2023,71 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val p = pages.getOrNull(edit.page) ?: return
         beginEdit(edit.page)
         applyItems(edit.page, p.items.filterNot { it.id == edit.item.id })
+    }
+
+    fun openAddTable(page: Int? = null, x: Float? = null, y: Float? = null) {
+        pendingTableOrigin = if (page != null && x != null && y != null) Triple(page, x, y) else null
+        addingTable = true
+    }
+
+    fun insertTable(rows: Int, cols: Int, headerRow: Boolean, color: Int) {
+        val origin = pendingTableOrigin
+        pendingTableOrigin = null
+        addingTable = false
+        val targetPage = (origin?.first ?: pageIndex).coerceIn(0, (pages.size - 1).coerceAtLeast(0))
+        val p = pages.getOrNull(targetPage) ?: return
+        val r = rows.coerceIn(1, 20)
+        val c = cols.coerceIn(1, 12)
+        tableColor = color
+        val tw = (c * 170f).coerceIn(280f, (p.width - 96f).coerceAtLeast(280f))
+        val th = (r * 68f).coerceIn(136f, (p.height - 160f).coerceAtLeast(160f))
+        val existingTables = p.items.count { it is TableItem }
+        val sx = (origin?.second?.let { it - tw / 2f } ?: ((p.width - tw) / 2f))
+            .coerceIn(36f, (p.width - tw - 36f).coerceAtLeast(36f))
+        val sy = (origin?.third ?: (180f + existingTables * 40f))
+            .coerceIn(64f, (p.height - th - 64f).coerceAtLeast(64f))
+        val item = TableItem(
+            id = ItemIds.next(),
+            x = sx,
+            y = sy,
+            w = tw,
+            h = th,
+            rows = r,
+            cols = c,
+            cells = List(r * c) { "" },
+            color = color,
+            headerRow = headerRow,
+            fontSize = 22f,
+        )
+        beginEdit(targetPage)
+        applyItems(targetPage, p.items + item)
+        tableEdit = TableEdit(targetPage, item, row = 0, col = 0)
+        say("Table added — tap any cell to type or write right on top with pen")
+    }
+
+    fun openTableEditor(page: Int, item: TableItem, row: Int = 0, col: Int = 0) {
+        tableEdit = TableEdit(
+            page = page,
+            item = item,
+            row = row.coerceIn(0, (item.rows - 1).coerceAtLeast(0)),
+            col = col.coerceIn(0, (item.cols - 1).coerceAtLeast(0)),
+        )
+    }
+
+    fun commitTableEdit(updated: TableItem) {
+        val edit = tableEdit ?: return
+        tableEdit = null
+        val p = pages.getOrNull(edit.page) ?: return
+        tableColor = updated.color
+        beginEdit(edit.page)
+        applyItems(edit.page, p.items.map { if (it.id == updated.id) updated else it })
+    }
+
+    fun deleteTable(page: Int, id: Long) {
+        tableEdit = null
+        val p = pages.getOrNull(page) ?: return
+        beginEdit(page)
+        applyItems(page, p.items.filterNot { it.id == id })
     }
 
     private fun normalizeUrl(raw: String): String {
@@ -2301,6 +2519,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                         is TextItem -> "Text" to item.text
                         is StickyItem -> "Sticky" to listOf(item.title, item.text).filter { it.isNotBlank() }.joinToString(" · ")
                         is WebLinkItem -> "Link" to listOf(item.title, item.url, item.note).filter { it.isNotBlank() }.joinToString(" · ")
+                        is TableItem -> "Table" to item.cells.filter { it.isNotBlank() }.joinToString(" · ")
                         is MindNodeItem -> "Mind Map" to listOf(item.label, item.tag, item.notes).filter { it.isNotBlank() }.joinToString(" · ")
                         is WriteBoxItem -> "Write Box" to item.convertedText
                         else -> "" to ""
@@ -2665,9 +2884,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             val item = ImageItem(ItemIds.next(), name, nx, ny, rect.width(), rect.height())
             beginEdit(page)
             applyItems(page, cur.items + item)
-            clipboard = listOf(item)
+            ProNotesClipboard.items = listOf(item)
             hasClipboard = true
-            lastInternalCopyMs = System.currentTimeMillis()
+            ProNotesClipboard.lastInternalCopyMs = System.currentTimeMillis()
             onPlaced(page, item.id)
             say("Cut ready — drag to move or paste anywhere")
         }
@@ -2693,9 +2912,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             }
             mirrorBitmapToSystemClipboard(bmp)
             bmp.recycle()
-            clipboard = listOf(ImageItem(ItemIds.next(), name, sel.rect.left, sel.rect.top, sel.rect.width(), sel.rect.height()))
+            ProNotesClipboard.items = listOf(ImageItem(ItemIds.next(), name, sel.rect.left, sel.rect.top, sel.rect.width(), sel.rect.height()))
             hasClipboard = true
-            lastInternalCopyMs = System.currentTimeMillis()
+            ProNotesClipboard.lastInternalCopyMs = System.currentTimeMillis()
             say("PDF cutout copied to clipboard")
         }
     }
@@ -2713,7 +2932,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             if (cm != null) {
                 suppressNextSystemClipEvent = true
                 cm.setPrimaryClip(android.content.ClipData.newPlainText("PDF Text", txt))
-                lastMirroredSystemClipTimestamp = cm.primaryClipDescription?.timestamp ?: System.currentTimeMillis()
+                ProNotesClipboard.lastMirroredSystemClipTimestamp = cm.primaryClipDescription?.timestamp ?: System.currentTimeMillis()
                 systemHasClipboard = true
             }
         }
@@ -2764,7 +2983,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             val uri = androidx.core.content.FileProvider.getUriForFile(app, app.packageName + ".files", out)
             suppressNextSystemClipEvent = true
             cm.setPrimaryClip(android.content.ClipData.newUri(app.contentResolver, "Pro Notes Cutout", uri))
-            lastMirroredSystemClipTimestamp = cm.primaryClipDescription?.timestamp ?: System.currentTimeMillis()
+            ProNotesClipboard.lastMirroredSystemClipTimestamp = cm.primaryClipDescription?.timestamp ?: System.currentTimeMillis()
             systemHasClipboard = true
         }
     }
@@ -2784,6 +3003,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 is TextItem -> item.text
                 is StickyItem -> listOf(item.title, item.text).filter { it.isNotBlank() }.joinToString(": ")
                 is WebLinkItem -> listOf(item.title, item.url, item.note).filter { it.isNotBlank() }.joinToString(" · ")
+                is TableItem -> item.cells.filter { it.isNotBlank() }.joinToString(" | ")
                 is MindNodeItem -> listOf(item.tag, item.label, item.notes).filter { it.isNotBlank() }.joinToString(" — ")
                 else -> null
             }

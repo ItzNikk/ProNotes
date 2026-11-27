@@ -53,6 +53,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Shuffle
 import androidx.compose.material.icons.outlined.StarBorder
@@ -1426,55 +1427,119 @@ fun TemplateSheet(vm: EditorViewModel, onClose: () -> Unit) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TapePatternPicker(vm: EditorViewModel, onPickImage: () -> Unit) {
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        TapePatterns.names.forEach { name ->
-            val selected = vm.tapePattern == name
-            val tileBmp by produceState<Bitmap?>(null, name, vm.tapeColor) {
-                value = TapePatterns.tile(name, vm.tapeColor)
-            }
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .width(58.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .border(
-                        width = if (selected) 2.dp else 1.dp,
-                        color = if (selected) ProButtonPalette.ElectricBlue else MaterialTheme.colorScheme.outlineVariant,
-                        shape = RoundedCornerShape(10.dp),
-                    )
-                    .clickable { vm.tapePattern = name }
-                    .padding(4.dp),
-            ) {
-                tileBmp?.let { bmp ->
-                    Image(
-                        bmp.asImageBitmap(),
-                        contentDescription = TapePatterns.label(name),
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(26.dp)
-                            .clip(RoundedCornerShape(6.dp)),
+    val context = LocalContext.current
+    val customTapes = vm.customTapes
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            TapePatterns.names.forEach { name ->
+                val selected = vm.tapePattern == name
+                val tileBmp by produceState<Bitmap?>(null, name, vm.tapeColor) {
+                    value = TapePatterns.tile(name, vm.tapeColor)
+                }
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .width(58.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(
+                            width = if (selected) 2.dp else 1.dp,
+                            color = if (selected) ProButtonPalette.ElectricBlue else MaterialTheme.colorScheme.outlineVariant,
+                            shape = RoundedCornerShape(10.dp),
+                        )
+                        .clickable { vm.tapePattern = name }
+                        .padding(4.dp),
+                ) {
+                    tileBmp?.let { bmp ->
+                        Image(
+                            bmp.asImageBitmap(),
+                            contentDescription = TapePatterns.label(name),
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(26.dp)
+                                .clip(RoundedCornerShape(6.dp)),
+                        )
+                    }
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        TapePatterns.label(name),
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    TapePatterns.label(name),
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            }
+            AppChip(
+                selected = false,
+                onClick = onPickImage,
+                label = "Import tape",
+                leadingIcon = { Icon(Icons.Outlined.Add, null, Modifier.size(15.dp)) },
+                tint = ProButtonPalette.SkyCyan,
+            )
+        }
+        if (customTapes.isNotEmpty()) {
+            Text(
+                "SAVED CUSTOM TAPES",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                customTapes.forEach { fileName ->
+                    val pat = "apptape:$fileName"
+                    val selected = vm.tapePattern == pat
+                    val thumb by produceState<Bitmap?>(null, fileName) {
+                        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            com.pronotes.app.data.CustomTapeStore.loadBitmap(context, fileName, maxDim = 256)
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .width(66.dp)
+                            .height(40.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .border(
+                                width = if (selected) 2.dp else 1.dp,
+                                color = if (selected) ProButtonPalette.ElectricBlue else MaterialTheme.colorScheme.outlineVariant,
+                                shape = RoundedCornerShape(10.dp),
+                            )
+                            .clickable { vm.tapePattern = pat },
+                    ) {
+                        thumb?.let { bmp ->
+                            Image(
+                                bmp.asImageBitmap(),
+                                contentDescription = "Custom tape",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(2.dp)
+                                .size(16.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.65f))
+                                .clickable { vm.deleteCustomTape(fileName) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Rounded.Close,
+                                contentDescription = "Remove custom tape",
+                                tint = Color.White,
+                                modifier = Modifier.size(11.dp),
+                            )
+                        }
+                    }
+                }
             }
         }
-        AppChip(
-            selected = vm.tapePattern.startsWith("image:"),
-            onClick = onPickImage,
-            label = "Custom image",
-            leadingIcon = { Icon(Icons.Outlined.Add, null, Modifier.size(15.dp)) },
-            tint = ProButtonPalette.SkyCyan,
-        )
     }
 }

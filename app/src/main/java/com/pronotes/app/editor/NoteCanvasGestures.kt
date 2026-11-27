@@ -359,8 +359,20 @@ internal fun NoteCanvasView.handleFingers(e: MotionEvent, action: Int) {
                         buzz(HapticFeedbackConstants.CLOCK_TICK)
                         lastTapTime = 0L
                         host.onTextTap(pi, lx, ly, hitText)
-                    } else if (host.isKeyboardMode()) {
-                        host.onPageTap(pi, lx, ly)
+                    } else {
+                        val hitTable = if (!readOnly) {
+                            pages.getOrNull(pi)?.items?.filterIsInstance<TableItem>()?.lastOrNull { t ->
+                                t.bounds.contains(lx, ly)
+                            }
+                        } else null
+                        if (hitTable != null) {
+                            val (r, c) = hitTable.cellAt(lx, ly) ?: (0 to 0)
+                            buzz(HapticFeedbackConstants.CLOCK_TICK)
+                            lastTapTime = 0L
+                            host.onTableTap(pi, hitTable, r, c)
+                        } else if (host.isKeyboardMode()) {
+                            host.onPageTap(pi, lx, ly)
+                        }
                     }
                 }
             }
@@ -601,12 +613,21 @@ internal fun NoteCanvasView.spacing(e: MotionEvent, skip: Int = -1): Float {
 }
 
 internal fun NoteCanvasView.trackPenButton(e: MotionEvent) {
-    val held = e.buttonState and (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_SECONDARY) != 0 ||
-        e.actionMasked == MotionEvent.ACTION_BUTTON_PRESS
+    val held = (e.buttonState and (
+        MotionEvent.BUTTON_STYLUS_PRIMARY or
+            MotionEvent.BUTTON_STYLUS_SECONDARY or
+            MotionEvent.BUTTON_SECONDARY or
+            MotionEvent.BUTTON_TERTIARY
+        )) != 0 ||
+        e.actionMasked == MotionEvent.ACTION_BUTTON_PRESS ||
+        e.actionMasked in 211..214
     val now = SystemClock.uptimeMillis()
-    if (held && !buttonDown) {
-        buttonDown = true
-        buttonDownAt = now
+    if (held) {
+        lastHoverButtonHeldAt = now
+        if (!buttonDown) {
+            buttonDown = true
+            buttonDownAt = now
+        }
         return
     }
     val released = (!held && buttonDown) || e.actionMasked == MotionEvent.ACTION_BUTTON_RELEASE

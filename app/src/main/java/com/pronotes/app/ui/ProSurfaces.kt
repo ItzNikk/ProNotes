@@ -994,10 +994,13 @@ fun AppContextMenu(
 
     val scheme = MaterialTheme.colorScheme
     val reduceMotion = LocalReduceMotion.current
+    val reduceEffects = LocalReduceEffects.current
     val density = LocalDensity.current
     val yOffsetPx = remember(density, showCaret) { with(density) { (if (showCaret) 38.dp else 44.dp).roundToPx() } }
     val surfaceBg = scheme.surfaceContainerHigh
     val borderCol = scheme.outlineVariant.copy(alpha = 0.44f)
+    val selectedRowBg = remember { ProButtonPalette.ElectricBlue.copy(alpha = 0.11f) }
+    val disabledColor = scheme.onSurface.copy(alpha = 0.38f)
 
     Popup(
         alignment = Alignment.TopEnd,
@@ -1008,33 +1011,27 @@ fun AppContextMenu(
         AnimatedVisibility(
             visibleState = expandedState,
             enter = if (reduceMotion) fadeIn(snap()) else {
-                fadeIn(tween(130)) +
-                    slideInVertically(
-                        initialOffsetY = { -16 },
-                        animationSpec = spring(dampingRatio = 0.82f, stiffness = 540f),
-                    ) +
+                fadeIn(tween(95)) +
                     scaleIn(
-                        initialScale = 0.88f,
-                        transformOrigin = TransformOrigin(0.90f, 0f),
-                        animationSpec = spring(dampingRatio = 0.82f, stiffness = 540f),
+                        initialScale = 0.94f,
+                        transformOrigin = TransformOrigin(0.92f, 0f),
+                        animationSpec = tween(125, easing = androidx.compose.animation.core.FastOutSlowInEasing),
                     )
             },
             exit = if (reduceMotion) fadeOut(snap()) else {
-                fadeOut(tween(95)) +
-                    slideOutVertically(
-                        targetOffsetY = { -10 },
-                        animationSpec = tween(95),
-                    ) +
+                fadeOut(tween(80)) +
                     scaleOut(
-                        targetScale = 0.92f,
-                        transformOrigin = TransformOrigin(0.90f, 0f),
-                        animationSpec = tween(95),
+                        targetScale = 0.96f,
+                        transformOrigin = TransformOrigin(0.92f, 0f),
+                        animationSpec = tween(80),
                     )
             },
         ) {
             Column(
                 horizontalAlignment = Alignment.End,
-                modifier = modifier.width(232.dp),
+                modifier = modifier
+                    .width(232.dp)
+                    .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha },
             ) {
                 if (showCaret) {
                     Canvas(
@@ -1065,7 +1062,7 @@ fun AppContextMenu(
                     shape = ContextMenuShape,
                     color = surfaceBg,
                     tonalElevation = 0.dp,
-                    shadowElevation = 8.dp,
+                    shadowElevation = if (reduceEffects) 0.dp else 3.dp,
                     border = BorderStroke(1.dp, borderCol),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1080,24 +1077,18 @@ fun AppContextMenu(
                     ) {
                         items.forEach { item ->
                             val color = when {
-                                !item.enabled -> scheme.onSurface.copy(alpha = 0.38f)
+                                !item.enabled -> disabledColor
                                 item.destructive -> scheme.error
                                 item.selected -> ProButtonPalette.ElectricBlue
                                 else -> scheme.onSurface
                             }
-                            val rowInteraction = remember { MutableInteractionSource() }
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .heightIn(min = 42.dp)
-                                    .tactilePressScale(rowInteraction, enabled = item.enabled, pressedScale = 0.975f)
                                     .clip(ContextMenuRowShape)
-                                    .background(if (item.selected) ProButtonPalette.ElectricBlue.copy(alpha = 0.10f) else Color.Transparent)
-                                    .clickable(
-                                        interactionSource = rowInteraction,
-                                        indication = androidx.compose.foundation.LocalIndication.current,
-                                        enabled = item.enabled,
-                                    ) {
+                                    .background(if (item.selected) selectedRowBg else Color.Transparent)
+                                    .clickable(enabled = item.enabled) {
                                         if (!actionFired) {
                                             actionFired = true
                                             onDismissRequest()

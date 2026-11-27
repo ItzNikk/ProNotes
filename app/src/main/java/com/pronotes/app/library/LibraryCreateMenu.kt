@@ -88,11 +88,11 @@ private val CreateMenuBadgeShape = RoundedCornerShape(10.dp)
 private fun groupForIndex(index: Int): Int = when {
     index < 4 -> 0
     index < 9 -> 1
-    index < 11 -> 2
+    index < 12 -> 2
     else -> 3
 }
 
-private fun isGroupStart(index: Int): Boolean = index == 0 || index == 4 || index == 9 || index == 11
+private fun isGroupStart(index: Int): Boolean = index == 0 || index == 4 || index == 9 || index == 12
 
 /**
  * Silky 120Hz library creation menu (+ button & connected spring popover).
@@ -192,33 +192,27 @@ internal fun LibraryCreateMenu(
                 AnimatedVisibility(
                     visibleState = expandedState,
                     enter = if (reduceMotion) fadeIn(snap()) else {
-                        fadeIn(tween(130)) +
-                            slideInVertically(
-                                initialOffsetY = { -18 },
-                                animationSpec = spring(dampingRatio = 0.82f, stiffness = 500f),
-                            ) +
+                        fadeIn(tween(95)) +
                             scaleIn(
-                                initialScale = 0.86f,
+                                initialScale = 0.94f,
                                 transformOrigin = TransformOrigin(0.92f, 0f),
-                                animationSpec = spring(dampingRatio = 0.82f, stiffness = 500f),
+                                animationSpec = tween(125, easing = androidx.compose.animation.core.FastOutSlowInEasing),
                             )
                     },
                     exit = if (reduceMotion) fadeOut(snap()) else {
-                        fadeOut(tween(100)) +
-                            slideOutVertically(
-                                targetOffsetY = { -12 },
-                                animationSpec = tween(100),
-                            ) +
+                        fadeOut(tween(80)) +
                             scaleOut(
-                                targetScale = 0.92f,
+                                targetScale = 0.96f,
                                 transformOrigin = TransformOrigin(0.92f, 0f),
-                                animationSpec = tween(100),
+                                animationSpec = tween(80),
                             )
                     },
                 ) {
                     Column(
                         horizontalAlignment = Alignment.End,
-                        modifier = Modifier.width(292.dp),
+                        modifier = Modifier
+                            .width(292.dp)
+                            .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha },
                     ) {
                         // Connected caret aligned directly under the center of the 48.dp + button
                         Canvas(
@@ -248,7 +242,7 @@ internal fun LibraryCreateMenu(
                             shape = cardShape,
                             color = surfaceBg,
                             tonalElevation = 0.dp,
-                            shadowElevation = 8.dp,
+                            shadowElevation = 3.dp,
                             border = BorderStroke(1.dp, borderCol),
                             modifier = Modifier
                                 .fillMaxWidth()

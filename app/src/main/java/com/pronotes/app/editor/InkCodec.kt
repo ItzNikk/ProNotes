@@ -3,6 +3,7 @@ package com.pronotes.app.editor
 import android.annotation.SuppressLint
 import android.util.Base64
 import androidx.ink.brush.Brush
+import androidx.ink.brush.BrushBehavior
 import androidx.ink.brush.BrushFamily
 import androidx.ink.brush.BrushPaint
 import androidx.ink.brush.BrushTip
@@ -50,27 +51,87 @@ object Brushes {
 
     private val familyNames = java.util.Collections.synchronizedMap(java.util.WeakHashMap<BrushFamily, String>())
 
-    private val pen by lazy { StockBrushes.pressurePen().also { familyNames[it] = FOUNTAIN } }
+    private val pen by lazy { buildPressurePen(0.28f, 1.65f, FOUNTAIN) }
+    private val ballPen by lazy { buildPressurePen(0.62f, 1.24f, BALL) }
+    private val brushPen by lazy { buildPressurePen(0.16f, 1.95f, BRUSH) }
+    private val letteringPen by lazy { buildPressurePen(0.18f, 1.80f, LETTERING) }
     private val marker by lazy { StockBrushes.marker().also { familyNames[it] = FINELINER } }
     private val highlighter by lazy { buildHighlighter().also { familyNames[it] = HIGHLIGHTER } }
     private val dashed by lazy { StockBrushes.dashedLine().also { familyNames[it] = DASHED } }
-    private val calligraphy by lazy { buildCalligraphy(0.20f, 42f) }
+    private val calligraphy by lazy { buildCalligraphy(0.20f, 42f, pressureEnabled = true) }
     private val pencil by lazy { buildPencil().also { familyNames[it] = PENCIL } }
     private val crayon by lazy { buildCrayon().also { familyNames[it] = CRAYON } }
 
     @SuppressLint("RestrictedApi")
-    private fun buildHighlighter(): BrushFamily =
-        BrushFamily(tip = BrushTip(scaleX = 1f, scaleY = 1f, cornerRounding = 1f, behaviors = emptyList()), paint = BrushPaint())
+    private fun pressureSizeBehavior(minScale: Float, maxScale: Float): BrushBehavior =
+        BrushBehavior(
+            terminalNodes = listOf(
+                BrushBehavior.TargetNode(
+                    target = BrushBehavior.Target.SIZE_MULTIPLIER,
+                    targetModifierRangeStart = minScale,
+                    targetModifierRangeEnd = maxScale,
+                    input = BrushBehavior.SourceNode(
+                        source = BrushBehavior.Source.NORMALIZED_PRESSURE,
+                        sourceValueRangeStart = 0.04f,
+                        sourceValueRangeEnd = 0.96f,
+                        sourceOutOfRangeBehavior = BrushBehavior.OutOfRange.CLAMP,
+                    ),
+                ),
+            ),
+        )
 
     @SuppressLint("RestrictedApi")
-    private fun buildCalligraphy(roundness: Float, angleDeg: Float): BrushFamily =
+    private fun pressureOpacityBehavior(minAlpha: Float, maxAlpha: Float): BrushBehavior =
+        BrushBehavior(
+            terminalNodes = listOf(
+                BrushBehavior.TargetNode(
+                    target = BrushBehavior.Target.OPACITY_MULTIPLIER,
+                    targetModifierRangeStart = minAlpha,
+                    targetModifierRangeEnd = maxAlpha,
+                    input = BrushBehavior.SourceNode(
+                        source = BrushBehavior.Source.NORMALIZED_PRESSURE,
+                        sourceValueRangeStart = 0.05f,
+                        sourceValueRangeEnd = 0.95f,
+                        sourceOutOfRangeBehavior = BrushBehavior.OutOfRange.CLAMP,
+                    ),
+                ),
+            ),
+        )
+
+    @SuppressLint("RestrictedApi")
+    private fun buildPressurePen(minScale: Float, maxScale: Float, tag: String): BrushFamily =
+        BrushFamily(
+            tip = BrushTip(
+                scaleX = 1f,
+                scaleY = 1f,
+                cornerRounding = 1f,
+                behaviors = listOf(pressureSizeBehavior(minScale, maxScale)),
+            ),
+            paint = BrushPaint(),
+        ).also { familyNames[it] = tag }
+
+    @SuppressLint("RestrictedApi")
+    private fun buildHighlighter(): BrushFamily =
+        BrushFamily(
+            tip = BrushTip(
+                scaleX = 0.36f,
+                scaleY = 1.0f,
+                cornerRounding = 0.28f,
+                rotationDegrees = 10f,
+                behaviors = emptyList(),
+            ),
+            paint = BrushPaint(),
+        )
+
+    @SuppressLint("RestrictedApi")
+    private fun buildCalligraphy(roundness: Float, angleDeg: Float, pressureEnabled: Boolean = true): BrushFamily =
         BrushFamily(
             tip = BrushTip(
                 scaleX = 1.42f,
                 scaleY = roundness.coerceIn(0.18f, 0.85f),
                 cornerRounding = 0.08f,
                 rotationDegrees = angleDeg.coerceIn(0f, 180f),
-                behaviors = emptyList(),
+                behaviors = if (pressureEnabled) listOf(pressureSizeBehavior(0.58f, 1.45f)) else emptyList(),
             ),
             paint = BrushPaint(),
         ).also { familyNames[it] = CALLIGRAPHY }
@@ -82,7 +143,10 @@ object Brushes {
                 scaleX = 0.96f,
                 scaleY = 0.88f,
                 cornerRounding = 0.82f,
-                behaviors = emptyList(),
+                behaviors = listOf(
+                    pressureSizeBehavior(0.42f, 1.48f),
+                    pressureOpacityBehavior(0.45f, 1.0f),
+                ),
             ),
             paint = BrushPaint(),
         )
@@ -94,7 +158,10 @@ object Brushes {
                 scaleX = 1.18f,
                 scaleY = 0.92f,
                 cornerRounding = 0.65f,
-                behaviors = emptyList(),
+                behaviors = listOf(
+                    pressureSizeBehavior(0.46f, 1.52f),
+                    pressureOpacityBehavior(0.62f, 1.0f),
+                ),
             ),
             paint = BrushPaint(),
         )
@@ -106,7 +173,10 @@ object Brushes {
         CALLIGRAPHY -> calligraphy
         PENCIL -> pencil
         CRAYON -> crayon
-        FOUNTAIN, BALL, LETTERING, BRUSH, PEN -> pen
+        BALL -> ballPen
+        BRUSH -> brushPen
+        LETTERING -> letteringPen
+        FOUNTAIN, PEN -> pen
         else -> pen
     }
 
@@ -185,7 +255,7 @@ object Brushes {
         if (baseFamily == CALLIGRAPHY) {
             val chiselRoundness = if (nibRoundness >= 0.90f) 0.20f else nibRoundness.coerceIn(0.18f, 0.55f)
             val chiselAngle = if (nibAngleDeg <= 1f) 42f else nibAngleDeg
-            val customFamily = buildCalligraphy(chiselRoundness, chiselAngle)
+            val customFamily = buildCalligraphy(chiselRoundness, chiselAngle, pressureEnabled)
             return Brush.createWithColorIntArgb(customFamily, c, size.coerceIn(1.2f, 120f), 0.1f)
         }
         // Pencil keeps its dedicated pencil family so dry strokes render with real fine graphite grain.
@@ -194,16 +264,22 @@ object Brushes {
         }
         // User-customized flat nib override for other pens if they dialed down nib roundness explicitly.
         if (nibRoundness < 0.88f) {
-            val customFamily = buildCalligraphy(nibRoundness, nibAngleDeg)
+            val customFamily = buildCalligraphy(nibRoundness, nibAngleDeg, pressureEnabled)
             return Brush.createWithColorIntArgb(customFamily, c, size.coerceIn(0.6f, 120f), 0.1f)
         }
         val effectiveSize = when (baseFamily) {
             BALL -> size.coerceIn(0.6f, 90f)
-            LETTERING -> (size * (0.94f + 0.18f * sens)).coerceIn(1.0f, 120f)
-            BRUSH -> (size * (0.96f + 0.22f * sens)).coerceIn(1.4f, 140f)
-            else -> (if (pressureEnabled) size * (0.88f + 0.16f * sens) else size).coerceIn(0.6f, 120f)
+            LETTERING -> (size * (0.94f + 0.16f * sens)).coerceIn(1.0f, 120f)
+            BRUSH -> (size * (0.96f + 0.20f * sens)).coerceIn(1.4f, 140f)
+            else -> size.coerceIn(0.6f, 120f)
         }
-        val resolvedFamily = if (pressureEnabled || baseFamily == LETTERING || baseFamily == BRUSH) pen else marker
+        val resolvedFamily = when {
+            !pressureEnabled && baseFamily != LETTERING && baseFamily != BRUSH -> marker
+            baseFamily == BALL -> ballPen
+            baseFamily == BRUSH -> brushPen
+            baseFamily == LETTERING -> letteringPen
+            else -> pen
+        }
         return Brush.createWithColorIntArgb(resolvedFamily, c, effectiveSize, 0.1f)
     }
 
@@ -326,12 +402,17 @@ object InkCodec {
                     item.fontSize, item.font, item.collapsed, item.pinned, item.title, item.style,
                 )
                 is MindNodeItem -> ItemDoc.MindNode(item.id, item.x, item.y, item.w, item.h, item.label, item.parentId, item.color, item.shape, item.collapsed, item.notes, item.tag)
-                is WebLinkItem -> ItemDoc.WebLink(item.url, item.title, item.note, item.x, item.y, item.w, item.h, item.color, item.rot)
+                is WebLinkItem -> ItemDoc.WebLink(item.url, item.title, item.note, item.x, item.y, item.w, item.h, item.color, item.rot, item.embedded)
                 is WriteBoxItem -> ItemDoc.WriteBox(
                     item.x, item.y, item.w, item.h, item.lineSpacing,
                     item.strokeColor, item.fillColor, item.inkItemIds,
                     item.convertedText, item.isConverted,
                     item.font.name, item.fontSize, item.rot,
+                )
+                is TableItem -> ItemDoc.Table(
+                    item.x, item.y, item.w, item.h,
+                    item.rows, item.cols, item.cells,
+                    item.color, item.headerRow, item.fontSize, item.rot,
                 )
             }
         },
@@ -416,6 +497,7 @@ object InkCodec {
                             h = item.h,
                             color = item.color,
                             rot = item.rot,
+                            embedded = item.embedded,
                         )
                         is ItemDoc.WriteBox -> WriteBoxItem(
                             id = ItemIds.next(),
@@ -433,6 +515,26 @@ object InkCodec {
                             fontSize = item.fontSize,
                             rot = item.rot,
                         )
+                        is ItemDoc.Table -> {
+                            val r = item.rows.coerceIn(1, 20)
+                            val c = item.cols.coerceIn(1, 12)
+                            val need = r * c
+                            val normalizedCells = List(need) { idx -> item.cells.getOrNull(idx).orEmpty() }
+                            TableItem(
+                                id = ItemIds.next(),
+                                x = item.x,
+                                y = item.y,
+                                w = item.w.coerceIn(200f, 1800f),
+                                h = item.h.coerceIn(100f, 1800f),
+                                rows = r,
+                                cols = c,
+                                cells = normalizedCells,
+                                color = item.color,
+                                headerRow = item.headerRow,
+                                fontSize = item.fontSize.coerceIn(12f, 64f),
+                                rot = item.rot,
+                            )
+                        }
                     }
                 }.getOrNull()
             },

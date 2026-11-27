@@ -274,6 +274,8 @@ private fun DrawScope.drawPattern(name: String, base: Color) {
  * with zero lock contention, cached as small quantized bitmaps with async GPU pre-upload.
  */
 object CoverCache {
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val renderDispatcher = Dispatchers.Default.limitedParallelism(2)
     private val allRenderers = Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap<PageRenderer, Boolean>()))
     private val threadRenderer = ThreadLocal.withInitial {
         PageRenderer(null).also { allRenderers.add(it) }
@@ -314,7 +316,7 @@ object CoverCache {
     suspend fun getAsync(spec: String, w: Int, h: Int): android.graphics.Bitmap? {
         if (w <= 0 || h <= 0) return null
         peek(spec, w, h)?.let { return it }
-        return withContext(Dispatchers.Default) { get(spec, w, h) }
+        return withContext(renderDispatcher) { get(spec, w, h) }
     }
 
     fun peekPaper(style: PaperStyle, tint: Int, w: Int, h: Int, pageW: Float = PageSize.WIDTH, pageH: Float = PageSize.HEIGHT): android.graphics.Bitmap? {
@@ -345,7 +347,7 @@ object CoverCache {
     suspend fun paperAsync(style: PaperStyle, tint: Int, w: Int, h: Int, pageW: Float = PageSize.WIDTH, pageH: Float = PageSize.HEIGHT): android.graphics.Bitmap? {
         if (w <= 0 || h <= 0) return null
         peekPaper(style, tint, w, h, pageW, pageH)?.let { return it }
-        return withContext(Dispatchers.Default) { paper(style, tint, w, h, pageW, pageH) }
+        return withContext(renderDispatcher) { paper(style, tint, w, h, pageW, pageH) }
     }
 }
 
@@ -380,7 +382,7 @@ fun PaperPreview(
     }
     var measuredSize by remember { mutableStateOf(explicitSize ?: IntSize.Zero) }
     val effectiveSize = explicitSize ?: measuredSize
-    val maxW = perfMode.thumbWidthPx.coerceAtLeast(180)
+    val maxW = if (explicitSize != null) 160 else perfMode.thumbWidthPx.coerceAtLeast(180)
     val (targetW, targetH) = remember(effectiveSize, maxW) {
         quantizeThumbSize(effectiveSize.width, effectiveSize.height, maxW)
     }

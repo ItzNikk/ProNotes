@@ -46,6 +46,8 @@ import kotlin.math.roundToInt
 
 enum class Tool { PEN, CRAYON, HIGHLIGHTER, ERASER, SHAPE, LASSO, MINDMAP, TEXT, AUTO_TEXT, IMAGE, STICKY, WEBLINK, TAPE, STICKER, LASER }
 
+enum class TapeMode { STRAIGHT, RECTANGLE, FREEHAND }
+
 /** Callbacks from the canvas to the editor state. Page indices refer to the notebook's page list. */
 interface CanvasHost {
     fun brush(tool: Tool): Brush
@@ -54,6 +56,7 @@ interface CanvasHost {
     fun eraserRadius(): Float
     fun tapeColor(): Int
     fun tapeFreehand(): Boolean
+    fun tapeMode(): TapeMode = if (tapeFreehand()) TapeMode.FREEHAND else TapeMode.STRAIGHT
     fun beginEdit(page: Int)
     fun setItems(page: Int, items: List<PageItem>)
     fun commitPageItemsEdit(changes: Map<Int, List<PageItem>>)
@@ -69,6 +72,7 @@ interface CanvasHost {
     fun onStickyTogglePin(page: Int, sticky: StickyItem) {}
     fun onStickyChecklistToggle(page: Int, sticky: StickyItem, lineIndex: Int) {}
     fun onWebLinkTap(page: Int, x: Float, y: Float, existing: WebLinkItem?) {}
+    fun onTableTap(page: Int, item: TableItem, row: Int, col: Int) {}
     fun onMindMapTap(page: Int, x: Float, y: Float, existing: MindNodeItem?) {}
     fun onWriteBoxDoubleTap(page: Int, item: WriteBoxItem) {}
     fun onCurrentPage(index: Int)
@@ -874,6 +878,8 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
 
     private val detailRunnable = Runnable { askForDetailNow() }
 
+    var onViewportChanged: (() -> Unit)? = null
+
     internal fun updateMatrix() {
         viewMatrix.reset()
         viewMatrix.postScale(scale, scale)
@@ -885,6 +891,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             if (settings.scroll == ScrollDirection.HORIZONTAL) { syncFeel(); feel.cue(PaperFeel.Cue.PAGE) }
         }
         layer.invalidate()
+        onViewportChanged?.invoke()
         if (selection.isNotEmpty()) reportSelection()
         // Debounce PDF detail requests so scrolling/flinging never cancels & spawns coroutines every frame.
         removeCallbacks(detailRunnable)
@@ -1004,7 +1011,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
 
     // ------------------------------------------------------------------ input
 
-    internal enum class Mode { NONE, INK, ERASE, LASSO, MOVE, LASER, PAN, TAP, SHAPE_DRAG, TAPE, MIND_DRAG, WRITE_BOX_DRAG, STICKY_DRAG, IGNORE }
+    internal enum class Mode { NONE, INK, ERASE, LASSO, MOVE, LASER, PAN, TAP, SHAPE_DRAG, HOLD_SHAPE_ADJUST, TAPE, MIND_DRAG, WRITE_BOX_DRAG, STICKY_DRAG, IGNORE }
 
     private var pendingConvertPage = -1
     private var pendingConvertBoxId = -1L
@@ -1128,6 +1135,16 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         dragStickyWasExpanded = false
     }
     private var holdFired = false
+    // Live hold-to-shape adjustment state while the pen/finger stays held down after snap
+    private var holdShapeBasePts: List<List<Pt>> = emptyList()
+    internal var holdShapeFillable: Boolean = false
+    internal var holdShapeBrushTool: Tool = Tool.PEN
+    private var holdShapeIsLine: Boolean = false
+    private var holdShapeIsHighlighterLine: Boolean = false
+    private var holdShapeAnchorX: Float = 0f
+    private var holdShapeAnchorY: Float = 0f
+    private var holdShapeRefDist: Float = 1f
+    private var holdShapeRefAngle: Float = 0f
     private var lastMovePt: Pt? = null
     private var downTime = 0L
     private var downX = 0f
@@ -1158,7 +1175,8 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
     internal var pageAtGestureStart = 0
     internal var lastStylusTime = 0L
     internal var stylusHovering = false
-    private var lastHoverButtonHeldAt = 0L
+    internal var lastHoverButtonHeldAt = 0L
+    private var strokeSideButtonLatched = false
     private var ignoreFingers = false       // swallow the rest of a palm / finger gesture
     internal var lastTapTime = 0L
     internal var lastTapX = 0f
@@ -1514,19 +1532,53 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
     private fun sideButtonHeld(e: MotionEvent): Boolean {
         if (e.actionMasked in 211..214) return true
         val bs = e.buttonState
-        if (bs and (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_STYLUS_SECONDARY or MotionEvent.BUTTON_SECONDARY) != 0) return true
-        if (e.actionButton == MotionEvent.BUTTON_STYLUS_PRIMARY || e.actionButton == MotionEvent.BUTTON_STYLUS_SECONDARY) {
-            return e.actionMasked == MotionEvent.ACTION_BUTTON_PRESS || e.actionMasked == MotionEvent.ACTION_DOWN
+        val mask = MotionEvent.BUTTON_STYLUS_PRIMARY or
+            MotionEvent.BUTTON_STYLUS_SECONDARY or
+            MotionEvent.BUTTON_SECONDARY or
+            MotionEvent.BUTTON_TERTIARY
+        if ((bs and mask) != 0) return true
+        if (e.actionButton == MotionEvent.BUTTON_STYLUS_PRIMARY ||
+            e.actionButton == MotionEvent.BUTTON_STYLUS_SECONDARY ||
+            e.actionButton == MotionEvent.BUTTON_SECONDARY ||
+            e.actionButton == MotionEvent.BUTTON_TERTIARY
+        ) {
+            return e.actionMasked == MotionEvent.ACTION_BUTTON_PRESS ||
+                e.actionMasked == MotionEvent.ACTION_DOWN ||
+                e.actionMasked == MotionEvent.ACTION_HOVER_MOVE
+        }
+        // Older Samsung tablets (Galaxy Tab S7 / S7+ on One UI 4-5) occasionally surface S Pen side button
+        // via META_ALT_ON on stylus MotionEvents when buttonState momentarily reports 0.
+        if (e.pointerCount > 0 && isPen(e.getToolType(0)) && (e.metaState and android.view.KeyEvent.META_ALT_ON) != 0) {
+            return true
         }
         return false
     }
 
+    private fun resolvedSideButtonAction(): SideButton {
+        val prof = penSide
+        return when {
+            prof != null && prof != SideButton.NONE -> prof
+            settings.sideButton != SideButton.NONE -> settings.sideButton
+            else -> prof ?: settings.sideButton
+        }
+    }
+
     private fun effectiveTool(e: MotionEvent, index: Int = 0): Tool {
-        if (e.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER) return Tool.ERASER
-        val heldNow = sideButtonHeld(e) ||
-            (e.actionMasked == MotionEvent.ACTION_DOWN && SystemClock.uptimeMillis() - lastHoverButtonHeldAt < 95L)
+        val safeIdx = index.coerceIn(0, (e.pointerCount - 1).coerceAtLeast(0))
+        if (e.getToolType(safeIdx) == MotionEvent.TOOL_TYPE_ERASER) return Tool.ERASER
+        val normAction = normalizeStylusAction(e)
+        val now = SystemClock.uptimeMillis()
+        // Tab S7+ S Pen digitizers often have a 120–380ms gap or drop buttonState to 0 on ACTION_DOWN
+        // right after ACTION_HOVER_MOVE with side button held; widen latch window to 420ms and honor buttonDown.
+        val hoverLatched = isPen(e.getToolType(safeIdx)) &&
+            (normAction == MotionEvent.ACTION_DOWN || normAction == MotionEvent.ACTION_POINTER_DOWN) &&
+            (buttonDown || (now - lastHoverButtonHeldAt < 420L))
+        val heldNow = sideButtonHeld(e) || hoverLatched || strokeSideButtonLatched
         if (heldNow) {
-            when (penSide ?: settings.sideButton) {
+            if (normAction == MotionEvent.ACTION_DOWN || normAction == MotionEvent.ACTION_POINTER_DOWN) {
+                strokeSideButtonLatched = true
+            }
+            when (resolvedSideButtonAction()) {
                 SideButton.ERASER -> return Tool.ERASER
                 SideButton.LASSO -> return Tool.LASSO
                 SideButton.NONE -> Unit
@@ -1537,6 +1589,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
 
 
     private fun beginDrawDown(e: MotionEvent, pIdx: Int, pid: Int, px: Float, py: Float) {
+        strokeSideButtonLatched = false
         val (ddx, ddy) = toDoc(px, py)
         activePage = pageAt(ddx, ddy)
         points.clear()
@@ -1827,7 +1880,11 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                 }
                 when (mode) {
                     Mode.INK -> {
-                        if (isPen(e.getToolType(idx)) && sideButtonHeld(e) && (penSide ?: settings.sideButton) == SideButton.ERASER) {
+                        val isStylusOrEraser = isPen(e.getToolType(idx)) || e.getToolType(idx) == MotionEvent.TOOL_TYPE_ERASER
+                        val sideEraserNow = e.getToolType(idx) == MotionEvent.TOOL_TYPE_ERASER ||
+                            (isStylusOrEraser && (sideButtonHeld(e) || buttonDown) && resolvedSideButtonAction() == SideButton.ERASER)
+                        if (sideEraserNow) {
+                            strokeSideButtonLatched = true
                             cancelActiveWetStroke(e)
                             points.clear()
                             strokeTool = Tool.ERASER
@@ -1907,6 +1964,11 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                         layer.shapePreview = runCatching { ShapeBuilder.build(host.shapeKind(), sx, sy, cx, cy) }.getOrNull() ?: layer.shapePreview
                         layer.invalidate()
                     }
+                    Mode.HOLD_SHAPE_ADJUST -> {
+                        val (cx, cy) = toLocal(e.getX(idx), e.getY(idx), activePage)
+                        updateHoldShapePreview(cx, cy)
+                        layer.invalidate()
+                    }
                     Mode.WRITE_BOX_DRAG -> {
                         val (wx, wy) = toLocal(e.getX(idx), e.getY(idx), activePage)
                         val (x0, y0) = points.first()
@@ -1921,14 +1983,22 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                         }
                     }
                     Mode.TAPE -> {
-                        if (host.tapeFreehand()) {
-                            for (h in 0 until e.historySize) points += toLocal(e.getHistoricalX(idx, h), e.getHistoricalY(idx, h), activePage)
-                            points += toLocal(e.getX(idx), e.getY(idx), activePage)
-                            layer.tapeFree = ArrayList(points)
-                        } else {
-                            val (sx, sy) = points.first()
-                            val (cx, cy) = toLocal(e.getX(idx), e.getY(idx), activePage)
-                            layer.tapePreview = tapeRect(sx, sy, cx, cy)
+                        when (host.tapeMode()) {
+                            TapeMode.FREEHAND -> {
+                                for (h in 0 until e.historySize) points += toLocal(e.getHistoricalX(idx, h), e.getHistoricalY(idx, h), activePage)
+                                points += toLocal(e.getX(idx), e.getY(idx), activePage)
+                                layer.tapeFree = ArrayList(points)
+                            }
+                            TapeMode.RECTANGLE -> {
+                                val (sx, sy) = points.first()
+                                val (cx, cy) = toLocal(e.getX(idx), e.getY(idx), activePage)
+                                layer.tapePreview = RectF(min(sx, cx), min(sy, cy), max(sx, cx), max(sy, cy))
+                            }
+                            TapeMode.STRAIGHT -> {
+                                val (sx, sy) = points.first()
+                                val (cx, cy) = toLocal(e.getX(idx), e.getY(idx), activePage)
+                                layer.tapePreview = tapeRect(sx, sy, cx, cy)
+                            }
                         }
                         layer.invalidate()
                     }
@@ -2043,6 +2113,26 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                         layer.shapePreview = null
                         val moved = hypot(px - downX, py - downY) > effectiveTouchSlop * 0.6f
                         if (shapes != null && (!isTap || moved)) addShapes(shapes, fillable = host.shapeKind().closed)
+                        layer.invalidate()
+                    }
+                    Mode.HOLD_SHAPE_ADJUST -> {
+                        val (ex, ey) = toLocal(px, py, activePage)
+                        updateHoldShapePreview(ex, ey)
+                        val finalShapes = layer.shapePreview ?: holdShapeBasePts
+                        layer.shapePreview = null
+                        holdShapeBasePts = emptyList()
+                        if (finalShapes.isNotEmpty()) {
+                            if (holdShapeIsHighlighterLine) {
+                                val line = finalShapes.first()
+                                if (line.size >= 2) addStraightHighlight(line.first(), line.last())
+                            } else {
+                                addShapes(
+                                    shapes = finalShapes,
+                                    fillable = holdShapeFillable,
+                                    brushTool = holdShapeBrushTool,
+                                )
+                            }
+                        }
                         layer.invalidate()
                     }
                     Mode.WRITE_BOX_DRAG -> {
@@ -2225,7 +2315,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         val isStylus = isPen(props[idx].toolType)
         val isPressureTool = strokeTool == Tool.PEN || strokeTool == Tool.CRAYON || strokeTool == Tool.AUTO_TEXT
         val sens = td.pressureSensitivity.coerceIn(0.3f, 2.0f)
-        val gamma = (0.70 / sens.toDouble()).coerceIn(0.32, 2.35)
+        val gamma = (1.0 / sens.toDouble()).coerceIn(0.45, 2.20)
         val userStab = td.penStabilization.coerceIn(0f, 1f)
         // Light baseline micro-jitter removal even at 0 stabilization so every stylus draws cleanly;
         // scales smoothly with user stabilization without adding lag on fast strokes.
@@ -2291,79 +2381,98 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
 
             if (isPressureTool) {
                 val activePen = if (strokeTool == Tool.PEN || strokeTool == Tool.AUTO_TEXT) host.activePenType() else null
+                // Helper: Android MotionEvent pressure is usually already normalized to [0..1] even when
+                // InputDevice.getMotionRange(AXIS_PRESSURE) reports 4096 (common on Samsung S Pen kernels).
+                fun normalizeStylusPressure(rawVal: Float): Float {
+                    val v = rawVal.coerceAtLeast(0f)
+                    val norm = if (v > 1.15f && inkPressureRange > 1.5f) {
+                        ((v - inkPressureMin) / inkPressureRange).coerceIn(0f, 1f)
+                    } else {
+                        v.coerceIn(0f, 1f)
+                    }
+                    return norm
+                }
+
                 if (!td.pressureEnabled || activePen == PenType.FINELINER || activePen == PenType.DASHED) {
                     target.pressure = 0.5f
                     curPressure = 0.5f
-                } else if (activePen == PenType.CALLIGRAPHY) {
-                    target.pressure = 0.68f
-                    curPressure = 0.68f
                 } else if (activePen == PenType.LETTERING) {
-                    // Authentic hand-lettering contrast: bold thick downstrokes, razor-thin hairline upstrokes (stylus & finger!)
+                    // Authentic hand-lettering contrast: bold thick downstrokes, razor-thin hairline upstrokes + real S Pen pressure.
                     val vertSpeed = if (isDown) 0f else curFiltDy
                     val dirWeight = when {
-                        vertSpeed > 28f -> (0.78f + (vertSpeed / 900f).coerceIn(0f, 0.22f))
-                        vertSpeed < -28f -> (0.11f + (1f - ((-vertSpeed) / 700f).coerceIn(0f, 1f)) * 0.14f)
+                        vertSpeed > 28f -> (0.76f + (vertSpeed / 900f).coerceIn(0f, 0.24f))
+                        vertSpeed < -28f -> (0.08f + (1f - ((-vertSpeed) / 700f).coerceIn(0f, 1f)) * 0.14f)
                         else -> 0.44f
                     }
-                    val rawHw = if (isStylus && inkHasHardwarePressure) {
-                        val cand = if (rawAxisP > 0.002f) rawAxisP else target.pressure
-                        ((cand - inkPressureMin) / inkPressureRange).coerceIn(0.05f, 1.0f)
-                    } else dirWeight
-                    val targetP = if (isStylus && curSawVarP) {
-                        (dirWeight * 0.62f + Math.pow(rawHw.toDouble(), gamma * 0.85).toFloat() * 0.38f).coerceIn(0.08f, 1.0f)
-                    } else {
-                        dirWeight.coerceIn(0.09f, 1.0f)
+                    val rawCandidate = if (rawAxisP > 0.0005f) rawAxisP else target.pressure
+                    val normRaw = normalizeStylusPressure(rawCandidate)
+                    if (isStylus && curFirstP.isNaN() && normRaw > 0.002f) {
+                        curFirstP = normRaw
+                    } else if (isStylus && !curFirstP.isNaN() && abs(normRaw - curFirstP) > 0.015f) {
+                        curSawVarP = true
                     }
-                    val pAlpha = if (isDown || curPressure.isNaN()) 1.0f else (1f - kotlin.math.exp((-dtSec / 0.016f).toDouble()).toFloat()).coerceIn(0.18f, 0.85f)
+                    val targetP = if (isStylus && inkHasHardwarePressure) {
+                        val hwCurved = Math.pow(normRaw.coerceIn(0.02f, 1f).toDouble(), gamma).toFloat()
+                        if (curSawVarP || normRaw in 0.01f..0.98f) {
+                            (hwCurved * 0.68f + dirWeight * 0.32f).coerceIn(0.05f, 1.0f)
+                        } else {
+                            dirWeight.coerceIn(0.08f, 1.0f)
+                        }
+                    } else {
+                        dirWeight.coerceIn(0.08f, 1.0f)
+                    }
+                    val pAlpha = if (isDown || curPressure.isNaN()) 1.0f else (1f - kotlin.math.exp((-dtSec / 0.012f).toDouble()).toFloat()).coerceIn(0.24f, 0.90f)
                     val filteredP = if (isDown || curPressure.isNaN()) targetP else (curPressure + (targetP - curPressure) * pAlpha)
                     curPressure = filteredP
-                    target.pressure = filteredP.coerceIn(0.08f, 1.0f)
+                    target.pressure = filteredP.coerceIn(0.05f, 1.0f)
                 } else if (isStylus && inkHasHardwarePressure) {
-                    val rawCandidate = if (rawAxisP > 0.002f) rawAxisP else target.pressure
-                    val normRaw = ((rawCandidate - inkPressureMin) / inkPressureRange).coerceIn(0f, 1.0f)
-                    if (curFirstP.isNaN() && normRaw > 0.005f) {
+                    val rawCandidate = if (rawAxisP > 0.0005f) rawAxisP else target.pressure
+                    val normRaw = normalizeStylusPressure(rawCandidate)
+                    if (curFirstP.isNaN() && normRaw > 0.002f) {
                         curFirstP = normRaw
-                    } else if (!curFirstP.isNaN() && abs(normRaw - curFirstP) > 0.03f) {
+                    } else if (!curFirstP.isNaN() && abs(normRaw - curFirstP) > 0.015f) {
                         curSawVarP = true
                     }
                     val baseTargetP = when {
-                        // Passive/capacitive stylus reporting flat 0 or 1 pressure: synthesize subtle velocity taper.
-                        !curSawVarP && (normRaw <= 0.005f || normRaw >= 0.995f) -> {
+                        // Only treat as passive/capacitive stylus if it stays pinned strictly at 1.0f across moves (never on light S Pen touch-down!).
+                        !isDown && !curSawVarP && normRaw >= 0.999f && curFirstP >= 0.999f -> {
                             val velFactor = (1f - (speedDpPerSec / 1400f).coerceIn(0f, 0.35f))
                             (0.42f + 0.24f * velFactor * (sens / 1.2f)).coerceIn(0.22f, 0.82f)
                         }
-                        // Prevent abrupt 0-pressure drop spikes on lift-off (common on USI/MPP digitizers).
-                        isUp && !curPressure.isNaN() && normRaw < 0.05f -> (curPressure * 0.72f).coerceIn(0.10f, 0.85f)
+                        // Prevent abrupt 0-pressure drop spikes on final lift-off frame.
+                        isUp && !curPressure.isNaN() && normRaw < 0.03f -> (curPressure * 0.72f).coerceIn(0.06f, 0.88f)
                         else -> {
-                            val effRaw = if (isDown && normRaw < 0.06f) 0.14f else normRaw.coerceIn(0.01f, 1.0f)
-                            Math.pow(effRaw.toDouble(), gamma).toFloat().coerceIn(0.08f, 1.0f)
+                            // Responsive full-range S Pen curve: light touch (0.04..0.18) stays genuinely thin, firm press (0.70..1.0) goes bold.
+                            val effRaw = normRaw.coerceIn(0.02f, 1.0f)
+                            Math.pow(effRaw.toDouble(), gamma).toFloat().coerceIn(0.04f, 1.0f)
                         }
                     }
-                    // Shape dynamic range per PenType so Ballpoint, Fountain, Brush, and Pencil feel unmistakably different.
                     val shapedP = when (activePen) {
-                        PenType.BALL -> (0.46f + baseTargetP * 0.24f).coerceIn(0.42f, 0.72f)
-                        PenType.BRUSH -> (0.06f + Math.pow(baseTargetP.toDouble(), 0.78).toFloat() * 0.94f).coerceIn(0.06f, 1.0f)
-                        PenType.PENCIL -> (0.20f + baseTargetP * 0.68f).coerceIn(0.18f, 0.90f)
-                        else -> (0.16f + baseTargetP * 0.80f).coerceIn(0.14f, 0.96f)
+                        PenType.BALL -> (0.18f + baseTargetP * 0.82f).coerceIn(0.16f, 1.0f)
+                        PenType.CALLIGRAPHY -> (0.20f + baseTargetP * 0.80f).coerceIn(0.18f, 1.0f)
+                        PenType.BRUSH -> (0.04f + Math.pow(baseTargetP.toDouble(), 0.88).toFloat() * 0.96f).coerceIn(0.04f, 1.0f)
+                        PenType.PENCIL -> (0.08f + baseTargetP * 0.92f).coerceIn(0.06f, 1.0f)
+                        else -> (0.05f + baseTargetP * 0.95f).coerceIn(0.04f, 1.0f)
                     }
-                    // Time-invariant pressure smoothing (~14ms time constant) works identically from 60Hz to 360Hz.
-                    val pAlpha = if (isDown || curPressure.isNaN()) 1.0f else (1f - kotlin.math.exp((-dtSec / 0.014f).toDouble()).toFloat()).coerceIn(0.18f, 0.88f)
+                    // Fast ~10ms time-invariant smoothing keeps S Pen pressure transitions crisp without jitter.
+                    val pAlpha = if (isDown || curPressure.isNaN()) 1.0f else (1f - kotlin.math.exp((-dtSec / 0.010f).toDouble()).toFloat()).coerceIn(0.25f, 0.92f)
                     val filteredP = if (isDown || curPressure.isNaN()) shapedP else (curPressure + (shapedP - curPressure) * pAlpha)
                     curPressure = filteredP
-                    target.pressure = filteredP.coerceIn(0.06f, 1.0f)
+                    target.pressure = filteredP.coerceIn(0.04f, 1.0f)
                 } else {
                     // Finger or non-pressure stylus: distinct pen-type velocity-responsive natural ink flow.
                     val velFactor = (1f - (speedDpPerSec / 1350f).coerceIn(0f, 0.42f))
                     val targetP = when (activePen) {
-                        PenType.BALL -> (0.50f + 0.12f * velFactor).coerceIn(0.46f, 0.64f)
-                        PenType.BRUSH -> (0.18f + 0.76f * velFactor * (sens / 1.25f)).coerceIn(0.14f, 0.98f)
-                        PenType.PENCIL -> (0.30f + 0.44f * velFactor).coerceIn(0.24f, 0.78f)
-                        else -> (0.30f + 0.42f * velFactor * (sens / 1.3f)).coerceIn(0.20f, 0.92f)
+                        PenType.BALL -> (0.50f + 0.14f * velFactor).coerceIn(0.44f, 0.66f)
+                        PenType.CALLIGRAPHY -> 0.64f
+                        PenType.BRUSH -> (0.16f + 0.80f * velFactor * (sens / 1.25f)).coerceIn(0.12f, 0.98f)
+                        PenType.PENCIL -> (0.28f + 0.46f * velFactor).coerceIn(0.22f, 0.78f)
+                        else -> (0.28f + 0.44f * velFactor * (sens / 1.3f)).coerceIn(0.18f, 0.92f)
                     }
                     val pAlpha = if (isDown || curPressure.isNaN()) 1.0f else (1f - kotlin.math.exp((-dtSec / 0.020f).toDouble()).toFloat()).coerceIn(0.16f, 0.75f)
                     val filteredP = if (isDown || curPressure.isNaN()) targetP else (curPressure + (targetP - curPressure) * pAlpha)
                     curPressure = filteredP
-                    target.pressure = filteredP.coerceIn(0.12f, 0.98f)
+                    target.pressure = filteredP.coerceIn(0.10f, 0.98f)
                 }
             }
 
@@ -2387,7 +2496,9 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         // Replay all historical sub-frame samples first so 120–360Hz digitizer precision is preserved intact.
         for (h in 0 until histSize) {
             for (i in 0 until count) e.getHistoricalPointerCoords(i, h, coords[i])
-            val rawP = e.getHistoricalPressure(idx, h)
+            val hPress = e.getHistoricalPressure(idx, h)
+            val hAxis = e.getHistoricalAxisValue(MotionEvent.AXIS_PRESSURE, idx, h)
+            val rawP = if (hPress > 0.0005f) hPress else hAxis
             val hTime = applyRemapToTarget(
                 target = coords[idx],
                 rawAxisP = rawP,
@@ -2409,7 +2520,9 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
 
         // Now remap the current latest sample.
         for (i in 0 until count) e.getPointerCoords(i, coords[i])
-        val rawAxisP = e.getAxisValue(MotionEvent.AXIS_PRESSURE, idx)
+        val curPress = e.getPressure(idx)
+        val curAxis = e.getAxisValue(MotionEvent.AXIS_PRESSURE, idx)
+        val rawAxisP = if (curPress > 0.0005f) curPress else curAxis
         val curT = applyRemapToTarget(
             target = coords[idx],
             rawAxisP = rawAxisP,
@@ -2576,36 +2689,37 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                 return
             }
         }
-        // Scribble-to-erase: uses surgical hit-testing for ink strokes AND individual words in converted text.
+        // Scribble-to-erase: uses surgical hit-testing for ink strokes AND individual words in converted text together.
         if (!isTap && (strokeTool == Tool.PEN || strokeTool == Tool.CRAYON || strokeTool == Tool.HIGHLIGHTER) && settings.scribbleToErase &&
             isDeliberateScribble(points, scale / density, e.eventTime - e.downTime, gestureConfig)) {
             val hit = scribbleHitIds(activePage, points)
-            if (hit.isNotEmpty()) {
+            val wordErase = scribbleEraseTextWords(activePage, points)
+            if (hit.isNotEmpty() || wordErase != null) {
                 cancelActiveWetStroke(e)
-                val hitItems = p.items.filter { it.id in hit }
-                val gone = hitItems.map { RectF(it.bounds).also { r -> pageMatrix(activePage, tmpMatrix).mapRect(r) } }
-                val strokeColors = hitItems.mapNotNull { item ->
-                    when (item) {
-                        is InkItem -> item.stroke.brush.colorIntArgb
-                        is TextItem -> item.color
-                        is StickyItem -> item.color
-                        is TapeItem -> item.color
-                        else -> null
+                val gone = ArrayList<RectF>()
+                val colors = ArrayList<Int>()
+                var updatedItems = p.items
+                if (wordErase != null) {
+                    updatedItems = wordErase.first
+                    wordErase.second.forEach { (rect, col) ->
+                        gone += RectF(rect).also { r -> pageMatrix(activePage, tmpMatrix).mapRect(r) }
+                        colors += col
                     }
                 }
-                host.beginEdit(activePage)
-                updatePage(activePage, p.items.filterNot { it.id in hit })
-                layer.puff(gone, strokeColors)
-                syncFeel(); feel.cue(PaperFeel.Cue.TAP)
-                host.onScribbleErased()
-                return
-            }
-            val wordErase = scribbleEraseTextWords(activePage, points)
-            if (wordErase != null) {
-                cancelActiveWetStroke(e)
-                val (updatedItems, visuals) = wordErase
-                val gone = visuals.map { (rect, _) -> RectF(rect).also { r -> pageMatrix(activePage, tmpMatrix).mapRect(r) } }
-                val colors = visuals.map { it.second }
+                if (hit.isNotEmpty()) {
+                    val hitItems = updatedItems.filter { it.id in hit }
+                    hitItems.forEach { item ->
+                        gone += RectF(item.bounds).also { r -> pageMatrix(activePage, tmpMatrix).mapRect(r) }
+                        when (item) {
+                            is InkItem -> colors += item.stroke.brush.colorIntArgb
+                            is TextItem -> colors += item.color
+                            is StickyItem -> colors += item.color
+                            is TapeItem -> colors += item.color
+                            else -> Unit
+                        }
+                    }
+                    updatedItems = updatedItems.filterNot { it.id in hit }
+                }
                 host.beginEdit(activePage)
                 updatePage(activePage, updatedItems)
                 layer.puff(gone, colors)
@@ -2624,15 +2738,30 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             }
             // Nothing matched: silently keep the freehand stroke editable.
         }
-        // Highlighter: always straight, or straightened when it was nearly straight anyway.
+        // Highlighter: always straight, or straightened with clean horizontal/vertical snapping when drawn across a line.
         if (strokeTool == Tool.HIGHLIGHTER && points.size > 1) {
             val hMode = settings.highlighterMode
             val len = pathLength(points)
             val straighten = hMode == com.pronotes.app.data.HighlighterMode.STRAIGHT ||
-                (hMode == com.pronotes.app.data.HighlighterMode.AUTO && isNearlyStraight(points, max(10f, len * 0.07f)))
+                (hMode == com.pronotes.app.data.HighlighterMode.AUTO && isNearlyStraight(points, max(14f, len * 0.10f)))
             if (straighten) {
                 cancelActiveWetStroke(e)
-                addStraightHighlight(points.first(), points.last())
+                val pStart = points.first()
+                val pEnd = points.last()
+                val dx = pEnd.first - pStart.first
+                val dy = pEnd.second - pStart.second
+                val (a, b) = when {
+                    abs(dx) > 20f && abs(dy) < abs(dx) * 0.135f -> {
+                        val midY = (pStart.second + pEnd.second) * 0.5f
+                        (pStart.first to midY) to (pEnd.first to midY)
+                    }
+                    abs(dy) > 20f && abs(dx) < abs(dy) * 0.135f -> {
+                        val midX = (pStart.first + pEnd.first) * 0.5f
+                        (midX to pStart.second) to (midX to pEnd.second)
+                    }
+                    else -> pStart to pEnd
+                }
+                addStraightHighlight(a, b)
                 return
             }
         }
@@ -2781,16 +2910,29 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         // Draw-and-hold snaps to shapes (never hijacks into lasso).
         // Converting a loop to lasso only happens when pressing & holding the pulsing circle indicator after lifting.
 
-        // Highlighter holds snap to shapes or straight highlight lines.
+        // Highlighter holds snap to shapes or straight highlight lines and remain live-adjustable while held.
         if (strokeTool == Tool.HIGHLIGHTER) {
             holdFired = true
             cancelActiveWetStroke()
             val shape = if (isClosedLoop(points, gestureConfig)) ShapeRecognizer.recognize(points) else null
             if (shape != null) {
-                val p2 = pages[activePage]
-                host.beginEdit(activePage)
-                updatePage(activePage, p2.items + InkItem(ItemIds.next(), InkCodec.strokeFromPoints(shape, host.brush(Tool.HIGHLIGHTER))))
-            } else addStraightHighlight(points.first(), points.last())
+                enterHoldShapeAdjust(
+                    shapes = listOf(shape),
+                    fillable = false,
+                    brushTool = Tool.HIGHLIGHTER,
+                    isHighlighterLine = false,
+                )
+            } else {
+                val a = points.first()
+                var b = points.last()
+                if (abs(b.second - a.second) < abs(b.first - a.first) * 0.12f) b = b.first to a.second
+                enterHoldShapeAdjust(
+                    shapes = listOf(listOf(a, b)),
+                    fillable = false,
+                    brushTool = Tool.HIGHLIGHTER,
+                    isHighlighterLine = true,
+                )
+            }
             buzz()
             return
         }
@@ -2798,13 +2940,126 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             val shapes = ShapeRecognizer.recognizeMulti(points, forceNearest = (strokeTool == Tool.SHAPE)) ?: return
             holdFired = true
             cancelActiveWetStroke()
-            addShapes(
+            enterHoldShapeAdjust(
                 shapes = shapes,
                 fillable = strokeTool == Tool.SHAPE && shapes.size == 1 && isClosedLoop(shapes.first(), gestureConfig),
                 brushTool = strokeTool,
+                isHighlighterLine = false,
             )
             buzz(); syncFeel(); feel.cue(PaperFeel.Cue.SNAP)
         }
+    }
+
+    /** Switches a hold-snapped stroke into live adjustment mode so continuing to drag resizes/re-aims it before lift. */
+    private fun enterHoldShapeAdjust(
+        shapes: List<List<Pt>>,
+        fillable: Boolean,
+        brushTool: Tool,
+        isHighlighterLine: Boolean,
+    ) {
+        val allPts = shapes.flatten()
+        if (allPts.isEmpty()) return
+        val firstStroke = shapes.first()
+        val isOpenLine = isHighlighterLine || (
+            shapes.size == 1 &&
+                firstStroke.size >= 2 &&
+                hypot(firstStroke.first().first - firstStroke.last().first, firstStroke.first().second - firstStroke.last().second) > 20f &&
+                !isClosedLoop(firstStroke, gestureConfig)
+            )
+        holdShapeBasePts = shapes
+        holdShapeFillable = fillable
+        holdShapeBrushTool = brushTool
+        holdShapeIsLine = isOpenLine
+        holdShapeIsHighlighterLine = isHighlighterLine
+        val tip = points.lastOrNull() ?: firstStroke.last()
+        if (isOpenLine) {
+            holdShapeAnchorX = firstStroke.first().first
+            holdShapeAnchorY = firstStroke.first().second
+            holdShapeRefDist = hypot(tip.first - holdShapeAnchorX, tip.second - holdShapeAnchorY).coerceAtLeast(12f)
+            holdShapeRefAngle = kotlin.math.atan2(tip.second - holdShapeAnchorY, tip.first - holdShapeAnchorX)
+        } else {
+            val minX = allPts.minOf { it.first }
+            val maxX = allPts.maxOf { it.first }
+            val minY = allPts.minOf { it.second }
+            val maxY = allPts.maxOf { it.second }
+            holdShapeAnchorX = (minX + maxX) * 0.5f
+            holdShapeAnchorY = (minY + maxY) * 0.5f
+            holdShapeRefDist = hypot(tip.first - holdShapeAnchorX, tip.second - holdShapeAnchorY).coerceAtLeast(18f)
+            holdShapeRefAngle = kotlin.math.atan2(tip.second - holdShapeAnchorY, tip.first - holdShapeAnchorX)
+        }
+        mode = Mode.HOLD_SHAPE_ADJUST
+        layer.shapePreview = shapes
+        layer.invalidate()
+    }
+
+    private fun updateHoldShapePreview(cx: Float, cy: Float) {
+        if (holdShapeBasePts.isEmpty()) return
+        if (holdShapeIsLine) {
+            val ax = holdShapeAnchorX
+            val ay = holdShapeAnchorY
+            var bx = cx
+            var by = cy
+            val dx = bx - ax
+            val dy = by - ay
+            val len = hypot(dx, dy)
+            if (len < 6f) return
+            // Soft snap to horizontal, vertical, or 45-degree diagonals when within ~5.5 degrees
+            val deg = Math.toDegrees(kotlin.math.atan2(dy.toDouble(), dx.toDouble()))
+            val nearest45 = kotlin.math.round(deg / 45.0) * 45.0
+            if (abs(deg - nearest45) < 5.5) {
+                val rad = Math.toRadians(nearest45)
+                bx = ax + (len * kotlin.math.cos(rad)).toFloat()
+                by = ay + (len * kotlin.math.sin(rad)).toFloat()
+            }
+            val orig = holdShapeBasePts.first()
+            // Preserve arrowhead/multi-segment open shapes by rotating & scaling from start point; plain line uses clean 2-point stretch
+            layer.shapePreview = if (holdShapeIsHighlighterLine || orig.size <= 3 || holdShapeBasePts.size == 1 && isStraightSegment(orig)) {
+                listOf(densifyPublic(listOf(ax to ay, bx to by)))
+            } else {
+                val newDist = hypot(bx - ax, by - ay).coerceAtLeast(10f)
+                val s = (newDist / holdShapeRefDist).coerceIn(0.2f, 6f)
+                val dAngle = kotlin.math.atan2(by - ay, bx - ax) - holdShapeRefAngle
+                val cosA = kotlin.math.cos(dAngle); val sinA = kotlin.math.sin(dAngle)
+                holdShapeBasePts.map { poly ->
+                    poly.map { (px, py) ->
+                        val vx = (px - ax) * s
+                        val vy = (py - ay) * s
+                        (ax + vx * cosA - vy * sinA) to (ay + vx * sinA + vy * cosA)
+                    }
+                }
+            }
+        } else {
+            // Closed shapes (circle, square, rectangle, triangle, diamond, etc.):
+            // smoothly resize & rotate around the snapped shape's center while still holding!
+            val ax = holdShapeAnchorX
+            val ay = holdShapeAnchorY
+            val curDist = hypot(cx - ax, cy - ay).coerceAtLeast(12f)
+            val s = (curDist / holdShapeRefDist).coerceIn(0.25f, 5.5f)
+            val rawDelta = kotlin.math.atan2(cy - ay, cx - ax) - holdShapeRefAngle
+            // Small angular deadzone (~4 deg) so pure outward/inward resizing stays perfectly level
+            val dAngle = if (abs(rawDelta) < 0.07f) 0f else rawDelta
+            val cosA = kotlin.math.cos(dAngle)
+            val sinA = kotlin.math.sin(dAngle)
+            layer.shapePreview = holdShapeBasePts.map { poly ->
+                poly.map { (px, py) ->
+                    val vx = (px - ax) * s
+                    val vy = (py - ay) * s
+                    (ax + vx * cosA - vy * sinA) to (ay + vx * sinA + vy * cosA)
+                }
+            }
+        }
+    }
+
+    private fun isStraightSegment(pts: List<Pt>): Boolean {
+        if (pts.size < 2) return true
+        val a = pts.first(); val b = pts.last()
+        val dx = b.first - a.first; val dy = b.second - a.second
+        val len = hypot(dx, dy).coerceAtLeast(1f)
+        for (p in pts) {
+            val dist = abs(dy * p.first - dx * p.second + b.first * a.second - b.second * a.first) / len
+            if (dist > 3.5f) return false
+        }
+        return true
     }
 
     private fun cancelActiveWetStroke(event: MotionEvent? = lastTouchEvent) {
@@ -2951,6 +3206,8 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         stopEdgeScroll()
         fingerGrabPointer = -1
         selectionScrollPointer = -1
+        strokeSideButtonLatched = false
+        holdShapeBasePts = emptyList()
         feel.stop()
         if (clearWet) {
             cancelActiveWetStroke(cancelWetEvent)

@@ -237,6 +237,7 @@ data class WebLinkItem(
     val h: Float = 136f,
     val color: Int = 0xFF2A78D6.toInt(),
     val rot: Float = 0f,
+    val embedded: Boolean = false,
 ) : PageItem {
     val domain: String
         get() = runCatching {
@@ -271,6 +272,35 @@ data class WriteBoxItem(
     override val bounds: RectF get() = rotatedBounds(raw, rot)
     override fun translated(dx: Float, dy: Float): PageItem = copy(x = x + dx, y = y + dy)
     override fun withId(newId: Long): PageItem = copy(id = newId)
+}
+
+/** Editable table grid that works on both notebook and PDF pages: tap any cell to type or write/highlight directly on top. */
+@Immutable
+data class TableItem(
+    override val id: Long,
+    val x: Float,
+    val y: Float,
+    val w: Float,
+    val h: Float,
+    val rows: Int = 3,
+    val cols: Int = 3,
+    val cells: List<String> = List(9) { "" },
+    val color: Int = 0xFF2563EB.toInt(),
+    val headerRow: Boolean = true,
+    val fontSize: Float = 22f,
+    val rot: Float = 0f,
+) : PageItem {
+    val raw: RectF get() = RectF(x, y, x + w, y + h)
+    override val bounds: RectF get() = rotatedBounds(raw, rot)
+    override fun translated(dx: Float, dy: Float): PageItem = copy(x = x + dx, y = y + dy)
+    override fun withId(newId: Long): PageItem = copy(id = newId)
+    fun cellText(r: Int, c: Int): String = cells.getOrNull(r * cols + c).orEmpty()
+    fun cellAt(px: Float, py: Float): Pair<Int, Int>? {
+        if (!raw.contains(px, py) || rows <= 0 || cols <= 0) return null
+        val col = (((px - x) / w.coerceAtLeast(1f)) * cols).toInt().coerceIn(0, cols - 1)
+        val row = (((py - y) / h.coerceAtLeast(1f)) * rows).toInt().coerceIn(0, rows - 1)
+        return row to col
+    }
 }
 
 @Immutable
@@ -371,6 +401,7 @@ fun PageItem.transformed(m: android.graphics.Matrix, s: Float, deg: Float): Page
         is MindNodeItem -> { val (cx, cy) = movedCenter(bounds); val nw = (w * s).coerceIn(110f, 520f); val nh = (h * s).coerceIn(48f, 220f); copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh) }
         is WebLinkItem -> { val (cx, cy) = movedCenter(raw); val nw = (w * s).coerceIn(220f, 760f); val nh = (h * s).coerceIn(96f, 340f); copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh, rot = (rot + deg) % 360f) }
         is WriteBoxItem -> { val (cx, cy) = movedCenter(raw); val nw = (w * s).coerceIn(220f, 1200f); val nh = (h * s).coerceIn(120f, 960f); copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh, rot = (rot + deg) % 360f) }
+        is TableItem -> { val (cx, cy) = movedCenter(raw); val nw = (w * s).coerceIn(200f, 1600f); val nh = (h * s).coerceIn(100f, 1600f); copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh, rot = (rot + deg) % 360f) }
         is TapeItem -> if (pts != null) {
             val abs = FloatArray(pts.size) { i -> pts[i] + if (i % 2 == 0) x else y }
             m.mapPoints(abs)
@@ -452,6 +483,12 @@ fun PageItem.stretched(oldBox: RectF, newBox: RectF): PageItem {
             val (cx, cy) = mapPt(raw.centerX(), raw.centerY())
             val nw = (w * sx).coerceIn(220f, 1400f)
             val nh = (h * sy).coerceIn(120f, 1000f)
+            copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh)
+        }
+        is TableItem -> {
+            val (cx, cy) = mapPt(raw.centerX(), raw.centerY())
+            val nw = (w * sx).coerceIn(200f, 1800f)
+            val nh = (h * sy).coerceIn(100f, 1800f)
             copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh)
         }
         is TapeItem -> if (pts != null) {

@@ -33,7 +33,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Bookmark
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.ColorLens
+import androidx.compose.material.icons.outlined.Create
 import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentCut
@@ -50,9 +53,11 @@ import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.RotateRight
 import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material.icons.outlined.Style
+import androidx.compose.material.icons.outlined.TableChart
 import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.UploadFile
@@ -260,6 +265,14 @@ fun SelectionMenu(
                         expanded = moreOpen,
                         onDismissRequest = { moreOpen = false },
                         items = buildList {
+                            add(
+                                AppMenuItem(
+                                    "Copy handwriting as text",
+                                    icon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null, Modifier.size(18.dp)) },
+                                ) {
+                                    vm.copySelectionAsText()
+                                },
+                            )
                             add(
                                 AppMenuItem(
                                     stringResource(R.string.sheet_lasso_convert),
@@ -595,14 +608,17 @@ private fun SelectionActionIcon(
     }
 }
 
-private enum class QuickArcMode { ACTIONS, COLORS, SIZES, MORE_TOOLS }
+private enum class QuickArcMode { ACTIONS, COLORS, SIZES, NIBS, MORE_TOOLS }
 
 /**
  * Curved dual-arc Quick Actions palette anchored right beside the stylus tip.
  * Uses a transparent native Compose [Popup] with zero screen dim or canvas blur:
- * - Inner primary arc: Undo, Redo, Pen, Eraser, Highlighter, Selection, separator, Thickness, and Active Colour dot.
- * - Outer concentric arc: Palette, Tool settings, and More tools — dynamically expanding into live Ink Colours,
- *   Stroke Thickness dots, or extra Pro Notes tools (Shapes, Text, Sticky, Concept Maps, Masking tape).
+ * - Center hub pill: shows active tool + nib/colour at a glance (tap to close).
+ * - Inner primary arc: Undo, Redo (stays open for rapid multi-step undo/redo), Pen, Eraser,
+ *   Highlighter, Selection, separator, Thickness, and Active Colour dot.
+ * - Outer concentric arc: More tools (Shapes, Text, Sticky, Tape, Table, Live Web Page),
+ *   Pen Nib switcher, Tool settings, Auto-Text, and Page Bookmark toggle — dynamically expanding
+ *   into circular Ink Colour swatches, Stroke Thickness dots, Pen Nibs, or extra tools.
  */
 @Composable
 fun QuickActionsOverlay(
@@ -610,11 +626,14 @@ fun QuickActionsOverlay(
     at: Offset,
     areaSize: IntSize,
     onOpenToolSettings: (Tool) -> Unit,
+    onAddTable: () -> Unit = {},
+    onAddWebPage: () -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     val density = LocalDensity.current.density
     val reduceMotion = LocalReduceMotion.current
     val reduceEffects = LocalReduceEffects.current
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     val darkTheme = MaterialTheme.colorScheme.surface.luminance() < 0.5f
 
     var outerMode by remember { mutableStateOf(QuickArcMode.ACTIONS) }
@@ -625,23 +644,23 @@ fun QuickActionsOverlay(
         if (reduceMotion) {
             appear.snapTo(1f)
         } else {
-            appear.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = 520f))
+            appear.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = 560f))
         }
     }
 
     // Mirror across the vertical axis when the stylus is close to the left screen edge so the arcs stay clear.
     val mirrorToRight = remember(at, areaSize, density) {
-        areaSize.width > 0 && at.x < 228f * density
+        areaSize.width > 0 && at.x < 236f * density
     }
 
-    val canvasW = 352.dp
-    val canvasH = 316.dp
-    val canvasWPx = (352f * density).roundToInt()
-    val canvasHPx = (316f * density).roundToInt()
+    val canvasW = 368.dp
+    val canvasH = 332.dp
+    val canvasWPx = (368f * density).roundToInt()
+    val canvasHPx = (332f * density).roundToInt()
 
     // Pivot inside the popup box where the stylus tip rests inside the open curve of the arcs.
-    val pivotX = if (mirrorToRight) 108f * density else 244f * density
-    val pivotY = 222f * density
+    val pivotX = if (mirrorToRight) 114f * density else 254f * density
+    val pivotY = 230f * density
 
     val marginPx = (8f * density).roundToInt()
     val popupOffset = remember(at, areaSize, pivotX, pivotY, canvasWPx, canvasHPx, marginPx) {
@@ -654,9 +673,9 @@ fun QuickActionsOverlay(
         )
     }
 
-    val innerRadiusPx = 136f * density
+    val innerRadiusPx = 138f * density
     val innerBandPx = 50f * density
-    val outerRadiusPx = 196f * density
+    val outerRadiusPx = 200f * density
     val outerBandPx = 46f * density
 
     // Map canonical left-curving angle (158°..302°) to mirrored right-curving angle when near left edge.
@@ -687,14 +706,25 @@ fun QuickActionsOverlay(
         val base = activeStyle.sizes.ifEmpty { listOf(2f, 4f, 8f, 14f) }
         base.take(4)
     }
-    val extraTools = remember {
-        listOf(Tool.SHAPE, Tool.TEXT, Tool.STICKY, Tool.MINDMAP, Tool.TAPE)
+    val quickNibs = remember {
+        listOf(
+            PenType.FOUNTAIN to "Fnt",
+            PenType.BALL to "Ball",
+            PenType.FINELINER to "Fine",
+            PenType.BRUSH to "Brsh",
+            PenType.PENCIL to "Pcl",
+            PenType.CALLIGRAPHY to "Call",
+        )
     }
+    val extraTools = remember {
+        listOf(Tool.SHAPE, Tool.TEXT, Tool.STICKY, Tool.TAPE)
+    }
+    val isBookmarked = vm.currentPage?.bookmarked == true
 
     val outerAngles: List<Float> = when (outerMode) {
-        QuickArcMode.ACTIONS -> listOf(166f, 188f, 210f, 232f)
+        QuickArcMode.ACTIONS -> listOf(158f, 179f, 200f, 221f, 242f)
         QuickArcMode.COLORS -> {
-            val count = paletteColors.size + 1 // swatches + custom colour button
+            val count = paletteColors.size + 1 // circular swatches + custom colour button
             val span = (count - 1).coerceAtLeast(1)
             val step = (108f / span).coerceIn(12.5f, 16f)
             val start = 148f
@@ -706,10 +736,17 @@ fun QuickActionsOverlay(
             val step = 17.5f
             List(count) { i -> start + i * step }
         }
-        QuickArcMode.MORE_TOOLS -> {
-            val start = 158f
+        QuickArcMode.NIBS -> {
+            val start = 152f
             val step = 17.5f
-            List(extraTools.size) { i -> start + i * step }
+            List(quickNibs.size) { i -> start + i * step }
+        }
+        QuickArcMode.MORE_TOOLS -> {
+            // 4 extra tools + Table + Web Page + Keyboard = 7 crisp slots
+            val count = extraTools.size + 3
+            val start = 148f
+            val step = 16.5f
+            List(count) { i -> start + i * step }
         }
     }
     val (outerDrawStart, outerDrawEnd) = arcRange(outerAngles.first(), outerAngles.last())
@@ -728,6 +765,24 @@ fun QuickActionsOverlay(
     val thicknessDesc = stringResource(R.string.quick_actions_thickness)
     val moreToolsDesc = stringResource(R.string.quick_actions_more_tools)
     val colourDesc = stringResource(R.string.quick_actions_colour)
+
+    val nibLabel = when (vm.penType) {
+        PenType.FOUNTAIN -> "Fountain"
+        PenType.BALL -> "Ball"
+        PenType.FINELINER -> "Fine"
+        PenType.CALLIGRAPHY -> "Callig"
+        PenType.PENCIL -> "Pencil"
+        PenType.LETTERING -> "Letter"
+        PenType.BRUSH -> "Brush"
+        PenType.DASHED -> "Dashed"
+    }
+    val hubText = when (outerMode) {
+        QuickArcMode.COLORS -> "Ink Colour"
+        QuickArcMode.SIZES -> "Stroke Size"
+        QuickArcMode.NIBS -> "Pen Nib"
+        QuickArcMode.MORE_TOOLS -> "Insert & Tools"
+        QuickArcMode.ACTIONS -> if (vm.tool == Tool.PEN) "Pen · $nibLabel" else toolDisplayName(vm.tool)
+    }
 
     Popup(
         alignment = Alignment.TopStart,
@@ -817,8 +872,51 @@ fun QuickActionsOverlay(
                 )
             }
 
+            // -------- Center Hub Pill at stylus pivot --------
+            Box(
+                modifier = Modifier
+                    .offset {
+                        val wPx = (116f * density).roundToInt()
+                        val hPx = (32f * density).roundToInt()
+                        IntOffset(
+                            x = (pivotX - wPx / 2f).roundToInt().coerceIn(4, (canvasWPx - wPx - 4).coerceAtLeast(4)),
+                            y = (pivotY - hPx / 2f).roundToInt().coerceIn(4, (canvasHPx - hPx - 4).coerceAtLeast(4)),
+                        )
+                    }
+                    .width(116.dp)
+                    .height(32.dp)
+                    .clip(CircleShape)
+                    .background(arcSurface.copy(alpha = 0.96f))
+                    .border(1.dp, arcBorder, CircleShape)
+                    .clickable(role = Role.Button, onClickLabel = "Close quick actions") {
+                        if (outerMode != QuickArcMode.ACTIONS) outerMode = QuickArcMode.ACTIONS else onDismiss()
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(horizontal = 10.dp),
+                ) {
+                    Box(
+                        Modifier
+                            .size(9.dp)
+                            .clip(CircleShape)
+                            .background(activeColor),
+                    )
+                    Text(
+                        text = hubText,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = arcFg,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
             // -------- Inner Primary Arc Controls --------
-            // 1. Undo
+            // 1. Undo (stays open so S Pen users can undo multiple strokes smoothly)
             ArcSlotButton(
                 center = polarPos(innerRadiusPx, 158f),
                 label = undoDesc,
@@ -826,14 +924,14 @@ fun QuickActionsOverlay(
                 selected = false,
                 selectedBg = activeHalo,
                 onClick = {
+                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                     vm.undo()
-                    onDismiss()
                 },
             ) {
                 ProIconView(ProIcon.UNDO, if (vm.canUndo) arcFg else arcMuted, Modifier.size(20.dp))
             }
 
-            // 2. Redo
+            // 2. Redo (stays open for multi-step redo)
             ArcSlotButton(
                 center = polarPos(innerRadiusPx, 178f),
                 label = redoDesc,
@@ -841,8 +939,8 @@ fun QuickActionsOverlay(
                 selected = false,
                 selectedBg = activeHalo,
                 onClick = {
+                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                     vm.redo()
-                    onDismiss()
                 },
             ) {
                 ProIconView(ProIcon.REDO, if (vm.canRedo) arcFg else arcMuted, Modifier.size(20.dp))
@@ -868,6 +966,7 @@ fun QuickActionsOverlay(
                     selected = isSelected,
                     selectedBg = activeHalo,
                     onClick = {
+                        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                         vm.tool = toolItem
                         onDismiss()
                     },
@@ -882,7 +981,7 @@ fun QuickActionsOverlay(
                 }
             }
 
-            // 7. Stroke Thickness (3 graduated horizontal lines matching reference) -> toggles SIZES outer arc
+            // 7. Stroke Thickness -> toggles SIZES outer arc
             ArcSlotButton(
                 center = polarPos(innerRadiusPx, 282f),
                 label = thicknessDesc,
@@ -932,7 +1031,7 @@ fun QuickActionsOverlay(
             // -------- Outer Concentric Arc Controls --------
             when (outerMode) {
                 QuickArcMode.ACTIONS -> {
-                    // Bottom: More Pro Notes tools
+                    // 1. More Pro Notes tools & Insert (Shapes, Text, Sticky, Tape, Table, Live Web)
                     ArcSlotButton(
                         center = polarPos(outerRadiusPx, outerAngles[0]),
                         label = moreToolsDesc,
@@ -948,9 +1047,25 @@ fun QuickActionsOverlay(
                             tint = arcFg,
                         )
                     }
-                    // Middle: Tool settings sheet
+                    // 2. Pen Nib Switcher (Fountain, Ball, Fine, Brush, Pencil, Calligraphy)
                     ArcSlotButton(
                         center = polarPos(outerRadiusPx, outerAngles[1]),
+                        label = "Pen nib",
+                        enabled = true,
+                        selected = false,
+                        selectedBg = activeHalo,
+                        onClick = { outerMode = QuickArcMode.NIBS },
+                    ) {
+                        Icon(
+                            Icons.Outlined.Create,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = ProButtonPalette.ElectricBlue,
+                        )
+                    }
+                    // 3. Tool settings sheet
+                    ArcSlotButton(
+                        center = polarPos(outerRadiusPx, outerAngles[2]),
                         label = settingsDesc,
                         enabled = true,
                         selected = false,
@@ -968,9 +1083,9 @@ fun QuickActionsOverlay(
                             tint = arcFg,
                         )
                     }
-                    // Auto-Text / Handwriting-to-Text
+                    // 4. Auto-Text / Handwriting-to-Text
                     ArcSlotButton(
-                        center = polarPos(outerRadiusPx, outerAngles[2]),
+                        center = polarPos(outerRadiusPx, outerAngles[3]),
                         label = "Auto-Text",
                         enabled = true,
                         selected = vm.tool == Tool.AUTO_TEXT,
@@ -991,24 +1106,51 @@ fun QuickActionsOverlay(
                             tint = if (vm.tool == Tool.AUTO_TEXT) scheme.primary else arcFg,
                         )
                     }
-                    // Keyboard Mode
+                    // 5. Bookmark current page (stays open with haptic feedback)
                     ArcSlotButton(
-                        center = polarPos(outerRadiusPx, outerAngles[3]),
-                        label = "Keyboard",
+                        center = polarPos(outerRadiusPx, outerAngles[4]),
+                        label = if (isBookmarked) "Remove bookmark" else "Bookmark page",
                         enabled = true,
-                        selected = vm.keyboardMode,
-                        selectedBg = activeHalo,
+                        selected = isBookmarked,
+                        selectedBg = Color(0xFFE34948).copy(alpha = 0.22f),
                         onClick = {
-                            vm.toggleKeyboardMode()
-                            onDismiss()
+                            haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            vm.toggleBookmark()
                         },
                     ) {
                         Icon(
-                            Icons.Outlined.Keyboard,
+                            if (isBookmarked) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
                             contentDescription = null,
                             modifier = Modifier.size(20.dp),
-                            tint = if (vm.keyboardMode) scheme.primary else arcFg,
+                            tint = if (isBookmarked) Color(0xFFE34948) else arcFg,
                         )
+                    }
+                }
+
+                QuickArcMode.NIBS -> {
+                    quickNibs.forEachIndexed { idx, (nib, shortName) ->
+                        val isPicked = vm.tool == Tool.PEN && vm.penType == nib
+                        ArcSlotButton(
+                            center = polarPos(outerRadiusPx, outerAngles[idx]),
+                            label = nib.name,
+                            enabled = true,
+                            selected = isPicked,
+                            selectedBg = activeHalo,
+                            onClick = {
+                                haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                vm.tool = Tool.PEN
+                                vm.penType = nib
+                                onDismiss()
+                            },
+                        ) {
+                            Text(
+                                text = shortName,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (isPicked) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isPicked) ProButtonPalette.ElectricBlue else arcFg,
+                                maxLines = 1,
+                            )
+                        }
                     }
                 }
 
@@ -1022,6 +1164,7 @@ fun QuickActionsOverlay(
                             selected = isPicked,
                             selectedBg = activeHalo,
                             onClick = {
+                                haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                 val targetTool = if (vm.styleFor(vm.tool) != null) vm.tool else Tool.PEN
                                 vm.updateStyle(targetTool, activeStyle.copy(color = argb))
                                 onDismiss()
@@ -1029,13 +1172,13 @@ fun QuickActionsOverlay(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(if (isPicked) 23.dp else 20.dp)
-                                    .clip(RoundedCornerShape(6.dp))
+                                    .size(if (isPicked) 24.dp else 21.dp)
+                                    .clip(CircleShape)
                                     .background(Color(argb))
                                     .border(
                                         width = if (isPicked) 2.2.dp else 1.dp,
                                         color = if (isPicked) ProButtonPalette.ElectricBlue else arcBorder,
-                                        shape = RoundedCornerShape(6.dp),
+                                        shape = CircleShape,
                                     ),
                             )
                         }
@@ -1069,6 +1212,7 @@ fun QuickActionsOverlay(
                             selected = isPicked,
                             selectedBg = activeHalo,
                             onClick = {
+                                haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                 val targetTool = if (vm.styleFor(vm.tool) != null) vm.tool else Tool.PEN
                                 vm.updateStyle(targetTool, activeStyle.copy(size = sizeVal))
                                 onDismiss()
@@ -1108,6 +1252,63 @@ fun QuickActionsOverlay(
                                 active = isSelected,
                             )
                         }
+                    }
+                    // Table insert shortcut
+                    ArcSlotButton(
+                        center = polarPos(outerRadiusPx, outerAngles[extraTools.size]),
+                        label = "Insert table",
+                        enabled = true,
+                        selected = false,
+                        selectedBg = activeHalo,
+                        onClick = {
+                            onDismiss()
+                            onAddTable()
+                        },
+                    ) {
+                        Icon(
+                            Icons.Outlined.TableChart,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = ProButtonPalette.Emerald,
+                        )
+                    }
+                    // Live Web Page shortcut
+                    ArcSlotButton(
+                        center = polarPos(outerRadiusPx, outerAngles[extraTools.size + 1]),
+                        label = "Add web page",
+                        enabled = true,
+                        selected = false,
+                        selectedBg = activeHalo,
+                        onClick = {
+                            onDismiss()
+                            onAddWebPage()
+                        },
+                    ) {
+                        Icon(
+                            Icons.Outlined.Public,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = ProButtonPalette.ElectricBlue,
+                        )
+                    }
+                    // Keyboard Mode shortcut
+                    ArcSlotButton(
+                        center = polarPos(outerRadiusPx, outerAngles[extraTools.size + 2]),
+                        label = "Keyboard mode",
+                        enabled = true,
+                        selected = vm.keyboardMode,
+                        selectedBg = activeHalo,
+                        onClick = {
+                            vm.toggleKeyboardMode()
+                            onDismiss()
+                        },
+                    ) {
+                        Icon(
+                            Icons.Outlined.Keyboard,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = if (vm.keyboardMode) scheme.primary else arcFg,
+                        )
                     }
                 }
             }
@@ -1231,6 +1432,7 @@ fun QuickInsertOverlay(
     onDismiss: () -> Unit,
     onWriteBox: () -> Unit,
     onTextBox: () -> Unit,
+    onTable: () -> Unit = {},
     onSticky: () -> Unit,
     onWebLink: () -> Unit,
     onImage: () -> Unit,
@@ -1241,7 +1443,7 @@ fun QuickInsertOverlay(
     val reduceEffects = LocalReduceEffects.current
     var menuSize by remember { mutableStateOf(IntSize.Zero) }
     val estW = if (menuSize.width > 0) menuSize.width else (232f * density).roundToInt()
-    val estH = if (menuSize.height > 0) menuSize.height else (340f * density).roundToInt()
+    val estH = if (menuSize.height > 0) menuSize.height else (380f * density).roundToInt()
     val marginPx = (12f * density).roundToInt()
     val clamped = remember(request, areaSize, estW, estH, marginPx) {
         ToolbarGeometry.clampFloatingOffset(
@@ -1289,6 +1491,9 @@ fun QuickInsertOverlay(
                 QuickInsertRow(stringResource(R.string.quick_insert_text_box), {
                     Icon(Icons.Outlined.TextFields, contentDescription = null, modifier = Modifier.size(18.dp))
                 }, onTextBox)
+                QuickInsertRow("Table", {
+                    Icon(Icons.Outlined.TableChart, contentDescription = null, modifier = Modifier.size(18.dp), tint = ProButtonPalette.Emerald)
+                }, onTable)
                 QuickInsertRow(stringResource(R.string.quick_insert_sticky), {
                     Icon(Icons.Outlined.StickyNote2, contentDescription = null, modifier = Modifier.size(18.dp), tint = ProButtonPalette.WarmAmber)
                 }, onSticky)

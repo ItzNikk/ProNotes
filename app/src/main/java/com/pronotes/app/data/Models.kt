@@ -191,6 +191,7 @@ sealed class ItemDoc {
         val h: Float = 136f,
         val color: Int = 0xFF2A78D6.toInt(),
         val rot: Float = 0f,
+        val embedded: Boolean = false,
     ) : ItemDoc()
 
     @Serializable
@@ -208,6 +209,23 @@ sealed class ItemDoc {
         val isConverted: Boolean = false,
         val font: String = "SANS",
         val fontSize: Float = 24f,
+        val rot: Float = 0f,
+    ) : ItemDoc()
+
+    @Immutable
+    @Serializable
+    @SerialName("table")
+    data class Table(
+        val x: Float,
+        val y: Float,
+        val w: Float = 660f,
+        val h: Float = 260f,
+        val rows: Int = 3,
+        val cols: Int = 3,
+        val cells: List<String> = emptyList(),
+        val color: Int = 0xFF2563EB.toInt(),
+        val headerRow: Boolean = true,
+        val fontSize: Float = 22f,
         val rot: Float = 0f,
     ) : ItemDoc()
 }

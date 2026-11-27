@@ -212,7 +212,7 @@ class PageRenderer(private val noteDir: File?) {
     private val labelPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 26f }
     private val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 3f }
     private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
-    private val tapePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val tapePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
     private val tapeStripe = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x22FFFFFF; strokeWidth = 10f }
     private val stickyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { setShadowLayer(12f, 0f, 5f, 0x2E000000) }
     private val stickyText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 30f; color = 0xFF2B2B2B.toInt() }
@@ -257,22 +257,46 @@ class PageRenderer(private val noteDir: File?) {
         if (pat == "stripes" || pat == "plain" || pat.isBlank()) return null
         val key = "$pat:${item.color}"
         val tile = tapeTiles[key] ?: run {
-            val t = if (pat.startsWith("image:")) {
-                val src = image(pat.removePrefix("image:")) ?: return null
-                // Scale the picture so it is as tall as the tape.
-                val hgt = 92
-                Bitmap.createScaledBitmap(src, (src.width * hgt / src.height.toFloat()).toInt().coerceAtLeast(8), hgt, true)
-            } else TapePatterns.tile(pat, item.color)
+            val t = when {
+                pat.startsWith("apptape:") -> {
+                    val fileName = pat.removePrefix("apptape:")
+                    com.pronotes.app.data.CustomTapeStore.loadBitmapForRenderer(noteDir, fileName, maxDim = 768) ?: return null
+                }
+                pat.startsWith("image:") -> {
+                    // Decode at high resolution (up to 768px) instead of downscaling to 92px so custom tapes stay sharp!
+                    image(pat.removePrefix("image:"), maxDimPx = 768) ?: return null
+                }
+                else -> TapePatterns.tile(pat, item.color)
+            }
             if (tapeTiles.size > 24) tapeTiles.clear()
             tapeTiles[key] = t
             t
         }
         val sh = android.graphics.BitmapShader(tile, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT)
         val m = Matrix()
-        val th = if (item.pts != null) item.thick else item.raw.height()
-        val s = (th / tile.height).coerceAtLeast(0.05f)
-        m.setScale(s, s)
-        if (item.pts == null) m.postTranslate(item.x, item.y)
+        val isCustomImage = pat.startsWith("apptape:") || pat.startsWith("image:")
+        if (isCustomImage && item.pts == null) {
+            // For straight strips OR rectangular custom tapes: preserve aspect ratio cleanly.
+            // If it's a tall rectangle tape, scale to cover nicely or repeat cleanly without blurry stretching.
+            val rw = item.raw.width().coerceAtLeast(8f)
+            val rh = item.raw.height().coerceAtLeast(8f)
+            val isRectangleBox = rw > 90f && rh > 90f
+            val scale = if (isRectangleBox) {
+                // Fit tile neatly across the shorter edge so patterns/photos stay crisp inside rectangle tapes
+                val targetTileSpan = minOf(rw, rh).coerceIn(96f, 360f)
+                (targetTileSpan / minOf(tile.width, tile.height).coerceAtLeast(1)).coerceAtLeast(0.05f)
+            } else {
+                val stripThickness = minOf(rw, rh).coerceAtLeast(16f)
+                (stripThickness / tile.height.coerceAtLeast(1)).coerceAtLeast(0.05f)
+            }
+            m.setScale(scale, scale)
+            m.postTranslate(item.x, item.y)
+        } else {
+            val th = if (item.pts != null) item.thick else minOf(item.raw.width(), item.raw.height()).coerceAtLeast(36f)
+            val s = (th / tile.height.coerceAtLeast(1)).coerceAtLeast(0.05f)
+            m.setScale(s, s)
+            if (item.pts == null) m.postTranslate(item.x, item.y)
+        }
         sh.setLocalMatrix(m)
         return sh
     }
@@ -1281,7 +1305,7 @@ class PageRenderer(private val noteDir: File?) {
         val expandedStickies = items.filterIsInstance<StickyItem>().filter { !it.collapsed }
         val fills = ArrayList<PageItem>(); val hl = ArrayList<PageItem>(); val rest = ArrayList<PageItem>()
         for (it in items) when {
-            it is FillItem -> fills += it
+            it is FillItem || it is TableItem -> fills += it
             it is InkItem && it.isHighlighter -> {
                 // Highlighters drawn on top of an expanded sticky note stay in `rest` so they appear above the sticky paper.
                 val onSticky = expandedStickies.any { s -> s.paperBounds.contains(it.bounds.centerX(), it.bounds.centerY()) }
@@ -1412,6 +1436,7 @@ class PageRenderer(private val noteDir: File?) {
                 is WebLinkItem -> drawWebLink(canvas, item)
                 is MindNodeItem -> drawMindNode(canvas, item, allItems)
                 is WriteBoxItem -> drawWriteBox(canvas, item)
+                is TableItem -> drawTable(canvas, item)
             }
             if (moved) canvas.restore()
         }
@@ -1453,46 +1478,41 @@ class PageRenderer(private val noteDir: File?) {
             .also { crayonShaders[color] = it }
     }
 
-    /** Renders a Crayon InkItem with smooth midpoint quadratic curves and dry waxy texture grain. */
+    /** Renders a Crayon InkItem with smooth curves, per-segment S Pen pressure width, and dry waxy texture grain. */
     private fun drawCrayonStroke(canvas: Canvas, item: InkItem) {
         val inputs = item.stroke.inputs
         val n = inputs.size
         if (n == 0) return
         val color = item.stroke.brush.colorIntArgb
-        val width = item.stroke.brush.size.coerceAtLeast(4f)
-        crayonPath.reset()
-        val p0 = inputs.get(0)
-        crayonPath.moveTo(p0.x, p0.y)
-        if (n == 1) {
-            crayonPath.lineTo(p0.x + 0.5f, p0.y + 0.5f)
-        } else if (n == 2) {
-            val p1 = inputs.get(1)
-            crayonPath.lineTo(p1.x, p1.y)
-        } else {
-            var prevX = p0.x
-            var prevY = p0.y
-            for (i in 1 until n) {
-                val p = inputs.get(i)
-                val dx = p.x - prevX
-                val dy = p.y - prevY
-                if (i < n - 1 && dx * dx + dy * dy < 1.25f) continue
-                crayonPath.quadTo(prevX, prevY, (prevX + p.x) * 0.5f, (prevY + p.y) * 0.5f)
-                prevX = p.x
-                prevY = p.y
-            }
-            crayonPath.lineTo(prevX, prevY)
-        }
+        val baseW = item.stroke.brush.size.coerceAtLeast(4f)
         crayonPaint.shader = crayonShaderFor(color)
-        crayonPaint.strokeWidth = width
-        crayonPaint.alpha = 245
-        canvas.drawPath(crayonPath, crayonPaint)
-        // Secondary offset dry-edge wax pass for authentic broad crayon tooth
-        crayonPaint.strokeWidth = width * 0.72f
-        crayonPaint.alpha = 145
-        canvas.save()
-        canvas.translate(width * 0.12f, -width * 0.10f)
-        canvas.drawPath(crayonPath, crayonPaint)
-        canvas.restore()
+        if (n == 1) {
+            val p0 = inputs.get(0)
+            val pr = if (p0.pressure in 0.01f..1.5f) p0.pressure.coerceIn(0.05f, 1f) else 0.55f
+            crayonPaint.strokeWidth = baseW * (0.48f + 1.04f * pr)
+            crayonPaint.alpha = (165 + (pr * 85f).toInt()).coerceIn(145, 250)
+            canvas.drawPoint(p0.x, p0.y, crayonPaint)
+            crayonPaint.shader = null
+            return
+        }
+        var prev = inputs.get(0)
+        for (i in 1 until n) {
+            val cur = inputs.get(i)
+            val dx = cur.x - prev.x
+            val dy = cur.y - prev.y
+            if (i < n - 1 && dx * dx + dy * dy < 1.8f) continue
+            val pA = if (prev.pressure in 0.01f..1.5f) prev.pressure.coerceIn(0.05f, 1f) else 0.55f
+            val pB = if (cur.pressure in 0.01f..1.5f) cur.pressure.coerceIn(0.05f, 1f) else 0.55f
+            val pr = (pA + pB) * 0.5f
+            val segW = baseW * (0.48f + 1.04f * pr)
+            crayonPaint.strokeWidth = segW
+            crayonPaint.alpha = (165 + (pr * 85f).toInt()).coerceIn(145, 250)
+            canvas.drawLine(prev.x, prev.y, cur.x, cur.y, crayonPaint)
+            crayonPaint.strokeWidth = segW * 0.72f
+            crayonPaint.alpha = (95 + (pr * 60f).toInt()).coerceIn(80, 165)
+            canvas.drawLine(prev.x + segW * 0.10f, prev.y - segW * 0.08f, cur.x + segW * 0.10f, cur.y - segW * 0.08f, crayonPaint)
+            prev = cur
+        }
         crayonPaint.shader = null
     }
 
@@ -1540,54 +1560,43 @@ class PageRenderer(private val noteDir: File?) {
             .also { pencilShaders[color] = it }
     }
 
-    /** Renders a Pencil InkItem with fine textured graphite grain and pressure-shaded tonal density. */
+    /** Renders a Pencil InkItem with fine textured graphite grain and per-segment S Pen pressure width & tonal density. */
     private fun drawPencilStroke(canvas: Canvas, item: InkItem) {
         val inputs = item.stroke.inputs
         val n = inputs.size
         if (n == 0) return
         val color = item.stroke.brush.colorIntArgb
         val baseW = item.stroke.brush.size.coerceAtLeast(1.6f)
-        var avgP = 0f
-        var pCount = 0
-        for (i in 0 until n) {
-            val pr = inputs.get(i).pressure
-            if (pr in 0.01f..1.5f) { avgP += pr; pCount++ }
-        }
-        val meanPressure = if (pCount > 0) (avgP / pCount).coerceIn(0.18f, 1f) else 0.55f
-
-        pencilPath.reset()
-        val p0 = inputs.get(0)
-        pencilPath.moveTo(p0.x, p0.y)
-        if (n == 1) {
-            pencilPath.lineTo(p0.x + 0.5f, p0.y + 0.5f)
-        } else if (n == 2) {
-            val p1 = inputs.get(1)
-            pencilPath.lineTo(p1.x, p1.y)
-        } else {
-            var prevX = p0.x
-            var prevY = p0.y
-            for (i in 1 until n) {
-                val p = inputs.get(i)
-                val dx = p.x - prevX
-                val dy = p.y - prevY
-                if (i < n - 1 && dx * dx + dy * dy < 0.8f) continue
-                pencilPath.quadTo(prevX, prevY, (prevX + p.x) * 0.5f, (prevY + p.y) * 0.5f)
-                prevX = p.x
-                prevY = p.y
-            }
-            pencilPath.lineTo(prevX, prevY)
-        }
-
         pencilPaint.shader = pencilShaderFor(color)
-        // Core graphite pass: width and darkness subtly respond to pressure
-        pencilPaint.strokeWidth = baseW * (0.86f + 0.28f * meanPressure)
-        pencilPaint.alpha = (135 + (meanPressure * 105f).toInt()).coerceIn(115, 240)
-        canvas.drawPath(pencilPath, pencilPaint)
-
-        // Subtle dry graphite dust edge pass for realistic pencil tooth
-        pencilPaint.strokeWidth = baseW * (1.18f + 0.20f * meanPressure)
-        pencilPaint.alpha = (62 + (meanPressure * 46f).toInt()).coerceIn(48, 118)
-        canvas.drawPath(pencilPath, pencilPaint)
+        if (n == 1) {
+            val p0 = inputs.get(0)
+            val pr = if (p0.pressure in 0.01f..1.5f) p0.pressure.coerceIn(0.05f, 1f) else 0.55f
+            pencilPaint.strokeWidth = baseW * (0.44f + 1.04f * pr)
+            pencilPaint.alpha = (95 + (pr * 150f).toInt()).coerceIn(88, 245)
+            canvas.drawPoint(p0.x, p0.y, pencilPaint)
+            pencilPaint.shader = null
+            return
+        }
+        var prev = inputs.get(0)
+        for (i in 1 until n) {
+            val cur = inputs.get(i)
+            val dx = cur.x - prev.x
+            val dy = cur.y - prev.y
+            if (i < n - 1 && dx * dx + dy * dy < 1.2f) continue
+            val pA = if (prev.pressure in 0.01f..1.5f) prev.pressure.coerceIn(0.05f, 1f) else 0.55f
+            val pB = if (cur.pressure in 0.01f..1.5f) cur.pressure.coerceIn(0.05f, 1f) else 0.55f
+            val pr = (pA + pB) * 0.5f
+            val segW = baseW * (0.44f + 1.04f * pr)
+            // Core graphite pass responding dynamically to S Pen pressure
+            pencilPaint.strokeWidth = segW
+            pencilPaint.alpha = (95 + (pr * 150f).toInt()).coerceIn(88, 245)
+            canvas.drawLine(prev.x, prev.y, cur.x, cur.y, pencilPaint)
+            // Subtle dry graphite dust edge pass for realistic pencil tooth
+            pencilPaint.strokeWidth = segW * 1.28f
+            pencilPaint.alpha = (42 + (pr * 72f).toInt()).coerceIn(36, 122)
+            canvas.drawLine(prev.x, prev.y, cur.x, cur.y, pencilPaint)
+            prev = cur
+        }
         pencilPaint.shader = null
     }
 
@@ -2017,6 +2026,102 @@ class PageRenderer(private val noteDir: File?) {
                 }
             }
             canvas.restore()
+        }
+    }
+
+    private val tableBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val tableGridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val tableTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
+
+    private fun drawTable(canvas: Canvas, item: TableItem) {
+        val r = item.raw
+        val rows = item.rows.coerceAtLeast(1)
+        val cols = item.cols.coerceAtLeast(1)
+        val accent = item.color
+        val cardBg = if (isDark) 0xDC161B24.toInt() else 0xECFFFFFF.toInt()
+        val headerBg = (accent and 0x00FFFFFF) or (if (isDark) 0x3D shl 24 else 0x24 shl 24)
+        val zebraBg = if (isDark) 0x10FFFFFF else 0x080F172A
+        val borderCol = (accent and 0x00FFFFFF) or (if (isDark) 0x99 shl 24 else 0x88 shl 24)
+        val innerLineCol = if (isDark) 0x44CBD5E1 else 0x36334155
+        val textCol = if (isDark) 0xFFF1F5F9.toInt() else 0xFF0F172A.toInt()
+
+        rotated(canvas, r, item.rot) {
+            val radius = 12f
+            val clipPath = Path().apply { addRoundRect(r, radius, radius, Path.Direction.CW) }
+            canvas.save()
+            canvas.clipPath(clipPath)
+
+            // Crisp translucent card background so table is readable on both blank paper and dense PDF pages
+            tableBgPaint.color = cardBg
+            canvas.drawRect(r, tableBgPaint)
+
+            val rowH = r.height() / rows
+            val colW = r.width() / cols
+
+            // Shaded header row + subtle alternating row tint
+            if (item.headerRow) {
+                tableBgPaint.color = headerBg
+                canvas.drawRect(r.left, r.top, r.right, r.top + rowH, tableBgPaint)
+            }
+            tableBgPaint.color = zebraBg
+            for (row in (if (item.headerRow) 2 else 1) until rows step 2) {
+                val top = r.top + row * rowH
+                canvas.drawRect(r.left, top, r.right, top + rowH, tableBgPaint)
+            }
+
+            // Internal horizontal & vertical grid lines
+            tableGridPaint.color = innerLineCol
+            tableGridPaint.strokeWidth = 1.5f
+            for (row in 1 until rows) {
+                val y = r.top + row * rowH
+                if (item.headerRow && row == 1) {
+                    tableGridPaint.color = borderCol
+                    tableGridPaint.strokeWidth = 2.0f
+                    canvas.drawLine(r.left, y, r.right, y, tableGridPaint)
+                    tableGridPaint.color = innerLineCol
+                    tableGridPaint.strokeWidth = 1.5f
+                } else {
+                    canvas.drawLine(r.left, y, r.right, y, tableGridPaint)
+                }
+            }
+            for (col in 1 until cols) {
+                val x = r.left + col * colW
+                canvas.drawLine(x, r.top, x, r.bottom, tableGridPaint)
+            }
+
+            // Cell text
+            val padX = (colW * 0.08f).coerceIn(8f, 16f)
+            val padY = (rowH * 0.12f).coerceIn(6f, 12f)
+            val availW = (colW - padX * 2f).toInt().coerceAtLeast(16)
+            for (row in 0 until rows) {
+                val isHdr = item.headerRow && row == 0
+                tableTextPaint.color = textCol
+                tableTextPaint.textSize = (if (isHdr) item.fontSize * 1.02f else item.fontSize).coerceIn(13f, 44f)
+                tableTextPaint.typeface = if (isHdr) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
+                for (col in 0 until cols) {
+                    val txt = item.cellText(row, col)
+                    if (txt.isEmpty()) continue
+                    val cx = r.left + col * colW
+                    val cy = r.top + row * rowH
+                    val layout = StaticLayout.Builder.obtain(txt, 0, txt.length, tableTextPaint, availW)
+                        .setAlignment(android.text.Layout.Alignment.ALIGN_NORMAL)
+                        .setIncludePad(false)
+                        .build()
+                    canvas.save()
+                    canvas.clipRect(cx + padX * 0.5f, cy + padY * 0.5f, cx + colW - padX * 0.5f, cy + rowH - padY * 0.5f)
+                    val ty = cy + ((rowH - layout.height) * 0.5f).coerceAtLeast(padY)
+                    canvas.translate(cx + padX, ty)
+                    layout.draw(canvas)
+                    canvas.restore()
+                }
+            }
+
+            canvas.restore()
+
+            // Crisp outer rounded frame
+            tableGridPaint.color = borderCol
+            tableGridPaint.strokeWidth = 2.2f
+            canvas.drawRoundRect(r, radius, radius, tableGridPaint)
         }
     }
 
