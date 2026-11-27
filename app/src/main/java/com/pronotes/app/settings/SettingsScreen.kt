@@ -58,6 +58,7 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Translate
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -335,15 +336,24 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
                 }
             }
 
-            // Floating bottom search bar + animated live match results popover
+            // Compact floating pill search bar anchored on the bottom-left
+            var searchFocused by remember { mutableStateOf(false) }
+            val searchExpanded = searchFocused || searchQuery.isNotBlank()
+            val pillWidth by androidx.compose.animation.core.animateDpAsState(
+                targetValue = if (searchExpanded) 320.dp else 184.dp,
+                animationSpec = androidx.compose.animation.core.spring(
+                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+                    dampingRatio = 0.86f,
+                ),
+                label = "settingsSearchPillW",
+            )
             Column(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .widthIn(max = 620.dp)
+                    .align(Alignment.BottomStart)
                     .navigationBarsPadding()
                     .imePadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(start = 16.dp, end = 16.dp, bottom = 14.dp),
+                horizontalAlignment = Alignment.Start,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 AnimatedVisibility(
@@ -356,12 +366,12 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
                         color = scheme.surfaceContainerHigh.copy(alpha = 0.97f),
                         border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.45f)),
                         shadowElevation = 10.dp,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.widthIn(min = 280.dp, max = 380.dp),
                     ) {
                         if (searchMatches.isEmpty()) {
                             Box(
-                                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp),
-                                contentAlignment = Alignment.Center,
+                                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
+                                contentAlignment = Alignment.CenterStart,
                             ) {
                                 Text(
                                     "No matching settings for \"$searchQuery\"",
@@ -430,34 +440,35 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
                     }
                 }
 
-                // Frosted pill search input at bottom of Settings
+                // Compact bottom-left frosted pill search input
                 Surface(
                     shape = CircleShape,
-                    color = scheme.surfaceContainerHigh.copy(alpha = 0.94f),
+                    color = scheme.surfaceContainerHigh.copy(alpha = 0.96f),
                     border = BorderStroke(
                         1.dp,
-                        if (searchQuery.isNotBlank()) scheme.primary.copy(alpha = 0.55f) else scheme.outlineVariant.copy(alpha = 0.45f),
+                        if (searchExpanded) scheme.primary.copy(alpha = 0.55f) else scheme.outlineVariant.copy(alpha = 0.50f),
                     ),
-                    shadowElevation = 8.dp,
-                    modifier = Modifier.fillMaxWidth(),
+                    shadowElevation = 6.dp,
+                    modifier = Modifier.width(pillWidth),
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Icon(
                             Icons.Rounded.Search,
                             contentDescription = "Search settings",
-                            tint = if (searchQuery.isNotBlank()) scheme.primary else scheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp),
+                            tint = if (searchExpanded) scheme.primary else scheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
                         )
                         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                             if (searchQuery.isEmpty()) {
                                 Text(
-                                    "Search settings…",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = scheme.onSurfaceVariant.copy(alpha = 0.78f),
+                                    "Search settings",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = scheme.onSurfaceVariant.copy(alpha = 0.80f),
+                                    maxLines = 1,
                                 )
                             }
                             BasicTextField(
@@ -466,19 +477,21 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
                                 singleLine = true,
                                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = scheme.onSurface),
                                 cursorBrush = SolidColor(scheme.primary),
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onFocusChanged { searchFocused = it.isFocused },
                             )
                         }
                         if (searchQuery.isNotEmpty()) {
                             Box(
                                 modifier = Modifier
-                                    .size(26.dp)
+                                    .size(22.dp)
                                     .clip(CircleShape)
                                     .background(scheme.onSurface.copy(alpha = 0.09f))
                                     .clickable { searchQuery = "" },
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Icon(Icons.Filled.Close, "Clear search", Modifier.size(15.dp), tint = scheme.onSurfaceVariant)
+                                Icon(Icons.Filled.Close, "Clear search", Modifier.size(14.dp), tint = scheme.onSurfaceVariant)
                             }
                         }
                     }

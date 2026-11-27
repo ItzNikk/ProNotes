@@ -94,6 +94,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
@@ -747,11 +748,15 @@ internal fun NewNotebookDialog(
     val onToggleSectionCb = remember(collapsedSections) {
         { key: String -> collapsedSections[key] = collapsedSections[key] != true }
     }
+    val isSectionCollapsedCb = remember(collapsedSections) {
+        { key: String -> collapsedSections[key] == true }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
+        com.pronotes.app.ui.ForceHighRefreshDialogWindow()
         val enterAnim = remember { androidx.compose.animation.core.Animatable(if (reduceMotion) 1f else 0f) }
         LaunchedEffect(reduceMotion) {
             if (reduceMotion) enterAnim.snapTo(1f)
@@ -761,7 +766,7 @@ internal fun NewNotebookDialog(
             shape = RoundedCornerShape(22.dp),
             color = galleryBg,
             tonalElevation = 0.dp,
-            shadowElevation = 4.dp,
+            shadowElevation = 0.dp,
             modifier = Modifier
                 .padding(horizontal = 16.dp, vertical = 20.dp)
                 .fillMaxWidth()
@@ -843,7 +848,7 @@ internal fun NewNotebookDialog(
                                 onCoverPageChange = onCoverPageChangeCb,
                                 onSelectCover = onSelectCoverCb,
                                 onPickPhoto = onPickPhotoCb,
-                                isSectionCollapsed = { collapsedSections[it] == true },
+                                isSectionCollapsed = isSectionCollapsedCb,
                                 onToggleSection = onToggleSectionCb,
                                 strings = strings,
                             )
@@ -905,7 +910,7 @@ internal fun NewNotebookDialog(
                                 onCoverPageChange = onCoverPageChangeCb,
                                 onSelectCover = onSelectCoverCb,
                                 onPickPhoto = onPickPhotoCb,
-                                isSectionCollapsed = { collapsedSections[it] == true },
+                                isSectionCollapsed = isSectionCollapsedCb,
                                 onToggleSection = onToggleSectionCb,
                                 strings = strings,
                             )
@@ -1369,18 +1374,13 @@ private fun CreatorBrowserPane(
         val tileW = if (effectiveLandscape) 86.dp else 66.dp
         val tileH = if (effectiveLandscape) 60.dp else 88.dp
 
-        // Smooth connected swap between Paper & Cover galleries; each gallery is virtualized in LazyVerticalGrid
-        androidx.compose.animation.AnimatedContent(
-            targetState = activePane,
-            transitionSpec = {
-                com.pronotes.app.ui.ProMotion.contentSwap(reduceMotion, perfMode, motionStyle, 0.04f)
-            },
+        // Single-grid host avoids mounting two LazyVerticalGrids simultaneously when switching Paper/Cover
+        Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            label = "creatorPaneSwap",
-        ) { pane ->
-            when (pane) {
+        ) {
+            when (activePane) {
                 NotebookCreatorPane.PAPER -> {
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 102.dp),
@@ -1726,114 +1726,136 @@ private fun CoverMiniThumbnail(
     }
 }
 
+private val creatorThumbCache = android.util.LruCache<String, androidx.compose.ui.graphics.ImageBitmap>(96)
+
+private fun getOrRenderCoverThumb(spec: String): androidx.compose.ui.graphics.ImageBitmap {
+    val key = "cov:$spec"
+    creatorThumbCache.get(key)?.let { return it }
+    val w = 132
+    val h = 176
+    val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(bmp)
+    val parts = spec.split(':')
+    val pattern = if (parts.firstOrNull() == "pattern" && parts.size >= 3) parts[1] else ""
+    val baseArgb = (parts.lastOrNull()?.toLongOrNull() ?: 0xFF3D6CF4).toInt()
+    canvas.drawColor(baseArgb)
+
+    val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    val wf = w.toFloat()
+    val hf = h.toFloat()
+    val light = android.graphics.Color.argb(62, 255, 255, 255)
+    val softDark = android.graphics.Color.argb(36, 0, 0, 0)
+
+    when (pattern) {
+        "dots" -> {
+            p.color = light
+            p.style = android.graphics.Paint.Style.FILL
+            val step = (wf / 6f).coerceAtLeast(12f)
+            var y = step * 0.6f
+            var row = 0
+            while (y < hf) {
+                var x = if (row % 2 == 0) step * 0.5f else step
+                while (x < wf) {
+                    canvas.drawCircle(x, y, step * 0.16f, p)
+                    x += step
+                }
+                y += step; row++
+            }
+        }
+        "grid" -> {
+            p.color = light
+            p.style = android.graphics.Paint.Style.STROKE
+            p.strokeWidth = 1.6f
+            val step = (wf / 6f).coerceAtLeast(12f)
+            var x = step
+            while (x < wf) { canvas.drawLine(x, 0f, x, hf, p); x += step }
+            var y = step
+            while (y < hf) { canvas.drawLine(0f, y, wf, y, p); y += step }
+        }
+        "stripes" -> {
+            p.color = light
+            p.style = android.graphics.Paint.Style.STROKE
+            val step = (wf / 4.5f).coerceAtLeast(16f)
+            p.strokeWidth = step * 0.28f
+            var x = -hf
+            while (x < wf + hf) {
+                canvas.drawLine(x, hf, x + hf * 0.85f, 0f, p)
+                x += step
+            }
+        }
+        "waves" -> {
+            p.color = light
+            p.style = android.graphics.Paint.Style.STROKE
+            p.strokeWidth = 2.4f
+            val step = (hf / 7f).coerceAtLeast(14f)
+            var y = step * 0.6f
+            while (y < hf) {
+                canvas.drawLine(0f, y, wf * 0.5f, y - step * 0.25f, p)
+                canvas.drawLine(wf * 0.5f, y - step * 0.25f, wf, y, p)
+                y += step
+            }
+        }
+        "linen" -> {
+            p.style = android.graphics.Paint.Style.STROKE
+            p.strokeWidth = 1.4f
+            p.color = android.graphics.Color.argb(22, 255, 255, 255)
+            var y = 6f
+            while (y < hf) { canvas.drawLine(0f, y, wf, y, p); y += 8f }
+            p.color = android.graphics.Color.argb(18, 0, 0, 0)
+            var x = 6f
+            while (x < wf) { canvas.drawLine(x, 0f, x, hf, p); x += 8f }
+        }
+        "scales" -> {
+            p.color = light
+            p.style = android.graphics.Paint.Style.STROKE
+            p.strokeWidth = 2f
+            val r = (wf / 4.5f).coerceAtLeast(16f)
+            var y = r * 0.4f
+            var row = 0
+            while (y < hf + r) {
+                var x = if (row % 2 == 0) 0f else r
+                while (x < wf + r) {
+                    canvas.drawCircle(x, y, r * 0.85f, p)
+                    x += r * 1.8f
+                }
+                y += r * 0.85f; row++
+            }
+        }
+        else -> {
+            p.color = softDark
+            p.style = android.graphics.Paint.Style.FILL
+            canvas.drawRect(wf * 0.82f, 0f, wf * 0.875f, hf, p)
+        }
+    }
+
+    p.style = android.graphics.Paint.Style.FILL
+    p.color = android.graphics.Color.argb(16, 255, 255, 255)
+    canvas.drawRect(0f, 0f, wf, hf * 0.35f, p)
+
+    p.shader = android.graphics.LinearGradient(
+        0f, 0f, wf * 0.11f, 0f,
+        intArrayOf(android.graphics.Color.argb(66, 0, 0, 0), android.graphics.Color.argb(20, 255, 255, 255), 0),
+        floatArrayOf(0f, 0.55f, 1f),
+        android.graphics.Shader.TileMode.CLAMP,
+    )
+    canvas.drawRect(0f, 0f, wf * 0.11f, hf, p)
+
+    val img = bmp.asImageBitmap()
+    creatorThumbCache.put(key, img)
+    return img
+}
+
 @Composable
 private fun FastCoverThumb(
     spec: String,
     modifier: Modifier = Modifier,
 ) {
-    val parsed = remember(spec) {
-        val parts = spec.split(':')
-        val pattern = if (parts.firstOrNull() == "pattern" && parts.size >= 3) parts[1] else ""
-        val col = Color((parts.lastOrNull()?.toLongOrNull() ?: 0xFF3D6CF4).toInt())
-        pattern to col
-    }
-    val pattern = parsed.first
-    val baseColor = parsed.second
-    Spacer(
-        modifier = modifier
-            .background(baseColor)
-            .drawWithCache {
-                val w = size.width
-                val h = size.height
-                val light = Color.White.copy(alpha = 0.24f)
-                val softDark = Color.Black.copy(alpha = 0.14f)
-                val spineBrush = androidx.compose.ui.graphics.Brush.horizontalGradient(
-                    colors = listOf(Color.Black.copy(alpha = 0.26f), Color.White.copy(alpha = 0.08f), Color.Transparent),
-                    startX = 0f,
-                    endX = w * 0.11f,
-                )
-                onDrawBehind {
-                    if (w <= 2f || h <= 2f) return@onDrawBehind
-                    when (pattern) {
-                        "dots" -> {
-                            val step = (w / 6f).coerceAtLeast(6f)
-                            var y = step * 0.6f
-                            var row = 0
-                            while (y < h) {
-                                var x = if (row % 2 == 0) step * 0.5f else step
-                                while (x < w) {
-                                    drawCircle(light, step * 0.16f, androidx.compose.ui.geometry.Offset(x, y))
-                                    x += step
-                                }
-                                y += step; row++
-                            }
-                        }
-                        "grid" -> {
-                            val step = (w / 6f).coerceAtLeast(6f)
-                            var x = step
-                            while (x < w) { drawLine(light, androidx.compose.ui.geometry.Offset(x, 0f), androidx.compose.ui.geometry.Offset(x, h), 1f); x += step }
-                            var y = step
-                            while (y < h) { drawLine(light, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(w, y), 1f); y += step }
-                        }
-                        "stripes" -> {
-                            val step = (w / 4.5f).coerceAtLeast(8f)
-                            var x = -h
-                            while (x < w + h) {
-                                drawLine(light, androidx.compose.ui.geometry.Offset(x, h), androidx.compose.ui.geometry.Offset(x + h * 0.85f, 0f), step * 0.28f)
-                                x += step
-                            }
-                        }
-                        "waves" -> {
-                            val step = (h / 7f).coerceAtLeast(7f)
-                            var y = step * 0.6f
-                            while (y < h) {
-                                drawLine(light, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(w * 0.5f, y - step * 0.25f), 1.6f)
-                                drawLine(light, androidx.compose.ui.geometry.Offset(w * 0.5f, y - step * 0.25f), androidx.compose.ui.geometry.Offset(w, y), 1.6f)
-                                y += step
-                            }
-                        }
-                        "linen" -> {
-                            var y = 3f
-                            while (y < h) { drawLine(Color.White.copy(alpha = 0.08f), androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(w, y), 1f); y += 4.5f }
-                            var x = 3f
-                            while (x < w) { drawLine(Color.Black.copy(alpha = 0.07f), androidx.compose.ui.geometry.Offset(x, 0f), androidx.compose.ui.geometry.Offset(x, h), 1f); x += 4.5f }
-                        }
-                        "scales" -> {
-                            val r = (w / 4.5f).coerceAtLeast(8f)
-                            var y = r * 0.4f
-                            var row = 0
-                            while (y < h + r) {
-                                var x = if (row % 2 == 0) 0f else r
-                                while (x < w + r) {
-                                    drawCircle(light, r * 0.85f, androidx.compose.ui.geometry.Offset(x, y), style = androidx.compose.ui.graphics.drawscope.Stroke(1.2f))
-                                    x += r * 1.8f
-                                }
-                                y += r * 0.85f; row++
-                            }
-                        }
-                        else -> {
-                            // Subtle vertical elastic closure band on classic matte covers
-                            drawRect(
-                                color = softDark,
-                                topLeft = androidx.compose.ui.geometry.Offset(w * 0.82f, 0f),
-                                size = androidx.compose.ui.geometry.Size(w * 0.055f, h),
-                            )
-                        }
-                    }
-                    // Subtle top-to-bottom paper sheen
-                    drawRect(
-                        color = Color.White.copy(alpha = 0.06f),
-                        topLeft = androidx.compose.ui.geometry.Offset(0f, 0f),
-                        size = androidx.compose.ui.geometry.Size(w, h * 0.35f),
-                    )
-                    // Spine shadow & crease
-                    drawRect(
-                        brush = spineBrush,
-                        topLeft = androidx.compose.ui.geometry.Offset.Zero,
-                        size = androidx.compose.ui.geometry.Size(w * 0.11f, h),
-                    )
-                }
-            },
+    val img = remember(spec) { getOrRenderCoverThumb(spec) }
+    androidx.compose.foundation.Image(
+        bitmap = img,
+        contentDescription = null,
+        contentScale = ContentScale.FillBounds,
+        modifier = modifier,
     )
 }
 
@@ -1979,9 +2001,226 @@ private fun CreatorTemplateTile(
     }
 }
 
+private fun getOrRenderPaperThumb(
+    style: PaperStyle,
+    tint: Int,
+    landscape: Boolean,
+): androidx.compose.ui.graphics.ImageBitmap {
+    val key = "pap:${style.name}:$tint:${if (landscape) 1 else 0}"
+    creatorThumbCache.get(key)?.let { return it }
+    val wPx = if (landscape) 172 else 132
+    val hPx = if (landscape) 120 else 176
+    val bmp = android.graphics.Bitmap.createBitmap(wPx, hPx, android.graphics.Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(bmp)
+    canvas.drawColor(tint)
+
+    val darkPaper = Color(tint).luminance() < 0.35f
+    val lineColor = if (darkPaper) android.graphics.Color.argb(58, 255, 255, 255) else android.graphics.Color.argb(140, 148, 163, 184)
+    val strongLine = if (darkPaper) android.graphics.Color.argb(96, 255, 255, 255) else android.graphics.Color.argb(168, 100, 116, 139)
+    val marginColor = if (darkPaper) android.graphics.Color.argb(145, 251, 113, 133) else android.graphics.Color.argb(145, 239, 68, 68)
+    val accentBox = if (darkPaper) android.graphics.Color.argb(38, 255, 255, 255) else android.graphics.Color.argb(38, 59, 130, 246)
+
+    val w = wPx.toFloat()
+    val h = hPx.toFloat()
+    val pad = minOf(w, h) * 0.08f
+    val stroke = (minOf(w, h) * 0.013f).coerceIn(1.2f, 2.2f)
+    val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        this.style = android.graphics.Paint.Style.STROKE
+        strokeWidth = stroke
+    }
+
+    fun hLines(startY: Float, endY: Float, count: Int, x0: Float = pad, x1: Float = w - pad, col: Int = lineColor) {
+        if (count <= 0) return
+        p.color = col
+        p.style = android.graphics.Paint.Style.STROKE
+        p.strokeWidth = stroke
+        val step = (endY - startY) / count
+        for (i in 0..count) {
+            val y = startY + i * step
+            canvas.drawLine(x0, y, x1, y, p)
+        }
+    }
+
+    fun grid(cols: Int, rows: Int, col: Int = lineColor) {
+        p.color = col
+        p.style = android.graphics.Paint.Style.STROKE
+        p.strokeWidth = stroke
+        val sx = (w - pad * 2f) / cols
+        val sy = (h - pad * 2f) / rows
+        for (c in 0..cols) {
+            val x = pad + c * sx
+            canvas.drawLine(x, pad, x, h - pad, p)
+        }
+        for (r in 0..rows) {
+            val y = pad + r * sy
+            canvas.drawLine(pad, y, w - pad, y, p)
+        }
+    }
+
+    fun dots(cols: Int, rows: Int) {
+        p.color = strongLine
+        p.style = android.graphics.Paint.Style.FILL
+        val sx = (w - pad * 2f) / cols
+        val sy = (h - pad * 2f) / rows
+        val rDot = (minOf(w, h) * 0.015f).coerceIn(1.4f, 2.8f)
+        for (r in 0..rows) {
+            val y = pad + r * sy
+            for (c in 0..cols) {
+                canvas.drawCircle(pad + c * sx, y, rDot, p)
+            }
+        }
+    }
+
+    when (style) {
+        PaperStyle.BLANK -> Unit
+        PaperStyle.DOTTED -> dots(if (landscape) 9 else 6, if (landscape) 6 else 9)
+        PaperStyle.NARROW -> hLines(pad * 1.4f, h - pad, if (landscape) 9 else 13)
+        PaperStyle.WIDE -> hLines(pad * 1.6f, h - pad, if (landscape) 6 else 8)
+        PaperStyle.RULED -> hLines(pad * 1.5f, h - pad, if (landscape) 7 else 10)
+        PaperStyle.COLLEGE, PaperStyle.LEGAL -> {
+            hLines(pad * 1.5f, h - pad, if (landscape) 8 else 11)
+            val mx = w * 0.18f
+            p.color = marginColor; p.strokeWidth = stroke * 1.2f
+            canvas.drawLine(mx, 0f, mx, h, p)
+        }
+        PaperStyle.CORNELL, PaperStyle.STUDY -> {
+            val topH = h * 0.16f
+            val botY = h * 0.80f
+            val cueX = w * 0.30f
+            p.color = strongLine; p.strokeWidth = stroke * 1.2f
+            canvas.drawLine(pad, topH, w - pad, topH, p)
+            canvas.drawLine(pad, botY, w - pad, botY, p)
+            p.color = marginColor
+            canvas.drawLine(cueX, topH, cueX, botY, p)
+            hLines(topH + pad, botY - pad * 0.5f, 6, x0 = cueX + pad * 0.5f, x1 = w - pad)
+        }
+        PaperStyle.CORNELL_GRID -> {
+            val topH = h * 0.16f
+            val botY = h * 0.80f
+            val cueX = w * 0.30f
+            grid(if (landscape) 9 else 6, if (landscape) 6 else 9)
+            p.color = marginColor; p.strokeWidth = stroke * 1.2f
+            canvas.drawLine(cueX, topH, cueX, botY, p)
+            p.color = strongLine
+            canvas.drawLine(pad, topH, w - pad, topH, p)
+            canvas.drawLine(pad, botY, w - pad, botY, p)
+        }
+        PaperStyle.DOT_CORNELL -> {
+            dots(if (landscape) 8 else 6, if (landscape) 5 else 8)
+            val topH = h * 0.16f
+            val cueX = w * 0.30f
+            p.style = android.graphics.Paint.Style.STROKE; p.strokeWidth = stroke * 1.2f
+            p.color = marginColor; canvas.drawLine(cueX, topH, cueX, h * 0.82f, p)
+            p.color = strongLine; canvas.drawLine(pad, topH, w - pad, topH, p)
+        }
+        PaperStyle.TWO_COLUMN -> {
+            val mid = w * 0.5f
+            p.color = strongLine; p.strokeWidth = stroke * 1.2f
+            canvas.drawLine(mid, pad, mid, h - pad, p)
+            hLines(pad * 1.5f, h - pad, 9, pad, mid - pad * 0.6f)
+            hLines(pad * 1.5f, h - pad, 9, mid + pad * 0.6f, w - pad)
+        }
+        PaperStyle.GRID -> grid(if (landscape) 8 else 6, if (landscape) 6 else 8)
+        PaperStyle.SMALL_GRID, PaperStyle.GRAPH -> grid(if (landscape) 12 else 9, if (landscape) 9 else 12)
+        PaperStyle.ENGINEERING -> {
+            grid(if (landscape) 10 else 8, if (landscape) 8 else 10)
+            p.color = strongLine; p.style = android.graphics.Paint.Style.STROKE; p.strokeWidth = stroke * 1.3f
+            canvas.drawRect(pad, pad, w - pad, h - pad, p)
+        }
+        PaperStyle.ISOMETRIC, PaperStyle.HEX -> {
+            p.color = lineColor; p.style = android.graphics.Paint.Style.STROKE; p.strokeWidth = stroke
+            val step = minOf(w, h) / 5.5f
+            var x = -h
+            while (x < w + h) {
+                canvas.drawLine(x, 0f, x + h * 0.58f, h, p)
+                canvas.drawLine(x + h * 0.58f, 0f, x, h, p)
+                x += step
+            }
+        }
+        PaperStyle.HANDWRITING, PaperStyle.SEYES, PaperStyle.CALLIGRAPHY -> {
+            val rows = if (landscape) 4 else 6
+            val band = (h - pad * 2f) / rows
+            p.style = android.graphics.Paint.Style.STROKE
+            for (i in 0 until rows) {
+                val y0 = pad + i * band
+                p.color = strongLine; p.strokeWidth = stroke
+                canvas.drawLine(pad, y0 + band * 0.78f, w - pad, y0 + band * 0.78f, p)
+                p.color = lineColor; p.strokeWidth = stroke * 0.8f
+                canvas.drawLine(pad, y0 + band * 0.36f, w - pad, y0 + band * 0.36f, p)
+            }
+        }
+        PaperStyle.PLANNER, PaperStyle.MONTHLY, PaperStyle.HABIT_TRACKER -> {
+            p.color = accentBox; p.style = android.graphics.Paint.Style.FILL
+            canvas.drawRect(pad, pad, w - pad, pad + h * 0.14f, p)
+            val top = pad + h * 0.18f
+            val rows = 4
+            val cols = if (style == PaperStyle.MONTHLY) 5 else 3
+            val cellW = (w - pad * 2f) / cols
+            val cellH = (h - top - pad) / rows
+            p.color = lineColor; p.style = android.graphics.Paint.Style.STROKE; p.strokeWidth = stroke
+            for (r in 0..rows) canvas.drawLine(pad, top + r * cellH, w - pad, top + r * cellH, p)
+            for (c in 0..cols) canvas.drawLine(pad + c * cellW, top, pad + c * cellW, h - pad, p)
+        }
+        PaperStyle.DAILY, PaperStyle.DAY_TIMEBLOCK, PaperStyle.MEETING -> {
+            p.color = accentBox; p.style = android.graphics.Paint.Style.FILL
+            canvas.drawRect(pad, pad, w - pad, pad + h * 0.14f, p)
+            val splitX = w * 0.42f
+            p.color = strongLine; p.style = android.graphics.Paint.Style.STROKE; p.strokeWidth = stroke
+            canvas.drawLine(splitX, pad + h * 0.18f, splitX, h - pad, p)
+            hLines(pad + h * 0.22f, h - pad, 7, pad, w - pad)
+        }
+        PaperStyle.TODO, PaperStyle.CHECKLIST -> {
+            val rows = if (landscape) 6 else 8
+            val step = (h - pad * 2.4f) / rows
+            val boxS = (step * 0.48f).coerceIn(5f, 12f)
+            p.style = android.graphics.Paint.Style.STROKE; p.strokeWidth = stroke
+            for (i in 0 until rows) {
+                val y = pad * 1.4f + i * step
+                p.color = strongLine
+                canvas.drawRect(pad, y, pad + boxS, y + boxS, p)
+                p.color = lineColor
+                canvas.drawLine(pad + boxS + pad * 0.5f, y + boxS * 0.65f, w - pad, y + boxS * 0.65f, p)
+            }
+        }
+        PaperStyle.STORYBOARD, PaperStyle.COMIC_PANELS -> {
+            val cols = 2; val rows = 3
+            val gap = pad * 0.7f
+            val cw = (w - pad * 2f - gap) / cols
+            val ch = (h - pad * 2f - gap * (rows - 1)) / rows
+            p.color = strongLine; p.style = android.graphics.Paint.Style.STROKE; p.strokeWidth = stroke * 1.1f
+            for (r in 0 until rows) {
+                for (c in 0 until cols) {
+                    val left = pad + c * (cw + gap)
+                    val top = pad + r * (ch + gap)
+                    canvas.drawRect(left, top, left + cw, top + ch, p)
+                }
+            }
+        }
+        PaperStyle.MUSIC, PaperStyle.TABLATURE -> {
+            val staves = if (landscape) 3 else 4
+            val band = (h - pad * 2f) / staves
+            val linesPerStaff = if (style == PaperStyle.TABLATURE) 6 else 5
+            p.color = strongLine; p.style = android.graphics.Paint.Style.STROKE; p.strokeWidth = stroke * 0.85f
+            for (s in 0 until staves) {
+                val top = pad + s * band + band * 0.16f
+                val gap = (band * 0.56f) / (linesPerStaff - 1)
+                for (l in 0 until linesPerStaff) {
+                    val y = top + l * gap
+                    canvas.drawLine(pad, y, w - pad, y, p)
+                }
+            }
+        }
+        else -> hLines(pad * 1.5f, h - pad, 9)
+    }
+
+    val img = bmp.asImageBitmap()
+    creatorThumbCache.put(key, img)
+    return img
+}
+
 /**
- * Ultra-fast zero-allocation GPU vector thumbnail for paper templates inside the Notebook Creator.
- * Draws directly in a single Canvas pass with zero bitmap creation or background thread hops.
+ * Cached single-quad GPU thumbnail for paper templates inside the Notebook Creator.
+ * Rasterizes each tiny preview once into LruCache so scrolling renders 1 textured quad per tile at locked 120fps.
  */
 @Composable
 private fun FastPaperThumb(
@@ -1990,184 +2229,12 @@ private fun FastPaperThumb(
     landscape: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val bg = Color(tint)
-    val darkPaper = bg.luminance() < 0.35f
-    val lineColor = if (darkPaper) Color.White.copy(alpha = 0.22f) else Color(0xFF94A3B8).copy(alpha = 0.55f)
-    val strongLine = if (darkPaper) Color.White.copy(alpha = 0.36f) else Color(0xFF64748B).copy(alpha = 0.65f)
-    val marginColor = if (darkPaper) Color(0xFFFB7185).copy(alpha = 0.55f) else Color(0xFFEF4444).copy(alpha = 0.55f)
-    val accentBox = if (darkPaper) Color.White.copy(alpha = 0.14f) else Color(0xFF3B82F6).copy(alpha = 0.14f)
-
-    Spacer(
-        modifier = modifier
-            .background(bg)
-            .drawWithCache {
-                val w = size.width
-                val h = size.height
-                val pad = minOf(w, h) * 0.08f
-                val stroke = (minOf(w, h) * 0.012f).coerceIn(0.6f, 1.4f)
-                onDrawBehind {
-                    if (w <= 2f || h <= 2f) return@onDrawBehind
-
-        fun hLines(startY: Float, endY: Float, count: Int, x0: Float = pad, x1: Float = w - pad, col: Color = lineColor) {
-            if (count <= 0) return
-            val step = (endY - startY) / count
-            for (i in 0..count) {
-                val y = startY + i * step
-                drawLine(col, androidx.compose.ui.geometry.Offset(x0, y), androidx.compose.ui.geometry.Offset(x1, y), stroke)
-            }
-        }
-
-        fun grid(cols: Int, rows: Int, col: Color = lineColor) {
-            val sx = (w - pad * 2f) / cols
-            val sy = (h - pad * 2f) / rows
-            for (c in 0..cols) {
-                val x = pad + c * sx
-                drawLine(col, androidx.compose.ui.geometry.Offset(x, pad), androidx.compose.ui.geometry.Offset(x, h - pad), stroke)
-            }
-            for (r in 0..rows) {
-                val y = pad + r * sy
-                drawLine(col, androidx.compose.ui.geometry.Offset(pad, y), androidx.compose.ui.geometry.Offset(w - pad, y), stroke)
-            }
-        }
-
-        fun dots(cols: Int, rows: Int) {
-            val sx = (w - pad * 2f) / cols
-            val sy = (h - pad * 2f) / rows
-            val rDot = (minOf(w, h) * 0.014f).coerceIn(0.8f, 1.8f)
-            for (r in 0..rows) {
-                val y = pad + r * sy
-                for (c in 0..cols) {
-                    drawCircle(strongLine, rDot, androidx.compose.ui.geometry.Offset(pad + c * sx, y))
-                }
-            }
-        }
-
-        when (style) {
-            PaperStyle.BLANK -> Unit
-            PaperStyle.DOTTED -> dots(if (landscape) 9 else 6, if (landscape) 6 else 9)
-            PaperStyle.NARROW -> hLines(pad * 1.4f, h - pad, if (landscape) 9 else 13)
-            PaperStyle.WIDE -> hLines(pad * 1.6f, h - pad, if (landscape) 6 else 8)
-            PaperStyle.RULED -> hLines(pad * 1.5f, h - pad, if (landscape) 7 else 10)
-            PaperStyle.COLLEGE, PaperStyle.LEGAL -> {
-                hLines(pad * 1.5f, h - pad, if (landscape) 8 else 11)
-                val mx = w * 0.18f
-                drawLine(marginColor, androidx.compose.ui.geometry.Offset(mx, 0f), androidx.compose.ui.geometry.Offset(mx, h), stroke * 1.2f)
-            }
-            PaperStyle.CORNELL, PaperStyle.STUDY -> {
-                val topH = h * 0.16f
-                val botY = h * 0.80f
-                val cueX = w * 0.30f
-                drawLine(strongLine, androidx.compose.ui.geometry.Offset(pad, topH), androidx.compose.ui.geometry.Offset(w - pad, topH), stroke * 1.2f)
-                drawLine(marginColor, androidx.compose.ui.geometry.Offset(cueX, topH), androidx.compose.ui.geometry.Offset(cueX, botY), stroke * 1.2f)
-                drawLine(strongLine, androidx.compose.ui.geometry.Offset(pad, botY), androidx.compose.ui.geometry.Offset(w - pad, botY), stroke * 1.2f)
-                hLines(topH + pad, botY - pad * 0.5f, 6, x0 = cueX + pad * 0.5f, x1 = w - pad)
-            }
-            PaperStyle.CORNELL_GRID -> {
-                val topH = h * 0.16f
-                val botY = h * 0.80f
-                val cueX = w * 0.30f
-                grid(if (landscape) 9 else 6, if (landscape) 6 else 9, lineColor.copy(alpha = lineColor.alpha * 0.7f))
-                drawLine(marginColor, androidx.compose.ui.geometry.Offset(cueX, topH), androidx.compose.ui.geometry.Offset(cueX, botY), stroke * 1.2f)
-                drawLine(strongLine, androidx.compose.ui.geometry.Offset(pad, topH), androidx.compose.ui.geometry.Offset(w - pad, topH), stroke * 1.2f)
-                drawLine(strongLine, androidx.compose.ui.geometry.Offset(pad, botY), androidx.compose.ui.geometry.Offset(w - pad, botY), stroke * 1.2f)
-            }
-            PaperStyle.DOT_CORNELL -> {
-                dots(if (landscape) 8 else 6, if (landscape) 5 else 8)
-                val topH = h * 0.16f
-                val cueX = w * 0.30f
-                drawLine(marginColor, androidx.compose.ui.geometry.Offset(cueX, topH), androidx.compose.ui.geometry.Offset(cueX, h * 0.82f), stroke * 1.2f)
-                drawLine(strongLine, androidx.compose.ui.geometry.Offset(pad, topH), androidx.compose.ui.geometry.Offset(w - pad, topH), stroke * 1.2f)
-            }
-            PaperStyle.TWO_COLUMN -> {
-                val mid = w * 0.5f
-                drawLine(strongLine, androidx.compose.ui.geometry.Offset(mid, pad), androidx.compose.ui.geometry.Offset(mid, h - pad), stroke * 1.2f)
-                hLines(pad * 1.5f, h - pad, 9, pad, mid - pad * 0.6f)
-                hLines(pad * 1.5f, h - pad, 9, mid + pad * 0.6f, w - pad)
-            }
-            PaperStyle.GRID -> grid(if (landscape) 8 else 6, if (landscape) 6 else 8)
-            PaperStyle.SMALL_GRID, PaperStyle.GRAPH -> grid(if (landscape) 12 else 9, if (landscape) 9 else 12)
-            PaperStyle.ENGINEERING -> {
-                grid(if (landscape) 10 else 8, if (landscape) 8 else 10, lineColor.copy(alpha = lineColor.alpha * 0.75f))
-                drawRect(strongLine, androidx.compose.ui.geometry.Offset(pad, pad), androidx.compose.ui.geometry.Size(w - pad * 2f, h - pad * 2f), style = androidx.compose.ui.graphics.drawscope.Stroke(stroke * 1.3f))
-            }
-            PaperStyle.ISOMETRIC, PaperStyle.HEX -> {
-                val step = minOf(w, h) / 5.5f
-                var x = -h
-                while (x < w + h) {
-                    drawLine(lineColor, androidx.compose.ui.geometry.Offset(x, 0f), androidx.compose.ui.geometry.Offset(x + h * 0.58f, h), stroke)
-                    drawLine(lineColor, androidx.compose.ui.geometry.Offset(x + h * 0.58f, 0f), androidx.compose.ui.geometry.Offset(x, h), stroke)
-                    x += step
-                }
-            }
-            PaperStyle.HANDWRITING, PaperStyle.SEYES, PaperStyle.CALLIGRAPHY -> {
-                val rows = if (landscape) 4 else 6
-                val band = (h - pad * 2f) / rows
-                for (i in 0 until rows) {
-                    val y0 = pad + i * band
-                    drawLine(strongLine, androidx.compose.ui.geometry.Offset(pad, y0 + band * 0.78f), androidx.compose.ui.geometry.Offset(w - pad, y0 + band * 0.78f), stroke)
-                    drawLine(lineColor, androidx.compose.ui.geometry.Offset(pad, y0 + band * 0.36f), androidx.compose.ui.geometry.Offset(w - pad, y0 + band * 0.36f), stroke * 0.8f)
-                }
-            }
-            PaperStyle.PLANNER, PaperStyle.MONTHLY, PaperStyle.HABIT_TRACKER -> {
-                drawRect(accentBox, androidx.compose.ui.geometry.Offset(pad, pad), androidx.compose.ui.geometry.Size(w - pad * 2f, h * 0.14f))
-                val top = pad + h * 0.18f
-                val rows = 4
-                val cols = if (style == PaperStyle.MONTHLY) 5 else 3
-                val cellW = (w - pad * 2f) / cols
-                val cellH = (h - top - pad) / rows
-                for (r in 0..rows) drawLine(lineColor, androidx.compose.ui.geometry.Offset(pad, top + r * cellH), androidx.compose.ui.geometry.Offset(w - pad, top + r * cellH), stroke)
-                for (c in 0..cols) drawLine(lineColor, androidx.compose.ui.geometry.Offset(pad + c * cellW, top), androidx.compose.ui.geometry.Offset(pad + c * cellW, h - pad), stroke)
-            }
-            PaperStyle.DAILY, PaperStyle.DAY_TIMEBLOCK, PaperStyle.MEETING -> {
-                drawRect(accentBox, androidx.compose.ui.geometry.Offset(pad, pad), androidx.compose.ui.geometry.Size(w - pad * 2f, h * 0.14f))
-                val splitX = w * 0.42f
-                drawLine(strongLine, androidx.compose.ui.geometry.Offset(splitX, pad + h * 0.18f), androidx.compose.ui.geometry.Offset(splitX, h - pad), stroke)
-                hLines(pad + h * 0.22f, h - pad, 7, pad, w - pad)
-            }
-            PaperStyle.TODO, PaperStyle.CHECKLIST -> {
-                val rows = if (landscape) 6 else 8
-                val step = (h - pad * 2.4f) / rows
-                val boxS = (step * 0.48f).coerceIn(2.5f, 6f)
-                for (i in 0 until rows) {
-                    val y = pad * 1.4f + i * step
-                    drawRect(strongLine, androidx.compose.ui.geometry.Offset(pad, y), androidx.compose.ui.geometry.Size(boxS, boxS), style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
-                    drawLine(lineColor, androidx.compose.ui.geometry.Offset(pad + boxS + pad * 0.5f, y + boxS * 0.65f), androidx.compose.ui.geometry.Offset(w - pad, y + boxS * 0.65f), stroke)
-                }
-            }
-            PaperStyle.STORYBOARD, PaperStyle.COMIC_PANELS -> {
-                val cols = 2
-                val rows = 3
-                val gap = pad * 0.7f
-                val cw = (w - pad * 2f - gap) / cols
-                val ch = (h - pad * 2f - gap * (rows - 1)) / rows
-                for (r in 0 until rows) {
-                    for (c in 0 until cols) {
-                        drawRect(
-                            strongLine,
-                            androidx.compose.ui.geometry.Offset(pad + c * (cw + gap), pad + r * (ch + gap)),
-                            androidx.compose.ui.geometry.Size(cw, ch),
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(stroke * 1.1f),
-                        )
-                    }
-                }
-            }
-            PaperStyle.MUSIC, PaperStyle.TABLATURE -> {
-                val staves = if (landscape) 3 else 4
-                val band = (h - pad * 2f) / staves
-                val linesPerStaff = if (style == PaperStyle.TABLATURE) 6 else 5
-                for (s in 0 until staves) {
-                    val top = pad + s * band + band * 0.16f
-                    val gap = (band * 0.56f) / (linesPerStaff - 1)
-                    for (l in 0 until linesPerStaff) {
-                        val y = top + l * gap
-                        drawLine(strongLine, androidx.compose.ui.geometry.Offset(pad, y), androidx.compose.ui.geometry.Offset(w - pad, y), stroke * 0.85f)
-                    }
-                }
-            }
-            else -> hLines(pad * 1.5f, h - pad, 9)
-        }
-                }
-            },
+    val img = remember(style, tint, landscape) { getOrRenderPaperThumb(style, tint, landscape) }
+    androidx.compose.foundation.Image(
+        bitmap = img,
+        contentDescription = null,
+        contentScale = ContentScale.FillBounds,
+        modifier = modifier,
     )
 }
 

@@ -41,6 +41,7 @@ import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentCut
 import androidx.compose.material.icons.outlined.ContentPaste
+import androidx.compose.material.icons.outlined.ControlPointDuplicate
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Flip
 import androidx.compose.material.icons.outlined.FlipToBack
@@ -179,188 +180,167 @@ fun SelectionMenu(
     }
     val hasClipboard = vm.hasAnyClipboardContent()
 
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+    AppSurface(
+        role = SurfaceRole.Chrome,
+        containerColor = Color.Black,
+        contentColor = fg,
+        shape = appPillShape(),
+        borderColor = Color.White.copy(alpha = 0.14f),
+        shadowElevation = if (reduceEffects) 0.dp else 10.dp,
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
         modifier = Modifier.widthIn(max = maxMenuW),
     ) {
-        // Row 1: Crisp Android-native-style floating text/item action bar (Cut | Copy | Paste | Share | Delete)
-        AppSurface(
-            role = SurfaceRole.Chrome,
-            containerColor = Color(0xFF121316),
-            contentColor = fg,
-            shape = appPillShape(),
-            borderColor = Color.White.copy(alpha = 0.14f),
-            shadowElevation = if (reduceEffects) 0.dp else 10.dp,
-            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
-        ) {
-            CompositionLocalProvider(LocalContentColor provides fg) {
-                Row(
-                    Modifier.horizontalScroll(rememberScrollState()),
-                    verticalAlignment = Alignment.CenterVertically,
+        CompositionLocalProvider(LocalContentColor provides fg) {
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                if (editableText != null) {
+                    SelectionActionIcon(
+                        label = "Edit text",
+                        onClick = { vm.openInlineTextBox(vm.selectionPage, editableText.x, editableText.y, editableText) },
+                    ) {
+                        Icon(Icons.Outlined.Keyboard, contentDescription = null, Modifier.size(20.dp), tint = Color(0xFF34D399))
+                    }
+                }
+                SelectionActionIcon(
+                    label = if (transformEnabled) "Done resizing" else "Resize & rotate",
+                    onClick = onToggleTransform,
                 ) {
-                    AndroidBarAction(label = cutLabel, onClick = vm::cutSelection)
-                    AndroidBarDivider()
-                    AndroidBarAction(label = copyLabel, onClick = vm::copySelection)
-                    if (hasClipboard) {
-                        AndroidBarDivider()
-                        AndroidBarAction(
-                            label = "Paste",
-                            onClick = {
-                                val r = vm.selectionUnion()
-                                val px = (r?.right ?: 160f) + 24f
-                                val py = r?.top ?: 160f
-                                vm.pasteAt(vm.selectionPage, px, py) { _, _ -> }
-                            },
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(if (transformEnabled) ProButtonPalette.ElectricBlue else Color.Transparent),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        com.pronotes.app.ui.TransformSelectionIcon(
+                            tint = if (transformEnabled) Color.White else fg,
+                            modifier = Modifier.size(20.dp),
                         )
                     }
-                    AndroidBarDivider()
-                    AndroidBarAction(label = dupLabel, onClick = onDuplicate)
-                    AndroidBarDivider()
-                    AndroidBarAction(label = "Share", onClick = onShareImage)
-                    AndroidBarDivider()
-                    AndroidBarAction(
-                        label = deleteLabel,
-                        color = Color(0xFFF87171),
+                }
+                SelectionActionIcon(label = cutLabel, onClick = vm::cutSelection) {
+                    Icon(Icons.Outlined.ContentCut, contentDescription = null, Modifier.size(19.dp), tint = fg)
+                }
+                SelectionActionIcon(label = copyLabel, onClick = vm::copySelection) {
+                    Icon(Icons.Outlined.ContentCopy, contentDescription = null, Modifier.size(19.dp), tint = fg)
+                }
+                if (hasClipboard) {
+                    SelectionActionIcon(
+                        label = "Paste",
                         onClick = {
-                            vm.pages.getOrNull(vm.selectionPage)?.let { page ->
-                                if (vm.selection.isNotEmpty()) pendingDelete = page.id to vm.selection.toSet()
+                            val r = vm.selectionUnion()
+                            val px = (r?.right ?: 160f) + 24f
+                            val py = r?.top ?: 160f
+                            vm.pasteAt(vm.selectionPage, px, py) { _, _ -> }
+                        },
+                    ) {
+                        Icon(Icons.Outlined.ContentPaste, contentDescription = null, Modifier.size(19.dp), tint = fg)
+                    }
+                }
+                SelectionActionIcon(label = dupLabel, onClick = onDuplicate) {
+                    Icon(Icons.Outlined.ControlPointDuplicate, contentDescription = null, Modifier.size(19.dp), tint = fg)
+                }
+                Box(Modifier.padding(horizontal = 2.dp).width(1.dp).height(20.dp).background(Color.White.copy(alpha = 0.16f)))
+                SelectionActionIcon(label = colourLabel, onClick = { colors = true }) {
+                    Icon(Icons.Outlined.Palette, contentDescription = null, Modifier.size(19.dp), tint = fg)
+                }
+                SelectionActionIcon(label = "Font", onClick = { fontPickerOpen = true }) {
+                    Icon(Icons.Outlined.FontDownload, contentDescription = null, Modifier.size(19.dp), tint = Color(0xFF93C5FD))
+                }
+                if (hasInkSelected) {
+                    SelectionActionIcon(label = "Convert to text", onClick = { vm.convertSelectionToText(onConvertToText) }) {
+                        Icon(Icons.Outlined.TextFields, contentDescription = null, Modifier.size(19.dp), tint = Color(0xFF93C5FD))
+                    }
+                }
+                SelectionActionIcon(label = "Save as sticker", onClick = { vm.saveSelectionAsSticker() }) {
+                    ProIconView(ProIcon.STICKER, Color(0xFFF472B6), Modifier.size(19.dp), ink = Color(0xFFF472B6))
+                }
+                SelectionActionIcon(label = "Share", onClick = onShareImage) {
+                    Icon(Icons.Outlined.IosShare, contentDescription = null, Modifier.size(19.dp), tint = fg)
+                }
+                SelectionActionIcon(label = stringResource(R.string.selection_link), onClick = { vm.startLinkFromSelection() }) {
+                    Icon(Icons.Outlined.Link, contentDescription = null, Modifier.size(19.dp), tint = fg)
+                }
+                Box {
+                    SelectionActionIcon(label = moreLabel, onClick = { moreOpen = true }) {
+                        ProIconView(ProIcon.MORE, mutedFg, Modifier.size(19.dp))
+                    }
+                    AppContextMenu(
+                        expanded = moreOpen,
+                        onDismissRequest = { moreOpen = false },
+                        items = buildList {
+                            if (vm.selectionLinks().isNotEmpty()) {
+                                add(
+                                    AppMenuItem(
+                                        stringResource(R.string.selection_unlink),
+                                        destructive = true,
+                                    ) {
+                                        vm.unlinkSelection()
+                                    },
+                                )
                             }
+                            add(
+                                AppMenuItem(
+                                    "Save as sticker",
+                                    icon = { ProIconView(ProIcon.STICKER, ProButtonPalette.MagentaPink, Modifier.size(18.dp), ink = ProButtonPalette.MagentaPink) },
+                                ) {
+                                    vm.saveSelectionAsSticker()
+                                },
+                            )
+                            add(
+                                AppMenuItem(
+                                    "Copy handwriting as text",
+                                    icon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null, Modifier.size(18.dp)) },
+                                ) {
+                                    vm.copySelectionAsText()
+                                },
+                            )
+                            add(
+                                AppMenuItem(
+                                    stringResource(R.string.sheet_lasso_convert),
+                                    icon = { Icon(Icons.Outlined.TextFields, contentDescription = null, Modifier.size(18.dp)) },
+                                ) {
+                                    vm.convertSelectionToText(onConvertToText)
+                                },
+                            )
+                            add(AppMenuItem("Add attached comment") { vm.addSelectionComment() })
+                            add(
+                                AppMenuItem("Flip horizontally", icon = { Icon(Icons.Outlined.Flip, contentDescription = null, Modifier.size(18.dp)) }) {
+                                    keep { vm.flipSelection() }
+                                },
+                            )
+                            add(
+                                AppMenuItem("Bring to front", icon = { Icon(Icons.Outlined.FlipToFront, contentDescription = null, Modifier.size(18.dp)) }) {
+                                    keep { vm.arrange(true) }
+                                },
+                            )
+                            add(
+                                AppMenuItem("Send to back", icon = { Icon(Icons.Outlined.FlipToBack, contentDescription = null, Modifier.size(18.dp)) }) {
+                                    keep { vm.arrange(false) }
+                                },
+                            )
+                            add(
+                                AppMenuItem("Save as screenshot", icon = { Icon(Icons.Outlined.Image, contentDescription = null, Modifier.size(18.dp)) }) {
+                                    vm.saveSelectionScreenshot()
+                                },
+                            )
                         },
                     )
                 }
-            }
-        }
-
-        // Row 2: Compact floating in-app tool pills (Edit, Select/Resize, Convert, Sticker, Color, Font, Link, More)
-        Row(
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (editableText != null) {
-                FloatingSelectionToolPill(
-                    label = "Edit",
-                    accent = ProButtonPalette.Emerald,
-                    filled = true,
-                    onClick = { vm.openInlineTextBox(vm.selectionPage, editableText.x, editableText.y, editableText) },
-                ) {
-                    Icon(Icons.Outlined.Keyboard, contentDescription = null, Modifier.size(14.dp), tint = Color.White)
-                }
-            }
-            FloatingSelectionToolPill(
-                label = if (transformEnabled) "Done" else "Select",
-                accent = ProButtonPalette.ElectricBlue,
-                filled = transformEnabled,
-                onClick = onToggleTransform,
-            ) {
-                com.pronotes.app.ui.TransformSelectionIcon(
-                    tint = if (transformEnabled) Color.White else fg,
-                    modifier = Modifier.size(14.dp),
-                )
-            }
-            if (hasInkSelected) {
-                FloatingSelectionToolPill(
-                    label = "Convert",
-                    accent = ProButtonPalette.ElectricBlue,
-                    filled = false,
-                    onClick = { vm.convertSelectionToText(onConvertToText) },
-                ) {
-                    Icon(Icons.Outlined.TextFields, contentDescription = null, Modifier.size(14.dp), tint = Color(0xFF93C5FD))
-                }
-            }
-            FloatingSelectionToolPill(
-                label = "Sticker",
-                accent = ProButtonPalette.MagentaPink,
-                filled = false,
-                onClick = { vm.saveSelectionAsSticker() },
-            ) {
-                ProIconView(ProIcon.STICKER, Color(0xFFF472B6), Modifier.size(14.dp), ink = Color(0xFFF472B6))
-            }
-            FloatingSelectionToolPill(
-                label = colourLabel,
-                onClick = { colors = true },
-            ) {
-                Icon(Icons.Outlined.Palette, contentDescription = null, Modifier.size(14.dp), tint = fg)
-            }
-            FloatingSelectionToolPill(
-                label = "Font",
-                onClick = { fontPickerOpen = true },
-            ) {
-                Icon(Icons.Outlined.FontDownload, contentDescription = null, Modifier.size(14.dp), tint = Color(0xFF93C5FD))
-            }
-            FloatingSelectionToolPill(
-                label = stringResource(R.string.selection_link),
-                onClick = { vm.startLinkFromSelection() },
-            ) {
-                Icon(Icons.Outlined.Link, contentDescription = null, Modifier.size(14.dp), tint = fg)
-            }
-            if (vm.selectionLinks().isNotEmpty()) {
-                FloatingSelectionToolPill(
-                    label = stringResource(R.string.selection_unlink),
-                    accent = Color(0xFFE5484D),
-                    filled = true,
-                    onClick = { vm.unlinkSelection() },
-                ) {}
-            }
-            Box {
-                FloatingSelectionToolPill(
-                    label = moreLabel,
-                    onClick = { moreOpen = true },
-                ) {
-                    ProIconView(ProIcon.MORE, mutedFg, Modifier.size(14.dp))
-                }
-                AppContextMenu(
-                    expanded = moreOpen,
-                    onDismissRequest = { moreOpen = false },
-                    items = buildList {
-                        add(
-                            AppMenuItem(
-                                "Save as sticker",
-                                icon = { ProIconView(ProIcon.STICKER, ProButtonPalette.MagentaPink, Modifier.size(18.dp), ink = ProButtonPalette.MagentaPink) },
-                            ) {
-                                vm.saveSelectionAsSticker()
-                            },
-                        )
-                        add(
-                            AppMenuItem(
-                                "Copy handwriting as text",
-                                icon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null, Modifier.size(18.dp)) },
-                            ) {
-                                vm.copySelectionAsText()
-                            },
-                        )
-                        add(
-                            AppMenuItem(
-                                stringResource(R.string.sheet_lasso_convert),
-                                icon = { Icon(Icons.Outlined.TextFields, contentDescription = null, Modifier.size(18.dp)) },
-                            ) {
-                                vm.convertSelectionToText(onConvertToText)
-                            },
-                        )
-                        add(AppMenuItem("Add attached comment") { vm.addSelectionComment() })
-                        add(
-                            AppMenuItem("Flip horizontally", icon = { Icon(Icons.Outlined.Flip, contentDescription = null, Modifier.size(18.dp)) }) {
-                                keep { vm.flipSelection() }
-                            },
-                        )
-                        add(
-                            AppMenuItem("Bring to front", icon = { Icon(Icons.Outlined.FlipToFront, contentDescription = null, Modifier.size(18.dp)) }) {
-                                keep { vm.arrange(true) }
-                            },
-                        )
-                        add(
-                            AppMenuItem("Send to back", icon = { Icon(Icons.Outlined.FlipToBack, contentDescription = null, Modifier.size(18.dp)) }) {
-                                keep { vm.arrange(false) }
-                            },
-                        )
-                        add(
-                            AppMenuItem("Save as screenshot", icon = { Icon(Icons.Outlined.Image, contentDescription = null, Modifier.size(18.dp)) }) {
-                                vm.saveSelectionScreenshot()
-                            },
-                        )
+                Box(Modifier.padding(horizontal = 2.dp).width(1.dp).height(20.dp).background(Color.White.copy(alpha = 0.16f)))
+                SelectionActionIcon(
+                    label = deleteLabel,
+                    onClick = {
+                        vm.pages.getOrNull(vm.selectionPage)?.let { page ->
+                            if (vm.selection.isNotEmpty()) pendingDelete = page.id to vm.selection.toSet()
+                        }
                     },
-                )
+                ) {
+                    Icon(Icons.Outlined.Delete, contentDescription = null, Modifier.size(19.dp), tint = Color(0xFFF87171))
+                }
             }
         }
     }

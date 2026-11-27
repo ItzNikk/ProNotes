@@ -447,17 +447,29 @@ fun EditorScreen(
         context.startActivity(Intent.createChooser(send, "Share PDF"))
     }
 
-    BackHandler {
+    var predictiveBackProgress by remember { mutableFloatStateOf(0f) }
+    var predictiveBackEdge by remember { mutableIntStateOf(0) }
+    val hasEditorOverlay = quickInsert != null || wheelAt != null || activePopoverTool != null || focus || showPages
+    BackHandler(enabled = hasEditorOverlay) {
         when {
             quickInsert != null -> quickInsert = null
             wheelAt != null -> wheelAt = null
             activePopoverTool != null -> activePopoverTool = null
             focus -> focus = false
             showPages -> showPages = false
-            else -> {
-                vm.onRequestCommitText?.invoke(); vm.saveNow()
-                onBack()
+        }
+    }
+    androidx.activity.compose.PredictiveBackHandler(enabled = !hasEditorOverlay) { backEvents ->
+        try {
+            backEvents.collect { ev ->
+                predictiveBackProgress = ev.progress.coerceIn(0f, 1f)
+                predictiveBackEdge = ev.swipeEdge
             }
+            vm.onRequestCommitText?.invoke()
+            vm.saveNow()
+            onBack()
+        } finally {
+            predictiveBackProgress = 0f
         }
     }
 
@@ -603,6 +615,18 @@ fun EditorScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .graphicsLayer {
+                val p = predictiveBackProgress
+                if (p > 0.002f) {
+                    val sc = 1f - p * 0.085f
+                    scaleX = sc
+                    scaleY = sc
+                    val dir = if (predictiveBackEdge == 1) -1f else 1f
+                    translationX = dir * p * 44f * density
+                    shape = RoundedCornerShape((p * 28f).dp)
+                    clip = true
+                }
+            }
             .background(workspaceBg)
             .imePadding()
             .onPreviewKeyEvent { ev ->

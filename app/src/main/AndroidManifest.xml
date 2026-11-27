@@ -25,6 +25,7 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:largeHeap="true"
+        android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.ProNotes">
 
         <receiver android:name=".NotebookWidget" android:exported="false" android:label="ProNotes notebooks">

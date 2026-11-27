@@ -1603,19 +1603,41 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 say("Could not recognise handwritten ink")
                 return
             }
-            // Dynamic Bold: detect intentional headings & bold emphasis using stroke thickness,
-            // per-stroke height, and single-line heading ratio without false-bolding long paragraphs.
+            // Dynamic Bold (Auto-Bold): detects intentional emphasis via firm S Pen/stylus pressure,
+            // thicker brush, larger heading height relative to page text, or short ALL-CAPS headings.
             val cleanedForBold = text.trim()
-            val isShortHeading = !cleanedForBold.contains('\n') && cleanedForBold.length <= 42
+            val isShortHeading = !cleanedForBold.contains('\n') && cleanedForBold.length in 2..44
             val avgBrushSize = if (selectedInk.isNotEmpty()) {
                 selectedInk.map { it.stroke.brush.size }.average().toFloat()
             } else penStyle.size
             val strokeHeights = selectedInk.map { it.bounds.height() }.sorted()
             val medianStrokeH = if (strokeHeights.isNotEmpty()) strokeHeights[strokeHeights.size / 2] else 0f
-            val thickBrush = avgBrushSize >= (penStyle.size * 1.24f).coerceAtLeast(6.5f)
-            val largeHeading = estimatedSize >= (textSize * 1.18f) ||
-                (isShortHeading && (union.height() >= 58f || medianStrokeH >= 44f))
-            val shouldDynamicBold = options.dynamicBoldHandwriting && (largeHeading || thickBrush)
+            // Average reported stylus pressure across real pressure samples (>0.02 and <=1.0)
+            var pressureSum = 0.0
+            var pressureCount = 0
+            for (inkItem in selectedInk) {
+                val inp = inkItem.stroke.inputs
+                val step = (inp.size / 12).coerceAtLeast(1)
+                var pi = 0
+                while (pi < inp.size) {
+                    val pr = inp.get(pi).pressure
+                    if (pr in 0.02f..1.05f) {
+                        pressureSum += pr.coerceAtMost(1f)
+                        pressureCount++
+                    }
+                    pi += step
+                }
+            }
+            val avgPressure = if (pressureCount >= 4) (pressureSum / pressureCount).toFloat() else 0f
+            val pageTextSizes = page.items.filterIsInstance<TextItem>().map { it.size }.sorted()
+            val baselineSize = if (pageTextSizes.isNotEmpty()) pageTextSizes[pageTextSizes.size / 2] else textSize
+            val lettersOnly = cleanedForBold.filter { it.isLetter() }
+            val isAllCapsHeading = isShortHeading && lettersOnly.length >= 3 && lettersOnly.all { it.isUpperCase() }
+            val firmPressure = avgPressure >= 0.72f
+            val thickBrush = avgBrushSize >= (penStyle.size * 1.18f).coerceAtLeast(5.8f)
+            val largeHeading = estimatedSize >= (baselineSize * 1.16f) ||
+                (isShortHeading && (union.height() >= (baselineSize * 1.85f).coerceAtLeast(54f) || medianStrokeH >= (baselineSize * 1.32f).coerceAtLeast(40f)))
+            val shouldDynamicBold = options.dynamicBoldHandwriting && (largeHeading || thickBrush || firmPressure || isAllCapsHeading)
             val customFont = overrideCustomFontPath ?: options.customHandwritingFontPath
             val baseStyle = if (automatic) {
                 TextStyleSpec(

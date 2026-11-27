@@ -162,18 +162,20 @@ class PageRenderer(private val noteDir: File?) {
     }
 
     private val paperNodeCache: LruCache<String, Any>? = if (android.os.Build.VERSION.SDK_INT >= 29) {
-        LruCache<String, Any>(16)
-    } else null
-    private val itemsNodeCache: LruCache<String, Any>? = if (android.os.Build.VERSION.SDK_INT >= 29) {
-        LruCache<String, Any>(10)
+        object : LruCache<String, Any>(16) {
+            override fun entryRemoved(evicted: Boolean, key: String, oldValue: Any, newValue: Any?) {
+                if (android.os.Build.VERSION.SDK_INT >= 29 && oldValue is android.graphics.RenderNode) {
+                    runCatching { oldValue.discardDisplayList() }
+                }
+            }
+        }
     } else null
     private val stickyLayoutCache = LruCache<String, StaticLayout>(64)
     private val mindLayoutCache = LruCache<String, StaticLayout>(64)
     private val texturedStrokeCache = java.util.WeakHashMap<InkItem, TexturedStrokePaths>()
     private val textLineCache = java.util.WeakHashMap<TextItem, CachedTextLines>()
+    private val mindMapScratchPt = FloatArray(2)
     private val paperRectScratch = RectF()
-    private val recordScaleMatrix = Matrix()
-    private val matrixValuesScratch = FloatArray(9)
 
     private class TexturedStrokePaths(
         val baseW: Float,
@@ -200,7 +202,6 @@ class PageRenderer(private val noteDir: File?) {
         hiddenMindCache.clear()
         spatialCache.clear()
         paperNodeCache?.evictAll()
-        itemsNodeCache?.evictAll()
         stickyLayoutCache.evictAll()
         mindLayoutCache.evictAll()
         texturedStrokeCache.clear()
@@ -1198,33 +1199,8 @@ class PageRenderer(private val noteDir: File?) {
         worldToScreen: Matrix,
     ) {
         if (items.isEmpty()) return
-        if (android.os.Build.VERSION.SDK_INT >= 29 &&
-            canvas.isHardwareAccelerated &&
-            itemsNodeCache != null &&
-            !page.isWhiteboard &&
-            items.size >= 8
-        ) {
-            worldToScreen.getValues(matrixValuesScratch)
-            val sx = kotlin.math.hypot(matrixValuesScratch[Matrix.MSCALE_X].toDouble(), matrixValuesScratch[Matrix.MSKEW_Y].toDouble()).toFloat()
-            val (bucket, bucketScale) = when {
-                sx <= 0.75f -> 0 to 0.75f
-                sx <= 1.65f -> 1 to 1.5f
-                sx <= 3.25f -> 2 to 3.0f
-                else -> 3 to 5.0f
-            }
-            val key = "${page.id}_${System.identityHashCode(items)}_${items.size}_${if (isDark) 1 else 0}_${if (highlighterBehind) 1 else 0}_${hiddenTextItemId ?: -1L}_${hiddenStickyItemId ?: -1L}_${activeMindNodeId ?: -1L}_$bucket"
-            Api29PageRendererHelper.drawCachedPaperNode(
-                canvas = canvas,
-                cache = itemsNodeCache,
-                key = key,
-                w = page.width.toInt().coerceAtLeast(1),
-                h = page.height.toInt().coerceAtLeast(1),
-            ) { rc ->
-                recordScaleMatrix.setScale(bucketScale, bucketScale)
-                drawItems(rc, items, recordScaleMatrix)
-            }
-            return
-        }
+        // Always use direct spatial-indexed, viewport-culled drawing so androidx.ink meshes,
+        // highlighter blend layers, and zoomed views stay 100% freeze-free and ultra-fast.
         drawItems(canvas, items, worldToScreen)
     }
 
@@ -1318,7 +1294,7 @@ class PageRenderer(private val noteDir: File?) {
         transformIds: Set<Long>,
     ) {
         val map = allItems.filterIsInstance<MindNodeItem>().associateBy { it.id }
-        val pt = FloatArray(2)
+        val pt = mindMapScratchPt
         for (child in visibleNodes) {
             val pid = child.parentId ?: continue
             val parent = map[pid] ?: continue

@@ -348,6 +348,28 @@ fun AppDialogSurface(
     )
 }
 
+/**
+ * Requests the highest supported display refresh rate (120Hz/144Hz) on Compose Dialog windows,
+ * which otherwise default to 60Hz on LTPO/Samsung/Pixel panels.
+ */
+@Composable
+fun ForceHighRefreshDialogWindow() {
+    val view = androidx.compose.ui.platform.LocalView.current
+    androidx.compose.runtime.SideEffect {
+        val window = (view.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window ?: return@SideEffect
+        val display = view.display ?: return@SideEffect
+        val bestMode = display.supportedModes.maxByOrNull { it.refreshRate }
+        if (bestMode != null && bestMode.refreshRate > 61f) {
+            val lp = window.attributes
+            if (lp.preferredDisplayModeId != bestMode.modeId || lp.preferredRefreshRate != bestMode.refreshRate) {
+                lp.preferredDisplayModeId = bestMode.modeId
+                lp.preferredRefreshRate = bestMode.refreshRate
+                window.attributes = lp
+            }
+        }
+    }
+}
+
 @Composable
 fun AppDialog(
     onDismissRequest: () -> Unit,
@@ -364,6 +386,7 @@ fun AppDialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
+        ForceHighRefreshDialogWindow()
         val enterProgress = remember { androidx.compose.animation.core.Animatable(if (reduceMotion) 1f else 0f) }
         LaunchedEffect(reduceMotion) {
             if (reduceMotion) enterProgress.snapTo(1f)

@@ -506,28 +506,51 @@ fun PageItem.stretched(oldBox: RectF, newBox: RectF): PageItem {
 }
 
 val textPaint = TextPaint(TextPaint.ANTI_ALIAS_FLAG)
+private val measureTextPaintTL = ThreadLocal.withInitial { TextPaint(TextPaint.ANTI_ALIAS_FLAG) }
+private val resolvedTypefaceCache = java.util.concurrent.ConcurrentHashMap<String, Typeface>()
 
 internal fun TextStyleSpec.resolvedTypeface(): Typeface {
-    val explicitStyle = (if (bold) Typeface.BOLD else 0) or (if (italic) Typeface.ITALIC else 0)
+    val key = "${customFontPath}|${font.name}|${if (bold) 1 else 0}|${if (italic) 1 else 0}"
+    resolvedTypefaceCache[key]?.let { return it }
     val base = if (customFontPath.isNotBlank()) {
         CustomFontRegistry.loadTypeface(customFontPath) ?: font.typeface
     } else {
         font.typeface
     }
-    return Typeface.create(base, base.style or explicitStyle)
+    val wantBold = bold || base.isBold
+    val wantItalic = italic || base.isItalic
+    val created = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+        val weight = if (wantBold) 700 else 400
+        runCatching { Typeface.create(base, weight, wantItalic) }.getOrElse {
+            val mask = (if (wantBold) Typeface.BOLD else 0) or (if (wantItalic) Typeface.ITALIC else 0)
+            Typeface.create(base, mask)
+        }
+    } else {
+        val mask = (if (wantBold) Typeface.BOLD else 0) or (if (wantItalic) Typeface.ITALIC else 0)
+        Typeface.create(base, mask)
+    }
+    if (resolvedTypefaceCache.size > 192) resolvedTypefaceCache.clear()
+    resolvedTypefaceCache[key] = created
+    return created
 }
 
 fun applyTextStyle(paint: TextPaint, size: Float, style: TextStyleSpec) {
+    val tf = style.resolvedTypeface()
     paint.textSize = size
-    paint.typeface = style.resolvedTypeface()
+    paint.typeface = tf
+    // Guarantee unmistakable bold & italic even on single-weight custom .ttf/.otf and cursive fonts
+    val customOrNonBold = style.bold && (style.customFontPath.isNotBlank() || !tf.isBold || style.font == TextFont.CURSIVE || style.font == TextFont.HAND || style.font == TextFont.SCRIPT)
+    paint.isFakeBoldText = customOrNonBold
+    paint.textSkewX = if (style.italic && !tf.isItalic) -0.20f else 0f
     paint.isUnderlineText = style.underline
     paint.textAlign = android.graphics.Paint.Align.LEFT
 }
 
 fun measureText(text: String, size: Float, x: Float, y: Float, style: TextStyleSpec = TextStyleSpec()): RectF {
-    applyTextStyle(textPaint, size, style)
+    val p = measureTextPaintTL.get() ?: TextPaint(TextPaint.ANTI_ALIAS_FLAG)
+    applyTextStyle(p, size, style)
     val lines = text.split('\n')
-    val width = lines.maxOf { textPaint.measureText(it) }.coerceAtLeast(size)
+    val width = lines.maxOf { p.measureText(it) }.coerceAtLeast(size)
     val lineHeight = size * 1.3f
     return RectF(x, y, x + width, y + lineHeight * lines.size)
 }

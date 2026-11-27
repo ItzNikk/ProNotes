@@ -148,7 +148,7 @@ object ToolbarGeometry {
 object ToolbarOrder {
     val defaults = listOf(
         Tool.PEN, Tool.CRAYON, Tool.HIGHLIGHTER, Tool.ERASER, Tool.SHAPE, Tool.LASSO, Tool.MINDMAP,
-        Tool.IMAGE, Tool.TEXT, Tool.AUTO_TEXT, Tool.STICKY, Tool.TAPE, Tool.STICKER, Tool.LASER,
+        Tool.IMAGE, Tool.TEXT, Tool.AUTO_TEXT, Tool.STICKY, Tool.WEBLINK, Tool.TAPE, Tool.STICKER, Tool.LASER,
     )
 
     /** Tools that are optional and start disabled unless explicitly enabled by the user. */
