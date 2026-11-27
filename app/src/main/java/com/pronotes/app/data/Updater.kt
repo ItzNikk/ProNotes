@@ -88,20 +88,106 @@ object Updater {
     private var checkedThisLaunch = false
     private var downloadJob: Job? = null
     @Volatile private var controlSignal: ControlSignal? = null
+    @Volatile private var validatedApkKey: String? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private enum class ControlSignal { PAUSE, CANCEL }
 
-    private fun updateDir(context: Context) = File(context.cacheDir, "updates").apply { mkdirs() }
+    private fun safeTag(tag: String): String = tag.replace(Regex("[^A-Za-z0-9._-]"), "_")
+    private fun updateDir(context: Context) = File(context.filesDir, "updates").apply { mkdirs() }
     private fun partFile(context: Context) = File(updateDir(context), "ProNotes.apk.part")
     private fun metaFile(context: Context) = File(updateDir(context), "ProNotes.apk.meta")
     private fun segmentsFile(context: Context) = File(updateDir(context), "ProNotes.apk.seg")
-    private fun finalApkFile(context: Context) = File(updateDir(context), "ProNotes.apk")
+    private fun finalApkFile(context: Context, tag: String? = release?.tag): File {
+        val name = if (!tag.isNullOrBlank()) "ProNotes_${safeTag(tag)}.apk" else "ProNotes.apk"
+        return File(updateDir(context), name)
+    }
 
-    fun startDownload(context: Context) {
+    private fun findBestReadyApk(context: Context, expectedTag: String? = release?.tag): File? {
+        val dir = updateDir(context)
+        val candidates = buildList {
+            if (!expectedTag.isNullOrBlank()) add(finalApkFile(context, expectedTag))
+            apk?.let { add(it) }
+            val cachedTag = prefs(context).getString("apkTag", null)
+            if (!cachedTag.isNullOrBlank() && (expectedTag.isNullOrBlank() || cachedTag == expectedTag)) {
+                add(finalApkFile(context, cachedTag))
+            }
+            add(File(dir, "ProNotes.apk"))
+            if (expectedTag.isNullOrBlank()) {
+                dir.listFiles { f -> f.isFile && f.name.endsWith(".apk", ignoreCase = true) }
+                    ?.sortedByDescending { it.lastModified() }
+                    ?.forEach { add(it) }
+            }
+        }.distinctBy { it.absolutePath }
+
+        val expectedSize = if (!expectedTag.isNullOrBlank() && release?.tag == expectedTag) release?.size ?: 0L else 0L
+        return candidates.firstOrNull { isApkFileValid(context, it, expectedSize) }
+    }
+
+    private fun isApkFileValid(context: Context, file: File, expectedSize: Long = 0L): Boolean {
+        if (!file.exists() || !file.isFile) return false
+        val len = file.length()
+        if (len < 1_500_000L) return false
+        if (expectedSize > 0L && len < (expectedSize * 0.95).toLong()) return false
+        val cacheKey = "${file.absolutePath}|${file.lastModified()}|$len"
+        if (validatedApkKey == cacheKey) return true
+        val pkgName = runCatching {
+            @Suppress("DEPRECATION")
+            context.packageManager.getPackageArchiveInfo(file.absolutePath, 0)?.packageName
+        }.getOrNull()
+        val ok = pkgName == context.packageName
+        if (ok) validatedApkKey = cacheKey
+        return ok
+    }
+
+    fun cleanupObsoleteUpdates(context: Context) {
+        val app = context.applicationContext
+        runCatching { File(app.cacheDir, "updates").deleteRecursively() }
+        if (phase == Phase.DOWNLOADING || phase == Phase.PAUSED || phase == Phase.INSTALLING) return
+        val current = currentVersion(app)
+        val dir = updateDir(app)
+        val cachedTag = prefs(app).getString("apkTag", null)
+        dir.listFiles()?.forEach { f ->
+            if (!f.isFile || !f.name.endsWith(".apk", ignoreCase = true)) return@forEach
+            val fileTag = when {
+                f.name.startsWith("ProNotes_") && f.name.endsWith(".apk") ->
+                    f.name.removePrefix("ProNotes_").removeSuffix(".apk")
+                else -> cachedTag
+            }
+            val keep = !fileTag.isNullOrBlank() && isNewer(fileTag, current) && isApkFileValid(app, f)
+            if (!keep) {
+                runCatching { f.delete() }
+            }
+        }
+    }
+
+    fun startDownload(context: Context, forceRedownload: Boolean = false) {
         if (phase == Phase.DOWNLOADING || phase == Phase.INSTALLING) return
         val rel = release ?: return
         val app = context.applicationContext
+        if (!forceRedownload) {
+            val existing = findBestReadyApk(app, rel.tag)
+            if (existing != null) {
+                apk = existing
+                downloadedBytes = existing.length()
+                totalBytes = existing.length()
+                speedBytesPerSec = 0L
+                etaSeconds = 0L
+                progress = 1f
+                error = null
+                phase = Phase.READY
+                install(app)
+                return
+            }
+        } else {
+            validatedApkKey = null
+            apk?.delete()
+            apk = null
+            finalApkFile(app, rel.tag).delete()
+            partFile(app).delete()
+            metaFile(app).delete()
+            segmentsFile(app).delete()
+        }
         controlSignal = null
         prefs(app).edit()
             .putString("pendingTag", rel.tag)
@@ -180,7 +266,7 @@ object Updater {
     }
 
     fun shouldPreserveCacheOnStart(context: Context): Boolean =
-        isWaitingForInstall(context) || hasPartialDownload(context) || phase == Phase.DOWNLOADING || phase == Phase.PAUSED
+        isWaitingForInstall(context) || hasReadyApk(context) || hasPartialDownload(context) || phase == Phase.DOWNLOADING || phase == Phase.PAUSED
 
     private fun prefs(c: Context) = c.getSharedPreferences("updater", Context.MODE_PRIVATE)
     fun autoOpen(c: Context) = prefs(c).getBoolean("autoOpen", false)
@@ -223,13 +309,8 @@ object Updater {
         return false
     }
 
-    fun hasReadyApk(context: Context): Boolean {
-        val f = apk ?: finalApkFile(context)
-        if (!f.exists() || f.length() <= 100_000L) return false
-        val targetTag = release?.tag
-        val cachedTag = prefs(context).getString("apkTag", null)
-        return targetTag == null || cachedTag == null || targetTag == cachedTag
-    }
+    fun hasReadyApk(context: Context, expectedTag: String? = release?.tag): Boolean =
+        findBestReadyApk(context, expectedTag) != null
 
     suspend fun check(context: Context, quiet: Boolean = false) {
         if (quiet && checkedThisLaunch) return
@@ -237,14 +318,24 @@ object Updater {
         if (phase == Phase.DOWNLOADING || phase == Phase.INSTALLING || phase == Phase.PAUSED) return
         phase = Phase.CHECKING
         error = null
+        val app = context.applicationContext
         val r = withContext(Dispatchers.IO) { runCatching { fetchLatest() } }
         r.onSuccess { rel ->
             release = rel
-            if (rel != null && isNewer(rel.tag, currentVersion(context))) {
-                val partial = partFile(context)
-                val meta = readMeta(context)
-                val savedSegs = readSegments(context, rel.tag)
-                if (partial.exists() && partial.length() > 0L && savedSegs != null) {
+            if (rel != null && isNewer(rel.tag, currentVersion(app))) {
+                val readyFile = withContext(Dispatchers.IO) { findBestReadyApk(app, rel.tag) }
+                val partial = partFile(app)
+                val meta = readMeta(app)
+                val savedSegs = readSegments(app, rel.tag)
+                if (readyFile != null) {
+                    apk = readyFile
+                    downloadedBytes = readyFile.length()
+                    totalBytes = readyFile.length()
+                    progress = 1f
+                    speedBytesPerSec = 0L
+                    etaSeconds = 0L
+                    phase = Phase.READY
+                } else if (partial.exists() && partial.length() > 0L && savedSegs != null) {
                     val segDone = savedSegs.sumOf { (it.cursor - it.start).coerceAtLeast(0L) }
                     val segTotal = savedSegs.lastOrNull()?.let { it.end + 1L } ?: rel.size
                     downloadedBytes = segDone
@@ -263,8 +354,17 @@ object Updater {
                 phase = Phase.UP_TO_DATE
             }
         }.onFailure { err ->
-            error = err.message ?: "Could not check for updates."
-            phase = if (quiet) Phase.IDLE else Phase.FAILED
+            val cachedFile = withContext(Dispatchers.IO) { findBestReadyApk(app, null) }
+            if (cachedFile != null && release != null) {
+                apk = cachedFile
+                downloadedBytes = cachedFile.length()
+                totalBytes = cachedFile.length()
+                progress = 1f
+                phase = Phase.READY
+            } else {
+                error = err.message ?: "Could not check for updates."
+                phase = if (quiet) Phase.IDLE else Phase.FAILED
+            }
         }
     }
 
@@ -419,7 +519,7 @@ object Updater {
         probe: ProbeInfo,
     ): DownloadOutcome = coroutineScope {
         val part = partFile(app)
-        val out = finalApkFile(app)
+        val out = finalApkFile(app, rel.tag)
         val total = probe.totalBytes
         val existingSegs = if (part.exists() && part.length() == total) {
             readSegments(app, rel.tag, probe.etag, total)
@@ -575,7 +675,13 @@ object Updater {
         val result = withContext(Dispatchers.IO) {
             runCatching<DownloadOutcome> {
                 val part = partFile(app)
-                val out = finalApkFile(app)
+                val out = finalApkFile(app, rel.tag)
+                if (isApkFileValid(app, out, rel.size)) {
+                    part.delete()
+                    metaFile(app).delete()
+                    segmentsFile(app).delete()
+                    return@runCatching DownloadOutcome.Completed(out)
+                }
                 val savedMeta = readMeta(app)
                 // Verify cached partial matches the requested release tag
                 if (savedMeta != null && savedMeta.first != rel.tag) {
@@ -779,7 +885,7 @@ object Updater {
 
     private suspend fun restartFreshDownload(app: Context, rel: Release): DownloadOutcome {
         val part = partFile(app)
-        val out = finalApkFile(app)
+        val out = finalApkFile(app, rel.tag)
         var url = URL(rel.apkUrl)
         var conn: HttpURLConnection
         var hops = 0
@@ -847,15 +953,22 @@ object Updater {
 
     /** Called by MainActivity.onResume or UpdateDialogHost when the app is visible. */
     fun resumeIfWaiting(context: Context) {
+        val app = context.applicationContext
         pendingConfirm?.let { confirm ->
             if (launchConfirm(context, confirm)) return
         }
-        val persistedWait = prefs(context).getLong("waitingPermAt", 0L) > 0L
-        if (!waitingForPermission && !persistedWait) return
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || context.packageManager.canRequestPackageInstalls()) {
-            waitingForPermission = false
-            prefs(context).edit().remove("waitingPermAt").apply()
-            if (hasReadyApk(context)) install(context)
+        val persistedWait = prefs(app).getLong("waitingPermAt", 0L) > 0L
+        if (waitingForPermission || persistedWait) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || app.packageManager.canRequestPackageInstalls()) {
+                waitingForPermission = false
+                prefs(app).edit().remove("waitingPermAt").apply()
+                if (hasReadyApk(app)) install(context)
+            }
+            return
+        }
+        // If user dismissed the OS installer prompt and returned to the app, never leave UI stuck on "Installing..."
+        if (phase == Phase.INSTALLING && pendingConfirm == null && hasReadyApk(app)) {
+            phase = Phase.READY
         }
     }
 
@@ -888,26 +1001,37 @@ object Updater {
         error = null
     }
 
+    /** User dismissed/aborted the system installer dialog — keep the verified APK ready with zero re-download. */
+    fun reportInstallCancelled() {
+        pendingConfirm = null
+        waitingForPermission = false
+        phase = Phase.READY
+        error = "Installation was dismissed. Your update is already downloaded — tap Install Update anytime."
+    }
+
     fun reportInstallFailure(message: String?, deleteCachedApk: Boolean = false, context: Context? = null) {
         pendingConfirm = null
         waitingForPermission = false
         if (deleteCachedApk && context != null) {
+            validatedApkKey = null
+            apk?.delete()
             apk = null
+            runCatching { updateDir(context).deleteRecursively() }
             runCatching { File(context.cacheDir, "updates").deleteRecursively() }
             prefs(context).edit().remove("apkTag").remove("waitingPermAt").apply()
         }
         error = message ?: "The installer stopped."
-        phase = Phase.FAILED
+        phase = if (!deleteCachedApk && context != null && hasReadyApk(context)) Phase.READY else Phase.FAILED
     }
 
     fun install(context: Context) {
         val app = context.applicationContext
-        val file = apk?.takeIf { it.exists() && it.length() > 100_000L }
-            ?: finalApkFile(app).takeIf { it.exists() && it.length() > 100_000L }
+        val file = findBestReadyApk(app, release?.tag)
         if (file == null) {
-            reportInstallFailure("The update file is missing. Download it again.", deleteCachedApk = true, context = app)
+            reportInstallFailure("The update file is missing or incomplete. Download it again.", deleteCachedApk = true, context = app)
             return
         }
+        apk = file
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !app.packageManager.canRequestPackageInstalls()) {
             waitingForPermission = true
             prefs(app).edit().putLong("waitingPermAt", System.currentTimeMillis()).apply()

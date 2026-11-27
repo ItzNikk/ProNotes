@@ -37,7 +37,7 @@ class InstallResultReceiver : BroadcastReceiver() {
             }
             PackageInstaller.STATUS_SUCCESS -> Updater.reportInstallSuccess()
             PackageInstaller.STATUS_FAILURE_ABORTED ->
-                Updater.reportInstallFailure("Install cancelled. Tap Install update to try again.")
+                Updater.reportInstallCancelled()
             PackageInstaller.STATUS_FAILURE_BLOCKED ->
                 Updater.reportInstallFailure("Install was blocked by the system.")
             PackageInstaller.STATUS_FAILURE_CONFLICT, PackageInstaller.STATUS_FAILURE_INCOMPATIBLE ->

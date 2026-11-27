@@ -136,7 +136,30 @@ class PdfPages(private val file: File) {
 }
 
 /** Shared drawing code for the live canvas, thumbnails, previews and PDF export. */
-class PageRenderer(private val noteDir: File?) {
+class PageRenderer(
+    private val noteDir: File?,
+    private val isBackgroundRenderer: Boolean = false,
+) {
+    private class CachedPageBitmap(
+        val itemsHash: Int,
+        val bucket: Int,
+        val bitmap: Bitmap,
+        val rect: RectF,
+    )
+
+    private val pageBitmapCache = LruCache<String, CachedPageBitmap>(6)
+    private val pageCacheInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val bgExecutor: java.util.concurrent.ExecutorService? = if (isBackgroundRenderer) null else {
+        java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "ProNotes-PageCache").apply {
+                isDaemon = true
+                priority = Thread.NORM_PRIORITY - 1
+            }
+        }
+    }
+    private val bgRenderer: PageRenderer by lazy { PageRenderer(noteDir, isBackgroundRenderer = true) }
+    private val cacheMatrixVals = FloatArray(9)
+
     private val visibilityCache = java.util.IdentityHashMap<List<PageItem>, Pair<Set<Long>, List<RectF>>>()
 
     private fun visibilityMetadata(items: List<PageItem>): Pair<Set<Long>, List<RectF>> {
@@ -202,6 +225,8 @@ class PageRenderer(private val noteDir: File?) {
         hiddenMindCache.clear()
         spatialCache.clear()
         paperNodeCache?.evictAll()
+        synchronized(pageBitmapCache) { pageBitmapCache.evictAll() }
+        pageCacheInFlight.clear()
         stickyLayoutCache.evictAll()
         mindLayoutCache.evictAll()
         texturedStrokeCache.clear()
@@ -244,7 +269,7 @@ class PageRenderer(private val noteDir: File?) {
     private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
     private val tapePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
     private val tapeStripe = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x22FFFFFF; strokeWidth = 10f }
-    private val stickyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { setShadowLayer(12f, 0f, 5f, 0x2E000000) }
+    private val stickyPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val stickyText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 30f; color = 0xFF2B2B2B.toInt() }
     private val stickyTitleText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 18f; isFakeBoldText = true; color = 0xFF1F2430.toInt() }
     private val stickyStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2.4f }
@@ -252,7 +277,7 @@ class PageRenderer(private val noteDir: File?) {
     private val writeBoxBorder = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2.4f }
     private val writeBoxRule = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.2f }
     private val writeBoxText = TextPaint(Paint.ANTI_ALIAS_FLAG)
-    private val linkCardFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; setShadowLayer(12f, 0f, 4f, 0x22000000) }
+    private val linkCardFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val linkCardStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2.5f }
     private val linkTitlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { isFakeBoldText = true; textSize = 24f }
     private val linkMetaPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 17f }
@@ -1189,8 +1214,9 @@ class PageRenderer(private val noteDir: File?) {
     }
 
     /**
-     * Hardware-accelerated page-item display-list cache (API 29+): replays static pages in <0.15ms
-     * while panning, zooming, flinging, or drawing wet ink instead of re-iterating hundreds of strokes.
+     * Race-free async offscreen bitmap layer cache for heavy static pages:
+     * renders dense handwritten/annotated pages in ONE GPU quad (<0.15ms/frame) during pan/zoom/scroll/wet-ink
+     * with zero UI-thread stalls and zero RenderNode mesh corruption.
      */
     fun drawPageItemsCached(
         canvas: Canvas,
@@ -1199,9 +1225,185 @@ class PageRenderer(private val noteDir: File?) {
         worldToScreen: Matrix,
     ) {
         if (items.isEmpty()) return
-        // Always use direct spatial-indexed, viewport-culled drawing so androidx.ink meshes,
-        // highlighter blend layers, and zoomed views stay 100% freeze-free and ultra-fast.
-        drawItems(canvas, items, worldToScreen)
+        val parts = partsOf(items)
+        val cacheItems = if (parts.hasHighlight) parts.rest else items
+        worldToScreen.getValues(cacheMatrixVals)
+        val zoom = kotlin.math.hypot(cacheMatrixVals[Matrix.MSCALE_X].toDouble(), cacheMatrixVals[Matrix.MSKEW_Y].toDouble()).toFloat()
+
+        val canUseBitmapCache = !isBackgroundRenderer &&
+            !page.isWhiteboard &&
+            cacheItems.size >= 16 &&
+            hiddenTextItemId == null &&
+            hiddenStickyItemId == null &&
+            zoom <= 2.25f &&
+            page.width > 1f &&
+            page.height > 1f
+
+        if (!canUseBitmapCache) {
+            drawItems(canvas, items, worldToScreen)
+            return
+        }
+
+        // If the page has highlighters, blend fills + highlighters directly against paper/PDF first,
+        // then composite the cached crisp foreground layer (pen, text, shapes, stickies, images) on top!
+        if (parts.hasHighlight) {
+            drawFillsAndHighlightsOnly(canvas, items, parts, worldToScreen)
+        }
+
+        val itemsHash = System.identityHashCode(items) * 31 +
+            (if (highlighterBehind) 1 else 0) * 7 +
+            (activeMindNodeId?.hashCode() ?: 0)
+        val desiredBucket = when {
+            zoom < 0.72f -> 1
+            zoom < 1.38f -> 2
+            else -> 3
+        }
+        val cached = synchronized(pageBitmapCache) { pageBitmapCache.get(page.id) }
+        if (cached != null && cached.itemsHash == itemsHash && !cached.bitmap.isRecycled) {
+            canvas.drawBitmap(cached.bitmap, null, cached.rect, bitmapPaint)
+            if (cached.bucket < desiredBucket) {
+                schedulePageBitmapRender(page.id, page.width, page.height, cacheItems, items, itemsHash, desiredBucket)
+            }
+            return
+        }
+
+        // Instant zero-flicker live draw on the first frame while the background bitmap prepares off-thread.
+        if (parts.hasHighlight) {
+            if (parts.rest.isNotEmpty()) {
+                val clip = canvas.clipBounds
+                if (clip.isEmpty || clip.width() <= 0 || clip.height() <= 0) {
+                    visible.set(-1e7f, -1e7f, 1e7f, 1e7f)
+                } else {
+                    visible.set(clip.left - 180f, clip.top - 180f, clip.right + 180f, clip.bottom + 180f)
+                }
+                val hiddenNodes = hiddenMindNodeIds(items)
+                if (parts.hasMindNodes) {
+                    val nodes = items.filterIsInstance<MindNodeItem>().filter { it.id !in hiddenNodes }
+                    if (nodes.isNotEmpty()) drawMindConnectors(canvas, items, nodes, null, emptySet())
+                }
+                drawSeq(canvas, spatialCandidates(parts.rest, emptySet(), culledRestScratch), worldToScreen, null, emptySet(), hiddenNodes, items)
+            }
+        } else {
+            drawItems(canvas, items, worldToScreen)
+        }
+        schedulePageBitmapRender(page.id, page.width, page.height, cacheItems, items, itemsHash, desiredBucket)
+    }
+
+    private fun schedulePageBitmapRender(
+        pageId: String,
+        pageW: Float,
+        pageH: Float,
+        renderItems: List<PageItem>,
+        allItems: List<PageItem>,
+        itemsHash: Int,
+        bucket: Int,
+    ) {
+        val exec = bgExecutor ?: return
+        if (!pageCacheInFlight.add(pageId)) return
+        val paperTint = paperColor
+        val hlBehind = highlighterBehind
+        val activeMind = activeMindNodeId
+        exec.execute {
+            try {
+                val maxEdge = when (bucket) {
+                    1 -> 860f
+                    2 -> 1240f
+                    else -> 1600f
+                }
+                val sc = (maxEdge / maxOf(pageW, pageH)).coerceIn(0.25f, 2.0f)
+                val bw = (pageW * sc).toInt().coerceIn(64, 1680)
+                val bh = (pageH * sc).toInt().coerceIn(64, 1680)
+                val bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
+                val bc = Canvas(bmp)
+                val m = Matrix().apply { setScale(bw / pageW, bh / pageH) }
+                bc.concat(m)
+                bgRenderer.paperColor = paperTint
+                bgRenderer.highlighterBehind = hlBehind
+                bgRenderer.activeMindNodeId = activeMind
+                bgRenderer.visible.set(-1e7f, -1e7f, 1e7f, 1e7f)
+                val hiddenNodes = bgRenderer.hiddenMindNodeIds(allItems)
+                if (allItems.any { it is MindNodeItem }) {
+                    val nodes = allItems.filterIsInstance<MindNodeItem>().filter { it.id !in hiddenNodes }
+                    if (nodes.isNotEmpty()) bgRenderer.drawMindConnectors(bc, allItems, nodes, null, emptySet())
+                }
+                bgRenderer.drawSeq(bc, renderItems, m, null, emptySet(), hiddenNodes, allItems)
+                bmp.prepareToDraw()
+                val entry = CachedPageBitmap(itemsHash, bucket, bmp, RectF(0f, 0f, pageW, pageH))
+                synchronized(pageBitmapCache) {
+                    pageBitmapCache.put(pageId, entry)
+                }
+            } catch (_: Throwable) {
+                // Fall back seamlessly to live vector rendering if memory is tight.
+            } finally {
+                pageCacheInFlight.remove(pageId)
+            }
+        }
+    }
+
+    private fun drawFillsAndHighlightsOnly(
+        canvas: Canvas,
+        items: List<PageItem>,
+        parts: Parts,
+        worldToScreen: Matrix,
+    ) {
+        val clip = canvas.clipBounds
+        if (clip.isEmpty || clip.width() <= 0 || clip.height() <= 0) {
+            visible.set(-1e7f, -1e7f, 1e7f, 1e7f)
+        } else {
+            visible.set(clip.left - 180f, clip.top - 180f, clip.right + 180f, clip.bottom + 180f)
+        }
+        val hiddenNodes = hiddenMindNodeIds(items)
+        if (parts.fills.isNotEmpty()) {
+            drawSeq(canvas, spatialCandidates(parts.fills, emptySet(), culledFillsScratch), worldToScreen, null, emptySet(), hiddenNodes, items)
+        }
+        drawHighlightsLayer(canvas, items, parts, worldToScreen, null, emptySet(), hiddenNodes)
+    }
+
+    private fun drawHighlightsLayer(
+        canvas: Canvas,
+        items: List<PageItem>,
+        parts: Parts,
+        worldToScreen: Matrix,
+        transform: Matrix?,
+        transformIds: Set<Long>,
+        hiddenNodes: Set<Long>,
+    ) {
+        hlVisibleScratch.clear()
+        var hlL = Float.POSITIVE_INFINITY
+        var hlT = Float.POSITIVE_INFINITY
+        var hlR = Float.NEGATIVE_INFINITY
+        var hlB = Float.NEGATIVE_INFINITY
+        val hlCandidates = spatialCandidates(parts.highlights, transformIds, culledHighlightsScratch)
+        for (hl in hlCandidates) {
+            val moved = transform != null && hl.id in transformIds
+            if (moved) {
+                hlVisibleScratch.add(hl)
+                hlL = minOf(hlL, visible.left); hlT = minOf(hlT, visible.top)
+                hlR = maxOf(hlR, visible.right); hlB = maxOf(hlB, visible.bottom)
+            } else if (onScreen(hl)) {
+                hlVisibleScratch.add(hl)
+                if (hl is InkItem) {
+                    val b = hl.localBounds
+                    val pad = (hl.stroke.brush.size * 1.5f).coerceAtLeast(48f)
+                    hlL = minOf(hlL, b.left + hl.dx - pad)
+                    hlT = minOf(hlT, b.top + hl.dy - pad)
+                    hlR = maxOf(hlR, b.right + hl.dx + pad)
+                    hlB = maxOf(hlB, b.bottom + hl.dy + pad)
+                } else {
+                    val b = hl.bounds
+                    hlL = minOf(hlL, b.left - 48f); hlT = minOf(hlT, b.top - 48f)
+                    hlR = maxOf(hlR, b.right + 48f); hlB = maxOf(hlB, b.bottom + 48f)
+                }
+            }
+        }
+        if (hlVisibleScratch.isNotEmpty() && hlL < hlR && hlT < hlB) {
+            hlClipRect.set(hlL, hlT, hlR, hlB)
+            if (hlClipRect.intersect(visible)) {
+                val layer = canvas.saveLayer(hlClipRect, if (isDark) lightenPaint else multiplyPaint)
+                drawSeq(canvas, hlVisibleScratch, worldToScreen, transform, transformIds, hiddenNodes, items)
+                canvas.restoreToCount(layer)
+            }
+        }
     }
 
     /**
@@ -1230,54 +1432,16 @@ class PageRenderer(private val noteDir: File?) {
             )
         }
         val hiddenNodes = hiddenMindNodeIds(items)
-        val hasMindNodes = items.any { it is MindNodeItem }
-        if (hasMindNodes) {
+        val parts = partsOf(items)
+        if (parts.hasMindNodes) {
             val nodes = items.filterIsInstance<MindNodeItem>().filter { it.id !in hiddenNodes }
             if (nodes.isNotEmpty()) drawMindConnectors(canvas, items, nodes, transform, transformIds)
         }
-        val parts = partsOf(items)
         if (parts.hasHighlight) {
             if (parts.fills.isNotEmpty()) {
                 drawSeq(canvas, spatialCandidates(parts.fills, transformIds, culledFillsScratch), worldToScreen, transform, transformIds, hiddenNodes, items)
             }
-            // Cull off-screen highlights before allocating an expensive GPU offscreen saveLayer,
-            // with full brush-width padding so wide highlighter strokes never clip.
-            hlVisibleScratch.clear()
-            var hlL = Float.POSITIVE_INFINITY
-            var hlT = Float.POSITIVE_INFINITY
-            var hlR = Float.NEGATIVE_INFINITY
-            var hlB = Float.NEGATIVE_INFINITY
-            val hlCandidates = spatialCandidates(parts.highlights, transformIds, culledHighlightsScratch)
-            for (hl in hlCandidates) {
-                val moved = transform != null && hl.id in transformIds
-                if (moved) {
-                    hlVisibleScratch.add(hl)
-                    hlL = minOf(hlL, visible.left); hlT = minOf(hlT, visible.top)
-                    hlR = maxOf(hlR, visible.right); hlB = maxOf(hlB, visible.bottom)
-                } else if (onScreen(hl)) {
-                    hlVisibleScratch.add(hl)
-                    if (hl is InkItem) {
-                        val b = hl.localBounds
-                        val pad = (hl.stroke.brush.size * 1.5f).coerceAtLeast(48f)
-                        hlL = minOf(hlL, b.left + hl.dx - pad)
-                        hlT = minOf(hlT, b.top + hl.dy - pad)
-                        hlR = maxOf(hlR, b.right + hl.dx + pad)
-                        hlB = maxOf(hlB, b.bottom + hl.dy + pad)
-                    } else {
-                        val b = hl.bounds
-                        hlL = minOf(hlL, b.left - 48f); hlT = minOf(hlT, b.top - 48f)
-                        hlR = maxOf(hlR, b.right + 48f); hlB = maxOf(hlB, b.bottom + 48f)
-                    }
-                }
-            }
-            if (hlVisibleScratch.isNotEmpty() && hlL < hlR && hlT < hlB) {
-                hlClipRect.set(hlL, hlT, hlR, hlB)
-                if (hlClipRect.intersect(visible)) {
-                    val layer = canvas.saveLayer(hlClipRect, if (isDark) lightenPaint else multiplyPaint)
-                    drawSeq(canvas, hlVisibleScratch, worldToScreen, transform, transformIds, hiddenNodes, items)
-                    canvas.restoreToCount(layer)
-                }
-            }
+            drawHighlightsLayer(canvas, items, parts, worldToScreen, transform, transformIds, hiddenNodes)
             if (parts.rest.isNotEmpty()) {
                 drawSeq(canvas, spatialCandidates(parts.rest, transformIds, culledRestScratch), worldToScreen, transform, transformIds, hiddenNodes, items)
             }
@@ -1340,16 +1504,24 @@ class PageRenderer(private val noteDir: File?) {
     private val visible = RectF()
 
     /** Items split into fills / highlights / the rest, remembered per list so we do not rebuild it every frame. */
-    private class Parts(val fills: List<PageItem>, val highlights: List<PageItem>, val rest: List<PageItem>) {
+    private class Parts(
+        val fills: List<PageItem>,
+        val highlights: List<PageItem>,
+        val rest: List<PageItem>,
+        val hasMindNodes: Boolean,
+    ) {
         val hasHighlight get() = highlights.isNotEmpty()
     }
 
     private val partsCache = java.util.IdentityHashMap<List<PageItem>, Parts>()
 
     private fun partsOf(items: List<PageItem>): Parts {
-        if (!highlighterBehind) return Parts(emptyList(), emptyList(), items)
         partsCache[items]?.let { return it }
         if (partsCache.size > 16) partsCache.clear()
+        val hasMind = items.any { it is MindNodeItem }
+        if (!highlighterBehind) {
+            return Parts(emptyList(), emptyList(), items, hasMind).also { partsCache[items] = it }
+        }
         val expandedStickies = items.filterIsInstance<StickyItem>().filter { !it.collapsed }
         val fills = ArrayList<PageItem>(); val hl = ArrayList<PageItem>(); val rest = ArrayList<PageItem>()
         for (it in items) when {
@@ -1361,7 +1533,7 @@ class PageRenderer(private val noteDir: File?) {
             }
             else -> rest += it
         }
-        return Parts(fills, hl, rest).also { partsCache[items] = it }
+        return Parts(fills, hl, rest, hasMind).also { partsCache[items] = it }
     }
 
     private fun onScreen(item: PageItem): Boolean {

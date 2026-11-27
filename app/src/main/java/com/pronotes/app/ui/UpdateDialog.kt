@@ -77,21 +77,38 @@ fun UpdateDialogHost() {
 
     fun startOrResume() {
         if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        if (Updater.phase == Updater.Phase.PAUSED) Updater.resumeDownload(context)
-        else Updater.startDownload(context)
+        if (Updater.hasReadyApk(context, rel.tag)) {
+            Updater.install(context)
+        } else if (Updater.phase == Updater.Phase.PAUSED) {
+            Updater.resumeDownload(context)
+        } else {
+            Updater.startDownload(context)
+        }
     }
 
     val isDownloading = Updater.phase == Updater.Phase.DOWNLOADING
     val isPaused = Updater.phase == Updater.Phase.PAUSED
+    val isInstalling = Updater.phase == Updater.Phase.INSTALLING
+    val isReady = !isDownloading && !isPaused && (Updater.phase == Updater.Phase.READY || Updater.hasReadyApk(context, rel.tag))
+    val isFailed = Updater.phase == Updater.Phase.FAILED
 
     AppDialog(
         onDismissRequest = { Updater.showDialog = false },
         title = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Pro Notes ${rel.tag}", modifier = Modifier.weight(1f))
-                if (isPaused) {
-                    AppPill {
-                        Text("Paused", style = MaterialTheme.typography.labelSmall)
+                when {
+                    isInstalling -> AppPill(selected = true, tint = ProButtonPalette.ElectricBlue) {
+                        Text("Installing…", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                    }
+                    isReady -> AppPill(selected = true, tint = ProButtonPalette.Emerald) {
+                        Text("Ready to install", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                    }
+                    isPaused -> AppPill(selected = true, tint = ProButtonPalette.VibrantOrange) {
+                        Text("Paused", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                    }
+                    isDownloading -> AppPill(selected = true, tint = ProButtonPalette.ElectricBlue) {
+                        Text("Downloading", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -100,10 +117,32 @@ fun UpdateDialogHost() {
             Column {
                 val mb = if (rel.size > 0) " · %.1f MB".format(rel.size / 1048576.0) else ""
                 Text(
-                    "Installed: ${Updater.currentVersion(context)}$mb · Resumable background updater",
+                    "Installed: ${Updater.currentVersion(context)}$mb · Verified offline installer",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (isReady && !isInstalling) {
+                    Spacer(Modifier.height(12.dp))
+                    AppCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        containerColor = ProButtonPalette.Emerald.copy(alpha = 0.12f),
+                    ) {
+                        Column(Modifier.fillMaxWidth()) {
+                            Text(
+                                "Downloaded & verified — ready to install",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = ProButtonPalette.Emerald,
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                "Saved securely on device. Tap Install Update anytime without downloading again.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
                 if (isDownloading || isPaused) {
                     Spacer(Modifier.height(12.dp))
                     AppCard(modifier = Modifier.fillMaxWidth()) {
@@ -136,6 +175,19 @@ fun UpdateDialogHost() {
                                 )
                             }
                         }
+                    }
+                }
+                Updater.error?.takeIf { it.isNotBlank() }?.let { errMsg ->
+                    Spacer(Modifier.height(10.dp))
+                    AppCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        containerColor = (if (isReady) ProButtonPalette.VibrantOrange else ProButtonPalette.CoralRose).copy(alpha = 0.12f),
+                    ) {
+                        Text(
+                            errMsg,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isReady) MaterialTheme.colorScheme.onSurface else ProButtonPalette.CoralRose,
+                        )
                     }
                 }
                 Spacer(Modifier.height(10.dp))
@@ -189,21 +241,39 @@ fun UpdateDialogHost() {
         },
         confirmButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (isDownloading) {
-                    OutlinedButton(onClick = { Updater.pauseDownload(context) }, shape = CircleShape) { Text("Pause") }
-                    Button(onClick = { Updater.showDialog = false }, shape = CircleShape) { Text("Background") }
-                } else {
-                    Button(onClick = { startOrResume() }, shape = CircleShape) {
-                        Text(if (isPaused) "Resume" else "Download & Update")
+                when {
+                    isDownloading -> {
+                        OutlinedButton(onClick = { Updater.pauseDownload(context) }, shape = CircleShape) { Text("Pause") }
+                        Button(onClick = { Updater.showDialog = false }, shape = CircleShape) { Text("Background") }
+                    }
+                    isInstalling -> {
+                        Button(onClick = { Updater.install(context) }, enabled = false, shape = CircleShape) {
+                            Text("Installing…")
+                        }
+                    }
+                    isReady -> {
+                        Button(onClick = { Updater.install(context) }, shape = CircleShape) {
+                            Text("Install Update")
+                        }
+                    }
+                    else -> {
+                        Button(onClick = { startOrResume() }, shape = CircleShape) {
+                            Text(if (isPaused) "Resume" else "Download & Update")
+                        }
                     }
                 }
             }
         },
         dismissButton = {
-            if (isDownloading || isPaused) {
-                TextButton(onClick = { Updater.cancelDownload(context) }) { Text("Cancel download") }
-            } else {
-                TextButton(onClick = { Updater.showDialog = false }) { Text("Later") }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (isDownloading || isPaused) {
+                    TextButton(onClick = { Updater.cancelDownload(context) }) { Text("Cancel download") }
+                } else {
+                    if (isFailed && !isReady) {
+                        TextButton(onClick = { Updater.startDownload(context, forceRedownload = true) }) { Text("Re-download") }
+                    }
+                    TextButton(onClick = { Updater.showDialog = false }) { Text("Later") }
+                }
             }
         },
     )

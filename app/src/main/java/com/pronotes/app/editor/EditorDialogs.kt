@@ -1434,7 +1434,7 @@ internal fun InlineStickyNoteEditor(
     val context = LocalContext.current
     val density = LocalDensity.current
     val item = edit.item
-    var handwritingMode by remember(edit.item.id) { mutableStateOf(false) }
+    var handwritingMode by remember(edit.item.id) { mutableStateOf(true) }
     var showStyleTray by remember(edit.item.id) { mutableStateOf(false) }
     var text by remember(edit) { mutableStateOf(item.text) }
     var title by remember(edit) { mutableStateOf(item.title) }
@@ -1484,6 +1484,11 @@ internal fun InlineStickyNoteEditor(
         commitAndClose()
     }
 
+    androidx.compose.runtime.LaunchedEffect(handwritingMode) {
+        if (handwritingMode && vm.tool == Tool.STICKY) {
+            vm.tool = Tool.PEN
+        }
+    }
     androidx.compose.runtime.SideEffect {
         canvas?.editingStickyItemId = if (handwritingMode) null else item.id
         canvas?.refresh()

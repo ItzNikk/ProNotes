@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -37,6 +38,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import dev.chrisbanes.haze.HazeProgressive
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.materials.HazeMaterials
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
@@ -275,34 +281,18 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
             }
         }
 
+        val settingsHazeState = remember { HazeState() }
+        val liveBlur = com.pronotes.app.ui.LocalLiveBlur.current && !com.pronotes.app.ui.LocalReduceEffects.current
+
         Box(Modifier.fillMaxSize()) {
-            Column(Modifier.fillMaxSize()) {
-                Box(Modifier.fillMaxWidth().background(Color.Black).statusBarsPadding()) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        AppSurface(
-                            role = SurfaceRole.Control,
-                            containerColor = Color(0xFF1A1A1A),
-                            contentColor = Color.White,
-                            borderColor = Color.White.copy(alpha = 0.16f),
-                            shape = appPillShape(),
-                            contentPadding = PaddingValues(12.dp),
-                            onClick = back,
-                            onClickLabel = appStrings.back,
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, appStrings.back, tint = Color.White)
-                        }
-                        GradientTitle(
-                            if (wide) appStrings.settings else current?.localizedLabel(appStrings) ?: appStrings.settings,
-                            MaterialTheme.typography.headlineMedium,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 2,
-                        )
-                    }
-                }
+            // Scrollable Settings body — sits behind subtle frosted top bar & bottom blur + gradient search pill
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .hazeSource(settingsHazeState)
+                    .statusBarsPadding()
+                    .padding(top = 66.dp),
+            ) {
                 if (wide) {
                     Row(Modifier.fillMaxSize().padding(end = 16.dp)) {
                         scrollState.SaveableStateProvider("categories") {
@@ -336,37 +326,143 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
                 }
             }
 
-            // Compact floating pill search bar anchored on the bottom-left
+            // Subtle frosted-glass floating top bar (replaces fixed solid-black strip)
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .then(
+                        if (liveBlur) {
+                            Modifier.hazeEffect(
+                                state = settingsHazeState,
+                                style = HazeMaterials.ultraThin(scheme.surface),
+                            )
+                        } else Modifier,
+                    )
+                    .background(
+                        Brush.verticalGradient(
+                            0f to scheme.surface.copy(alpha = if (liveBlur) 0.58f else 0.90f),
+                            0.85f to scheme.surface.copy(alpha = if (liveBlur) 0.44f else 0.84f),
+                            1f to scheme.surface.copy(alpha = if (liveBlur) 0.16f else 0.65f),
+                        ),
+                    ),
+            ) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    AppSurface(
+                        role = SurfaceRole.Control,
+                        containerColor = scheme.surfaceContainerHigh.copy(alpha = 0.72f),
+                        contentColor = scheme.onSurface,
+                        borderColor = scheme.outlineVariant.copy(alpha = 0.32f),
+                        shape = appPillShape(),
+                        contentPadding = PaddingValues(12.dp),
+                        onClick = back,
+                        onClickLabel = appStrings.back,
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, appStrings.back, tint = scheme.onSurface)
+                    }
+                    GradientTitle(
+                        if (wide) appStrings.settings else current?.localizedLabel(appStrings) ?: appStrings.settings,
+                        MaterialTheme.typography.headlineMedium,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 2,
+                    )
+                }
+                HorizontalDivider(thickness = 0.5.dp, color = scheme.outlineVariant.copy(alpha = 0.22f))
+            }
+
+            // Subtle progressive Haze blur along the bottom edge
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(82.dp)
+                    .then(
+                        if (liveBlur) {
+                            Modifier.hazeEffect(
+                                state = settingsHazeState,
+                                style = HazeMaterials.ultraThin(scheme.surface),
+                            ) {
+                                progressive = HazeProgressive.verticalGradient(
+                                    startIntensity = 0f,
+                                    endIntensity = 1f,
+                                )
+                            }
+                        } else Modifier,
+                    )
+                    .background(
+                        Brush.verticalGradient(
+                            0f to Color.Transparent,
+                            0.50f to scheme.surface.copy(alpha = if (liveBlur) 0.20f else 0.45f),
+                            1f to scheme.surface.copy(alpha = if (liveBlur) 0.52f else 0.88f),
+                        ),
+                    ),
+            )
+
+            // Bigger, vibrant gradient floating pill search bar anchored on the bottom-left
             var searchFocused by remember { mutableStateOf(false) }
             val searchExpanded = searchFocused || searchQuery.isNotBlank()
             val pillWidth by androidx.compose.animation.core.animateDpAsState(
-                targetValue = if (searchExpanded) 320.dp else 184.dp,
-                animationSpec = androidx.compose.animation.core.spring(
-                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
-                    dampingRatio = 0.86f,
-                ),
+                targetValue = if (searchExpanded) 392.dp else 256.dp,
+                animationSpec = com.pronotes.app.ui.ProMotion.sheetSpring(reduceMotion, perfMode, motionStyle),
                 label = "settingsSearchPillW",
             )
+            val searchGradientBorder = remember {
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFF3B82F6),
+                        Color(0xFF8B5CF6),
+                        Color(0xFFEC4899),
+                        Color(0xFF06B6D4),
+                    ),
+                )
+            }
+            val searchGradientFill = remember(searchExpanded) {
+                Brush.horizontalGradient(
+                    colors = listOf(
+                        Color(0xFF3B82F6).copy(alpha = if (searchExpanded) 0.22f else 0.16f),
+                        Color(0xFF8B5CF6).copy(alpha = if (searchExpanded) 0.20f else 0.14f),
+                        Color(0xFFEC4899).copy(alpha = if (searchExpanded) 0.18f else 0.12f),
+                        Color(0xFF06B6D4).copy(alpha = if (searchExpanded) 0.16f else 0.10f),
+                    ),
+                )
+            }
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .navigationBarsPadding()
                     .imePadding()
-                    .padding(start = 16.dp, end = 16.dp, bottom = 14.dp),
+                    .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
                 horizontalAlignment = Alignment.Start,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 AnimatedVisibility(
                     visible = searchQuery.isNotBlank(),
-                    enter = fadeIn(tween(140)) + expandVertically(expandFrom = Alignment.Bottom, animationSpec = tween(160)),
-                    exit = fadeOut(tween(110)) + shrinkVertically(shrinkTowards = Alignment.Bottom, animationSpec = tween(130)),
+                    enter = fadeIn(tween(170)) + expandVertically(expandFrom = Alignment.Bottom, animationSpec = tween(200)),
+                    exit = fadeOut(tween(130)) + shrinkVertically(shrinkTowards = Alignment.Bottom, animationSpec = tween(150)),
                 ) {
                     Surface(
-                        shape = RoundedCornerShape(22.dp),
-                        color = scheme.surfaceContainerHigh.copy(alpha = 0.97f),
-                        border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.45f)),
-                        shadowElevation = 10.dp,
-                        modifier = Modifier.widthIn(min = 280.dp, max = 380.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        color = scheme.surfaceContainerHigh.copy(alpha = if (liveBlur) 0.78f else 0.96f),
+                        border = BorderStroke(1.2.dp, searchGradientBorder),
+                        shadowElevation = 12.dp,
+                        modifier = Modifier
+                            .widthIn(min = 300.dp, max = 420.dp)
+                            .clip(RoundedCornerShape(24.dp))
+                            .then(
+                                if (liveBlur) {
+                                    Modifier.hazeEffect(
+                                        state = settingsHazeState,
+                                        style = HazeMaterials.thin(scheme.surface),
+                                    )
+                                } else Modifier,
+                            ),
                     ) {
                         if (searchMatches.isEmpty()) {
                             Box(
@@ -440,34 +536,51 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
                     }
                 }
 
-                // Compact bottom-left frosted pill search input
-                Surface(
-                    shape = CircleShape,
-                    color = scheme.surfaceContainerHigh.copy(alpha = 0.96f),
-                    border = BorderStroke(
-                        1.dp,
-                        if (searchExpanded) scheme.primary.copy(alpha = 0.55f) else scheme.outlineVariant.copy(alpha = 0.50f),
-                    ),
-                    shadowElevation = 6.dp,
-                    modifier = Modifier.width(pillWidth),
+                // Bigger, frosted gradient pill search input on bottom-left
+                Box(
+                    modifier = Modifier
+                        .widthIn(min = 256.dp, max = 392.dp)
+                        .width(pillWidth)
+                        .defaultMinSize(minHeight = 54.dp)
+                        .clip(CircleShape)
+                        .then(
+                            if (liveBlur) {
+                                Modifier.hazeEffect(
+                                    state = settingsHazeState,
+                                    style = HazeMaterials.thin(scheme.surface),
+                                )
+                            } else Modifier,
+                        )
+                        .background(scheme.surfaceContainerHigh.copy(alpha = if (liveBlur) 0.68f else 0.92f))
+                        .background(searchGradientFill)
+                        .border(width = if (searchExpanded) 2.dp else 1.6.dp, brush = searchGradientBorder, shape = CircleShape),
+                    contentAlignment = Alignment.CenterStart,
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                        modifier = Modifier.fillMaxWidth().padding(start = 10.dp, end = 14.dp, top = 10.dp, bottom = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Icon(
-                            Icons.Rounded.Search,
-                            contentDescription = "Search settings",
-                            tint = if (searchExpanded) scheme.primary else scheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp),
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(searchGradientBorder),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Rounded.Search,
+                                contentDescription = "Search settings",
+                                tint = Color.White,
+                                modifier = Modifier.size(19.dp),
+                            )
+                        }
                         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                             if (searchQuery.isEmpty()) {
                                 Text(
-                                    "Search settings",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = scheme.onSurfaceVariant.copy(alpha = 0.80f),
+                                    "Search settings…",
+                                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                                    color = scheme.onSurface.copy(alpha = 0.72f),
                                     maxLines = 1,
                                 )
                             }
@@ -475,8 +588,8 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
                                 value = searchQuery,
                                 onValueChange = { searchQuery = it },
                                 singleLine = true,
-                                textStyle = MaterialTheme.typography.bodyMedium.copy(color = scheme.onSurface),
-                                cursorBrush = SolidColor(scheme.primary),
+                                textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
+                                cursorBrush = SolidColor(Color(0xFF8B5CF6)),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .onFocusChanged { searchFocused = it.isFocused },
@@ -485,13 +598,13 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
                         if (searchQuery.isNotEmpty()) {
                             Box(
                                 modifier = Modifier
-                                    .size(22.dp)
+                                    .size(26.dp)
                                     .clip(CircleShape)
-                                    .background(scheme.onSurface.copy(alpha = 0.09f))
+                                    .background(scheme.onSurface.copy(alpha = 0.12f))
                                     .clickable { searchQuery = "" },
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Icon(Icons.Filled.Close, "Clear search", Modifier.size(14.dp), tint = scheme.onSurfaceVariant)
+                                Icon(Icons.Filled.Close, "Clear search", Modifier.size(15.dp), tint = scheme.onSurface)
                             }
                         }
                     }
@@ -1504,6 +1617,12 @@ private fun ToolbarEditor(spec: String, onChange: (String) -> Unit) {
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    } else if (tool == Tool.WEBLINK) {
+                        Text(
+                            "Embed live interactive web pages directly on your notes",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
                 IconButton(
@@ -1717,36 +1836,41 @@ private fun UpdateRow() {
     val speedStr = if (u.speedBytesPerSec > 0L) " · ${"%.1f".format(u.speedBytesPerSec / (1024f * 1024f))} MB/s" else ""
     val etaStr = u.etaSeconds?.let { sec -> if (sec > 0) " · ~${sec}s left" else "" }.orEmpty()
     val streamTag = if (u.activeStreams > 1) " (${u.activeStreams}× Fast)" else ""
+    val readyLocal = u.phase == UPhase.READY || (u.release != null && u.hasReadyApk(context, u.release?.tag))
     val (title, sub) = when (u.phase) {
         UPhase.IDLE -> "Check for updates" to "Version ${u.currentVersion(context)}"
         UPhase.CHECKING -> "Checking for updates" to "Version ${u.currentVersion(context)}"
         UPhase.UP_TO_DATE -> "Pro Notes is up to date" to "Version ${u.currentVersion(context)}"
-        UPhase.AVAILABLE -> "Update to ${u.release?.tag}" to "Tap to see what changed"
+        UPhase.AVAILABLE -> if (readyLocal) "Install ${u.release?.tag}" to "Already downloaded & verified — tap to install" else "Update to ${u.release?.tag}" to "Tap to see what changed"
         UPhase.DOWNLOADING -> "Downloading $pct%$speedStr$streamTag" to "Background download active$etaStr · Tap to manage"
         UPhase.PAUSED -> "Download paused at $pct%" to "Tap to resume anytime (progress saved)"
-        UPhase.READY -> "Install update" to "Tap to open the installer"
-        UPhase.INSTALLING -> "Installing update..." to "Confirm when prompted"
-        UPhase.FAILED -> "Update failed" to (u.error ?: "Tap to retry or resume")
+        UPhase.READY -> "Install update (${u.release?.tag ?: "Ready"})" to "Downloaded & verified — tap to install without re-downloading"
+        UPhase.INSTALLING -> "Installing update..." to "Confirm when prompted · Tap to reopen installer"
+        UPhase.FAILED -> if (readyLocal) "Install update (${u.release?.tag ?: "Ready"})" to (u.error ?: "Update already downloaded — tap to install") else "Update failed" to (u.error ?: "Tap to retry or resume")
     }
     Column(
         Modifier.fillMaxWidth().clickable {
             when (u.phase) {
                 UPhase.AVAILABLE, UPhase.DOWNLOADING, UPhase.PAUSED -> u.showDialog = true
                 UPhase.READY -> u.install(context)
-                UPhase.FAILED -> if (u.hasReadyApk(context)) u.install(context) else u.showDialog = true
-                UPhase.CHECKING, UPhase.INSTALLING -> Unit
+                UPhase.INSTALLING -> if (readyLocal) u.install(context) else u.showDialog = true
+                UPhase.FAILED -> if (readyLocal) u.install(context) else u.showDialog = true
+                UPhase.CHECKING -> Unit
                 else -> scope.launch { u.check(context) }
             }
         }.padding(16.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            ProIconView(ProIcon.DOWNLOAD, ProButtonPalette.ElectricBlue, Modifier.size(22.dp))
+            ProIconView(ProIcon.DOWNLOAD, if (readyLocal) ProButtonPalette.Emerald else ProButtonPalette.ElectricBlue, Modifier.size(22.dp))
             Spacer(Modifier.size(16.dp))
             Column(Modifier.weight(1f)) {
-                Text(title)
+                Text(title, fontWeight = if (readyLocal) FontWeight.SemiBold else FontWeight.Normal)
                 Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
             }
-            if (u.phase == UPhase.PAUSED) {
+            if (readyLocal && u.phase != UPhase.DOWNLOADING && u.phase != UPhase.PAUSED) {
+                TextButton(onClick = { u.install(context) }) { Text("Install") }
+                TextButton(onClick = { u.showDialog = true }) { Text("Details") }
+            } else if (u.phase == UPhase.PAUSED) {
                 TextButton(onClick = { u.resumeDownload(context) }) { Text("Resume") }
                 TextButton(onClick = { u.cancelDownload(context) }) { Text("Cancel") }
             } else if (u.phase == UPhase.DOWNLOADING) {

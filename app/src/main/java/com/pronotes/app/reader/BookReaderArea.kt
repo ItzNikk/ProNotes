@@ -60,6 +60,11 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import dev.chrisbanes.haze.HazeProgressive
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.materials.HazeMaterials
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
@@ -343,6 +348,9 @@ fun BookReaderHubScreen(
 
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.45f
     val warmDeskBg = if (dark) Color(0xFF121316) else Color(0xFFF3EFE6)
+    val readerHazeState = remember { HazeState() }
+    val readerScheme = MaterialTheme.colorScheme
+    val readerLiveBlur = com.pronotes.app.ui.LocalLiveBlur.current && !com.pronotes.app.ui.LocalReduceEffects.current
 
     Box(
         Modifier
@@ -353,58 +361,9 @@ fun BookReaderHubScreen(
             )),
     ) {
         Column(
-            Modifier.fillMaxSize(),
+            Modifier.fillMaxSize().hazeSource(readerHazeState),
         ) {
-            // Reading Room Header
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .background(Color.Black)
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                IconButton(onClick = onBackToLibrary) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to library", tint = Color.White)
-                }
-                Box(
-                    Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF1A1D24)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Outlined.MenuBook,
-                        contentDescription = null,
-                        tint = Color(0xFF93C5FD),
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
-                Column(Modifier.weight(1f)) {
-                    com.pronotes.app.ui.GradientTitle("Kindle Mode",
-                        MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold))
-                    Text(
-                        "${pdfBooks.size} PDF books · ${noteBooks.size} notebooks",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFFB4BCD0),
-                    )
-                }
-                AppPill(
-                    selected = true,
-                    tint = MaterialTheme.colorScheme.secondary,
-                    onClick = { importBookLauncher.launch(arrayOf("*/*")) },
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
-                ) {
-                    Icon(Icons.Outlined.UploadFile, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Import", style = MaterialTheme.typography.labelLarge)
-                }
-                IconButton(onClick = onSettings) {
-                    Icon(Icons.Outlined.Settings, contentDescription = "Settings", tint = Color.White)
-                }
-            }
+            Spacer(Modifier.statusBarsPadding().height(68.dp))
 
             androidx.compose.material3.TextButton(onClick = { catalog = true }, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Find free online books") }
             // Search & Filter controls
@@ -519,6 +478,106 @@ fun BookReaderHubScreen(
                 }
             }
         }
+
+        // Subtle frosted-glass floating top bar (replaces fixed solid-black bar)
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .then(
+                    if (readerLiveBlur) {
+                        Modifier.hazeEffect(
+                            state = readerHazeState,
+                            style = HazeMaterials.ultraThin(readerScheme.surface),
+                        )
+                    } else Modifier,
+                )
+                .background(
+                    Brush.verticalGradient(
+                        0f to readerScheme.surface.copy(alpha = if (readerLiveBlur) 0.58f else 0.90f),
+                        0.85f to readerScheme.surface.copy(alpha = if (readerLiveBlur) 0.44f else 0.84f),
+                        1f to readerScheme.surface.copy(alpha = if (readerLiveBlur) 0.16f else 0.65f),
+                    ),
+                ),
+        ) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                IconButton(onClick = onBackToLibrary) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to library", tint = readerScheme.onSurface)
+                }
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(readerScheme.primary.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Outlined.MenuBook,
+                        contentDescription = null,
+                        tint = readerScheme.primary,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+                Column(Modifier.weight(1f)) {
+                    com.pronotes.app.ui.GradientTitle("Kindle Mode",
+                        MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold))
+                    Text(
+                        "${pdfBooks.size} PDF books · ${noteBooks.size} notebooks",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = readerScheme.onSurfaceVariant,
+                    )
+                }
+                AppPill(
+                    selected = true,
+                    tint = MaterialTheme.colorScheme.secondary,
+                    onClick = { importBookLauncher.launch(arrayOf("*/*")) },
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
+                ) {
+                    Icon(Icons.Outlined.UploadFile, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Import", style = MaterialTheme.typography.labelLarge)
+                }
+                IconButton(onClick = onSettings) {
+                    Icon(Icons.Outlined.Settings, contentDescription = "Settings", tint = readerScheme.onSurface)
+                }
+            }
+            androidx.compose.material3.HorizontalDivider(thickness = 0.5.dp, color = readerScheme.outlineVariant.copy(alpha = 0.22f))
+        }
+
+        // Subtle progressive Haze blur along the bottom edge
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(64.dp)
+                .then(
+                    if (readerLiveBlur) {
+                        Modifier.hazeEffect(
+                            state = readerHazeState,
+                            style = HazeMaterials.ultraThin(readerScheme.surface),
+                        ) {
+                            progressive = HazeProgressive.verticalGradient(
+                                startIntensity = 0f,
+                                endIntensity = 1f,
+                            )
+                        }
+                    } else Modifier,
+                )
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.55f to readerScheme.surface.copy(alpha = if (readerLiveBlur) 0.18f else 0.45f),
+                        1f to readerScheme.surface.copy(alpha = if (readerLiveBlur) 0.48f else 0.85f),
+                    ),
+                ),
+        )
 
         pdfImportProgress?.let { (title, page, total) ->
             PdfImportLoaderOverlay(title = title, page = page, total = total)

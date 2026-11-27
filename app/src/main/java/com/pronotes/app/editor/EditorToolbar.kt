@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -146,7 +147,7 @@ fun shortToolLabel(t: Tool): String = when (t) {
     Tool.TEXT -> "Text"
     Tool.AUTO_TEXT -> "Auto-Text"
     Tool.STICKY -> "Sticky"
-    Tool.WEBLINK -> "Link"
+    Tool.WEBLINK -> "Web"
     Tool.TAPE -> "Tape"
     Tool.STICKER -> "Sticker"
     Tool.LASER -> "Laser"
@@ -206,8 +207,13 @@ fun AdaptiveFixedToolbar(
             val availablePx = with(LocalDensity.current) {
                 if (isVertical) maxHeight.toPx().toInt() else maxWidth.toPx().toInt()
             }
-            val slotPx = (48f * density).toInt()
-            val reservedPx = if (isVertical) (192f * density).toInt() else (420f * density).toInt()
+            val hasOpts = toolHasInlineOptions(vm.tool)
+            val slotPx = (46f * density).toInt()
+            val reservedPx = when {
+                isVertical -> if (hasOpts) (180f * density).toInt() else (112f * density).toInt()
+                hasOpts -> (276f * density).toInt()
+                else -> (148f * density).toInt()
+            }
             val layout = remember(settings.toolbarDock, settings.toolbarStyle, visibleTools, vm.tool, availablePx, slotPx, reservedPx) {
                 ToolbarGeometry.computeAdaptiveLayout(
                     dockEdge = settings.toolbarDock,
@@ -241,6 +247,10 @@ fun AdaptiveFixedToolbar(
                     ToolbarLayoutMenuButton(
                         settings = settings,
                         fgColor = barFg,
+                        onUpdateTools = { newSpec ->
+                            store.update { it.copy(toolbarTools = newSpec) }
+                            vm.notebookSettings.update { it.copy(toolbarTools = newSpec) }
+                        },
                         onSelectDock = onSelectDock,
                         onSelectStyle = onSelectStyle,
                         onResetPosition = onResetPosition,
@@ -310,12 +320,18 @@ fun AdaptiveFixedToolbar(
                         horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
                     ) {
                         Row(
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .horizontalScroll(rememberScrollState()),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
                             if (settings.videoInToolbar) {
-                                IconButton(onClick = onVideo) {
-                                    Icon(Icons.Outlined.PlayCircleOutline, "Floating video", tint = Color.White)
+                                IconButton(
+                                    onClick = onVideo,
+                                    modifier = Modifier.size(42.dp),
+                                ) {
+                                    Icon(Icons.Outlined.PlayCircleOutline, "Floating video", tint = Color.White, modifier = Modifier.size(21.dp))
                                 }
                             }
                             layout.pinnedTools.forEach { t ->
@@ -366,6 +382,10 @@ fun AdaptiveFixedToolbar(
                     ToolbarLayoutMenuButton(
                         settings = settings,
                         fgColor = barFg,
+                        onUpdateTools = { newSpec ->
+                            store.update { it.copy(toolbarTools = newSpec) }
+                            vm.notebookSettings.update { it.copy(toolbarTools = newSpec) }
+                        },
                         onSelectDock = onSelectDock,
                         onSelectStyle = onSelectStyle,
                         onResetPosition = onResetPosition,
@@ -489,7 +509,7 @@ fun FloatingToolbarPill(
         ),
         modifier = modifier
             .then(if (isVertical) Modifier.width(66.dp) else Modifier.widthIn(max = maxDockW))
-            .height(if (isVertical) maxDockH else 62.dp)
+            .then(if (isVertical) Modifier.heightIn(max = maxDockH) else Modifier.heightIn(min = 56.dp, max = 68.dp))
             .graphicsLayer { alpha = overlayFade() },
     ) {
         val reorderTool = { toolToMove: Tool, step: Int ->
@@ -522,6 +542,10 @@ fun FloatingToolbarPill(
                 ToolbarLayoutMenuButton(
                     settings = settings,
                     fgColor = dockFg,
+                    onUpdateTools = { newSpec ->
+                        store.update { it.copy(toolbarTools = newSpec) }
+                        vm.notebookSettings.update { it.copy(toolbarTools = newSpec) }
+                    },
                     onSelectDock = onSelectDock,
                     onSelectStyle = onSelectStyle,
                     onResetPosition = onResetPosition,
@@ -624,6 +648,10 @@ fun FloatingToolbarPill(
                 ToolbarLayoutMenuButton(
                     settings = settings,
                     fgColor = dockFg,
+                    onUpdateTools = { newSpec ->
+                        store.update { it.copy(toolbarTools = newSpec) }
+                        vm.notebookSettings.update { it.copy(toolbarTools = newSpec) }
+                    },
                     onSelectDock = onSelectDock,
                     onSelectStyle = onSelectStyle,
                     onResetPosition = onResetPosition,
@@ -770,6 +798,7 @@ private fun OverflowToolsButton(
 private fun ToolbarLayoutMenuButton(
     settings: AppSettings,
     fgColor: Color,
+    onUpdateTools: (String) -> Unit,
     onSelectDock: (ToolbarDock) -> Unit,
     onSelectStyle: (ToolbarStyle) -> Unit,
     onResetPosition: () -> Unit,
@@ -777,8 +806,6 @@ private fun ToolbarLayoutMenuButton(
     var open by remember { mutableStateOf(false) }
     var lastDismissMs by remember { mutableStateOf(0L) }
     var showCustomize by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    val store = remember(context) { SettingsStore.get(context) }
     val desc = stringResource(R.string.toolbar_layout_menu)
     val interaction = remember { MutableInteractionSource() }
     Box {
@@ -848,7 +875,7 @@ private fun ToolbarLayoutMenuButton(
     if (showCustomize) {
         CustomizeToolbarDialog(
             spec = settings.toolbarTools,
-            onSpecChange = { newSpec -> store.update { it.copy(toolbarTools = newSpec) } },
+            onSpecChange = onUpdateTools,
             onDismiss = { showCustomize = false },
         )
     }
@@ -901,6 +928,12 @@ private fun CustomizeToolbarDialog(
                             if (tool == Tool.AUTO_TEXT) {
                                 Text(
                                     "Optional · Writes & auto-converts ink to text",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            } else if (tool == Tool.WEBLINK) {
+                                Text(
+                                    "Embed live interactive web pages right on your notes",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )

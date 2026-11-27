@@ -44,12 +44,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import dev.chrisbanes.haze.HazeProgressive
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.materials.HazeMaterials
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -131,6 +137,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.luminance
@@ -635,119 +642,12 @@ fun LibraryScreen(
                     lookaheadScope = workspaceLayout,
                     boundsTransform = BoundsTransform { _, _ -> tween(190) },
                 )
-                Column(Modifier.weight(1f).fillMaxHeight().then(boundsMotion)) {
-                    // Browser-style dark/paper top tab strip aligned with home.svg
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .background(Color.Black)
-                            .statusBarsPadding()
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (!sidebar) {
-                            AppSurface(
-                                role = SurfaceRole.Control,
-                                containerColor = Color(0xFF18181B),
-                                contentColor = Color.White,
-                                borderColor = Color.White.copy(alpha = 0.16f),
-                                shape = appPillShape(),
-                                contentPadding = PaddingValues(8.dp),
-                                onClick = { if (wide) wideSidebar = true else compactSidebar = true },
-                            ) {
-                                ProIconView(ProIcon.SIDEBAR, Color.White, Modifier.size(18.dp))
-                            }
-                            Spacer(Modifier.width(6.dp))
-                        }
-
-                        val tabs by store.tabs.collectAsStateWithLifecycle()
-                        val open = tabs.mapNotNull { id -> lib.notebooks.firstOrNull { it.id == id && it.deletedAt == null } }
-                        Row(
-                            Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Section.entries.forEach { destination ->
-                                TextButton(onClick = { section = destination; folderId = null }) {
-                                    Text(
-                                        destination.localizedLabel(appStrings),
-                                        color = if (section == destination) Color(0xFF93C5FD) else Color(0xFFB9BDC7),
-                                        fontWeight = if (section == destination) FontWeight.Bold else FontWeight.Normal,
-                                        maxLines = 1,
-                                    )
-                                }
-                            }
-                            open.forEach { n ->
-                                AppSurface(
-                                    role = SurfaceRole.Control,
-                                    containerColor = Color(0xFF18181B),
-                                    contentColor = Color.White,
-                                    borderColor = Color.White.copy(alpha = 0.16f),
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(start = 12.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
-                                    onClick = { onOpen(n.id) },
-                                    modifier = Modifier.widthIn(max = 200.dp),
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            n.title,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color.White,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f, fill = false),
-                                        )
-                                        Spacer(Modifier.width(6.dp))
-                                        Box(
-                                            Modifier.size(20.dp).clip(CircleShape).clickable { store.closeTab(n.id) },
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            ProIconView(ProIcon.CLOSE, Color(0xFFB4BCD0), Modifier.size(11.dp))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Spacer(Modifier.width(4.dp))
-                        UpdatePill()
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            AppPill(
-                                tint = ProButtonPalette.VibrantOrange,
-                                onClick = onOpenBookReader,
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp),
-                            ) {
-                                Icon(Icons.AutoMirrored.Outlined.MenuBook, appStrings.readerMode, Modifier.size(17.dp))
-                                if (wide) {
-                                    Spacer(Modifier.width(5.dp))
-                                    Text(appStrings.readerMode, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                                }
-                            }
-                            AppPill(
-                                tint = ProButtonPalette.SkyCyan,
-                                onClick = { collabOpen = true },
-                                contentPadding = PaddingValues(8.dp),
-                            ) {
-                                Icon(Icons.Rounded.Groups, "Live Study Room", Modifier.size(19.dp))
-                            }
-                            AppPill(
-                                selected = searching,
-                                tint = ProButtonPalette.VibrantOrange,
-                                onClick = { searching = !searching; if (!searching) query = "" },
-                                contentPadding = PaddingValues(8.dp),
-                            ) {
-                                ProIconView(ProIcon.SEARCH, if (searching) Color.White else ProButtonPalette.VibrantOrange, Modifier.size(18.dp))
-                            }
-                            AppPill(
-                                tint = ProButtonPalette.MintTeal,
-                                onClick = onSettings,
-                                contentPadding = PaddingValues(8.dp),
-                            ) {
-                                ProIconView(ProIcon.SETTINGS, ProButtonPalette.MintTeal, Modifier.size(18.dp))
-                            }
-                        }
-                    }
+                val libraryHazeState = remember { HazeState() }
+                val barScheme = MaterialTheme.colorScheme
+                val barLiveBlur = com.pronotes.app.ui.LocalLiveBlur.current && !com.pronotes.app.ui.LocalReduceEffects.current
+                Box(Modifier.weight(1f).fillMaxHeight().then(boundsMotion)) {
+                  Column(Modifier.fillMaxSize().hazeSource(libraryHazeState)) {
+                    Spacer(Modifier.statusBarsPadding().height(54.dp))
 
                     // Page header & crisp actions row
                     Row(
@@ -1116,7 +1016,7 @@ fun LibraryScreen(
                             }
                         }
                     }
-                    val listBottomPad = 24.dp
+                    val listBottomPad = appContentBottomPadding(82.dp)
                     val listScrollState = rememberLazyListState()
                     val gridScrollState = rememberLazyGridState()
                     val libraryScrolled by remember(listView, listScrollState, gridScrollState) {
@@ -1221,6 +1121,210 @@ fun LibraryScreen(
                             modifier = Modifier.align(Alignment.TopCenter),
                         )
                     }
+                  }
+
+                  // Subtle frosted-glass floating top bar (replaces fixed solid black strip while keeping every control in place)
+                  Column(
+                      modifier = Modifier
+                          .align(Alignment.TopCenter)
+                          .fillMaxWidth()
+                          .then(
+                              if (barLiveBlur) {
+                                  Modifier.hazeEffect(
+                                      state = libraryHazeState,
+                                      style = HazeMaterials.ultraThin(barScheme.surface),
+                                  )
+                              } else Modifier,
+                          )
+                          .background(
+                              Brush.verticalGradient(
+                                  0f to barScheme.surface.copy(alpha = if (barLiveBlur) 0.56f else 0.90f),
+                                  0.85f to barScheme.surface.copy(alpha = if (barLiveBlur) 0.42f else 0.84f),
+                                  1f to barScheme.surface.copy(alpha = if (barLiveBlur) 0.16f else 0.65f),
+                              ),
+                          ),
+                  ) {
+                      Row(
+                          Modifier
+                              .fillMaxWidth()
+                              .statusBarsPadding()
+                              .padding(horizontal = 10.dp, vertical = 6.dp),
+                          verticalAlignment = Alignment.CenterVertically,
+                      ) {
+                          if (!sidebar) {
+                              AppSurface(
+                                  role = SurfaceRole.Control,
+                                  containerColor = barScheme.surfaceContainerHigh.copy(alpha = 0.72f),
+                                  contentColor = barScheme.onSurface,
+                                  borderColor = barScheme.outlineVariant.copy(alpha = 0.32f),
+                                  shape = appPillShape(),
+                                  contentPadding = PaddingValues(8.dp),
+                                  onClick = { if (wide) wideSidebar = true else compactSidebar = true },
+                              ) {
+                                  ProIconView(ProIcon.SIDEBAR, barScheme.onSurface, Modifier.size(18.dp))
+                              }
+                              Spacer(Modifier.width(6.dp))
+                          }
+
+                          val tabs by store.tabs.collectAsStateWithLifecycle()
+                          val open = tabs.mapNotNull { id -> lib.notebooks.firstOrNull { it.id == id && it.deletedAt == null } }
+                          Row(
+                              Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                              horizontalArrangement = Arrangement.spacedBy(6.dp),
+                              verticalAlignment = Alignment.CenterVertically,
+                          ) {
+                              Section.entries.forEach { destination ->
+                                  TextButton(onClick = { section = destination; folderId = null }) {
+                                      Text(
+                                          destination.localizedLabel(appStrings),
+                                          color = if (section == destination) barScheme.primary else barScheme.onSurfaceVariant,
+                                          fontWeight = if (section == destination) FontWeight.Bold else FontWeight.Medium,
+                                          maxLines = 1,
+                                      )
+                                  }
+                              }
+                              open.forEach { n ->
+                                  AppSurface(
+                                      role = SurfaceRole.Control,
+                                      containerColor = barScheme.surfaceContainerHigh.copy(alpha = 0.72f),
+                                      contentColor = barScheme.onSurface,
+                                      borderColor = barScheme.outlineVariant.copy(alpha = 0.30f),
+                                      shape = RoundedCornerShape(10.dp),
+                                      contentPadding = PaddingValues(start = 12.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
+                                      onClick = { onOpen(n.id) },
+                                      modifier = Modifier.widthIn(max = 200.dp),
+                                  ) {
+                                      Row(verticalAlignment = Alignment.CenterVertically) {
+                                          Text(
+                                              n.title,
+                                              style = MaterialTheme.typography.labelSmall,
+                                              color = barScheme.onSurface,
+                                              maxLines = 1,
+                                              overflow = TextOverflow.Ellipsis,
+                                              modifier = Modifier.weight(1f, fill = false),
+                                          )
+                                          Spacer(Modifier.width(6.dp))
+                                          Box(
+                                              Modifier.size(20.dp).clip(CircleShape).clickable { store.closeTab(n.id) },
+                                              contentAlignment = Alignment.Center,
+                                          ) {
+                                              ProIconView(ProIcon.CLOSE, barScheme.onSurfaceVariant, Modifier.size(11.dp))
+                                          }
+                                      }
+                                  }
+                              }
+                          }
+
+                          Spacer(Modifier.width(4.dp))
+                          UpdatePill()
+
+                          Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                              AppPill(
+                                  tint = ProButtonPalette.VibrantOrange,
+                                  onClick = onOpenBookReader,
+                                  contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp),
+                              ) {
+                                  Icon(Icons.AutoMirrored.Outlined.MenuBook, appStrings.readerMode, Modifier.size(17.dp))
+                                  if (wide) {
+                                      Spacer(Modifier.width(5.dp))
+                                      Text(appStrings.readerMode, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                                  }
+                              }
+                              AppPill(
+                                  tint = ProButtonPalette.SkyCyan,
+                                  onClick = { collabOpen = true },
+                                  contentPadding = PaddingValues(8.dp),
+                              ) {
+                                  Icon(Icons.Rounded.Groups, "Live Study Room", Modifier.size(19.dp))
+                              }
+                              AppPill(
+                                  selected = searching,
+                                  tint = ProButtonPalette.VibrantOrange,
+                                  onClick = { searching = !searching; if (!searching) query = "" },
+                                  contentPadding = PaddingValues(8.dp),
+                              ) {
+                                  ProIconView(ProIcon.SEARCH, if (searching) Color.White else ProButtonPalette.VibrantOrange, Modifier.size(18.dp))
+                              }
+                              AppPill(
+                                  tint = ProButtonPalette.MintTeal,
+                                  onClick = onSettings,
+                                  contentPadding = PaddingValues(8.dp),
+                              ) {
+                                  ProIconView(ProIcon.SETTINGS, ProButtonPalette.MintTeal, Modifier.size(18.dp))
+                              }
+                          }
+                      }
+                      HorizontalDivider(thickness = 0.5.dp, color = barScheme.outlineVariant.copy(alpha = 0.22f))
+                  }
+
+                  // Subtle progressive Haze blur along the bottom edge so scrolling notebooks glide softly beneath
+                  Box(
+                      modifier = Modifier
+                          .align(Alignment.BottomCenter)
+                          .fillMaxWidth()
+                          .height(64.dp)
+                          .then(
+                              if (barLiveBlur) {
+                                  Modifier.hazeEffect(
+                                      state = libraryHazeState,
+                                      style = HazeMaterials.ultraThin(barScheme.surface),
+                                  ) {
+                                      progressive = HazeProgressive.verticalGradient(
+                                          startIntensity = 0f,
+                                          endIntensity = 1f,
+                                      )
+                                  }
+                              } else Modifier,
+                          )
+                          .background(
+                              Brush.verticalGradient(
+                                  0f to Color.Transparent,
+                                  0.55f to barScheme.surface.copy(alpha = if (barLiveBlur) 0.18f else 0.45f),
+                                  1f to barScheme.surface.copy(alpha = if (barLiveBlur) 0.48f else 0.85f),
+                              ),
+                          ),
+                  )
+
+                  if (supportCard) {
+                      Box(
+                          Modifier
+                              .align(Alignment.BottomCenter)
+                              .navigationBarsPadding()
+                              .padding(20.dp)
+                              .widthIn(max = 520.dp),
+                      ) {
+                          AppCard(
+                              hero = true,
+                              shape = appCardShape(),
+                              contentPadding = PaddingValues(18.dp),
+                              modifier = Modifier
+                                  .clip(appCardShape())
+                                  .then(
+                                      if (barLiveBlur) {
+                                          Modifier.hazeEffect(
+                                              state = libraryHazeState,
+                                              style = HazeMaterials.thin(barScheme.surface),
+                                          )
+                                      } else Modifier,
+                                  ),
+                          ) {
+                              Row(verticalAlignment = Alignment.CenterVertically) {
+                                  ProIconView(ProIcon.HEART, ProButtonPalette.MagentaPink, Modifier.size(26.dp))
+                                  Spacer(Modifier.width(14.dp))
+                                  Column(Modifier.weight(1f)) {
+                                      Text("Enjoying Pro Notes?", style = MaterialTheme.typography.titleMedium)
+                                      Text("Made with care. A small tip helps keep development going.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                  }
+                                  TextButton(onClick = { supportCard = false }) { Text("Not now") }
+                                  Button(
+                                      onClick = { supportCard = false; onSupport() },
+                                      shape = CircleShape,
+                                      colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.MagentaPink, contentColor = Color.White),
+                                  ) { Text("Support") }
+                              }
+                          }
+                      }
+                  }
                 }
             }
 
@@ -1255,32 +1359,6 @@ fun LibraryScreen(
                     total = total,
                     modifier = Modifier.align(Alignment.Center),
                 )
-            }
-
-            if (supportCard) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-                    AppCard(
-                        hero = true,
-                        shape = appCardShape(),
-                        contentPadding = PaddingValues(18.dp),
-                        modifier = Modifier.padding(20.dp).widthIn(max = 520.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            ProIconView(ProIcon.HEART, ProButtonPalette.MagentaPink, Modifier.size(26.dp))
-                            Spacer(Modifier.width(14.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text("Enjoying Pro Notes?", style = MaterialTheme.typography.titleMedium)
-                                Text("Made with care. A small tip helps keep development going.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            TextButton(onClick = { supportCard = false }) { Text("Not now") }
-                            Button(
-                                onClick = { supportCard = false; onSupport() },
-                                shape = CircleShape,
-                                colors = ButtonDefaults.buttonColors(containerColor = ProButtonPalette.MagentaPink, contentColor = Color.White),
-                            ) { Text("Support") }
-                        }
-                    }
-                }
             }
         }
     }
@@ -2043,24 +2121,25 @@ private fun UpdatePill() {
     val (autoUpdateCheck, updateReminders) = updatePrefs
     LaunchedEffect(autoUpdateCheck) {
         if (autoUpdateCheck || updateReminders) Updater.check(context, quiet = true)
-        if (updateReminders && Updater.phase == Updater.Phase.AVAILABLE && !Updater.remindedThisLaunch) {
+        if (updateReminders && (Updater.phase == Updater.Phase.AVAILABLE || Updater.phase == Updater.Phase.READY) && !Updater.remindedThisLaunch) {
             Updater.remindedThisLaunch = true
             delay(1200)
             Updater.showDialog = true
         }
     }
     val pct = (Updater.progress * 100).toInt().coerceIn(0, 100)
+    val readyLocal = Updater.phase == Updater.Phase.READY || (Updater.release != null && Updater.hasReadyApk(context, Updater.release?.tag))
     val label = when (Updater.phase) {
-        Updater.Phase.AVAILABLE -> "Update to ${Updater.release?.tag}"
+        Updater.Phase.AVAILABLE -> if (readyLocal) "Install ${Updater.release?.tag}" else "Update to ${Updater.release?.tag}"
         Updater.Phase.DOWNLOADING -> "Downloading $pct%"
         Updater.Phase.PAUSED -> "Resume update ($pct%)"
         Updater.Phase.READY -> "Install update"
         Updater.Phase.INSTALLING -> "Installing..."
-        Updater.Phase.FAILED -> if (Updater.release != null) "Update failed · Retry" else null
+        Updater.Phase.FAILED -> if (readyLocal) "Install update" else if (Updater.release != null) "Update failed · Retry" else null
         else -> null
     } ?: return
     val tint = when (Updater.phase) {
-        Updater.Phase.FAILED -> ProButtonPalette.CoralRose
+        Updater.Phase.FAILED -> if (readyLocal) ProButtonPalette.Emerald else ProButtonPalette.CoralRose
         Updater.Phase.PAUSED -> ProButtonPalette.VibrantOrange
         else -> ProButtonPalette.Emerald
     }
@@ -2069,9 +2148,9 @@ private fun UpdatePill() {
         tint = tint,
         onClick = {
             when (Updater.phase) {
-                Updater.Phase.AVAILABLE, Updater.Phase.DOWNLOADING, Updater.Phase.PAUSED -> Updater.showDialog = true
                 Updater.Phase.READY -> Updater.install(context)
-                Updater.Phase.FAILED -> if (Updater.hasReadyApk(context)) Updater.install(context) else Updater.showDialog = true
+                Updater.Phase.AVAILABLE, Updater.Phase.DOWNLOADING, Updater.Phase.PAUSED -> Updater.showDialog = true
+                Updater.Phase.FAILED -> if (readyLocal) Updater.install(context) else Updater.showDialog = true
                 else -> Unit
             }
         },

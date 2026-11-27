@@ -822,73 +822,71 @@ private data class ScribbleThresholds(
 
 private fun scribbleThresholds(config: GestureConfig): ScribbleThresholds = when (config.scribbleSensitivity) {
     ScribbleSensitivity.GENTLE -> ScribbleThresholds(
-        minPts = 18,
-        minLen = config.scribbleMinLengthPx.coerceAtLeast(82f),
-        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtMost(0.30f),
-        minRev = 5,
-        minAxisRatio = 2.80f,
-        minSharp = 5,
-        minZigRatio = 2.95f,
-        minLoopTurns = 2.55f,
-        minLoopRatio = 3.20f,
-    )
-    ScribbleSensitivity.BALANCED -> ScribbleThresholds(
-        minPts = 14,
-        minLen = config.scribbleMinLengthPx.coerceAtLeast(68f),
-        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtMost(0.36f),
+        minPts = 12,
+        minLen = config.scribbleMinLengthPx.coerceIn(50f, 76f),
+        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtLeast(0.44f),
         minRev = 4,
-        minAxisRatio = 2.50f,
+        minAxisRatio = 2.15f,
         minSharp = 4,
-        minZigRatio = 2.55f,
-        minLoopTurns = 2.15f,
+        minZigRatio = 2.25f,
+        minLoopTurns = 2.10f,
         minLoopRatio = 2.75f,
     )
-    ScribbleSensitivity.INSTANT -> ScribbleThresholds(
-        minPts = 11,
-        minLen = config.scribbleMinLengthPx.coerceAtLeast(52f),
-        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtMost(0.42f),
+    ScribbleSensitivity.BALANCED -> ScribbleThresholds(
+        minPts = 9,
+        minLen = config.scribbleMinLengthPx.coerceAtMost(54f).coerceAtLeast(38f),
+        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtLeast(0.50f),
         minRev = 3,
-        minAxisRatio = 2.20f,
+        minAxisRatio = 1.85f,
         minSharp = 3,
-        minZigRatio = 2.25f,
-        minLoopTurns = 1.85f,
-        minLoopRatio = 2.45f,
+        minZigRatio = 1.95f,
+        minLoopTurns = 1.80f,
+        minLoopRatio = 2.35f,
+    )
+    ScribbleSensitivity.INSTANT -> ScribbleThresholds(
+        minPts = 7,
+        minLen = config.scribbleMinLengthPx.coerceAtMost(42f).coerceAtLeast(28f),
+        maxNetRatio = config.scribbleMaxNetDispRatio.coerceAtLeast(0.56f),
+        minRev = 2,
+        minAxisRatio = 1.55f,
+        minSharp = 2,
+        minZigRatio = 1.65f,
+        minLoopTurns = 1.55f,
+        minLoopRatio = 2.05f,
     )
 }
 
 /**
  * Recognizes deliberate horizontal, diagonal, vertical, zig-zag, or dense swirl scrub gestures at screen scale.
- * Strictly rejects normal cursive/print letters (like m, w, s, e, 8, o, or connected cursive words) by requiring
- * localized high-density back-and-forth reversals, rapid scrubbing speed, and tight net displacement.
+ * Back-and-forth zig-zags and cross-outs do not need to self-intersect (parallel strokes over a word still trigger
+ * reliably), while circular swirl scrubs require tight self-crossing density so letters like o/e/8 never erase.
  */
 internal fun isDeliberateScribble(points: List<Pt>, pageToDp: Float, durationMs: Long, config: GestureConfig): Boolean {
     val t = scribbleThresholds(config)
-    if (durationMs !in 135L..4200L || points.size < t.minPts) return false
+    if (durationMs !in 85L..5200L || points.size < t.minPts) return false
     val path = points.map { (x, y) -> x * pageToDp to y * pageToDp }
     val width = path.maxOf { it.first } - path.minOf { it.first }
     val height = path.maxOf { it.second } - path.minOf { it.second }
     val span = maxOf(width, height)
-    if (span !in 18f..760f) return false
+    if (span !in 14f..860f) return false
     val length = pathLength(path)
     // A deliberate scrub covers multiple back-and-forth passes across its own bounding span
     if (length < maxOf(t.minLen, span * t.minAxisRatio)) return false
     val speedDpPerSec = length * 1000f / durationMs.coerceAtLeast(1L)
-    if (speedDpPerSec < 82f) return false
+    if (speedDpPerSec < 36f) return false
     // A true scribble stays localized over the target instead of progressing forward like a written word
     val netDisp = dist(path.first(), path.last())
     if (netDisp / length > t.maxNetRatio) return false
-    // Reject single-letter cursive loops / tall vertical strokes with tiny scrub width
-    val minorSpan = minOf(width, height)
-    if (minorSpan < 5f && length < span * 2.8f) return false
 
-    val minCrossings = when (config.scribbleSensitivity) {
-        ScribbleSensitivity.GENTLE -> 5
-        ScribbleSensitivity.BALANCED -> 4
-        ScribbleSensitivity.INSTANT -> 3
+    val minLoopCrossings = when (config.scribbleSensitivity) {
+        ScribbleSensitivity.GENTLE -> 3
+        ScribbleSensitivity.BALANCED -> 2
+        ScribbleSensitivity.INSTANT -> 1
     }
-    return (axisScribble(path, t.minRev, t.minAxisRatio) && selfCrossingScribble(path, minCrossings = (minCrossings - 2).coerceAtLeast(1), minDensityRatio = t.minAxisRatio * 0.88f)) ||
-        (zigZagScribble(path, t.minSharp, t.minZigRatio) && selfCrossingScribble(path, minCrossings = (minCrossings - 1).coerceAtLeast(2), minDensityRatio = t.minZigRatio * 0.85f)) ||
-        (loopScrubScribble(path, t.minLoopTurns, t.minLoopRatio) && selfCrossingScribble(path, minCrossings = minCrossings, minDensityRatio = t.minAxisRatio))
+    return axisScribble(path, t.minRev, t.minAxisRatio) ||
+        zigZagScribble(path, t.minSharp, t.minZigRatio) ||
+        (loopScrubScribble(path, t.minLoopTurns, t.minLoopRatio) &&
+            selfCrossingScribble(path, minCrossings = minLoopCrossings, minDensityRatio = t.minAxisRatio * 0.90f))
 }
 
 /** Detects dense scratch-outs that cross over their own path repeatedly within a compact region. */

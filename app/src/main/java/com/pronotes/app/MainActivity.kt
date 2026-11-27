@@ -91,8 +91,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
-            statusBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.BLACK),
-            navigationBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.BLACK),
+            statusBarStyle = androidx.activity.SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+            ),
+            navigationBarStyle = androidx.activity.SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+            ),
         )
         enableHighRefreshRate()
         window.decorView.post { enableHighRefreshRate() }
@@ -111,9 +117,9 @@ class MainActivity : ComponentActivity() {
             handleIntent(intent)
         }
         UpdateCheckReceiver.schedule(this, SettingsStore.get(this).settings.value.updateReminders)
-        // Leftover update packages take space; clear them unless installing or resuming a partial download.
-        if (savedInstanceState == null && !com.pronotes.app.data.Updater.shouldPreserveCacheOnStart(this)) {
-            Thread { runCatching { java.io.File(cacheDir, "updates").deleteRecursively() } }.start()
+        // Clean only obsolete/old update APKs; never delete a newer downloaded update waiting to install.
+        if (savedInstanceState == null) {
+            Thread { com.pronotes.app.data.Updater.cleanupObsoleteUpdates(this) }.start()
         }
         setContent {
             ProNotesTheme {

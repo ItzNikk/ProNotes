@@ -43,7 +43,7 @@ object ProMotion {
         else -> 1.0f
     }
 
-    /** Snappy tactile spring for pills, chips, segmented indicators, and toolbar buttons. */
+    /** Snappy fluid spring for pills, chips, segmented indicators, and toolbar buttons. */
     fun <T> snappySpring(
         reduceMotion: Boolean,
         mode: PerformanceMode = PerformanceMode.BALANCED,
@@ -51,11 +51,11 @@ object ProMotion {
     ): FiniteAnimationSpec<T> =
         if (reduceMotion) snap()
         else spring(
-            dampingRatio = if (style == MotionStyle.MINIMAL_CRISP) 0.92f else 0.80f,
-            stiffness = 620f * stiffnessMultiplier(mode, style),
+            dampingRatio = if (style == MotionStyle.MINIMAL_CRISP) 0.88f else 0.72f,
+            stiffness = 460f * stiffnessMultiplier(mode, style),
         )
 
-    /** Smooth crisp spring for dialogs, floating popovers, and sheets. */
+    /** Silky connected spring for dialogs, floating popovers, and sheets. */
     fun <T> sheetSpring(
         reduceMotion: Boolean,
         mode: PerformanceMode = PerformanceMode.BALANCED,
@@ -63,8 +63,8 @@ object ProMotion {
     ): FiniteAnimationSpec<T> =
         if (reduceMotion) snap()
         else spring(
-            dampingRatio = if (style == MotionStyle.MINIMAL_CRISP) 0.94f else 0.82f,
-            stiffness = 540f * stiffnessMultiplier(mode, style),
+            dampingRatio = if (style == MotionStyle.MINIMAL_CRISP) 0.90f else 0.76f,
+            stiffness = 380f * stiffnessMultiplier(mode, style),
         )
 
     /** Expressive yet controlled spring for cards, reorder lifts, and selection pops. */
@@ -75,11 +75,11 @@ object ProMotion {
     ): FiniteAnimationSpec<T> =
         if (reduceMotion) snap()
         else spring(
-            dampingRatio = if (style == MotionStyle.MINIMAL_CRISP) 0.90f else 0.76f,
-            stiffness = 520f * stiffnessMultiplier(mode, style),
+            dampingRatio = if (style == MotionStyle.MINIMAL_CRISP) 0.88f else 0.70f,
+            stiffness = 360f * stiffnessMultiplier(mode, style),
         )
 
-    /** Crisp directional slide spring for screen and section transitions. */
+    /** Smooth directional slide spring for screen and section transitions. */
     fun navOffsetSpring(
         reduceMotion: Boolean,
         mode: PerformanceMode = PerformanceMode.BALANCED,
@@ -87,41 +87,41 @@ object ProMotion {
     ): FiniteAnimationSpec<IntOffset> =
         if (reduceMotion) snap()
         else spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = 560f * stiffnessMultiplier(mode, style),
+            dampingRatio = if (style == MotionStyle.MINIMAL_CRISP) Spring.DampingRatioNoBouncy else 0.86f,
+            stiffness = 390f * stiffnessMultiplier(mode, style),
         )
 
     /** Fast non-blocking color/opacity transition. */
-    fun <T> quickTween(reduceMotion: Boolean, durationMs: Int = 160): FiniteAnimationSpec<T> =
+    fun <T> quickTween(reduceMotion: Boolean, durationMs: Int = 210): FiniteAnimationSpec<T> =
         if (reduceMotion) snap() else tween(durationMillis = durationMs, easing = FastOutSlowInEasing)
 
-    /** Forward screen navigation enter (subtle slide + depth scale + fast fade). */
+    /** Forward screen navigation enter (fluid spring slide + depth scale + smooth fade). */
     fun screenEnter(
         reduceMotion: Boolean,
         mode: PerformanceMode = PerformanceMode.BALANCED,
         style: MotionStyle = MotionStyle.SPRING,
     ): EnterTransition {
         if (reduceMotion) return EnterTransition.None
-        return fadeIn(tween(170, easing = FastOutSlowInEasing)) +
-            slideInHorizontally(animationSpec = navOffsetSpring(false, mode, style)) { (it * 0.06f).toInt() } +
+        return fadeIn(tween(240, easing = FastOutSlowInEasing)) +
+            slideInHorizontally(animationSpec = navOffsetSpring(false, mode, style)) { (it * 0.10f).toInt() } +
             scaleIn(
-                initialScale = 0.975f,
+                initialScale = 0.955f,
                 animationSpec = sheetSpring(false, mode, style),
             )
     }
 
-    /** Forward screen navigation exit (gentle recede with quick fade). */
+    /** Forward screen navigation exit (gentle recede with smooth fade). */
     fun screenExit(
         reduceMotion: Boolean,
         mode: PerformanceMode = PerformanceMode.BALANCED,
         style: MotionStyle = MotionStyle.SPRING,
     ): ExitTransition {
         if (reduceMotion) return ExitTransition.None
-        return fadeOut(tween(130, easing = FastOutLinearInEasing)) +
-            slideOutHorizontally(animationSpec = navOffsetSpring(false, mode, style)) { -(it * 0.04f).toInt() } +
+        return fadeOut(tween(180, easing = FastOutLinearInEasing)) +
+            slideOutHorizontally(animationSpec = navOffsetSpring(false, mode, style)) { -(it * 0.06f).toInt() } +
             scaleOut(
-                targetScale = 0.985f,
-                animationSpec = tween(140, easing = FastOutLinearInEasing),
+                targetScale = 0.97f,
+                animationSpec = tween(200, easing = FastOutLinearInEasing),
             )
     }
 
@@ -132,54 +132,56 @@ object ProMotion {
         style: MotionStyle = MotionStyle.SPRING,
     ): EnterTransition {
         if (reduceMotion) return EnterTransition.None
-        return fadeIn(tween(160, easing = FastOutSlowInEasing)) +
-            slideInHorizontally(animationSpec = navOffsetSpring(false, mode, style)) { -(it * 0.05f).toInt() } +
+        return fadeIn(tween(220, easing = FastOutSlowInEasing)) +
+            slideInHorizontally(animationSpec = navOffsetSpring(false, mode, style)) { -(it * 0.08f).toInt() } +
             scaleIn(
-                initialScale = 0.985f,
+                initialScale = 0.965f,
                 animationSpec = sheetSpring(false, mode, style),
             )
     }
 
-    /** Back navigation exit (crisp slide-out + fade). */
+    /** Back navigation exit (crisp spring slide-out + fade). */
     fun screenPopExit(
         reduceMotion: Boolean,
         mode: PerformanceMode = PerformanceMode.BALANCED,
         style: MotionStyle = MotionStyle.SPRING,
     ): ExitTransition {
         if (reduceMotion) return ExitTransition.None
-        return fadeOut(tween(135, easing = FastOutLinearInEasing)) +
-            slideOutHorizontally(animationSpec = navOffsetSpring(false, mode, style)) { (it * 0.06f).toInt() } +
+        return fadeOut(tween(180, easing = FastOutLinearInEasing)) +
+            slideOutHorizontally(animationSpec = navOffsetSpring(false, mode, style)) { (it * 0.10f).toInt() } +
             scaleOut(
-                targetScale = 0.975f,
-                animationSpec = tween(135, easing = FastOutLinearInEasing),
+                targetScale = 0.955f,
+                animationSpec = tween(190, easing = FastOutLinearInEasing),
             )
     }
 
-    /** Crisp content swap for Library views, Settings categories, and sub-panels. */
+    /** Silky connected content swap for Library views, Settings categories, and sub-panels. */
     fun contentSwap(
         reduceMotion: Boolean,
         mode: PerformanceMode = PerformanceMode.BALANCED,
         style: MotionStyle = MotionStyle.SPRING,
-        horizontalShiftFraction: Float = 0.04f,
+        horizontalShiftFraction: Float = 0.05f,
     ): ContentTransform {
         if (reduceMotion) return fadeIn(snap()) togetherWith fadeOut(snap())
-        val enter = fadeIn(tween(160, easing = FastOutSlowInEasing)) +
-            slideInHorizontally(animationSpec = navOffsetSpring(false, mode, style)) { (it * horizontalShiftFraction).toInt() }
-        val exit = fadeOut(tween(115, easing = FastOutLinearInEasing))
+        val enter = fadeIn(tween(220, easing = FastOutSlowInEasing)) +
+            slideInHorizontally(animationSpec = navOffsetSpring(false, mode, style)) { (it * horizontalShiftFraction).toInt() } +
+            scaleIn(initialScale = 0.975f, animationSpec = sheetSpring(false, mode, style))
+        val exit = fadeOut(tween(150, easing = FastOutLinearInEasing)) +
+            scaleOut(targetScale = 0.985f, animationSpec = tween(150, easing = FastOutLinearInEasing))
         return enter togetherWith exit
     }
 
-    /** Crisp top/bottom bar chrome reveal for Reader & Editor overlays. */
+    /** Smooth spring top/bottom bar chrome reveal for Reader & Editor overlays. */
     fun barEnter(fromTop: Boolean, reduceMotion: Boolean, mode: PerformanceMode = PerformanceMode.BALANCED): EnterTransition {
         if (reduceMotion) return fadeIn(snap())
-        return fadeIn(tween(150, easing = FastOutSlowInEasing)) +
-            slideInVertically(animationSpec = navOffsetSpring(false, mode)) { if (fromTop) -(it / 3) else (it / 3) }
+        return fadeIn(tween(200, easing = FastOutSlowInEasing)) +
+            slideInVertically(animationSpec = navOffsetSpring(false, mode)) { if (fromTop) -(it / 2) else (it / 2) }
     }
 
     fun barExit(fromTop: Boolean, reduceMotion: Boolean): ExitTransition {
         if (reduceMotion) return fadeOut(snap())
-        return fadeOut(tween(120, easing = FastOutLinearInEasing)) +
-            slideOutVertically(animationSpec = tween(130, easing = FastOutLinearInEasing)) { if (fromTop) -(it / 3) else (it / 3) }
+        return fadeOut(tween(160, easing = FastOutLinearInEasing)) +
+            slideOutVertically(animationSpec = tween(180, easing = FastOutLinearInEasing)) { if (fromTop) -(it / 2) else (it / 2) }
     }
 }
 
