@@ -1114,35 +1114,43 @@ fun LibraryScreen(
                                 }
                             }
                         }
-                        com.pronotes.app.ui.TopScrollCloudyBackdrop(
-                            scrolled = libraryScrolled,
-                            enabled = newBookPrefs.topScrollBlur,
-                            height = 54.dp,
-                            modifier = Modifier.align(Alignment.TopCenter),
-                        )
                     }
                   }
 
-                  // Subtle frosted-glass floating top bar (replaces fixed solid black strip while keeping every control in place)
-                  Column(
+                  // Soft progressive Haze header backdrop (feathered edge, zero hard divider or solid bar)
+                  Box(
                       modifier = Modifier
                           .align(Alignment.TopCenter)
                           .fillMaxWidth()
+                          .statusBarsPadding()
+                          .height(82.dp)
                           .then(
                               if (barLiveBlur) {
                                   Modifier.hazeEffect(
                                       state = libraryHazeState,
                                       style = HazeMaterials.ultraThin(barScheme.surface),
-                                  )
+                                  ) {
+                                      progressive = HazeProgressive.verticalGradient(
+                                          startIntensity = 0.85f,
+                                          endIntensity = 0f,
+                                      )
+                                  }
                               } else Modifier,
                           )
                           .background(
                               Brush.verticalGradient(
-                                  0f to barScheme.surface.copy(alpha = if (barLiveBlur) 0.56f else 0.90f),
-                                  0.85f to barScheme.surface.copy(alpha = if (barLiveBlur) 0.42f else 0.84f),
-                                  1f to barScheme.surface.copy(alpha = if (barLiveBlur) 0.16f else 0.65f),
+                                  0f to barScheme.surface.copy(alpha = if (barLiveBlur) 0.44f else 0.84f),
+                                  0.48f to barScheme.surface.copy(alpha = if (barLiveBlur) 0.24f else 0.56f),
+                                  0.82f to barScheme.surface.copy(alpha = if (barLiveBlur) 0.08f else 0.22f),
+                                  1f to Color.Transparent,
                               ),
                           ),
+                  )
+
+                  Column(
+                      modifier = Modifier
+                          .align(Alignment.TopCenter)
+                          .fillMaxWidth(),
                   ) {
                       Row(
                           Modifier
@@ -1254,15 +1262,14 @@ fun LibraryScreen(
                               }
                           }
                       }
-                      HorizontalDivider(thickness = 0.5.dp, color = barScheme.outlineVariant.copy(alpha = 0.22f))
                   }
 
-                  // Subtle progressive Haze blur along the bottom edge so scrolling notebooks glide softly beneath
+                  // Ultra-soft progressive Haze blur along the bottom edge so scrolling notebooks glide smoothly beneath
                   Box(
                       modifier = Modifier
                           .align(Alignment.BottomCenter)
                           .fillMaxWidth()
-                          .height(64.dp)
+                          .height(88.dp)
                           .then(
                               if (barLiveBlur) {
                                   Modifier.hazeEffect(
@@ -1271,7 +1278,7 @@ fun LibraryScreen(
                                   ) {
                                       progressive = HazeProgressive.verticalGradient(
                                           startIntensity = 0f,
-                                          endIntensity = 1f,
+                                          endIntensity = 0.85f,
                                       )
                                   }
                               } else Modifier,
@@ -1279,8 +1286,9 @@ fun LibraryScreen(
                           .background(
                               Brush.verticalGradient(
                                   0f to Color.Transparent,
-                                  0.55f to barScheme.surface.copy(alpha = if (barLiveBlur) 0.18f else 0.45f),
-                                  1f to barScheme.surface.copy(alpha = if (barLiveBlur) 0.48f else 0.85f),
+                                  0.38f to barScheme.surface.copy(alpha = if (barLiveBlur) 0.08f else 0.24f),
+                                  0.74f to barScheme.surface.copy(alpha = if (barLiveBlur) 0.22f else 0.52f),
+                                  1f to barScheme.surface.copy(alpha = if (barLiveBlur) 0.40f else 0.78f),
                               ),
                           ),
                   )
@@ -1297,16 +1305,6 @@ fun LibraryScreen(
                               hero = true,
                               shape = appCardShape(),
                               contentPadding = PaddingValues(18.dp),
-                              modifier = Modifier
-                                  .clip(appCardShape())
-                                  .then(
-                                      if (barLiveBlur) {
-                                          Modifier.hazeEffect(
-                                              state = libraryHazeState,
-                                              style = HazeMaterials.thin(barScheme.surface),
-                                          )
-                                      } else Modifier,
-                                  ),
                           ) {
                               Row(verticalAlignment = Alignment.CenterVertically) {
                                   ProIconView(ProIcon.HEART, ProButtonPalette.MagentaPink, Modifier.size(26.dp))

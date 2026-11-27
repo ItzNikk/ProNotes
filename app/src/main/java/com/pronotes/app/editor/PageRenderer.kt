@@ -211,7 +211,8 @@ class PageRenderer(
     )
 
     private class CachedTextLines(
-        val lines: List<String>,
+        val lines: List<List<StyledTextSpan>>,
+        val spanWidths: List<FloatArray>,
         val widths: FloatArray,
         val gradient: android.graphics.LinearGradient?,
         val styleHash: Int,
@@ -2615,35 +2616,61 @@ class PageRenderer(
     }
 
     private fun drawTextUnrotated(canvas: Canvas, item: TextItem) {
-        applyTextStyle(textPaint, item.size, item.style)
         val b = item.raw
         val styleHash = item.style.hashCode() * 31 + item.size.toBits() * 17 + item.color
         val cached = textLineCache[item]?.takeIf { it.styleHash == styleHash } ?: run {
             val splitLines = item.text.split('\n')
-            val widths = FloatArray(splitLines.size) { idx -> textPaint.measureText(splitLines[idx]) }
+            val parsedLines = ArrayList<List<StyledTextSpan>>(splitLines.size)
+            val spanWidthsList = ArrayList<FloatArray>(splitLines.size)
+            val widths = FloatArray(splitLines.size) { idx ->
+                val spans = parseInlineBoldLine(splitLines[idx], item.style.bold)
+                parsedLines += spans
+                var lineW = 0f
+                val sw = FloatArray(spans.size) { sIdx ->
+                    val sp = spans[sIdx]
+                    if (sp.text.isEmpty()) 0f else {
+                        applyTextStyle(textPaint, item.size, if (sp.bold == item.style.bold) item.style else item.style.copy(bold = sp.bold))
+                        textPaint.measureText(sp.text).also { lineW += it }
+                    }
+                }
+                spanWidthsList += sw
+                lineW
+            }
             val g = item.style.gradient
             val grad = if (g != null) android.graphics.LinearGradient(
                 b.left, b.top, b.right, b.bottom, item.color, g, android.graphics.Shader.TileMode.CLAMP,
             ) else null
-            CachedTextLines(splitLines, widths, grad, styleHash).also {
+            CachedTextLines(parsedLines, spanWidthsList, widths, grad, styleHash).also {
                 if (textLineCache.size > 512) textLineCache.clear()
                 textLineCache[item] = it
             }
         }
-        textPaint.color = item.color
-        textPaint.shader = cached.gradient
         val lh = item.size * 1.3f
         val align = item.style.align
         val lines = cached.lines
+        val spanWidths = cached.spanWidths
         val widths = cached.widths
+        val boldStyle = if (item.style.bold) item.style else item.style.copy(bold = true)
+        val regularStyle = if (!item.style.bold) item.style else item.style.copy(bold = false)
         for (i in lines.indices) {
             val w = widths[i]
-            val x = when (align) {
+            var curX = when (align) {
                 TextAlign.LEFT -> b.left
                 TextAlign.CENTER -> b.left + (b.width() - w) / 2f
                 TextAlign.RIGHT -> b.right - w
             }
-            canvas.drawText(lines[i], x, item.y + item.size + i * lh, textPaint)
+            val baselineY = item.y + item.size + i * lh
+            val lineSpans = lines[i]
+            val sw = spanWidths[i]
+            for (sIdx in lineSpans.indices) {
+                val sp = lineSpans[sIdx]
+                if (sp.text.isEmpty()) continue
+                applyTextStyle(textPaint, item.size, if (sp.bold) boldStyle else regularStyle)
+                textPaint.color = item.color
+                textPaint.shader = cached.gradient
+                canvas.drawText(sp.text, curX, baselineY, textPaint)
+                curX += sw[sIdx]
+            }
         }
         textPaint.shader = null
     }

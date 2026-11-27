@@ -326,63 +326,71 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
                 }
             }
 
-            // Subtle frosted-glass floating top bar (replaces fixed solid-black strip)
-            Column(
+            // Soft progressive frosted Haze backdrop along the top edge (feathered seamlessly into content)
+            Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
+                    .statusBarsPadding()
+                    .height(88.dp)
                     .then(
                         if (liveBlur) {
                             Modifier.hazeEffect(
                                 state = settingsHazeState,
                                 style = HazeMaterials.ultraThin(scheme.surface),
-                            )
+                            ) {
+                                progressive = HazeProgressive.verticalGradient(
+                                    startIntensity = 0.85f,
+                                    endIntensity = 0f,
+                                )
+                            }
                         } else Modifier,
                     )
                     .background(
                         Brush.verticalGradient(
-                            0f to scheme.surface.copy(alpha = if (liveBlur) 0.58f else 0.90f),
-                            0.85f to scheme.surface.copy(alpha = if (liveBlur) 0.44f else 0.84f),
-                            1f to scheme.surface.copy(alpha = if (liveBlur) 0.16f else 0.65f),
+                            0f to scheme.surface.copy(alpha = if (liveBlur) 0.44f else 0.86f),
+                            0.50f to scheme.surface.copy(alpha = if (liveBlur) 0.24f else 0.54f),
+                            0.85f to scheme.surface.copy(alpha = if (liveBlur) 0.08f else 0.18f),
+                            1f to Color.Transparent,
                         ),
                     ),
+            )
+
+            Row(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                AppSurface(
+                    role = SurfaceRole.Control,
+                    containerColor = scheme.surfaceContainerHigh.copy(alpha = 0.72f),
+                    contentColor = scheme.onSurface,
+                    borderColor = scheme.outlineVariant.copy(alpha = 0.28f),
+                    shape = appPillShape(),
+                    contentPadding = PaddingValues(12.dp),
+                    onClick = back,
+                    onClickLabel = appStrings.back,
                 ) {
-                    AppSurface(
-                        role = SurfaceRole.Control,
-                        containerColor = scheme.surfaceContainerHigh.copy(alpha = 0.72f),
-                        contentColor = scheme.onSurface,
-                        borderColor = scheme.outlineVariant.copy(alpha = 0.32f),
-                        shape = appPillShape(),
-                        contentPadding = PaddingValues(12.dp),
-                        onClick = back,
-                        onClickLabel = appStrings.back,
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, appStrings.back, tint = scheme.onSurface)
-                    }
-                    GradientTitle(
-                        if (wide) appStrings.settings else current?.localizedLabel(appStrings) ?: appStrings.settings,
-                        MaterialTheme.typography.headlineMedium,
-                        modifier = Modifier.weight(1f),
-                        maxLines = 2,
-                    )
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, appStrings.back, tint = scheme.onSurface)
                 }
-                HorizontalDivider(thickness = 0.5.dp, color = scheme.outlineVariant.copy(alpha = 0.22f))
+                GradientTitle(
+                    if (wide) appStrings.settings else current?.localizedLabel(appStrings) ?: appStrings.settings,
+                    MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 2,
+                )
             }
 
-            // Subtle progressive Haze blur along the bottom edge
+            // Soft progressive Haze blur along the bottom edge
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .height(82.dp)
+                    .height(92.dp)
                     .then(
                         if (liveBlur) {
                             Modifier.hazeEffect(
@@ -391,7 +399,7 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
                             ) {
                                 progressive = HazeProgressive.verticalGradient(
                                     startIntensity = 0f,
-                                    endIntensity = 1f,
+                                    endIntensity = 0.85f,
                                 )
                             }
                         } else Modifier,
@@ -399,37 +407,38 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
                     .background(
                         Brush.verticalGradient(
                             0f to Color.Transparent,
-                            0.50f to scheme.surface.copy(alpha = if (liveBlur) 0.20f else 0.45f),
-                            1f to scheme.surface.copy(alpha = if (liveBlur) 0.52f else 0.88f),
+                            0.36f to scheme.surface.copy(alpha = if (liveBlur) 0.08f else 0.22f),
+                            0.72f to scheme.surface.copy(alpha = if (liveBlur) 0.22f else 0.50f),
+                            1f to scheme.surface.copy(alpha = if (liveBlur) 0.40f else 0.78f),
                         ),
                     ),
             )
 
-            // Bigger, vibrant gradient floating pill search bar anchored on the bottom-left
+            // Bigger bottom-left gradient pill search bar (color gradient belongs on the search bar itself, not the icon button)
             var searchFocused by remember { mutableStateOf(false) }
             val searchExpanded = searchFocused || searchQuery.isNotBlank()
             val pillWidth by androidx.compose.animation.core.animateDpAsState(
-                targetValue = if (searchExpanded) 392.dp else 256.dp,
+                targetValue = if (searchExpanded) 396.dp else 264.dp,
                 animationSpec = com.pronotes.app.ui.ProMotion.sheetSpring(reduceMotion, perfMode, motionStyle),
                 label = "settingsSearchPillW",
             )
-            val searchGradientBorder = remember {
+            val searchGradientBorder = remember(searchExpanded) {
                 Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFF3B82F6),
-                        Color(0xFF8B5CF6),
-                        Color(0xFFEC4899),
-                        Color(0xFF06B6D4),
+                        Color(0xFF3B82F6).copy(alpha = if (searchExpanded) 0.85f else 0.58f),
+                        Color(0xFF8B5CF6).copy(alpha = if (searchExpanded) 0.85f else 0.58f),
+                        Color(0xFFEC4899).copy(alpha = if (searchExpanded) 0.80f else 0.52f),
+                        Color(0xFF06B6D4).copy(alpha = if (searchExpanded) 0.80f else 0.52f),
                     ),
                 )
             }
             val searchGradientFill = remember(searchExpanded) {
                 Brush.horizontalGradient(
                     colors = listOf(
-                        Color(0xFF3B82F6).copy(alpha = if (searchExpanded) 0.22f else 0.16f),
-                        Color(0xFF8B5CF6).copy(alpha = if (searchExpanded) 0.20f else 0.14f),
-                        Color(0xFFEC4899).copy(alpha = if (searchExpanded) 0.18f else 0.12f),
-                        Color(0xFF06B6D4).copy(alpha = if (searchExpanded) 0.16f else 0.10f),
+                        Color(0xFF3B82F6).copy(alpha = if (searchExpanded) 0.34f else 0.26f),
+                        Color(0xFF8B5CF6).copy(alpha = if (searchExpanded) 0.32f else 0.24f),
+                        Color(0xFFEC4899).copy(alpha = if (searchExpanded) 0.28f else 0.21f),
+                        Color(0xFF06B6D4).copy(alpha = if (searchExpanded) 0.28f else 0.20f),
                     ),
                 )
             }
@@ -449,20 +458,10 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
                 ) {
                     Surface(
                         shape = RoundedCornerShape(24.dp),
-                        color = scheme.surfaceContainerHigh.copy(alpha = if (liveBlur) 0.78f else 0.96f),
+                        color = scheme.surfaceContainerHigh.copy(alpha = 0.94f),
                         border = BorderStroke(1.2.dp, searchGradientBorder),
-                        shadowElevation = 12.dp,
-                        modifier = Modifier
-                            .widthIn(min = 300.dp, max = 420.dp)
-                            .clip(RoundedCornerShape(24.dp))
-                            .then(
-                                if (liveBlur) {
-                                    Modifier.hazeEffect(
-                                        state = settingsHazeState,
-                                        style = HazeMaterials.thin(scheme.surface),
-                                    )
-                                } else Modifier,
-                            ),
+                        shadowElevation = 10.dp,
+                        modifier = Modifier.widthIn(min = 300.dp, max = 420.dp),
                     ) {
                         if (searchMatches.isEmpty()) {
                             Box(
@@ -536,51 +535,35 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
                     }
                 }
 
-                // Bigger, frosted gradient pill search input on bottom-left
+                // Bigger, smooth gradient-colored floating pill search bar on bottom-left (no RenderEffect during width resize)
                 Box(
                     modifier = Modifier
-                        .widthIn(min = 256.dp, max = 392.dp)
+                        .widthIn(min = 264.dp, max = 396.dp)
                         .width(pillWidth)
-                        .defaultMinSize(minHeight = 54.dp)
+                        .defaultMinSize(minHeight = 56.dp)
                         .clip(CircleShape)
-                        .then(
-                            if (liveBlur) {
-                                Modifier.hazeEffect(
-                                    state = settingsHazeState,
-                                    style = HazeMaterials.thin(scheme.surface),
-                                )
-                            } else Modifier,
-                        )
-                        .background(scheme.surfaceContainerHigh.copy(alpha = if (liveBlur) 0.68f else 0.92f))
+                        .background(scheme.surfaceContainerHigh.copy(alpha = 0.88f))
                         .background(searchGradientFill)
-                        .border(width = if (searchExpanded) 2.dp else 1.6.dp, brush = searchGradientBorder, shape = CircleShape),
+                        .border(width = if (searchExpanded) 1.6.dp else 1.2.dp, brush = searchGradientBorder, shape = CircleShape),
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(start = 10.dp, end = 14.dp, top = 10.dp, bottom = 10.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(searchGradientBorder),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                Icons.Rounded.Search,
-                                contentDescription = "Search settings",
-                                tint = Color.White,
-                                modifier = Modifier.size(19.dp),
-                            )
-                        }
+                        Icon(
+                            Icons.Rounded.Search,
+                            contentDescription = "Search settings",
+                            tint = scheme.onSurface.copy(alpha = 0.82f),
+                            modifier = Modifier.size(20.dp),
+                        )
                         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                             if (searchQuery.isEmpty()) {
                                 Text(
                                     "Search settings…",
                                     style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
-                                    color = scheme.onSurface.copy(alpha = 0.72f),
+                                    color = scheme.onSurface.copy(alpha = 0.76f),
                                     maxLines = 1,
                                 )
                             }
@@ -600,7 +583,7 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
                                 modifier = Modifier
                                     .size(26.dp)
                                     .clip(CircleShape)
-                                    .background(scheme.onSurface.copy(alpha = 0.12f))
+                                    .background(scheme.onSurface.copy(alpha = 0.14f))
                                     .clickable { searchQuery = "" },
                                 contentAlignment = Alignment.Center,
                             ) {
@@ -911,9 +894,17 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                             s.toolDefaults.autoSpellCheck,
                         ) { v -> up { it.copy(toolDefaults = it.toolDefaults.copy(autoSpellCheck = v)) } }
                         Box(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                            val activeAutoFont = remember(s.toolDefaults.autoScript) {
+                                com.pronotes.app.editor.TextFont.entries.find { it.name == s.toolDefaults.autoScript }
+                                    ?: com.pronotes.app.editor.TextFont.CURSIVE
+                            }
                             com.pronotes.app.editor.CustomHandwritingFontPicker(
                                 selectedPath = s.toolDefaults.customHandwritingFontPath,
                                 fgColor = MaterialTheme.colorScheme.onSurface,
+                                selectedFont = activeAutoFont,
+                                onSelectFont = { font ->
+                                    up { it.copy(toolDefaults = it.toolDefaults.copy(autoScript = font.name, customHandwritingFontPath = "")) }
+                                },
                                 onSelect = { path ->
                                     up { it.copy(toolDefaults = it.toolDefaults.copy(customHandwritingFontPath = path)) }
                                 },
@@ -1438,12 +1429,6 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
             }
         }
     }
-    com.pronotes.app.ui.TopScrollCloudyBackdrop(
-        scrolled = scrolled,
-        enabled = s.topScrollBlur,
-        height = 56.dp,
-        modifier = Modifier.align(Alignment.TopCenter),
-    )
     }
 }
 

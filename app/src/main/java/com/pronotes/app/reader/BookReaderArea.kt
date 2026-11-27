@@ -479,84 +479,92 @@ fun BookReaderHubScreen(
             }
         }
 
-        // Subtle frosted-glass floating top bar (replaces fixed solid-black bar)
-        Column(
+        // Ultra-soft progressive Haze top backdrop (zero hard bar or horizontal line)
+        Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
+                .statusBarsPadding()
+                .height(90.dp)
                 .then(
                     if (readerLiveBlur) {
                         Modifier.hazeEffect(
                             state = readerHazeState,
                             style = HazeMaterials.ultraThin(readerScheme.surface),
-                        )
+                        ) {
+                            progressive = HazeProgressive.verticalGradient(
+                                startIntensity = 0.85f,
+                                endIntensity = 0f,
+                            )
+                        }
                     } else Modifier,
                 )
                 .background(
                     Brush.verticalGradient(
-                        0f to readerScheme.surface.copy(alpha = if (readerLiveBlur) 0.58f else 0.90f),
-                        0.85f to readerScheme.surface.copy(alpha = if (readerLiveBlur) 0.44f else 0.84f),
-                        1f to readerScheme.surface.copy(alpha = if (readerLiveBlur) 0.16f else 0.65f),
+                        0f to readerScheme.surface.copy(alpha = if (readerLiveBlur) 0.44f else 0.86f),
+                        0.48f to readerScheme.surface.copy(alpha = if (readerLiveBlur) 0.24f else 0.56f),
+                        0.84f to readerScheme.surface.copy(alpha = if (readerLiveBlur) 0.08f else 0.20f),
+                        1f to Color.Transparent,
                     ),
                 ),
+        )
+
+        Row(
+            Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                IconButton(onClick = onBackToLibrary) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to library", tint = readerScheme.onSurface)
-                }
-                Box(
-                    Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(readerScheme.primary.copy(alpha = 0.14f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Outlined.MenuBook,
-                        contentDescription = null,
-                        tint = readerScheme.primary,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
-                Column(Modifier.weight(1f)) {
-                    com.pronotes.app.ui.GradientTitle("Kindle Mode",
-                        MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold))
-                    Text(
-                        "${pdfBooks.size} PDF books · ${noteBooks.size} notebooks",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = readerScheme.onSurfaceVariant,
-                    )
-                }
-                AppPill(
-                    selected = true,
-                    tint = MaterialTheme.colorScheme.secondary,
-                    onClick = { importBookLauncher.launch(arrayOf("*/*")) },
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
-                ) {
-                    Icon(Icons.Outlined.UploadFile, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Import", style = MaterialTheme.typography.labelLarge)
-                }
-                IconButton(onClick = onSettings) {
-                    Icon(Icons.Outlined.Settings, contentDescription = "Settings", tint = readerScheme.onSurface)
-                }
+            IconButton(onClick = onBackToLibrary) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to library", tint = readerScheme.onSurface)
             }
-            androidx.compose.material3.HorizontalDivider(thickness = 0.5.dp, color = readerScheme.outlineVariant.copy(alpha = 0.22f))
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(readerScheme.primary.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Outlined.MenuBook,
+                    contentDescription = null,
+                    tint = readerScheme.primary,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+            Column(Modifier.weight(1f)) {
+                com.pronotes.app.ui.GradientTitle("Kindle Mode",
+                    MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold))
+                Text(
+                    "${pdfBooks.size} PDF books · ${noteBooks.size} notebooks",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = readerScheme.onSurfaceVariant,
+                )
+            }
+            AppPill(
+                selected = true,
+                tint = MaterialTheme.colorScheme.secondary,
+                onClick = { importBookLauncher.launch(arrayOf("*/*")) },
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
+            ) {
+                Icon(Icons.Outlined.UploadFile, null, Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Import", style = MaterialTheme.typography.labelLarge)
+            }
+            IconButton(onClick = onSettings) {
+                Icon(Icons.Outlined.Settings, contentDescription = "Settings", tint = readerScheme.onSurface)
+            }
         }
 
-        // Subtle progressive Haze blur along the bottom edge
+        // Ultra-soft progressive Haze blur along the bottom edge
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(64.dp)
+                .height(88.dp)
                 .then(
                     if (readerLiveBlur) {
                         Modifier.hazeEffect(
@@ -565,7 +573,7 @@ fun BookReaderHubScreen(
                         ) {
                             progressive = HazeProgressive.verticalGradient(
                                 startIntensity = 0f,
-                                endIntensity = 1f,
+                                endIntensity = 0.85f,
                             )
                         }
                     } else Modifier,
@@ -573,8 +581,9 @@ fun BookReaderHubScreen(
                 .background(
                     Brush.verticalGradient(
                         0f to Color.Transparent,
-                        0.55f to readerScheme.surface.copy(alpha = if (readerLiveBlur) 0.18f else 0.45f),
-                        1f to readerScheme.surface.copy(alpha = if (readerLiveBlur) 0.48f else 0.85f),
+                        0.38f to readerScheme.surface.copy(alpha = if (readerLiveBlur) 0.08f else 0.24f),
+                        0.74f to readerScheme.surface.copy(alpha = if (readerLiveBlur) 0.22f else 0.52f),
+                        1f to readerScheme.surface.copy(alpha = if (readerLiveBlur) 0.40f else 0.78f),
                     ),
                 ),
         )
@@ -1233,9 +1242,9 @@ fun BookReaderScreen(
         ) {
             AppSurface(
                 role = SurfaceRole.Chrome,
-                containerColor = Color.Black,
-                contentColor = Color.White,
-                borderColor = Color.White.copy(alpha = 0.14f),
+                containerColor = theme.chromeBg.copy(alpha = 0.90f),
+                contentColor = theme.inkText,
+                borderColor = theme.mutedText.copy(alpha = 0.20f),
                 shape = RoundedCornerShape(18.dp),
                 shadowElevation = 6.dp,
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
@@ -1250,7 +1259,7 @@ fun BookReaderScreen(
                         onClick = onBack,
                         modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to shelf", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to shelf", tint = theme.inkText)
                     }
                     Column(Modifier.weight(1f)) {
                         Text(
@@ -1259,7 +1268,7 @@ fun BookReaderScreen(
                                 fontFamily = FontFamily.Serif,
                                 fontWeight = FontWeight.Bold,
                             ),
-                            color = Color.White,
+                            color = theme.inkText,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -1268,19 +1277,19 @@ fun BookReaderScreen(
                         onClick = { showSearchSheet = true },
                         modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
                     ) {
-                        Icon(Icons.Outlined.Search, contentDescription = stringResource(R.string.reader_search), tint = Color.White)
+                        Icon(Icons.Outlined.Search, contentDescription = stringResource(R.string.reader_search), tint = theme.inkText)
                     }
                     IconButton(
                         onClick = { showContentsSheet = true },
                         modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
                     ) {
-                        Icon(Icons.Outlined.GridView, contentDescription = stringResource(R.string.reader_contents), tint = Color.White)
+                        Icon(Icons.Outlined.GridView, contentDescription = stringResource(R.string.reader_contents), tint = theme.inkText)
                     }
                     IconButton(
                         onClick = { showDisplaySheet = true },
                         modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
                     ) {
-                        Icon(Icons.Outlined.TextFields, contentDescription = stringResource(R.string.reader_display_settings), tint = Color.White)
+                        Icon(Icons.Outlined.TextFields, contentDescription = stringResource(R.string.reader_display_settings), tint = theme.inkText)
                     }
                     val isBookmarked = pages.getOrNull(currentPage)?.bookmarked == true
                     IconButton(
@@ -1292,7 +1301,7 @@ fun BookReaderScreen(
                             contentDescription = stringResource(
                                 if (isBookmarked) R.string.reader_bookmark_remove else R.string.reader_bookmark_add,
                             ),
-                            tint = if (isBookmarked) theme.accent else Color(0xFFB4BCD0),
+                            tint = if (isBookmarked) theme.accent else theme.mutedText,
                         )
                     }
                 }
@@ -1311,9 +1320,9 @@ fun BookReaderScreen(
         ) {
             AppSurface(
                 role = SurfaceRole.Chrome,
-                containerColor = Color.Black,
-                contentColor = Color.White,
-                borderColor = Color.White.copy(alpha = 0.14f),
+                containerColor = theme.chromeBg.copy(alpha = 0.90f),
+                contentColor = theme.inkText,
+                borderColor = theme.mutedText.copy(alpha = 0.20f),
                 shape = RoundedCornerShape(18.dp),
                 shadowElevation = 6.dp,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
@@ -1332,7 +1341,7 @@ fun BookReaderScreen(
                         Icon(
                             Icons.Outlined.ChevronLeft,
                             contentDescription = stringResource(R.string.reader_previous_page),
-                            tint = if (canGoPrev()) Color.White else Color.White.copy(alpha = 0.30f),
+                            tint = if (canGoPrev()) theme.inkText else theme.mutedText.copy(alpha = 0.35f),
                         )
                     }
                     Column(Modifier.weight(1f)) {
@@ -1341,13 +1350,13 @@ fun BookReaderScreen(
                             Text(
                                 "Page ${currentPage + 1} of $totalPages",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color.White,
+                                color = theme.inkText,
                                 fontWeight = FontWeight.SemiBold,
                             )
                             Text(
                                 if (zoom > 1.04f) "${(zoom * 100).roundToInt()}% · $pct%" else "$pct% read",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFFB4BCD0),
+                                color = theme.mutedText,
                             )
                         }
                         if (totalPages > 1) {
@@ -1360,9 +1369,9 @@ fun BookReaderScreen(
                                 valueRange = 0f..(totalPages - 1).toFloat(),
                                 steps = (totalPages - 2).coerceAtLeast(0),
                                 colors = SliderDefaults.colors(
-                                    thumbColor = Color(0xFF93C5FD),
-                                    activeTrackColor = Color(0xFF93C5FD),
-                                    inactiveTrackColor = Color.White.copy(alpha = 0.22f),
+                                    thumbColor = theme.accent,
+                                    activeTrackColor = theme.accent,
+                                    inactiveTrackColor = theme.mutedText.copy(alpha = 0.24f),
                                 ),
                                 modifier = Modifier.height(28.dp),
                             )
@@ -1376,7 +1385,7 @@ fun BookReaderScreen(
                         Icon(
                             Icons.Outlined.ChevronRight,
                             contentDescription = stringResource(R.string.reader_next_page),
-                            tint = if (canGoNext()) Color.White else Color.White.copy(alpha = 0.30f),
+                            tint = if (canGoNext()) theme.inkText else theme.mutedText.copy(alpha = 0.35f),
                         )
                     }
                 }

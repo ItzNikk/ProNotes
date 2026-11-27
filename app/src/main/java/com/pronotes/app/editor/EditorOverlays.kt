@@ -162,8 +162,8 @@ fun SelectionMenu(
             onDelete = { vm.deletePageItems(pageId, ids) },
         )
     }
-    val fg = Color(0xFFF8FAFC)
-    val mutedFg = Color(0xFFCBD5E1)
+    val fg = MaterialTheme.colorScheme.onSurface
+    val mutedFg = MaterialTheme.colorScheme.onSurfaceVariant
     val density = LocalDensity.current.density
     val reduceEffects = LocalReduceEffects.current
     val maxMenuW = if (areaSize.width > 0) (areaSize.width / density - 24f).coerceAtLeast(220f).dp else 560.dp
@@ -182,10 +182,10 @@ fun SelectionMenu(
 
     AppSurface(
         role = SurfaceRole.Chrome,
-        containerColor = Color.Black,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
         contentColor = fg,
         shape = appPillShape(),
-        borderColor = Color.White.copy(alpha = 0.14f),
+        borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
         shadowElevation = if (reduceEffects) 0.dp else 10.dp,
         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
         modifier = Modifier.widthIn(max = maxMenuW),
@@ -201,7 +201,7 @@ fun SelectionMenu(
                         label = "Edit text",
                         onClick = { vm.openInlineTextBox(vm.selectionPage, editableText.x, editableText.y, editableText) },
                     ) {
-                        Icon(Icons.Outlined.Keyboard, contentDescription = null, Modifier.size(20.dp), tint = Color(0xFF34D399))
+                        Icon(Icons.Outlined.Keyboard, contentDescription = null, Modifier.size(20.dp), tint = ProButtonPalette.Emerald)
                     }
                 }
                 SelectionActionIcon(
@@ -243,20 +243,20 @@ fun SelectionMenu(
                 SelectionActionIcon(label = dupLabel, onClick = onDuplicate) {
                     Icon(Icons.Outlined.ControlPointDuplicate, contentDescription = null, Modifier.size(19.dp), tint = fg)
                 }
-                Box(Modifier.padding(horizontal = 2.dp).width(1.dp).height(20.dp).background(Color.White.copy(alpha = 0.16f)))
+                Box(Modifier.padding(horizontal = 2.dp).width(1.dp).height(20.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)))
                 SelectionActionIcon(label = colourLabel, onClick = { colors = true }) {
                     Icon(Icons.Outlined.Palette, contentDescription = null, Modifier.size(19.dp), tint = fg)
                 }
                 SelectionActionIcon(label = "Font", onClick = { fontPickerOpen = true }) {
-                    Icon(Icons.Outlined.FontDownload, contentDescription = null, Modifier.size(19.dp), tint = Color(0xFF93C5FD))
+                    Icon(Icons.Outlined.FontDownload, contentDescription = null, Modifier.size(19.dp), tint = ProButtonPalette.ElectricBlue)
                 }
                 if (hasInkSelected) {
                     SelectionActionIcon(label = "Convert to text", onClick = { vm.convertSelectionToText(onConvertToText) }) {
-                        Icon(Icons.Outlined.TextFields, contentDescription = null, Modifier.size(19.dp), tint = Color(0xFF93C5FD))
+                        Icon(Icons.Outlined.TextFields, contentDescription = null, Modifier.size(19.dp), tint = ProButtonPalette.ElectricBlue)
                     }
                 }
                 SelectionActionIcon(label = "Save as sticker", onClick = { vm.saveSelectionAsSticker() }) {
-                    ProIconView(ProIcon.STICKER, Color(0xFFF472B6), Modifier.size(19.dp), ink = Color(0xFFF472B6))
+                    ProIconView(ProIcon.STICKER, ProButtonPalette.MagentaPink, Modifier.size(19.dp), ink = ProButtonPalette.MagentaPink)
                 }
                 SelectionActionIcon(label = "Share", onClick = onShareImage) {
                     Icon(Icons.Outlined.IosShare, contentDescription = null, Modifier.size(19.dp), tint = fg)
@@ -330,7 +330,7 @@ fun SelectionMenu(
                         },
                     )
                 }
-                Box(Modifier.padding(horizontal = 2.dp).width(1.dp).height(20.dp).background(Color.White.copy(alpha = 0.16f)))
+                Box(Modifier.padding(horizontal = 2.dp).width(1.dp).height(20.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)))
                 SelectionActionIcon(
                     label = deleteLabel,
                     onClick = {
@@ -339,7 +339,7 @@ fun SelectionMenu(
                         }
                     },
                 ) {
-                    Icon(Icons.Outlined.Delete, contentDescription = null, Modifier.size(19.dp), tint = Color(0xFFF87171))
+                    Icon(Icons.Outlined.Delete, contentDescription = null, Modifier.size(19.dp), tint = MaterialTheme.colorScheme.error)
                 }
             }
         }
@@ -393,6 +393,7 @@ private fun LassoFontPickerDialog(
     val (activeFont, activeCustomPath) = vm.selectionActiveFont()
     var customFonts by remember { mutableStateOf(CustomFontRegistry.listFonts(context)) }
     var showLinkImport by remember { mutableStateOf(false) }
+    var activeCategory by remember { mutableStateOf(FontGalleryCategory.ALL) }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
             val imported = CustomFontRegistry.importFont(context, uri)
@@ -410,14 +411,26 @@ private fun LassoFontPickerDialog(
         }
     }
 
+    val activeCustom = remember(activeCustomPath, customFonts) {
+        if (activeCustomPath.isBlank()) null else customFonts.firstOrNull { it.path == activeCustomPath }
+    }
+    val previewFamily = remember(activeFont, activeCustomPath) {
+        val tf = if (activeCustomPath.isNotBlank()) CustomFontRegistry.loadTypeface(activeCustomPath) else null
+        FontFamily(tf ?: activeFont.typeface)
+    }
+    val filteredFonts = remember(activeCategory) {
+        if (activeCategory == FontGalleryCategory.ALL) TextFont.entries
+        else TextFont.entries.filter { it.galleryCategory() == activeCategory }
+    }
+
     AppDialog(
         onDismissRequest = onDismiss,
         title = {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("Lasso Font & Style", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("Handwriting & Font Studio", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text(
-                    text = if (hasStylableText) "Update font, style, and size of selected text & sticky notes"
-                    else "Tap any font to convert selected handwriting into styled text",
+                    text = if (hasStylableText) "Update typeface, weight, and scale on selected notes"
+                    else "Choose a typeface to convert selected handwriting cleanly",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -430,6 +443,30 @@ private fun LassoFontPickerDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                // Live Specimen Card
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = ProButtonPalette.ElectricBlue.copy(alpha = 0.08f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, ProButtonPalette.ElectricBlue.copy(alpha = 0.30f)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            activeCustom?.displayName ?: activeFont.label,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = ProButtonPalette.ElectricBlue,
+                        )
+                        Text(
+                            "The quick brown fox jumps · 123",
+                            style = MaterialTheme.typography.titleMedium.copy(fontFamily = previewFamily),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+
                 if (hasStylableText) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -523,7 +560,7 @@ private fun LassoFontPickerDialog(
                             ) {
                                 pair.forEach { cf ->
                                     val selected = activeCustomPath == cf.path
-                                    val previewFamily = remember(cf.path) {
+                                    val cfFamily = remember(cf.path) {
                                         CustomFontRegistry.loadTypeface(cf.path)?.let { FontFamily(it) } ?: FontFamily.SansSerif
                                     }
                                     Surface(
@@ -536,22 +573,30 @@ private fun LassoFontPickerDialog(
                                             }
                                         },
                                         shape = RoundedCornerShape(14.dp),
-                                        color = if (selected) ProButtonPalette.ElectricBlue.copy(alpha = 0.16f)
+                                        color = if (selected) ProButtonPalette.Violet.copy(alpha = 0.16f)
                                         else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
                                         border = androidx.compose.foundation.BorderStroke(
                                             if (selected) 1.5.dp else 0.8.dp,
-                                            if (selected) ProButtonPalette.ElectricBlue else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+                                            if (selected) ProButtonPalette.Violet else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
                                         ),
                                         modifier = Modifier.weight(1f),
                                     ) {
-                                        Text(
-                                            text = cf.displayName,
-                                            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = previewFamily),
-                                            color = if (selected) ProButtonPalette.ElectricBlue else MaterialTheme.colorScheme.onSurface,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                        )
+                                        Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
+                                            Text(
+                                                text = cf.displayName,
+                                                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = cfFamily),
+                                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (selected) ProButtonPalette.Violet else MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            Text(
+                                                text = "Aa Bb 123",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontFamily = cfFamily),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                            )
+                                        }
                                     }
                                 }
                                 if (pair.size == 1) Spacer(Modifier.weight(1f))
@@ -560,13 +605,25 @@ private fun LassoFontPickerDialog(
                     }
                 }
 
-                Text(
-                    "Built-in Fonts",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                // Category tabs
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    FontGalleryCategory.entries.forEach { cat ->
+                        com.pronotes.app.ui.AppChip(
+                            selected = activeCategory == cat,
+                            onClick = { activeCategory = cat },
+                            label = cat.label,
+                            tint = ProButtonPalette.ElectricBlue,
+                        )
+                    }
+                }
+
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextFont.entries.chunked(2).forEach { pair ->
+                    filteredFonts.chunked(2).forEach { pair ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),

@@ -565,9 +565,9 @@ fun EditorScreen(
         vm.animateHandwritingConversion = !reduceMotion && !reduceEffects
     }
     val workspaceBg = if (darkUi) WorkspaceDarkBg else WorkspaceLightBg
-    val tabStripBg = Color.Black
-    val topBarBg = Color.Black
-    val topBarFg = Color.White
+    val tabStripBg = if (darkUi) Color(0xE80E1117) else Color(0xEDF1F5F9)
+    val topBarBg = if (darkUi) Color(0xE0141821) else Color(0xEAF8FAFC)
+    val topBarFg = if (darkUi) Color(0xFFF1F5F9) else Color(0xFF0F172A)
     val resolvedTabs = remember(tabs, activeNotebookTitles, noteId, vm.title) {
         val list = tabs.mapNotNull { id ->
             activeNotebookTitles[id]?.let { id to it }
@@ -813,7 +813,7 @@ fun EditorScreen(
                 }
 
                 var areaSize by remember { mutableStateOf(IntSize.Zero) }
-                var viewportTick by remember { mutableIntStateOf(0) }
+                val viewportTickState = remember { mutableIntStateOf(0) }
                 Box(
                     Modifier
                         .weight(1f)
@@ -928,7 +928,11 @@ fun EditorScreen(
                                     it.renderer = vm.renderer()
                                     it.settings = settings
                                     it.tool = vm.tool
-                                    it.onViewportChanged = { viewportTick++ }
+                                    it.onViewportChanged = {
+                                        if (vm.currentPage?.items?.any { item -> item is WebLinkItem && item.embedded } == true) {
+                                            viewportTickState.intValue++
+                                        }
+                                    }
                                     canvas = it
                                 }
                             },
@@ -940,7 +944,7 @@ fun EditorScreen(
                         vm = vm,
                         canvas = canvas,
                         areaSize = areaSize,
-                        viewportTick = viewportTick,
+                        viewportTick = { viewportTickState.intValue },
                     )
 
                     EditorHandwritingGlowOverlay(
@@ -954,7 +958,7 @@ fun EditorScreen(
                         scrolled = !focus,
                         aurora = true,
                         enabled = settings.topScrollBlur,
-                        height = 34.dp,
+                        height = 52.dp,
                         modifier = Modifier.align(Alignment.TopCenter),
                     )
 
@@ -1294,10 +1298,11 @@ fun EditorScreen(
                     ) {
                         val r = vm.textMenu ?: lastTextMenu ?: return@AnimatedVisibility
                         val clip = LocalClipboardManager.current
+                        val menuFg = MaterialTheme.colorScheme.onSurface
                         AppSurface(
                             role = SurfaceRole.Popover,
-                            containerColor = Color.Black,
-                            contentColor = Color.White,
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
+                            contentColor = menuFg,
                             shape = appPillShape(),
                             shadowElevation = 10.dp,
                             contentPadding = PaddingValues(horizontal = 6.dp),
@@ -1318,7 +1323,7 @@ fun EditorScreen(
                                 TextButton(onClick = {
                                     vm.textSel?.text?.let { clip.setText(AnnotatedString(it)) }
                                     vm.clearTextSel()
-                                }) { Text("Copy", color = Color.White) }
+                                }) { Text("Copy", color = menuFg) }
                                 listOf(0xFFFFE066, 0xFF8CE99A, 0xFF74C0FC, 0xFFFFA8A8).forEach { c ->
                                     Box(
                                         Modifier
@@ -1329,14 +1334,14 @@ fun EditorScreen(
                                             .clickable { vm.highlightTextSel(c.toInt()) },
                                     )
                                 }
-                                TextButton(onClick = { vm.lineTextSel(strike = false) }) { Text("Underline", color = Color.White) }
-                                TextButton(onClick = { vm.lineTextSel(strike = true) }) { Text("Strike", color = Color.White) }
+                                TextButton(onClick = { vm.lineTextSel(strike = false) }) { Text("Underline", color = menuFg) }
+                                TextButton(onClick = { vm.lineTextSel(strike = true) }) { Text("Strike", color = menuFg) }
                                 TextButton(onClick = {
                                     val q = vm.textSel?.text ?: ""
                                     vm.clearTextSel()
                                     showSearch = true
                                     vm.search(q)
-                                }) { Text("Search", color = Color.White) }
+                                }) { Text("Search", color = menuFg) }
                                 TextButton(onClick = {
                                     val q = vm.textSel?.text ?: ""
                                     vm.clearTextSel()
@@ -1346,7 +1351,7 @@ fun EditorScreen(
                                             "Share",
                                         ),
                                     )
-                                }) { Text("Share", color = Color.White) }
+                                }) { Text("Share", color = menuFg) }
                             }
                         }
                     }
@@ -1391,10 +1396,11 @@ fun EditorScreen(
                                     style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6f * density, pathEffect = dash),
                                 )
                             }
+                            val regionFg = MaterialTheme.colorScheme.onSurface
                             AppSurface(
                                 role = SurfaceRole.Popover,
-                                containerColor = Color.Black,
-                                contentColor = Color.White,
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
+                                contentColor = regionFg,
                                 shape = RoundedCornerShape(14.dp),
                                 shadowElevation = 10.dp,
                                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
@@ -1415,16 +1421,16 @@ fun EditorScreen(
                                     TextButton(onClick = {
                                         vm.cutPdfRegion { p, id -> canvas?.selectItems(p, setOf(id)) }
                                     }) {
-                                        Icon(Icons.Outlined.ContentCut, null, Modifier.size(16.dp), tint = Color(0xFF93C5FD))
+                                        Icon(Icons.Outlined.ContentCut, null, Modifier.size(16.dp), tint = ProButtonPalette.ElectricBlue)
                                         Spacer(Modifier.width(4.dp))
-                                        Text("Cut", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                        Text("Cut", color = regionFg, fontWeight = FontWeight.SemiBold)
                                     }
                                     TextButton(onClick = { vm.copyPdfRegionImage() }) {
-                                        Text("Copy", color = Color.White)
+                                        Text("Copy", color = regionFg)
                                     }
                                     if (sel.extractedText.isNotBlank()) {
                                         TextButton(onClick = { vm.copyPdfRegionText() }) {
-                                            Text("Copy text", color = Color.White)
+                                            Text("Copy text", color = regionFg)
                                         }
                                     }
                                     listOf(0xFFFFE066, 0xFF8CE99A, 0xFF74C0FC).forEach { c ->
@@ -1438,13 +1444,13 @@ fun EditorScreen(
                                         )
                                     }
                                     TextButton(onClick = { vm.savePdfRegionAsSticker() }) {
-                                        Text("Sticker", color = Color.White)
+                                        Text("Sticker", color = regionFg)
                                     }
                                     IconButton(
                                         onClick = { vm.clearPdfRegionSel() },
                                         modifier = Modifier.size(32.dp),
                                     ) {
-                                        Icon(Icons.Filled.Close, "Dismiss lasso region", tint = Color.White.copy(alpha = 0.78f), modifier = Modifier.size(16.dp))
+                                        Icon(Icons.Filled.Close, "Dismiss lasso region", tint = regionFg.copy(alpha = 0.72f), modifier = Modifier.size(16.dp))
                                     }
                                 }
                             }
@@ -1455,8 +1461,8 @@ fun EditorScreen(
                     vm.toast?.let { msg ->
                         AppSurface(
                             role = SurfaceRole.Popover,
-                            containerColor = Color.Black,
-                            contentColor = Color.White,
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
+                            contentColor = MaterialTheme.colorScheme.onSurface,
                             shape = appPillShape(),
                             onClick = { vm.dismissToast() },
                             contentPadding = PaddingValues(
@@ -1953,9 +1959,9 @@ private fun EditorFloatingUndoPill(
     val isWhiteboard = vm.currentPage?.isWhiteboard == true
     val showFloatingUndoPill = !focus && (!isFixedBar || hideTools || isWhiteboard)
     if (!showFloatingUndoPill) return
-    val undoPillBg = Color.Black
-    val undoPillBorder = Color.White.copy(alpha = 0.18f)
-    val undoFg = Color(0xFFF1F5F9)
+    val undoPillBg = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.90f)
+    val undoPillBorder = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.36f)
+    val undoFg = MaterialTheme.colorScheme.onSurface
     AppSurface(
         role = SurfaceRole.Chrome,
         containerColor = undoPillBg,
@@ -2343,13 +2349,13 @@ private fun EditorZoomIndicatorOverlay(
     val z = vm.zoomPercent ?: return
     AppSurface(
         role = SurfaceRole.Frost,
-        containerColor = Color.Black,
-        contentColor = Color.White,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.90f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = appPillShape(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
         modifier = modifier,
     ) {
-        Text("$z%", style = MaterialTheme.typography.titleMedium, color = Color.White)
+        Text("$z%", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 
@@ -2364,13 +2370,13 @@ private fun EditorPageIndicatorPill(
     val pages = vm.pages
     if (pages.isEmpty()) return
     val current = vm.currentPage
-    val pagePillBg = Color.Black
-    val pagePillFg = Color.White
+    val pagePillBg = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.90f)
+    val pagePillFg = MaterialTheme.colorScheme.onSurface
     AppSurface(
         role = SurfaceRole.Capsule,
         containerColor = pagePillBg,
         contentColor = pagePillFg,
-        borderColor = Color.White.copy(alpha = 0.16f),
+        borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.34f),
         shape = appPillShape(),
         shadowElevation = 4.dp,
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),

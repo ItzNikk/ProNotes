@@ -2646,6 +2646,8 @@ internal fun WebLinkDialog(vm: EditorViewModel, edit: EditorViewModel.WebLinkEdi
     var note by remember(edit) { mutableStateOf(edit.item.note) }
     var color by remember(edit) { mutableStateOf(edit.item.color) }
     var embedded by remember(edit) { mutableStateOf(if (edit.isNew) true else edit.item.embedded) }
+    val normalizedPreview = remember(url) { sanitizeWebPageUrl(url) }
+    val urlValid = url.isBlank() || normalizedPreview.isNotBlank()
     AppDialog(
         onDismissRequest = { vm.webLinkEdit = null },
         title = {
@@ -2676,11 +2678,35 @@ internal fun WebLinkDialog(vm: EditorViewModel, edit: EditorViewModel.WebLinkEdi
                     value = url,
                     onValueChange = { url = it },
                     singleLine = true,
+                    isError = !urlValid,
                     shape = RoundedCornerShape(16.dp),
                     label = { Text("Website URL") },
-                    placeholder = { Text("https://en.wikipedia.org/wiki/...") },
+                    placeholder = { Text("en.wikipedia.org/wiki/...") },
+                    supportingText = if (!urlValid) {
+                        { Text("Enter a valid website address (e.g. wikipedia.org)") }
+                    } else null,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (edit.isNew) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            "Wikipedia" to "https://en.m.wikipedia.org",
+                            "Desmos" to "https://www.desmos.com/calculator",
+                            "Khan Academy" to "https://www.khanacademy.org",
+                            "arXiv" to "https://arxiv.org",
+                        ).forEach { (label, preset) ->
+                            AppChip(
+                                selected = url.trim() == preset,
+                                onClick = {
+                                    url = preset
+                                    if (linkTitle.isBlank()) linkTitle = label
+                                },
+                                label = label,
+                                tint = Color(color),
+                            )
+                        }
+                    }
+                }
                 OutlinedTextField(
                     value = linkTitle,
                     onValueChange = { linkTitle = it },
@@ -2709,7 +2735,7 @@ internal fun WebLinkDialog(vm: EditorViewModel, edit: EditorViewModel.WebLinkEdi
             }
         },
         confirmButton = {
-            TextButton(enabled = url.trim().isNotBlank(), onClick = { vm.commitWebLink(url, linkTitle, note, color, embedded) }) {
+            TextButton(enabled = normalizedPreview.isNotBlank(), onClick = { vm.commitWebLink(url, linkTitle, note, color, embedded) }) {
                 Text(if (embedded) "Embed Page" else "Save")
             }
         },

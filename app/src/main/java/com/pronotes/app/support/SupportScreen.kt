@@ -52,6 +52,7 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalContext
@@ -64,11 +65,18 @@ import com.pronotes.app.ui.AppChip
 import com.pronotes.app.ui.AppSurface
 import com.pronotes.app.ui.AppToggle
 import com.pronotes.app.ui.GradientTitle
+import com.pronotes.app.ui.LocalLiveBlur
+import com.pronotes.app.ui.LocalReduceEffects
 import com.pronotes.app.ui.LocalReduceMotion
 import com.pronotes.app.ui.ProButtonPalette
 import com.pronotes.app.ui.ScaleInAnimatedText
 import com.pronotes.app.ui.SurfaceRole
 import com.pronotes.app.ui.appPillShape
+import dev.chrisbanes.haze.HazeProgressive
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.materials.HazeMaterials
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
@@ -104,25 +112,20 @@ fun SupportScreen(onBack: () -> Unit) {
         }
     }
 
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    val supportHazeState = remember { HazeState() }
+    val supportScheme = MaterialTheme.colorScheme
+    val supportLiveBlur = LocalLiveBlur.current && !LocalReduceEffects.current
+
+    Box(Modifier.fillMaxSize().background(supportScheme.background)) {
         Column(
-            Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp),
+            Modifier
+                .fillMaxSize()
+                .hazeSource(supportHazeState)
+                .verticalScroll(rememberScrollState())
+                .statusBarsPadding()
+                .padding(start = 20.dp, end = 20.dp, top = 74.dp, bottom = 56.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                AppSurface(
-                    role = SurfaceRole.Control,
-                    shape = appPillShape(),
-                    contentPadding = PaddingValues(10.dp),
-                    onClick = onBack,
-                    onClickLabel = "Back",
-                    modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onSurface)
-                }
-                Spacer(Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(14.dp))
             BeatingHeart(Modifier.size(60.dp))
             Spacer(Modifier.height(18.dp))
             ScaleInAnimatedText(
@@ -248,6 +251,88 @@ fun SupportScreen(onBack: () -> Unit) {
             }
             Spacer(Modifier.height(32.dp))
         }
+
+        // Soft progressive top Haze backdrop + floating back control
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .height(84.dp)
+                .then(
+                    if (supportLiveBlur) {
+                        Modifier.hazeEffect(
+                            state = supportHazeState,
+                            style = HazeMaterials.ultraThin(supportScheme.background),
+                        ) {
+                            progressive = HazeProgressive.verticalGradient(
+                                startIntensity = 0.85f,
+                                endIntensity = 0f,
+                            )
+                        }
+                    } else Modifier,
+                )
+                .background(
+                    Brush.verticalGradient(
+                        0f to supportScheme.background.copy(alpha = if (supportLiveBlur) 0.44f else 0.86f),
+                        0.50f to supportScheme.background.copy(alpha = if (supportLiveBlur) 0.24f else 0.56f),
+                        0.85f to supportScheme.background.copy(alpha = if (supportLiveBlur) 0.08f else 0.20f),
+                        1f to Color.Transparent,
+                    ),
+                ),
+        )
+        Row(
+            Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AppSurface(
+                role = SurfaceRole.Control,
+                containerColor = supportScheme.surfaceContainerHigh.copy(alpha = 0.72f),
+                contentColor = supportScheme.onSurface,
+                borderColor = supportScheme.outlineVariant.copy(alpha = 0.28f),
+                shape = appPillShape(),
+                contentPadding = PaddingValues(10.dp),
+                onClick = onBack,
+                onClickLabel = "Back",
+                modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
+            ) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = supportScheme.onSurface)
+            }
+            Spacer(Modifier.weight(1f))
+        }
+
+        // Soft progressive bottom Haze backdrop
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(78.dp)
+                .then(
+                    if (supportLiveBlur) {
+                        Modifier.hazeEffect(
+                            state = supportHazeState,
+                            style = HazeMaterials.ultraThin(supportScheme.background),
+                        ) {
+                            progressive = HazeProgressive.verticalGradient(
+                                startIntensity = 0f,
+                                endIntensity = 0.85f,
+                            )
+                        }
+                    } else Modifier,
+                )
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.40f to supportScheme.background.copy(alpha = if (supportLiveBlur) 0.08f else 0.24f),
+                        0.76f to supportScheme.background.copy(alpha = if (supportLiveBlur) 0.22f else 0.52f),
+                        1f to supportScheme.background.copy(alpha = if (supportLiveBlur) 0.40f else 0.78f),
+                    ),
+                ),
+        )
         thanks?.let { paid -> ThankYou(paid) { thanks = null } }
     }
 }

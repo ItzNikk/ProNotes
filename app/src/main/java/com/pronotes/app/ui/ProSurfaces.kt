@@ -200,21 +200,20 @@ private fun resolveSurfaceColors(
     containerColor: Color?,
     contentColor: Color?,
 ): Pair<Color, Color> {
-    val base = if (role == SurfaceRole.Chrome) Color.Black else containerColor ?: when (role) {
+    val base = containerColor ?: when (role) {
         SurfaceRole.Chrome, SurfaceRole.Popover -> scheme.surfaceContainerHigh
         SurfaceRole.Frost, SurfaceRole.Sheet -> scheme.surface
         SurfaceRole.Control, SurfaceRole.Capsule -> scheme.surfaceVariant
     }
     val bg = when {
-        role == SurfaceRole.Chrome -> Color.Black
         classicAppearance -> base.copy(alpha = 1f)
         role == SurfaceRole.Chrome || role == SurfaceRole.Popover -> {
-            val a = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 0.90f else 0.96f
+            val a = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 0.88f else 0.95f
             if (base.alpha > a) base.copy(alpha = a) else base
         }
         else -> base
     }
-    val fg = if (role == SurfaceRole.Chrome) Color(0xFFF1F5F9) else contentColor ?: readableSurfaceText(bg, scheme.onSurface)
+    val fg = contentColor ?: readableSurfaceText(bg, scheme.onSurface)
     return bg to fg
 }
 
@@ -761,7 +760,7 @@ fun TopScrollCloudyBackdrop(
         label = "hazeTopAlpha",
     )
     val scrimAlpha by animateFloatAsState(
-        targetValue = if (scrolled) (if (active && hazeState != null) 0.22f else 0.88f) else 0f,
+        targetValue = if (scrolled) (if (active && hazeState != null) 0.16f else 0.72f) else 0f,
         animationSpec = tween(240),
         label = "topScrimAlpha",
     )
@@ -777,10 +776,10 @@ fun TopScrollCloudyBackdrop(
                 if (active && hazeState != null) {
                     Modifier.hazeEffect(
                         state = hazeState,
-                        style = HazeMaterials.thin(surface),
+                        style = HazeMaterials.ultraThin(surface),
                     ) {
                         progressive = HazeProgressive.verticalGradient(
-                            startIntensity = 1f,
+                            startIntensity = 0.85f,
                             endIntensity = 0f,
                         )
                     }
@@ -789,9 +788,8 @@ fun TopScrollCloudyBackdrop(
             .background(
                 Brush.verticalGradient(
                     0.0f to surface.copy(alpha = scrimAlpha),
-                    0.30f to surface.copy(alpha = scrimAlpha * 0.65f),
-                    0.62f to surface.copy(alpha = scrimAlpha * 0.28f),
-                    0.85f to surface.copy(alpha = scrimAlpha * 0.08f),
+                    0.35f to surface.copy(alpha = scrimAlpha * 0.55f),
+                    0.70f to surface.copy(alpha = scrimAlpha * 0.20f),
                     1.0f to Color.Transparent,
                 ),
             )

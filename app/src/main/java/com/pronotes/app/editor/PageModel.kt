@@ -399,7 +399,7 @@ fun PageItem.transformed(m: android.graphics.Matrix, s: Float, deg: Float): Page
             }
         }
         is MindNodeItem -> { val (cx, cy) = movedCenter(bounds); val nw = (w * s).coerceIn(110f, 520f); val nh = (h * s).coerceIn(48f, 220f); copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh) }
-        is WebLinkItem -> { val (cx, cy) = movedCenter(raw); val nw = (w * s).coerceIn(220f, 760f); val nh = (h * s).coerceIn(96f, 340f); copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh, rot = (rot + deg) % 360f) }
+        is WebLinkItem -> { val (cx, cy) = movedCenter(raw); val nw = (w * s).coerceIn(220f, 1400f); val nh = (h * s).coerceIn(if (embedded) 180f else 96f, if (embedded) 1400f else 480f); copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh, rot = (rot + deg) % 360f) }
         is WriteBoxItem -> { val (cx, cy) = movedCenter(raw); val nw = (w * s).coerceIn(220f, 1200f); val nh = (h * s).coerceIn(120f, 960f); copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh, rot = (rot + deg) % 360f) }
         is TableItem -> { val (cx, cy) = movedCenter(raw); val nw = (w * s).coerceIn(200f, 1600f); val nh = (h * s).coerceIn(100f, 1600f); copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh, rot = (rot + deg) % 360f) }
         is TapeItem -> if (pts != null) {
@@ -475,8 +475,8 @@ fun PageItem.stretched(oldBox: RectF, newBox: RectF): PageItem {
         }
         is WebLinkItem -> {
             val (cx, cy) = mapPt(raw.centerX(), raw.centerY())
-            val nw = (w * sx).coerceIn(200f, 1200f)
-            val nh = (h * sy).coerceIn(90f, 600f)
+            val nw = (w * sx).coerceIn(200f, 1400f)
+            val nh = (h * sy).coerceIn(if (embedded) 160f else 90f, if (embedded) 1400f else 600f)
             copy(x = cx - nw / 2f, y = cy - nh / 2f, w = nw, h = nh)
         }
         is WriteBoxItem -> {
@@ -546,11 +546,65 @@ fun applyTextStyle(paint: TextPaint, size: Float, style: TextStyleSpec) {
     paint.textAlign = android.graphics.Paint.Align.LEFT
 }
 
+internal data class StyledTextSpan(val text: String, val bold: Boolean)
+
+private val INLINE_BOLD_SPAN_REGEX = Regex("\\*\\*(.+?)\\*\\*")
+
+internal fun parseInlineBoldLine(line: String, baseBold: Boolean): List<StyledTextSpan> {
+    if (!line.contains("**")) return listOf(StyledTextSpan(line, baseBold))
+    val out = ArrayList<StyledTextSpan>(4)
+    var cursor = 0
+    for (m in INLINE_BOLD_SPAN_REGEX.findAll(line)) {
+        if (m.range.first > cursor) {
+            out += StyledTextSpan(line.substring(cursor, m.range.first), baseBold)
+        }
+        val inner = m.groupValues[1]
+        if (inner.isNotEmpty()) {
+            out += StyledTextSpan(inner, true)
+        }
+        cursor = m.range.last + 1
+    }
+    if (cursor < line.length) {
+        out += StyledTextSpan(line.substring(cursor), baseBold)
+    }
+    return if (out.isEmpty()) listOf(StyledTextSpan(line, baseBold)) else out
+}
+
+internal fun formatInlineBoldTokens(text: String): String {
+    if (text.isBlank()) return text
+    return text.split('\n').joinToString("\n") { line ->
+        line.split(Regex("(?<=\\s)|(?=\\s)")).joinToString("") { token ->
+            if (token.isBlank()) token
+            else if (token.startsWith("**") && token.endsWith("**") && token.length > 4) token
+            else "**$token**"
+        }
+    }
+}
+
+internal fun stripInlineBoldMarkers(text: String): String {
+    if (!text.contains("**")) return text
+    return INLINE_BOLD_SPAN_REGEX.replace(text) { it.groupValues[1] }
+}
+
 fun measureText(text: String, size: Float, x: Float, y: Float, style: TextStyleSpec = TextStyleSpec()): RectF {
     val p = measureTextPaintTL.get() ?: TextPaint(TextPaint.ANTI_ALIAS_FLAG)
-    applyTextStyle(p, size, style)
     val lines = text.split('\n')
-    val width = lines.maxOf { p.measureText(it) }.coerceAtLeast(size)
+    val width = lines.maxOf { line ->
+        val spans = parseInlineBoldLine(line, style.bold)
+        if (spans.size == 1 && spans[0].bold == style.bold && spans[0].text == line) {
+            applyTextStyle(p, size, style)
+            p.measureText(line)
+        } else {
+            var sum = 0f
+            for (span in spans) {
+                if (span.text.isEmpty()) continue
+                applyTextStyle(p, size, if (span.bold == style.bold) style else style.copy(bold = span.bold))
+                sum += p.measureText(span.text)
+            }
+            sum
+        }
+    }.coerceAtLeast(size)
     val lineHeight = size * 1.3f
     return RectF(x, y, x + width, y + lineHeight * lines.size)
 }
+

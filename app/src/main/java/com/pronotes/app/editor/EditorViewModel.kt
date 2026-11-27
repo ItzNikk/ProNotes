@@ -514,7 +514,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val cm = sysClipboard ?: return
         val existingText = picked.mapNotNull { item ->
             when (item) {
-                is TextItem -> item.text.trim().takeIf { it.isNotEmpty() }
+                is TextItem -> stripInlineBoldMarkers(item.text).trim().takeIf { it.isNotEmpty() }
                 is StickyItem -> item.text.trim().takeIf { it.isNotEmpty() }
                 is WebLinkItem -> item.url.trim().takeIf { it.isNotEmpty() }
                 is TableItem -> item.cells.filter { it.isNotBlank() }.joinToString(" | ").takeIf { it.isNotEmpty() }
@@ -567,7 +567,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val app = getApplication<Application>()
         val extractedText = items.mapNotNull { item ->
             when (item) {
-                is TextItem -> item.text.trim().takeIf { it.isNotEmpty() }
+                is TextItem -> stripInlineBoldMarkers(item.text).trim().takeIf { it.isNotEmpty() }
                 is StickyItem -> item.text.trim().takeIf { it.isNotEmpty() }
                 is WebLinkItem -> item.url.trim().takeIf { it.isNotEmpty() }
                 is TableItem -> item.cells.filter { it.isNotBlank() }.joinToString(" | ").takeIf { it.isNotEmpty() }
@@ -1628,15 +1628,32 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                     pi += step
                 }
             }
-            val avgPressure = if (pressureCount >= 4) (pressureSum / pressureCount).toFloat() else 0f
+            val ids = selectedInk.map { it.id }.toSet()
+            val cleanedText = text.lines()
+                .map { it.trim().replace(Regex("\\s+"), " ") }
+                .filter { it.isNotEmpty() }
+                .joinToString("\n")
+                .ifBlank { text.trim() }
+
+            // 1. Check inline same-line & paragraph-above targets BEFORE evaluating dynamic bold so we compare
+            //    stroke size directly against the inline line's own font size!
+            val sameLineTarget = if (!cleanedText.contains('\n')) {
+                findSameLineTextTarget(page, union, ids)
+            } else null
+            val aboveTargetPreview = if (sameLineTarget == null) {
+                findParagraphAboveTarget(page, union, ids)
+            } else null
+
+            val avgPressure = if (pressureCount >= 3) (pressureSum / pressureCount).toFloat() else 0f
             val pageTextSizes = page.items.filterIsInstance<TextItem>().map { it.size }.sorted()
-            val baselineSize = if (pageTextSizes.isNotEmpty()) pageTextSizes[pageTextSizes.size / 2] else textSize
+            val medianPageSize = if (pageTextSizes.isNotEmpty()) pageTextSizes[pageTextSizes.size / 2] else textSize
+            val baselineSize = sameLineTarget?.size ?: aboveTargetPreview?.size ?: medianPageSize
             val lettersOnly = cleanedForBold.filter { it.isLetter() }
-            val isAllCapsHeading = isShortHeading && lettersOnly.length >= 3 && lettersOnly.all { it.isUpperCase() }
-            val firmPressure = avgPressure >= 0.72f
-            val thickBrush = avgBrushSize >= (penStyle.size * 1.18f).coerceAtLeast(5.8f)
-            val largeHeading = estimatedSize >= (baselineSize * 1.16f) ||
-                (isShortHeading && (union.height() >= (baselineSize * 1.85f).coerceAtLeast(54f) || medianStrokeH >= (baselineSize * 1.32f).coerceAtLeast(40f)))
+            val isAllCapsHeading = isShortHeading && lettersOnly.length >= 2 && lettersOnly.all { it.isUpperCase() }
+            val firmPressure = avgPressure >= 0.64f
+            val thickBrush = avgBrushSize >= (penStyle.size * 1.14f).coerceAtLeast(5.2f)
+            val largeHeading = estimatedSize >= (baselineSize * 1.14f) ||
+                (isShortHeading && (union.height() >= (baselineSize * 1.60f).coerceAtLeast(46f) || medianStrokeH >= (baselineSize * 1.22f).coerceAtLeast(35f)))
             val shouldDynamicBold = options.dynamicBoldHandwriting && (largeHeading || thickBrush || firmPressure || isAllCapsHeading)
             val customFont = overrideCustomFontPath ?: options.customHandwritingFontPath
             val baseStyle = if (automatic) {
@@ -1651,24 +1668,32 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                     customFontPath = overrideCustomFontPath ?: textStyle.customFontPath.ifBlank { options.customHandwritingFontPath },
                 )
             }
-            val ids = selectedInk.map { it.id }.toSet()
-            val cleanedText = text.lines()
-                .map { it.trim().replace(Regex("\\s+"), " ") }
-                .filter { it.isNotEmpty() }
-                .joinToString("\n")
-                .ifBlank { text.trim() }
 
-            // 1. Inline line continuation: if user is writing immediately to the right of an existing TextItem
-            // on the same horizontal baseline, merge cleanly onto that exact line instead of scattering boxes.
-            val sameLineTarget = if (!cleanedText.contains('\n')) {
-                findSameLineTextTarget(page, union, ids)
-            } else null
-
+            // 2. Inline line continuation: merge onto the same baseline AND preserve inline Dynamic Bold
+            //    for bold words written after regular text (or regular words written after bold text)!
             if (sameLineTarget != null && (automatic || union.left - sameLineTarget.raw.right <= sameLineTarget.size * 4.5f)) {
-                val mergedRaw = smartJoinInlineText(sameLineTarget.text, cleanedText)
+                val (baseLeftText, targetStyle, addedText) = when {
+                    sameLineTarget.text.isBlank() -> Triple(
+                        "",
+                        sameLineTarget.style.copy(bold = sameLineTarget.style.bold || shouldDynamicBold),
+                        cleanedText,
+                    )
+                    shouldDynamicBold && !sameLineTarget.style.bold -> Triple(
+                        sameLineTarget.text,
+                        sameLineTarget.style,
+                        formatInlineBoldTokens(cleanedText),
+                    )
+                    !shouldDynamicBold && sameLineTarget.style.bold -> Triple(
+                        formatInlineBoldTokens(sameLineTarget.text),
+                        sameLineTarget.style.copy(bold = false),
+                        cleanedText,
+                    )
+                    else -> Triple(sameLineTarget.text, sameLineTarget.style, cleanedText)
+                }
+                val mergedRaw = smartJoinInlineText(baseLeftText, addedText)
                 val maxW = (page.width - sameLineTarget.x - 32f).coerceAtLeast(180f)
-                val wrapped = wrapPastedText(mergedRaw, sameLineTarget.size, sameLineTarget.style, maxW)
-                val updated = sameLineTarget.copy(text = wrapped)
+                val wrapped = wrapPastedText(mergedRaw, sameLineTarget.size, targetStyle, maxW)
+                val updated = sameLineTarget.copy(text = wrapped, style = targetStyle)
                 if (!automatic) handwritingCandidates = result.candidates
                 beginEdit(idx)
                 applyItems(
@@ -1679,7 +1704,8 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                     val alternatives = result.candidates.map { it.trim().replace(Regex("\\s+"), " ") }
                         .filter { it.isNotBlank() && it != cleanedText }.distinct().take(4)
                         .map { alt ->
-                            wrapPastedText(smartJoinInlineText(sameLineTarget.text, alt), sameLineTarget.size, sameLineTarget.style, maxW)
+                            val formattedAlt = if (shouldDynamicBold && !targetStyle.bold) formatInlineBoldTokens(alt) else alt
+                            wrapPastedText(smartJoinInlineText(baseLeftText, formattedAlt), sameLineTarget.size, targetStyle, maxW)
                         }
                     handwritingReview = HandwritingReview(page.id, updated, selectedInk, alternatives)
                 }
@@ -1687,9 +1713,9 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 return
             }
 
-            // 2. Paragraph / line alignment: snap to left margin & font size of the line directly above
+            // 3. Paragraph / line alignment: snap to left margin & font size of the line directly above
             // (if writing consecutive lines), or snap neatly onto paper lines so text sits in crisp straight lines.
-            val aboveTarget = findParagraphAboveTarget(page, union, ids)
+            val aboveTarget = aboveTargetPreview ?: findParagraphAboveTarget(page, union, ids)
             val baseX = when {
                 aboveTarget != null -> aboveTarget.x
                 options.alignHandwriting && page.paper == PaperStyle.CORNELL -> (page.width * 0.28f).coerceAtLeast(union.left)
@@ -2603,7 +2629,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             snapshotPages.forEachIndexed { i, p ->
                 p.items.forEach { item ->
                     val (source, text) = when (item) {
-                        is TextItem -> "Text" to item.text
+                        is TextItem -> "Text" to stripInlineBoldMarkers(item.text)
                         is StickyItem -> "Sticky" to listOf(item.title, item.text).filter { it.isNotBlank() }.joinToString(" · ")
                         is WebLinkItem -> "Link" to listOf(item.title, item.url, item.note).filter { it.isNotBlank() }.joinToString(" · ")
                         is TableItem -> "Table" to item.cells.filter { it.isNotBlank() }.joinToString(" · ")
@@ -2767,7 +2793,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             // Look for nearby text/sticky/write-box content on the highlighted page for a helpful preview
             val pageTexts = p.items.mapNotNull { item ->
                 when (item) {
-                    is TextItem -> item.text.takeIf { it.isNotBlank() }?.let { item.bounds to it }
+                    is TextItem -> stripInlineBoldMarkers(item.text).takeIf { it.isNotBlank() }?.let { item.bounds to it }
                     is StickyItem -> listOf(item.title, item.text).filter { it.isNotBlank() }.joinToString(" · ")
                         .takeIf { it.isNotBlank() }?.let { item.bounds to it }
                     is WriteBoxItem -> item.convertedText.takeIf { it.isNotBlank() }?.let { item.bounds to it }
@@ -3087,7 +3113,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val p = pages.getOrNull(pageIdx) ?: return ""
         return p.items.mapNotNull { item ->
             when (item) {
-                is TextItem -> item.text
+                is TextItem -> stripInlineBoldMarkers(item.text)
                 is StickyItem -> listOf(item.title, item.text).filter { it.isNotBlank() }.joinToString(": ")
                 is WebLinkItem -> listOf(item.title, item.url, item.note).filter { it.isNotBlank() }.joinToString(" · ")
                 is TableItem -> item.cells.filter { it.isNotBlank() }.joinToString(" | ")

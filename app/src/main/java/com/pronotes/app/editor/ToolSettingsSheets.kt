@@ -86,10 +86,16 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.UploadFile
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.BorderStroke
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pronotes.app.R
 import com.pronotes.app.data.ColorPalettePreset
@@ -582,17 +588,18 @@ private fun PenCardContent(vm: EditorViewModel, darkUi: Boolean, fgColor: Color)
         }
         val model by HandwritingRecognizer.modelState.collectAsStateWithLifecycle()
         if (model == HandwritingModelState.DOWNLOADING) Text("Downloading handwriting model…", style = MaterialTheme.typography.bodySmall)
-        Text("Writing font", style = MaterialTheme.typography.titleSmall)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextFont.entries.forEach { font ->
-                AppChip(s.toolDefaults.customHandwritingFontPath.isBlank() && s.toolDefaults.autoScript == font.name,
-                    { store.update { it.copy(toolDefaults = it.toolDefaults.copy(autoScript = font.name, customHandwritingFontPath = "")) } }, label = font.label)
-            }
+        val activeAutoFont = remember(s.toolDefaults.autoScript) {
+            TextFont.entries.find { it.name == s.toolDefaults.autoScript } ?: TextFont.CURSIVE
         }
-        CustomHandwritingFontPicker(
-            selectedPath = s.toolDefaults.customHandwritingFontPath,
+        HandwritingFontGallery(
+            title = "Writing font",
+            selectedFont = activeAutoFont,
+            selectedCustomPath = s.toolDefaults.customHandwritingFontPath,
             fgColor = fgColor,
-            onSelect = { path ->
+            onSelectFont = { font ->
+                store.update { it.copy(toolDefaults = it.toolDefaults.copy(autoScript = font.name, customHandwritingFontPath = "")) }
+            },
+            onSelectCustomPath = { path ->
                 store.update { it.copy(toolDefaults = it.toolDefaults.copy(customHandwritingFontPath = path)) }
             },
         )
@@ -1138,15 +1145,13 @@ private fun TextCardContent(vm: EditorViewModel) {
     SheetSliderRow(stringResource(R.string.sheet_opacity), "%.0f%%".format(td.textOpacity * 100), td.textOpacity, 0.2f..1f) { v ->
         store.update { it.copy(toolDefaults = it.toolDefaults.copy(textOpacity = v)) }
     }
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        TextFont.entries.forEach { font ->
-            AppChip(vm.textStyle.customFontPath.isBlank() && vm.textStyle.font == font, { vm.textStyle = vm.textStyle.copy(font = font, customFontPath = "") }, label = font.label)
-        }
-    }
-    CustomHandwritingFontPicker(
-        selectedPath = vm.textStyle.customFontPath,
+    HandwritingFontGallery(
+        title = "Text font",
+        selectedFont = vm.textStyle.font,
+        selectedCustomPath = vm.textStyle.customFontPath,
         fgColor = fgColor,
-        onSelect = { path -> vm.textStyle = vm.textStyle.copy(customFontPath = path) },
+        onSelectFont = { font -> vm.textStyle = vm.textStyle.copy(font = font, customFontPath = "") },
+        onSelectCustomPath = { path -> vm.textStyle = vm.textStyle.copy(customFontPath = path) },
     )
     SheetToggleLine("Auto spell check while typing", td.autoSpellCheck, fgColor) { enabled ->
         store.update { it.copy(toolDefaults = it.toolDefaults.copy(autoSpellCheck = enabled)) }
@@ -1564,48 +1569,86 @@ private fun ColorPalettePresetsStrip(
     }
 }
 
+internal enum class FontGalleryCategory(val label: String) {
+    ALL("All"),
+    HANDWRITING("Handwriting"),
+    SERIF("Serif"),
+    SANS_MONO("Sans & Mono"),
+}
+
+internal fun TextFont.galleryCategory(): FontGalleryCategory = when (this) {
+    TextFont.CURSIVE, TextFont.HAND, TextFont.MEDIUM_SCRIPT, TextFont.SCRIPT -> FontGalleryCategory.HANDWRITING
+    TextFont.SERIF, TextFont.SERIF_BOLD, TextFont.BOOK, TextFont.TYPEWRITER -> FontGalleryCategory.SERIF
+    TextFont.SANS, TextFont.ROUNDED, TextFont.LIGHT, TextFont.FINE,
+    TextFont.HUMANIST, TextFont.CONDENSED, TextFont.NARROW_ITALIC, TextFont.MONO -> FontGalleryCategory.SANS_MONO
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun CustomHandwritingFontPicker(
-    selectedPath: String,
+fun HandwritingFontGallery(
+    title: String = "Handwriting & Text Font",
+    selectedFont: TextFont,
+    selectedCustomPath: String,
     fgColor: Color,
-    onSelect: (String) -> Unit,
+    onSelectFont: (TextFont) -> Unit,
+    onSelectCustomPath: (String) -> Unit,
 ) {
     val context = LocalContext.current
     var fonts by remember { mutableStateOf(CustomFontRegistry.listFonts(context)) }
     var status by remember { mutableStateOf<String?>(null) }
     var showLinkDialog by remember { mutableStateOf(false) }
+    var activeCategory by remember { mutableStateOf(FontGalleryCategory.ALL) }
+
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             val imported = CustomFontRegistry.importFont(context, uri)
             if (imported != null) {
                 fonts = CustomFontRegistry.listFonts(context)
-                onSelect(imported.path)
+                onSelectCustomPath(imported.path)
                 status = "Imported ${imported.displayName}"
             } else {
                 status = "Could not read font file (.ttf / .otf)"
             }
         }
     }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+
+    val activeCustom = remember(selectedCustomPath, fonts) {
+        if (selectedCustomPath.isBlank()) null else fonts.firstOrNull { it.path == selectedCustomPath }
+    }
+    val activeTypefaceFamily = remember(selectedFont, selectedCustomPath) {
+        val tf = if (selectedCustomPath.isNotBlank()) CustomFontRegistry.loadTypeface(selectedCustomPath) else null
+        FontFamily(tf ?: selectedFont.typeface)
+    }
+    val activeLabel = activeCustom?.displayName ?: selectedFont.label
+    val activeBadge = if (activeCustom != null) "Custom Font" else selectedFont.galleryCategory().label
+
+    val filteredBuiltIn = remember(activeCategory) {
+        if (activeCategory == FontGalleryCategory.ALL) TextFont.entries
+        else TextFont.entries.filter { it.galleryCategory() == activeCategory }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(
-                "CUSTOM FONTS (.TTF / .OTF)",
-                style = MaterialTheme.typography.labelSmall,
-                color = fgColor.copy(alpha = 0.68f),
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = fgColor,
                 modifier = Modifier.weight(1f),
             )
             AppPill(
                 selected = false,
                 tint = ProButtonPalette.Violet,
                 onClick = { showLinkDialog = true },
-                contentPadding = PaddingValues(horizontal = 9.dp, vertical = 5.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
             ) {
-                Text("From link", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                Icon(Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Link", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
             }
             AppPill(
                 selected = false,
@@ -1613,44 +1656,203 @@ fun CustomHandwritingFontPicker(
                 onClick = {
                     importLauncher.launch(arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "application/octet-stream", "*/*"))
                 },
-                contentPadding = PaddingValues(horizontal = 9.dp, vertical = 5.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
             ) {
-                Text("+ File", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                Icon(Icons.Outlined.UploadFile, contentDescription = null, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("File", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
             }
         }
-        if (fonts.isNotEmpty()) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                AppChip(
-                    selected = selectedPath.isBlank(),
-                    onClick = { onSelect("") },
-                    label = "Built-in",
-                    tint = ProButtonPalette.ElectricBlue,
+
+        // Live Specimen Banner showing active font in full clarity
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = ProButtonPalette.ElectricBlue.copy(alpha = 0.08f),
+            border = BorderStroke(1.dp, ProButtonPalette.ElectricBlue.copy(alpha = 0.30f)),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        activeLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = ProButtonPalette.ElectricBlue,
+                    )
+                    Text(
+                        activeBadge.uppercase(),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 10.sp,
+                        letterSpacing = 0.6.sp,
+                        color = fgColor.copy(alpha = 0.60f),
+                    )
+                }
+                Text(
+                    "The quick brown fox jumps over 123",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontFamily = activeTypefaceFamily,
+                        fontSize = 19.sp,
+                    ),
+                    color = fgColor,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                fonts.forEach { entry ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        AppChip(
-                            selected = selectedPath == entry.path,
-                            onClick = { onSelect(entry.path) },
-                            label = entry.displayName,
-                            tint = ProButtonPalette.Violet,
-                        )
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .clickable {
-                                    CustomFontRegistry.deleteFont(entry.path)
-                                    if (selectedPath == entry.path) onSelect("")
-                                    fonts = CustomFontRegistry.listFonts(context)
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(Icons.Filled.Close, contentDescription = "Remove font", tint = fgColor.copy(alpha = 0.55f), modifier = Modifier.size(13.dp))
+            }
+        }
+
+        // Custom imported fonts list (2-column typeface specimen cards)
+        if (fonts.isNotEmpty()) {
+            Text(
+                "IMPORTED FONTS (${fonts.size})",
+                style = MaterialTheme.typography.labelSmall,
+                letterSpacing = 0.7.sp,
+                color = fgColor.copy(alpha = 0.65f),
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                fonts.chunked(2).forEach { pair ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        pair.forEach { entry ->
+                            val selected = selectedCustomPath == entry.path
+                            val cfFamily = remember(entry.path) {
+                                CustomFontRegistry.loadTypeface(entry.path)?.let { FontFamily(it) } ?: FontFamily.SansSerif
+                            }
+                            Surface(
+                                onClick = { onSelectCustomPath(entry.path) },
+                                shape = RoundedCornerShape(14.dp),
+                                color = if (selected) ProButtonPalette.Violet.copy(alpha = 0.14f) else fgColor.copy(alpha = 0.05f),
+                                border = BorderStroke(
+                                    if (selected) 1.5.dp else 0.8.dp,
+                                    if (selected) ProButtonPalette.Violet else fgColor.copy(alpha = 0.12f),
+                                ),
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(start = 11.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            entry.displayName,
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = cfFamily),
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (selected) ProButtonPalette.Violet else fgColor,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            "Aa Bb Cc 123",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = cfFamily),
+                                            color = fgColor.copy(alpha = 0.62f),
+                                            maxLines = 1,
+                                        )
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .clip(CircleShape)
+                                            .clickable {
+                                                CustomFontRegistry.deleteFont(entry.path)
+                                                if (selectedCustomPath == entry.path) onSelectCustomPath("")
+                                                fonts = CustomFontRegistry.listFonts(context)
+                                            },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(Icons.Filled.Close, contentDescription = "Remove font", tint = fgColor.copy(alpha = 0.55f), modifier = Modifier.size(13.dp))
+                                    }
+                                }
+                            }
                         }
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
                     }
                 }
             }
         }
+
+        // Category filter tabs for built-in styles
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            FontGalleryCategory.entries.forEach { cat ->
+                AppChip(
+                    selected = activeCategory == cat,
+                    onClick = { activeCategory = cat },
+                    label = cat.label,
+                    tint = ProButtonPalette.ElectricBlue,
+                )
+            }
+        }
+
+        // 2-column built-in specimen cards rendered in each font's real typeface
+        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            filteredBuiltIn.chunked(2).forEach { pair ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    pair.forEach { font ->
+                        val selected = selectedCustomPath.isBlank() && selectedFont == font
+                        val family = remember(font) { FontFamily(font.typeface) }
+                        Surface(
+                            onClick = { onSelectFont(font) },
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (selected) ProButtonPalette.ElectricBlue.copy(alpha = 0.14f) else fgColor.copy(alpha = 0.05f),
+                            border = BorderStroke(
+                                if (selected) 1.5.dp else 0.8.dp,
+                                if (selected) ProButtonPalette.ElectricBlue else fgColor.copy(alpha = 0.12f),
+                            ),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        font.label,
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = family),
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (selected) ProButtonPalette.ElectricBlue else fgColor,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        "Aa Bb 123",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = family),
+                                        color = fgColor.copy(alpha = 0.62f),
+                                        maxLines = 1,
+                                    )
+                                }
+                                if (selected) {
+                                    Icon(
+                                        Icons.Outlined.CheckCircle,
+                                        contentDescription = null,
+                                        tint = ProButtonPalette.ElectricBlue,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+
         status?.let {
             Text(it, style = MaterialTheme.typography.labelSmall, color = ProButtonPalette.Emerald)
         }
@@ -1661,11 +1863,32 @@ fun CustomHandwritingFontPicker(
             onImported = { imported ->
                 showLinkDialog = false
                 fonts = CustomFontRegistry.listFonts(context)
-                onSelect(imported.path)
+                onSelectCustomPath(imported.path)
                 status = "Imported ${imported.displayName}"
             },
         )
     }
+}
+
+@Composable
+fun CustomHandwritingFontPicker(
+    selectedPath: String,
+    fgColor: Color,
+    selectedFont: TextFont = TextFont.CURSIVE,
+    onSelectFont: ((TextFont) -> Unit)? = null,
+    onSelect: (String) -> Unit,
+) {
+    HandwritingFontGallery(
+        title = "Handwriting & Text Font",
+        selectedFont = selectedFont,
+        selectedCustomPath = selectedPath,
+        fgColor = fgColor,
+        onSelectFont = { font ->
+            onSelectFont?.invoke(font)
+            onSelect("")
+        },
+        onSelectCustomPath = onSelect,
+    )
 }
 
 private val PopularGoogleFontLinks = listOf(
@@ -1853,21 +2076,18 @@ private fun AutoTextCardContent(vm: EditorViewModel, fgColor: Color) {
             },
         )
     }
-    Text("Converted text font", style = MaterialTheme.typography.titleSmall, color = fgColor)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        TextFont.entries.forEach { font ->
-            AppChip(
-                selected = td.customHandwritingFontPath.isBlank() && td.autoScript == font.name,
-                onClick = { store.update { it.copy(toolDefaults = it.toolDefaults.copy(autoScript = font.name, customHandwritingFontPath = "")) } },
-                label = font.label,
-                tint = ProButtonPalette.ElectricBlue,
-            )
-        }
+    val activeConvertedFont = remember(td.autoScript) {
+        TextFont.entries.find { it.name == td.autoScript } ?: TextFont.CURSIVE
     }
-    CustomHandwritingFontPicker(
-        selectedPath = td.customHandwritingFontPath,
+    HandwritingFontGallery(
+        title = "Converted text font",
+        selectedFont = activeConvertedFont,
+        selectedCustomPath = td.customHandwritingFontPath,
         fgColor = fgColor,
-        onSelect = { path ->
+        onSelectFont = { font ->
+            store.update { it.copy(toolDefaults = it.toolDefaults.copy(autoScript = font.name, customHandwritingFontPath = "")) }
+        },
+        onSelectCustomPath = { path ->
             store.update { it.copy(toolDefaults = it.toolDefaults.copy(customHandwritingFontPath = path)) }
         },
     )

@@ -122,8 +122,8 @@ internal fun TabStrip(
     onSelect: (String) -> Unit,
     onClose: (String) -> Unit,
 ) {
-    val mutedFg = Color(0xFFB4BCD0)
-    val closeFg = Color(0xFF94A3B8)
+    val mutedFg = if (darkUi) Color(0xFFB4BCD0) else Color(0xFF475569)
+    val closeFg = if (darkUi) Color(0xFF94A3B8) else Color(0xFF64748B)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -167,7 +167,7 @@ internal fun TabStrip(
                 } else {
                     RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
                 }
-                val bg = if (sel) activeTabBg else Color.White.copy(alpha = 0.08f)
+                val bg = if (sel) activeTabBg else if (darkUi) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
                 val labelColor = if (sel) fgColor else mutedFg
                 Row(
                     modifier = Modifier
@@ -1071,8 +1071,8 @@ internal fun WriteBoxStudioBar(
     pageIndex: Int,
     darkUi: Boolean,
 ) {
-    val barBg = Color.Black
-    val barFg = Color(0xFFF1F5F9)
+    val barBg = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f)
+    val barFg = MaterialTheme.colorScheme.onSurface
     var textValue by remember(box.id, box.convertedText) { mutableStateOf(box.convertedText) }
 
     AppSurface(

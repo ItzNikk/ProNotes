@@ -106,7 +106,8 @@ internal fun eraseWordsFromTextItem(
             outLines += line
             return@forEachIndexed
         }
-        val lineWidth = eraserTextPaint.measureText(line)
+        val displayLine = stripInlineBoldMarkers(line)
+        val lineWidth = eraserTextPaint.measureText(displayLine)
         val lineX = when (item.style.align) {
             TextAlign.LEFT -> rawBox.left
             TextAlign.CENTER -> rawBox.left + (rawBox.width() - lineWidth) / 2f
@@ -121,8 +122,10 @@ internal fun eraseWordsFromTextItem(
         var lineChanged = false
         var firstKeptIndex = -1
         for ((tokIdx, m) in tokens.withIndex()) {
-            val wLeft = lineX + eraserTextPaint.measureText(line, 0, m.range.first)
-            val wRight = lineX + eraserTextPaint.measureText(line, 0, m.range.last + 1)
+            val prefixPlain = stripInlineBoldMarkers(line.substring(0, m.range.first))
+            val prefixWithWordPlain = stripInlineBoldMarkers(line.substring(0, m.range.last + 1))
+            val wLeft = lineX + eraserTextPaint.measureText(prefixPlain)
+            val wRight = lineX + eraserTextPaint.measureText(prefixWithWordPlain)
             val wordRect = RectF(wLeft - padX, lineTop - padY, wRight + padX, lineBottom + padY)
             if (segmentIntersectsRect(a.first, a.second, b.first, b.second, wordRect)) {
                 lineChanged = true
@@ -218,7 +221,8 @@ internal fun NoteCanvasView.scribbleEraseTextWords(page: Int, pts: List<Pt>): Pa
                 outLines += line
                 return@forEachIndexed
             }
-            val lineWidth = eraserTextPaint.measureText(line)
+            val displayLine = stripInlineBoldMarkers(line)
+            val lineWidth = eraserTextPaint.measureText(displayLine)
             val lineX = when (item.style.align) {
                 TextAlign.LEFT -> rawBox.left
                 TextAlign.CENTER -> rawBox.left + (rawBox.width() - lineWidth) / 2f
@@ -228,8 +232,10 @@ internal fun NoteCanvasView.scribbleEraseTextWords(page: Int, pts: List<Pt>): Pa
             var lineChanged = false
             var firstKeptIndex = -1
             for ((tokIdx, m) in tokens.withIndex()) {
-                val wLeft = lineX + eraserTextPaint.measureText(line, 0, m.range.first)
-                val wRight = lineX + eraserTextPaint.measureText(line, 0, m.range.last + 1)
+                val prefixPlain = stripInlineBoldMarkers(line.substring(0, m.range.first))
+                val prefixWithWordPlain = stripInlineBoldMarkers(line.substring(0, m.range.last + 1))
+                val wLeft = lineX + eraserTextPaint.measureText(prefixPlain)
+                val wRight = lineX + eraserTextPaint.measureText(prefixWithWordPlain)
                 val wordRect = RectF(wLeft, lineTop, wRight, lineBottom)
                 val hitRect = RectF(wordRect).apply { inset(-padding * 0.55f, -padding * 0.45f) }
                 var segHits = 0
