@@ -42,6 +42,9 @@ import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -60,7 +63,9 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -141,9 +146,15 @@ fun ToolPopoverCard(
 ) {
     var entered by remember(tool) { mutableStateOf(false) }
     LaunchedEffect(tool) { entered = true }
+    val reduceMotion = com.pronotes.app.ui.LocalReduceMotion.current
+    val showing = entered && visible
     val progress by animateFloatAsState(
-        targetValue = if (entered && visible) 1f else 0f,
-        animationSpec = if (com.pronotes.app.ui.LocalReduceMotion.current) snap() else spring(dampingRatio = 0.80f, stiffness = 540f),
+        targetValue = if (showing) 1f else 0f,
+        animationSpec = when {
+            reduceMotion -> snap()
+            showing -> spring(dampingRatio = 0.78f, stiffness = 560f)
+            else -> androidx.compose.animation.core.tween(durationMillis = 165, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+        },
         label = "Tool menu",
     )
     val pickTape = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -1000,18 +1011,88 @@ private fun LassoCardContent(
 
 @Composable
 private fun LaserCardContent(vm: EditorViewModel) {
-    val context = LocalContext.current
     val store = vm.notebookSettings
+    val fgColor = LocalContentColor.current
     val laserSeconds by remember(store) {
         store.select { it.laserSeconds }
     }.collectAsStateWithLifecycle(initialValue = remember(store) { store.settings.value.laserSeconds })
+    val laserColor by remember(store) {
+        store.select { it.laserColor }
+    }.collectAsStateWithLifecycle(initialValue = remember(store) { store.settings.value.laserColor })
+    var pickingCustom by remember { mutableStateOf(false) }
+
+    val laserSwatches = remember {
+        listOf(
+            0xFFFF1744.toInt(), // Red
+            0xFF2979FF.toInt(), // Electric Blue
+            0xFF00E676.toInt(), // Neon Green
+            0xFFFFAB00.toInt(), // Amber Gold
+            0xFFD500F9.toInt(), // Vivid Purple
+            0xFF00E5FF.toInt(), // Cyan
+            0xFFFF4081.toInt(), // Hot Pink
+            0xFFFFFFFF.toInt(), // Pure White
+        )
+    }
+
+    Text("LASER COLOR", style = MaterialTheme.typography.labelSmall, color = fgColor.copy(alpha = 0.68f))
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+    ) {
+        laserSwatches.forEach { col ->
+            Swatch(
+                color = col,
+                selected = laserColor == col,
+                onClick = { store.update { it.copy(laserColor = col) } },
+            )
+        }
+        val isCustom = laserColor !in laserSwatches
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(
+                    if (isCustom) Color(laserColor)
+                    else fgColor.copy(alpha = 0.12f),
+                )
+                .border(
+                    width = if (isCustom) 2.2.dp else 1.dp,
+                    color = if (isCustom) ProButtonPalette.ElectricBlue else fgColor.copy(alpha = 0.25f),
+                    shape = CircleShape,
+                )
+                .clickable { pickingCustom = true },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Outlined.Palette,
+                contentDescription = "Custom laser color",
+                tint = if (isCustom && Color(laserColor).luminance() > 0.55f) Color.Black else fgColor,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+    }
+    if (pickingCustom) {
+        ColorEditorDialog(
+            initial = laserColor,
+            presets = laserSwatches,
+            recent = vm.recentColors(),
+            onDismiss = { pickingCustom = false },
+            onPick = { picked ->
+                store.update { it.copy(laserColor = picked) }
+                vm.pushRecent(picked)
+                pickingCustom = false
+            },
+        )
+    }
+
     SheetSliderRow("STAYS FOR", "%.0f s".format(laserSeconds), laserSeconds, 1f..8f) { v ->
         store.update { it.copy(laserSeconds = v) }
     }
     Text(
         "Keep the pen or a finger on the screen to hold the laser pointer active; trails fade smoothly after release.",
         style = MaterialTheme.typography.labelSmall,
-        color = LocalContentColor.current.copy(alpha = 0.72f),
+        color = fgColor.copy(alpha = 0.72f),
     )
 }
 
@@ -1493,6 +1574,7 @@ fun CustomHandwritingFontPicker(
     val context = LocalContext.current
     var fonts by remember { mutableStateOf(CustomFontRegistry.listFonts(context)) }
     var status by remember { mutableStateOf<String?>(null) }
+    var showLinkDialog by remember { mutableStateOf(false) }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             val imported = CustomFontRegistry.importFont(context, uri)
@@ -1506,7 +1588,11 @@ fun CustomHandwritingFontPicker(
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Text(
                 "CUSTOM FONTS (.TTF / .OTF)",
                 style = MaterialTheme.typography.labelSmall,
@@ -1515,13 +1601,21 @@ fun CustomHandwritingFontPicker(
             )
             AppPill(
                 selected = false,
+                tint = ProButtonPalette.Violet,
+                onClick = { showLinkDialog = true },
+                contentPadding = PaddingValues(horizontal = 9.dp, vertical = 5.dp),
+            ) {
+                Text("From link", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+            }
+            AppPill(
+                selected = false,
                 tint = ProButtonPalette.ElectricBlue,
                 onClick = {
                     importLauncher.launch(arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "application/octet-stream", "*/*"))
                 },
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
+                contentPadding = PaddingValues(horizontal = 9.dp, vertical = 5.dp),
             ) {
-                Text("+ Import font", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                Text("+ File", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
             }
         }
         if (fonts.isNotEmpty()) {
@@ -1561,6 +1655,144 @@ fun CustomHandwritingFontPicker(
             Text(it, style = MaterialTheme.typography.labelSmall, color = ProButtonPalette.Emerald)
         }
     }
+    if (showLinkDialog) {
+        ImportFontFromLinkDialog(
+            onDismiss = { showLinkDialog = false },
+            onImported = { imported ->
+                showLinkDialog = false
+                fonts = CustomFontRegistry.listFonts(context)
+                onSelect(imported.path)
+                status = "Imported ${imported.displayName}"
+            },
+        )
+    }
+}
+
+private val PopularGoogleFontLinks = listOf(
+    "Caveat" to "https://fonts.google.com/specimen/Caveat",
+    "Patrick Hand" to "https://fonts.google.com/specimen/Patrick+Hand",
+    "Kalam" to "https://fonts.google.com/specimen/Kalam",
+    "Playfair Display" to "https://fonts.google.com/specimen/Playfair+Display",
+    "JetBrains Mono" to "https://fonts.google.com/specimen/JetBrains+Mono",
+)
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ImportFontFromLinkDialog(
+    onDismiss: () -> Unit,
+    onImported: (CustomFontRegistry.InstalledFont) -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var url by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+
+    fun submit(targetUrl: String) {
+        if (loading) return
+        val clean = targetUrl.trim()
+        if (clean.isBlank()) {
+            errorMsg = "Paste a direct .ttf/.otf or Google Fonts link"
+            return
+        }
+        loading = true
+        errorMsg = null
+        scope.launch {
+            val res = CustomFontRegistry.importFontFromUrl(context, clean)
+            loading = false
+            res.onSuccess { onImported(it) }
+                .onFailure { err -> errorMsg = err.message ?: "Could not download font from link" }
+        }
+    }
+
+    AppDialog(
+        onDismissRequest = { if (!loading) onDismiss() },
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Import Font from Link", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    "Paste a direct .ttf/.otf HTTPS link or any Google Fonts page URL.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it; errorMsg = null },
+                    singleLine = true,
+                    enabled = !loading,
+                    label = { Text("Font URL (HTTPS)") },
+                    placeholder = { Text("https://fonts.google.com/specimen/Caveat") },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "QUICK GOOGLE FONTS",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        PopularGoogleFontLinks.forEach { (label, sampleUrl) ->
+                            AppChip(
+                                selected = url.trim() == sampleUrl,
+                                onClick = { if (!loading) { url = sampleUrl; errorMsg = null } },
+                                label = label,
+                                tint = ProButtonPalette.Violet,
+                            )
+                        }
+                    }
+                }
+                if (loading) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(top = 2.dp),
+                    ) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.2.dp,
+                            color = ProButtonPalette.ElectricBlue,
+                        )
+                        Text(
+                            "Downloading & verifying font…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                errorMsg?.let { msg ->
+                    Text(
+                        msg,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = !loading && url.isNotBlank(),
+                onClick = { submit(url) },
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ProButtonPalette.ElectricBlue,
+                    contentColor = Color.White,
+                ),
+            ) {
+                Text(if (loading) "Importing…" else "Import Font", fontWeight = FontWeight.SemiBold)
+            }
+        },
+        dismissButton = {
+            TextButton(enabled = !loading, onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)

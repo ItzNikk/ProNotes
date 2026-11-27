@@ -205,6 +205,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         val boxWidth: Float = 560f,
         val boxHeight: Float = 160f,
         val isFullPage: Boolean = false,
+        val initialText: String = "",
     )
     data class StickyEdit(val page: Int, val item: StickyItem, val isNew: Boolean)
     data class WebLinkEdit(val page: Int, val item: WebLinkItem, val isNew: Boolean)
@@ -660,6 +661,55 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         c.concat(m)
         renderer().drawItems(c, p.items.filter { it.id in selection }, m)
         bmp
+    }
+
+    /** Saves the current Lasso selection as a reusable custom sticker in the Stickers library. */
+    fun saveSelectionAsSticker() {
+        if (selection.isEmpty()) return
+        viewModelScope.launch {
+            val bmp = selectionImage()
+            if (bmp == null) {
+                say("Nothing selected to save as sticker")
+                return@launch
+            }
+            val saved = withContext(Dispatchers.IO) {
+                try {
+                    StickerLibrary.saveCustomBitmap(getApplication<Application>(), bmp)
+                } finally {
+                    bmp.recycle()
+                }
+            }
+            if (saved != null) {
+                say("Saved to Stickers")
+            } else {
+                say("Could not save sticker")
+            }
+        }
+    }
+
+    /** Saves a cropped page/PDF region (masked to [outline] if provided) as a reusable custom sticker. */
+    fun saveRegionAsSticker(page: Int, rect: RectF, outline: List<Pair<Float, Float>>? = null) {
+        val p = pages.getOrNull(page) ?: return
+        viewModelScope.launch {
+            val bmp = clippedRegionBitmap(p, rect, outline)
+            if (bmp == null) {
+                say("Could not capture area")
+                return@launch
+            }
+            val saved = withContext(Dispatchers.IO) {
+                try {
+                    StickerLibrary.saveCustomBitmap(getApplication<Application>(), bmp)
+                } finally {
+                    bmp.recycle()
+                }
+            }
+            clearPdfRegionSel()
+            if (saved != null) {
+                say("Saved to Stickers")
+            } else {
+                say("Could not save sticker")
+            }
+        }
     }
 
     suspend fun pageImage(index: Int): Bitmap? = thumbnail(index, 1600)
@@ -1553,9 +1603,19 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
                 say("Could not recognise handwritten ink")
                 return
             }
-            // Dynamic Bold: automatically bold larger written headings/emphasis text relative to base size
-            val shouldDynamicBold = options.dynamicBoldHandwriting &&
-                (estimatedSize >= (textSize * 1.28f) || union.height() >= 68f)
+            // Dynamic Bold: detect intentional headings & bold emphasis using stroke thickness,
+            // per-stroke height, and single-line heading ratio without false-bolding long paragraphs.
+            val cleanedForBold = text.trim()
+            val isShortHeading = !cleanedForBold.contains('\n') && cleanedForBold.length <= 42
+            val avgBrushSize = if (selectedInk.isNotEmpty()) {
+                selectedInk.map { it.stroke.brush.size }.average().toFloat()
+            } else penStyle.size
+            val strokeHeights = selectedInk.map { it.bounds.height() }.sorted()
+            val medianStrokeH = if (strokeHeights.isNotEmpty()) strokeHeights[strokeHeights.size / 2] else 0f
+            val thickBrush = avgBrushSize >= (penStyle.size * 1.24f).coerceAtLeast(6.5f)
+            val largeHeading = estimatedSize >= (textSize * 1.18f) ||
+                (isShortHeading && (union.height() >= 58f || medianStrokeH >= 44f))
+            val shouldDynamicBold = options.dynamicBoldHandwriting && (largeHeading || thickBrush)
             val customFont = overrideCustomFontPath ?: options.customHandwritingFontPath
             val baseStyle = if (automatic) {
                 TextStyleSpec(
@@ -1673,6 +1733,7 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
         boxWidth: Float = 560f,
         boxHeight: Float = 160f,
         isFullPage: Boolean = false,
+        initialText: String = "",
     ) {
         val p = pages.getOrNull(page) ?: return
         selection = emptySet()
@@ -1684,7 +1745,11 @@ class EditorViewModel(app: Application, val noteId: String) : AndroidViewModel(a
             else boxHeight
         val rx = (if (isFullPage) x else (existing?.x ?: x)).coerceIn(24f, (p.width - w - 24f).coerceAtLeast(24f))
         val ry = (if (isFullPage) y else (existing?.y ?: y)).coerceIn(24f, (p.height - h - 24f).coerceAtLeast(24f))
-        textEdit = TextEdit(page, rx, ry, existing, boxWidth = w, boxHeight = h, isFullPage = isFullPage)
+        textEdit = TextEdit(page, rx, ry, existing, boxWidth = w, boxHeight = h, isFullPage = isFullPage, initialText = initialText)
+    }
+
+    fun openInlineBulletBox(page: Int, x: Float, y: Float) {
+        openInlineTextBox(page = page, x = x, y = y, initialText = "• ")
     }
 
     fun commitText(

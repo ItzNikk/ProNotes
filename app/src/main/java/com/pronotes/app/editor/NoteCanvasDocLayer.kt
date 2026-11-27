@@ -27,7 +27,7 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-internal class LaserStroke(val pts: ArrayList<Pt>, var end: Long = Long.MAX_VALUE)
+internal class LaserStroke(val pts: ArrayList<Pt>, val color: Int = 0xFFFF1744.toInt(), var end: Long = Long.MAX_VALUE)
 
 @SuppressLint("ViewConstructor")
 internal class NoteCanvasDocLayer(
@@ -416,12 +416,51 @@ internal class NoteCanvasDocLayer(
         }
     }
 
-    /** Circle-and-hold: the ink loop glows, turns into a dashed lasso, then [onDone] selects. */
+    private val morphMeasure = android.graphics.PathMeasure()
+    private val morphSegmentPath = Path()
+    private val morphGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        color = 0xFF3D6CF4.toInt()
+    }
+    private var morphAnimator: ValueAnimator? = null
+
+    /** Smooth quadratic contour shared by Lasso, Circle-to-Lasso, and dot-hold morphing so all look identical. */
+    private fun buildSmoothContourPath(pts: List<Pt>, out: Path, closeLoop: Boolean) {
+        out.reset()
+        if (pts.size < 2) return
+        var prevX = pts[0].first
+        var prevY = pts[0].second
+        val firstX = prevX
+        val firstY = prevY
+        out.moveTo(firstX, firstY)
+        for (i in 1 until pts.size) {
+            val sx = pts[i].first
+            val sy = pts[i].second
+            out.quadTo(prevX, prevY, (prevX + sx) * 0.5f, (prevY + sy) * 0.5f)
+            prevX = sx
+            prevY = sy
+        }
+        if (closeLoop) {
+            out.quadTo(prevX, prevY, firstX, firstY)
+            out.close()
+        } else {
+            out.lineTo(prevX, prevY)
+        }
+    }
+
+    /**
+     * Unified line-appear animation for both Circle-to-Lasso (dot hold) and regular Lasso selection:
+     * progressively traces the dashed contour around the loop with a subtle accent sweep, then settles cleanly.
+     */
     fun playLassoMorph(screen: List<Pt>, onDone: () -> Unit) {
+        morphAnimator?.cancel()
         morph = screen
-        ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 420
-            interpolator = DecelerateInterpolator()
+        morphT = 0f
+        morphAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 320
+            interpolator = DecelerateInterpolator(1.6f)
             addUpdateListener {
                 morphT = it.animatedValue as Float
                 invalidate()
@@ -429,6 +468,7 @@ internal class NoteCanvasDocLayer(
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     morph = null
+                    morphAnimator = null
                     invalidate()
                     onDone()
                 }
@@ -440,19 +480,34 @@ internal class NoteCanvasDocLayer(
     fun drawMorph(canvas: Canvas) {
         val pts = morph ?: return
         if (pts.size < 2) return
-        tmpPath.reset()
-        pts.forEachIndexed { i, (x, y) -> if (i == 0) tmpPath.moveTo(x, y) else tmpPath.lineTo(x, y) }
-        tmpPath.close()
-        val t = morphT
-        lassoFill.alpha = (0x14 + 36 * t).toInt().coerceAtMost(255)
+        buildSmoothContourPath(pts, tmpPath, closeLoop = true)
+        val t = morphT.coerceIn(0f, 1f)
+        // Soft fill fades in smoothly as the dashed line finishes tracing the loop
+        lassoFill.alpha = (0x0E * t).toInt().coerceIn(0, 0x18)
         canvas.drawPath(tmpPath, lassoFill)
 
-        drawDashedLasso(canvas, tmpPath)
-        lassoFill.alpha = 0x14
+        // Progressive line-appear trace along the contour perimeter
+        morphMeasure.setPath(tmpPath, false)
+        val totalLen = morphMeasure.length
+        if (totalLen > 1f) {
+            morphSegmentPath.reset()
+            morphMeasure.getSegment(0f, totalLen * t, morphSegmentPath, true)
+            // Subtle luminous leading glow that fades out as the dashed contour locks in
+            val glowFade = (1f - t).coerceIn(0f, 1f)
+            if (glowFade > 0.04f) {
+                morphGlowPaint.strokeWidth = (4.8f * density) * (0.65f + 0.35f * glowFade)
+                morphGlowPaint.alpha = (glowFade * 115f).toInt()
+                canvas.drawPath(morphSegmentPath, morphGlowPaint)
+            }
+            drawDashedLasso(canvas, morphSegmentPath)
+        } else {
+            drawDashedLasso(canvas, tmpPath)
+        }
+        lassoFill.alpha = 0x0E
     }
 
-    fun laserBegin(p: Pt) {
-        lasers += LaserStroke(arrayListOf(p))
+    fun laserBegin(p: Pt, color: Int = 0xFFFF1744.toInt()) {
+        lasers += LaserStroke(arrayListOf(p), color = color)
         invalidate()
     }
 
@@ -534,8 +589,8 @@ internal class NoteCanvasDocLayer(
                 }
             }
             when {
-                i != owner.selectionPage -> r.drawItems(canvas, p.items, m)
-                sourceItems != null -> r.drawItems(canvas, remainingItems, m)
+                i != owner.selectionPage -> r.drawPageItemsCached(canvas, p, p.items, m)
+                sourceItems != null -> r.drawPageItemsCached(canvas, p, remainingItems, m)
                 else -> r.drawItems(canvas, p.items, m, transform = owner.liveMatrix, transformIds = owner.selection)
             }
             tapePreview?.takeIf { i == owner.activePage }?.let { canvas.drawRoundRect(it, 6f, 6f, tapePreviewPaint) }
@@ -782,42 +837,31 @@ internal class NoteCanvasDocLayer(
 
     private fun drawSelection(canvas: Canvas) {
         if (owner.selection.isEmpty()) return
-        val outline = owner.selectionOutline
-        if (outline != null && outline.size >= 3) {
-            owner.pageMatrix(owner.selectionPage, outlineMatrix)
-            owner.liveMatrix?.let { outlineMatrix.preConcat(it) }
-            outlinePath.reset()
-            val pt = tmpPt2
-            var prevX = 0f
-            var prevY = 0f
-            var firstX = 0f
-            var firstY = 0f
-            for (i in outline.indices) {
-                pt[0] = outline[i].first
-                pt[1] = outline[i].second
-                outlineMatrix.mapPoints(pt)
-                val sx = pt[0]
-                val sy = pt[1]
-                if (i == 0) {
-                    firstX = sx
-                    firstY = sy
-                    outlinePath.moveTo(sx, sy)
-                } else {
-                    outlinePath.quadTo(prevX, prevY, (prevX + sx) * 0.5f, (prevY + sy) * 0.5f)
+        // While progressive line-appear morph is playing, let drawMorph own the contour so there's no double-draw
+        if (morph == null) {
+            val outline = owner.selectionOutline
+            if (outline != null && outline.size >= 3) {
+                owner.pageMatrix(owner.selectionPage, outlineMatrix)
+                owner.liveMatrix?.let { outlineMatrix.preConcat(it) }
+                val mapped = ArrayList<Pt>(outline.size)
+                val pt = tmpPt2
+                for (i in outline.indices) {
+                    pt[0] = outline[i].first
+                    pt[1] = outline[i].second
+                    outlineMatrix.mapPoints(pt)
+                    mapped += pt[0] to pt[1]
                 }
-                prevX = sx
-                prevY = sy
+                buildSmoothContourPath(mapped, outlinePath, closeLoop = true)
+                canvas.drawPath(outlinePath, lassoFill)
+                drawDashedLasso(canvas, outlinePath)
+            } else {
+                val bounds = owner.selectionPageBounds() ?: return
+                owner.pageMatrix(owner.selectionPage, m).mapRect(bounds)
+                outlinePath.reset()
+                outlinePath.addRoundRect(bounds, 12f * density, 12f * density, Path.Direction.CW)
+                canvas.drawPath(outlinePath, lassoFill)
+                drawDashedLasso(canvas, outlinePath)
             }
-            outlinePath.quadTo(prevX, prevY, firstX, firstY)
-            outlinePath.close()
-            canvas.drawPath(outlinePath, lassoFill)
-            drawDashedLasso(canvas, outlinePath)
-        } else {
-            val bounds = owner.selectionPageBounds() ?: return
-            owner.pageMatrix(owner.selectionPage, m).mapRect(bounds)
-            outlinePath.reset()
-            outlinePath.addRoundRect(bounds, 12f * density, 12f * density, Path.Direction.CW)
-            drawDashedLasso(canvas, outlinePath)
         }
         if (!owner.selectionTransformEnabled) return
         val rotating = owner.grab == NoteCanvasView.Grab.ROTATE && owner.liveMatrix != null
@@ -946,8 +990,7 @@ internal class NoteCanvasDocLayer(
     }
     private fun drawLasso(canvas: Canvas, pts: List<Pt>) {
         if (pts.size < 2) return
-        tmpPath.reset()
-        pts.forEachIndexed { i, (x, y) -> if (i == 0) tmpPath.moveTo(x, y) else tmpPath.lineTo(x, y) }
+        buildSmoothContourPath(pts, tmpPath, closeLoop = false)
         canvas.drawPath(tmpPath, lassoFill)
         drawDashedLasso(canvas, tmpPath)
     }
@@ -985,24 +1028,30 @@ internal class NoteCanvasDocLayer(
                 prevY = sy
             }
             tmpPath.lineTo(prevX, prevY)
-            // Bright vivid laser red
-            val baseR = 255
-            val baseG = 23
-            val baseB = 68
+            // Custom luminous laser beam derived cleanly from user-selected laser color
+            val baseR = Color.red(s.color)
+            val baseG = Color.green(s.color)
+            val baseB = Color.blue(s.color)
+            val midR = (baseR + (255 - baseR) * 0.22f).toInt().coerceIn(0, 255)
+            val midG = (baseG + (255 - baseG) * 0.22f).toInt().coerceIn(0, 255)
+            val midB = (baseB + (255 - baseB) * 0.22f).toInt().coerceIn(0, 255)
+            val coreR = (baseR + (255 - baseR) * 0.86f).toInt().coerceIn(0, 255)
+            val coreG = (baseG + (255 - baseG) * 0.86f).toInt().coerceIn(0, 255)
+            val coreB = (baseB + (255 - baseB) * 0.86f).toInt().coerceIn(0, 255)
             // 1. Wide soft outer bloom
             laserCore.color = Color.argb((life * 44).toInt(), baseR, baseG, baseB)
             laserCore.strokeWidth = 17.0f * density
             canvas.drawPath(tmpPath, laserCore)
-            // 2. Luminous crimson mid-glow aura
-            laserCore.color = Color.argb((life * 112).toInt(), 255, 45, 75)
+            // 2. Luminous mid-glow aura
+            laserCore.color = Color.argb((life * 114).toInt(), midR, midG, midB)
             laserCore.strokeWidth = 9.0f * density
             canvas.drawPath(tmpPath, laserCore)
-            // 3. Saturated bright red laser beam
+            // 3. Saturated laser core beam
             laserCore.color = Color.argb((life * 248).toInt(), baseR, baseG, baseB)
             laserCore.strokeWidth = 4.0f * density
             canvas.drawPath(tmpPath, laserCore)
-            // 4. Clean luminous white-rose inner filament
-            laserCore.color = Color.argb((life * 230).toInt(), 255, 240, 242)
+            // 4. Clean luminous white-tinted inner filament
+            laserCore.color = Color.argb((life * 235).toInt(), coreR, coreG, coreB)
             laserCore.strokeWidth = 1.5f * density
             canvas.drawPath(tmpPath, laserCore)
         }

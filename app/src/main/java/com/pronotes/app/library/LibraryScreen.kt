@@ -82,7 +82,9 @@ import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.DashboardCustomize
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Draw
+import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.DriveFileMove
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Explore
@@ -297,6 +299,63 @@ fun LibraryScreen(
     val scope = rememberCoroutineScope()
     val reduceMotion = LocalReduceMotion.current
 
+    var exportPdfTarget by remember { mutableStateOf<NotebookMeta?>(null) }
+    val exportPdfLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        val note = exportPdfTarget
+        exportPdfTarget = null
+        if (uri != null && note != null) {
+            scope.launch {
+                val ok = runCatching {
+                    val pages = repo.loadPages(note.id)
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        repo.exportPdf(note.id, pages, out)
+                    } ?: error("Cannot open output stream")
+                    true
+                }.getOrDefault(false)
+                android.widget.Toast.makeText(
+                    context,
+                    if (ok) "Exported \"${note.title}.pdf\"" else "Could not export PDF. Please try again.",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
+
+    fun shareNoteAsPdf(note: NotebookMeta) {
+        scope.launch {
+            val sharedFile = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    val pages = repo.loadPages(note.id)
+                    val safeName = note.title.replace(Regex("[^a-zA-Z0-9._ -]"), "_").trim().ifBlank { "Notebook" } + ".pdf"
+                    val dir = java.io.File(context.cacheDir, "shared_pdfs").apply { mkdirs() }
+                    val file = java.io.File(dir, safeName)
+                    file.outputStream().use { out -> repo.exportPdf(note.id, pages, out) }
+                    file
+                }.getOrNull()
+            }
+            if (sharedFile == null) {
+                android.widget.Toast.makeText(context, "Could not prepare PDF for sharing.", android.widget.Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            runCatching {
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    context,
+                    context.packageName + ".files",
+                    sharedFile,
+                )
+                val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "application/pdf"
+                    putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                    putExtra(android.content.Intent.EXTRA_SUBJECT, note.title)
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(android.content.Intent.createChooser(intent, "Share PDF"))
+            }.onFailure {
+                android.widget.Toast.makeText(context, "No app available to share PDF.", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     var section by rememberSaveable { mutableStateOf(Section.DOCUMENTS) }
     var folderId by rememberSaveable { mutableStateOf<String?>(null) }
     var query by remember { mutableStateOf("") }
@@ -504,9 +563,13 @@ fun LibraryScreen(
 
     val drag = remember { DragController() }
     val trashCount = lib.notebooks.count { it.deletedAt != null }
+    val anyModalOpen = showGuide || compactSidebar || newNotebook || pasteImportOpen || cloudStorageOpen ||
+        folderEdit != null || newFolder || renaming != null || moving != null || deleting != null ||
+        coverFor != null || forever != null || collabOpen || emptyTrash || pendingImport != null ||
+        pdfImportProgress != null
     LibraryWorkspace(drag) {
         val workspaceLayout = this
-        GlowingWorkspace(paused = showGuide || compactSidebar) {
+        GlowingWorkspace(paused = anyModalOpen) {
             val wide = maxWidth >= 840.dp
             val sidebar = wide && wideSidebar
             val closeSidebar = {
@@ -1007,6 +1070,12 @@ fun LibraryScreen(
                             onCover = { coverFor = it },
                             onFavorite = { scope.launch { repo.toggleFavorite(it.id) } },
                             onDuplicate = { scope.launch { repo.duplicateNotebook(it.id) } },
+                            onExportPdf = { note ->
+                                exportPdfTarget = note
+                                val safe = note.title.replace(Regex("[^a-zA-Z0-9._ -]"), "_").trim().ifBlank { "Notebook" }
+                                exportPdfLauncher.launch("$safe.pdf")
+                            },
+                            onSharePdf = { note -> shareNoteAsPdf(note) },
                             onRestore = { scope.launch { repo.restoreNotebook(it.id) } },
                             onDeleteForever = { forever = it },
                             onDrop = { payload, target -> dropInto(payload, target) },
@@ -1021,6 +1090,14 @@ fun LibraryScreen(
                             if (selectionMode) {
                                 TextButton(enabled = !batchBusy, onClick = { selectedDocuments = entries.filterIsInstance<Entry.N>().map { it.note.id }.toSet() }) { Text("Select all") }
                                 TextButton(enabled = !batchBusy, onClick = { selectedDocuments = emptySet() }) { Text("Clear") }
+                                TextButton(enabled = selectedDocuments.isNotEmpty() && !batchBusy, onClick = {
+                                    val firstNote = lib.notebooks.firstOrNull { it.id in selectedDocuments }
+                                    if (firstNote != null) {
+                                        exportPdfTarget = firstNote
+                                        val safe = firstNote.title.replace(Regex("[^a-zA-Z0-9._ -]"), "_").trim().ifBlank { "Notebook" }
+                                        exportPdfLauncher.launch("$safe.pdf")
+                                    }
+                                }) { Text("Export PDF") }
                                 TextButton(enabled = selectedDocuments.isNotEmpty() && !batchBusy, onClick = {
                                     val ids = selectedDocuments
                                     batchBusy = true
@@ -1465,6 +1542,8 @@ private class TileActions(
     val onCover: (NotebookMeta) -> Unit,
     val onFavorite: (NotebookMeta) -> Unit,
     val onDuplicate: (NotebookMeta) -> Unit,
+    val onExportPdf: (NotebookMeta) -> Unit,
+    val onSharePdf: (NotebookMeta) -> Unit,
     val onRestore: (NotebookMeta) -> Unit,
     val onDeleteForever: (NotebookMeta) -> Unit,
     val onDrop: (String, String?) -> Boolean,
@@ -1752,6 +1831,8 @@ private fun noteMenuItems(note: NotebookMeta, a: TileActions): List<AppMenuItem>
         )
     } else {
         listOf(
+            AppMenuItem("Export as PDF", icon = { Icon(androidx.compose.material.icons.Icons.Rounded.Download, null, Modifier.size(18.dp)) }) { a.onExportPdf(note) },
+            AppMenuItem("Share PDF", icon = { Icon(androidx.compose.material.icons.Icons.Rounded.IosShare, null, Modifier.size(18.dp)) }) { a.onSharePdf(note) },
             AppMenuItem("Duplicate", icon = { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)) }) { a.onDuplicate(note) },
             AppMenuItem(
                 if (note.favorite) "Remove from favorites" else "Add to favorites",

@@ -356,6 +356,7 @@ data class AppSettings(
     val highlighterBehind: Boolean = true,
     val highlighterMode: HighlighterMode = HighlighterMode.AUTO,
     val laserSeconds: Float = 3f,
+    val laserColor: Int = 0xFFFF1744.toInt(),
     /** Highlighter ink opacity, 0.3 to 0.9. Text stays on top thanks to blending. */
     val highlighterOpacity: Float = 0.65f,
     val lassoAfterShape: Boolean = false,
@@ -647,6 +648,7 @@ class SettingsStore private constructor(context: Context, file: String = "settin
             highlighterBehind = b("hlBehind", d.highlighterBehind),
             highlighterMode = if (!prefs.contains("hlMode") && legacyStraight) HighlighterMode.STRAIGHT else enumOf("hlMode", d.highlighterMode),
             laserSeconds = prefs.getFloat("laserSeconds", d.laserSeconds),
+            laserColor = prefs.getInt("laserColor", d.laserColor),
             highlighterOpacity = prefs.getFloat("hlOpacity2", d.highlighterOpacity),
             lassoAfterShape = b("lassoAfterShape", d.lassoAfterShape),
             lassoMode = enumOf("lassoMode", d.lassoMode),
@@ -794,6 +796,7 @@ class SettingsStore private constructor(context: Context, file: String = "settin
         putB("hlBehind", prev.highlighterBehind, s.highlighterBehind)
         putS("hlMode", prev.highlighterMode.name, s.highlighterMode.name)
         putF("laserSeconds", prev.laserSeconds, s.laserSeconds)
+        putI("laserColor", prev.laserColor, s.laserColor)
         putF("hlOpacity2", prev.highlighterOpacity, s.highlighterOpacity)
         putB("lassoAfterShape", prev.lassoAfterShape, s.lassoAfterShape)
         putS("lassoMode", prev.lassoMode.name, s.lassoMode.name)

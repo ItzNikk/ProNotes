@@ -83,6 +83,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.FormatAlignLeft
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.Minimize
+import androidx.compose.material.icons.outlined.OndemandVideo
+import androidx.compose.material.icons.outlined.OpenInFull
 import androidx.compose.material.icons.automirrored.outlined.FormatAlignRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -362,15 +367,34 @@ fun EditorScreen(
     var wheelAt by remember { mutableStateOf<Offset?>(null) }
     var showTemplates by remember { mutableStateOf(false) }
     var videoUrl by remember { mutableStateOf<String?>(null) }
+    var activeVideoUrl by remember { mutableStateOf<String?>(null) }
     videoUrl?.let { value ->
-        val uri = android.net.Uri.parse(value.trim())
-        AppDialog(onDismissRequest = { videoUrl = null }, title = { Text("Floating video") },
-            text = { OutlinedTextField(value, { videoUrl = it }, singleLine = true, label = { Text("Direct HTTPS video or stream URL") }) },
-            confirmButton = { TextButton(enabled = uri.scheme == "https" && !uri.host.isNullOrBlank(), onClick = {
-                vm.onRequestCommitText?.invoke()
-                context.startActivity(android.content.Intent(context, com.pronotes.app.VideoActivity::class.java).setData(uri))
-                videoUrl = null
-            }) { Text("Play") } })
+        val raw = value.trim()
+        val normalized = if (raw.isNotEmpty() && !raw.startsWith("http://", true) && !raw.startsWith("https://", true)) "https://$raw" else raw
+        val uri = android.net.Uri.parse(normalized)
+        AppDialog(
+            onDismissRequest = { videoUrl = null },
+            title = { Text("In-screen video player") },
+            text = {
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { videoUrl = it },
+                    singleLine = true,
+                    label = { Text("YouTube, HTTPS video, or stream URL") },
+                    placeholder = { Text("https://...") },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = (uri.scheme == "https" || uri.scheme == "http") && !uri.host.isNullOrBlank(),
+                    onClick = {
+                        vm.onRequestCommitText?.invoke()
+                        activeVideoUrl = normalized
+                        videoUrl = null
+                    },
+                ) { Text("Open in screen") }
+            },
+        )
     }
     var stickyBoard by remember { mutableStateOf(false) }
     var showCards by remember { mutableStateOf(false) }
@@ -1230,8 +1254,21 @@ fun EditorScreen(
                         }
                     }
 
-                    // Long-press on PDF text: copy, highlight, underline, strike, flashcard, search, share
-                    vm.textMenu?.let { r ->
+                    // Long-press on PDF text: copy, highlight, underline, strike, search, share (animated open & close)
+                    var lastTextMenu by remember { mutableStateOf<android.graphics.RectF?>(null) }
+                    if (vm.textMenu != null) lastTextMenu = vm.textMenu
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = vm.textMenu != null,
+                        enter = if (reduceMotion) fadeIn(androidx.compose.animation.core.snap()) else fadeIn(tween(150)) + scaleIn(
+                            initialScale = 0.88f,
+                            animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.78f, stiffness = 520f),
+                        ),
+                        exit = if (reduceMotion) fadeOut(androidx.compose.animation.core.snap()) else fadeOut(tween(130)) + scaleOut(
+                            targetScale = 0.90f,
+                            animationSpec = tween(130),
+                        ),
+                    ) {
+                        val r = vm.textMenu ?: lastTextMenu ?: return@AnimatedVisibility
                         val clip = LocalClipboardManager.current
                         AppSurface(
                             role = SurfaceRole.Popover,
@@ -1290,8 +1327,21 @@ fun EditorScreen(
                         }
                     }
 
-                    // PDF region lasso overlay (lasso directly on PDF content without handwriting)
-                    vm.pdfRegionSel?.let { sel ->
+                    // Empty-region lasso overlay for both notebooks & PDFs (animated open & close)
+                    var lastPdfRegionSel by remember { mutableStateOf<EditorViewModel.PdfRegionSelection?>(null) }
+                    if (vm.pdfRegionSel != null) lastPdfRegionSel = vm.pdfRegionSel
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = vm.pdfRegionSel != null,
+                        enter = if (reduceMotion) fadeIn(androidx.compose.animation.core.snap()) else fadeIn(tween(155)) + scaleIn(
+                            initialScale = 0.92f,
+                            animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.78f, stiffness = 500f),
+                        ),
+                        exit = if (reduceMotion) fadeOut(androidx.compose.animation.core.snap()) else fadeOut(tween(130)) + scaleOut(
+                            targetScale = 0.92f,
+                            animationSpec = tween(130),
+                        ),
+                    ) {
+                        val sel = vm.pdfRegionSel ?: lastPdfRegionSel ?: return@AnimatedVisibility
                         val r = sel.screenBounds
                         Box(
                             Modifier
@@ -1302,7 +1352,7 @@ fun EditorScreen(
                         ) {
                             Canvas(Modifier.fillMaxSize()) {
                                 val dash = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
-                                    floatArrayOf(14f, 10f),
+                                    floatArrayOf(12f, 9f),
                                     0f,
                                 )
                                 drawRect(
@@ -1314,7 +1364,7 @@ fun EditorScreen(
                                     color = Color.Black,
                                     topLeft = androidx.compose.ui.geometry.Offset(r.left, r.top),
                                     size = androidx.compose.ui.geometry.Size(r.width().coerceAtLeast(1f), r.height().coerceAtLeast(1f)),
-                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.2f * density, pathEffect = dash),
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6f * density, pathEffect = dash),
                                 )
                             }
                             AppSurface(
@@ -1370,7 +1420,7 @@ fun EditorScreen(
                                         onClick = { vm.clearPdfRegionSel() },
                                         modifier = Modifier.size(32.dp),
                                     ) {
-                                        Icon(Icons.Filled.Close, "Dismiss PDF lasso", tint = Color.White.copy(alpha = 0.78f), modifier = Modifier.size(16.dp))
+                                        Icon(Icons.Filled.Close, "Dismiss lasso region", tint = Color.White.copy(alpha = 0.78f), modifier = Modifier.size(16.dp))
                                     }
                                 }
                             }
@@ -1537,8 +1587,21 @@ fun EditorScreen(
                             }
                         }
                     }
-                    // Quick Insert (long-press on empty page)
-                    quickInsert?.let { req ->
+                    // Quick Insert (long-press on empty page) — smooth animated open & close
+                    var lastQuickInsert by remember { mutableStateOf<QuickInsertRequest?>(null) }
+                    if (quickInsert != null) lastQuickInsert = quickInsert
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = quickInsert != null,
+                        enter = if (reduceMotion) fadeIn(androidx.compose.animation.core.snap()) else fadeIn(tween(155)) + scaleIn(
+                            initialScale = 0.90f,
+                            animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.78f, stiffness = 520f),
+                        ),
+                        exit = if (reduceMotion) fadeOut(androidx.compose.animation.core.snap()) else fadeOut(tween(135)) + scaleOut(
+                            targetScale = 0.90f,
+                            animationSpec = tween(135),
+                        ),
+                    ) {
+                        val req = quickInsert ?: lastQuickInsert ?: return@AnimatedVisibility
                         QuickInsertOverlay(
                             request = req,
                             areaSize = areaSize,
@@ -1551,6 +1614,10 @@ fun EditorScreen(
                             onTextBox = {
                                 quickInsert = null
                                 vm.openInlineTextBox(req.page, req.x, req.y)
+                            },
+                            onBulletList = {
+                                quickInsert = null
+                                vm.openInlineBulletBox(req.page, req.x, req.y)
                             },
                             onSticky = {
                                 quickInsert = null
@@ -1580,8 +1647,21 @@ fun EditorScreen(
                             },
                         )
                     }
-                    // Curved dual-arc Quick Actions (stylus side button)
-                    wheelAt?.let { at ->
+                    // Curved dual-arc Quick Actions (stylus side button) — smooth animated open & close
+                    var lastWheelAt by remember { mutableStateOf<Offset?>(null) }
+                    if (wheelAt != null) lastWheelAt = wheelAt
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = wheelAt != null,
+                        enter = if (reduceMotion) fadeIn(androidx.compose.animation.core.snap()) else fadeIn(tween(150)) + scaleIn(
+                            initialScale = 0.88f,
+                            animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.78f, stiffness = 540f),
+                        ),
+                        exit = if (reduceMotion) fadeOut(androidx.compose.animation.core.snap()) else fadeOut(tween(130)) + scaleOut(
+                            targetScale = 0.88f,
+                            animationSpec = tween(130),
+                        ),
+                    ) {
+                        val at = wheelAt ?: lastWheelAt ?: return@AnimatedVisibility
                         QuickActionsOverlay(
                             vm = vm,
                             at = at,
@@ -1596,6 +1676,28 @@ fun EditorScreen(
                                 vm.openWebLink(vm.pageIndex, (p?.width ?: 1200f) / 2f, 220f, null)
                             },
                             onDismiss = { wheelAt = null },
+                        )
+                    }
+                    // Merged in-screen draggable & resizable Floating Video Player (no separate Activity)
+                    var lastActiveVideo by remember { mutableStateOf<String?>(null) }
+                    if (activeVideoUrl != null) lastActiveVideo = activeVideoUrl
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = activeVideoUrl != null,
+                        enter = if (reduceMotion) fadeIn(androidx.compose.animation.core.snap()) else fadeIn(tween(180)) + scaleIn(
+                            initialScale = 0.90f,
+                            animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.80f, stiffness = 480f),
+                        ),
+                        exit = if (reduceMotion) fadeOut(androidx.compose.animation.core.snap()) else fadeOut(tween(150)) + scaleOut(
+                            targetScale = 0.90f,
+                            animationSpec = tween(150),
+                        ),
+                    ) {
+                        val vUrl = activeVideoUrl ?: lastActiveVideo ?: return@AnimatedVisibility
+                        FloatingVideoOverlay(
+                            url = vUrl,
+                            areaSize = areaSize,
+                            onChangeUrl = { videoUrl = vUrl },
+                            onClose = { activeVideoUrl = null },
                         )
                     }
                     // Sync canvas hiddenTextItemId / hiddenStickyItemId and close popovers whenever inline text editing starts
@@ -1962,27 +2064,249 @@ private fun EditorHandwritingGlowOverlay(
 ) {
     val inkGlow = vm.handwritingGlow
     if (inkGlow == null || reduceMotion || reduceEffects) return
-    val glowAlpha = animateFloatAsState(
-        targetValue = 1f,
-        animationSpec = tween(85),
-        label = "Handwriting conversion glow",
-    )
-    val glowColor = MaterialTheme.colorScheme.primary
+    val sweep = remember(inkGlow) { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(inkGlow) {
+        sweep.snapTo(0f)
+        sweep.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 360, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        )
+    }
+    val glowColor = ProButtonPalette.ElectricBlue
+    val cyanAccent = Color(0xFF38BDF8)
     val page = vm.pages.indexOfFirst { it.id == inkGlow.first }
     Canvas(Modifier.fillMaxSize()) {
         val bounds = canvas?.pageToScreen(page, inkGlow.second) ?: return@Canvas
-        val center = Offset(bounds.centerX(), bounds.centerY())
-        val radiusX = bounds.width() / 2f + 20.dp.toPx()
-        val radiusY = bounds.height() / 2f + 16.dp.toPx()
-        val brush = Brush.radialGradient(
-            listOf(glowColor.copy(alpha = 0.54f), glowColor.copy(alpha = 0.20f), Color.Transparent),
-            center = center,
-            radius = radiusX,
+        val t = sweep.value.coerceIn(0f, 1f)
+        val pad = 8.dp.toPx()
+        val left = bounds.left - pad
+        val top = bounds.top - pad
+        val width = (bounds.width() + pad * 2f).coerceAtLeast(24f)
+        val height = (bounds.height() + pad * 2f).coerceAtLeast(18f)
+        val fadeEnvelope = kotlin.math.sin(t * Math.PI).toFloat().coerceIn(0f, 1f)
+
+        // Soft glowing conversion frame revealing left-to-right
+        val revealW = width * t
+        val corner = androidx.compose.ui.geometry.CornerRadius(10.dp.toPx(), 10.dp.toPx())
+        drawRoundRect(
+            brush = Brush.horizontalGradient(
+                colorStops = arrayOf(
+                    0f to glowColor.copy(alpha = 0.06f * fadeEnvelope),
+                    0.75f to cyanAccent.copy(alpha = 0.16f * fadeEnvelope),
+                    1f to Color.Transparent,
+                ),
+                startX = left,
+                endX = left + revealW.coerceAtLeast(1f),
+            ),
+            topLeft = Offset(left, top),
+            size = androidx.compose.ui.geometry.Size(revealW.coerceAtLeast(1f), height),
+            cornerRadius = corner,
         )
-        withTransform({
-            scale(1f, radiusY / radiusX, center)
-        }) {
-            drawCircle(brush, radius = radiusX, center = center, alpha = glowAlpha.value)
+
+        // Crisp glowing sweep beam scanning across handwriting as it converts
+        val beamX = left + width * t
+        val beamHalf = 22.dp.toPx()
+        drawRect(
+            brush = Brush.horizontalGradient(
+                listOf(Color.Transparent, glowColor.copy(alpha = 0.42f * fadeEnvelope), cyanAccent.copy(alpha = 0.72f * fadeEnvelope), Color.Transparent),
+                startX = beamX - beamHalf,
+                endX = beamX + beamHalf,
+            ),
+            topLeft = Offset(beamX - beamHalf, top - 2.dp.toPx()),
+            size = androidx.compose.ui.geometry.Size(beamHalf * 2f, height + 4.dp.toPx()),
+        )
+
+        // Animated baseline underline appearing cleanly under the converted text
+        val lineY = top + height - 2.dp.toPx()
+        drawLine(
+            brush = Brush.horizontalGradient(
+                listOf(glowColor.copy(alpha = 0.85f * fadeEnvelope), cyanAccent.copy(alpha = 0.95f * fadeEnvelope)),
+                startX = left,
+                endX = left + revealW.coerceAtLeast(1f),
+            ),
+            start = Offset(left, lineY),
+            end = Offset(left + revealW, lineY),
+            strokeWidth = 2.4.dp.toPx(),
+            cap = androidx.compose.ui.graphics.StrokeCap.Round,
+        )
+    }
+}
+
+@Composable
+private fun FloatingVideoOverlay(
+    url: String,
+    areaSize: IntSize,
+    onChangeUrl: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val density = LocalDensity.current.density
+    var minimized by remember { mutableStateOf(false) }
+    var playing by remember(url) { mutableStateOf(true) }
+    var boxW by remember { mutableFloatStateOf(360f * density) }
+    var boxH by remember { mutableFloatStateOf(230f * density) }
+    var offX by remember { mutableFloatStateOf((areaSize.width - 380f * density).coerceAtLeast(16f * density)) }
+    var offY by remember { mutableFloatStateOf(88f * density) }
+    var videoViewRef by remember { mutableStateOf<android.widget.VideoView?>(null) }
+
+    val isDirectVideo = remember(url) {
+        val lower = url.lowercase(Locale.ROOT).substringBefore('?')
+        lower.endsWith(".mp4") || lower.endsWith(".m3u8") || lower.endsWith(".webm") || lower.endsWith(".mkv") || lower.endsWith(".mov")
+    }
+    val maxW = (areaSize.width - 24f * density).coerceAtLeast(240f * density)
+    val maxH = (areaSize.height - 80f * density).coerceAtLeast(180f * density)
+    val clampedW = boxW.coerceIn(220f * density, maxW)
+    val clampedH = boxH.coerceIn(150f * density, maxH)
+    val curW = if (minimized) 196f * density else clampedW
+    val curH = if (minimized) 44f * density else clampedH
+    val clampedX = offX.coerceIn(8f * density, (areaSize.width - curW - 8f * density).coerceAtLeast(8f * density))
+    val clampedY = offY.coerceIn(8f * density, (areaSize.height - curH - 8f * density).coerceAtLeast(8f * density))
+
+    AppSurface(
+        role = SurfaceRole.Popover,
+        containerColor = Color(0xFF111318),
+        contentColor = Color.White,
+        shape = RoundedCornerShape(16.dp),
+        borderColor = Color.White.copy(alpha = 0.16f),
+        shadowElevation = 14.dp,
+        contentPadding = PaddingValues(0.dp),
+        modifier = Modifier
+            .offset { IntOffset(clampedX.roundToInt(), clampedY.roundToInt()) }
+            .size(with(LocalDensity.current) { curW.toDp() }, with(LocalDensity.current) { curH.toDp() }),
+    ) {
+        Column(Modifier.fillMaxSize()) {
+            // Draggable header bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF1A1D24))
+                    .pointerInput(Unit) {
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            offX += dragAmount.x
+                            offY += dragAmount.y
+                        }
+                    }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(Icons.Outlined.OndemandVideo, null, Modifier.size(16.dp), tint = ProButtonPalette.ElectricBlue)
+                Text(
+                    text = android.net.Uri.parse(url).host?.removePrefix("www.") ?: "Video",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (isDirectVideo && !minimized) {
+                    IconButton(
+                        onClick = {
+                            val vv = videoViewRef
+                            if (vv != null) {
+                                if (vv.isPlaying) { vv.pause(); playing = false } else { vv.start(); playing = true }
+                            }
+                        },
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Icon(
+                            if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            contentDescription = "Play/Pause",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+                IconButton(onClick = onChangeUrl, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Outlined.Link, contentDescription = "Change video URL", tint = Color.White.copy(alpha = 0.78f), modifier = Modifier.size(15.dp))
+                }
+                IconButton(onClick = { minimized = !minimized }, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        if (minimized) Icons.Outlined.OpenInFull else Icons.Outlined.Minimize,
+                        contentDescription = if (minimized) "Expand video" else "Minimize video",
+                        tint = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.size(15.dp),
+                    )
+                }
+                IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close video", tint = Color(0xFFF87171), modifier = Modifier.size(16.dp))
+                }
+            }
+
+            if (!minimized) {
+                Box(Modifier.fillMaxWidth().weight(1f).background(Color.Black)) {
+                    if (isDirectVideo) {
+                        androidx.compose.ui.viewinterop.AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory = { ctx ->
+                                android.widget.VideoView(ctx).apply {
+                                    val vv = this
+                                    setMediaController(android.widget.MediaController(ctx).apply { setAnchorView(vv) })
+                                    setVideoURI(android.net.Uri.parse(url))
+                                    setOnPreparedListener { mp ->
+                                        mp.isLooping = false
+                                        start()
+                                        playing = true
+                                    }
+                                    videoViewRef = this
+                                }
+                            },
+                            update = { vv ->
+                                if (vv.tag != url) {
+                                    vv.tag = url
+                                    vv.setVideoURI(android.net.Uri.parse(url))
+                                    vv.start()
+                                }
+                            },
+                        )
+                    } else {
+                        androidx.compose.ui.viewinterop.AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory = { ctx ->
+                                android.webkit.WebView(ctx).apply {
+                                    settings.javaScriptEnabled = true
+                                    settings.domStorageEnabled = true
+                                    settings.mediaPlaybackRequiresUserGesture = false
+                                    webViewClient = android.webkit.WebViewClient()
+                                    webChromeClient = android.webkit.WebChromeClient()
+                                    loadUrl(url)
+                                    tag = url
+                                }
+                            },
+                            update = { wv ->
+                                if (wv.tag != url) {
+                                    wv.tag = url
+                                    wv.loadUrl(url)
+                                }
+                            },
+                        )
+                    }
+
+                    // Bottom-right corner drag resize handle
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .size(26.dp)
+                            .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(topStart = 8.dp))
+                            .pointerInput(Unit) {
+                                detectDragGestures { change, dragAmount ->
+                                    change.consume()
+                                    boxW = (boxW + dragAmount.x).coerceIn(220f * density, maxW)
+                                    boxH = (boxH + dragAmount.y).coerceIn(150f * density, maxH)
+                                }
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Outlined.OpenInFull,
+                            contentDescription = "Resize video",
+                            tint = Color.White.copy(alpha = 0.72f),
+                            modifier = Modifier.size(13.dp),
+                        )
+                    }
+                }
+            }
         }
     }
 }

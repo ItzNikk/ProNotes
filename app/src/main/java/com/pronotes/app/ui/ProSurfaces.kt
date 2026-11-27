@@ -8,6 +8,8 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
@@ -43,6 +45,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -366,7 +369,13 @@ fun AppDialog(
             if (reduceMotion) enterProgress.snapTo(1f)
             else enterProgress.animateTo(1f, ProMotion.sheetSpring(false, perfMode, motionStyle))
         }
-        LiveDialogBackdrop()
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = enterProgress.value.coerceIn(0f, 1f) },
+        ) {
+            LiveDialogBackdrop()
+        }
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -814,21 +823,93 @@ fun AppToggle(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    Switch(
-        checked = checked,
-        onCheckedChange = onCheckedChange,
-        enabled = enabled,
-        modifier = modifier,
-        colors = SwitchDefaults.colors(
-            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-            checkedTrackColor = MaterialTheme.colorScheme.primary,
-            uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
-            uncheckedBorderColor = Color.Transparent,
-        ),
+    val scheme = MaterialTheme.colorScheme
+    val reduceMotion = LocalReduceMotion.current
+    val perfMode = LocalPerformanceMode.current
+    val motionStyle = LocalMotionStyle.current
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+
+    val thumbProgress by animateFloatAsState(
+        targetValue = if (checked) 1f else 0f,
+        animationSpec = ProMotion.snappySpring(reduceMotion, perfMode, motionStyle),
+        label = "toggleThumbPos",
     )
+    val trackColor by animateColorAsState(
+        targetValue = when {
+            !enabled && checked -> scheme.primary.copy(alpha = 0.38f)
+            !enabled -> scheme.surfaceVariant.copy(alpha = 0.55f)
+            checked -> scheme.primary
+            else -> scheme.surfaceVariant
+        },
+        animationSpec = ProMotion.quickTween(reduceMotion, 160),
+        label = "toggleTrackColor",
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (checked) scheme.primary.copy(alpha = 0.35f) else scheme.outlineVariant.copy(alpha = 0.72f),
+        animationSpec = ProMotion.quickTween(reduceMotion, 160),
+        label = "toggleBorderColor",
+    )
+    val thumbStretch by animateFloatAsState(
+        targetValue = if (pressed && enabled && !reduceMotion) 1.18f else 1f,
+        animationSpec = ProMotion.snappySpring(reduceMotion, perfMode, motionStyle),
+        label = "toggleStretch",
+    )
+    val thumbWidthDp = 22.dp
+    val trackWidthDp = 48.dp
+    val trackHeightDp = 28.dp
+    val padDp = 3.dp
+    val density = LocalDensity.current
+
+    Box(
+        modifier = modifier
+            .size(width = trackWidthDp, height = trackHeightDp)
+            .clip(CircleShape)
+            .background(trackColor)
+            .border(0.9.dp, borderColor, CircleShape)
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                enabled = enabled,
+                role = Role.Switch,
+                onClick = { onCheckedChange(!checked) },
+            )
+            .padding(padDp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(thumbWidthDp)
+                .graphicsLayer {
+                    val travelPx = with(density) { (trackWidthDp - padDp * 2 - thumbWidthDp).toPx() }
+                    translationX = travelPx * thumbProgress
+                    scaleX = thumbStretch
+                    scaleY = if (pressed && enabled && !reduceMotion) 0.94f else 1f
+                }
+                .shadow(if (enabled) 2.5.dp else 0.dp, CircleShape, clip = false)
+                .clip(CircleShape)
+                .background(if (checked) scheme.onPrimary else Color.White),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (thumbProgress > 0.35f) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .graphicsLayer {
+                            val a = ((thumbProgress - 0.35f) / 0.65f).coerceIn(0f, 1f)
+                            alpha = a
+                            scaleX = a
+                            scaleY = a
+                        }
+                        .clip(CircleShape)
+                        .background(scheme.primary.copy(alpha = 0.85f)),
+                )
+            }
+        }
+    }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppSlider(
     value: Float,
@@ -837,17 +918,108 @@ fun AppSlider(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
+    val scheme = MaterialTheme.colorScheme
+    val interaction = remember { MutableInteractionSource() }
+    val dragged by interaction.collectIsDraggedAsState()
+    val pressed by interaction.collectIsPressedAsState()
+    val active = dragged || pressed
+    val reduceMotion = LocalReduceMotion.current
+
+    val thumbScale by animateFloatAsState(
+        targetValue = if (active) 1.24f else 1f,
+        animationSpec = if (reduceMotion) snap() else spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium,
+        ),
+        label = "sliderThumbScale",
+    )
+    val haloAlpha by animateFloatAsState(
+        targetValue = if (active) 0.24f else 0f,
+        animationSpec = if (reduceMotion) snap() else tween(140),
+        label = "sliderHalo",
+    )
+    val trackHeightDp by animateDpAsState(
+        targetValue = if (active) 8.dp else 6.dp,
+        animationSpec = if (reduceMotion) snap() else spring(stiffness = Spring.StiffnessMediumLow),
+        label = "sliderTrackH",
+    )
+    val accentStart = scheme.primary
+    val accentEnd = scheme.tertiary
+    val inactiveTrack = scheme.onSurface.copy(alpha = if (enabled) 0.12f else 0.06f)
+
     Slider(
         value = value,
         onValueChange = onValueChange,
         valueRange = valueRange,
         enabled = enabled,
         modifier = modifier,
-        colors = SliderDefaults.colors(
-            thumbColor = MaterialTheme.colorScheme.primary,
-            activeTrackColor = MaterialTheme.colorScheme.primary,
-            inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f),
-        ),
+        interactionSource = interaction,
+        thumb = {
+            Box(
+                modifier = Modifier.size(28.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (haloAlpha > 0.01f) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .graphicsLayer {
+                                scaleX = thumbScale
+                                scaleY = thumbScale
+                            }
+                            .clip(CircleShape)
+                            .background(accentStart.copy(alpha = haloAlpha)),
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(18.dp)
+                        .graphicsLayer {
+                            scaleX = thumbScale
+                            scaleY = thumbScale
+                        }
+                        .shadow(if (active) 6.dp else 3.dp, CircleShape, clip = false)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                        .border(2.5.dp, if (enabled) accentStart else scheme.outline, CircleShape),
+                )
+            }
+        },
+        track = { sliderState ->
+            val rangeSpan = (sliderState.valueRange.endInclusive - sliderState.valueRange.start).coerceAtLeast(1e-5f)
+            val fraction = ((sliderState.value - sliderState.valueRange.start) / rangeSpan).coerceIn(0f, 1f)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(22.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(trackHeightDp),
+                ) {
+                    val h = size.height
+                    val radius = h / 2f
+                    drawRoundRect(
+                        color = inactiveTrack,
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius),
+                    )
+                    val fillW = (size.width * fraction).coerceAtLeast(h.coerceAtMost(size.width))
+                    if (fraction > 0.002f) {
+                        drawRoundRect(
+                            brush = Brush.horizontalGradient(
+                                colors = if (enabled) listOf(accentStart, accentEnd) else listOf(scheme.outline, scheme.outline),
+                                startX = 0f,
+                                endX = size.width.coerceAtLeast(1f),
+                            ),
+                            size = androidx.compose.ui.geometry.Size(fillW, h),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius),
+                        )
+                    }
+                }
+            }
+        },
     )
 }
 
@@ -860,6 +1032,7 @@ fun AppSliderRow(
     onValueChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val scheme = MaterialTheme.colorScheme
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -868,17 +1041,26 @@ fun AppSliderRow(
         ) {
             Text(
                 title,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = scheme.onSurface,
+                modifier = Modifier.weight(1f).padding(end = 10.dp),
             )
-            Text(
-                valueText,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-            )
+            Surface(
+                shape = CircleShape,
+                color = scheme.primary.copy(alpha = 0.12f),
+                border = BorderStroke(0.75.dp, scheme.primary.copy(alpha = 0.25f)),
+            ) {
+                Text(
+                    valueText,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = scheme.primary,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                )
+            }
         }
+        Spacer(Modifier.height(4.dp))
         AppSlider(value = value, onValueChange = onValueChange, valueRange = valueRange)
     }
 }
@@ -924,8 +1106,14 @@ fun AppSegmentedControl(
                     val stepPx = with(density) { (segWidth + gap).toPx() }
                     translationX = animatedIndex * stepPx
                 }
+                .then(
+                    if (!LocalReduceEffects.current) {
+                        Modifier.shadow(2.dp, shape, ambientColor = Color.Black.copy(alpha = 0.14f), spotColor = Color.Black.copy(alpha = 0.14f))
+                    } else Modifier,
+                )
                 .clip(shape)
-                .background(pillBg),
+                .background(pillBg)
+                .border(0.75.dp, scheme.outlineVariant.copy(alpha = 0.45f), shape),
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1011,19 +1199,22 @@ fun AppContextMenu(
         AnimatedVisibility(
             visibleState = expandedState,
             enter = if (reduceMotion) fadeIn(snap()) else {
-                fadeIn(tween(95)) +
+                fadeIn(tween(130, easing = FastOutSlowInEasing)) +
                     scaleIn(
-                        initialScale = 0.94f,
+                        initialScale = 0.90f,
                         transformOrigin = TransformOrigin(0.92f, 0f),
-                        animationSpec = tween(125, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                        animationSpec = spring(
+                            dampingRatio = 0.82f,
+                            stiffness = Spring.StiffnessMedium,
+                        ),
                     )
             },
             exit = if (reduceMotion) fadeOut(snap()) else {
-                fadeOut(tween(80)) +
+                fadeOut(tween(135, easing = FastOutSlowInEasing)) +
                     scaleOut(
-                        targetScale = 0.96f,
+                        targetScale = 0.91f,
                         transformOrigin = TransformOrigin(0.92f, 0f),
-                        animationSpec = tween(80),
+                        animationSpec = tween(135, easing = FastOutSlowInEasing),
                     )
             },
         ) {

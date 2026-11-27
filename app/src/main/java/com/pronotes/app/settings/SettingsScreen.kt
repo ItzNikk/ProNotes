@@ -44,12 +44,21 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.DragHandle
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Translate
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import java.io.File
@@ -183,22 +192,79 @@ private fun Category.localizedSub(strings: com.pronotes.app.data.AppStrings): St
     Category.ABOUT -> strings.catAboutSub
 }
 
+private data class SettingSearchEntry(
+    val title: String,
+    val subtitle: String,
+    val category: Category,
+    val keywords: String = "",
+)
+
+private val SettingsSearchIndex = listOf(
+    SettingSearchEntry("Draw with stylus only", "Fingers scroll and zoom, never draw", Category.STYLUS, "pen palm finger"),
+    SettingSearchEntry("Palm rejection", "Ignore touches right after pen", Category.STYLUS, "hand wrist touch"),
+    SettingSearchEntry("Touch sensitivity", "Adjust touch and palm responsiveness", Category.STYLUS, "slider pressure"),
+    SettingSearchEntry("Haptic feedback & pen tick", "Buzz on shapes, selection, and pen landing", Category.STYLUS, "vibration feel"),
+    SettingSearchEntry("Pressure sensitivity & nibs", "S Pen pressure curve and stroke feel", Category.STYLUS, "spen pressure"),
+    SettingSearchEntry("Your pens & side button", "Hold to erase, click, double-click mapping", Category.STYLUS, "eraser quick actions s pen"),
+    SettingSearchEntry("Eraser filters", "Ink, highlighter, shapes, text, images", Category.STYLUS, "pixel word erase"),
+    SettingSearchEntry("Scribble to erase", "Sensitivity and toggle for pen scribble erase", Category.GESTURES, "delete scratch"),
+    SettingSearchEntry("Circle to lasso", "Circle ink to select and transform", Category.GESTURES, "select loop"),
+    SettingSearchEntry("Hold to shape", "Snap and adjust drawn shapes", Category.GESTURES, "line rectangle triangle"),
+    SettingSearchEntry("Two & three finger tap undo/redo", "Quick undo and redo taps", Category.GESTURES, "undo redo"),
+    SettingSearchEntry("Dynamic bold handwriting", "Auto-bold headings when converting handwriting", Category.GESTURES, "convert text auto bold"),
+    SettingSearchEntry("Scroll direction", "Vertical or horizontal page swiping", Category.PAGES, "swipe flip page"),
+    SettingSearchEntry("Default paper template & color", "Blank, ruled, dotted, Cornell, planner", Category.PAGES, "paper tint dark grid"),
+    SettingSearchEntry("Page size & orientation", "A4, Letter, portrait, landscape", Category.PAGES, "preset portrait"),
+    SettingSearchEntry("Toolbar style & position", "Fixed bar, floating pill, compact, dock edge", Category.TOOLBAR, "dock top bottom left right"),
+    SettingSearchEntry("Tools in the toolbar", "Reorder and show/hide drawing tools", Category.TOOLBAR, "pen highlighter eraser laser"),
+    SettingSearchEntry("Floating video player", "In-screen video overlay button in toolbar", Category.TOOLBAR, "video watch"),
+    SettingSearchEntry("Notebook tabs & study timer", "Multi-tab editing and Pomodoro timer", Category.TOOLBAR, "tabs pomodoro"),
+    SettingSearchEntry("Theme & color schemes", "Light, dark, system, accent themes", Category.LOOK, "dark mode accent palette"),
+    SettingSearchEntry("Live blur & corner roundness", "Glass blur effects, scroll blur, corner radius", Category.LOOK, "glass slider gradient"),
+    SettingSearchEntry("Typography & motion", "App font, spring animations, reduced motion", Category.LOOK, "font animation speed"),
+    SettingSearchEntry("App display language", "Switch interface language and RTL", Category.LANGUAGE, "locale translation"),
+    SettingSearchEntry("Handwriting recognition packs", "Download offline language models", Category.LANGUAGE, "ocr convert text"),
+    SettingSearchEntry("Cloud storage & sync", "Google Drive, OneDrive, iCloud Drive, auto backup", Category.LIBRARY, "backup export sync drive"),
+    SettingSearchEntry("Library covers & backups", "Page 1 thumbnails, export/import backup zip", Category.LIBRARY, "cover restore"),
+    SettingSearchEntry("App version & updates", "Check for updates, changelog, feedback", Category.ABOUT, "update version support"),
+)
+
 @Composable
 fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
     val context = LocalContext.current
     val store = remember { SettingsStore.get(context) }
     val s by store.settings.collectAsStateWithLifecycle()
     var selected by rememberSaveable { mutableStateOf<Category?>(null) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     var backProgress by remember { mutableStateOf(0f) }
     val reduceMotion = com.pronotes.app.ui.LocalReduceMotion.current
     val perfMode = com.pronotes.app.ui.LocalPerformanceMode.current
     val motionStyle = com.pronotes.app.ui.LocalMotionStyle.current
     val scrollState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+    val scheme = MaterialTheme.colorScheme
+    val appStrings = com.pronotes.app.data.LocalAppStrings.current
+
+    val searchMatches = remember(searchQuery) {
+        val q = searchQuery.trim().lowercase()
+        if (q.isEmpty()) emptyList()
+        else SettingsSearchIndex.filter { entry ->
+            entry.title.lowercase().contains(q) ||
+                entry.subtitle.lowercase().contains(q) ||
+                entry.keywords.lowercase().contains(q) ||
+                entry.category.label.lowercase().contains(q)
+        }
+    }
 
     com.pronotes.app.ui.GlowingWorkspace {
         val wide = maxWidth >= 840.dp
         val current = selected ?: if (wide) Category.STYLUS else null
-        val back: () -> Unit = { if (!wide && selected != null) selected = null else onBack() }
+        val back: () -> Unit = {
+            when {
+                searchQuery.isNotEmpty() -> searchQuery = ""
+                !wide && selected != null -> selected = null
+                else -> onBack()
+            }
+        }
         PredictiveBackHandler(enabled = !wide && selected != null) { events ->
             try {
                 events.collect { backProgress = it.progress }
@@ -208,59 +274,214 @@ fun SettingsScreen(onBack: () -> Unit, onSupport: () -> Unit = {}) {
             }
         }
 
-        Column(Modifier.fillMaxSize()) {
-            Box(Modifier.fillMaxWidth().background(Color.Black).statusBarsPadding()) {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    val appStrings = com.pronotes.app.data.LocalAppStrings.current
-                    AppSurface(
-                        role = SurfaceRole.Control,
-                        containerColor = Color(0xFF1A1A1A),
-                        contentColor = Color.White,
-                        borderColor = Color.White.copy(alpha = 0.16f),
-                        shape = appPillShape(),
-                        contentPadding = PaddingValues(12.dp),
-                        onClick = back,
-                        onClickLabel = appStrings.back,
+        Box(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxWidth().background(Color.Black).statusBarsPadding()) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, appStrings.back, tint = Color.White)
+                        AppSurface(
+                            role = SurfaceRole.Control,
+                            containerColor = Color(0xFF1A1A1A),
+                            contentColor = Color.White,
+                            borderColor = Color.White.copy(alpha = 0.16f),
+                            shape = appPillShape(),
+                            contentPadding = PaddingValues(12.dp),
+                            onClick = back,
+                            onClickLabel = appStrings.back,
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, appStrings.back, tint = Color.White)
+                        }
+                        GradientTitle(
+                            if (wide) appStrings.settings else current?.localizedLabel(appStrings) ?: appStrings.settings,
+                            MaterialTheme.typography.headlineMedium,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 2,
+                        )
                     }
-                    GradientTitle(if (wide) appStrings.settings else current?.localizedLabel(appStrings) ?: appStrings.settings,
-                        MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f), maxLines = 2)
+                }
+                if (wide) {
+                    Row(Modifier.fillMaxSize().padding(end = 16.dp)) {
+                        scrollState.SaveableStateProvider("categories") {
+                            CategoryList(current, Modifier.width(308.dp).fillMaxHeight()) { selected = it }
+                        }
+                        Box(Modifier.weight(1f)) {
+                            val category = current ?: Category.STYLUS
+                            AnimatedContent(
+                                targetState = category,
+                                transitionSpec = {
+                                    com.pronotes.app.ui.ProMotion.contentSwap(reduceMotion, perfMode, motionStyle)
+                                },
+                                label = "Settings category",
+                            ) { target ->
+                                scrollState.SaveableStateProvider(target.name) { Detail(target, s, store, onSupport) }
+                            }
+                        }
+                    }
+                } else if (current == null) {
+                    scrollState.SaveableStateProvider("categories") {
+                        CategoryList(null, Modifier.fillMaxSize()) { selected = it }
+                    }
+                } else {
+                    Box(Modifier.fillMaxSize().graphicsLayer {
+                        val scale = if (reduceMotion) 1f else 1f - backProgress * 0.04f
+                        scaleX = scale
+                        scaleY = scale
+                    }) {
+                        scrollState.SaveableStateProvider(current.name) { Detail(current, s, store, onSupport) }
+                    }
                 }
             }
-            if (wide) {
-                Row(Modifier.fillMaxSize().padding(end = 16.dp)) {
-                    scrollState.SaveableStateProvider("categories") {
-                        CategoryList(current, Modifier.width(304.dp).fillMaxHeight()) { selected = it }
-                    }
-                    Box(Modifier.weight(1f)) {
-                        val category = current ?: Category.STYLUS
-                        AnimatedContent(
-                            targetState = category,
-                            transitionSpec = {
-                                com.pronotes.app.ui.ProMotion.contentSwap(reduceMotion, perfMode, motionStyle)
-                            },
-                            label = "Settings category",
-                        ) { target ->
-                            scrollState.SaveableStateProvider(target.name) { Detail(target, s, store, onSupport) }
+
+            // Floating bottom search bar + animated live match results popover
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .widthIn(max = 620.dp)
+                    .navigationBarsPadding()
+                    .imePadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                AnimatedVisibility(
+                    visible = searchQuery.isNotBlank(),
+                    enter = fadeIn(tween(140)) + expandVertically(expandFrom = Alignment.Bottom, animationSpec = tween(160)),
+                    exit = fadeOut(tween(110)) + shrinkVertically(shrinkTowards = Alignment.Bottom, animationSpec = tween(130)),
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(22.dp),
+                        color = scheme.surfaceContainerHigh.copy(alpha = 0.97f),
+                        border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.45f)),
+                        shadowElevation = 10.dp,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        if (searchMatches.isEmpty()) {
+                            Box(
+                                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    "No matching settings for \"$searchQuery\"",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = scheme.onSurfaceVariant,
+                                )
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                items(searchMatches.take(6).size) { idx ->
+                                    val hit = searchMatches[idx]
+                                    val accent = Color(hit.category.tint)
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .clickable {
+                                                selected = hit.category
+                                                searchQuery = ""
+                                            }
+                                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        Box(
+                                            Modifier
+                                                .size(34.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(accent.copy(alpha = 0.14f)),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            if (hit.category == Category.LANGUAGE) {
+                                                Icon(Icons.Outlined.Language, null, Modifier.size(18.dp), tint = accent)
+                                            } else {
+                                                com.pronotes.app.ui.WorkspaceIcon(hit.category.icon, accent, Modifier.size(18.dp))
+                                            }
+                                        }
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                hit.title,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = scheme.onSurface,
+                                            )
+                                            Text(
+                                                "${hit.category.localizedLabel(appStrings)} · ${hit.subtitle}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = scheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                            )
+                                        }
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                            null,
+                                            Modifier.size(18.dp),
+                                            tint = accent,
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
-            } else if (current == null) {
-                scrollState.SaveableStateProvider("categories") {
-                    CategoryList(null, Modifier.fillMaxSize()) { selected = it }
-                }
-            } else {
-                Box(Modifier.fillMaxSize().graphicsLayer {
-                    val scale = if (reduceMotion) 1f else 1f - backProgress * 0.04f
-                    scaleX = scale
-                    scaleY = scale
-                }) {
-                    scrollState.SaveableStateProvider(current.name) { Detail(current, s, store, onSupport) }
+
+                // Frosted pill search input at bottom of Settings
+                Surface(
+                    shape = CircleShape,
+                    color = scheme.surfaceContainerHigh.copy(alpha = 0.94f),
+                    border = BorderStroke(
+                        1.dp,
+                        if (searchQuery.isNotBlank()) scheme.primary.copy(alpha = 0.55f) else scheme.outlineVariant.copy(alpha = 0.45f),
+                    ),
+                    shadowElevation = 8.dp,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Icon(
+                            Icons.Rounded.Search,
+                            contentDescription = "Search settings",
+                            tint = if (searchQuery.isNotBlank()) scheme.primary else scheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    "Search settings…",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = scheme.onSurfaceVariant.copy(alpha = 0.78f),
+                                )
+                            }
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(color = scheme.onSurface),
+                                cursorBrush = SolidColor(scheme.primary),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                        if (searchQuery.isNotEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .clip(CircleShape)
+                                    .background(scheme.onSurface.copy(alpha = 0.09f))
+                                    .clickable { searchQuery = "" },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(Icons.Filled.Close, "Clear search", Modifier.size(15.dp), tint = scheme.onSurfaceVariant)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -273,8 +494,8 @@ private fun CategoryList(selected: Category?, modifier: Modifier, onPick: (Categ
     val strings = com.pronotes.app.data.LocalAppStrings.current
     LazyColumn(
         modifier,
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 48.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 104.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
         items(Category.entries.size, key = { Category.entries[it].name }) { i ->
             val c = Category.entries[i]
@@ -317,7 +538,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
         state = detailListState,
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
-        contentPadding = PaddingValues(bottom = 48.dp),
+        contentPadding = PaddingValues(bottom = 108.dp),
     ) {
         item(key = "category-heading") {
             val strings = com.pronotes.app.data.LocalAppStrings.current
@@ -652,9 +873,6 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                     }
                 }
                 Category.TOOLBAR -> {
-                    Section("Video") {
-                        Toggle("Video tool", "Turn off to hide video from every drawing toolbar", s.videoInToolbar) { value -> up { it.copy(videoInToolbar = value) } }
-                    }
                     Section("Toolbar") {
                         Segmented(ToolbarStyle.entries.map { it.label }, s.toolbarStyle.ordinal) { i ->
                             val nextStyle = ToolbarStyle.entries[i]
@@ -678,6 +896,7 @@ private fun Detail(c: Category, s: AppSettings, store: SettingsStore, onSupport:
                         }
                         Segmented(ToolbarSize.entries.map { it.label }, s.toolbarSize.ordinal) { i -> up { it.copy(toolbarSize = ToolbarSize.entries[i]) } }
                         Toggle("Hover tool name labels", "Show a floating tool badge when hovering with a pen or pointer", s.showHoverTooltips) { v -> up { it.copy(showHoverTooltips = v) } }
+                        Toggle("In-screen video player", "Show the floating video player button inside the editor toolbar", s.videoInToolbar) { value -> up { it.copy(videoInToolbar = value) } }
                     }
                     Section("Tools in the toolbar") {
                         ToolbarEditor(s.toolbarTools) { spec -> up { it.copy(toolbarTools = spec) } }

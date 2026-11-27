@@ -13,8 +13,8 @@ internal fun NoteCanvasView.select(page: Int, lasso: Lasso, outline: List<Pt>? =
         selectItems(page, matchedIds, outline)
         return
     }
-    // Lasso directly on a PDF page (even with zero handwriting): clip/cut/copy/highlight the lassoed PDF region!
-    if (p.pdfPage >= 0) {
+    // Allow empty-region lasso on both PDFs and notebooks (crop, copy image, sticker, screenshot, or flashcard)
+    run {
         val raw = RectF(lasso.bounds)
         val clamped = RectF(
             raw.left.coerceIn(0f, p.width),

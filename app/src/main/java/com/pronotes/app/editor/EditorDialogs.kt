@@ -73,6 +73,8 @@ import androidx.compose.material.icons.outlined.FormatUnderlined
 import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.LockOpen
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.UnfoldLess
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.TableChart
 import androidx.compose.material.icons.outlined.Timer
@@ -458,7 +460,7 @@ internal fun InlinePageTextEditor(
     val pageH = page?.height ?: 1600f
 
     val ex = edit.existing
-    var text by remember(edit) { mutableStateOf(ex?.text ?: "") }
+    var text by remember(edit) { mutableStateOf(ex?.text ?: edit.initialText) }
     var fontSize by remember(edit) { mutableFloatStateOf(ex?.size ?: vm.textSize) }
     var textColor by remember(edit) { mutableIntStateOf(ex?.color ?: vm.textColor ?: vm.penStyle.color) }
     var style by remember(edit) { mutableStateOf(ex?.style ?: vm.textStyle) }
@@ -901,6 +903,7 @@ internal fun InlinePageTextEditor(
                                     trimmed.startsWith("- [ ] ") -> "- [ ] "
                                     trimmed.startsWith("- [x] ", ignoreCase = true) -> "- [ ] "
                                     trimmed.startsWith("[ ] ") -> "[ ] "
+                                    trimmed.startsWith("• ") -> "• "
                                     trimmed.startsWith("* ") -> "* "
                                     trimmed.startsWith("- ") -> "- "
                                     else -> {
@@ -924,12 +927,42 @@ internal fun InlinePageTextEditor(
                             false
                         }
                         addTextChangedListener(object : TextWatcher {
+                            private var insertedNewlineAt = -1
                             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                                insertedNewlineAt = if (!suppressWatcher && count == 1 && before == 0 && s != null && start in s.indices && s[start] == '\n') start else -1
+                            }
                             override fun afterTextChanged(s: Editable?) {
-                                if (!suppressWatcher) {
-                                    text = s?.toString() ?: ""
+                                if (suppressWatcher) return
+                                val nlIdx = insertedNewlineAt
+                                insertedNewlineAt = -1
+                                if (s != null && nlIdx >= 0 && nlIdx < s.length) {
+                                    val prevLineStart = s.lastIndexOf('\n', (nlIdx - 1).coerceAtLeast(0)).let { if (it < 0) 0 else it + 1 }
+                                    val prevLine = s.substring(prevLineStart, nlIdx)
+                                    val trimmed = prevLine.trimStart()
+                                    val indent = prevLine.takeWhile { it == ' ' }
+                                    val nextPrefix = when {
+                                        trimmed.startsWith("- [ ] ") -> "- [ ] "
+                                        trimmed.startsWith("- [x] ", ignoreCase = true) -> "- [ ] "
+                                        trimmed.startsWith("• ") -> "• "
+                                        trimmed.startsWith("* ") -> "* "
+                                        trimmed.startsWith("- ") -> "- "
+                                        else -> {
+                                            val m = Regex("""^(\d+)\.\s+""").find(trimmed)
+                                            m?.let { "${(it.groupValues[1].toIntOrNull() ?: 1) + 1}. " }
+                                        }
+                                    }
+                                    if (nextPrefix != null) {
+                                        suppressWatcher = true
+                                        if (trimmed == nextPrefix.trimEnd()) {
+                                            s.delete(prevLineStart, nlIdx + 1)
+                                        } else {
+                                            s.insert(nlIdx + 1, "$indent$nextPrefix")
+                                        }
+                                        suppressWatcher = false
+                                    }
                                 }
+                                text = s?.toString() ?: ""
                             }
                         })
                         editTextRef = this
@@ -1424,7 +1457,15 @@ internal fun InlineStickyNoteEditor(
             cfg.hardKeyboardHidden == Configuration.HARDKEYBOARDHIDDEN_NO
     }
 
+    fun hideStickyKeyboard() {
+        keyboardController?.hide()
+        val et = editTextRef ?: return
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        imm?.hideSoftInputFromWindow(et.windowToken, 0)
+    }
+
     fun commitAndClose() {
+        hideStickyKeyboard()
         val liveText = editTextRef?.text?.toString() ?: text
         vm.stickyColor = color
         vm.commitSticky(
@@ -1634,41 +1675,21 @@ internal fun InlineStickyNoteEditor(
                         Text("Draw", style = MaterialTheme.typography.labelSmall, color = fgMuted, fontWeight = FontWeight.SemiBold)
                     }
                 }
-                // Clearly labeled Style button
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (showStyleTray) ProButtonPalette.ElectricBlue else Color.Black.copy(alpha = 0.07f))
-                        .clickable { showStyleTray = !showStyleTray }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
-                    Icon(
-                        Icons.Outlined.Tune,
-                        contentDescription = "Sticky style & options",
-                        tint = if (showStyleTray) Color.White else fgColor,
-                        modifier = Modifier.size(13.dp),
-                    )
-                    Text(
-                        "Style",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (showStyleTray) Color.White else fgColor,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-                // Clear Fold pill
+                // Compact Style icon-pill
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .background(Color.Black.copy(alpha = 0.07f))
-                        .clickable {
-                            collapsed = true
-                            commitAndClose()
-                        }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .background(if (showStyleTray) ProButtonPalette.ElectricBlue else Color.Black.copy(alpha = 0.08f))
+                        .clickable { showStyleTray = !showStyleTray }
+                        .padding(horizontal = 7.dp, vertical = 5.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Text("Fold", style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = FontWeight.SemiBold)
+                    Icon(
+                        Icons.Outlined.Palette,
+                        contentDescription = "Sticky style & options",
+                        tint = if (showStyleTray) Color.White else fgColor,
+                        modifier = Modifier.size(15.dp),
+                    )
                 }
                 // Clear Done pill
                 Box(
@@ -1676,7 +1697,7 @@ internal fun InlineStickyNoteEditor(
                         .clip(RoundedCornerShape(8.dp))
                         .background(ProButtonPalette.ElectricBlue)
                         .clickable { commitAndClose() }
-                        .padding(horizontal = 9.dp, vertical = 4.dp),
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
                 ) {
                     Text("Done", style = MaterialTheme.typography.labelSmall, color = Color.White, fontWeight = FontWeight.Bold)
                 }
@@ -1776,6 +1797,21 @@ internal fun InlineStickyNoteEditor(
                         ) {
                             Icon(Icons.Outlined.CheckBox, null, Modifier.size(13.dp), tint = fgColor)
                             Text("+ Task", style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = FontWeight.Medium)
+                        }
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(7.dp))
+                                .background(Color.Black.copy(alpha = 0.07f))
+                                .clickable {
+                                    collapsed = true
+                                    commitAndClose()
+                                }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            Icon(Icons.Outlined.UnfoldLess, null, Modifier.size(13.dp), tint = fgColor)
+                            Text("Fold", style = MaterialTheme.typography.labelSmall, color = fgColor, fontWeight = FontWeight.Medium)
                         }
                         Row(
                             modifier = Modifier
@@ -1897,6 +1933,7 @@ internal fun InlineStickyNoteEditor(
                                         trimmed.startsWith("- [ ] ") -> "- [ ] "
                                         trimmed.startsWith("- [x] ", ignoreCase = true) -> "- [ ] "
                                         trimmed.startsWith("[ ] ") -> "[ ] "
+                                        trimmed.startsWith("• ") -> "• "
                                         trimmed.startsWith("* ") -> "* "
                                         trimmed.startsWith("- ") -> "- "
                                         else -> {
@@ -1920,12 +1957,42 @@ internal fun InlineStickyNoteEditor(
                                 false
                             }
                             addTextChangedListener(object : TextWatcher {
+                                private var insertedNewlineAt = -1
                                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                                    insertedNewlineAt = if (!suppressWatcher && count == 1 && before == 0 && s != null && start in s.indices && s[start] == '\n') start else -1
+                                }
                                 override fun afterTextChanged(s: Editable?) {
-                                    if (!suppressWatcher) {
-                                        text = s?.toString() ?: ""
+                                    if (suppressWatcher) return
+                                    val nlIdx = insertedNewlineAt
+                                    insertedNewlineAt = -1
+                                    if (s != null && nlIdx >= 0 && nlIdx < s.length) {
+                                        val prevLineStart = s.lastIndexOf('\n', (nlIdx - 1).coerceAtLeast(0)).let { if (it < 0) 0 else it + 1 }
+                                        val prevLine = s.substring(prevLineStart, nlIdx)
+                                        val trimmed = prevLine.trimStart()
+                                        val indent = prevLine.takeWhile { it == ' ' }
+                                        val nextPrefix = when {
+                                            trimmed.startsWith("- [ ] ") -> "- [ ] "
+                                            trimmed.startsWith("- [x] ", ignoreCase = true) -> "- [ ] "
+                                            trimmed.startsWith("• ") -> "• "
+                                            trimmed.startsWith("* ") -> "* "
+                                            trimmed.startsWith("- ") -> "- "
+                                            else -> {
+                                                val m = Regex("""^(\d+)\.\s+""").find(trimmed)
+                                                m?.let { "${(it.groupValues[1].toIntOrNull() ?: 1) + 1}. " }
+                                            }
+                                        }
+                                        if (nextPrefix != null) {
+                                            suppressWatcher = true
+                                            if (trimmed == nextPrefix.trimEnd()) {
+                                                s.delete(prevLineStart, nlIdx + 1)
+                                            } else {
+                                                s.insert(nlIdx + 1, "$indent$nextPrefix")
+                                            }
+                                            suppressWatcher = false
+                                        }
                                     }
+                                    text = s?.toString() ?: ""
                                 }
                             })
                             editTextRef = this
@@ -1999,7 +2066,19 @@ internal fun InlineStickyNoteEditor(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+private enum class PomodoroPhase(
+    val label: String,
+    val shortLabel: String,
+    val accent: Color,
+    val defaultMinutes: Int,
+) {
+    FOCUS("Focus", "Focus", ProButtonPalette.ElectricBlue, 25),
+    SHORT_BREAK("Short Break", "Break", ProButtonPalette.Emerald, 5),
+    LONG_BREAK("Long Break", "Long", ProButtonPalette.Violet, 15),
+    STOPWATCH("Stopwatch", "Study", ProButtonPalette.VibrantOrange, 0),
+}
+
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 internal fun StudyTimer(
     vm: EditorViewModel,
@@ -2007,18 +2086,30 @@ internal fun StudyTimer(
     area: IntSize,
 ) {
     val context = LocalContext.current
+    val reduceMotion = com.pronotes.app.ui.LocalReduceMotion.current
+    val perfMode = com.pronotes.app.ui.LocalPerformanceMode.current
+    val motionStyle = com.pronotes.app.ui.LocalMotionStyle.current
+
     var running by remember { mutableStateOf(settings.studyAutoStart) }
-    val notifPermLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        if (granted && running) {
-            StudyTimerLiveAlert.startOrUpdate(context, vm.title, false, 0L, settings.pomodoroMinutes * 60_000L)
-        }
+    var phase by remember { mutableStateOf(PomodoroPhase.FOCUS) }
+    var focusMinutes by remember(settings.pomodoroMinutes) {
+        mutableIntStateOf(settings.pomodoroMinutes.coerceIn(5, 90))
     }
+    var shortBreakMinutes by remember { mutableIntStateOf(5) }
+    var longBreakMinutes by remember { mutableIntStateOf(15) }
+    var completedCycles by remember { mutableIntStateOf(0) }
     var session by remember { mutableStateOf(0L) }
     var unsaved by remember { mutableStateOf(0L) }
-    var pomoMode by remember { mutableStateOf(false) }
-    var pomoRemMs by remember(settings.pomodoroMinutes) { mutableStateOf(settings.pomodoroMinutes.coerceIn(5, 90) * 60_000L) }
+
+    fun phaseTotalMs(p: PomodoroPhase = phase): Long = when (p) {
+        PomodoroPhase.FOCUS -> focusMinutes * 60_000L
+        PomodoroPhase.SHORT_BREAK -> shortBreakMinutes * 60_000L
+        PomodoroPhase.LONG_BREAK -> longBreakMinutes * 60_000L
+        PomodoroPhase.STOPWATCH -> 0L
+    }
+
+    var pomoRemMs by remember(settings.pomodoroMinutes) { mutableStateOf(focusMinutes * 60_000L) }
+    var studioOpen by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var resumed by remember { mutableStateOf(true) }
     var idle by remember { mutableStateOf(false) }
@@ -2027,6 +2118,24 @@ internal fun StudyTimer(
     var isDragging by remember { mutableStateOf(false) }
     var pill by remember { mutableStateOf(IntSize.Zero) }
     val owner = LocalLifecycleOwner.current
+
+    val pomoMode = phase != PomodoroPhase.STOPWATCH
+
+    val notifPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted && running) {
+            StudyTimerLiveAlert.startOrUpdate(context, vm.title, pomoMode, session, pomoRemMs)
+        }
+    }
+
+    fun switchPhase(next: PomodoroPhase, autoStart: Boolean = false) {
+        phase = next
+        if (next != PomodoroPhase.STOPWATCH) {
+            pomoRemMs = phaseTotalMs(next)
+        }
+        running = autoStart
+    }
 
     fun nearestSmartAnchor(targetX: Float, targetY: Float): Pair<Float, Float> {
         val isFixed = settings.toolbarStyle == com.pronotes.app.data.ToolbarStyle.FIXED_BAR
@@ -2045,7 +2154,6 @@ internal fun StudyTimer(
         return anchors.minByOrNull { (ax, ay) -> kotlin.math.hypot(ax - targetX, ay - targetY) } ?: (safeRight to safeBottom)
     }
 
-    // Re-arrange smartly if toolbar dock/style changes so the timer never collides with toolbars
     LaunchedEffect(settings.toolbarDock, settings.toolbarStyle) {
         val best = nearestSmartAnchor(pos.first, pos.second)
         if (kotlin.math.hypot(best.first - pos.first, best.second - pos.second) > 0.02f) {
@@ -2071,8 +2179,7 @@ internal fun StudyTimer(
         }
     }
 
-    // Start / update / stop device Live Alerts (Android 16 Promoted Ongoing / Now Bar / Chronometer)
-    LaunchedEffect(running, idle, pomoMode) {
+    LaunchedEffect(running, idle, phase) {
         if (running && !idle) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 androidx.core.content.ContextCompat.checkSelfPermission(
@@ -2095,7 +2202,7 @@ internal fun StudyTimer(
         }
     }
 
-    LaunchedEffect(running, resumed, pomoMode) {
+    LaunchedEffect(running, resumed, phase) {
         while (running && resumed) {
             delay(1000)
             val idleMs = settings.studyIdleMinutes * 60_000L
@@ -2103,11 +2210,18 @@ internal fun StudyTimer(
             if (idle) continue
             session += 1000
             unsaved += 1000
-            if (pomoMode) {
+            if (phase != PomodoroPhase.STOPWATCH) {
                 pomoRemMs = (pomoRemMs - 1000L).coerceAtLeast(0L)
                 if (pomoRemMs <= 0L) {
-                    running = false
-                    pomoRemMs = settings.pomodoroMinutes.coerceIn(5, 90) * 60_000L
+                    if (phase == PomodoroPhase.FOCUS) {
+                        completedCycles++
+                        val nextBreak = if (completedCycles % 4 == 0) PomodoroPhase.LONG_BREAK else PomodoroPhase.SHORT_BREAK
+                        switchPhase(nextBreak, autoStart = false)
+                        vm.say("Focus block complete! Time for a ${nextBreak.label.lowercase()}.")
+                    } else {
+                        switchPhase(PomodoroPhase.FOCUS, autoStart = false)
+                        vm.say("Break finished — ready for the next Focus block.")
+                    }
                 }
             }
             if (unsaved >= 30_000) {
@@ -2128,6 +2242,23 @@ internal fun StudyTimer(
             else -> "%02d:%02d".format(m, sec)
         }
     }
+
+    val progressFraction = if (pomoMode) {
+        val total = phaseTotalMs().coerceAtLeast(1L)
+        (1f - (pomoRemMs.toFloat() / total.toFloat())).coerceIn(0f, 1f)
+    } else {
+        ((session % 60_000L) / 60_000f).coerceIn(0f, 1f)
+    }
+    val smoothProgress by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = progressFraction,
+        animationSpec = if (reduceMotion) androidx.compose.animation.core.snap() else androidx.compose.animation.core.tween(420),
+        label = "pomoProgress",
+    )
+    val accent by androidx.compose.animation.animateColorAsState(
+        targetValue = if (running && !idle) phase.accent else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = com.pronotes.app.ui.ProMotion.quickTween(reduceMotion, 180),
+        label = "pomoAccent",
+    )
 
     if (area.width == 0) return
     val animPosX by androidx.compose.animation.core.animateFloatAsState(
@@ -2177,30 +2308,67 @@ internal fun StudyTimer(
             shadowElevation = 6.dp,
             contentPadding = PaddingValues(0.dp),
             modifier = Modifier
-                .defaultMinSize(minHeight = 48.dp)
-                .combinedClickable(onClick = { running = !running }, onLongClick = { menu = true }),
+                .defaultMinSize(minHeight = 46.dp)
+                .combinedClickable(
+                    onClick = { studioOpen = true },
+                    onLongClick = { menu = true },
+                ),
         ) {
-            Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Outlined.Timer,
-                    if (running) "Pause study timer" else "Start study timer",
-                    Modifier.size(16.dp),
-                    tint = if (running && !idle) ProButtonPalette.ElectricBlue else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    if (pomoMode) "Pomo ${fmt(pomoRemMs, true)}" else fmt(session),
-                    style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
-                )
-                val state = when {
-                    !running && session == 0L && !pomoMode -> "tap to start"
-                    !running -> "paused"
-                    idle -> "idle"
-                    else -> null
+            Row(
+                Modifier.padding(start = 8.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                // Quick play/pause orb with live mini circular progress arc
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(phase.accent.copy(alpha = if (running && !idle) 0.22f else 0.12f))
+                        .clickable { running = !running },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Canvas(Modifier.fillMaxSize().padding(2.dp)) {
+                        drawArc(
+                            color = Color.White.copy(alpha = 0.16f),
+                            startAngle = -90f,
+                            sweepAngle = 360f,
+                            useCenter = false,
+                            style = Stroke(width = 2.2.dp.toPx(), cap = StrokeCap.Round),
+                        )
+                        drawArc(
+                            color = accent,
+                            startAngle = -90f,
+                            sweepAngle = (smoothProgress * 360f).coerceAtLeast(if (running) 8f else 0f),
+                            useCenter = false,
+                            style = Stroke(width = 2.4.dp.toPx(), cap = StrokeCap.Round),
+                        )
+                    }
+                    Icon(
+                        imageVector = if (running && !idle) Icons.Outlined.Timer else Icons.Outlined.Timer,
+                        contentDescription = if (running) "Pause timer" else "Start timer",
+                        tint = accent,
+                        modifier = Modifier.size(14.dp),
+                    )
                 }
-                if (state != null) {
-                    Spacer(Modifier.width(6.dp))
-                    Text(state, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column {
+                    Text(
+                        text = if (pomoMode) fmt(pomoRemMs, true) else fmt(session),
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontFeatureSettings = "tnum",
+                            fontWeight = FontWeight.Bold,
+                        ),
+                        color = Color.White,
+                    )
+                    Text(
+                        text = when {
+                            idle -> "Idle · tap studio"
+                            !running -> "${phase.shortLabel} · paused"
+                            else -> phase.shortLabel
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.68f),
+                    )
                 }
             }
         }
@@ -2209,27 +2377,259 @@ internal fun StudyTimer(
             expanded = menu,
             onDismissRequest = { menu = false },
             items = listOf(
-                AppMenuItem("This session: ${fmt(session, true)}", enabled = false) {},
-                AppMenuItem("This notebook: ${fmt(total, true)}", enabled = false) {},
+                AppMenuItem("Open Pomodoro Studio") { studioOpen = true },
                 AppMenuItem(if (running) "Pause" else "Start") { running = !running },
-                AppMenuItem(if (pomoMode) "Switch to Stopwatch" else "Pomodoro (${settings.pomodoroMinutes}m)") {
-                    pomoMode = !pomoMode
-                    pomoRemMs = settings.pomodoroMinutes.coerceIn(5, 90) * 60_000L
+                AppMenuItem("Restart phase") {
+                    if (pomoMode) pomoRemMs = phaseTotalMs() else session = 0L
                     running = true
                 },
-                AppMenuItem("Restart session") {
-                    vm.addStudy(unsaved)
-                    unsaved = 0L
-                    session = 0L
-                    pomoRemMs = settings.pomodoroMinutes.coerceIn(5, 90) * 60_000L
-                    running = true
-                },
-                AppMenuItem("Move back to bottom-right") {
+                AppMenuItem("Snap to bottom-right") {
                     pos = 0.86f to 0.92f
                     vm.setTimerPos(0.86f, 0.92f)
                 },
             ),
         )
+        if (studioOpen) {
+            val phaseAccent by androidx.compose.animation.animateColorAsState(
+                targetValue = phase.accent,
+                animationSpec = com.pronotes.app.ui.ProMotion.quickTween(reduceMotion, 220),
+                label = "studioPhaseAccent",
+            )
+            AppDialog(
+                onDismissRequest = { studioOpen = false },
+                title = {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column {
+                            Text(
+                                "Pomodoro Focus Studio",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                vm.title.ifBlank { "Study Session" },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                        }
+                        // Cycle completion dots (4-block Pomodoro cadence)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(phaseAccent.copy(alpha = 0.12f))
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                        ) {
+                            repeat(4) { idx ->
+                                val filled = idx < (completedCycles % 4) || (completedCycles > 0 && completedCycles % 4 == 0)
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(if (filled) phaseAccent else phaseAccent.copy(alpha = 0.25f)),
+                                )
+                            }
+                        }
+                    }
+                },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        AppSegmentedControl(
+                            options = PomodoroPhase.entries.map { it.shortLabel },
+                            selectedIndex = phase.ordinal,
+                            onSelect = { idx -> switchPhase(PomodoroPhase.entries[idx], autoStart = false) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+
+                        // Large animated circular focus ring
+                        Box(
+                            modifier = Modifier.size(214.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            val trackColor = MaterialTheme.colorScheme.surfaceVariant
+                            Canvas(Modifier.fillMaxSize().padding(10.dp)) {
+                                val strokePx = 12.dp.toPx()
+                                // Subtle ambient glow behind ring
+                                drawCircle(
+                                    color = phaseAccent.copy(alpha = if (running) 0.10f else 0.04f),
+                                    radius = size.minDimension * 0.46f,
+                                )
+                                drawArc(
+                                    color = trackColor,
+                                    startAngle = -90f,
+                                    sweepAngle = 360f,
+                                    useCenter = false,
+                                    style = Stroke(width = strokePx, cap = StrokeCap.Round),
+                                )
+                                drawArc(
+                                    color = phaseAccent,
+                                    startAngle = -90f,
+                                    sweepAngle = (smoothProgress * 360f).coerceAtLeast(if (running) 6f else 0f),
+                                    useCenter = false,
+                                    style = Stroke(width = strokePx, cap = StrokeCap.Round),
+                                )
+                            }
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Text(
+                                    text = phase.label.uppercase(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = phaseAccent,
+                                )
+                                Text(
+                                    text = if (pomoMode) fmt(pomoRemMs, true) else fmt(session, true),
+                                    style = MaterialTheme.typography.displaySmall.copy(
+                                        fontFeatureSettings = "tnum",
+                                        fontWeight = FontWeight.Bold,
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    text = when {
+                                        idle -> "Paused (idle)"
+                                        running -> "In progress"
+                                        else -> "Ready"
+                                    },
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+
+                        // Primary transport controls
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            AppPill(
+                                onClick = {
+                                    if (pomoMode) {
+                                        pomoRemMs = phaseTotalMs()
+                                    } else {
+                                        vm.addStudy(unsaved)
+                                        unsaved = 0L
+                                        session = 0L
+                                    }
+                                    running = false
+                                },
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                            ) {
+                                Text("Reset", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                            }
+                            androidx.compose.material3.Button(
+                                onClick = { running = !running },
+                                shape = CircleShape,
+                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                    containerColor = phaseAccent,
+                                    contentColor = Color.White,
+                                ),
+                                contentPadding = PaddingValues(horizontal = 28.dp, vertical = 12.dp),
+                            ) {
+                                Text(
+                                    text = if (running) "Pause" else if (pomoMode && pomoRemMs < phaseTotalMs()) "Resume" else "Start ${phase.shortLabel}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                            if (pomoMode) {
+                                AppPill(
+                                    onClick = {
+                                        val next = if (phase == PomodoroPhase.FOCUS) PomodoroPhase.SHORT_BREAK else PomodoroPhase.FOCUS
+                                        switchPhase(next, autoStart = false)
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                                ) {
+                                    Text("Skip", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+
+                        // Quick duration presets for Focus / Breaks
+                        if (pomoMode) {
+                            val presets = when (phase) {
+                                PomodoroPhase.FOCUS -> listOf(15, 25, 45, 60)
+                                PomodoroPhase.SHORT_BREAK -> listOf(3, 5, 10)
+                                PomodoroPhase.LONG_BREAK -> listOf(10, 15, 20, 30)
+                                PomodoroPhase.STOPWATCH -> emptyList()
+                            }
+                            val currentMin = when (phase) {
+                                PomodoroPhase.FOCUS -> focusMinutes
+                                PomodoroPhase.SHORT_BREAK -> shortBreakMinutes
+                                PomodoroPhase.LONG_BREAK -> longBreakMinutes
+                                PomodoroPhase.STOPWATCH -> 0
+                            }
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                presets.forEach { mins ->
+                                    AppChip(
+                                        selected = currentMin == mins,
+                                        onClick = {
+                                            when (phase) {
+                                                PomodoroPhase.FOCUS -> focusMinutes = mins
+                                                PomodoroPhase.SHORT_BREAK -> shortBreakMinutes = mins
+                                                PomodoroPhase.LONG_BREAK -> longBreakMinutes = mins
+                                                PomodoroPhase.STOPWATCH -> Unit
+                                            }
+                                            pomoRemMs = mins * 60_000L
+                                            running = false
+                                        },
+                                        label = "${mins} min",
+                                        tint = phaseAccent,
+                                    )
+                                }
+                            }
+                        }
+
+                        // Compact session stats strip
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                                .border(0.8.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Session", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(fmt(session, true), style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"), fontWeight = FontWeight.Bold)
+                            }
+                            Box(Modifier.width(1.dp).height(26.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Notebook Total", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(fmt(total, true), style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"), fontWeight = FontWeight.Bold)
+                            }
+                            Box(Modifier.width(1.dp).height(26.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Cycles", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("$completedCycles", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = phaseAccent)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { studioOpen = false }) { Text("Minimize to pill") }
+                },
+            )
+        }
     }
 }
 

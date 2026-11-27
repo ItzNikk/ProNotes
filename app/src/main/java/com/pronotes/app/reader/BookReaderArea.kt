@@ -813,6 +813,7 @@ fun BookReaderScreen(
             } finally {
                 turnDir = 0
                 dragProgress = 0f
+                turnProgress.snapTo(0f)
                 settling = false
             }
         }

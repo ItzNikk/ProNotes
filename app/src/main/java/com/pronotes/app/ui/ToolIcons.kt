@@ -292,7 +292,7 @@ fun ToolGlyph(tool: Tool, tint: Color, inkColor: Color, modifier: Modifier = Mod
     }
     val ink = when (tool) {
         Tool.PEN, Tool.CRAYON, Tool.AUTO_TEXT, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.HIGHLIGHTER, Tool.TEXT, Tool.MINDMAP -> inkColor
-        Tool.LASER -> if (active) Color(0xFFFF3B30) else null
+        Tool.LASER -> inkColor
         else -> null
     }
     val alpha = when {

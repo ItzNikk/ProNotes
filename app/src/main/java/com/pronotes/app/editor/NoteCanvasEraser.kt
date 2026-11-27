@@ -81,9 +81,9 @@ internal fun eraseWordsFromTextItem(
     val a = rotateAround(prev, rawBox.centerX(), rawBox.centerY(), -item.rot)
     val b = rotateAround(cur, rawBox.centerX(), rawBox.centerY(), -item.rot)
 
-    // Surgical padding so a wide eraser doesn't wipe out adjacent untouched words
-    val padX = min(radius * 0.42f, item.size * 0.22f).coerceAtLeast(3f)
-    val padY = min(radius * 0.42f, item.size * 0.20f).coerceAtLeast(3f)
+    // Surgical padding so pixel eraser targets only the touched word(s), never neighboring words
+    val padX = min(radius * 0.28f, item.size * 0.15f).coerceAtLeast(2f)
+    val padY = min(radius * 0.28f, item.size * 0.14f).coerceAtLeast(2f)
 
     val segMinX = min(a.first, b.first) - padX
     val segMaxX = max(a.first, b.first) + padX
@@ -151,13 +151,45 @@ internal fun eraseWordsFromTextItem(
 }
 
 /**
- * Scribble-to-erase support for individual words inside [TextItem]s:
+ * Erases ONLY the specific word(s) inside a converted [WriteBoxItem] touched by [prev]->[cur],
+ * preserving the box and all remaining words instead of deleting the whole block.
+ */
+internal fun eraseWordsFromWriteBox(
+    item: WriteBoxItem,
+    prev: Pt,
+    cur: Pt,
+    radius: Float,
+): Pair<Boolean, WriteBoxItem?> {
+    if (!item.isConverted || item.convertedText.isBlank()) return false to item
+    val textProxy = TextItem(
+        id = item.id,
+        x = item.x + 14f,
+        y = item.y + 44f,
+        text = item.convertedText,
+        color = item.strokeColor,
+        size = item.fontSize,
+        style = TextStyleSpec(font = item.font),
+        rot = item.rot,
+    )
+    val (erased, updated) = eraseWordsFromTextItem(textProxy, prev, cur, radius)
+    if (!erased) return false to item
+    val nextText = updated?.text.orEmpty()
+    return if (nextText.isBlank() && item.inkItemIds.isEmpty()) {
+        true to null
+    } else {
+        true to item.copy(convertedText = nextText)
+    }
+}
+
+/**
+ * Scribble-to-erase support for individual words inside [TextItem]s and converted [WriteBoxItem]s:
  * returns updated page items and the world-space rects + colors of erased words, or null if no word matched.
  */
 internal fun NoteCanvasView.scribbleEraseTextWords(page: Int, pts: List<Pt>): Pair<List<PageItem>, List<Pair<RectF, Int>>>? {
     if (pts.size < 6) return null
+    if (settings.eraseHighlighterOnly) return null
     val sheet = pages.getOrNull(page) ?: return null
-    val padding = (6f * density / scale).coerceIn(3f, 14f)
+    val padding = (8f * density / scale).coerceIn(4f, 18f)
     val envelope = RectF(
         pts.minOf { it.first },
         pts.minOf { it.second },
@@ -165,16 +197,12 @@ internal fun NoteCanvasView.scribbleEraseTextWords(page: Int, pts: List<Pt>): Pa
         pts.maxOf { it.second },
     ).apply { inset(-padding, -padding) }
 
-    val step = max(1, pts.size / 48)
+    val step = max(1, pts.size / 96)
     val erasedVisuals = ArrayList<Pair<RectF, Int>>()
     var anyChanged = false
     val nextItems = ArrayList<PageItem>(sheet.items.size)
 
-    for (item in sheet.items) {
-        if (item !is TextItem || !eraserAllows(item) || !RectF.intersects(envelope, item.bounds)) {
-            nextItems += item
-            continue
-        }
+    fun scrubTextItem(item: TextItem): Pair<Boolean, TextItem?> {
         val rawBox = item.raw
         applyTextStyle(eraserTextPaint, item.size, item.style)
         val lh = item.size * 1.3f
@@ -203,7 +231,7 @@ internal fun NoteCanvasView.scribbleEraseTextWords(page: Int, pts: List<Pt>): Pa
                 val wLeft = lineX + eraserTextPaint.measureText(line, 0, m.range.first)
                 val wRight = lineX + eraserTextPaint.measureText(line, 0, m.range.last + 1)
                 val wordRect = RectF(wLeft, lineTop, wRight, lineBottom)
-                val hitRect = RectF(wordRect).apply { inset(-padding * 0.45f, -padding * 0.4f) }
+                val hitRect = RectF(wordRect).apply { inset(-padding * 0.55f, -padding * 0.45f) }
                 var segHits = 0
                 var i = step
                 while (i < pts.size) {
@@ -215,7 +243,16 @@ internal fun NoteCanvasView.scribbleEraseTextWords(page: Int, pts: List<Pt>): Pa
                     }
                     i += step
                 }
-                if (segHits >= 2) {
+                val overlapX = (min(envelope.right, wordRect.right) - max(envelope.left, wordRect.left)).coerceAtLeast(0f)
+                val overlapY = (min(envelope.bottom, wordRect.bottom) - max(envelope.top, wordRect.top)).coerceAtLeast(0f)
+                val wordW = wordRect.width().coerceAtLeast(1f)
+                val wordH = wordRect.height().coerceAtLeast(1f)
+                val areaOverlap = (overlapX * overlapY) / (wordW * wordH)
+                val widthOverlap = overlapX / wordW
+                val matched = segHits >= 2 ||
+                    (segHits >= 1 && widthOverlap >= 0.36f && overlapY >= wordH * 0.25f) ||
+                    (envelope.contains(wordRect.centerX(), wordRect.centerY()) && areaOverlap >= 0.52f)
+                if (matched) {
                     lineChanged = true
                     itemChanged = true
                     anyChanged = true
@@ -233,13 +270,42 @@ internal fun NoteCanvasView.scribbleEraseTextWords(page: Int, pts: List<Pt>): Pa
             }
         }
 
-        if (!itemChanged) {
-            nextItems += item
-        } else {
-            val joined = outLines.joinToString("\n").trimEnd('\n')
-            if (joined.isNotBlank()) {
-                nextItems += item.copy(text = joined)
+        if (!itemChanged) return false to item
+        val joined = outLines.joinToString("\n").trimEnd('\n')
+        return true to if (joined.isNotBlank()) item.copy(text = joined) else null
+    }
+
+    for (item in sheet.items) {
+        when {
+            item is TextItem && RectF.intersects(envelope, item.bounds) -> {
+                val (changed, updated) = scrubTextItem(item)
+                if (!changed) {
+                    nextItems += item
+                } else if (updated != null) {
+                    nextItems += updated
+                }
             }
+            item is WriteBoxItem && item.convertedText.isNotBlank() && RectF.intersects(envelope, item.bounds) -> {
+                val synthetic = TextItem(
+                    id = item.id,
+                    x = item.x + 14f,
+                    y = item.y + 10f,
+                    text = item.convertedText,
+                    size = item.fontSize,
+                    color = item.strokeColor,
+                    style = TextStyleSpec(font = item.font),
+                )
+                val (changed, updated) = scrubTextItem(synthetic)
+                if (!changed) {
+                    nextItems += item
+                } else {
+                    val nextTxt = updated?.text.orEmpty()
+                    if (nextTxt.isNotBlank() || item.inkItemIds.isNotEmpty()) {
+                        nextItems += item.copy(convertedText = nextTxt)
+                    }
+                }
+            }
+            else -> nextItems += item
         }
     }
 
@@ -248,14 +314,13 @@ internal fun NoteCanvasView.scribbleEraseTextWords(page: Int, pts: List<Pt>): Pa
 
 /**
  * Finds all erasable strokes actually scrubbed over by [pts].
- * Uses bounding-box intersection + generous sweep padding + either direct segment hits or
- * substantial stroke-point overlap inside the scribble envelope so scrubbing across any word
- * or cursive line erases cleanly without requiring the scribble to swallow every tail pixel.
+ * Uses bounding-box intersection + generous sweep padding + either direct segment hits,
+ * enclosed-dot detection (dots on i/j, punctuation, short crossbars), or substantial overlap.
  */
 internal fun NoteCanvasView.scribbleHitIds(page: Int, pts: List<Pt>): Set<Long> {
     if (pts.size < 6) return emptySet()
     val sheet = pages.getOrNull(page) ?: return emptySet()
-    val padding = (7f * density / scale).coerceIn(4f, 18f)
+    val padding = (9f * density / scale).coerceIn(5f, 22f)
     val envelope = RectF(
         pts.minOf { it.first },
         pts.minOf { it.second },
@@ -264,7 +329,7 @@ internal fun NoteCanvasView.scribbleHitIds(page: Int, pts: List<Pt>): Set<Long> 
     ).apply { inset(-padding, -padding) }
 
     val sweep = MutableParallelogram()
-    val step = max(1, pts.size / 64)
+    val step = max(1, pts.size / 96)
     return sheet.items.asSequence().filterIsInstance<InkItem>()
         .filter { eraserAllows(it) && RectF.intersects(envelope, it.bounds) }
         .filter { item ->
@@ -273,6 +338,11 @@ internal fun NoteCanvasView.scribbleHitIds(page: Int, pts: List<Pt>): Set<Long> 
             val insideY = (min(envelope.bottom, b.bottom) - max(envelope.top, b.top)).coerceAtLeast(0f)
             val bArea = (b.width() * b.height()).coerceAtLeast(1f)
             val overlapRatio = (insideX * insideY) / bArea
+
+            // Small marks/dots (e.g., dot on i/j, accent, short punctuation) enclosed inside the scrub envelope
+            val isSmallMark = max(b.width(), b.height()) <= (28f / scale).coerceIn(14f, 44f)
+            if (isSmallMark && overlapRatio >= 0.70f) return@filter true
+            if (overlapRatio >= 0.78f && envelope.contains(b.centerX(), b.centerY())) return@filter true
 
             var hits = 0
             var touching = false
@@ -288,11 +358,11 @@ internal fun NoteCanvasView.scribbleHitIds(page: Int, pts: List<Pt>): Set<Long> 
                 val hit = item.stroke.shape.intersects(sweep, AffineTransform.IDENTITY)
                 if (hit && !touching) hits++
                 if (hits >= 2) return@filter true
-                if (hits >= 1 && overlapRatio >= 0.48f) return@filter true
+                if (hits >= 1 && overlapRatio >= 0.30f) return@filter true
                 touching = hit
                 i += step
             }
-            hits >= 2 || (hits >= 1 && overlapRatio >= 0.48f)
+            hits >= 2 || (hits >= 1 && overlapRatio >= 0.30f)
         }.map { it.id }.toSet()
 }
 
@@ -386,19 +456,29 @@ internal fun NoteCanvasView.pixelErase(p: Page, prev: Pt, wx: Float, wy: Float, 
     var items = p.items
     var changed = false
 
-    // 1. Word-level erasing for TextItems over the full segment (prev -> (wx, wy))
+    // 1. Word-level erasing for TextItems and converted WriteBoxItems over the full segment (prev -> (wx, wy))
     val afterText = ArrayList<PageItem>(items.size)
     for (item in items) {
-        if (item is TextItem && eraserAllows(item)) {
-            val (wordErased, updated) = eraseWordsFromTextItem(item, prev, wx to wy, r)
-            if (wordErased) {
-                changed = true
-                if (updated != null) afterText += updated
-            } else {
-                afterText += item
+        when {
+            item is TextItem && eraserAllows(item) -> {
+                val (wordErased, updated) = eraseWordsFromTextItem(item, prev, wx to wy, r)
+                if (wordErased) {
+                    changed = true
+                    if (updated != null) afterText += updated
+                } else {
+                    afterText += item
+                }
             }
-        } else {
-            afterText += item
+            item is WriteBoxItem && item.isConverted && eraserAllows(item) -> {
+                val (wordErased, updated) = eraseWordsFromWriteBox(item, prev, wx to wy, r)
+                if (wordErased) {
+                    changed = true
+                    if (updated != null) afterText += updated
+                } else {
+                    afterText += item
+                }
+            }
+            else -> afterText += item
         }
     }
     items = afterText
@@ -411,7 +491,7 @@ internal fun NoteCanvasView.pixelErase(p: Page, prev: Pt, wx: Float, wy: Float, 
         val cy = prev.second + (wy - prev.second) * t
         val next = ArrayList<PageItem>(items.size)
         for (item in items) {
-            if (!eraserAllows(item) || item is TextItem) {
+            if (!eraserAllows(item) || item is TextItem || (item is WriteBoxItem && item.isConverted)) {
                 next += item
                 continue
             }

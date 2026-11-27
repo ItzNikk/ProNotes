@@ -1537,18 +1537,14 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             MotionEvent.BUTTON_SECONDARY or
             MotionEvent.BUTTON_TERTIARY
         if ((bs and mask) != 0) return true
-        if (e.actionButton == MotionEvent.BUTTON_STYLUS_PRIMARY ||
-            e.actionButton == MotionEvent.BUTTON_STYLUS_SECONDARY ||
-            e.actionButton == MotionEvent.BUTTON_SECONDARY ||
-            e.actionButton == MotionEvent.BUTTON_TERTIARY
+        // Only trust actionButton on ACTION_BUTTON_PRESS; Android leaves stale actionButton values on later DOWN/HOVER_MOVE events.
+        if (e.actionMasked == MotionEvent.ACTION_BUTTON_PRESS && (
+                e.actionButton == MotionEvent.BUTTON_STYLUS_PRIMARY ||
+                e.actionButton == MotionEvent.BUTTON_STYLUS_SECONDARY ||
+                e.actionButton == MotionEvent.BUTTON_SECONDARY ||
+                e.actionButton == MotionEvent.BUTTON_TERTIARY
+            )
         ) {
-            return e.actionMasked == MotionEvent.ACTION_BUTTON_PRESS ||
-                e.actionMasked == MotionEvent.ACTION_DOWN ||
-                e.actionMasked == MotionEvent.ACTION_HOVER_MOVE
-        }
-        // Older Samsung tablets (Galaxy Tab S7 / S7+ on One UI 4-5) occasionally surface S Pen side button
-        // via META_ALT_ON on stylus MotionEvents when buttonState momentarily reports 0.
-        if (e.pointerCount > 0 && isPen(e.getToolType(0)) && (e.metaState and android.view.KeyEvent.META_ALT_ON) != 0) {
             return true
         }
         return false
@@ -1568,11 +1564,11 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         if (e.getToolType(safeIdx) == MotionEvent.TOOL_TYPE_ERASER) return Tool.ERASER
         val normAction = normalizeStylusAction(e)
         val now = SystemClock.uptimeMillis()
-        // Tab S7+ S Pen digitizers often have a 120–380ms gap or drop buttonState to 0 on ACTION_DOWN
-        // right after ACTION_HOVER_MOVE with side button held; widen latch window to 420ms and honor buttonDown.
+        // Require BOTH active buttonDown AND a tight 150ms hover handoff window so normal writing right after
+        // clicking or releasing the side button never accidentally triggers eraser.
         val hoverLatched = isPen(e.getToolType(safeIdx)) &&
             (normAction == MotionEvent.ACTION_DOWN || normAction == MotionEvent.ACTION_POINTER_DOWN) &&
-            (buttonDown || (now - lastHoverButtonHeldAt < 420L))
+            buttonDown && (now - lastHoverButtonHeldAt < 150L)
         val heldNow = sideButtonHeld(e) || hoverLatched || strokeSideButtonLatched
         if (heldNow) {
             if (normAction == MotionEvent.ACTION_DOWN || normAction == MotionEvent.ACTION_POINTER_DOWN) {
@@ -1747,7 +1743,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             }
             Tool.LASER -> {
                 mode = Mode.LASER
-                layer.laserBegin(toDoc(px, py))
+                layer.laserBegin(toDoc(px, py), settings.laserColor)
             }
             Tool.TAPE -> { mode = Mode.TAPE; layer.tapePreview = null }
             Tool.MINDMAP -> {
@@ -1882,7 +1878,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                     Mode.INK -> {
                         val isStylusOrEraser = isPen(e.getToolType(idx)) || e.getToolType(idx) == MotionEvent.TOOL_TYPE_ERASER
                         val sideEraserNow = e.getToolType(idx) == MotionEvent.TOOL_TYPE_ERASER ||
-                            (isStylusOrEraser && (sideButtonHeld(e) || buttonDown) && resolvedSideButtonAction() == SideButton.ERASER)
+                            (isStylusOrEraser && sideButtonHeld(e) && resolvedSideButtonAction() == SideButton.ERASER)
                         if (sideEraserNow) {
                             strokeSideButtonLatched = true
                             cancelActiveWetStroke(e)
@@ -2071,6 +2067,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                         if (strokeTool == Tool.ERASER && tool == Tool.ERASER) host.onEraserLifted()
                     }
                     Mode.LASSO -> {
+                        val drawnScreen = ArrayList(lassoPoints)
                         val local = lassoPoints.map { toLocal(it.first, it.second, activePage) }
                         layer.lasso = null
                         layer.stopAnts()
@@ -2093,11 +2090,15 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                                     clearSelection()
                                 }
                             } else {
+                                val outlinePts = local.takeIf { settings.lassoMode != com.pronotes.app.data.LassoMode.RECT }
                                 select(
                                     activePage,
                                     Lasso(local, settings.lassoTouching),
-                                    outline = local.takeIf { settings.lassoMode != com.pronotes.app.data.LassoMode.RECT },
+                                    outline = outlinePts,
                                 )
+                                if (drawnScreen.size >= 4) {
+                                    layer.playLassoMorph(drawnScreen) {}
+                                }
                             }
                         }
                         layer.invalidate()
@@ -2690,39 +2691,19 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             }
         }
         // Scribble-to-erase: uses surgical hit-testing for ink strokes AND individual words in converted text together.
+        // Items disappear cleanly with zero puff/scatter animation.
         if (!isTap && (strokeTool == Tool.PEN || strokeTool == Tool.CRAYON || strokeTool == Tool.HIGHLIGHTER) && settings.scribbleToErase &&
             isDeliberateScribble(points, scale / density, e.eventTime - e.downTime, gestureConfig)) {
             val hit = scribbleHitIds(activePage, points)
             val wordErase = scribbleEraseTextWords(activePage, points)
             if (hit.isNotEmpty() || wordErase != null) {
                 cancelActiveWetStroke(e)
-                val gone = ArrayList<RectF>()
-                val colors = ArrayList<Int>()
-                var updatedItems = p.items
-                if (wordErase != null) {
-                    updatedItems = wordErase.first
-                    wordErase.second.forEach { (rect, col) ->
-                        gone += RectF(rect).also { r -> pageMatrix(activePage, tmpMatrix).mapRect(r) }
-                        colors += col
-                    }
-                }
+                var updatedItems = wordErase?.first ?: p.items
                 if (hit.isNotEmpty()) {
-                    val hitItems = updatedItems.filter { it.id in hit }
-                    hitItems.forEach { item ->
-                        gone += RectF(item.bounds).also { r -> pageMatrix(activePage, tmpMatrix).mapRect(r) }
-                        when (item) {
-                            is InkItem -> colors += item.stroke.brush.colorIntArgb
-                            is TextItem -> colors += item.color
-                            is StickyItem -> colors += item.color
-                            is TapeItem -> colors += item.color
-                            else -> Unit
-                        }
-                    }
                     updatedItems = updatedItems.filterNot { it.id in hit }
                 }
                 host.beginEdit(activePage)
                 updatePage(activePage, updatedItems)
-                layer.puff(gone, colors)
                 syncFeel(); feel.cue(PaperFeel.Cue.TAP)
                 host.onScribbleErased()
                 return
@@ -3207,6 +3188,8 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
         fingerGrabPointer = -1
         selectionScrollPointer = -1
         strokeSideButtonLatched = false
+        buttonDown = false
+        lastHoverButtonHeldAt = 0L
         holdShapeBasePts = emptyList()
         feel.stop()
         if (clearWet) {
@@ -3323,7 +3306,7 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
             velocity?.recycle(); velocity = null
             buzz(HapticFeedbackConstants.LONG_PRESS)
             host.onEmptyPageLongPress(pi, lx, ly, fingerStartX, fingerStartY)
-        } else if (!readOnly && settings.stylusOnly) {
+        } else if (!readOnly) {
             val target = pages.getOrNull(pi)?.items?.lastOrNull { lassoAllows(it) && it.bounds.contains(lx, ly) }
             if (target != null) {
                 selectItems(pi, setOf(target.id))
@@ -3405,6 +3388,8 @@ class NoteCanvasView(context: Context, internal val host: CanvasHost) : FrameLay
                 }
                 MotionEvent.ACTION_HOVER_EXIT -> {
                     stylusHovering = false
+                    buttonDown = false
+                    lastHoverButtonHeldAt = 0L
                     clearHover()
                 }
             }

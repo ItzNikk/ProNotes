@@ -15,7 +15,9 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import android.provider.DocumentsContract
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -127,6 +129,7 @@ object CloudStorageStore {
     private fun uriKey(p: CloudStorageProvider) = "cloud_provider_uri_${p.id}"
     private fun labelKey(p: CloudStorageProvider) = "cloud_provider_label_${p.id}"
     private fun tsKey(p: CloudStorageProvider) = "cloud_provider_ts_${p.id}"
+    private fun autoKey(p: CloudStorageProvider) = "cloud_provider_auto_${p.id}"
 
     fun state(context: Context, provider: CloudStorageProvider): CloudProviderState {
         val store = SettingsStore.get(context)
@@ -138,13 +141,24 @@ object CloudStorageStore {
         )
     }
 
+    fun isAutoSync(context: Context, provider: CloudStorageProvider): Boolean =
+        SettingsStore.get(context).pref(autoKey(provider), "true") != "false"
+
+    fun setAutoSync(context: Context, provider: CloudStorageProvider, enabled: Boolean) {
+        SettingsStore.get(context).setPref(autoKey(provider), if (enabled) "true" else "false")
+    }
+
     fun linkedFolderUris(context: Context): List<String> {
         val store = SettingsStore.get(context)
         return CloudStorageProvider.entries
+            .filter { isAutoSync(context, it) }
             .map { store.pref(uriKey(it), "") }
             .filter { it.isNotBlank() }
             .distinct()
     }
+
+    fun allLinkedStates(context: Context): List<CloudProviderState> =
+        CloudStorageProvider.entries.map { state(context, it) }.filter { it.isFolderLinked }
 
     fun linkFolder(context: Context, provider: CloudStorageProvider, uri: Uri): String {
         runCatching {
@@ -166,6 +180,65 @@ object CloudStorageStore {
 
     fun markSynced(context: Context, provider: CloudStorageProvider, timestampMs: Long = System.currentTimeMillis()) {
         SettingsStore.get(context).setPref(tsKey(provider), timestampMs.toString())
+    }
+
+    suspend fun exportAllPdfsToFolder(context: Context, treeUri: Uri, repo: Repository): Int = withContext(Dispatchers.IO) {
+        val resolver = context.contentResolver
+        val rootDocId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull() ?: return@withContext -1
+        val rootDocUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootDocId)
+
+        fun findChild(parentDocId: String, displayName: String): Pair<String, Uri>? {
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocId)
+            val cols = arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            )
+            return runCatching {
+                resolver.query(childrenUri, cols, null, null, null)?.use { c ->
+                    while (c.moveToNext()) {
+                        if (c.getString(1) == displayName) {
+                            val id = c.getString(0)
+                            return@use id to DocumentsContract.buildDocumentUriUsingTree(treeUri, id)
+                        }
+                    }
+                    null
+                }
+            }.getOrNull()
+        }
+
+        val pdfDirPair = findChild(rootDocId, "ProNotes PDFs")
+            ?: runCatching {
+                val created = DocumentsContract.createDocument(
+                    resolver,
+                    rootDocUri,
+                    DocumentsContract.Document.MIME_TYPE_DIR,
+                    "ProNotes PDFs",
+                )
+                created?.let { DocumentsContract.getDocumentId(it) to it }
+            }.getOrNull()
+            ?: (rootDocId to rootDocUri)
+
+        val (targetParentId, targetParentUri) = pdfDirPair
+        val notes = repo.library.value.notebooks.filter { it.deletedAt == null }
+        var exported = 0
+        for (note in notes) {
+            val pages = runCatching { repo.loadPages(note.id) }.getOrNull() ?: continue
+            if (pages.isEmpty()) continue
+            val safeName = note.title.replace(Regex("[^a-zA-Z0-9._ -]"), "_").trim().ifBlank { "Notebook" } + ".pdf"
+            val docUri = findChild(targetParentId, safeName)?.second
+                ?: runCatching {
+                    DocumentsContract.createDocument(resolver, targetParentUri, "application/pdf", safeName)
+                }.getOrNull()
+                ?: continue
+            val ok = runCatching {
+                resolver.openOutputStream(docUri, "wt")?.use { out ->
+                    repo.exportPdf(note.id, pages, out)
+                }
+                true
+            }.getOrDefault(false)
+            if (ok) exported++
+        }
+        exported
     }
 
     fun suggestedBackupFileName(provider: CloudStorageProvider): String {
@@ -303,18 +376,82 @@ fun CloudStorageProvidersPanel(
     }
 
     val scheme = MaterialTheme.colorScheme
+    val linkedStates = remember(refreshTick) { CloudStorageStore.allLinkedStates(context) }
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
-            "Store note backups, sync folders, or open PDFs and documents from Google Drive, Microsoft OneDrive, and Apple iCloud Drive. Select the provider in Android's file picker or link a synced cloud folder.",
+            "Back up notebooks, auto-sync linked folders, export PDFs, or open documents across Google Drive, Microsoft OneDrive, and Apple iCloud Drive.",
             style = MaterialTheme.typography.bodySmall,
             color = scheme.onSurfaceVariant,
         )
 
+        if (linkedStates.isNotEmpty()) {
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = scheme.primaryContainer.copy(alpha = 0.45f),
+                border = BorderStroke(1.dp, scheme.primary.copy(alpha = 0.30f)),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(Icons.Rounded.CloudDone, null, tint = scheme.primary, modifier = Modifier.size(20.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "${linkedStates.size} cloud ${if (linkedStates.size == 1) "drive" else "drives"} connected",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = scheme.onSurface,
+                        )
+                        Text(
+                            linkedStates.joinToString(" · ") { it.provider.shortName },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = scheme.onSurfaceVariant,
+                        )
+                    }
+                    FilledTonalButton(
+                        enabled = busyProvider == null,
+                        onClick = {
+                            busyProvider = linkedStates.first().provider
+                            scope.launch {
+                                var totalSynced = 0
+                                for (ls in linkedStates) {
+                                    val c = runCatching {
+                                        StorageFolderSync.syncAllNotebooks(context, Uri.parse(ls.folderUri), repo)
+                                    }.getOrDefault(-1)
+                                    if (c >= 0) {
+                                        CloudStorageStore.markSynced(context, ls.provider)
+                                        totalSynced += c
+                                    }
+                                }
+                                busyProvider = null
+                                refreshTick++
+                                statusMessage = "Synced $totalSynced notebook(s) across ${linkedStates.size} linked cloud drive(s)."
+                            }
+                        },
+                        shape = CircleShape,
+                    ) {
+                        Icon(Icons.Rounded.Sync, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text("Sync All", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
+        }
+
+        if (busyProvider != null) {
+            androidx.compose.material3.LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth().height(3.dp),
+            )
+        }
+
         CloudStorageProvider.entries.forEach { provider ->
             val st = remember(provider, refreshTick) { CloudStorageStore.state(context, provider) }
+            val autoSyncOn = remember(provider, refreshTick) { CloudStorageStore.isAutoSync(context, provider) }
             val accent = Color(provider.accentColor)
             val isBusy = busyProvider == provider
 
@@ -352,14 +489,33 @@ fun CloudStorageProvidersPanel(
                         }
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(
-                                provider.displayName,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = scheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    provider.displayName,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = scheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (st.isFolderLinked) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = accent.copy(alpha = 0.14f),
+                                    ) {
+                                        Text(
+                                            if (autoSyncOn) "Auto-Sync" else "Linked",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = accent,
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                                        )
+                                    }
+                                }
+                            }
                             Text(
                                 if (st.isFolderLinked) {
                                     "Linked folder: ${st.folderLabel.ifBlank { "Connected" }}"
@@ -382,6 +538,20 @@ fun CloudStorageProvidersPanel(
                                     color = scheme.onSurfaceVariant,
                                 )
                             }
+                        }
+                        if (st.isFolderLinked) {
+                            androidx.compose.material3.Switch(
+                                checked = autoSyncOn,
+                                onCheckedChange = { enabled ->
+                                    CloudStorageStore.setAutoSync(context, provider, enabled)
+                                    refreshTick++
+                                    statusMessage = if (enabled) {
+                                        "Auto-sync enabled for ${provider.displayName}."
+                                    } else {
+                                        "Auto-sync paused for ${provider.displayName}."
+                                    }
+                                },
+                            )
                         }
                     }
 
@@ -456,6 +626,30 @@ fun CloudStorageProvidersPanel(
                                 Icon(Icons.Rounded.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Text("Sync Folder", style = MaterialTheme.typography.labelMedium)
+                            }
+                            OutlinedButton(
+                                enabled = !isBusy,
+                                onClick = {
+                                    busyProvider = provider
+                                    scope.launch {
+                                        val exported = runCatching {
+                                            CloudStorageStore.exportAllPdfsToFolder(context, Uri.parse(st.folderUri), repo)
+                                        }.getOrElse { -1 }
+                                        busyProvider = null
+                                        if (exported >= 0) {
+                                            CloudStorageStore.markSynced(context, provider)
+                                            refreshTick++
+                                            statusMessage = "Exported $exported PDF(s) to ${provider.displayName} → ProNotes PDFs."
+                                        } else {
+                                            statusMessage = "Could not export PDFs. Tap Relink Folder to refresh access."
+                                        }
+                                    }
+                                },
+                                shape = CircleShape,
+                            ) {
+                                Icon(Icons.Rounded.Backup, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Export PDFs", style = MaterialTheme.typography.labelMedium)
                             }
                             TextButton(
                                 enabled = !isBusy,

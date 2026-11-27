@@ -148,7 +148,7 @@ object ToolbarGeometry {
 object ToolbarOrder {
     val defaults = listOf(
         Tool.PEN, Tool.CRAYON, Tool.HIGHLIGHTER, Tool.ERASER, Tool.SHAPE, Tool.LASSO, Tool.MINDMAP,
-        Tool.IMAGE, Tool.TEXT, Tool.AUTO_TEXT, Tool.STICKY, Tool.WEBLINK, Tool.TAPE, Tool.STICKER, Tool.LASER,
+        Tool.IMAGE, Tool.TEXT, Tool.AUTO_TEXT, Tool.STICKY, Tool.TAPE, Tool.STICKER, Tool.LASER,
     )
 
     /** Tools that are optional and start disabled unless explicitly enabled by the user. */
@@ -158,7 +158,9 @@ object ToolbarOrder {
         val parsed = spec.split(',').filter { it.isNotBlank() }.mapNotNull { s ->
             val trimmed = s.trim()
             val hidden = trimmed.startsWith("-")
-            runCatching { Tool.valueOf(trimmed.removePrefix("-")) }.getOrNull()?.let { it to !hidden }
+            runCatching { Tool.valueOf(trimmed.removePrefix("-")) }.getOrNull()
+                ?.takeIf { it in defaults }
+                ?.let { it to !hidden }
         }.distinctBy { it.first }
         // Tools added in a later version show up at the end (optional tools default to off).
         return parsed + defaults.filter { t -> parsed.none { it.first == t } }.map { it to (it !in optionalByDefault) }

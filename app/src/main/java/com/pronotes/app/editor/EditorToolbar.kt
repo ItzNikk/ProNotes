@@ -702,7 +702,12 @@ private fun OverflowToolsButton(
     val interaction = remember { MutableInteractionSource() }
     val menuItems = tools.map { tool ->
         val name = toolDisplayName(tool)
-        val ink = Color(vm.styleFor(tool)?.color ?: vm.penStyle.color)
+        val ink = Color(
+            when (tool) {
+                Tool.LASER -> vm.settingsFlow.value.laserColor
+                else -> vm.styleFor(tool)?.color ?: vm.penStyle.color
+            },
+        )
         AppMenuItem(
             label = name,
             selected = vm.tool == tool,
@@ -972,11 +977,12 @@ fun ToolButton(
             Tool.TAPE -> vm.tapeColor
             Tool.STICKY -> vm.stickyColor
             Tool.WEBLINK -> vm.webLinkColor
+            Tool.LASER -> settings.laserColor
             Tool.TEXT -> vm.textColor ?: vm.penStyle.color
             else -> vm.penStyle.color
         },
     )
-    val hasColorBar = t in setOf(Tool.PEN, Tool.CRAYON, Tool.AUTO_TEXT, Tool.HIGHLIGHTER, Tool.SHAPE, Tool.TEXT, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.MINDMAP)
+    val hasColorBar = t in setOf(Tool.PEN, Tool.CRAYON, Tool.AUTO_TEXT, Tool.HIGHLIGHTER, Tool.SHAPE, Tool.TEXT, Tool.TAPE, Tool.STICKY, Tool.WEBLINK, Tool.MINDMAP, Tool.LASER)
     val accent = if (hasColorBar) {
         // Ensure near-black ink reads brightly on the pure black toolbar in both themes
         if (ink.luminance() < 0.08f) Color(0xFF93C5FD) else ink

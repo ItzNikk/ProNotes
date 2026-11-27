@@ -116,6 +116,26 @@ object StickerLibrary {
     fun custom(context: Context): List<Sticker.Custom> =
         dir(context).listFiles()?.filter { it.isFile }?.sortedByDescending { it.lastModified() }?.map { Sticker.Custom(it) } ?: emptyList()
 
+    /** Saves an arbitrary transparent/rendered [bitmap] (e.g. from Lasso selection) into the Sticker Library. */
+    fun saveCustomBitmap(context: Context, bitmap: Bitmap): File? = runCatching {
+        val maxSide = 800
+        val s = (maxSide.toFloat() / maxOf(bitmap.width, bitmap.height).coerceAtLeast(1)).coerceAtMost(1f)
+        val w = (bitmap.width * s).toInt().coerceAtLeast(1)
+        val h = (bitmap.height * s).toInt().coerceAtLeast(1)
+        val outBmp = if (w < bitmap.width || h < bitmap.height) {
+            Bitmap.createScaledBitmap(bitmap, w, h, true)
+        } else {
+            bitmap
+        }
+        try {
+            val file = File(dir(context), "lasso_${System.currentTimeMillis()}.png")
+            java.io.FileOutputStream(file).use { outBmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            file
+        } finally {
+            if (outBmp !== bitmap) outBmp.recycle()
+        }
+    }.getOrNull()
+
     /** Whether the most recent sticker import automatically cut out a recognizable subject. */
     @Volatile var lastImportCutout: Boolean = false
 

@@ -210,6 +210,7 @@ private data class CylindricalCurlGeometry(
     val crestMid: Offset,        // Midpoint along the cylinder crest line `P · n = lineOffset + R`
     val crestStart: Offset,
     val crestEnd: Offset,
+    val hasValidCrest: Boolean,
 ) {
     /** Monotone projection for back-side `drawBitmapMesh` (zero self-folding). */
     fun projectBack(px: Float, py: Float): Offset {
@@ -332,7 +333,9 @@ private fun computeCylindricalCurl(
     // Smoothly straightens toward the spine near settlement so the turned page lands flat.
     val signedFromMid = (clampedTouch - 0.5f) * 2f // -0.88 (top) .. +0.88 (bottom)
     val baseTilt = (signedFromMid * 0.92f).coerceIn(-0.82f, 0.82f)
-    val settleEase = (1f - p * p * 0.88f).coerceIn(0.12f, 1f)
+    // Smoothly reach 0 tilt at p = 1 so no diagonal corner sliver ever remains at turn settlement.
+    val oneMinusP = (1f - p).coerceIn(0f, 1f)
+    val settleEase = oneMinusP * oneMinusP
     val tilt = baseTilt * settleEase
     val cosA = kotlin.math.cos(tilt.toDouble()).toFloat()
     val sinA = sin(tilt.toDouble()).toFloat()
@@ -352,8 +355,8 @@ private fun computeCylindricalCurl(
     val maxProj = projs.maxOrNull() ?: 0f
     val minProj = projs.minOrNull() ?: 0f
 
-    // Start with cylinder crest tight at the grabbed corner/edge, sweep smoothly across to full turn.
-    val startOffset = maxProj - halfPiR * 0.86f
+    // Start with crest exactly at maxProj (zero sudden corner bite at p -> 0), sweep cleanly across to full turn.
+    val startOffset = maxProj - radius
     val endOffset = if (spread) {
         val spineProj = (w * 0.5f) * nx + (h * 0.5f) * ny
         spineProj - halfPiR - 2f
@@ -375,9 +378,10 @@ private fun computeCylindricalCurl(
 
     val revealedPoly = clipPolygonHalfPlane(sheetCorners, crestOrigin, Offset(nx, ny), keepNonPositive = false)
 
-    // Find crest segment on turning sheet
+    // Find crest segment on turning sheet; track validity so shadows never snap to off-page origin when p -> 1.
     val crestSeg = intersectLineWithRect(sheetL, sheetR, h, nx, ny, tx, ty, lineOffset + halfPiR)
         ?: intersectLineWithRect(sheetL, sheetR, h, nx, ny, tx, ty, crestOffset)
+    val hasValidCrest = crestSeg != null
     val crestStart = crestSeg?.first?.let {
         val d = it.x * nx + it.y * ny - lineOffset
         Offset(it.x + (radius - d) * nx, it.y + (radius - d) * ny)
@@ -438,6 +442,7 @@ private fun computeCylindricalCurl(
         crestMid = crestMid,
         crestStart = crestStart,
         crestEnd = crestEnd,
+        hasValidCrest = hasValidCrest,
     )
 }
 
@@ -612,9 +617,11 @@ internal fun BookCurlStage(
                     val ny = curl.normal.y
                     val arcSin = curl.arcSin
                     val r = curl.radius
+                    // Smooth fade envelope: reaches 0 cleanly at p = 0 and p = 1 so shadows/rims never flash or snap.
+                    val edgeFade = (arcSin * 2.2f).coerceIn(0f, 1f)
 
                     // 1) Cast shadow onto the REVEALED next page underneath the lifted cylinder crest
-                    if (curl.revealedPoly.size >= 3) {
+                    if (curl.hasValidCrest && edgeFade > 0.01f && curl.revealedPoly.size >= 3) {
                         val revealedPath = polygonToPath(curl.revealedPoly)
                         val shadowReach = (r * 3.1f + 26f).coerceAtMost(w * 0.36f)
                         val s0 = curl.crestMid
@@ -623,9 +630,9 @@ internal fun BookCurlStage(
                             drawRect(
                                 brush = Brush.linearGradient(
                                     colorStops = arrayOf(
-                                        0.00f to Color.Black.copy(alpha = 0.48f * arcSin.coerceAtLeast(0.28f)),
-                                        0.28f to Color.Black.copy(alpha = 0.22f * arcSin.coerceAtLeast(0.22f)),
-                                        0.68f to Color.Black.copy(alpha = 0.06f * arcSin.coerceAtLeast(0.15f)),
+                                        0.00f to Color.Black.copy(alpha = 0.44f * edgeFade),
+                                        0.28f to Color.Black.copy(alpha = 0.20f * edgeFade),
+                                        0.68f to Color.Black.copy(alpha = 0.05f * edgeFade),
                                         1.00f to Color.Transparent,
                                     ),
                                     start = s0,
@@ -636,7 +643,7 @@ internal fun BookCurlStage(
                     }
 
                     // 2) Subtle curved roll-off shading on the front cylinder lip (`lineOffset .. lineOffset + R`)
-                    if (curl.keptFrontPoly.size >= 3) {
+                    if (curl.hasValidCrest && edgeFade > 0.01f && curl.keptFrontPoly.size >= 3) {
                         val keptPath = polygonToPath(curl.keptFrontPoly)
                         val lipStart = Offset(curl.crestMid.x - nx * r, curl.crestMid.y - ny * r)
                         val lipEnd = curl.crestMid
@@ -645,8 +652,8 @@ internal fun BookCurlStage(
                                 brush = Brush.linearGradient(
                                     colorStops = arrayOf(
                                         0.00f to Color.Transparent,
-                                        0.55f to Color.Black.copy(alpha = 0.06f * arcSin.coerceAtLeast(0.20f)),
-                                        1.00f to Color.Black.copy(alpha = 0.22f * arcSin.coerceAtLeast(0.28f)),
+                                        0.55f to Color.Black.copy(alpha = 0.06f * edgeFade),
+                                        1.00f to Color.Black.copy(alpha = 0.20f * edgeFade),
                                     ),
                                     start = lipStart,
                                     end = lipEnd,
@@ -656,7 +663,7 @@ internal fun BookCurlStage(
                     }
 
                     // 3) True 3D cylindrical rolled back-side paper sheet with drawBitmapMesh & specular tube lighting
-                    if (curl.backSilhouettePts.size >= 3) {
+                    if (curl.hasValidCrest && edgeFade > 0.01f && curl.backSilhouettePts.size >= 3) {
                         val backPath = polygonToPath(curl.backSilhouettePts)
 
                         // Soft wide cast shadow under the overhanging rolled back leaf onto the underlying flat page
@@ -669,9 +676,9 @@ internal fun BookCurlStage(
                                 drawRect(
                                     brush = Brush.linearGradient(
                                         colorStops = arrayOf(
-                                            0.00f to Color.Black.copy(alpha = 0.28f * arcSin.coerceAtLeast(0.24f)),
-                                            0.35f to Color.Black.copy(alpha = 0.14f * arcSin.coerceAtLeast(0.18f)),
-                                            0.75f to Color.Black.copy(alpha = 0.04f * arcSin.coerceAtLeast(0.12f)),
+                                            0.00f to Color.Black.copy(alpha = 0.26f * edgeFade),
+                                            0.35f to Color.Black.copy(alpha = 0.13f * edgeFade),
+                                            0.75f to Color.Black.copy(alpha = 0.04f * edgeFade),
                                             1.00f to Color.Transparent,
                                         ),
                                         start = k0,
@@ -684,12 +691,12 @@ internal fun BookCurlStage(
                         // Soft feathered drop-shadow rim framing the curved 3D outer leaf edge
                         drawPath(
                             path = backPath,
-                            color = Color.Black.copy(alpha = 0.17f * arcSin.coerceAtLeast(0.20f)),
+                            color = Color.Black.copy(alpha = 0.16f * edgeFade),
                             style = Stroke(width = 18f),
                         )
                         drawPath(
                             path = backPath,
-                            color = Color.Black.copy(alpha = 0.07f * arcSin.coerceAtLeast(0.18f)),
+                            color = Color.Black.copy(alpha = 0.06f * edgeFade),
                             style = Stroke(width = 34f),
                         )
 
@@ -697,7 +704,7 @@ internal fun BookCurlStage(
                             // Base backside paper colour
                             drawRect(theme.pageBg)
 
-                            // Warped 26x26 3D cylindrical bitmap mesh of back-side page content
+                            // Warped 3D cylindrical bitmap mesh of back-side page content
                             if (backBmp != null && !backBmp.isRecycled) {
                                 drawIntoCanvas { canvas ->
                                     drawCylindricalBackBitmapMesh(
@@ -717,16 +724,16 @@ internal fun BookCurlStage(
                             val tubeStart = curl.crestMid
                             val tubeSpan = (r * 1.85f).coerceAtLeast(30f)
                             val tubeEnd = Offset(tubeStart.x - nx * tubeSpan, tubeStart.y - ny * tubeSpan)
-                            val hiAlpha = if (theme.isDark) 0.28f else 0.84f
+                            val hiAlpha = if (theme.isDark) 0.28f else 0.82f
                             drawRect(
                                 brush = Brush.linearGradient(
                                     colorStops = arrayOf(
-                                        0.00f to Color.Black.copy(alpha = 0.40f * arcSin.coerceAtLeast(0.36f)),
-                                        0.14f to Color.Black.copy(alpha = 0.14f * arcSin.coerceAtLeast(0.28f)),
-                                        0.34f to Color.White.copy(alpha = hiAlpha * arcSin.coerceAtLeast(0.52f)),
-                                        0.52f to Color.White.copy(alpha = hiAlpha * 0.48f),
-                                        0.72f to Color.Black.copy(alpha = 0.28f * arcSin.coerceAtLeast(0.34f)),
-                                        0.90f to Color.Black.copy(alpha = 0.09f * arcSin.coerceAtLeast(0.22f)),
+                                        0.00f to Color.Black.copy(alpha = 0.36f * edgeFade),
+                                        0.14f to Color.Black.copy(alpha = 0.13f * edgeFade),
+                                        0.34f to Color.White.copy(alpha = hiAlpha * edgeFade),
+                                        0.52f to Color.White.copy(alpha = hiAlpha * 0.45f * edgeFade),
+                                        0.72f to Color.Black.copy(alpha = 0.25f * edgeFade),
+                                        0.90f to Color.Black.copy(alpha = 0.08f * edgeFade),
                                         1.00f to Color.Transparent,
                                     ),
                                     start = tubeStart,
@@ -738,11 +745,11 @@ internal fun BookCurlStage(
                         // Crisp subtle paper rim along the curved 3D silhouette & soft highlight along crest
                         drawPath(
                             path = backPath,
-                            color = theme.mutedText.copy(alpha = 0.26f),
+                            color = theme.mutedText.copy(alpha = 0.24f * edgeFade),
                             style = Stroke(width = 1.4f),
                         )
                         drawLine(
-                            color = Color.White.copy(alpha = if (theme.isDark) 0.14f else 0.42f),
+                            color = Color.White.copy(alpha = (if (theme.isDark) 0.14f else 0.40f) * edgeFade),
                             start = curl.crestStart,
                             end = curl.crestEnd,
                             strokeWidth = 1.8f,

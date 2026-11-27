@@ -161,7 +161,8 @@ fun SelectionMenu(
             onDelete = { vm.deletePageItems(pageId, ids) },
         )
     }
-    val fg = Color(0xFFF1F5F9)
+    val fg = Color(0xFFF8FAFC)
+    val mutedFg = Color(0xFFCBD5E1)
     val density = LocalDensity.current.density
     val reduceEffects = LocalReduceEffects.current
     val maxMenuW = if (areaSize.width > 0) (areaSize.width / density - 24f).coerceAtLeast(220f).dp else 560.dp
@@ -172,156 +173,194 @@ fun SelectionMenu(
     val colourLabel = stringResource(R.string.selection_colour)
     val moreLabel = stringResource(R.string.selection_more)
     val deleteLabel = stringResource(R.string.selection_delete)
-    AppSurface(
-        role = SurfaceRole.Chrome,
-        containerColor = Color.Black,
-        contentColor = fg,
-        shape = appPillShape(),
-        shadowElevation = if (reduceEffects) 0.dp else 10.dp,
-        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+    val editableText = vm.selectedTextItem()
+    val hasInkSelected = remember(vm.selection, vm.selectionPage, vm.pages) {
+        vm.pages.getOrNull(vm.selectionPage)?.items?.any { it.id in vm.selection && it is InkItem } == true
+    }
+    val hasClipboard = vm.hasAnyClipboardContent()
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.widthIn(max = maxMenuW),
     ) {
-        CompositionLocalProvider(LocalContentColor provides fg) {
-            Row(
-                Modifier
-                    .padding(horizontal = 2.dp)
-                    .horizontalScroll(rememberScrollState()),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                val editableText = vm.selectedTextItem()
-                if (editableText != null) {
-                    Surface(
-                        onClick = {
-                            vm.openInlineTextBox(vm.selectionPage, editableText.x, editableText.y, editableText)
-                        },
-                        shape = appPillShape(),
-                        color = ProButtonPalette.Emerald,
-                        contentColor = Color.White,
-                        modifier = Modifier.padding(2.dp).defaultMinSize(minHeight = 48.dp),
-                    ) {
-                        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Outlined.Keyboard, contentDescription = null, Modifier.size(18.dp), tint = Color.White)
-                            Spacer(Modifier.width(6.dp))
-                            Text("Edit", style = MaterialTheme.typography.labelLarge, color = Color.White)
-                        }
-                    }
-                }
-                Surface(
-                    onClick = { vm.startLinkFromSelection() },
-                    shape = appPillShape(),
-                    color = ProButtonPalette.ElectricBlue,
-                    contentColor = Color.White,
-                    modifier = Modifier.padding(2.dp).defaultMinSize(minHeight = 48.dp),
+        // Row 1: Crisp Android-native-style floating text/item action bar (Cut | Copy | Paste | Share | Delete)
+        AppSurface(
+            role = SurfaceRole.Chrome,
+            containerColor = Color(0xFF121316),
+            contentColor = fg,
+            shape = appPillShape(),
+            borderColor = Color.White.copy(alpha = 0.14f),
+            shadowElevation = if (reduceEffects) 0.dp else 10.dp,
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+        ) {
+            CompositionLocalProvider(LocalContentColor provides fg) {
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.Link, contentDescription = null, Modifier.size(18.dp), tint = Color.White)
-                        Spacer(Modifier.width(6.dp))
-                        Text(stringResource(R.string.selection_link), style = MaterialTheme.typography.labelLarge, color = Color.White)
+                    AndroidBarAction(label = cutLabel, onClick = vm::cutSelection)
+                    AndroidBarDivider()
+                    AndroidBarAction(label = copyLabel, onClick = vm::copySelection)
+                    if (hasClipboard) {
+                        AndroidBarDivider()
+                        AndroidBarAction(
+                            label = "Paste",
+                            onClick = {
+                                val r = vm.selectionUnion()
+                                val px = (r?.right ?: 160f) + 24f
+                                val py = r?.top ?: 160f
+                                vm.pasteAt(vm.selectionPage, px, py) { _, _ -> }
+                            },
+                        )
                     }
-                }
-                if (vm.selectionLinks().isNotEmpty()) {
-                    Surface(
-                        onClick = { vm.unlinkSelection() },
-                        shape = appPillShape(),
-                        color = Color(0xFFE5484D),
-                        contentColor = Color.White,
-                        modifier = Modifier.padding(2.dp).defaultMinSize(minHeight = 48.dp),
-                    ) {
-                        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                stringResource(R.string.selection_unlink),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = Color.White,
-                            )
-                        }
-                    }
-                }
-                SelectionActionIcon(cutLabel, vm::cutSelection) {
-                    Icon(Icons.Outlined.ContentCut, contentDescription = cutLabel)
-                }
-                SelectionActionIcon(copyLabel, vm::copySelection) {
-                    Icon(Icons.Outlined.ContentCopy, contentDescription = copyLabel)
-                }
-                SelectionActionIcon(dupLabel, onDuplicate) {
-                    ProIconView(ProIcon.ADD, fg, Modifier.size(22.dp))
-                }
-                SelectionActionIcon(colourLabel, { colors = true }) {
-                    Icon(Icons.Outlined.Palette, contentDescription = colourLabel)
-                }
-                SelectionActionIcon("Change font", { fontPickerOpen = true }) {
-                    Icon(Icons.Outlined.FontDownload, contentDescription = "Change font", tint = ProButtonPalette.ElectricBlue)
-                }
-                SelectionActionIcon(if (transformEnabled) "Finish transforming" else "Resize and rotate", onToggleTransform) {
-                    com.pronotes.app.ui.TransformSelectionIcon(
-                        tint = if (transformEnabled) ProButtonPalette.ElectricBlue else fg,
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
-                Box {
-                    SelectionActionIcon(moreLabel, { moreOpen = true }) {
-                        ProIconView(ProIcon.MORE, fg, Modifier.size(22.dp))
-                    }
-                    AppContextMenu(
-                        expanded = moreOpen,
-                        onDismissRequest = { moreOpen = false },
-                        items = buildList {
-                            add(
-                                AppMenuItem(
-                                    "Copy handwriting as text",
-                                    icon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null, Modifier.size(18.dp)) },
-                                ) {
-                                    vm.copySelectionAsText()
-                                },
-                            )
-                            add(
-                                AppMenuItem(
-                                    stringResource(R.string.sheet_lasso_convert),
-                                    icon = { Icon(Icons.Outlined.TextFields, contentDescription = null, Modifier.size(18.dp)) },
-                                ) {
-                                    vm.convertSelectionToText(onConvertToText)
-                                },
-                            )
-                            add(AppMenuItem("Add attached comment") { vm.addSelectionComment() })
-                            add(
-                                AppMenuItem("Flip horizontally", icon = { Icon(Icons.Outlined.Flip, contentDescription = null, Modifier.size(18.dp)) }) {
-                                    keep { vm.flipSelection() }
-                                },
-                            )
-                            add(
-                                AppMenuItem("Bring to front", icon = { Icon(Icons.Outlined.FlipToFront, contentDescription = null, Modifier.size(18.dp)) }) {
-                                    keep { vm.arrange(true) }
-                                },
-                            )
-                            add(
-                                AppMenuItem("Send to back", icon = { Icon(Icons.Outlined.FlipToBack, contentDescription = null, Modifier.size(18.dp)) }) {
-                                    keep { vm.arrange(false) }
-                                },
-                            )
-                            add(
-                                AppMenuItem("Share as image", icon = { Icon(Icons.Outlined.IosShare, contentDescription = null, Modifier.size(18.dp)) }) {
-                                    onShareImage()
-                                },
-                            )
-                            add(
-                                AppMenuItem("Add link…", icon = { Icon(Icons.Outlined.Link, contentDescription = null, Modifier.size(18.dp)) }) {
-                                    vm.startLinkFromSelection()
-                                },
-                            )
-                            add(
-                                AppMenuItem("Save as screenshot", icon = { Icon(Icons.Outlined.Image, contentDescription = null, Modifier.size(18.dp)) }) {
-                                    vm.saveSelectionScreenshot()
-                                },
-                            )
+                    AndroidBarDivider()
+                    AndroidBarAction(label = dupLabel, onClick = onDuplicate)
+                    AndroidBarDivider()
+                    AndroidBarAction(label = "Share", onClick = onShareImage)
+                    AndroidBarDivider()
+                    AndroidBarAction(
+                        label = deleteLabel,
+                        color = Color(0xFFF87171),
+                        onClick = {
+                            vm.pages.getOrNull(vm.selectionPage)?.let { page ->
+                                if (vm.selection.isNotEmpty()) pendingDelete = page.id to vm.selection.toSet()
+                            }
                         },
                     )
                 }
-                SelectionActionIcon(deleteLabel, {
-                    vm.pages.getOrNull(vm.selectionPage)?.let { page ->
-                        if (vm.selection.isNotEmpty()) pendingDelete = page.id to vm.selection.toSet()
-                    }
-                }) {
-                    Icon(Icons.Outlined.Delete, contentDescription = deleteLabel, tint = MaterialTheme.colorScheme.error)
+            }
+        }
+
+        // Row 2: Compact floating in-app tool pills (Edit, Select/Resize, Convert, Sticker, Color, Font, Link, More)
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (editableText != null) {
+                FloatingSelectionToolPill(
+                    label = "Edit",
+                    accent = ProButtonPalette.Emerald,
+                    filled = true,
+                    onClick = { vm.openInlineTextBox(vm.selectionPage, editableText.x, editableText.y, editableText) },
+                ) {
+                    Icon(Icons.Outlined.Keyboard, contentDescription = null, Modifier.size(14.dp), tint = Color.White)
                 }
+            }
+            FloatingSelectionToolPill(
+                label = if (transformEnabled) "Done" else "Select",
+                accent = ProButtonPalette.ElectricBlue,
+                filled = transformEnabled,
+                onClick = onToggleTransform,
+            ) {
+                com.pronotes.app.ui.TransformSelectionIcon(
+                    tint = if (transformEnabled) Color.White else fg,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+            if (hasInkSelected) {
+                FloatingSelectionToolPill(
+                    label = "Convert",
+                    accent = ProButtonPalette.ElectricBlue,
+                    filled = false,
+                    onClick = { vm.convertSelectionToText(onConvertToText) },
+                ) {
+                    Icon(Icons.Outlined.TextFields, contentDescription = null, Modifier.size(14.dp), tint = Color(0xFF93C5FD))
+                }
+            }
+            FloatingSelectionToolPill(
+                label = "Sticker",
+                accent = ProButtonPalette.MagentaPink,
+                filled = false,
+                onClick = { vm.saveSelectionAsSticker() },
+            ) {
+                ProIconView(ProIcon.STICKER, Color(0xFFF472B6), Modifier.size(14.dp), ink = Color(0xFFF472B6))
+            }
+            FloatingSelectionToolPill(
+                label = colourLabel,
+                onClick = { colors = true },
+            ) {
+                Icon(Icons.Outlined.Palette, contentDescription = null, Modifier.size(14.dp), tint = fg)
+            }
+            FloatingSelectionToolPill(
+                label = "Font",
+                onClick = { fontPickerOpen = true },
+            ) {
+                Icon(Icons.Outlined.FontDownload, contentDescription = null, Modifier.size(14.dp), tint = Color(0xFF93C5FD))
+            }
+            FloatingSelectionToolPill(
+                label = stringResource(R.string.selection_link),
+                onClick = { vm.startLinkFromSelection() },
+            ) {
+                Icon(Icons.Outlined.Link, contentDescription = null, Modifier.size(14.dp), tint = fg)
+            }
+            if (vm.selectionLinks().isNotEmpty()) {
+                FloatingSelectionToolPill(
+                    label = stringResource(R.string.selection_unlink),
+                    accent = Color(0xFFE5484D),
+                    filled = true,
+                    onClick = { vm.unlinkSelection() },
+                ) {}
+            }
+            Box {
+                FloatingSelectionToolPill(
+                    label = moreLabel,
+                    onClick = { moreOpen = true },
+                ) {
+                    ProIconView(ProIcon.MORE, mutedFg, Modifier.size(14.dp))
+                }
+                AppContextMenu(
+                    expanded = moreOpen,
+                    onDismissRequest = { moreOpen = false },
+                    items = buildList {
+                        add(
+                            AppMenuItem(
+                                "Save as sticker",
+                                icon = { ProIconView(ProIcon.STICKER, ProButtonPalette.MagentaPink, Modifier.size(18.dp), ink = ProButtonPalette.MagentaPink) },
+                            ) {
+                                vm.saveSelectionAsSticker()
+                            },
+                        )
+                        add(
+                            AppMenuItem(
+                                "Copy handwriting as text",
+                                icon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null, Modifier.size(18.dp)) },
+                            ) {
+                                vm.copySelectionAsText()
+                            },
+                        )
+                        add(
+                            AppMenuItem(
+                                stringResource(R.string.sheet_lasso_convert),
+                                icon = { Icon(Icons.Outlined.TextFields, contentDescription = null, Modifier.size(18.dp)) },
+                            ) {
+                                vm.convertSelectionToText(onConvertToText)
+                            },
+                        )
+                        add(AppMenuItem("Add attached comment") { vm.addSelectionComment() })
+                        add(
+                            AppMenuItem("Flip horizontally", icon = { Icon(Icons.Outlined.Flip, contentDescription = null, Modifier.size(18.dp)) }) {
+                                keep { vm.flipSelection() }
+                            },
+                        )
+                        add(
+                            AppMenuItem("Bring to front", icon = { Icon(Icons.Outlined.FlipToFront, contentDescription = null, Modifier.size(18.dp)) }) {
+                                keep { vm.arrange(true) }
+                            },
+                        )
+                        add(
+                            AppMenuItem("Send to back", icon = { Icon(Icons.Outlined.FlipToBack, contentDescription = null, Modifier.size(18.dp)) }) {
+                                keep { vm.arrange(false) }
+                            },
+                        )
+                        add(
+                            AppMenuItem("Save as screenshot", icon = { Icon(Icons.Outlined.Image, contentDescription = null, Modifier.size(18.dp)) }) {
+                                vm.saveSelectionScreenshot()
+                            },
+                        )
+                    },
+                )
             }
         }
     }
@@ -373,6 +412,7 @@ private fun LassoFontPickerDialog(
     val hasStylableText = vm.selectionHasStylableText()
     val (activeFont, activeCustomPath) = vm.selectionActiveFont()
     var customFonts by remember { mutableStateOf(CustomFontRegistry.listFonts(context)) }
+    var showLinkImport by remember { mutableStateOf(false) }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
             val imported = CustomFontRegistry.importFont(context, uri)
@@ -453,14 +493,22 @@ private fun LassoFontPickerDialog(
                 // Custom imported fonts section
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
                         "Custom Fonts",
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
                     )
+                    AppPill(
+                        onClick = { showLinkImport = true },
+                        tint = ProButtonPalette.Violet,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    ) {
+                        Text("From link", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    }
                     AppPill(
                         onClick = { importLauncher.launch(arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "application/octet-stream", "*/*")) },
                         tint = ProButtonPalette.Emerald,
@@ -468,8 +516,23 @@ private fun LassoFontPickerDialog(
                     ) {
                         Icon(Icons.Outlined.UploadFile, contentDescription = null, Modifier.size(15.dp))
                         Spacer(Modifier.width(5.dp))
-                        Text("Import .ttf/.otf", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                        Text("File", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                     }
+                }
+                if (showLinkImport) {
+                    ImportFontFromLinkDialog(
+                        onDismiss = { showLinkImport = false },
+                        onImported = { imported ->
+                            showLinkImport = false
+                            customFonts = CustomFontRegistry.listFonts(context)
+                            if (hasStylableText) {
+                                keep { vm.setSelectionFont(TextFont.SANS, imported.path, onConvertToText) }
+                            } else {
+                                vm.setSelectionFont(TextFont.SANS, imported.path, onConvertToText)
+                                onDismiss()
+                            }
+                        },
+                    )
                 }
                 if (customFonts.isNotEmpty()) {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1432,6 +1495,7 @@ fun QuickInsertOverlay(
     onDismiss: () -> Unit,
     onWriteBox: () -> Unit,
     onTextBox: () -> Unit,
+    onBulletList: () -> Unit = {},
     onTable: () -> Unit = {},
     onSticky: () -> Unit,
     onWebLink: () -> Unit,
@@ -1443,7 +1507,7 @@ fun QuickInsertOverlay(
     val reduceEffects = LocalReduceEffects.current
     var menuSize by remember { mutableStateOf(IntSize.Zero) }
     val estW = if (menuSize.width > 0) menuSize.width else (232f * density).roundToInt()
-    val estH = if (menuSize.height > 0) menuSize.height else (380f * density).roundToInt()
+    val estH = if (menuSize.height > 0) menuSize.height else (420f * density).roundToInt()
     val marginPx = (12f * density).roundToInt()
     val clamped = remember(request, areaSize, estW, estH, marginPx) {
         ToolbarGeometry.clampFloatingOffset(
@@ -1491,6 +1555,9 @@ fun QuickInsertOverlay(
                 QuickInsertRow(stringResource(R.string.quick_insert_text_box), {
                     Icon(Icons.Outlined.TextFields, contentDescription = null, modifier = Modifier.size(18.dp))
                 }, onTextBox)
+                QuickInsertRow("Bullet list", {
+                    Icon(Icons.Outlined.FormatListBulleted, contentDescription = null, modifier = Modifier.size(18.dp), tint = ProButtonPalette.ElectricBlue)
+                }, onBulletList)
                 QuickInsertRow("Table", {
                     Icon(Icons.Outlined.TableChart, contentDescription = null, modifier = Modifier.size(18.dp), tint = ProButtonPalette.Emerald)
                 }, onTable)
@@ -1516,6 +1583,75 @@ fun QuickInsertOverlay(
                     )
                 }, onPaste)
             }
+        }
+    }
+}
+
+@Composable
+private fun AndroidBarAction(
+    label: String,
+    color: Color = Color(0xFFF8FAFC),
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .clip(appPillShape())
+            .clickable(role = Role.Button, onClickLabel = label, onClick = onClick)
+            .padding(horizontal = 13.dp, vertical = 9.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = color,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun AndroidBarDivider() {
+    Box(
+        Modifier
+            .width(1.dp)
+            .height(16.dp)
+            .background(Color.White.copy(alpha = 0.14f)),
+    )
+}
+
+@Composable
+private fun FloatingSelectionToolPill(
+    label: String,
+    accent: Color = Color(0xFF1A1C21),
+    filled: Boolean = false,
+    onClick: () -> Unit,
+    icon: @Composable () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = appPillShape(),
+        color = if (filled) accent else Color(0xEE181A1F),
+        contentColor = Color.White,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (filled) accent.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.16f),
+        ),
+        shadowElevation = 4.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            icon()
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White,
+                maxLines = 1,
+            )
         }
     }
 }

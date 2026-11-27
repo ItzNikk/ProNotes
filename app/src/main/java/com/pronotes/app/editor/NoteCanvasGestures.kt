@@ -633,6 +633,7 @@ internal fun NoteCanvasView.trackPenButton(e: MotionEvent) {
     val released = (!held && buttonDown) || e.actionMasked == MotionEvent.ACTION_BUTTON_RELEASE
     if (!released || !buttonDown) return
     buttonDown = false
+    lastHoverButtonHeldAt = 0L
     val pressMs = now - buttonDownAt
     if (pressMs < 40 || pressMs > 450) return
     if (now - lastPenTouchAt < 600) return
